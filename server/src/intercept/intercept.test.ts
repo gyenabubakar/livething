@@ -15,7 +15,7 @@ const handler = intercept(async (ctx: { userId: string }, frame) => {
 const _handlerType: InterceptPrimitive = handler;
 void _handlerType;
 
-const _tag: 'intercept' = handler.__wskit;
+const _tag: 'intercept' = handler.__livething;
 const _kind: PrimitiveKind = handler.__kind;
 void [_tag, _kind];
 

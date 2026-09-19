@@ -1,7 +1,7 @@
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AsyncContext, AsyncContextFactory, SQLProvider } from '~/context.ts';
 
-export const INVOCATION_SCOPE = Symbol('wskit.invocationScope');
+export const INVOCATION_SCOPE = Symbol('livething.invocationScope');
 
 /**
  * One deferred storage write batched for the end of the current invocation.

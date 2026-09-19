@@ -1,7 +1,7 @@
 export {
   error,
   namespaceError,
-  WSKitError,
+  LiveThingError,
   CloseCodes,
   Block,
   ValidationFailed,
@@ -29,15 +29,24 @@ export type {
   UnsupportedProtocolEvent,
 } from './errors.ts';
 export {
-  WSKitConfigError,
-  isWSKitConfigError,
+  LiveThingConfigError,
+  isLiveThingConfigError,
   rethrowIfConfigError,
   assertSynchronousResult,
 } from './sync-guard.ts';
 export {
-  isValidWSKitIdentifier,
-  assertValidWSKitIdentifier,
+  isValidLiveThingIdentifier,
+  assertValidLiveThingIdentifier,
   WIRE_LIMITS,
   exceedsWireLimit,
 } from './identifier.ts';
-export type { WireMessage, WSKitEnvelope } from './wire.ts';
+export { decodeMessage, encodeMessage } from './wire.ts';
+export type {
+  LiveThingChannelMetadata,
+  LiveThingDeliveryMetadata,
+  LiveThingExchangeMetadata,
+  LiveThingMetadata,
+  LiveThingStreamMetadata,
+  Message,
+  WireFrame,
+} from './wire.ts';

@@ -4,13 +4,14 @@ import { defineConfig } from '@playwright/test';
 //  - puppet (default): the local controllable ws server drives adversarial
 //    client behaviour the real protocol can't — forced drops, silence, offline.
 //    Specs live in tests/puppet/.
-//  - adapter: the conformance specs in tests/ run @wskit/client against a real
-//    wskit server reached over the vite /ws proxy. WHICH server boots is
-//    injected by the owning script through WSKIT_E2E_SERVER_COMMAND, so the
+//  - adapter: the conformance specs in tests/ run @livething/client against a real
+//    LiveThing server reached over the vite /ws proxy. WHICH server boots is
+//    injected by the owning script through LIVETHING_E2E_SERVER_COMMAND, so the
 //    specs and pages never name an adapter — the same suite runs against
 //    cloudflare, node, bun, and so on.
-const serverCommand = process.env.WSKIT_E2E_SERVER_COMMAND;
-const serverPort = Number(process.env.WSKIT_E2E_SERVER_PORT ?? 8787);
+const serverCommand = process.env.LIVETHING_E2E_SERVER_COMMAND;
+const serverPort = Number(process.env.LIVETHING_E2E_SERVER_PORT ?? 8787);
+const clientPort = Number(process.env.LIVETHING_E2E_CLIENT_PORT ?? 4180);
 const adapter = Boolean(serverCommand);
 
 export default defineConfig({
@@ -23,7 +24,7 @@ export default defineConfig({
   retries: 0,
   failOnFlakyTests: !!process.env.CI,
   use: {
-    baseURL: 'http://127.0.0.1:4180',
+    baseURL: `http://127.0.0.1:${clientPort}`,
   },
   webServer: [
     adapter
@@ -41,7 +42,7 @@ export default defineConfig({
         },
     {
       command: 'pnpm run dev:ui',
-      port: 4180,
+      port: clientPort,
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
     },

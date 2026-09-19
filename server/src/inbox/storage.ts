@@ -11,7 +11,7 @@ type PruneInboxRetentionAndBumpWatermarkParamsParameter = {
 };
 
 const CREATE_INBOX_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_inbox (
+  CREATE TABLE IF NOT EXISTS __livething_inbox (
     user_id        TEXT NOT NULL,
     channel_name   TEXT NOT NULL,
     channel_family TEXT NOT NULL DEFAULT '',
@@ -27,12 +27,12 @@ const CREATE_INBOX_TABLE_SQL = `
 `;
 
 const CREATE_INBOX_MEMBER_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_inbox_member
-  ON __wskit_inbox (user_id, seq)
+  CREATE INDEX IF NOT EXISTS __livething_idx_inbox_member
+  ON __livething_inbox (user_id, seq)
 `;
 
 const CREATE_INBOX_WATERMARK_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_inbox_watermark (
+  CREATE TABLE IF NOT EXISTS __livething_inbox_watermark (
     user_id             TEXT NOT NULL,
     channel_name        TEXT NOT NULL,
     channel_family      TEXT NOT NULL DEFAULT '',
@@ -77,12 +77,13 @@ export interface InboxRetentionTarget {
 }
 
 /**
- * The full outgoing frame captured at fan-out time. `seq` and `messageId` are
+ * The full outgoing frame captured at fan-out time. Storage `seq` becomes
+ * wire `deliverySeq`, alongside `messageId`; both are
  * the inbox message's own identity, shared by every member's copy so each
  * member's cumulative ack lines up and dedup filters a re-delivered frame.
  */
 export interface InboxFrame {
-  seq: number;
+  deliverySeq: number;
   messageId: string;
   event: string;
   payload: Record<string, unknown>;
@@ -90,12 +91,12 @@ export interface InboxFrame {
 
 /**
  * A full frame the developer hands `ctx.channel.inbox().backfill(...)`, one
- * per message being seeded. Shaped like a message on the wire — `seq` and
- * `messageId` nest under `__wskit` — but derived from {@link InboxFrame} so
+ * per message being seeded. Shaped like a message on the wire — `deliverySeq` and
+ * `messageId` nest under `__livething` — but derived from {@link InboxFrame} so
  * the payload type can never drift from what storage actually accepts.
  */
 export interface BackfillMessage extends Pick<InboxFrame, 'event' | 'payload'> {
-  __wskit: Pick<InboxFrame, 'seq' | 'messageId'>;
+  __livething: { deliverySeq: number; messageId: string };
 }
 
 /** One stored inbox row, read back for drain or re-delivery. */
@@ -177,7 +178,7 @@ const INBOX_ROW_PARAMS = 8;
  * Insert one inbox row per member, batched to stay under the adapter's bound-
  * parameter cap and wrapped in a transaction so a multi-batch insert is still
  * all-or-nothing — a message half-delivered to a channel's members is worse
- * than one that failed outright. The frame's `seq`/`messageId` are shared
+ * than one that failed outright. The frame's `deliverySeq`/`messageId` are shared
  * across every row so a member's cumulative ack and the client's dedup both
  * key off one stable identity.
  *
@@ -198,7 +199,7 @@ export function insertInboxRows(
     userId,
     channelName,
     family,
-    frame.seq,
+    frame.deliverySeq,
     frame.messageId,
     frame.event,
     payloadJson,
@@ -211,7 +212,7 @@ export function insertInboxRows(
       const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
       tx.exec(
         `
-          INSERT OR IGNORE INTO __wskit_inbox
+          INSERT OR IGNORE INTO __livething_inbox
             (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
           VALUES ${placeholders}
         `,
@@ -223,7 +224,7 @@ export function insertInboxRows(
 
 /**
  * Insert inbox rows for one user from a set of full frames. Backs
- * `ctx.channel.inbox.backfill(...)`. Each frame keeps its own seq/messageId so
+ * `ctx.channel.inbox.backfill(...)`. Each frame keeps its own deliverySeq/messageId so
  * ordering and dedup stay consistent with live traffic. Batched under the
  * adapter's bound-parameter cap and wrapped in a transaction, same as
  * {@link insertInboxRows}.
@@ -244,7 +245,7 @@ export function insertInboxRowsForUserId(
     userId,
     channelName,
     family,
-    frame.seq,
+    frame.deliverySeq,
     frame.messageId,
     frame.event,
     JSON.stringify(frame.payload),
@@ -257,7 +258,7 @@ export function insertInboxRowsForUserId(
       const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
       tx.exec(
         `
-          INSERT OR IGNORE INTO __wskit_inbox
+          INSERT OR IGNORE INTO __livething_inbox
             (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
           VALUES ${placeholders}
         `,
@@ -284,7 +285,7 @@ export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, userId: stri
     }>(
       `
         SELECT seq, message_id, event, payload, channel_name, channel_family
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE user_id = ? AND delivered_at IS NULL
         ORDER BY channel_name, channel_family, seq ASC
       `,
@@ -315,7 +316,7 @@ export function ackInboxRows(sql: Pick<SQLProvider, 'exec'>, params: InboxAckPar
   if (onDelivered === 'delete') {
     sql.exec(
       `
-        DELETE FROM __wskit_inbox
+        DELETE FROM __livething_inbox
         WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND seq <= ?
       `,
       userId,
@@ -328,7 +329,7 @@ export function ackInboxRows(sql: Pick<SQLProvider, 'exec'>, params: InboxAckPar
 
   sql.exec(
     `
-      UPDATE __wskit_inbox
+      UPDATE __livething_inbox
       SET delivered_at = ?
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
         AND seq <= ? AND delivered_at IS NULL
@@ -348,7 +349,7 @@ export function deleteInboxRowsForChannel(
 ): void {
   sql.exec(
     `
-      DELETE FROM __wskit_inbox
+      DELETE FROM __livething_inbox
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
     params.userId,
@@ -363,7 +364,7 @@ export function countInboxRows(sql: Pick<SQLProvider, 'exec'>, params: InboxChan
     .exec<{
       n: number;
     }>(
-      `SELECT COUNT(*) AS n FROM __wskit_inbox WHERE user_id = ? AND channel_name = ? AND channel_family = ?`,
+      `SELECT COUNT(*) AS n FROM __livething_inbox WHERE user_id = ? AND channel_name = ? AND channel_family = ?`,
       params.userId,
       params.channelName,
       familyToDb(params.channelFamily),
@@ -386,7 +387,7 @@ export function nextInboxRetentionAt(
     .exec<{ next_at: number | null }>(
       `
         SELECT MIN(created_at + ? + 1) AS next_at
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE (channel_name = ? AND channel_family = '') OR channel_family = ?
       `,
       params.maxAgeMs,
@@ -407,7 +408,7 @@ export function listExpiredInboxRetentionTargets(
     .exec<{ user_id: string; channel_name: string; channel_family: string }>(
       `
         SELECT DISTINCT user_id, channel_name, channel_family
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE ((channel_name = ? AND channel_family = '') OR channel_family = ?)
           AND created_at < ?
       `,
@@ -432,7 +433,7 @@ export function listInboxRetentionTargets(
     .exec<{ user_id: string; channel_name: string; channel_family: string }>(
       `
         SELECT DISTINCT user_id, channel_name, channel_family
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE (channel_name = ? AND channel_family = '') OR channel_family = ?
       `,
       params.channelKey,
@@ -496,7 +497,7 @@ function pruneInboxRetentionDetailed(
       .exec<{ seq: number | null }>(
         `
           SELECT MAX(seq) AS seq FROM (
-            SELECT seq FROM __wskit_inbox
+            SELECT seq FROM __livething_inbox
             WHERE user_id = ? AND channel_name = ? AND channel_family = ?
             ORDER BY seq DESC
             LIMIT -1 OFFSET ?
@@ -566,7 +567,7 @@ function evictOldest(
         SELECT
           MAX(seq) AS seq,
           MAX(CASE WHEN delivered_at IS NULL THEN seq END) AS undelivered_seq
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND ${where}
       `,
       ...scope,
@@ -579,7 +580,7 @@ function evictOldest(
 
   sql.exec(
     `
-      DELETE FROM __wskit_inbox
+      DELETE FROM __livething_inbox
       WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND ${where}
     `,
     ...scope,
@@ -628,7 +629,7 @@ export function bumpInboxWatermark(
   const existing = sql
     .exec<{ evicted_through_seq: number }>(
       `
-        SELECT evicted_through_seq FROM __wskit_inbox_watermark
+        SELECT evicted_through_seq FROM __livething_inbox_watermark
         WHERE user_id = ? AND channel_name = ? AND channel_family = ?
       `,
       userId,
@@ -641,7 +642,7 @@ export function bumpInboxWatermark(
 
   sql.exec(
     `
-      INSERT OR REPLACE INTO __wskit_inbox_watermark
+      INSERT OR REPLACE INTO __livething_inbox_watermark
         (user_id, channel_name, channel_family, evicted_through_seq)
       VALUES (?, ?, ?, ?)
     `,
@@ -661,7 +662,7 @@ export function loadInboxWatermarks(
     .exec<{ channel_name: string; channel_family: string; evicted_through_seq: number }>(
       `
         SELECT channel_name, channel_family, evicted_through_seq
-        FROM __wskit_inbox_watermark
+        FROM __livething_inbox_watermark
         WHERE user_id = ?
       `,
       userId,
@@ -676,7 +677,7 @@ export function loadInboxWatermarks(
 
 /** Drop a member's overflow watermarks. Used by a full user purge. */
 export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec(`DELETE FROM __wskit_inbox_watermark WHERE user_id = ?`, userId);
+  sql.exec(`DELETE FROM __livething_inbox_watermark WHERE user_id = ?`, userId);
 }
 
 /** Drop a member's channel watermark once an acknowledgement covers its gap. */
@@ -686,7 +687,7 @@ export function clearInboxWatermarkThrough(
 ): void {
   sql.exec(
     `
-      DELETE FROM __wskit_inbox_watermark
+      DELETE FROM __livething_inbox_watermark
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
         AND evicted_through_seq <= ?
     `,
@@ -718,11 +719,11 @@ export function deleteInboxRowsOutsideScopes(
     const storedScopes = tx
       .exec<{ channel_name: string; channel_family: string }>(
         `
-        SELECT channel_name, channel_family FROM __wskit_inbox
+        SELECT channel_name, channel_family FROM __livething_inbox
         UNION
-        SELECT channel_name, channel_family FROM __wskit_inbox_watermark
+        SELECT channel_name, channel_family FROM __livething_inbox_watermark
         UNION
-        SELECT channel_name, channel_family FROM __wskit_inbox_receipts
+        SELECT channel_name, channel_family FROM __livething_inbox_receipts
       `,
       )
       .toArray();
@@ -735,17 +736,17 @@ export function deleteInboxRowsOutsideScopes(
       if (active) continue;
 
       tx.exec(
-        `DELETE FROM __wskit_inbox WHERE channel_name = ? AND channel_family = ?`,
+        `DELETE FROM __livething_inbox WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,
       );
       tx.exec(
-        `DELETE FROM __wskit_inbox_watermark WHERE channel_name = ? AND channel_family = ?`,
+        `DELETE FROM __livething_inbox_watermark WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,
       );
       tx.exec(
-        `DELETE FROM __wskit_inbox_receipts WHERE channel_name = ? AND channel_family = ?`,
+        `DELETE FROM __livething_inbox_receipts WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,
       );
@@ -763,7 +764,7 @@ export function deleteInboxWatermarkForChannel(
 ): void {
   sql.exec(
     `
-      DELETE FROM __wskit_inbox_watermark
+      DELETE FROM __livething_inbox_watermark
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
     params.userId,

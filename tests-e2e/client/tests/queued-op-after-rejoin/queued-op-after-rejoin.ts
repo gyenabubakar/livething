@@ -1,8 +1,8 @@
-import { buffering, channels, client, connect, reconnection } from '@wskit/client';
-import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
+import { buffering, channels, client, connect, reconnection } from '@livething/client';
+import type { PersistenceClient } from '@livething/tests-e2e-handlers/persistence';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `persistence` server definition to prove the
+// Drives @livething/client against the real `persistence` server definition to prove the
 // reconnect ordering fix: a channel send queued while the socket is reconnecting
 // reaches the server only AFTER the channel is rejoined. If the send raced ahead
 // of the rejoin the server would drop it (ChannelNotSubscribed) and a witness

@@ -1,8 +1,8 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const base = server({

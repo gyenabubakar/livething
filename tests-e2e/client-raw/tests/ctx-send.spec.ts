@@ -134,7 +134,7 @@ test.describe('ctx-send', () => {
         const url = `${protocol}//${location.host}/ws/ctx-send?username=${encodeURIComponent('closer')}&room=${encodeURIComponent(currentRoom)}`;
         const ws = new WebSocket(url);
         ws.onopen = () => {
-          ws.send(JSON.stringify({ event: 'do-server-close', payload: {} }));
+          ws.send(window.__livethingEncode({ event: 'do-server-close', payload: {} }));
         };
         ws.onclose = (ev) => resolve({ code: ev.code, reason: ev.reason });
 

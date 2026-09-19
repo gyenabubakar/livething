@@ -1,4 +1,4 @@
-import { Block } from '@wskit/core';
+import { Block } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
@@ -64,7 +64,7 @@ describe('injectChannel', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
 

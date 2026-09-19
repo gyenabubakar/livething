@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
-import type { SqlLimits, SQLProvider, SqlResult } from '@wskit/server/adapters';
+import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapters';
 
-/** The limits reported to WSKit by better-sqlite3. */
+/** The limits reported to LiveThing by better-sqlite3. */
 export const BETTER_SQLITE3_LIMITS: SqlLimits = {
   maxBoundParams: 32_766,
   maxStatementBytes: 1_000_000_000,
@@ -96,7 +96,7 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
         exec(...args) {
           if (!active) {
             throw new TypeError(
-              '[wskit] sql.transaction() callbacks cannot use tx after they return.',
+              '[livething] sql.transaction() callbacks cannot use tx after they return.',
             );
           }
 
@@ -138,7 +138,7 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
 
 function synchronousTransactionError(): TypeError {
   return new TypeError(
-    '[wskit] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.',
+    '[livething] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.',
   );
 }
 
@@ -148,7 +148,7 @@ function createResult<TRow>(rows: TRow[], rawRows: unknown[][] = []): SqlResult<
   function claim(method: 'toArray' | 'one' | 'raw'): void {
     if (consumed) {
       throw new Error(
-        `[wskit] sql.exec() result already consumed by .${consumed}(). Call exactly one of .toArray() / .one() / .raw() per exec(). Run the query again if you need both shapes.`,
+        `[livething] sql.exec() result already consumed by .${consumed}(). Call exactly one of .toArray() / .one() / .raw() per exec(). Run the query again if you need both shapes.`,
       );
     }
 
@@ -165,7 +165,7 @@ function createResult<TRow>(rows: TRow[], rawRows: unknown[][] = []): SqlResult<
       claim('one');
       if (rows.length > 1) {
         throw new Error(
-          '[wskit] sql.one() expected at most one row, but the query returned multiple. Add LIMIT 1 to the SQL, or use .toArray().',
+          '[livething] sql.one() expected at most one row, but the query returned multiple. Add LIMIT 1 to the SQL, or use .toArray().',
         );
       }
 

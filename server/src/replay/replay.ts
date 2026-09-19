@@ -50,7 +50,7 @@ const REPLAY_KEY = Symbol('replay');
 
 /**
  * Enables built-in message replay. The server records every outgoing message
- * so reconnecting clients can catch up on what they missed — WSKit's client
+ * so reconnecting clients can catch up on what they missed — LiveThing's client
  * asks for replay automatically on reconnect, and no extra work is needed
  * from your handlers.
  *
@@ -75,10 +75,10 @@ const REPLAY_KEY = Symbol('replay');
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { dedup } from '@wskit/server/dedup';
- * import { sequence } from '@wskit/server/sequence';
- * import { replay } from '@wskit/server/replay';
+ * import { server, t } from '@livething/server';
+ * import { dedup } from '@livething/server/dedup';
+ * import { sequence } from '@livething/server/sequence';
+ * import { replay } from '@livething/server/replay';
  *
  * const base = server({
  *   capabilities: [
@@ -92,7 +92,7 @@ const REPLAY_KEY = Symbol('replay');
 export function replay(options?: ReplayOptions | false): ReplayPrimitive {
   if (options === false) {
     return {
-      __wskit: 'replay',
+      __livething: 'replay',
       __kind: 'infrastructure',
       __identity: [REPLAY_KEY],
       __requires: {},
@@ -122,7 +122,7 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
   }
 
   return {
-    __wskit: 'replay',
+    __livething: 'replay',
     __kind: 'infrastructure',
     __identity: [REPLAY_KEY],
     __requires: {},
@@ -130,7 +130,7 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
     __validate(view) {
       if (!view.sequencePersistent) {
         throw new Error(
-          '[wskit] replay requires `sequence: { persist: true }` for durable replay.',
+          '[livething] replay requires `sequence: { persist: true }` for durable replay.',
         );
       }
     },
@@ -298,7 +298,7 @@ class ReplayInstaller {
     if (
       !shouldStoreReplayMessage(wireMessage.event, {
         channelKey: this.channelKey,
-        wskit: wireMessage.wskit,
+        livething: wireMessage.livething,
         exclude: this.exclude,
         claimedChannelKeys: this.engine.getReplayClaimedChannelKeys(),
       })
@@ -313,7 +313,7 @@ class ReplayInstaller {
     // limit, `channel`/`channelFamily` pick the store: there are two replay
     // stores (top-level and per-channel). `pruneReplayScopeRows` keys on
     // channel only.
-    const replayScope = readReplayScope(wireMessage.wskit);
+    const replayScope = readReplayScope(wireMessage.livething);
     const retention = this.opts.retention;
 
     function runPrune(sqlForPrune: Pick<SQLProvider, 'exec'>): void {
@@ -325,7 +325,7 @@ class ReplayInstaller {
       options: this.opts,
       event: wireMessage.event,
       payload: wireMessage.payload,
-      wskit: wireMessage.wskit,
+      livething: wireMessage.livething,
       now: Date.now(),
       scope,
       postFlush: runPrune,
@@ -379,7 +379,7 @@ class ReplayInstaller {
     const connection = (ctx as Record<PropertyKey, unknown>)[ENGINE_INTERNAL_CONNECTION] as
       | RuntimeConnection
       | undefined;
-    if (!isChannelReplayAuthorized(connection, scope, frame.__wskit)) {
+    if (!isChannelReplayAuthorized(connection, scope, frame.__livething)) {
       // No rows and no error — don't reveal the channel to a non-member.
       return true;
     }
@@ -421,7 +421,7 @@ class ReplayInstaller {
         event: row.event,
         payload: rowPayload,
         wire: {
-          seq: row.seq,
+          deliverySeq: row.seq,
           messageId: row.messageId,
           channel: row.channel ?? undefined,
         },

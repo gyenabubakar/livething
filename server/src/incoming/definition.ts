@@ -20,7 +20,7 @@ export interface IncomingDef<TName extends string = string, TPayload = unknown> 
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
+ * import { server, t } from '@livething/server';
  * import * as v from 'valibot';
  *
  * const base = server({});

@@ -26,7 +26,7 @@ type ToConnectionInfoOptsParameter = {
  *
  * @internal
  */
-export const ENGINE_CHANNEL_META = Symbol('wskit-engine-scope-meta');
+export const ENGINE_CHANNEL_META = Symbol('livething-engine-scope-meta');
 
 /**
  * Symbol key under which engine internals stash the runtime connection on a
@@ -37,7 +37,7 @@ export const ENGINE_CHANNEL_META = Symbol('wskit-engine-scope-meta');
  *
  * @internal
  */
-export const ENGINE_INTERNAL_CONNECTION = Symbol('wskit-engine-internal-connection');
+export const ENGINE_INTERNAL_CONNECTION = Symbol('livething-engine-internal-connection');
 
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
@@ -71,7 +71,7 @@ export function buildUsersManager(
 
 /** Build a `UserRef` for one user id. */
 function buildUserRef(userId: string, instanceId: string | undefined): PublicApi.UserRef {
-  return { __wskit: 'user-ref', id: userId, instance: instanceId };
+  return { __livething: 'user-ref', id: userId, instance: instanceId };
 }
 
 /** Snapshot of one user's currently-live connections, via the `usersByKey` fan-out index. */
@@ -210,8 +210,8 @@ function assignMessagingApi(
  * memoize into. Symbol-keyed so they stay invisible to the public ctx type and
  * to any enumeration of the context.
  */
-const CHANNELS_API = Symbol('wskit-ctx-channels');
-const TAGS_API = Symbol('wskit-ctx-tags');
+const CHANNELS_API = Symbol('livething-ctx-channels');
+const TAGS_API = Symbol('livething-ctx-tags');
 
 /**
  * The shared prototype every context built from one dep bag inherits.
@@ -397,7 +397,7 @@ export function buildConnectionRef(
   instanceId: string | undefined,
 ): PublicApi.ConnectionRef {
   return {
-    __wskit: 'connection-ref',
+    __livething: 'connection-ref',
     id: connectionId,
     instance: instanceId,
     userId,

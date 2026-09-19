@@ -97,10 +97,10 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
       return {
         id: 'read-receipts',
         onIncoming(message) {
-          const channel = message.__wskit?.channel;
+          const channel = message.metadata?.channel?.name;
           if (channel === undefined) return message;
 
-          const key = channelKey(message.__wskit?.channelFamily, channel);
+          const key = channelKey(message.metadata?.channel?.family, channel);
 
           if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
             if (message.event === '__unsubscribeOk__' && isRejoinConfirmation(message))
@@ -124,8 +124,8 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
           }
 
           if (message.event !== '__received__') {
-            const seq = message.__wskit?.seq;
-            if (typeof seq === 'number' && message.__wskit?.streamId === undefined) {
+            const seq = message.metadata?.delivery?.seq;
+            if (typeof seq === 'number' && message.metadata?.stream === undefined) {
               if (seq > (ownReceived.get(key) ?? 0)) ownReceived.set(key, seq);
             }
           }
@@ -170,10 +170,18 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
                 }),
               markAsRead: (seq) => {
                 scope.assertReady?.();
+                const markers = scope.markers();
+                if (!markers.name) return;
+
                 helpers.rawSend({
                   event: '__read__',
                   payload: { readThrough: seq ?? ownReceived.get(key) ?? 0 },
-                  __wskit: scope.markers(),
+                  metadata: {
+                    channel: {
+                      name: markers.name,
+                      ...(markers.family ? { family: markers.family } : {}),
+                    },
+                  },
                 });
               },
             };
@@ -197,7 +205,7 @@ function projectCursor(byUserId: ReadonlyMap<string, number>): CursorList {
 }
 
 function markersKey(markers: ScopeMarkers): string {
-  return channelKey(markers.channelFamily, markers.channel ?? '');
+  return channelKey(markers.family, markers.name ?? '');
 }
 
 readReceipts.tag = 'read-receipts';

@@ -21,7 +21,7 @@ function validateRequires(core: EngineCore): void {
   const requires = core.compiled.requires;
   if (requires.hibernation && !core.options.hibernation) {
     throw new Error(
-      `[wskit] Server definition requires hibernation, but adapter "${core.options.adapterId}" does not support it.`,
+      `[livething] Server definition requires hibernation, but adapter "${core.options.adapterId}" does not support it.`,
     );
   }
 }
@@ -45,7 +45,7 @@ function validatePrimitives(core: EngineCore): void {
 
     for (const primitive of primitives) {
       primitive.__validate?.(view);
-      if (primitive.__wskit === 'channel') {
+      if (primitive.__livething === 'channel') {
         const channelPrimitive = primitive as Primitive & {
           pattern: string | { key: string };
           primitives: readonly Primitive[];
@@ -170,8 +170,8 @@ export async function handleAlarm(core: EngineCore, accessDeps: EngineAccessDeps
       const error =
         failures.length === 1
           ? failures[0]
-          : new AggregateError(failures, '[wskit] one or more durable alarm hooks failed');
-      core.logger.error('[wskit] durable alarm hook failed; retrying', {
+          : new AggregateError(failures, '[livething] one or more durable alarm hooks failed');
+      core.logger.error('[livething] durable alarm hook failed; retrying', {
         error: error instanceof Error ? error.message : String(error),
       });
       retryAt = Date.now() + ALARM_RETRY_DELAY_MS;
@@ -184,7 +184,7 @@ export async function handleAlarm(core: EngineCore, accessDeps: EngineAccessDeps
       await rescheduleAlarm(core, { retryAt });
     } catch (retryError) {
       if (retryAt !== null) {
-        core.logger.error('[wskit] durable alarm retry could not be scheduled', {
+        core.logger.error('[livething] durable alarm retry could not be scheduled', {
           error: retryError instanceof Error ? retryError.message : String(retryError),
         });
       }

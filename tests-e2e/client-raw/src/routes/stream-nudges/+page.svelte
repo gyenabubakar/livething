@@ -44,17 +44,17 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			switch (data.event) {
 				case '__streamOk__':
-					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
-					if (autoPauseOnStreamOk && data.__wskit?.streamId) {
+					if (data.metadata?.stream?.id) lastStreamId = data.metadata.stream?.id;
+					if (autoPauseOnStreamOk && data.metadata?.stream?.id) {
 						autoPauseOnStreamOk = false;
 						ws?.send(
-							JSON.stringify({
+							window.__livethingEncode({
 								event: 'pause',
 								payload: {},
-								__wskit: { streamId: data.__wskit.streamId },
+								metadata: { stream: { id: data.metadata.stream?.id } },
 							}),
 						);
 					}
@@ -82,7 +82,7 @@
 
 				case '__error__':
 					lastError = String(data.payload?.code ?? '');
-					lastErrorStreamId = String(data.__wskit?.streamId ?? '');
+					lastErrorStreamId = String(data.metadata?.stream?.id ?? '');
 					break;
 			}
 		};
@@ -90,18 +90,18 @@
 
 	function start(prompt: string) {
 		reset();
-		ws?.send(JSON.stringify({ event: 'start-nudge-stream', payload: { prompt } }));
+		ws?.send(window.__livethingEncode({ event: 'start-nudge-stream', payload: { prompt } }));
 	}
 
 	function pause() {
-		ws?.send(JSON.stringify({ event: 'pause', payload: {}, __wskit: { streamId: lastStreamId } }));
+		ws?.send(window.__livethingEncode({ event: 'pause', payload: {}, metadata: { stream: { id: lastStreamId } } }));
 	}
 
 	function startThenPause() {
 		reset();
 		autoPauseOnStreamOk = true;
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'start-nudge-stream',
 				payload: { prompt: 'a b c d e f g h i j k l m n o p' },
 			}),
@@ -111,23 +111,23 @@
 	function pauseMultiple(count: number) {
 		for (let i = 0; i < count; i++) {
 			ws?.send(
-				JSON.stringify({ event: 'pause', payload: {}, __wskit: { streamId: lastStreamId } }),
+				window.__livethingEncode({ event: 'pause', payload: {}, metadata: { stream: { id: lastStreamId } } }),
 			);
 		}
 	}
 
 	function speedUp(factor: number) {
 		ws?.send(
-			JSON.stringify({ event: 'speed-up', payload: { factor }, __wskit: { streamId: lastStreamId } }),
+			window.__livethingEncode({ event: 'speed-up', payload: { factor }, metadata: { stream: { id: lastStreamId } } }),
 		);
 	}
 
 	function malformedPause() {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'pause',
 				payload: { leak: 'should-not-reach-handler' },
-				__wskit: { streamId: lastStreamId },
+				metadata: { stream: { id: lastStreamId } },
 			}),
 		);
 	}

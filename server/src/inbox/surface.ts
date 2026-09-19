@@ -23,8 +23,8 @@ export function buildInboxSurface<
   return {
     backfill(userId: string, messages: readonly ChannelBackfillMessage<TOutgoing>[]): void {
       const frames: InboxFrame[] = messages.map((message) => ({
-        seq: message.__wskit.seq,
-        messageId: message.__wskit.messageId,
+        deliverySeq: message.__livething.deliverySeq,
+        messageId: message.__livething.messageId,
         event: message.event,
         payload: assertRecord(message.payload as Record<string, unknown>),
       }));
@@ -67,12 +67,12 @@ export function buildInboxSurface<
 
 function assertRecord(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('[wskit] inbox backfill payload must be a plain object.');
+    throw new Error('[livething] inbox backfill payload must be a plain object.');
   }
 
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
-    throw new Error('[wskit] inbox backfill payload must be a plain object.');
+    throw new Error('[livething] inbox backfill payload must be a plain object.');
   }
 
   return value as Record<string, unknown>;

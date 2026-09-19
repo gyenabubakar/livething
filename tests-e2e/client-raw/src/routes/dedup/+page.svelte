@@ -30,20 +30,23 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'echoed') {
 				const text = data.payload?.text ?? '';
 				echoCountByText = { ...echoCountByText, [text]: (echoCountByText[text] ?? 0) + 1 };
-				const id = data.__wskit?.messageId;
+				const id = data.metadata?.delivery?.id;
 				if (typeof id === 'string') outgoingIds = [...outgoingIds, id];
 			}
 		};
 	}
 
-	function sendEcho(text: string, messageId?: string) {
-		const frame: Record<string, unknown> = { event: 'do-echo', payload: { text } };
-		if (messageId) frame.__wskit = { messageId };
-		ws?.send(JSON.stringify(frame));
+	function sendEcho(text: string, deliveryId?: string) {
+		const frame: Record<string, unknown> = {
+			event: 'do-echo',
+			payload: { text },
+			metadata: deliveryId ? { delivery: { id: deliveryId } } : null,
+		};
+		ws?.send(window.__livethingEncode(frame));
 	}
 </script>
 

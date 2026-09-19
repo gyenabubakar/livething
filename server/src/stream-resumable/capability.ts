@@ -27,7 +27,7 @@ export interface ResumableStreamCapability extends Capability<
 }
 
 function buildDurableSweep(): Primitive {
-  return scheduledFactory('__wskit:stream-durable-sweep', (b) =>
+  return scheduledFactory('__livething:stream-durable-sweep', (b) =>
     b.every(60_000).run((ctx: BuildDurableSweepCtxParameter) => {
       ensureDurableStreamSchema(ctx.sql);
       sweepDurableStreams({ sql: ctx.sql });
@@ -44,8 +44,8 @@ function buildDurableSweep(): Primitive {
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { resumableStream } from '@wskit/server/streams';
+ * import { server, t } from '@livething/server';
+ * import { resumableStream } from '@livething/server/streams';
  * import * as v from 'valibot';
  *
  * const base = server({ capabilities: [resumableStream()] });
@@ -73,7 +73,7 @@ export const resumableStream = withCapabilityKind(
         // A `t<T>()` cursor marker is type-only; only a real schema runtime-checks
         // a restored cursor, so drop the marker to skip validation.
         const cursor =
-          config.cursor && (config.cursor as { __wskit_t?: unknown }).__wskit_t === 't'
+          config.cursor && (config.cursor as { __livething_t?: unknown }).__livething_t === 't'
             ? undefined
             : config.cursor;
         const def = resumableStreamDef(event, {

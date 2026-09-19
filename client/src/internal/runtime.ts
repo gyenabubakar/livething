@@ -1,10 +1,10 @@
-import type { WireMessage, WSKitEnvelope, WSKitError } from '@wskit/core';
+import type { LiveThingError, LiveThingMetadata, Message } from '@livething/core';
 import type { SocketConfig } from '~/internal/config.ts';
 import type { ReadableStore } from '~/internal/store.ts';
-import type { WSKitSocket } from '~/socket/socket.ts';
+import type { LiveThingSocket } from '~/socket/socket.ts';
 import type { ConnectionState } from '~/types.ts';
 
-export type { WireMessage, WSKitEnvelope };
+export type { Message, LiveThingMetadata };
 
 /**
  * Where a send ended up. Returned by the internal send paths so a caller that
@@ -49,11 +49,11 @@ export interface InternalSendOptions {
  * Return nothing to pass it through, return a new message to change it, or throw
  * `Block` to drop it.
  */
-export type InterceptFn = (message: WireMessage) => WireMessage | void;
+export type InterceptFn = (message: Message) => Message | void;
 
 /**
  * A logger for primitives. `info` / `warn` / `error` are debug breadcrumbs:
- * gated on whether debug mode is on and prefixed with `[wskit]`, so call sites
+ * gated on whether debug mode is on and prefixed with `[livething]`, so call sites
  * never repeat that check. They map to `console.log` / `console.warn` / `console.error`.
  */
 export interface PrimitiveLogger {
@@ -85,10 +85,10 @@ export interface PrimitiveRuntime {
   id: string;
 
   /** See an incoming message. Return it (maybe changed), or `null` to swallow it. */
-  onIncoming?(message: WireMessage): WireMessage | null;
+  onIncoming?(message: Message): Message | null;
 
   /** See an outgoing message. Return it (maybe changed), or `null` to cancel the send. */
-  onOutgoing?(message: WireMessage): WireMessage | null;
+  onOutgoing?(message: Message): Message | null;
 
   /**
    * Rewrite the connection URL before each connect (first connect and every
@@ -107,10 +107,10 @@ export interface PrimitiveRuntime {
   onBeforeReopen?(): void | Promise<void>;
 
   /** Runs every time the socket opens. Return messages to send right away. */
-  onOpen?(): WireMessage[] | null;
+  onOpen?(): Message[] | null;
 
   /** Runs only on reconnects (not the first open). Return messages to send. */
-  onReconnect?(): WireMessage[] | null;
+  onReconnect?(): Message[] | null;
 
   /**
    * Runs when the socket closes. `intentional` is `true` for a public
@@ -132,7 +132,7 @@ export interface PrimitiveRuntime {
   shouldReconnect?(code: number, reason: string): boolean | void;
 
   /** Add methods to the socket object (e.g. `socket.channel`). */
-  install?(socket: WSKitSocket): void;
+  install?(socket: LiveThingSocket): void;
 }
 
 /**
@@ -151,7 +151,7 @@ export interface PrimitiveHelpers {
    * `owner` to flush a held frame: a serialization throw then rejects that owner
    * and is reported instead of escaping.
    */
-  rawSend(message: WireMessage, owner?: FrameOwner): SendResult;
+  rawSend(message: Message, owner?: FrameOwner): SendResult;
 
   /**
    * Send a bare `"ping"` text frame straight to the wire. Sent as plain text
@@ -161,10 +161,10 @@ export interface PrimitiveHelpers {
   sendPing(): void;
 
   /** Send a message through the normal path (`onOutgoing` → fallback → wire). */
-  send(message: WireMessage, options?: InternalSendOptions): SendResult;
+  send(message: Message, options?: InternalSendOptions): SendResult;
 
   /** Surface an unclaimed server error without routing it through local onError. */
-  reportServerError(error: WSKitError): void;
+  reportServerError(error: LiveThingError): void;
 
   /** The current connection state. */
   getState(): ConnectionState;
@@ -218,7 +218,7 @@ export interface PrimitiveHelpers {
    * If no fallback is registered, those sends are silently dropped.
    */
   registerOutgoingFallback(
-    handler: (message: WireMessage, options?: InternalSendOptions) => boolean,
+    handler: (message: Message, options?: InternalSendOptions) => boolean,
   ): void;
 
   /** Debug logger, already gated on debug mode and prefixed — use freely, no guard needed. */

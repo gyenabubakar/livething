@@ -118,20 +118,16 @@ describe('hibernation restore — live delivery to a passive member', () => {
 
     // Kofi and Ama never send a message; without eager restore their membership
     // would be missing and the broadcast would skip them.
-    await engine.handleHibernationWake(yaw.ws).handleMessage(
-      JSON.stringify({
-        event: 'shout',
-        payload: { text: 'akwaaba' },
-        __wskit: { channel: 'room' },
-      }),
-    );
+    await engine
+      .handleHibernationWake(yaw.ws)
+      .handleMessage(JSON.stringify(['shout', { text: 'akwaaba' }, { channel: { name: 'room' } }]));
 
     function received(s: { frames: string[] }) {
-      return s.frames.map((f) => JSON.parse(f)).find((m) => m.event === 'room-message');
+      return s.frames.map((f) => JSON.parse(f)).find((m) => m[0] === 'room-message');
     }
 
-    expect(received(kofi)?.payload).toEqual({ text: 'akwaaba' });
-    expect(received(ama)?.payload).toEqual({ text: 'akwaaba' });
+    expect(received(kofi)?.[1]).toEqual({ text: 'akwaaba' });
+    expect(received(ama)?.[1]).toEqual({ text: 'akwaaba' });
   });
 
   it('rejects boot restore failures instead of leaving an unobserved wake promise', async () => {

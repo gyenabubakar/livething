@@ -1,4 +1,4 @@
-import { ConnectionBusy } from '@wskit/core';
+import { ConnectionBusy } from '@livething/core';
 import type { RuntimeConnection } from './types.ts';
 
 /** Maximum number of admitted but unfinished ordered handlers per connection. */

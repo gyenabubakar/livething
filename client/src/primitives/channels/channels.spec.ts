@@ -1,4 +1,4 @@
-import { WIRE_LIMITS } from '@wskit/core';
+import { WIRE_LIMITS } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
@@ -53,12 +53,12 @@ describe('subscribe / unsubscribe', () => {
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     await expect(promise).resolves.toBeUndefined();
@@ -77,14 +77,14 @@ describe('subscribe / unsubscribe', () => {
     );
   });
 
-  it('tags sends with __wskit.channel once active', async () => {
+  it('tags sends with metadata.channel once active', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
 
@@ -92,7 +92,7 @@ describe('subscribe / unsubscribe', () => {
     expect(ws.sentFrames().at(-1)).toEqual({
       event: 'send-message',
       payload: { text: 'hi' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
   });
 
@@ -103,7 +103,7 @@ describe('subscribe / unsubscribe', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
 
@@ -114,16 +114,16 @@ describe('subscribe / unsubscribe', () => {
     expect(frame).toMatchObject({
       event: '__unsubscribe__',
       payload: {},
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
-    const unsubscribeId = frame.__wskit.unsubscribeId;
+    const unsubscribeId = frame.metadata.channel?.unsubscribeId;
     expect(typeof unsubscribeId).toBe('string');
     expect(onUnsub).toHaveBeenCalled();
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId },
+      metadata: { channel: { name: 'general', unsubscribeId: unsubscribeId } },
     });
     await expect(leave).resolves.toBeUndefined();
   });
@@ -145,7 +145,7 @@ describe('subscribe / unsubscribe', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await first;
 
@@ -164,12 +164,12 @@ describe('subscribe / unsubscribe', () => {
     expect(reopened.sentFrames().at(-1)).toEqual({
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     reopened.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await expect(second).resolves.toBeUndefined();
   });
@@ -188,7 +188,7 @@ describe('subscribe / unsubscribe', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     await expect(first).resolves.toBeUndefined();
@@ -217,18 +217,18 @@ describe('subscribe / unsubscribe', () => {
     const unsubscribeId = ws
       .sentFrames()
       .filter((f) => f.event === '__unsubscribe__')
-      .at(-1).__wskit.unsubscribeId;
+      .at(-1).metadata.channel?.unsubscribeId;
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId },
+      metadata: { channel: { name: 'general', unsubscribeId: unsubscribeId } },
     });
     expect(countSubscribeFrames()).toBe(before + 1);
 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await expect(retry).resolves.toBeUndefined();
   });
@@ -245,10 +245,14 @@ describe('routing', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
-    ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { channel: 'general' } });
+    ws.emit({
+      event: 'message',
+      payload: { text: 'hi' },
+      metadata: { channel: { name: 'general' } },
+    });
     expect(handler).toHaveBeenCalledWith({ text: 'hi' });
   });
 
@@ -262,10 +266,14 @@ describe('routing', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
-    ws.emit({ event: 'message', payload: { text: 'late' }, __wskit: { channel: 'general' } });
+    ws.emit({
+      event: 'message',
+      payload: { text: 'late' },
+      metadata: { channel: { name: 'general' } },
+    });
     expect(handler).toHaveBeenCalledWith({ text: 'late' });
   });
 
@@ -279,13 +287,13 @@ describe('routing', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
     ws.emit({
       event: 'feed',
       payload: { token: 'a' },
-      __wskit: { channel: 'general', streamId: 's1', seq: 1 },
+      metadata: { channel: { name: 'general' }, stream: { id: 's1', seq: 1 } },
     });
     expect(handler).not.toHaveBeenCalled();
   });
@@ -304,13 +312,13 @@ describe('membership and presence', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(room.members.get().get('c1')).toEqual({ meta: { name: 'Ada' } });
@@ -328,19 +336,19 @@ describe('membership and presence', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c2' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().has('c2')).toBe(true);
     ws.emit({
       event: '__memberLeave__',
       payload: { connectionId: 'c2' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(room.members.get().has('c2')).toBe(false);
@@ -357,10 +365,14 @@ describe('membership and presence', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
-    ws.emit({ event: '__kicked__', payload: { reason: 'spam' }, __wskit: { channel: 'general' } });
+    ws.emit({
+      event: '__kicked__',
+      payload: { reason: 'spam' },
+      metadata: { channel: { name: 'general' } },
+    });
     expect(onKicked).toHaveBeenCalledWith('spam');
     expect(() => room.send('send-message', { text: 'x' })).toThrow(/channel-not-subscribed/);
   });
@@ -374,17 +386,19 @@ describe('dynamic families and scope handles', () => {
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'room-1', family: 'rooms' } },
     });
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-1', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room-1', family: 'rooms' } },
     });
 
     await p;
     room.send('send-message', { text: 'hi' });
-    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-1', channelFamily: 'rooms' });
+    expect(ws.sentFrames().at(-1).metadata).toEqual({
+      channel: { name: 'room-1', family: 'rooms' },
+    });
   });
 
   it('resolves the same handle via channel(scope,name) and scope(key)(name)', () => {
@@ -396,14 +410,16 @@ describe('dynamic families and scope handles', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
     void room.subscribe();
-    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'general' });
+    expect(ws.sentFrames().at(-1).metadata).toEqual({ channel: { name: 'general' } });
   });
 
   it('a supplied family key is carried in the channelFamily marker', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('rooms', 'room-9');
     void room.subscribe();
-    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-9', channelFamily: 'rooms' });
+    expect(ws.sentFrames().at(-1).metadata).toEqual({
+      channel: { name: 'room-9', family: 'rooms' },
+    });
   });
 
   it('rejects an empty family key locally with validation-failed and sends nothing', async () => {
@@ -425,13 +441,13 @@ describe('dynamic families and scope handles', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-7', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room-7', family: 'rooms' } },
     });
     await p;
     ws.emit({
       event: 'message',
       payload: { text: 'yo' },
-      __wskit: { channel: 'room-7', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'room-7', family: 'rooms' } },
     });
     expect(familyHandler).toHaveBeenCalledWith({ text: 'yo' }, 'room-7');
 
@@ -445,7 +461,7 @@ describe('server-initiated subscriptions and reconnection', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'server', channel: 'general' },
+      metadata: { exchange: { source: 'server' }, channel: { name: 'general' } },
     });
     const room = socket.channel('general');
     expect(() => room.send('send-message', { text: 'ok' })).not.toThrow();
@@ -463,7 +479,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
@@ -473,7 +489,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       expect(second.sentFrames()).toContainEqual({
         event: '__subscribe__',
         payload: {},
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
     } finally {
       vi.useRealTimers();
@@ -493,7 +509,10 @@ describe('server-initiated subscriptions and reconnection', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       first.serverClose(1006, 'drop');
@@ -503,16 +522,19 @@ describe('server-initiated subscriptions and reconnection', () => {
       const second = MockWebSocket.last();
       second.open();
       const leaveFrame = second.sentFrames().find((f) => f.event === '__unsubscribe__');
-      expect(leaveFrame).toMatchObject({ payload: {}, __wskit: { channel: 'general' } });
+      expect(leaveFrame).toMatchObject({ payload: {}, metadata: { channel: { name: 'general' } } });
 
-      expect(typeof leaveFrame.__wskit.unsubscribeId).toBe('string');
+      expect(typeof leaveFrame.metadata.channel?.unsubscribeId).toBe('string');
 
       // The server's already-queued auto-rejoin __subscribeOk__ arrives late — it
       // must NOT re-activate a channel the user left (the server already removed it).
       second.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'server', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'server' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       expect(() => room.send('send-message', { text: 'hi' })).toThrow();
@@ -527,7 +549,7 @@ describe('reliable leave', () => {
     return ws
       .sentFrames()
       .filter((f) => f.event === '__unsubscribe__')
-      .at(-1).__wskit.unsubscribeId;
+      .at(-1).metadata.channel?.unsubscribeId;
   }
 
   it('resends the leave on every reopen until the server confirms it', async () => {
@@ -543,7 +565,10 @@ describe('reliable leave', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       const leave = room.unsubscribe();
@@ -556,7 +581,7 @@ describe('reliable leave', () => {
       expect(
         second
           .sentFrames()
-          .some((f) => f.event === '__unsubscribe__' && f.__wskit.unsubscribeId === id),
+          .some((f) => f.event === '__unsubscribe__' && f.metadata.channel?.unsubscribeId === id),
       ).toBe(true);
 
       second.serverClose(1006, 'drop');
@@ -566,19 +591,19 @@ describe('reliable leave', () => {
       expect(
         third
           .sentFrames()
-          .some((f) => f.event === '__unsubscribe__' && f.__wskit.unsubscribeId === id),
+          .some((f) => f.event === '__unsubscribe__' && f.metadata.channel?.unsubscribeId === id),
       ).toBe(true);
 
       expect(
         third
           .sentFrames()
-          .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general'),
+          .some((f) => f.event === '__subscribe__' && f.metadata?.channel?.name === 'general'),
       ).toBe(false);
 
       third.emit({
         event: '__unsubscribeOk__',
         payload: {},
-        __wskit: { channel: 'general', unsubscribeId: id },
+        metadata: { channel: { name: 'general', unsubscribeId: id } },
       });
       await expect(leave).resolves.toBeUndefined();
     } finally {
@@ -603,7 +628,10 @@ describe('reliable leave', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       const leave = room.unsubscribe();
@@ -630,7 +658,7 @@ describe('reliable leave', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
 
@@ -645,7 +673,7 @@ describe('reliable leave', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId: 'stale-id' },
+      metadata: { channel: { name: 'general', unsubscribeId: 'stale-id' } },
     });
     await Promise.resolve();
     expect(settled).toBe(false);
@@ -654,24 +682,24 @@ describe('reliable leave', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId: id },
+      metadata: { channel: { name: 'general', unsubscribeId: id } },
     });
     await expect(leave).resolves.toBeUndefined();
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId: id },
+      metadata: { channel: { name: 'general', unsubscribeId: id } },
     });
   });
 
-  it('shares one promise while a leave is pending and resolves at once once already left', async () => {
+  it('shares one promise while a leave is pending and resolves immediately when already left', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
 
@@ -684,7 +712,7 @@ describe('reliable leave', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId: id },
+      metadata: { channel: { name: 'general', unsubscribeId: id } },
     });
     await expect(leave1).resolves.toBeUndefined();
 
@@ -704,7 +732,7 @@ describe('reliable leave', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     expect(() => room.send('send-message', { text: 'x' })).toThrow(/channel-not-subscribed/);
 
@@ -712,7 +740,7 @@ describe('reliable leave', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId: id },
+      metadata: { channel: { name: 'general', unsubscribeId: id } },
     });
     await expect(leave).resolves.toBeUndefined();
     expect(() => room.send('send-message', { text: 'x' })).toThrow(/channel-not-subscribed/);
@@ -731,7 +759,7 @@ describe('reliable leave', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       const leave = room.unsubscribe();
@@ -747,21 +775,21 @@ describe('reliable leave', () => {
       const id = second
         .sentFrames()
         .filter((f) => f.event === '__unsubscribe__')
-        .at(-1).__wskit.unsubscribeId;
+        .at(-1).metadata.channel?.unsubscribeId;
       second.emit({
         event: '__unsubscribeOk__',
         payload: {},
-        __wskit: { channel: 'general', unsubscribeId: id },
+        metadata: { channel: { name: 'general', unsubscribeId: id } },
       });
       expect(
         second
           .sentFrames()
-          .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general'),
+          .some((f) => f.event === '__subscribe__' && f.metadata?.channel?.name === 'general'),
       ).toBe(true);
       second.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       await expect(leave).resolves.toBeUndefined();
@@ -778,7 +806,7 @@ describe('reliable leave', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     const leave = room.unsubscribe();
@@ -798,7 +826,7 @@ describe('reliable leave', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId: id },
+      metadata: { channel: { name: 'general', unsubscribeId: id } },
     });
 
     expect(calls).toBe(1);
@@ -822,18 +850,18 @@ describe('scoped request and ack', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
 
     const reqPromise = room.request('history', { before: 'x' });
     const frame = ws.sentFrames().at(-1);
-    expect(frame.__wskit.channel).toBe('general');
-    expect(typeof frame.__wskit.correlationId).toBe('string');
+    expect(frame.metadata.channel?.name).toBe('general');
+    expect(typeof frame.metadata.exchange?.id).toBe('string');
     ws.emit({
       event: 'history',
       payload: { items: ['a'] },
-      __wskit: { correlationId: frame.__wskit.correlationId },
+      metadata: { exchange: { id: frame.metadata.exchange?.id } },
     });
 
     await expect(reqPromise).resolves.toEqual({ items: ['a'] });
@@ -866,7 +894,7 @@ describe('stream-error routing (order-independent)', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     await p;
@@ -881,12 +909,12 @@ describe('stream-error routing (order-independent)', () => {
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'hi' },
-      __wskit: { channel: 'general', streamId: 's1', seq: 0 },
+      metadata: { channel: { name: 'general' }, stream: { id: 's1', seq: 0 } },
     });
     ws.emit({
       event: '__error__',
       payload: { code: 'internal-error' },
-      __wskit: { channel: 'general', streamId: 's1', streamTerminated: true },
+      metadata: { channel: { name: 'general' }, stream: { id: 's1', terminated: true } },
     });
 
     expect(onChunk).toHaveBeenCalledTimes(1);
@@ -908,7 +936,7 @@ describe('lazy hold lifecycle (no leak)', () => {
     MockWebSocket.last().emit({
       event: '__error__',
       payload: { code: 'forbidden' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     await expect(p).rejects.toBeDefined();
@@ -929,11 +957,15 @@ describe('lazy hold lifecycle (no leak)', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
 
-    ws.emit({ event: '__kicked__', payload: { reason: 'bye' }, __wskit: { channel: 'general' } });
+    ws.emit({
+      event: '__kicked__',
+      payload: { reason: 'bye' },
+      metadata: { channel: { name: 'general' } },
+    });
     vi.advanceTimersByTime(1000);
     expect(socket.state.get()).toBe('closed');
     vi.useRealTimers();
@@ -1017,13 +1049,13 @@ describe('stale payload rejection guard (#14)', () => {
     const unsubscribeId = ws
       .sentFrames()
       .filter((f) => f.event === '__unsubscribe__')
-      .at(-1).__wskit.unsubscribeId;
+      .at(-1).metadata.channel?.unsubscribeId;
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId },
+      metadata: { channel: { name: 'general', unsubscribeId: unsubscribeId } },
     });
-    ws.emit({ event: '__subscribeOk__', payload: {}, __wskit: { channel: 'general' } });
+    ws.emit({ event: '__subscribeOk__', payload: {}, metadata: { channel: { name: 'general' } } });
     await expect(second).resolves.toBeUndefined();
   });
 });
@@ -1065,14 +1097,14 @@ describe('plugin-channel namespace delivery (A3)', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: '__e2e:feed::room' },
+      metadata: { exchange: { source: 'client' }, channel: { name: '__e2e:feed::room' } },
     });
     await p;
 
     ws.emit({
       event: '__e2e:feed::joined',
       payload: { who: 'alice' },
-      __wskit: { source: 'server', channel: '__e2e:feed::room' },
+      metadata: { exchange: { source: 'server' }, channel: { name: '__e2e:feed::room' } },
     });
     expect(seen).toEqual([{ who: 'alice' }]);
   });
@@ -1087,14 +1119,14 @@ describe('plugin-channel namespace delivery (A3)', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: '__e2e:feed::room' },
+      metadata: { exchange: { source: 'client' }, channel: { name: '__e2e:feed::room' } },
     });
     await p;
 
     ws.emit({
       event: '__other:plugin::joined',
       payload: { who: 'x' },
-      __wskit: { source: 'server', channel: '__e2e:feed::room' },
+      metadata: { exchange: { source: 'server' }, channel: { name: '__e2e:feed::room' } },
     });
     expect(joined).not.toHaveBeenCalled();
   });
@@ -1112,7 +1144,7 @@ describe('protocol frame forwarding stays channel-scoped', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general', inbox: true },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general', inbox: true } },
     });
     await expect(p).resolves.toBeUndefined();
     expect(topLevel).not.toHaveBeenCalled();
@@ -1128,16 +1160,16 @@ describe('protocol frame forwarding stays channel-scoped', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
 
     const leave = room.unsubscribe();
-    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const unsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId },
+      metadata: { channel: { name: 'general', unsubscribeId: unsubscribeId } },
     });
     await expect(leave).resolves.toBeUndefined();
     expect(topLevel).not.toHaveBeenCalled();
@@ -1153,14 +1185,18 @@ describe('protocol frame forwarding stays channel-scoped', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await p;
     const onKicked = vi.fn();
 
     room.onKicked(onKicked);
 
-    ws.emit({ event: '__kicked__', payload: { reason: 'spam' }, __wskit: { channel: 'general' } });
+    ws.emit({
+      event: '__kicked__',
+      payload: { reason: 'spam' },
+      metadata: { channel: { name: 'general' } },
+    });
 
     expect(onKicked).toHaveBeenCalledWith('spam');
     expect(topLevel).not.toHaveBeenCalled();

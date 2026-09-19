@@ -1,8 +1,8 @@
-import { channels, client, connect, reconnection } from '@wskit/client';
-import type { ChannelCheckCommitClient } from '@wskit/tests-e2e-handlers/channel-check-commit';
+import { channels, client, connect, reconnection } from '@livething/client';
+import type { ChannelCheckCommitClient } from '@livething/tests-e2e-handlers/channel-check-commit';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channel subscribe-payload refresh against the real
+// Drives @livething/client's channel subscribe-payload refresh against the real
 // `channel-check-commit` handler's `nonce-room` — a check that rejects a token
 // it has already seen. A value payload is a frozen snapshot, resent verbatim on
 // reconnect (and refused as reused); a function payload is re-run on reconnect,

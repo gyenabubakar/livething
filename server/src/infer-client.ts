@@ -72,7 +72,7 @@ type ContractOf<TServer extends ServerDefinition> =
   TServer extends ServerDefinition<any, infer TContract> ? TContract : ServerContract;
 
 /**
- * The set of framework error types WSKit can send to any client, so they are
+ * The set of framework error types LiveThing can send to any client, so they are
  * always present in a server's typed error map for `.matches()`. Covers the
  * full set of framework error codes a client can receive.
  */
@@ -126,7 +126,7 @@ type TidyStreamEntry<TEntry> = Omit<
  * Map every entry of one server-side stream slot into its client shape:
  * tidied, and stamped with a `kind`. `kind` is `'persistent'` for the durable
  * kinds (`resumableStream` / `recordedStream`) that survive a reconnect, and
- * `'ephemeral'` for a plain `stream`. It mirrors the runtime `__wskit.streamKind`
+ * `'ephemeral'` for a plain `stream`. It mirrors the runtime `__livething.streamDurability`
  * on the wire, and the client reads it to gate resume-only methods at the type level.
  */
 type ClientStreamSlot<TSlot, TKind extends 'ephemeral' | 'persistent'> = {
@@ -256,7 +256,7 @@ type PluginsFragmentOf<TContract> =
     : EmptyPluginsFragment;
 
 /**
- * Read a WSKit `ServerDefinition` and turn it into the full client contract type.
+ * Read a LiveThing `ServerDefinition` and turn it into the full client contract type.
  *
  * Pass the type of your server definition (the value returned by `assemble(...)`)
  * and get back a type that describes every event, request, stream, channel,
@@ -267,7 +267,7 @@ type PluginsFragmentOf<TContract> =
  *
  * ```ts
  * import * as v from 'valibot';
- * import { server, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@livething/server';
  *
  * // server.ts
  * const base = server({
@@ -284,7 +284,7 @@ type PluginsFragmentOf<TContract> =
  * export type MyClient = InferClient<typeof myServer>;
  *
  * // client.ts
- * import { defineClient, connect } from '@wskit/client';
+ * import { defineClient, connect } from '@livething/client';
  * import type { MyClient } from './server';
  * const socket = defineClient<MyClient>(connect('wss://example.com/ws'));
  * socket.connect();

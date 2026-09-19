@@ -113,7 +113,7 @@ describe('background disconnect', () => {
     expect(socket.state.get()).toBe('closed');
   });
 
-  it('throws WSKitConfigError when backgroundDisconnectMs is set but the environment has no onVisibilityChange', () => {
+  it('throws LiveThingConfigError when backgroundDisconnectMs is set but the environment has no onVisibilityChange', () => {
     const netOnly = environment({ onNetworkChange: () => () => undefined });
     expect(() =>
       client<C>()(

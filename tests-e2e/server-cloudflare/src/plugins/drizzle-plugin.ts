@@ -1,11 +1,11 @@
-import { emits, error, errors, server, t } from '@wskit/server';
-import { intercepts } from '@wskit/server/intercepts';
-import { plugin } from '@wskit/server/plugins';
-import { scheduled } from '@wskit/server/scheduled';
+import { emits, error, errors, server, t } from '@livething/server';
+import { intercepts } from '@livething/server/intercepts';
+import { plugin } from '@livething/server/plugins';
+import { scheduled } from '@livething/server/scheduled';
 import { count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/durable-sqlite';
 import * as v from 'valibot';
-import type { Platform } from '@wskit/server-cloudflare';
+import type { Platform } from '@livething/server-cloudflare';
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 import * as schema from './schema.ts';
 import { pluginMeta, records } from './schema.ts';
@@ -282,7 +282,9 @@ h.scheduled('drizzle-query-dlq', {
         taskId: string;
         attempts: number;
         error: string;
-      }>('SELECT taskId, attempts, error FROM __wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1')
+      }>(
+        'SELECT taskId, attempts, error FROM __livething_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
+      )
       .toArray();
     const row = rows[0];
     if (row) {

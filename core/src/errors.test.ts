@@ -6,13 +6,13 @@ import {
   ConnectionBusy,
   CrossInstanceRef,
   error,
+  LiveThingError,
   NudgeOverflow,
   RateLimited,
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
   ValidationFailed,
-  WSKitError,
 } from '~/errors.ts';
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
@@ -53,10 +53,10 @@ void [
 CloseCodes.NEW_CODE = 5000;
 
 // ===========================================================================
-// 2. WSKitError — constructor and properties
+// 2. LiveThingError — constructor and properties
 // ===========================================================================
 
-const wsErr = new WSKitError('forbidden', { reason: 'not a member' });
+const wsErr = new LiveThingError('forbidden', { reason: 'not a member' });
 
 const _code: 'forbidden' = wsErr.code;
 const _detail: { reason: string } = wsErr.detail;
@@ -65,7 +65,7 @@ void [_code, _detail];
 const _isError: boolean = wsErr instanceof Error;
 void _isError;
 
-const wsErrVoid = new WSKitError('not-found', undefined as void);
+const wsErrVoid = new LiveThingError('not-found', undefined as void);
 const _voidCode: 'not-found' = wsErrVoid.code;
 void _voidCode;
 
@@ -81,10 +81,10 @@ void _notFoundCode;
 const _notFoundDef: ErrorDef<'not-found', void> = NotFound;
 void _notFoundDef;
 
-const _notFoundErr: WSKitError<'not-found', void> = NotFound();
+const _notFoundErr: LiveThingError<'not-found', void> = NotFound();
 void _notFoundErr;
 
-const _matchesFn: (err: unknown) => err is WSKitError<'not-found', void> = NotFound.matches;
+const _matchesFn: (err: unknown) => err is LiveThingError<'not-found', void> = NotFound.matches;
 void _matchesFn;
 
 const crossInstanceErr = CrossInstanceRef({
@@ -147,7 +147,7 @@ if (QuotaExceeded.matches(anyErr)) {
 // 6. .matches() — negative cases
 // ===========================================================================
 
-// .matches() returns false for non-WSKitError — plain Error is not WSKitError
+// .matches() returns false for non-LiveThingError — plain Error is not LiveThingError
 declare const plainError: Error;
 const _plainMatch: boolean = Forbidden.matches(plainError);
 void _plainMatch;
@@ -188,8 +188,8 @@ error('SCREAMING');
 // 9. Block — frozen singleton
 // ===========================================================================
 
-const _blockWSKit: 'block' = Block.__wskit;
-void _blockWSKit;
+const _blockLiveThing: 'block' = Block.__livething;
+void _blockLiveThing;
 
 // @ts-expect-error — Block is frozen, cannot add properties
 Block.extra = true;
@@ -298,7 +298,7 @@ if (StreamAlreadyActive.matches(maybeSaa)) {
 const _sicCode: 'stream-id-collision' = StreamIdCollision.code;
 void _sicCode;
 
-const _sicErr: WSKitError<'stream-id-collision', void> = StreamIdCollision();
+const _sicErr: LiveThingError<'stream-id-collision', void> = StreamIdCollision();
 void _sicErr;
 
 declare const maybeSic: unknown;
@@ -326,7 +326,7 @@ RateLimited({});
 // @ts-expect-error — wrong shape
 RateLimited({ retryAfterMs: 'soon' });
 
-// @ts-expect-error — old field name
+// @ts-expect-error — unsupported field
 RateLimited({ retryAfter: 5_000 });
 
 declare const maybeRl: unknown;

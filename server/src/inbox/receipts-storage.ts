@@ -2,7 +2,7 @@ import { familyToDb } from '~/inbox/db-keys.ts';
 import type { SQLProvider } from '~/context.ts';
 
 const CREATE_RECEIPTS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_inbox_receipts (
+  CREATE TABLE IF NOT EXISTS __livething_inbox_receipts (
     channel_name     TEXT NOT NULL,
     channel_family   TEXT NOT NULL DEFAULT '',
     user_id          TEXT NOT NULL,
@@ -15,8 +15,8 @@ const CREATE_RECEIPTS_TABLE_SQL = `
 `;
 
 const CREATE_RECEIPTS_READ_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_inbox_receipts_read
-  ON __wskit_inbox_receipts (channel_name, channel_family, read_through)
+  CREATE INDEX IF NOT EXISTS __livething_idx_inbox_receipts_read
+  ON __livething_inbox_receipts (channel_name, channel_family, read_through)
 `;
 
 // @__PURE__ lets the bundler drop this when unused; see channel/storage.ts.
@@ -131,7 +131,7 @@ function queryCursors(sql: Pick<SQLProvider, 'exec'>, params: ReceiptQuery): Rec
   const row = sql
     .exec<{ received_through: number; read_through: number }>(
       `
-        SELECT received_through, read_through FROM __wskit_inbox_receipts
+        SELECT received_through, read_through FROM __livething_inbox_receipts
         WHERE channel_name = ? AND channel_family = ? AND user_id = ?
       `,
       params.channelName,
@@ -219,7 +219,7 @@ function writeCursors(
   const family = familyToDb(params.channelFamily);
   sql.exec(
     `
-      INSERT OR REPLACE INTO __wskit_inbox_receipts
+      INSERT OR REPLACE INTO __livething_inbox_receipts
         (channel_name, channel_family, user_id, received_through, read_through, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `,
@@ -244,7 +244,7 @@ export function listReceivers(
   return sql
     .exec<{ user_id: string }>(
       `
-        SELECT user_id FROM __wskit_inbox_receipts
+        SELECT user_id FROM __livething_inbox_receipts
         WHERE channel_name = ? AND channel_family = ? AND received_through >= ?
       `,
       params.channelName,
@@ -260,7 +260,7 @@ export function listReaders(sql: Pick<SQLProvider, 'exec'>, params: ReceiptLooku
   return sql
     .exec<{ user_id: string }>(
       `
-        SELECT user_id FROM __wskit_inbox_receipts
+        SELECT user_id FROM __livething_inbox_receipts
         WHERE channel_name = ? AND channel_family = ? AND read_through >= ?
       `,
       params.channelName,

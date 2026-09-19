@@ -64,7 +64,7 @@ function scheduledTableRows(sql: ReturnType<typeof createTestSql>): Record<strin
   return sql
     .exec<
       Record<string, unknown>
-    >('SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __wskit_scheduled')
+    >('SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __livething_scheduled')
     .toArray();
 }
 
@@ -147,13 +147,13 @@ describe('scheduled/runtime', () => {
 
   it('drops persisted runs whose taskId is no longer registered at boot', () => {
     // A previous deploy registered a recurring `cleanup` task and persisted
-    // its row to `__wskit_scheduled`. The new deploy removes the task. Boot
+    // its row to `__livething_scheduled`. The new deploy removes the task. Boot
     // must drop the orphan row instead of restoring it — otherwise every
     // alarm tick would skip the missing handler and re-queue the same row
     // for the next interval, leaving storage to grow forever.
     const { runtime, scheduledRuns, sql } = createScheduledRuntime([]);
     sql.exec(
-      `INSERT INTO __wskit_scheduled (id, taskId, time, data, everyMs, attempts, recurring, retry)
+      `INSERT INTO __livething_scheduled (id, taskId, time, data, everyMs, attempts, recurring, retry)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       'task_orphan_1',
       'cleanup',
@@ -654,7 +654,7 @@ describe('scheduled/runtime — through the real engine', () => {
       run(ctx) {
         ctx.schedule('sendReceipt', { time: Date.now() + 5000 });
         rowsDuringHandler.push(
-          ctx.sql.exec<{ taskId: string }>('SELECT taskId FROM __wskit_scheduled').toArray(),
+          ctx.sql.exec<{ taskId: string }>('SELECT taskId FROM __livething_scheduled').toArray(),
         );
       },
     });

@@ -1,21 +1,21 @@
 import { expect, test } from '@playwright/test';
 import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
-// Durable channel membership and the inbox are stored per USER, but leaving a
-// channel happens per CONNECTION. One tab calling unsubscribe used to delete
-// the account's membership row and wipe its whole inbox, while another tab of
-// the same user stayed subscribed and kept receiving live messages — then
-// silently stopped auto-rejoining after a refresh, because the row it would
-// have rejoined from was gone.
-//
-// The durable state must survive until the user's LAST connection leaves.
+// Durable channel membership and the inbox are stored per user, but leaving a
+// channel happens per connection. One tab must not delete the account's durable
+// state while another tab from the same user is still subscribed. The durable
+// state survives until the user's last connection leaves.
 
 const CHANNEL = 'chat';
 
 async function subscribed(page: Parameters<typeof connect>[0], id: string) {
-  await send(page, id, { event: '__subscribe__', payload: {}, __wskit: { channel: CHANNEL } });
+  await send(page, id, {
+    event: '__subscribe__',
+    payload: null,
+    metadata: { channel: { name: CHANNEL } },
+  });
   await waitForFrame(page, id, {
-    match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === CHANNEL,
+    match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === CHANNEL,
   });
 }
 
@@ -38,15 +38,15 @@ test.describe('per-user channel state across two tabs (raw wire, real DO)', () =
     // Tab A leaves. Tab B is still a member.
     await send(page, tabA, {
       event: '__unsubscribe__',
-      payload: {},
-      __wskit: { channel: CHANNEL, unsubscribeId: 'u1' },
+      payload: null,
+      metadata: { channel: { name: CHANNEL, unsubscribeId: 'u1' } },
     });
     await waitForFrame(page, tabA, { match: (f) => f.event === '__unsubscribeOk__' });
 
     await send(page, bob, {
       event: 'send-room-msg',
       payload: { text: 'after-one-tab-left' },
-      __wskit: { channel: CHANNEL },
+      metadata: { channel: { name: CHANNEL } },
     });
 
     // Tab B must still receive.
@@ -76,17 +76,17 @@ test.describe('per-user channel state across two tabs (raw wire, real DO)', () =
 
     await send(page, tabA, {
       event: '__unsubscribe__',
-      payload: {},
-      __wskit: { channel: CHANNEL, unsubscribeId: 'u1' },
+      payload: null,
+      metadata: { channel: { name: CHANNEL, unsubscribeId: 'u1' } },
     });
     await waitForFrame(page, tabA, { match: (f) => f.event === '__unsubscribeOk__' });
 
     // Drop tab B without unsubscribing, then reconnect. The durable row must
     // still exist, so persistence auto-rejoins the channel with no __subscribe__.
-    await page.evaluate((sid) => window.__wskitClose!(sid), tabB);
+    await page.evaluate((sid) => window.__livethingClose!(sid), tabB);
     const rejoined = await connect(page, { path: '/ws/inbox', username: 'alice', room });
     await waitForFrame(page, rejoined, {
-      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === CHANNEL,
+      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === CHANNEL,
     });
   });
 });

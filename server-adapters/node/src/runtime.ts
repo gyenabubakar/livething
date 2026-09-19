@@ -1,4 +1,4 @@
-import type { Logger, StorageProvider } from '@wskit/server/adapters';
+import type { Logger, StorageProvider } from '@livething/server/adapters';
 import { createAsyncContext } from './async-context.ts';
 import { createLogger } from './logger.ts';
 import { createPlatform } from './platform.ts';
@@ -11,7 +11,7 @@ export interface NodeRuntimeOptions extends Omit<NodeStorageOptions, 'logger'> {
   logger?: Logger;
 }
 
-/** The Node runtime services passed into the WSKit engine. */
+/** The Node runtime services passed into the LiveThing engine. */
 export interface NodeRuntime {
   platform: ReturnType<typeof createPlatform>;
   storage: StorageProvider;

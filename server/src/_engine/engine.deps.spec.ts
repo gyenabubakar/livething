@@ -22,7 +22,7 @@ describe('common engine deps', () => {
       deps.broadcastToChannelRecipient({
         channelName: 'room',
         channelFamily: null,
-        to: { __wskit: 'connection-ref', id: 'peer', instance: 'other', userId: 'peer' },
+        to: { __livething: 'connection-ref', id: 'peer', instance: 'other', userId: 'peer' },
         event: 'message',
         payload: {},
       }),
@@ -33,7 +33,7 @@ describe('common engine deps', () => {
       deps.broadcastToChannelRecipient({
         channelName: 'room',
         channelFamily: null,
-        to: { __wskit: 'user-ref', id: 'peer', instance: 'other' },
+        to: { __livething: 'user-ref', id: 'peer', instance: 'other' },
         event: 'message',
         payload: {},
       });
@@ -58,7 +58,7 @@ describe('common engine deps', () => {
     } as unknown as EngineCore;
 
     const deps = EngineDeps.commonDeps(core);
-    const foreign = { __wskit: 'user-ref' as const, id: 'alice', instance: 'other' };
+    const foreign = { __livething: 'user-ref' as const, id: 'alice', instance: 'other' };
 
     let thrown: unknown;
     try {

@@ -77,8 +77,8 @@ interface ResumableStreamConfig<
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { resumableStream } from '@wskit/server/streams';
+ * import { server, t } from '@livething/server';
+ * import { resumableStream } from '@livething/server/streams';
  * import * as v from 'valibot';
  *
  * const PaginatePayload = v.object({});

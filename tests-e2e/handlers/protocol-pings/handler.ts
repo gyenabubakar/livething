@@ -1,5 +1,5 @@
-import { server } from '@wskit/server';
-import type { InferClient } from '@wskit/server';
+import { server } from '@livething/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const base = server({

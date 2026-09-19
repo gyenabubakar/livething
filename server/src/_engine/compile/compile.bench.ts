@@ -6,7 +6,7 @@
  * compile time goes — workerd quantizes `performance.now()` to 1ms so the
  * e2e numbers all look like 0µs.
  *
- * Run: `pnpm --filter @wskit/server bench`
+ * Run: `pnpm --filter @livething/server bench`
  */
 
 import { t } from '~/_api/definitions.ts';

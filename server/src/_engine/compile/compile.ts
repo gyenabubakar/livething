@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidWSKitIdentifier, WIRE_LIMITS } from '@wskit/core';
+import { assertValidLiveThingIdentifier, WIRE_LIMITS } from '@livething/core';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ServerTypes from '~/server-definition.ts';
@@ -53,7 +53,7 @@ function visitCompiledPrimitives(
   for (const primitive of primitives) {
     EngineCompileUtils.mergeRequires(compiled.requires, primitive.__requires);
 
-    switch (primitive.__wskit) {
+    switch (primitive.__livething) {
       case 'sequence':
         continue;
 
@@ -135,7 +135,7 @@ function visitCompiledPrimitives(
       if (typeof primitive.pattern === 'string') {
         if (compiled.channelFamilies.has(primitive.pattern)) {
           throw new Error(
-            `[wskit] Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
+            `[livething] Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
@@ -147,7 +147,7 @@ function visitCompiledPrimitives(
       } else {
         if (compiled.channels.has(primitive.pattern.key)) {
           throw new Error(
-            `[wskit] Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
+            `[livething] Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
@@ -204,7 +204,7 @@ export function compileServerDefinition(
 
 function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): boolean {
   for (const primitive of primitives) {
-    if (primitive.__wskit === 'replay' && !(primitive as { disabled?: boolean }).disabled) {
+    if (primitive.__livething === 'replay' && !(primitive as { disabled?: boolean }).disabled) {
       return true;
     }
 
@@ -222,8 +222,8 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
 /**
  * Refuse to boot when replay is enabled but the primitives it relies on are
  * missing or misconfigured. Replay persists every outgoing message keyed by
- * `messageId` (stamped by dedup) and `seq` (allocated by sequence). Without
- * dedup the first persisted send throws "missing messageId" at runtime;
+ * a delivery ID (stamped by dedup) and sequence (allocated by sequence). Without
+ * dedup the first persisted send cannot be stored safely;
  * without `sequence: { persist: true }` the seq column is unstable across
  * restarts and replay cannot order rows. Fail fast at compile so the misconfig
  * surfaces at boot instead of on the first message.
@@ -236,8 +236,8 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
   let hasDedup = false;
   let hasPersistentSequence = false;
   for (const primitive of primitives) {
-    if (primitive.__wskit === 'dedup') hasDedup = true;
-    if (primitive.__wskit === 'sequence' && (primitive as { persist?: boolean }).persist) {
+    if (primitive.__livething === 'dedup') hasDedup = true;
+    if (primitive.__livething === 'sequence' && (primitive as { persist?: boolean }).persist) {
       hasPersistentSequence = true;
     }
   }
@@ -247,13 +247,13 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
 
   if (!hasDedup) {
     throw new Error(
-      `[wskit] contract uses replay but did not enable dedup. Replay persists every outgoing message keyed by messageId, which dedup stamps. Add \`dedup: true\` to the contract config.`,
+      `[livething] contract uses replay but did not enable dedup. Replay persists every outgoing message by the delivery ID that dedup stamps. Add \`dedup: true\` to the contract config.`,
     );
   }
 
   if (!hasPersistentSequence) {
     throw new Error(
-      `[wskit] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence: { persist: true }\` to the contract config.`,
+      `[livething] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence: { persist: true }\` to the contract config.`,
     );
   }
 }
@@ -287,25 +287,25 @@ function validateScopeAndEventNameSyntax(
     if (declaredPluginChannels.has(name)) {
       if (name.length > limit) {
         throw new Error(
-          `[wskit] ${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
+          `[livething] ${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
         );
       }
 
       return;
     }
 
-    assertValidWSKitIdentifier(name, `${kind} name`, limit);
+    assertValidLiveThingIdentifier(name, `${kind} name`, limit);
 
     if (name.startsWith('@') || name.startsWith('#')) {
       throw new Error(
-        `[wskit] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
+        `[livething] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
           `Those prefixes are reserved for the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
 
     if (name.includes('::')) {
       throw new Error(
-        `[wskit] ${kind} name '${name}' contains '::', which is reserved as the separator in ` +
+        `[livething] ${kind} name '${name}' contains '::', which is reserved as the separator in ` +
           `the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
@@ -317,14 +317,14 @@ function validateScopeAndEventNameSyntax(
     // event (by provenance), so a hand-declared `::` name still throws.
     if (event.includes('::') && !declaredPluginEvents.has(event)) {
       throw new Error(
-        `[wskit] Event name '${event}' in ${scopeLabel} contains '::', which is reserved as the ` +
+        `[livething] Event name '${event}' in ${scopeLabel} contains '::', which is reserved as the ` +
           `separator in the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
 
     if (event.length > WIRE_LIMITS.event) {
       throw new Error(
-        `[wskit] Event name in ${scopeLabel} is ${event.length} characters; the wire protocol limit ` +
+        `[livething] Event name in ${scopeLabel} is ${event.length} characters; the wire protocol limit ` +
           `is ${WIRE_LIMITS.event}. A longer name can't travel over the wire, so no client could reach it.`,
       );
     }
@@ -407,7 +407,7 @@ function validateNoCrossPrimitiveEventCollisions(
 
       if (where.length > 1) {
         throw new Error(
-          `[wskit] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
+          `[livething] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
             `An event name can only belong to one of incoming/request/stream/resumableStream/recordedStream within a scope — pick a different name.`,
         );
       }
@@ -493,7 +493,7 @@ function collectPluginChannelNames(
 
 /**
  * Walk every event name registered on the compiled server and refuse boot
- * if any clash with the WSKit wire protocol. Also catches the bypass case
+ * if any clash with the LiveThing wire protocol. Also catches the bypass case
  * where a developer hand-rolls an event-shaped object instead of calling
  * `event(name, schema)` — the runtime guard sees the same primitives.
  */
@@ -504,20 +504,20 @@ function validateNoReservedEventNames(
   function check(event: string, scopeLabel: string): void {
     if (event === 'ping' || event === 'pong') {
       throw new Error(
-        `[wskit] '${event}' is a reserved keepalive frame name (used by ${scopeLabel}). ` +
+        `[livething] '${event}' is a reserved keepalive frame name (used by ${scopeLabel}). ` +
           `Pick a different name for your event.`,
       );
     }
 
-    // The double-underscore prefix is reserved for WSKit protocol events
+    // The double-underscore prefix is reserved for LiveThing protocol events
     // (__subscribe__, __error__, ...) and plugin-owned events. Allow only the
     // names installed plugins actually declared (by provenance, not by string
     // shape) — anything else with the prefix is a user-declared event that would
     // clash with the protocol.
     if (event.startsWith('__') && !declaredPluginEvents.has(event)) {
       throw new Error(
-        `[wskit] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
-          `That prefix is reserved for wskit protocol and plugin events — pick a different name.`,
+        `[livething] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
+          `That prefix is reserved for livething protocol and plugin events — pick a different name.`,
       );
     }
   }

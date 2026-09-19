@@ -2,10 +2,10 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  LiveThingConfigError,
   RejoinRejected,
   rethrowIfConfigError,
-  WSKitConfigError,
-} from '@wskit/core';
+} from '@livething/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { userKeyOf } from '~/_engine/runtime/user-key.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
@@ -24,7 +24,7 @@ type OptionsParameter = { force?: boolean };
 type OptsParameter = {
   event: string;
   payload: Record<string, unknown>;
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
 };
 type RollbackFailedSubscribeOptsParameter = {
   scope: ResolvedChannelTarget;
@@ -263,7 +263,7 @@ interface ResolvedChannelTarget {
 
 /**
  * Resolve a compiled channel from the `channel` + `channelFamily` markers a
- * `__subscribe__` / `__unsubscribe__` frame carried on its `__wskit` block.
+ * `__subscribe__` / `__unsubscribe__` frame carried on its `__livething` block.
  * Returns `undefined` when the channel does not exist or the concrete name
  * fails the family pattern.
  */
@@ -284,11 +284,11 @@ function resolveChannelByName(
   return { channel, channelName, channelFamily };
 }
 
-/** Build the `__wskit` routing block for a channel-scoped protocol frame. */
+/** Build the `__livething` routing block for a channel-scoped protocol frame. */
 function buildChannelRouting(scope: ChannelTarget): Record<string, unknown> {
-  const wskit: Record<string, unknown> = { channel: scope.channelName };
-  if (scope.channelFamily !== null) wskit.channelFamily = scope.channelFamily;
-  return wskit;
+  const livething: Record<string, unknown> = { channel: scope.channelName };
+  if (scope.channelFamily !== null) livething.channelFamily = scope.channelFamily;
+  return livething;
 }
 
 /**
@@ -381,7 +381,7 @@ export async function leaveChannel(
       try {
         await hook(ctx);
       } catch (error) {
-        runtime.logger?.error('[wskit] onUnsubscribe hook threw', {
+        runtime.logger?.error('[livething] onUnsubscribe hook threw', {
           connectionId: connection.id,
           channel: scope.channelName,
           channelFamily: scope.channelFamily,
@@ -396,7 +396,7 @@ export async function leaveChannel(
     runtime.sendProtocolMessage(connection, {
       event: '__kicked__',
       payload: { reason: kickedReason },
-      wskit: buildChannelRouting(scope),
+      livething: buildChannelRouting(scope),
     });
   }
 
@@ -424,7 +424,7 @@ export async function leaveChannel(
     try {
       await hook(ctx);
     } catch (error) {
-      runtime.logger?.error('[wskit] onSessionEnd hook threw', {
+      runtime.logger?.error('[livething] onSessionEnd hook threw', {
         connectionId: connection.id,
         channel: scope.channelName,
         channelFamily: scope.channelFamily,
@@ -518,7 +518,7 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<boolean> {
         (typeof result === 'object' || typeof result === 'function') &&
         typeof (result as { then?: unknown }).then === 'function'
       ) {
-        throw new WSKitConfigError('commit() must be synchronous.');
+        throw new LiveThingConfigError('commit() must be synchronous.');
       }
     }
   }
@@ -567,7 +567,7 @@ async function runSubscribeFlow(
 
   const members = snapshotMembers(runtime, scope, connection.id);
 
-  const wskit = buildChannelRouting(scope);
+  const livething = buildChannelRouting(scope);
 
   // Send confirmation before running onSubscribe, so a throwing hook cannot
   // delay or block it from reaching the client. The membership value tells the
@@ -576,7 +576,7 @@ async function runSubscribeFlow(
   // ('ephemeral'). The inbox flag tells the client to ack this channel's
   // messages (and only inbox channels) with `__received__`.
   const confirmation: Record<string, unknown> = {
-    ...wskit,
+    ...livething,
     source,
     channelMembership: isDurable ? 'persistent' : 'ephemeral',
   };
@@ -593,7 +593,7 @@ async function runSubscribeFlow(
     runtime.sendProtocolMessage(connection, {
       event: '__subscribeOk__',
       payload: {},
-      wskit: confirmation,
+      livething: confirmation,
     });
   } catch (error) {
     rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
@@ -609,7 +609,7 @@ async function runSubscribeFlow(
     runtime.sendProtocolMessage(connection, {
       event: '__memberSync__',
       payload: { members },
-      wskit: { ...wskit, source },
+      livething: { ...livething, source },
     });
   } catch (error) {
     rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
@@ -649,7 +649,7 @@ async function runSubscribeFlow(
       try {
         await hook(ctx);
       } catch (error) {
-        const routing: Protocol.WSKitRouting = { channel: scope.channelName };
+        const routing: Protocol.LiveThingRouting = { channel: scope.channelName };
         if (scope.channelFamily !== null) routing.channelFamily = scope.channelFamily;
         await runtime.handleRuntimeError(connection, { error, event: '__subscribe__', routing });
         return;
@@ -722,7 +722,7 @@ export function resyncChannelMembers(
   runtime.sendProtocolMessage(connection, {
     event: '__memberSync__',
     payload: { members },
-    wskit: { ...buildChannelRouting(scope), source: 'server' },
+    livething: { ...buildChannelRouting(scope), source: 'server' },
   });
 }
 
@@ -848,7 +848,7 @@ export async function unsubscribeConnection(
     runtime.sendProtocolMessage(connection, {
       event: '__unsubscribeOk__',
       payload: {},
-      wskit: { ...buildChannelRouting(scope), unsubscribeId: opts.unsubscribeId },
+      livething: { ...buildChannelRouting(scope), unsubscribeId: opts.unsubscribeId },
     });
   }
 
@@ -861,21 +861,21 @@ export async function unsubscribeConnection(
  *
  * - `UserRef` — kick every one of that user's subscribed connections.
  * - `TagRef` — kick every socket holding this `(kind, group, key)` tag.
- * - `{ __wskit: 'group-handle', kind, group }` — kick every socket with any
+ * - `{ __livething: 'group-handle', kind, group }` — kick every socket with any
  *   key under this `(kind, group)`.
  *
  * To drop one specific socket without kicking the rest of its user's
  * connections, callers use `ctx.connections.get(ref).close()` instead.
  */
 export type KickTarget =
-  | { __wskit: 'user-ref'; id: string; instance: string | undefined }
-  | { __wskit: 'tag-ref'; kind: 'ephemeral' | 'persistent'; group: string; key: string }
-  | { __wskit: 'group-handle'; kind: 'ephemeral' | 'persistent'; group: string };
+  | { __livething: 'user-ref'; id: string; instance: string | undefined }
+  | { __livething: 'tag-ref'; kind: 'ephemeral' | 'persistent'; group: string; key: string }
+  | { __livething: 'group-handle'; kind: 'ephemeral' | 'persistent'; group: string };
 
 function matchesKickTarget(connection: RuntimeConnection, target: KickTarget): boolean {
-  if (target.__wskit === 'user-ref') return userKeyOf(connection) === target.id;
+  if (target.__livething === 'user-ref') return userKeyOf(connection) === target.id;
 
-  if (target.__wskit === 'tag-ref') {
+  if (target.__livething === 'tag-ref') {
     return connection.tags[target.kind].get(target.group)?.has(target.key) ?? false;
   }
 
@@ -888,12 +888,12 @@ function matchesKickTarget(connection: RuntimeConnection, target: KickTarget): b
  * target is intersected with the channel's current membership.
  */
 export type ChannelRecipient =
-  | { __wskit: 'connection-ref'; id: string; instance: string | undefined; userId: string }
+  | { __livething: 'connection-ref'; id: string; instance: string | undefined; userId: string }
   | KickTarget;
 
 /** Whether a connection satisfies a channel-scoped recipient. */
 export function matchesRecipient(connection: RuntimeConnection, target: ChannelRecipient): boolean {
-  if (target.__wskit === 'connection-ref') return connection.id === target.id;
+  if (target.__livething === 'connection-ref') return connection.id === target.id;
 
   return matchesKickTarget(connection, target);
 }
@@ -984,7 +984,7 @@ export async function kickChannelMembers(
           keepDurableRow: !revoke,
         })
         .catch((error) => {
-          runtime.logger?.error('[wskit] leaveChannel threw during kick', {
+          runtime.logger?.error('[livething] leaveChannel threw during kick', {
             channelName: membership.channelName,
             channelFamily: membership.channelFamily,
             connectionId: connection.id,

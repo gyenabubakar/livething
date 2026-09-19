@@ -1,11 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { error } from '@wskit/core';
+import { error } from '@livething/core';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
 import * as v from 'valibot';
 
 export {
   error,
-  WSKitError,
+  LiveThingError,
   CloseCodes,
   Block,
   ValidationFailed,
@@ -25,8 +25,8 @@ export {
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,
-} from '@wskit/core';
-export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
+} from '@livething/core';
+export type { ErrorDef, ErrorDefWithFactory } from '@livething/core';
 
 /**
  * Close the connection immediately with a close code and reason.
@@ -36,7 +36,7 @@ export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
  * executing (e.g., logging, cleanup).
  *
  * ```ts
- * import { Disconnect, CloseCodes } from '@wskit/server/errors';
+ * import { Disconnect, CloseCodes } from '@livething/server/errors';
  *
  * const handleSend = base.on('send-message', {
  *   input: SendMessage,
@@ -48,7 +48,7 @@ export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
  * ```
  */
 export function Disconnect(code: number, reason: string) {
-  return Object.freeze({ __wskit: 'disconnect' as const, code, reason });
+  return Object.freeze({ __livething: 'disconnect' as const, code, reason });
 }
 
 /**
@@ -56,8 +56,8 @@ export function Disconnect(code: number, reason: string) {
  * throwing it anywhere else is treated as an unrecognized error.
  *
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { RejectUpgrade } from '@wskit/server/errors';
+ * import { server, t } from '@livething/server';
+ * import { RejectUpgrade } from '@livething/server/errors';
  *
  * server({
  *   async upgrade(req) {
@@ -69,7 +69,7 @@ export function Disconnect(code: number, reason: string) {
  * ```
  */
 export function RejectUpgrade(code: number, reason: string) {
-  return Object.freeze({ __wskit: 'reject-upgrade' as const, code, reason });
+  return Object.freeze({ __livething: 'reject-upgrade' as const, code, reason });
 }
 
 /**
@@ -90,7 +90,7 @@ export function RejectUpgrade(code: number, reason: string) {
  *
  * ```ts
  * // pseudo-code — `tryAcquireLock` is a placeholder for your own lock helper
- * import { Defer } from '@wskit/server/errors';
+ * import { Defer } from '@livething/server/errors';
  *
  * const handleProcessJob = base.on('process-job', {
  *   input: ProcessJob,
@@ -104,7 +104,7 @@ export function RejectUpgrade(code: number, reason: string) {
  */
 export function Defer(delay: number) {
   assertPositiveInteger(delay, 'delay', 'Defer()');
-  return Object.freeze({ __wskit: 'defer' as const, delay });
+  return Object.freeze({ __livething: 'defer' as const, delay });
 }
 
 /**

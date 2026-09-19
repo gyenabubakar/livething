@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
-import { CloseCodes } from '@wskit/server/errors';
+import { CloseCodes } from '@livething/server/errors';
 import { describe, expect, it, vi } from 'vitest';
 import { createNodeUpgradeHandler } from './upgrade.ts';
 import type {
@@ -117,7 +117,7 @@ describe('createNodeUpgradeHandler', () => {
     expect(connection.message).toHaveBeenCalledWith('hello');
     expect(webSocket.close).toHaveBeenCalledWith(
       1003,
-      '[wskit] binary frames are not supported yet',
+      '[livething] binary frames are not supported yet',
     );
     expect(connection.close).toHaveBeenCalledWith(1001, 'going away');
     expect(connection.error).toHaveBeenCalledWith(error);

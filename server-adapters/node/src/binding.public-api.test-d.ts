@@ -1,6 +1,6 @@
 /* oxlint-disable no-unused-vars */
 
-import { server } from '@wskit/server';
+import { server } from '@livething/server';
 import * as Binding from './binding.ts';
 
 const definition = server({}).assemble({ handlers: [] });

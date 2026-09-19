@@ -1,4 +1,4 @@
-import { WSKitError } from '@wskit/core';
+import { LiveThingError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
@@ -292,12 +292,12 @@ describe('scoped send — send() and request()', () => {
     const subscribed = rooms.static.subscribe();
     expect(ws.sentFrames().at(-1)).toMatchObject({
       event: '__subscribe__',
-      __wskit: { channel: '__acme:chat::room' },
+      metadata: { channel: { name: '__acme:chat::room' } },
     });
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: '__acme:chat::room' },
+      metadata: { exchange: { source: 'client' }, channel: { name: '__acme:chat::room' } },
     });
 
     await subscribed;
@@ -316,12 +316,15 @@ describe('scoped send — send() and request()', () => {
     const dynamicSubscribed = rooms.dynamic.subscribe();
     expect(ws.sentFrames().at(-1)).toMatchObject({
       event: '__subscribe__',
-      __wskit: { channel: 'one', channelFamily: '__acme:chat::thread' },
+      metadata: { channel: { name: 'one', family: '__acme:chat::thread' } },
     });
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'one', channelFamily: '__acme:chat::thread' },
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { name: 'one', family: '__acme:chat::thread' },
+      },
     });
     await dynamicSubscribed;
     expect(rooms.dynamic.send('ping', {})).toBe(true);
@@ -370,11 +373,11 @@ describe('scoped send — send() and request()', () => {
     expect(sent).toBeDefined();
     expect(sent.payload).toEqual({ text: 'hello' });
 
-    const correlationId = sent.__wskit.correlationId as string;
+    const correlationId = sent.metadata.exchange?.id as string;
     ws.emit({
       event: '__acme:chat::send-message',
       payload: { id: 'm1' },
-      __wskit: { correlationId },
+      metadata: { exchange: { id: correlationId } },
     });
 
     await expect(pending).resolves.toEqual({ id: 'm1' });
@@ -421,11 +424,11 @@ describe('scoped stream and onRequest', () => {
     ws.emit({
       event: '__acme:feed::ping',
       payload: { at: 1 },
-      __wskit: { correlationId: 'p1', source: 'server' },
+      metadata: { exchange: { id: 'p1', source: 'server' } },
     });
 
     await expect
-      .poll(() => ws.sentFrames().find((f) => f.__wskit?.correlationId === 'p1')?.payload)
+      .poll(() => ws.sentFrames().find((f) => f.metadata?.exchange?.id === 'p1')?.payload)
       .toEqual({ pong: true });
   });
 
@@ -450,12 +453,12 @@ describe('scoped stream and onRequest', () => {
     ws.emit({
       event: '__acme:feed::feed',
       payload: { row: 1 },
-      __wskit: { streamId: 'bs1', seq: 1 },
+      metadata: { stream: { id: 'bs1', seq: 1 } },
     });
     ws.emit({
       event: '__streamEnd__',
       payload: {},
-      __wskit: { streamId: 'bs1', eventName: '__acme:feed::feed', seq: 5 },
+      metadata: { stream: { id: 'bs1', event: '__acme:feed::feed', seq: 5 } },
     });
 
     expect(chunks).toEqual([[{ row: 1 }, 'bs1']]);
@@ -481,14 +484,14 @@ describe('scoped stream and onRequest', () => {
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { streamId: 'feed-1' },
+      metadata: { stream: { id: 'feed-1' } },
     });
     ws.emit({
       event: '__acme:feed::feed',
       payload: { row: 1 },
-      __wskit: { streamId: 'feed-1', seq: 1 },
+      metadata: { stream: { id: 'feed-1', seq: 1 } },
     });
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'feed-1' } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'feed-1' } } });
 
     const rows: { row: number }[] = [];
     for await (const chunk of handle) rows.push(chunk);
@@ -514,17 +517,17 @@ describe('scoped stream and onRequest', () => {
     const pending = Chat.use(socket).send();
 
     const req = ws.sentFrames().find((f) => f.event === '__acme:chat::send-message');
-    const correlationId = req?.__wskit?.correlationId as string;
+    const correlationId = req?.metadata?.exchange?.id as string;
     // The server sends a plugin error with its namespaced wire code.
     ws.emit({
       event: '__error__',
       payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
-      __wskit: { correlationId },
+      metadata: { exchange: { id: correlationId } },
     });
 
     // The plugin author works in plain names, so the rejection carries `room-full`.
-    await expect(pending).rejects.toBeInstanceOf(WSKitError);
-    await pending.catch((error: WSKitError) => {
+    await expect(pending).rejects.toBeInstanceOf(LiveThingError);
+    await pending.catch((error: LiveThingError) => {
       expect(error.code).toBe('room-full');
       expect(error.detail).toEqual({ limit: 5 });
     });
@@ -562,11 +565,11 @@ describe('scoped stream and onRequest', () => {
     ws.emit({
       event: '__error__',
       payload: { code: '__acme:feed::feed-gone', detail: { why: 'closed' } },
-      __wskit: { streamId: 'sc-err' },
+      metadata: { stream: { id: 'sc-err' } },
     });
 
-    await expect(starting).rejects.toBeInstanceOf(WSKitError);
-    await starting.catch((error: WSKitError) => {
+    await expect(starting).rejects.toBeInstanceOf(LiveThingError);
+    await starting.catch((error: LiveThingError) => {
       expect(error.code).toBe('feed-gone');
       expect(error.detail).toEqual({ why: 'closed' });
     });
@@ -615,7 +618,7 @@ describe('scoped stream and onRequest', () => {
     ws.open();
 
     const starting = Feed.use(socket).start();
-    ws.emit({ event: '__streamOk__', payload: {}, __wskit: { streamId: 'nudge-sc' } });
+    ws.emit({ event: '__streamOk__', payload: {}, metadata: { stream: { id: 'nudge-sc' } } });
     const handle = await starting;
 
     const timersBeforeNudge = vi.getTimerCount();
@@ -626,21 +629,20 @@ describe('scoped stream and onRequest', () => {
     // so the server finds it among the stream's registered nudges.
     const frame = ws.sentFrames().at(-1);
     expect(frame?.event).toBe('__acme:feed::boost');
-    const streamNudgeId = frame?.__wskit?.streamNudgeId;
-    expect(frame?.__wskit).toEqual({
-      streamId: 'nudge-sc',
-      streamNudgeId: expect.any(String),
+    const streamNudgeId = frame?.metadata?.stream?.nudgeId;
+    expect(frame?.metadata).toEqual({
+      stream: { id: 'nudge-sc', nudgeId: expect.any(String) },
     });
 
     ws.emit({
       event: '__nudgeOk__',
       payload: {},
-      __wskit: { streamId: 'nudge-sc', streamNudgeId },
+      metadata: { stream: { id: 'nudge-sc', nudgeId: streamNudgeId } },
     });
     await expect(pending).resolves.toBeUndefined();
     expect(vi.getTimerCount()).toBe(timersBeforeNudge);
 
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'nudge-sc' } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'nudge-sc' } } });
     expect(handle.active).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
     socket.disconnect();
@@ -676,13 +678,16 @@ describe('scoped channels — dynamic families', () => {
     // The family KEY carries the plugin namespace; the concrete member name is a
     // runtime value matched against the family pattern, so it stays as written.
     const sub = ws.sentFrames().find((f) => f.event === '__subscribe__');
-    expect(sub?.__wskit?.channelFamily).toBe('__acme:chat::thread');
-    expect(sub?.__wskit?.channel).toBe('thread:1');
+    expect(sub?.metadata?.channel?.family).toBe('__acme:chat::thread');
+    expect(sub?.metadata?.channel?.name).toBe('thread:1');
 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'thread:1', channelFamily: '__acme:chat::thread' },
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { name: 'thread:1', family: '__acme:chat::thread' },
+      },
     });
     await pending;
 
@@ -691,7 +696,7 @@ describe('scoped channels — dynamic families', () => {
     ws.emit({
       event: '__acme:chat::post',
       payload: { text: 'hi' },
-      __wskit: { channel: 'thread:1', channelFamily: '__acme:chat::thread' },
+      metadata: { channel: { name: 'thread:1', family: '__acme:chat::thread' } },
     });
 
     expect(posts).toEqual(['hi']);
@@ -759,7 +764,7 @@ describe('scoped channels — dynamic families', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: '__acme:chat::room' },
+      metadata: { exchange: { source: 'client' }, channel: { name: '__acme:chat::room' } },
     });
     await roomSub;
 
@@ -767,7 +772,10 @@ describe('scoped channels — dynamic families', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'thread:1', channelFamily: '__acme:chat::thread' },
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { name: 'thread:1', family: '__acme:chat::thread' },
+      },
     });
     await threadSub;
 
@@ -778,14 +786,13 @@ describe('scoped channels — dynamic families', () => {
     // registers, and the channel name is namespaced in the marker.
     const chat = ws.sentFrames().find((f) => (f.payload as { text?: string })?.text === 'hi');
     expect(chat?.event).toBe('__acme:chat::chat');
-    expect(chat?.__wskit?.channel).toBe('__acme:chat::room');
+    expect(chat?.metadata?.channel?.name).toBe('__acme:chat::room');
 
     // Dynamic member: child event namespaced, family key namespaced, instance plain.
     const say = ws.sentFrames().find((f) => (f.payload as { text?: string })?.text === 'yo');
     expect(say?.event).toBe('__acme:chat::say');
-    expect(say?.__wskit).toMatchObject({
-      channel: 'thread:1',
-      channelFamily: '__acme:chat::thread',
+    expect(say?.metadata).toMatchObject({
+      channel: { name: 'thread:1', family: '__acme:chat::thread' },
     });
   });
 
@@ -819,12 +826,12 @@ describe('scoped channels — dynamic families', () => {
     ws.emit({
       event: '__error__',
       payload: { code: '__acme:chat::room-locked', detail: { reason: 'full' } },
-      __wskit: { channel: '__acme:chat::room' },
+      metadata: { channel: { name: '__acme:chat::room' } },
     });
 
     // The plugin author works in plain names, so the rejection carries `room-locked`.
-    await expect(pending).rejects.toBeInstanceOf(WSKitError);
-    await pending.catch((error: WSKitError) => {
+    await expect(pending).rejects.toBeInstanceOf(LiveThingError);
+    await pending.catch((error: LiveThingError) => {
       expect(error.code).toBe('room-locked');
       expect(error.detail).toEqual({ reason: 'full' });
     });
@@ -938,8 +945,8 @@ describe('scoped errors — onServerError()', () => {
     expect(pluginSocket).toHaveProperty('onServerError');
   });
 
-  it('delivers a namespaced unsolicited error as a real WSKitError with the plain code', () => {
-    const seen: WSKitError[] = [];
+  it('delivers a namespaced unsolicited error as a real LiveThingError with the plain code', () => {
+    const seen: LiveThingError[] = [];
     const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
       id: 'acme:chat',
       setup(socket) {
@@ -954,11 +961,11 @@ describe('scoped errors — onServerError()', () => {
       payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
     });
 
-    // A real WSKitError instance (so `.matches()` / `instanceof` work), with the
+    // A real LiveThingError instance (so `.matches()` / `instanceof` work), with the
     // `__acme:chat::` prefix stripped and the typed detail intact.
     expect(seen).toHaveLength(1);
     const [error] = seen;
-    expect(error).toBeInstanceOf(WSKitError);
+    expect(error).toBeInstanceOf(LiveThingError);
     expect(error?.code).toBe('room-full');
     expect(error?.detail).toEqual({ limit: 5 });
   });
@@ -978,15 +985,15 @@ describe('scoped errors — onServerError()', () => {
     });
 
     // The plugin owns the frame, so with no scoped handler it goes to the app's
-    // onServerError catch-all as a WSKitError — the namespaced code keeps it unambiguous.
+    // onServerError catch-all as a LiveThingError — the namespaced code keeps it unambiguous.
     expect(appErrors).toHaveLength(1);
-    expect(appErrors[0]).toBeInstanceOf(WSKitError);
-    expect((appErrors[0] as WSKitError).code).toBe('__acme:chat::room-full');
+    expect(appErrors[0]).toBeInstanceOf(LiveThingError);
+    expect((appErrors[0] as LiveThingError).code).toBe('__acme:chat::room-full');
   });
 
   it('passes a namespaced error to the host when only a non-matching plugin code is registered', () => {
-    const pluginErrors: WSKitError[] = [];
-    const hostErrors: WSKitError[] = [];
+    const pluginErrors: LiveThingError[] = [];
+    const hostErrors: LiveThingError[] = [];
     const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
       id: 'acme:chat',
       setup(socket) {

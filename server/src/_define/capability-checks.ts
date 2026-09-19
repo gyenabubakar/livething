@@ -13,7 +13,7 @@ export function assertUniqueCapabilityKinds(
 
     if (seen.has(kind)) {
       throw new Error(
-        `[wskit] ${capabilityDisplayName(kind)} is listed more than once in ${context}. ` +
+        `[livething] ${capabilityDisplayName(kind)} is listed more than once in ${context}. ` +
           'Each capability can be listed once per scope.',
       );
     }

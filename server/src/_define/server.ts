@@ -152,7 +152,7 @@ export interface ServerConfig<
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** Turn on Cloudflare Durable Object hibernation (which disables server pings). */
   readonly hibernation?: { readonly enabled: boolean };
-  /** Translate one foreign WebSocket wire format into WSKit at this server's connection edge. */
+  /** Translate one foreign WebSocket wire format into LiveThing at this server's connection edge. */
   readonly translate?: TranslatorFactory;
   /**
    * Cap how many live connections one user may hold at once. `onExceed` decides
@@ -1648,7 +1648,7 @@ export interface CoreBase<
 }
 
 /** A value `assemble(...)` accepts — a routed handler or channel, never a capability. */
-export type AssembleInput = Contribution & { readonly __wskitCapability?: never };
+export type AssembleInput = Contribution & { readonly __livethingCapability?: never };
 
 /** The rate-limit slots `assemble(...)` reads off a collected channel object. @internal */
 interface ChannelRateLimitSource {
@@ -1692,7 +1692,7 @@ function assertUniqueHandlers(handlers: readonly Primitive[]): void {
     const id = registrationId ?? '';
     if (registered.has(id)) {
       throw new Error(
-        `[wskit] Duplicate ${handler.__wskit} handler` +
+        `[livething] Duplicate ${handler.__livething} handler` +
           `${registrationId ? ` for '${registrationId}'` : ''} passed to assemble(). ` +
           'An event can only be bound once — drop the duplicate.',
       );
@@ -1700,26 +1700,26 @@ function assertUniqueHandlers(handlers: readonly Primitive[]): void {
 
     registered.add(id);
 
-    if (ROUTING_KINDS.has(handler.__wskit)) {
+    if (ROUTING_KINDS.has(handler.__livething)) {
       const event = (handler as { event?: string }).event;
       if (event !== undefined) {
         const owner = routedEvents.get(event);
-        if (owner !== undefined && owner !== handler.__wskit) {
+        if (owner !== undefined && owner !== handler.__livething) {
           throw new Error(
-            `[wskit] Event name '${event}' is bound by both a ${owner} handler and a ` +
-              `${handler.__wskit} handler passed to assemble(). An event name can only be one ` +
+            `[livething] Event name '${event}' is bound by both a ${owner} handler and a ` +
+              `${handler.__livething} handler passed to assemble(). An event name can only be one ` +
               'kind within a scope — pick a different name.',
           );
         }
 
-        routedEvents.set(event, handler.__wskit);
+        routedEvents.set(event, handler.__livething);
       }
     }
   }
 }
 
 interface ServerRequestsPrimitive extends Primitive {
-  readonly __wskit: 'server-requests';
+  readonly __livething: 'server-requests';
   readonly __serverRequests: ReadonlyMap<string, ResolvedServerRequest>;
   readonly __withServerRequests: (
     declarations: ReadonlyMap<string, ResolvedServerRequest>,
@@ -1729,7 +1729,7 @@ interface ServerRequestsPrimitive extends Primitive {
 /** Install one server-request runtime containing every host and plugin declaration. */
 function mergeServerRequestPrimitives(primitives: Primitive[]): void {
   const carriers = primitives.flatMap((primitive, index) =>
-    primitive.__wskit === 'server-requests'
+    primitive.__livething === 'server-requests'
       ? ([[index, primitive as ServerRequestsPrimitive]] as const)
       : [],
   );
@@ -1740,7 +1740,7 @@ function mergeServerRequestPrimitives(primitives: Primitive[]): void {
     for (const [key, declaration] of carrier.__serverRequests) {
       if (declarations.has(key)) {
         throw new Error(
-          `[wskit] duplicate serverRequests() declaration for '${key}'. ` +
+          `[livething] duplicate serverRequests() declaration for '${key}'. ` +
             'Each request can only be declared once per scope.',
         );
       }
@@ -1770,7 +1770,7 @@ function mergeScheduled(
     const body = bodies.get(taskId);
     if (!body) {
       throw new Error(
-        `[wskit] No body for scheduled task '${taskId}'. ` +
+        `[livething] No body for scheduled task '${taskId}'. ` +
           `Register it with base.scheduled('${taskId}', ...).`,
       );
     }
@@ -1781,7 +1781,7 @@ function mergeScheduled(
   for (const taskId of bodies.keys()) {
     if (!declarations.has(taskId)) {
       throw new Error(
-        `[wskit] base.scheduled('${taskId}') has no matching declaration. ` +
+        `[livething] base.scheduled('${taskId}') has no matching declaration. ` +
           `Declare it in the scheduled({ ... }) capability.`,
       );
     }
@@ -1796,7 +1796,7 @@ function toEphemeralTagRefs(ephemeral: Record<string, string | undefined> | unde
 
   const refs: TagRef[] = [];
   for (const [group, key] of Object.entries(ephemeral)) {
-    if (key !== undefined) refs.push({ __wskit: 'tag-ref', kind: 'ephemeral', group, key });
+    if (key !== undefined) refs.push({ __livething: 'tag-ref', kind: 'ephemeral', group, key });
   }
 
   return refs;
@@ -1827,7 +1827,7 @@ const SCOPED_UPGRADE_KEY = Symbol('scopedUpgrade');
  */
 function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
   return {
-    __wskit: 'onUpgrade',
+    __livething: 'onUpgrade',
     __kind: 'lifecycle',
     __identity: [SCOPED_UPGRADE_KEY],
     __requires: {},
@@ -1841,12 +1841,12 @@ function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
 }
 
 /**
- * Create a WSKit server. `server(...)` holds only bootstrap (`upgrade`,
+ * Create a LiveThing server. `server(...)` holds only bootstrap (`upgrade`,
  * `hibernation`); every feature is a capability you list. It returns a `base`
  * builder whose methods are typed against your metadata and capabilities.
  *
  * ```ts
- * import { server, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@livething/server';
  * import * as v from 'valibot';
  *
  * const base = server({
@@ -1902,7 +1902,7 @@ export function server(config: any): any {
   function registerOnce(slot: string, primitive: Primitive): void {
     if (seen.has(slot)) {
       throw new Error(
-        `[wskit] Duplicate ${slot} hook on this server. Only one ${slot} hook can be attached.`,
+        `[livething] Duplicate ${slot} hook on this server. Only one ${slot} hook can be attached.`,
       );
     }
 
@@ -1923,7 +1923,7 @@ export function server(config: any): any {
     }
 
     throw new Error(
-      `[wskit] base.${method}() needs the ${capabilityName} capability. ` +
+      `[livething] base.${method}() needs the ${capabilityName} capability. ` +
         `Add ${capabilityName} to capabilities.`,
     );
   }
@@ -1942,7 +1942,7 @@ export function server(config: any): any {
 
       if (buildRateLimit) {
         throw new Error(
-          '[wskit] rateLimit() is listed more than once. Set one global rule, or none.',
+          '[livething] rateLimit() is listed more than once. Set one global rule, or none.',
         );
       }
 
@@ -1980,7 +1980,7 @@ export function server(config: any): any {
     const hasOverrides = overrides.size > 0 || channelRules.size > 0;
     if (!buildRateLimit && hasOverrides) {
       throw new Error(
-        '[wskit] a per-handler rateLimit override needs the rateLimit() capability. ' +
+        '[livething] a per-handler rateLimit override needs the rateLimit() capability. ' +
           'Add rateLimit() to capabilities.',
       );
     }
@@ -2010,7 +2010,7 @@ export function server(config: any): any {
 
       if (!build) {
         throw new Error(
-          '[wskit] base.request() needs clientRequests(). Add clientRequests() to capabilities.',
+          '[livething] base.request() needs clientRequests(). Add clientRequests() to capabilities.',
         );
       }
 
@@ -2029,7 +2029,7 @@ export function server(config: any): any {
     scheduled(taskId: string, config: ServerConfigParameter) {
       if (scheduledBodies.has(taskId)) {
         throw new Error(
-          `[wskit] Duplicate scheduled task '${taskId}' on this server. ` +
+          `[livething] Duplicate scheduled task '${taskId}' on this server. ` +
             'A task can only be registered once.',
         );
       }
@@ -2079,7 +2079,7 @@ export function server(config: any): any {
 
       if (!factory) {
         throw new Error(
-          '[wskit] base.channel() needs the channels() capability. Add channels() to capabilities.',
+          '[livething] base.channel() needs the channels() capability. Add channels() to capabilities.',
         );
       }
 
@@ -2137,7 +2137,7 @@ export function server(config: any): any {
         const candidate = (cap as Partial<ReplayCustomCapability>).__buildCustomReplay;
         if (candidate) {
           if (build) {
-            throw new Error('[wskit] replay.custom() is listed more than once. List it once.');
+            throw new Error('[livething] replay.custom() is listed more than once. List it once.');
           }
 
           build = candidate;
@@ -2146,7 +2146,7 @@ export function server(config: any): any {
 
       if (!build) {
         throw new Error(
-          '[wskit] base.replay() needs the replay.custom() capability. ' +
+          '[livething] base.replay() needs the replay.custom() capability. ' +
             'Add replay.custom() to capabilities.',
         );
       }
@@ -2166,9 +2166,9 @@ export function server(config: any): any {
         Set<Primitive>
       >();
       for (const item of items) {
-        if ((item as { __wskitCapability?: unknown }).__wskitCapability) {
+        if ((item as { __livethingCapability?: unknown }).__livethingCapability) {
           throw new Error(
-            '[wskit] A capability was passed to assemble(). List capabilities in ' +
+            '[livething] A capability was passed to assemble(). List capabilities in ' +
               'server({ capabilities: [...] }) and pass routed handler values or channel objects to assemble().',
           );
         }
@@ -2179,7 +2179,7 @@ export function server(config: any): any {
           }
         ).__channel;
         if (channel) {
-          if ((item as { __wskitChannel?: boolean }).__wskitChannel) {
+          if ((item as { __livethingChannel?: boolean }).__livethingChannel) {
             if (!channelObjects.has(channel)) channelObjects.set(channel, new Set());
           } else {
             const handler = (item as { __handler?: Primitive }).__handler;
@@ -2238,7 +2238,7 @@ export function server(config: any): any {
       mergeServerRequestPrimitives(primitives);
 
       const declaredErrors = primitives
-        .filter((p): p is ErrorsPrimitive => p.__wskit === 'errors')
+        .filter((p): p is ErrorsPrimitive => p.__livething === 'errors')
         .flatMap((p) => p.defs);
       collectUnique(declaredErrors, (def) => def.code, {
         kind: 'error code',
@@ -2246,19 +2246,19 @@ export function server(config: any): any {
       });
 
       const builtinReplayCount = primitives.filter(
-        (p) => p.__wskit === 'replay' && !(p as { disabled?: boolean }).disabled,
+        (p) => p.__livething === 'replay' && !(p as { disabled?: boolean }).disabled,
       ).length;
-      const hasCustomReplay = primitives.some((p) => p.__wskit === 'replayCustom');
+      const hasCustomReplay = primitives.some((p) => p.__livething === 'replayCustom');
       if (builtinReplayCount > 1) {
         throw new Error(
-          '[wskit] built-in replay (replay.history() / replay.snapshot()) is listed more than ' +
+          '[livething] built-in replay (replay.history() / replay.snapshot()) is listed more than ' +
             'once. Use one replay strategy per scope.',
         );
       }
 
       if (builtinReplayCount > 0 && hasCustomReplay) {
         throw new Error(
-          '[wskit] built-in replay and custom base.replay() are both configured. ' +
+          '[livething] built-in replay and custom base.replay() are both configured. ' +
             'Use one or the other.',
         );
       }
@@ -2272,7 +2272,8 @@ export function server(config: any): any {
 
       function isDurableGenerate(p: Primitive): boolean {
         return (
-          p.__wskit === 'resumable-stream-generate' || p.__wskit === 'recorded-stream-generate'
+          p.__livething === 'resumable-stream-generate' ||
+          p.__livething === 'recorded-stream-generate'
         );
       }
 
@@ -2282,7 +2283,7 @@ export function server(config: any): any {
       const hasDurableStream = primitives.some(
         (p) =>
           isDurableGenerate(p) ||
-          (p.__wskit === 'channel' &&
+          (p.__livething === 'channel' &&
             ((p as { primitives?: readonly Primitive[] }).primitives ?? []).some(
               isDurableGenerate,
             )),
@@ -2320,7 +2321,7 @@ export function server(config: any): any {
       }
 
       return Object.freeze({
-        __wskit: 'server' as const,
+        __livething: 'server' as const,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
         ...(config.translate ? { __translate: config.translate } : {}),

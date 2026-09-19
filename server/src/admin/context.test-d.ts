@@ -1,5 +1,5 @@
 import { channels } from '~/channel/capability.ts';
-import { server, emits, t } from '~/index.ts';
+import { emits, server, t } from '~/index.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { expectTypeOf } from 'vitest';
 import type { UnlistedAdminContextMember } from './context.ts';

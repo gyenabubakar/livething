@@ -4,10 +4,10 @@
  * that wrote one row per add. Post-A the writes batch into one row at the
  * end of the handler invocation.
  */
-import { emits, server, t } from '@wskit/server';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const TagBatchPayload = v.object({});

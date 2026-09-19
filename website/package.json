@@ -1,5 +1,5 @@
 {
-  "name": "@wskit/website",
+  "name": "@livething/website",
   "type": "module",
   "private": true,
   "scripts": {
@@ -12,7 +12,7 @@
     "deploy": "pnpm run generate && wrangler deploy",
     "deploy:preview": "pnpm run generate && wrangler versions upload",
     "typecheck": "vue-tsc --noEmit",
-    "clean": "rm -rf .nuxt .data .output node_modules .wrangler"
+    "clean": "rm -rf .nuxt .data .output node_modules .wrangler .lighthouseci .lighthouse-results"
   },
   "dependencies": {
     "@nuxt/content": "^3.14.0",

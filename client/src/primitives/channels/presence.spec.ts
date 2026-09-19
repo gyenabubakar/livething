@@ -35,7 +35,7 @@ async function subscribeChannel(socket: BuiltSocket, ws: MockWebSocket, channelN
   ws.emit({
     event: '__subscribeOk__',
     payload: {},
-    __wskit: { source: 'client', channel: channelName },
+    metadata: { exchange: { source: 'client' }, channel: { name: channelName } },
   });
   await p;
 
@@ -61,7 +61,7 @@ describe('__memberOnline__ and __memberOffline__ frames', () => {
     ws.emit({
       event: '__memberOnline__',
       payload: { connectionId: 'c1', meta: { name: 'Ada' } },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(onOnline).toHaveBeenCalledOnce();
@@ -78,7 +78,7 @@ describe('__memberOnline__ and __memberOffline__ frames', () => {
     ws.emit({
       event: '__memberOffline__',
       payload: { connectionId: 'c1' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(onOffline).toHaveBeenCalledOnce();
@@ -97,7 +97,7 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     ws.emit({
       event: '__memberOnline__',
       payload: { connectionId: 'c42', meta: { name: 'Bob' } },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(onOnline).toHaveBeenCalledWith('c42', { meta: { name: 'Bob' } });
@@ -112,7 +112,7 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c1', meta: {} },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().has('c1')).toBe(true);
 
@@ -122,7 +122,7 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     ws.emit({
       event: '__memberOffline__',
       payload: { connectionId: 'c1' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(onOffline).toHaveBeenCalledWith('c1');
@@ -138,19 +138,19 @@ describe('channel.members store — snapshot identity', () => {
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c1', meta: {} },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     const snapshot = room.members.get();
 
     ws.emit({
       event: '__memberOnline__',
       payload: { connectionId: 'c42', meta: { name: 'Bob' } },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     ws.emit({
       event: '__memberOffline__',
       payload: { connectionId: 'c1' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(room.members.get()).toBe(snapshot);
@@ -166,12 +166,12 @@ describe('channel.members store — snapshot identity', () => {
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c1', meta: {} },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     ws.emit({
       event: '__memberLeave__',
       payload: { connectionId: 'c1' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(snapshots).toHaveLength(2);
@@ -189,7 +189,7 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().has('c1')).toBe(true);
     expect(room.members.get().size).toBe(1);
@@ -197,7 +197,7 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c2', meta: { name: 'Bob' } }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(room.members.get().has('c1')).toBe(false);
@@ -212,7 +212,7 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c1', meta: {} }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     const onJoin = vi.fn();
@@ -223,7 +223,7 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c2', meta: { role: 'admin' } }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(onJoin).toHaveBeenCalledOnce();
@@ -242,7 +242,7 @@ describe('top-level channel and scoped channel with same name are independent', 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await topPromise;
 
@@ -251,14 +251,14 @@ describe('top-level channel and scoped channel with same name are independent', 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general', family: 'rooms' } },
     });
     await scopedPromise;
 
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c1' },
-      __wskit: { channel: 'general', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'general', family: 'rooms' } },
     });
 
     expect(scoped.members.get().has('c1')).toBe(true);
@@ -273,7 +273,7 @@ describe('top-level channel and scoped channel with same name are independent', 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await topPromise;
 
@@ -282,7 +282,7 @@ describe('top-level channel and scoped channel with same name are independent', 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general', family: 'rooms' } },
     });
     await scopedPromise;
 
@@ -294,7 +294,7 @@ describe('top-level channel and scoped channel with same name are independent', 
     ws.emit({
       event: 'message',
       payload: { text: 'scoped only' },
-      __wskit: { channel: 'general', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'general', family: 'rooms' } },
     });
 
     expect(scopedHandler).toHaveBeenCalledWith({ text: 'scoped only' });
@@ -316,7 +316,7 @@ describe('presence frames are ignored while a leave is pending', () => {
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().size).toBe(1);
     room.unsubscribe();
@@ -329,7 +329,7 @@ describe('presence frames are ignored while a leave is pending', () => {
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c2', meta: {} }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().size).toBe(0);
   });
@@ -344,12 +344,12 @@ describe('presence frames are ignored while a leave is pending', () => {
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c3', meta: {} },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     ws.emit({
       event: '__memberOnline__',
       payload: { connectionId: 'c3', meta: {} },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     expect(onJoin).not.toHaveBeenCalled();
     expect(onOnline).not.toHaveBeenCalled();
@@ -368,8 +368,8 @@ describe('resyncMembers() fire-and-forget request', () => {
       .at(-1);
     expect(frame).toBeDefined();
 
-    expect(frame?.__wskit?.channel).toBe('general');
-    expect(frame?.__wskit?.source).toBe('client');
+    expect(frame?.metadata?.channel?.name).toBe('general');
+    expect(frame?.metadata?.exchange?.source).toBe('client');
   });
 
   it('is a no-op (sends nothing) when the channel is not active', () => {
@@ -389,7 +389,9 @@ describe('presence frames after the channel has been left', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'general', unsubscribeId: leave?.__wskit?.unsubscribeId },
+      metadata: {
+        channel: { name: 'general', unsubscribeId: leave?.metadata?.channel?.unsubscribeId },
+      },
     });
 
     return { room, ws };
@@ -403,7 +405,7 @@ describe('presence frames after the channel has been left', () => {
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(onJoin).not.toHaveBeenCalled();
@@ -418,7 +420,7 @@ describe('presence frames after the channel has been left', () => {
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c1', meta: { name: 'Ada' } },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(onJoin).not.toHaveBeenCalled();

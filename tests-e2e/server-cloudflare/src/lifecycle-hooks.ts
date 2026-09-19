@@ -1,4 +1,4 @@
-import { bind } from '@wskit/server-cloudflare';
-import { lifecycleHooksDefinition } from '@wskit/tests-e2e-handlers/lifecycle-hooks';
+import { bind } from '@livething/server-cloudflare';
+import { lifecycleHooksDefinition } from '@livething/tests-e2e-handlers/lifecycle-hooks';
 
 export class LifecycleHooksServer extends bind(lifecycleHooksDefinition) {}

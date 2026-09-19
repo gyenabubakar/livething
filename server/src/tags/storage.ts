@@ -1,7 +1,7 @@
 import type { SQLProvider } from '~/context.ts';
 
 const CREATE_TAGS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_tags (
+  CREATE TABLE IF NOT EXISTS __livething_tags (
     user_id    TEXT NOT NULL,
     group_name TEXT NOT NULL,
     key        TEXT NOT NULL,
@@ -13,13 +13,13 @@ const CREATE_TAGS_TABLE_SQL = `
 `;
 
 const CREATE_TAGS_USER_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_user
-  ON __wskit_tags (user_id)
+  CREATE INDEX IF NOT EXISTS __livething_idx_tags_user
+  ON __livething_tags (user_id)
 `;
 
 const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_group_key
-  ON __wskit_tags (group_name, key)
+  CREATE INDEX IF NOT EXISTS __livething_idx_tags_group_key
+  ON __livething_tags (group_name, key)
 `;
 
 // All three DDL statements in one multi-statement string. Cloudflare's SQL
@@ -68,7 +68,7 @@ export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput)
   const addedAt = input.addedAt ?? Date.now();
   sql.exec(
     `
-      INSERT OR REPLACE INTO __wskit_tags
+      INSERT OR REPLACE INTO __livething_tags
         (user_id, group_name, key, added_at)
       VALUES (?, ?, ?, ?)
     `,
@@ -92,7 +92,7 @@ export interface DeleteTagInput {
 export function deleteTag(sql: Pick<SQLProvider, 'exec'>, input: DeleteTagInput): void {
   sql.exec(
     `
-      DELETE FROM __wskit_tags
+      DELETE FROM __livething_tags
       WHERE user_id = ? AND group_name = ? AND key = ?
     `,
     input.userId,
@@ -113,7 +113,7 @@ export function listTagsByUser(
     .exec<RawTagRow>(
       `
         SELECT group_name, key, added_at
-        FROM __wskit_tags
+        FROM __livething_tags
         WHERE user_id = ?
       `,
       userId,
@@ -132,7 +132,7 @@ export function listTagsByUser(
  */
 export function listGroupNames(sql: Pick<SQLProvider, 'exec'>): readonly string[] {
   const rows = sql
-    .exec<{ group_name: string }>('SELECT DISTINCT group_name FROM __wskit_tags')
+    .exec<{ group_name: string }>('SELECT DISTINCT group_name FROM __livething_tags')
     .toArray();
   return rows.map((row) => row.group_name);
 }
@@ -142,7 +142,7 @@ export function listGroupNames(sql: Pick<SQLProvider, 'exec'>): readonly string[
  * removed between deploys.
  */
 export function deleteGroup(sql: Pick<SQLProvider, 'exec'>, group: string): void {
-  sql.exec('DELETE FROM __wskit_tags WHERE group_name = ?', group);
+  sql.exec('DELETE FROM __livething_tags WHERE group_name = ?', group);
 }
 
 /**
@@ -150,5 +150,5 @@ export function deleteGroup(sql: Pick<SQLProvider, 'exec'>, group: string): void
  * Safe to call even when no rows exist for the user.
  */
 export function purgeTagsByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec('DELETE FROM __wskit_tags WHERE user_id = ?', userId);
+  sql.exec('DELETE FROM __livething_tags WHERE user_id = ?', userId);
 }

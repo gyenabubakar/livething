@@ -148,10 +148,8 @@ test.describe('scheduled', () => {
   test('scheduled task that throws a non-Error (BigInt) still lands in the DLQ', async ({
     page,
   }, testInfo) => {
-    // Pre-fix the alarm handler crashed inside JSON.stringify(error) when
-    // the rejected value was a BigInt (or any other non-serializable value),
-    // and the failed run vanished without a dead-letter row. The error
-    // serializer now falls back to String(error), so the row writes.
+    // The error serializer falls back to String(error) for non-serializable
+    // thrown values, so the failed run can still be written to the dead letter queue.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('trigger-bigint-throw').click();
     await expect(async () => {
@@ -206,10 +204,7 @@ test.describe('scheduled', () => {
   test('ctx.schedule on an unregistered task id throws synchronously', async ({
     page,
   }, testInfo) => {
-    // Pre-fix: scheduleTaskRun silently queued unknown task ids when no
-    // data was supplied. The runner later found no handler and dropped
-    // the run without surfacing anything to the developer. The handler
-    // now throws at schedule time so typos are caught immediately.
+    // Unknown task IDs throw at schedule time so typos are reported immediately.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('schedule-unknown-task').click();
     await expect(page.getByTestId('schedule-unknown-task-result')).toContainText('rejected:');

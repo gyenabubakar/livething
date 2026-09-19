@@ -34,7 +34,7 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
  *
  * @example
  * ```ts
- * import { server, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@livething/server';
  *
  * const base = server({
  *   capabilities: [emits({ message: Message })],
@@ -89,7 +89,7 @@ export interface ServerContract {
 }
 
 /**
- * The finalized blueprint for a WSKit server.
+ * The finalized blueprint for a LiveThing server.
  *
  * You get a `ServerDefinition` by calling `base.assemble(...)` with your
  * handlers. It is an immutable, frozen object that holds all assembled
@@ -118,7 +118,7 @@ export interface ServerDefinition<
   TScopedCtx = unknown,
   TApi = unknown,
 > {
-  readonly __wskit: 'server';
+  readonly __livething: 'server';
   readonly primitives: TPrimitives;
   /**
    * Type-only field — never set at runtime.

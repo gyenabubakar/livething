@@ -132,7 +132,7 @@ export const scheduledService: ScheduledService = {
 };
 
 /** Installs the scheduled service once, set by `scheduled()` or a durable stream. */
-const SCHEDULED_SERVICE_KEY = Symbol('wskit.scheduledService');
+const SCHEDULED_SERVICE_KEY = Symbol('livething.scheduledService');
 
 export function registerScheduledService(engine: EngineAccess): void {
   engine.installOnce(SCHEDULED_SERVICE_KEY, () => {

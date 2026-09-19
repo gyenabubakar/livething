@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { WIRE_LIMITS } from '@wskit/core';
+import { WIRE_LIMITS } from '@livething/core';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
@@ -26,7 +26,7 @@ function serverDef(
   features: readonly string[] = [],
 ): ServerDefinition {
   return {
-    __wskit: 'server',
+    __livething: 'server',
     primitives: Object.freeze([...primitives]),
     __features: Object.freeze(new Set(features)),
   } as ServerDefinition;
@@ -279,12 +279,8 @@ describe('scope and event name syntax — reserved characters', () => {
 });
 
 describe('boot-time same-kind duplicate guard', () => {
-  // Pre-fix every `.set()` in compile silently overwrote on duplicate keys.
-  // A refactor that pasted an incoming("same", ...) twice, or two channel
-  // definitions with the same name, just kept the last one with no error.
-  // Each test below configures a duplicate and asserts compile refuses to
-  // produce a CompiledServer — the engine never gets a chance to construct,
-  // so the server refuses to start.
+  // Duplicate declarations prevent compilation, so the server cannot start
+  // with ambiguous event or channel definitions.
 
   it('rejects two incoming declarations with the same event name at top level', () => {
     const base = server({});

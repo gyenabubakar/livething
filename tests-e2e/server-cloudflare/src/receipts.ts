@@ -1,5 +1,5 @@
-import { bind } from '@wskit/server-cloudflare';
-import { receiptsDefinition } from '@wskit/tests-e2e-handlers/receipts';
+import { bind } from '@livething/server-cloudflare';
+import { receiptsDefinition } from '@livething/tests-e2e-handlers/receipts';
 
 const Base = bind(receiptsDefinition);
 

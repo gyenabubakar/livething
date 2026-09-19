@@ -9,11 +9,11 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   server: {
     host: '127.0.0.1',
-    port: 4180,
+    port: Number(process.env.LIVETHING_E2E_CLIENT_PORT ?? 4180),
     proxy: {
       '/wsx': { target: 'http://127.0.0.1:8788', ws: true, changeOrigin: true },
       '/ws': {
-        target: `http://127.0.0.1:${process.env.WSKIT_E2E_SERVER_PORT ?? 8787}`,
+        target: `http://127.0.0.1:${process.env.LIVETHING_E2E_SERVER_PORT ?? 8787}`,
         ws: true,
         changeOrigin: true,
       },

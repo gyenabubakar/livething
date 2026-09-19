@@ -1,7 +1,7 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 // Two families whose qualified names could be confused if the engine ever

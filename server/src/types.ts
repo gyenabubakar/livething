@@ -5,7 +5,7 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
  * A validator for an incoming message payload — any Standard Schema (valibot,
  * zod, arktype, or any other compliant library).
  *
- * Accepted everywhere WSKit expects validation: the `input` of `base.on`,
+ * Accepted everywhere LiveThing expects validation: the `input` of `base.on`,
  * `base.request`, and `base.stream`, plus `nudges` and a channel `subscribe`
  * schema. TypeScript infers the payload type from the schema, so your handler
  * is typed automatically.

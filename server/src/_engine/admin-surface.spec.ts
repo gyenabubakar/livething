@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
@@ -111,7 +111,7 @@ describe('Engine.admin() surfacing the app api', () => {
     expect(engine.admin().connectionCount).toBe(0);
   });
 
-  // These names belong to JavaScript, not to WSKit. Rejecting them in the engine
+  // These names belong to JavaScript, not to LiveThing. Rejecting them in the engine
   // means every adapter inherits the rule instead of restating it.
   describe('reserved api method names', () => {
     it("refuses 'then', which would make awaiting the admin surface hang forever", () => {
@@ -144,7 +144,7 @@ describe('Engine.admin() surfacing the app api', () => {
       const api = Object.create(prototype) as Record<string, unknown>;
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
@@ -156,7 +156,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
@@ -173,7 +173,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
@@ -198,7 +198,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(reads).toBe(0);
     });
 
@@ -212,7 +212,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => Object.create(prototype));
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
@@ -229,7 +229,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => Object.create(prototype));
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
@@ -245,7 +245,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => Object.create(prototype));
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
@@ -261,7 +261,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => Object.create(prototype));
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(reads).toBe(0);
     });
 
@@ -283,7 +283,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(reads).toBe(0);
     });
 

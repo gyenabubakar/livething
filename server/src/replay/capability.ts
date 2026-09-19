@@ -49,10 +49,10 @@ export interface ReplayCustomCapability extends Capability<{}, never, 'replay-cu
  *
  * @example
  * ```ts
- * import { server } from '@wskit/server';
- * import { replay } from '@wskit/server/replay';
- * import { dedup } from '@wskit/server/dedup';
- * import { sequence } from '@wskit/server/sequence';
+ * import { server } from '@livething/server';
+ * import { replay } from '@livething/server/replay';
+ * import { dedup } from '@livething/server/dedup';
+ * import { sequence } from '@livething/server/sequence';
  *
  * const base = server({
  *   capabilities: [
@@ -121,14 +121,14 @@ function attachBuiltinReplayBuilder(cap: HostCapability<{}, 'replay'>): void {
  *
  * @example
  * ```ts
- * import { server } from '@wskit/server';
- * import { replay } from '@wskit/server/replay';
+ * import { server } from '@livething/server';
+ * import { replay } from '@livething/server/replay';
  *
  * const base = server({ capabilities: [replay.custom()] });
  *
  * base.replay({
  *   beforeSend(ctx, msg) {
- *     ctx.sql.exec('INSERT INTO log (seq, event) VALUES (?, ?)', msg.wire.seq, msg.event);
+ *     ctx.sql.exec('INSERT INTO log (seq, event) VALUES (?, ?)', msg.wire.deliverySeq, msg.event);
  *   },
  *   replay(ctx, since) {
  *     for (const row of loadRows(ctx.sql, since)) ctx.sendReplay(row.event, row.payload, row.wire);

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes } from '@livething/core';
 import {
   acceptConnection,
   cancelActiveStreamsForConnection,
@@ -532,22 +532,16 @@ describe('connection runtime', () => {
     );
 
     expect(sent).toHaveLength(2);
-    expect(JSON.parse(sent[0]!)).toEqual({
-      event: '__error__',
-      payload: {
-        code: 'stream-aborted',
-        detail: { reason: 'hibernation-wake' },
-      },
-      __wskit: { streamId: 'stream_1' },
-    });
-    expect(JSON.parse(sent[1]!)).toEqual({
-      event: '__error__',
-      payload: {
-        code: 'stream-aborted',
-        detail: { reason: 'hibernation-wake' },
-      },
-      __wskit: { streamId: 'stream_2' },
-    });
+    expect(JSON.parse(sent[0]!)).toEqual([
+      '__error__',
+      { code: 'stream-aborted', detail: { reason: 'hibernation-wake' } },
+      { stream: { id: 'stream_1' } },
+    ]);
+    expect(JSON.parse(sent[1]!)).toEqual([
+      '__error__',
+      { code: 'stream-aborted', detail: { reason: 'hibernation-wake' } },
+      { stream: { id: 'stream_2' } },
+    ]);
   });
 
   it('wakeHibernatedConnection sends no __error__ frames when attachment has no active streams', () => {
@@ -741,82 +735,83 @@ describe('connection runtime', () => {
   it.each([
     ['reserved', '__bcast:room'],
     ['oversized', 'u'.repeat(257)],
-  ])('rejects a legacy persisted %s user id before restoring the socket', async (_kind, userId) => {
-    const wsKey = {
-      send: vi.fn(),
-      close: vi.fn(),
-    };
+  ])(
+    'rejects an invalid persisted %s user id before restoring the socket',
+    async (_kind, userId) => {
+      const wsKey = {
+        send: vi.fn(),
+        close: vi.fn(),
+      };
 
-    const connections = new Map();
-    const usersByKey = new Map();
-    const channelMembers = new Map();
-    const tagMembers = new Map();
+      const connections = new Map();
+      const usersByKey = new Map();
+      const channelMembers = new Map();
+      const tagMembers = new Map();
 
-    const deleted: string[] = [];
+      const deleted: string[] = [];
 
-    const handle = wakeHibernatedConnection(
-      {
-        compiled: {
-          outgoing: new Map(),
-          incoming: new Map(),
-          requests: new Map(),
-          streams: new Map(),
-          resumableStreams: new Map(),
-          recordedStreams: new Map(),
-          intercepts: [],
-          channels: new Map(),
-          channelFamilies: new Map(),
-          scheduled: new Map(),
-          requires: {},
-          replayClaimedChannelKeys: new Set(),
+      const handle = wakeHibernatedConnection(
+        {
+          compiled: {
+            outgoing: new Map(),
+            incoming: new Map(),
+            requests: new Map(),
+            streams: new Map(),
+            resumableStreams: new Map(),
+            recordedStreams: new Map(),
+            intercepts: [],
+            channels: new Map(),
+            channelFamilies: new Map(),
+            scheduled: new Map(),
+            requires: {},
+            replayClaimedChannelKeys: new Set(),
+          },
+          connections,
+          usersByKey,
+          wsToConnectionId: new Map(),
+          channelMembers,
+          tagMembers,
+          generateId: () => 'conn_new',
+          persistAttachment() {},
+          restoreAttachment: () => ({ id: 'invalid-1' }),
+          readConnectionState: () => ({
+            connection_id: 'invalid-1',
+            user_id: userId,
+            meta: {},
+            ephemeral_tags: [{ group: 'role', key: 'admin' }],
+            ephemeral_memberships: [{ channelName: 'room', channelFamily: null }],
+            active_stream_ids: ['stream-1'],
+          }),
+          deleteConnectionState: (id) => deleted.push(id),
+          buildConnectionContext(connection) {
+            return { id: connection.id };
+          },
+          async runConnectionLifecycle() {},
+          async processTextMessage() {},
+          async handleConnectionClose() {},
+          async handleRuntimeError() {},
         },
-        connections,
-        usersByKey,
-        wsToConnectionId: new Map(),
-        channelMembers,
-        tagMembers,
-        generateId: () => 'conn_new',
-        persistAttachment() {},
-        restoreAttachment: () => ({ id: 'legacy-1' }),
-        readConnectionState: () => ({
-          connection_id: 'legacy-1',
-          user_id: userId,
-          meta: {},
-          ephemeral_tags: [{ group: 'role', key: 'admin' }],
-          ephemeral_memberships: [{ channelName: 'room', channelFamily: null }],
-          active_stream_ids: ['stream-1'],
-        }),
-        deleteConnectionState: (id) => deleted.push(id),
-        buildConnectionContext(connection) {
-          return { id: connection.id };
-        },
-        async runConnectionLifecycle() {},
-        async processTextMessage() {},
-        async handleConnectionClose() {},
-        async handleRuntimeError() {},
-      },
-      wsKey,
-    );
+        wsKey,
+      );
 
-    expect(wsKey.close).toHaveBeenCalledWith(
-      CloseCodes.GOING_AWAY,
-      expect.stringMatching(/user id/i),
-    );
-    expect(deleted).toEqual(['legacy-1']);
-    expect(connections.size).toBe(0);
-    expect(usersByKey.size).toBe(0);
-    expect(channelMembers.size).toBe(0);
+      expect(wsKey.close).toHaveBeenCalledWith(
+        CloseCodes.GOING_AWAY,
+        expect.stringMatching(/user id/i),
+      );
+      expect(deleted).toEqual(['invalid-1']);
+      expect(connections.size).toBe(0);
+      expect(usersByKey.size).toBe(0);
+      expect(channelMembers.size).toBe(0);
 
-    expect(tagMembers.size).toBe(0);
-    expect(wsKey.send).not.toHaveBeenCalled();
-    await expect(handle.handleMessage('ignored')).resolves.toBeUndefined();
-  });
+      expect(tagMembers.size).toBe(0);
+      expect(wsKey.send).not.toHaveBeenCalled();
+      await expect(handle.handleMessage('ignored')).resolves.toBeUndefined();
+    },
+  );
 
   it('awaits handleConnectionClose for every connection before resolving', async () => {
-    // Pin F4: pre-fix the shutdown loop called descriptor.close and
-    // returned without awaiting the per-connection cleanup chain. The
-    // CF DO could be evicted before onDisconnect or _memberLeave
-    // fanned out. The fix awaits handleConnectionClose for each.
+    // Shutdown waits for every per-connection cleanup chain, including
+    // onDisconnect and member-leave fan-out.
     const order: string[] = [];
     let resolveClose!: () => void;
     const closeWait = new Promise<void>((r) => (resolveClose = r));
@@ -966,8 +961,8 @@ describe('connection runtime', () => {
       { code: 1001, reason: 'Server shutting down' },
     ]);
     expect(errorLog.map((e) => e.message)).toEqual([
-      '[wskit] shutdown hook threw',
-      '[wskit] plugin shutdown hook threw',
+      '[livething] shutdown hook threw',
+      '[livething] plugin shutdown hook threw',
     ]);
   });
 
@@ -1127,10 +1122,8 @@ describe('connection runtime', () => {
   });
 
   it('handleConnectionClose continues channel-leave fan-out when a disconnect hook throws', async () => {
-    // Pre-fix a throwing onDisconnect aborted the close sequence —
-    // channel members never received `_memberLeave`, the keepalive
-    // timer leaked. handleConnectionClose now contains the throw and
-    // proceeds with the remaining cleanup.
+    // A throwing onDisconnect is contained so member-leave fan-out and
+    // keepalive cleanup still run.
     const events: string[] = [];
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
     const wsKey = Symbol('ws');
@@ -1192,10 +1185,8 @@ describe('connection runtime', () => {
   });
 
   it('handleConnectionClose continues to subsequent channels and keepalive cleanup when one leaveChannel throws', async () => {
-    // Pre-fix a throwing leaveChannel (e.g. an onUnsubscribe hook that
-    // rejects) aborted the for-loop. Subsequent channel leaves and the
-    // keepalive timer cleanup never ran. The close path now contains
-    // the throw per membership and proceeds.
+    // A throwing leaveChannel is contained to one membership so later channel
+    // leaves and keepalive cleanup still run.
     const events: string[] = [];
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
     const wsKey = Symbol('ws');
@@ -1320,10 +1311,8 @@ describe('connection runtime', () => {
 
   it('cancelActiveStreamsForConnection logs and continues when one stream cleanup throws', async () => {
     // A user-supplied generator can throw from its `finally` block when
-    // generator.return() runs. Pre-fix that throw escaped the helper and
-    // aborted the rest of handleConnectionClose (delete connection, run
-    // disconnect hooks, leave channels, clear timers). Now the helper
-    // catches the throw, logs it, and keeps cleaning up subsequent streams.
+    // generator.return() runs. Cleanup logs that error and continues with the
+    // remaining streams and connection work.
     const throwing = (async function* () {
       try {
         yield 1;

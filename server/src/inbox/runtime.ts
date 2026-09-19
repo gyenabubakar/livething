@@ -50,7 +50,7 @@ interface InboxFanOutOptions {
   channelFamily: string | null;
   event: string;
   payload: Record<string, unknown>;
-  seq: number;
+  deliverySeq: number;
   messageId: string;
   excludeUserId?: string;
 }
@@ -97,11 +97,11 @@ export function channelKeyFor(channelName: string, channelFamily: string | null)
 
 /**
  * Fan one logical channel message out to every durable member's inbox, keyed on
- * the `seq`/`messageId` the broadcast already stamped, so a member's inbox row
+ * the `deliverySeq`/`messageId` the broadcast already stamped, so a member's inbox row
  * matches the live frame it also receives (its ack settles the row, and dedup
  * suppresses the reconnect re-delivery). A no-op for a channel without inbox.
  * Anonymous members (empty user id) hold no durable row and get live-only
- * delivery, but still see the same shared seq/messageId on the live frame.
+ * delivery, but still see the same shared deliverySeq/messageId on the live frame.
  *
  * `excludeUserId`, when set, skips that member's row entirely — used when the
  * broadcast excluded their one and only connection in this channel, so they
@@ -120,7 +120,7 @@ export function fanOutToInbox(core: EngineCore, opts: InboxFanOutOptions): void 
   if (userIds.length === 0) return;
 
   const frame: InboxFrame = {
-    seq: opts.seq,
+    deliverySeq: opts.deliverySeq,
     messageId: opts.messageId,
     event: opts.event,
     payload: opts.payload,
@@ -255,7 +255,7 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
       event: row.event,
       payload: JSON.parse(row.payload) as Record<string, unknown>,
       wire: {
-        seq: row.seq,
+        deliverySeq: row.seq,
         messageId: row.messageId,
         channel: row.channelName,
       },
@@ -307,7 +307,7 @@ export function clearInboxForChannel(core: EngineCore, key: InboxMemberKey): voi
 
 /**
  * Back a user's inbox from a set of full frames. Each frame keeps its own
- * seq/messageId so ordering and dedup stay consistent with live traffic; the
+ * deliverySeq/messageId so ordering and dedup stay consistent with live traffic; the
  * rows drain on the member's next reconnect, or arrive live if it is connected.
  *
  * Runs the inserted rows through the same retention and overflow-watermark

@@ -21,7 +21,7 @@ function incomingDefinition(
   primitives: readonly any[],
   wireEvent: string,
 ): (ctx: any, payload: any) => any {
-  const found = primitives.find((p) => p.__wskit === 'incoming' && p.event === wireEvent);
+  const found = primitives.find((p) => p.__livething === 'incoming' && p.event === wireEvent);
   if (!found) throw new Error(`no incoming primitive for ${wireEvent}`);
 
   return found.handler;
@@ -90,7 +90,7 @@ describe('plugin namespacing — scheduled', () => {
       definition: h.assemble({ handlers: [trigger] }),
     })();
     const incoming = __primitives.find(
-      (p: any) => p.__wskit === 'incoming' && p.event === '__acme:presence::go',
+      (p: any) => p.__livething === 'incoming' && p.event === '__acme:presence::go',
     ) as any;
 
     const schedule = vi.fn();
@@ -120,7 +120,7 @@ describe('plugin namespacing — tags', () => {
     expect(() => compileServerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
 
     const incoming = Plug.__primitives.find(
-      (p: any) => p.__wskit === 'incoming' && p.event === '__acme:roles::go',
+      (p: any) => p.__livething === 'incoming' && p.event === '__acme:roles::go',
     ) as any;
     const add = vi.fn();
     const ephemeral = vi.fn(() => ({ add }));
@@ -140,7 +140,7 @@ describe('plugin namespacing — errors', () => {
     });
     const handler = h.on('go', { input: v.object({}), run() {} });
     const Plug = plugin('acme:auth', { definition: h.assemble({ handlers: [handler] }) })();
-    const errorsPrimitive = Plug.__primitives.find((p: any) => p.__wskit === 'errors') as any;
+    const errorsPrimitive = Plug.__primitives.find((p: any) => p.__livething === 'errors') as any;
 
     expect(errorsPrimitive.defs.map((d: any) => d.code)).toContain('__acme:auth::denied');
 
@@ -169,7 +169,7 @@ describe('plugin namespacing — server→client requests', () => {
     const h = server({ scope: 'plugin', capabilities: [clientRequests()] });
     const ask = h.request('ask', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:ask', { definition: h.assemble({ handlers: [ask] }) })();
-    const request = __primitives.find((p: any) => p.__wskit === 'request') as any;
+    const request = __primitives.find((p: any) => p.__livething === 'request') as any;
 
     expect(request.event).toBe('__acme:ask::ask');
   });
@@ -185,7 +185,7 @@ describe('plugin namespacing — server→client requests', () => {
       ],
     });
     const { __primitives } = plugin('acme:ask', { definition: h.assemble({ handlers: [] }) })();
-    const carriers = __primitives.filter((p: any) => p.__wskit === 'server-requests') as any[];
+    const carriers = __primitives.filter((p: any) => p.__livething === 'server-requests') as any[];
 
     expect(carriers).toHaveLength(1);
     expect(carriers[0].__serverRequests.has(JSON.stringify([null, '__acme:ask::first']))).toBe(
@@ -206,7 +206,7 @@ describe('plugin namespacing — server→client requests', () => {
       capabilities: [serverRequests({ hostRequest: { out: t<{}>() } }), Plug()],
     });
     const { primitives } = base.assemble({ handlers: [] });
-    const carriers = primitives.filter((p: any) => p.__wskit === 'server-requests') as any[];
+    const carriers = primitives.filter((p: any) => p.__livething === 'server-requests') as any[];
 
     expect(carriers).toHaveLength(1);
     expect(carriers[0].__serverRequests.has(JSON.stringify([null, 'hostRequest']))).toBe(true);
@@ -342,10 +342,10 @@ describe('plugin namespacing — channel runtime sends', () => {
       },
     });
     const { __primitives } = plugin('acme:room', { definition: h.assemble({ handlers: [say] }) })();
-    const channelPrim = __primitives.find((p: any) => p.__wskit === 'channel') as any;
+    const channelPrim = __primitives.find((p: any) => p.__livething === 'channel') as any;
 
     const child = channelPrim.primitives.find(
-      (p: any) => p.__wskit === 'incoming' && p.event === '__acme:room::say',
+      (p: any) => p.__livething === 'incoming' && p.event === '__acme:room::say',
     ) as any;
 
     const send = vi.fn();
@@ -427,11 +427,11 @@ describe('plugin namespacing — upgrade seeds tags into the plugin namespace (#
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:rooms', { definition: h.assemble({ handlers: [go] }) })();
-    const upgradePrim = __primitives.find((p: any) => p.__wskit === 'onUpgrade') as any;
+    const upgradePrim = __primitives.find((p: any) => p.__livething === 'onUpgrade') as any;
 
     const result = await upgradePrim.handler(new Request('https://x'), {});
     expect(result.tags).toEqual([
-      { __wskit: 'tag-ref', kind: 'ephemeral', group: '__acme:rooms::room', key: 'general' },
+      { __livething: 'tag-ref', kind: 'ephemeral', group: '__acme:rooms::room', key: 'general' },
     ]);
   });
 
@@ -463,7 +463,7 @@ describe('plugin namespacing — channel serverRequests are reachable (#10)', ()
       definition: h.assemble({ handlers: [room] }),
     })();
 
-    const carrier = __primitives.find((p: any) => p.__wskit === 'server-requests') as any;
+    const carrier = __primitives.find((p: any) => p.__livething === 'server-requests') as any;
     const map: Map<string, any> = carrier.__serverRequests;
     const namespacedKey = JSON.stringify(['__acme:room::room', '__acme:room::confirm-kick']);
     expect(map.has(namespacedKey)).toBe(true);
@@ -482,7 +482,7 @@ describe('plugin namespacing — channel serverRequests are reachable (#10)', ()
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:ask', { definition: h.assemble({ handlers: [go] }) })();
 
-    const carrier = __primitives.find((p: any) => p.__wskit === 'server-requests') as any;
+    const carrier = __primitives.find((p: any) => p.__livething === 'server-requests') as any;
     const map: Map<string, any> = carrier.__serverRequests;
     expect(map.has(JSON.stringify([null, '__acme:ask::confirm']))).toBe(true);
     expect(map.has(JSON.stringify([null, 'confirm']))).toBe(false);
@@ -497,7 +497,9 @@ describe('plugin namespacing — channel serverRequests are reachable (#10)', ()
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const definition = h.assemble({ handlers: [go] });
-    const original = definition.primitives.find((p: any) => p.__wskit === 'server-requests') as any;
+    const original = definition.primitives.find(
+      (p: any) => p.__livething === 'server-requests',
+    ) as any;
     const originalMap: Map<string, any> = original.__serverRequests;
 
     plugin('acme:ask', { definition }); // triggers namespacing
@@ -523,7 +525,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
     const { __primitives } = plugin('acme:presence', {
       definition: h.assemble({ handlers: [go] }),
     })();
-    const interceptPrim = __primitives.find((p: any) => p.__wskit === 'intercept') as any;
+    const interceptPrim = __primitives.find((p: any) => p.__livething === 'intercept') as any;
 
     expect(interceptPrim.__owner).toEqual({ kind: 'plugin', id: 'acme:presence' });
 
@@ -541,7 +543,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:store', { definition: h.assemble({ handlers: [go] }) })();
-    const hook = __primitives.find((p: any) => p.__wskit === 'outgoingHook') as any;
+    const hook = __primitives.find((p: any) => p.__livething === 'outgoingHook') as any;
 
     expect(hook.__owner).toEqual({ kind: 'plugin', id: 'acme:store' });
 
@@ -561,7 +563,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:obs', { definition: h.assemble({ handlers: [go] }) })();
 
-    const hook = __primitives.find((p: any) => p.__wskit === 'outgoingHook') as any;
+    const hook = __primitives.find((p: any) => p.__livething === 'outgoingHook') as any;
     let registered: any;
     hook.__setup({ onOutgoing: (fn: any) => (registered = fn) });
     expect(() => registered(undefined, { event: 'x', payload: {} })).not.toThrow();
@@ -581,9 +583,9 @@ describe('plugin namespacing — channel hook is owned and scoped (Major 5)', ()
       definition: h.assemble({ handlers: [room] }),
     })();
 
-    const channelPrim = __primitives.find((p: any) => p.__wskit === 'channel') as any;
+    const channelPrim = __primitives.find((p: any) => p.__livething === 'channel') as any;
     const interceptChild = channelPrim.primitives.find(
-      (p: any) => p.__wskit === 'intercept',
+      (p: any) => p.__livething === 'intercept',
     ) as any;
     expect(interceptChild.__owner).toEqual({ kind: 'plugin', id: 'acme:room' });
 
@@ -636,7 +638,7 @@ describe('plugin namespacing — app ctx is untouched', () => {
     });
     const incoming = base
       .assemble({ handlers: [trigger] })
-      .primitives.find((p: any) => p.__wskit === 'incoming' && p.event === 'go') as any;
+      .primitives.find((p: any) => p.__livething === 'incoming' && p.event === 'go') as any;
 
     await incoming.handler({ id: 'c1', send, request, kv: { set: kvSet } }, {});
 

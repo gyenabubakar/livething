@@ -1,9 +1,9 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { stream } from '@wskit/server/streams';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { stream } from '@livething/server/streams';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const SendMessagePayload = v.object({ text: v.string() });

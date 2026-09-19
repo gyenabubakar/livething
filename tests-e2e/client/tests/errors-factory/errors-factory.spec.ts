@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's socket.onServerError against the real wskit
+// Conformance: @livething/client's socket.onServerError against the real LiveThing
 // `errors-factory` server definition. Adapter-oblivious — it talks to whatever server the
 // run booted over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {

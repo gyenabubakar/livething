@@ -1,10 +1,10 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Secret = v.object({ text: v.string() });
@@ -43,7 +43,7 @@ const handleSendSecret = privateChannel.on('send-secret', {
 
 privateChannel.replay({
   replay(ctx) {
-    ctx.sendReplay('secret', { text: 'top-secret-history' }, { seq: 1, messageId: 'm1' });
+    ctx.sendReplay('secret', { text: 'top-secret-history' }, { deliverySeq: 1, messageId: 'm1' });
   },
 });
 

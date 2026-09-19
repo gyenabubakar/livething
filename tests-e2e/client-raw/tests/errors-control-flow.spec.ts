@@ -49,7 +49,7 @@ test.describe('errors-control-flow', () => {
         const url = `${protocol}//${location.host}/ws/errors-control-flow?username=${encodeURIComponent('disc')}&room=${encodeURIComponent(currentRoom)}`;
         const ws = new WebSocket(url);
         ws.onopen = () => {
-          ws.send(JSON.stringify({ event: 'force-disconnect', payload: {} }));
+          ws.send(window.__livethingEncode({ event: 'force-disconnect', payload: {} }));
         };
         ws.onclose = (ev) => resolve({ code: ev.code, reason: ev.reason });
 
@@ -73,7 +73,7 @@ test.describe('errors-control-flow', () => {
         const url = `${protocol}//${location.host}/ws/errors-control-flow?username=${encodeURIComponent('tester')}&room=${encodeURIComponent(currentRoom)}`;
         const ws = new WebSocket(url);
         ws.onopen = () => {
-          ws.send(JSON.stringify({ event: 'disconnect-intercept', payload: {} }));
+          ws.send(window.__livethingEncode({ event: 'disconnect-intercept', payload: {} }));
         };
         ws.onclose = (ev) => resolve({ code: ev.code, reason: ev.reason });
 

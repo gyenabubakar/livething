@@ -1,18 +1,18 @@
 import { Disconnected, Timeout } from '~/errors.ts';
-import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { namespacePrefixOf } from '~/internal/namespace.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import { buildStreamHandle } from '~/primitives/stream/handle.ts';
 import { StreamState } from '~/primitives/stream/state.ts';
-import type { WSKitError } from '@wskit/core';
+import type { LiveThingError } from '@livething/core';
 import type {
   FrameOwner,
+  LiveThingMetadata,
+  Message,
   PrimitiveLogger,
   SendResult,
-  WireMessage,
-  WSKitEnvelope,
 } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { StreamHandleDependencies } from '~/primitives/stream/handle.ts';
@@ -65,15 +65,15 @@ interface ResumeContext {
 /** True if a chunk's scope markers match what an `onStream` subscriber asked for. */
 function scopeMatches(
   scope: ScopeMarkers | undefined,
-  envelope: WSKitEnvelope | undefined,
+  envelope: LiveThingMetadata | null,
 ): boolean {
   if (!scope) return envelope?.channel === undefined;
 
-  return scope.channel === envelope?.channel && scope.channelFamily === envelope?.channelFamily;
+  return scope.name === envelope?.channel?.name && scope.family === envelope?.channel?.family;
 }
 
 /** The `stream-aborted` reason on an error, if any. */
-function abortReason(error: WSKitError): string | undefined {
+function abortReason(error: LiveThingError): string | undefined {
   return (error.detail as { reason?: string } | undefined)?.reason;
 }
 
@@ -126,13 +126,13 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // while not open, so they are held here and flushed on open — otherwise the
       // stream would never start (and with timeout 0 the promise would never
       // settle, leaking the lazy hold).
-      const triggerOutbox = new Map<string, { message: WireMessage; owner: FrameOwner }>();
-      const resumeOutbox = new Map<string, WireMessage>();
+      const triggerOutbox = new Map<string, { message: Message; owner: FrameOwner }>();
+      const resumeOutbox = new Map<string, Message>();
       // Cancel frames for streams cancelled while the socket was connecting/
       // reconnecting (rawSend can't send them yet), keyed by streamId. Held here
       // and flushed on open; the stream stays alive until then so its durable row
       // isn't left orphaned server-side, and a pending cancel suppresses resume.
-      const cancelOutbox = new Map<string, WireMessage>();
+      const cancelOutbox = new Map<string, Message>();
       // Warn at most once: a resumable stream relies on detecting a dead socket,
       // which only keepalive can do for a half-open connection (no close event).
       let warnedNoKeepalive = false;
@@ -213,12 +213,22 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         run(pending);
       }
 
-      function resumeFrame(state: StreamState, lastKnownSeq?: number): WireMessage {
+      function resumeFrame(state: StreamState, lastKnownSeq?: number): Message {
         const seq = lastKnownSeq ?? (Number.isFinite(state.lastSeq) ? state.lastSeq : undefined);
         return {
           event: '__resumeStream__',
           payload: seq !== undefined ? { lastKnownSeq: seq } : {},
-          __wskit: { streamId: state.streamId, ...state.markers },
+          metadata: {
+            stream: { id: state.streamId },
+            ...(state.markers.name
+              ? {
+                  channel: {
+                    name: state.markers.name,
+                    ...(state.markers.family ? { family: state.markers.family } : {}),
+                  },
+                }
+              : {}),
+          },
         };
       }
 
@@ -238,7 +248,17 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               // from the stream's own namespaced event. A plain app stream gets ''.
               event: namespacePrefixOf(state.event) + event,
               payload,
-              __wskit: { streamId: state.streamId, ...state.markers, streamNudgeId },
+              metadata: {
+                stream: { id: state.streamId, nudgeId: streamNudgeId },
+                ...(state.markers.name
+                  ? {
+                      channel: {
+                        name: state.markers.name,
+                        ...(state.markers.family ? { family: state.markers.family } : {}),
+                      },
+                    }
+                  : {}),
+              },
             });
           } catch (error) {
             // Serialization happens inside rawSend, before the Promise exists —
@@ -263,10 +283,20 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           });
         },
         cancel(state) {
-          const frame: WireMessage = {
+          const frame: Message = {
             event: '__streamCancel__',
-            payload: {},
-            __wskit: { streamId: state.streamId, ...state.markers },
+            payload: null,
+            metadata: {
+              stream: { id: state.streamId },
+              ...(state.markers.name
+                ? {
+                    channel: {
+                      name: state.markers.name,
+                      ...(state.markers.family ? { family: state.markers.family } : {}),
+                    },
+                  }
+                : {}),
+            },
           };
 
           const result = helpers.rawSend(frame);
@@ -295,7 +325,21 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
         helpers.ensureConnected();
         helpers.lazyAcquire();
-        const frame: WireMessage = { event, payload, __wskit: { streamId, ...context.markers } };
+        const frame: Message = {
+          event,
+          payload,
+          metadata: {
+            stream: { id: streamId },
+            ...(context.markers.name
+              ? {
+                  channel: {
+                    name: context.markers.name,
+                    ...(context.markers.family ? { family: context.markers.family } : {}),
+                  },
+                }
+              : {}),
+          },
+        };
 
         const owner: FrameOwner = {
           isPending: () => triggers.has(streamId),
@@ -410,15 +454,15 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         };
       }
 
-      function deliverBroadcast(message: WireMessage, streamId: string): void {
+      function deliverBroadcast(message: Message, streamId: string): void {
         const { event, payload } = message;
-        const envelope = message.__wskit;
-        const seq = envelope?.seq;
+        const envelope = message.metadata;
+        const seq = envelope?.stream?.seq;
         const subscribers = broadcastSubs.get(event);
         if (!subscribers || subscribers.size === 0) return;
 
         const recipients = [...subscribers].filter((subscriber) =>
-          scopeMatches(subscriber.scope, envelope),
+          scopeMatches(subscriber.scope, envelope ?? null),
         );
         if (recipients.length === 0) return;
 
@@ -437,7 +481,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             helpers.log.info(`broadcast stream '${streamId}' timed out`);
             broadcastRuns.delete(streamId);
             for (const subscriber of broadcastSubs.get(event) ?? [])
-              if (scopeMatches(subscriber.scope, envelope))
+              if (scopeMatches(subscriber.scope, envelope ?? null))
                 callStreamHandler(helpers.log, () => subscriber.handlers.onTimeout?.(streamId));
           }, timeout);
         }
@@ -449,7 +493,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
       function endBroadcast(
         streamId: string,
-        envelope: WSKitEnvelope | undefined,
+        envelope: LiveThingMetadata | null,
         notify: (handlers: StreamHandlers<unknown>) => void,
       ): void {
         const active = broadcastRuns.get(streamId);
@@ -460,7 +504,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         // eventName the server stamps on broadcast terminal frames). A frame whose
         // event can't be resolved — e.g. a private stream's end, which has neither —
         // is left alone; fanning out to every subscriber would misdeliver it.
-        const event = active?.event ?? envelope?.eventName;
+        const event = active?.event ?? envelope?.stream?.event;
         if (event === undefined) return;
 
         for (const subscriber of broadcastSubs.get(event) ?? [])
@@ -468,7 +512,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             callStreamHandler(helpers.log, () => notify(subscriber.handlers));
       }
 
-      function handleStreamOk(streamId: string, envelope: WSKitEnvelope | undefined): null {
+      function handleStreamOk(streamId: string, envelope: LiveThingMetadata | null): null {
         const trigger = triggers.get(streamId);
         if (!trigger) {
           const resumed = streams.get(streamId);
@@ -486,7 +530,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
         const state = new StreamState(streamId, trigger.event, trigger.markers);
         state.hasLazyHold = true;
-        state.resumable = envelope?.streamKind === 'persistent';
+        state.resumable = envelope?.stream?.durability === 'persistent';
         if (state.resumable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
           warnedNoKeepalive = true;
           helpers.log.warn(
@@ -503,20 +547,23 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       }
 
       function handleStreamError(
-        message: WireMessage,
+        message: Message,
         streamId: string,
-        envelope: WSKitEnvelope | undefined,
-      ): WireMessage | null {
-        if (envelope?.correlationId !== undefined) return message;
+        envelope: LiveThingMetadata | null,
+      ): Message | null {
+        if (envelope?.exchange?.id !== undefined) return message;
 
         const streamEvent =
           triggers.get(streamId)?.event ??
           streams.get(streamId)?.event ??
           broadcastRuns.get(streamId)?.event ??
-          envelope?.eventName;
-        const error = unscopeErrorCode(streamEvent, toWSKitError(message.payload)) as WSKitError;
-        if (envelope?.streamTerminated === false) {
-          settleNudge(envelope?.streamNudgeId, (pending) => pending.reject(error));
+          envelope?.stream?.event;
+        const error = unscopeErrorCode(
+          streamEvent,
+          toLiveThingError(message.payload),
+        ) as LiveThingError;
+        if (envelope?.stream?.terminated === false) {
+          settleNudge(envelope.stream.nudgeId, (pending) => pending.reject(error));
           return null;
         }
 
@@ -532,7 +579,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         return null;
       }
 
-      function finishOrResumeAfterError(state: StreamState, error: WSKitError): void {
+      function finishOrResumeAfterError(state: StreamState, error: LiveThingError): void {
         if (
           state.resumable &&
           error.code === 'stream-aborted' &&
@@ -547,13 +594,13 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       }
 
       function handleStreamChunk(
-        message: WireMessage,
+        message: Message,
         streamId: string,
-        envelope: WSKitEnvelope | undefined,
-      ): WireMessage {
+        envelope: LiveThingMetadata | null,
+      ): Message {
         if (isProtocolFrameEvent(message.event)) return message;
 
-        const seq = envelope?.seq;
+        const seq = envelope?.stream?.seq ?? envelope?.delivery?.seq;
         const state = streams.get(streamId);
         if (state && (seq === undefined || seq > state.lastSeq)) {
           if (state.resumeTimer) {
@@ -576,34 +623,34 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         id: 'stream',
 
         onIncoming(message) {
-          const envelope = message.__wskit;
-          const streamId = envelope?.streamId;
+          const envelope = message.metadata;
+          const streamId = envelope?.stream?.id;
           if (typeof streamId !== 'string') return message;
 
           switch (message.event) {
             case '__streamOk__':
-              return handleStreamOk(streamId, envelope);
+              return handleStreamOk(streamId, envelope ?? null);
 
             case '__streamEnd__': {
               helpers.log.info(`stream '${streamId}' completed`);
               const state = streams.get(streamId);
               if (state) finishStream(state);
-              endBroadcast(streamId, envelope, (handlers) =>
-                handlers.onEnd?.(streamId, envelope?.seq),
+              endBroadcast(streamId, envelope ?? null, (handlers) =>
+                handlers.onEnd?.(streamId, envelope?.stream?.seq),
               );
               return null;
             }
 
             case '__nudgeOk__': {
-              settleNudge(envelope?.streamNudgeId, (pending) => pending.resolve());
+              settleNudge(envelope?.stream?.nudgeId, (pending) => pending.resolve());
               return null;
             }
 
             case '__error__':
-              return handleStreamError(message, streamId, envelope);
+              return handleStreamError(message, streamId, envelope ?? null);
 
             default:
-              return handleStreamChunk(message, streamId, envelope);
+              return handleStreamChunk(message, streamId, envelope ?? null);
           }
         },
 
@@ -639,7 +686,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         },
 
         onReconnect() {
-          const frames: WireMessage[] = [];
+          const frames: Message[] = [];
           for (const state of streams.values()) {
             // A queued cancel wins over resume — don't revive a stream the user
             // already asked to cancel; onOpen flushes the cancel instead.

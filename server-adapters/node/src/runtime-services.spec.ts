@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it, vi } from 'vitest';
-import type { KVProvider, Logger, SqlLimits, SQLProvider, SqlResult } from '@wskit/server/adapters';
+import type {
+  KVProvider,
+  Logger,
+  SqlLimits,
+  SQLProvider,
+  SqlResult,
+} from '@livething/server/adapters';
 import { createAsyncContext } from './async-context.ts';
 import { createLogger } from './logger.ts';
 import { createPlatform } from './platform.ts';
@@ -96,10 +102,10 @@ describe('createSql', () => {
   });
 
   it('closes its owned database when default KV initialization fails', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'wskit-storage-'));
+    const directory = mkdtempSync(join(tmpdir(), 'livething-storage-'));
     const databasePath = join(directory, 'state.sqlite');
     const setup = new Database(databasePath);
-    setup.exec('CREATE TABLE __wskit_kv (wrong_column TEXT)');
+    setup.exec('CREATE TABLE __livething_kv (wrong_column TEXT)');
     setup.close();
 
     const close = vi.spyOn(Database.prototype, 'close');
@@ -202,9 +208,9 @@ describe('createKv', () => {
       const kv = createKv(sql.database!);
       await kv.set('shared', { value: 1 });
 
-      expect(sql.provider.exec<{ key: string }>('SELECT key FROM __wskit_kv').toArray()).toEqual([
-        { key: 'shared' },
-      ]);
+      expect(
+        sql.provider.exec<{ key: string }>('SELECT key FROM __livething_kv').toArray(),
+      ).toEqual([{ key: 'shared' }]);
     } finally {
       sql.close();
     }
@@ -318,11 +324,11 @@ describe('createTimers', () => {
     const sql = createSql();
     try {
       sql.database!.exec(`
-        CREATE TABLE __wskit_node_alarm (
+        CREATE TABLE __livething_node_alarm (
           id INTEGER PRIMARY KEY CHECK (id = 1),
           time_ms INTEGER NOT NULL
         );
-        INSERT INTO __wskit_node_alarm (id, time_ms) VALUES (1, 351000)
+        INSERT INTO __livething_node_alarm (id, time_ms) VALUES (1, 351000)
       `);
       const timers = createTimers(sql.provider);
       const onAlarm = vi.fn(async () => {});
@@ -458,7 +464,7 @@ describe('createTimers', () => {
         CREATE TABLE alarm_failure_control (fail INTEGER NOT NULL);
         INSERT INTO alarm_failure_control (fail) VALUES (1);
         CREATE TRIGGER fail_alarm_delete
-        BEFORE DELETE ON __wskit_node_alarm
+        BEFORE DELETE ON __livething_node_alarm
         WHEN (SELECT fail FROM alarm_failure_control) = 1
         BEGIN
           SELECT RAISE(ABORT, 'temporary alarm delete failure');
@@ -467,7 +473,7 @@ describe('createTimers', () => {
 
       await vi.advanceTimersToNextTimerAsync();
 
-      expect(logger.error).toHaveBeenCalledWith('[wskit] Node durable alarm delivery failed', {
+      expect(logger.error).toHaveBeenCalledWith('[livething] Node durable alarm delivery failed', {
         error: 'temporary alarm delete failure',
       });
       expect(onAlarm).toHaveBeenCalledOnce();
@@ -507,7 +513,7 @@ describe('createTimers', () => {
 
       expect(callback).toHaveBeenCalledTimes(2);
       expect(await timers.getAlarm()).toBeNull();
-      expect(logger.error).toHaveBeenCalledWith('[wskit] Node durable alarm delivery failed', {
+      expect(logger.error).toHaveBeenCalledWith('[livething] Node durable alarm delivery failed', {
         error: 'retry was not persisted',
       });
     } finally {
@@ -706,7 +712,7 @@ describe('createRuntime', () => {
 
       expect(
         runtime.storage.sql
-          .exec<{ key: string; value: string }>('SELECT key, value FROM __wskit_kv')
+          .exec<{ key: string; value: string }>('SELECT key, value FROM __livething_kv')
           .toArray(),
       ).toEqual([{ key: 'default', value: expect.any(String) }]);
       expect(await runtime.storage.kv.get('default')).toBe('sqlite-backed');

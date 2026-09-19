@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import { assertValidWSKitIdentifier } from './identifier.ts';
+import { assertValidLiveThingIdentifier } from './identifier.ts';
 import { assertSynchronousResult } from './sync-guard.ts';
 
 // ---------------------------------------------------------------------------
@@ -9,16 +9,16 @@ import { assertSynchronousResult } from './sync-guard.ts';
 // ---------------------------------------------------------------------------
 
 /**
- * WebSocket close codes used by WSKit. These tell the client *why* the
+ * WebSocket close codes used by LiveThing. These tell the client *why* the
  * connection was closed — the client's reconnection logic reads them to
  * decide whether to retry.
  *
  * 1000–1015 are standard WebSocket codes. 4000–4999 are application-defined
- * (reserved for your app's own meanings). WSKit claims a handful of 4xxx
+ * (reserved for your app's own meanings). LiveThing claims a handful of 4xxx
  * codes for common scenarios.
  *
  * ```ts
- * import { CloseCodes } from '@wskit/core';
+ * import { CloseCodes } from '@livething/core';
  *
  * ctx.close(CloseCodes.BANNED, 'You have been banned');
  * ```
@@ -51,12 +51,12 @@ export const CloseCodes = Object.freeze({
 });
 
 // ---------------------------------------------------------------------------
-// WSKitError
+// LiveThingError
 // ---------------------------------------------------------------------------
 
 /**
- * The error type for all WSKit application errors. Both server-thrown errors
- * and client-side errors (`Timeout`, `Disconnected`) are `WSKitError` instances.
+ * The error type for all LiveThing application errors. Both server-thrown errors
+ * and client-side errors (`Timeout`, `Disconnected`) are `LiveThingError` instances.
  *
  * - `code` — a lowercase-kebab string identifying the error (e.g. `'forbidden'`)
  * - `detail` — typed payload with extra information (e.g. `{ reason: string }`)
@@ -73,13 +73,13 @@ export const CloseCodes = Object.freeze({
  * }
  * ```
  */
-export class WSKitError<TCode extends string = string, TDetail = unknown> extends Error {
+export class LiveThingError<TCode extends string = string, TDetail = unknown> extends Error {
   readonly code: TCode;
   readonly detail: TDetail;
 
   constructor(code: TCode, detail: TDetail) {
-    super(`WSKitError: ${code}`);
-    this.name = 'WSKitError';
+    super(`LiveThingError: ${code}`);
+    this.name = 'LiveThingError';
     this.code = code;
     this.detail = detail;
   }
@@ -103,7 +103,7 @@ export interface ErrorDef<TCode extends string = string, TDetail = void> {
   readonly code: TCode;
 
   /**
-   * Type guard that checks if an unknown value is a `WSKitError` with this
+   * Type guard that checks if an unknown value is a `LiveThingError` with this
    * error's code. If the error was created with a validator, `.matches()` also
    * runs the validator on the detail to confirm the shape is correct.
    *
@@ -114,26 +114,26 @@ export interface ErrorDef<TCode extends string = string, TDetail = void> {
    * }
    * ```
    */
-  matches(err: unknown): err is WSKitError<TCode, TDetail>;
+  matches(err: unknown): err is LiveThingError<TCode, TDetail>;
 }
 
 /**
  * An error definition with a factory — created when `error()` receives a
- * detail schema. Call it to create a `WSKitError`:
+ * detail schema. Call it to create a `LiveThingError`:
  *
  * ```ts
  * import * as v from 'valibot';
  *
  * const Forbidden = error('forbidden', v.object({ reason: v.string() }));
  *
- * throw Forbidden({ reason: 'Not a member' }); // WSKitError<'forbidden', { reason: string }>
+ * throw Forbidden({ reason: 'Not a member' }); // LiveThingError<'forbidden', { reason: string }>
  * ```
  */
 export interface ErrorDefWithFactory<TCode extends string, TDetail> extends ErrorDef<
   TCode,
   TDetail
 > {
-  (detail: TDetail): WSKitError<TCode, TDetail>;
+  (detail: TDetail): LiveThingError<TCode, TDetail>;
 
   /**
    * The detail schema this error was created with, if any. Kept so the engine
@@ -151,9 +151,9 @@ export interface ErrorDefWithFactory<TCode extends string, TDetail> extends Erro
 function createMatchesFn<TCode extends string, TDetail>(
   code: TCode,
   validate?: ValidateFn<TDetail>,
-): (err: unknown) => err is WSKitError<TCode, TDetail> {
-  return (err: unknown): err is WSKitError<TCode, TDetail> => {
-    if (!(err instanceof WSKitError)) return false;
+): (err: unknown) => err is LiveThingError<TCode, TDetail> {
+  return (err: unknown): err is LiveThingError<TCode, TDetail> => {
+    if (!(err instanceof LiveThingError)) return false;
 
     if (err.code !== code) return false;
 
@@ -172,7 +172,7 @@ function createMatchesFn<TCode extends string, TDetail>(
 // Control flow errors
 // ---------------------------------------------------------------------------
 //
-// These are signals to the WSKit engine — they're not sent to the client.
+// These are signals to the LiveThing engine — they're not sent to the client.
 // Throw them from handlers, intercepts, or hooks to control message flow.
 /**
  * Drop the current message silently. No error is sent to the client,
@@ -184,7 +184,7 @@ function createMatchesFn<TCode extends string, TDetail>(
  * });
  * ```
  */
-export const Block = Object.freeze({ __wskit: 'block' as const });
+export const Block = Object.freeze({ __livething: 'block' as const });
 
 // ---------------------------------------------------------------------------
 // error() — define application errors
@@ -248,10 +248,10 @@ export function error<TCode extends string, TSchema extends StandardSchemaV1>(
   schema: TSchema,
 ): ErrorDefWithFactory<TCode, StandardSchemaV1.InferOutput<TSchema>>;
 export function error(code: string, schema?: StandardSchemaV1): ErrorDefWithFactory<string, any> {
-  assertValidWSKitIdentifier(code, 'error code');
+  assertValidLiveThingIdentifier(code, 'error code');
   if (RESERVED_ERROR_CODES.has(code)) {
     throw new Error(
-      `[wskit] error code "${code}" is reserved by the framework — pick a different code.`,
+      `[livething] error code "${code}" is reserved by the framework — pick a different code.`,
     );
   }
 
@@ -284,7 +284,7 @@ function buildErrorFactory(
         );
         if (result.issues) {
           throw new Error(
-            `[wskit] Validation failed for error "${code}": ${result.issues[0]?.message}`,
+            `[livething] Validation failed for error "${code}": ${result.issues[0]?.message}`,
           );
         }
 
@@ -292,7 +292,7 @@ function buildErrorFactory(
       };
 
   function factory(detail?: any) {
-    return new WSKitError(code, validate ? validate(detail) : undefined);
+    return new LiveThingError(code, validate ? validate(detail) : undefined);
   }
 
   factory.code = code;
@@ -323,7 +323,7 @@ export function namespaceError(
 
 /**
  * Sent to the client when a message payload fails schema validation. You
- * don't need to define or register this error yourself — WSKit sends it
+ * don't need to define or register this error yourself — LiveThing sends it
  * automatically whenever an incoming payload doesn't match its schema.
  *
  * @example
@@ -374,7 +374,7 @@ export type UnsupportedProtocolEvent = v.InferInput<typeof UNSUPPORTED_PROTOCOL_
 
 /**
  * Sent to the client when it uses a protocol feature the server doesn't
- * support. WSKit's client may send protocol frames like `__replay__` or
+ * support. LiveThing's client may send protocol frames like `__replay__` or
  * `__resumeStream__` on reconnect; if the server never enabled the matching
  * feature (no `replay`, or no durable streams because the adapter has no
  * storage), it replies with this code instead of silently ignoring the frame.
@@ -447,7 +447,7 @@ export const RejoinRejected = /* @__PURE__ */ buildErrorFactory(
 );
 
 /**
- * Sent to the client when an unhandled server-side error occurs that WSKit
+ * Sent to the client when an unhandled server-side error occurs that LiveThing
  * doesn't know how to classify. The server logs the real error; the client
  * receives this opaque code so internal details are never leaked.
  *
@@ -484,13 +484,13 @@ export const InternalError = /* @__PURE__ */ buildErrorFactory('internal-error')
 export const RequestNoResponse = /* @__PURE__ */ buildErrorFactory('request-no-response');
 
 /**
- * Sent to the client when a request frame arrived without a `correlationId`
- * on its `__wskit` envelope. The server refuses to run the handler because
+ * Sent to the client when a request frame arrived without `metadata.exchange.id`.
+ * The server refuses to run the handler because
  * the response could never be matched back to a pending client promise —
  * any side effects (broadcasts, plugin state writes, scheduled enqueues)
  * would happen with the client unable to learn the outcome.
  *
- * The client SDK stamps a `correlationId` automatically; this code only
+ * The client SDK stamps the exchange ID automatically; this code only
  * fires for hand-crafted frames or non-SDK clients.
  */
 export const RequestNoCorrelation = /* @__PURE__ */ buildErrorFactory('request-no-correlation');
@@ -599,7 +599,7 @@ export const StreamAborted = /* @__PURE__ */ buildErrorFactory(
  * Sent to the client when a nudge can't be buffered because the stream's pending
  * nudge buffer is full (the generator is draining nudges slower than they
  * arrive). Unlike a `StreamAborted`, this is **non-terminal**: only the
- * offending `nudge()` rejects (with `__wskit.streamTerminated: false`), and the
+ * offending `nudge()` rejects (with `metadata.stream.terminated: false`), and the
  * stream keeps running — it is backpressure, not a teardown. `detail.cap` is the
  * buffer limit so the client can pace itself and retry.
  *

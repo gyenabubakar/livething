@@ -50,7 +50,7 @@ test.describe('protocol pings', () => {
     // Send JSON with unmapped event
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: () => WebSocket | null }).__ws?.();
-      if (ws) ws.send(JSON.stringify({ event: 'unknown-event' }));
+      if (ws) ws.send(window.__livethingEncode({ event: 'unknown-event' }));
     });
 
     await page.waitForTimeout(100);

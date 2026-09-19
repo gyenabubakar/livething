@@ -91,7 +91,7 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('tock-count')).toHaveText('1');
   });
 
-  test('_correlationId is preserved on rate-limited request rejection', async ({ page }) => {
+  test('metadata.exchange.id is preserved on rate-limited request rejection', async ({ page }) => {
     // 'echo-req' has a per-handler override max=1. First request resolves with
     // its correlation id; the second is rejected with `_error rate-limited`
     // carrying the second request's correlation id.
@@ -191,23 +191,23 @@ test.describe('rate-limit', () => {
     const c = await connect(page, { path: '/ws/rate-limit', username: 'tight-user', room });
     await send(page, c, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'tight-room' },
+      payload: null,
+      metadata: { channel: { name: 'tight-room' } },
     });
     await waitForFrame(page, c, {
-      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'tight-room',
+      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'tight-room',
     });
 
     // Two frames across two different events both pass (scope bucket max=2).
     await send(page, c, {
       event: 'alpha',
       payload: { text: 'a' },
-      __wskit: { channel: 'tight-room' },
+      metadata: { channel: { name: 'tight-room' } },
     });
     await send(page, c, {
       event: 'beta',
       payload: { text: 'b' },
-      __wskit: { channel: 'tight-room' },
+      metadata: { channel: { name: 'tight-room' } },
     });
     await expect
       .poll(async () => (await frames(page, c)).filter((f) => f.event === 'tight-broadcast').length)
@@ -217,7 +217,7 @@ test.describe('rate-limit', () => {
     await send(page, c, {
       event: 'alpha',
       payload: { text: 'c' },
-      __wskit: { channel: 'tight-room' },
+      metadata: { channel: { name: 'tight-room' } },
     });
     const err = await waitForFrame(page, c, { match: (f) => f.event === '__error__' });
     expect((err.payload as { code?: string }).code).toBe('rate-limited');

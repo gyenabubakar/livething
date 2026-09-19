@@ -1,4 +1,4 @@
-import type { TimerProvider } from '@wskit/server/adapters';
+import type { TimerProvider } from '@livething/server/adapters';
 
 /**
  * Create a TimerProvider backed by Durable Object alarms.

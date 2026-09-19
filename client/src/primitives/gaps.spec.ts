@@ -36,7 +36,7 @@ describe('gaps()', () => {
     socket.onGap((info) => seen.push(info));
     (socket as unknown as { on(event: string, callback: () => void): void }).on('__gap__', message);
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: {} });
+    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, metadata: null });
 
     expect(seen).toEqual([{ missedThrough: 12 }]);
     expect(message).not.toHaveBeenCalled();
@@ -57,7 +57,11 @@ describe('gaps()', () => {
 
     room.on('__gap__' as 'message', message);
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 7 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 7 },
+      metadata: { channel: { name: 'room' } },
+    });
 
     expect(roomGaps).toEqual([{ missedThrough: 7, channel: 'room' }]);
     expect(socketGaps).toEqual([]);
@@ -85,7 +89,7 @@ describe('gaps()', () => {
     ws.emit({
       event: '__gap__',
       payload: { missedThrough: 4 },
-      __wskit: { channel: 'general', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'general', family: 'rooms' } },
     });
 
     expect(roomGaps).toEqual([{ missedThrough: 4, channel: 'general', channelFamily: 'rooms' }]);
@@ -102,7 +106,7 @@ describe('gaps()', () => {
     const off = socket.onGap(listener);
     off();
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: {} });
+    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, metadata: null });
 
     expect(listener).not.toHaveBeenCalled();
   });
@@ -120,7 +124,7 @@ describe('gaps()', () => {
     socket.onGap(newListener);
     offOld();
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: {} });
+    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, metadata: null });
 
     expect(oldListener).not.toHaveBeenCalled();
     expect(newListener).toHaveBeenCalledOnce();
@@ -136,7 +140,11 @@ describe('gaps()', () => {
     const off = socket.channel('room').onGap(listener);
     off();
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 3 },
+      metadata: { channel: { name: 'room' } },
+    });
 
     expect(listener).not.toHaveBeenCalled();
   });
@@ -156,7 +164,11 @@ describe('gaps()', () => {
 
     offOld();
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 3 },
+      metadata: { channel: { name: 'room' } },
+    });
 
     expect(oldListener).not.toHaveBeenCalled();
     expect(newListener).toHaveBeenCalledOnce();
@@ -186,7 +198,7 @@ describe('gaps()', () => {
     ws.emit({
       event: '__gap__',
       payload: { missedThrough: 3 },
-      __wskit: { channel: 'general', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'general', family: 'rooms' } },
     });
 
     expect(oldListener).not.toHaveBeenCalled();
@@ -207,7 +219,7 @@ describe('gaps()', () => {
       messageListener,
     );
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 'bad' }, __wskit: {} });
+    ws.emit({ event: '__gap__', payload: { missedThrough: 'bad' }, metadata: null });
 
     expect(gapListener).not.toHaveBeenCalled();
     expect(messageListener).not.toHaveBeenCalled();

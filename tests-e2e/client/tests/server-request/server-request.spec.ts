@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's serverRequests() against the real `server-request`
+// Conformance: @livething/client's serverRequests() against the real `server-request`
 // handler. The server asks the client `ask-permission`; the typed onRequest()
 // answers, and the server reports the outcome. Adapter-oblivious — it talks to
 // whatever server the run booted over the /ws proxy.

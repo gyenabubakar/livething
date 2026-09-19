@@ -8,7 +8,7 @@ describe('keepalive() capability', () => {
       capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
     });
     const definition = base.assemble({ handlers: [] });
-    expect(definition.primitives.some((p) => p.__wskit === 'keepalive')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'keepalive')).toBe(true);
     expect(definition.__features?.has('keepalive')).toBe(true);
   });
 

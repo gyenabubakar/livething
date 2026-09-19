@@ -7,7 +7,7 @@ import type { ServerDefinition } from '~/server-definition.ts';
 import { rateLimit } from './capability.ts';
 
 function interceptCount(definition: ServerDefinition): number {
-  return definition.primitives.filter((p) => p.__wskit === 'intercept').length;
+  return definition.primitives.filter((p) => p.__livething === 'intercept').length;
 }
 
 describe('rateLimit() capability', () => {

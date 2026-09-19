@@ -19,7 +19,7 @@ async function askHandle(page: Page, channel: string, seq: number): Promise<Fram
   }
 
   const already = (await frames(page)).filter(match).length;
-  await send(page, { event: 'ask-handle', payload: { channel, seq }, __wskit: {} });
+  await send(page, { event: 'ask-handle', payload: { channel, seq }, metadata: null });
   await expect
     .poll(async () => (await frames(page)).filter(match).length, { timeout: 15_000 })
     .toBeGreaterThan(already);
@@ -33,7 +33,7 @@ async function askBacklog(page: Page, channel: string): Promise<Frame> {
   }
 
   const already = (await frames(page)).filter(match).length;
-  await send(page, { event: 'ask-backlog', payload: { channel }, __wskit: {} });
+  await send(page, { event: 'ask-backlog', payload: { channel }, metadata: null });
   await expect
     .poll(async () => (await frames(page)).filter(match).length, { timeout: 15_000 })
     .toBeGreaterThan(already);
@@ -75,18 +75,18 @@ test.describe('ctx.channels.get(name).inbox() (raw wire, handle-augmenter)', () 
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'hello' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const msg = await waitForFrame(
       alice.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'hello',
     );
-    const seq = msg.__wskit?.seq as number;
+    const seq = msg.metadata?.delivery?.seq as number;
 
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     // Give the ack time to settle before reading it back through the handle.
     await alice.page.waitForTimeout(300);
@@ -115,13 +115,13 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
     await send(alice.page, {
       event: 'send-room-msg',
       payload: { text: 'held-for-bob' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const msg = await waitForFrame(
       bob.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'held-for-bob',
     );
-    const seq = msg.__wskit?.seq as number;
+    const seq = msg.metadata?.delivery?.seq as number;
 
     const before = await askBacklog(alice.page, 'chat');
     const entries = before.payload.entries as Array<Record<string, unknown>>;
@@ -137,7 +137,7 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
     await send(bob.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await bob.page.waitForTimeout(300);
 
@@ -162,7 +162,7 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
     await send(alice.page, {
       event: 'send-room-msg',
       payload: { text: 'while-bob-offline' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await alice.page.waitForTimeout(300);
 

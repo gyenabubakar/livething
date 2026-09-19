@@ -1,5 +1,5 @@
 import { WebSocketServer } from 'ws';
-import type { ApiOf, ServerDefinition } from '@wskit/server/adapters';
+import type { ApiOf, ServerDefinition } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { binding } from './binding.ts';
@@ -39,7 +39,7 @@ export function setup(): NodeSetup {
 
   return {
     bind(definition, options) {
-      if (shuttingDown) throw new Error('[wskit] Node binding is shutting down');
+      if (shuttingDown) throw new Error('[livething] Node binding is shutting down');
 
       const endpoint = node.bind(definition, options);
       const webSocketServer = options.webSocketServer ?? new WebSocketServer({ noServer: true });

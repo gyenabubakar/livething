@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching is intentionally loose */
-import type { WSKitError } from '@wskit/core';
+import type { LiveThingError } from '@livething/core';
 import type { Messaging } from '~/messaging.ts';
 
 /**
@@ -157,7 +157,7 @@ export interface StreamHandlers<TChunk> {
   /** The stream finished. `finalSeq` is the last `seq`, to detect missed chunks. */
   onEnd?(streamId: string, finalSeq?: number): void;
   /** The stream errored. Every subscriber on a broadcast stream is notified. */
-  onError?(error: WSKitError, streamId: string): void;
+  onError?(error: LiveThingError, streamId: string): void;
   /** No chunk arrived within the per-chunk timeout. */
   onTimeout?(streamId: string): void;
 }

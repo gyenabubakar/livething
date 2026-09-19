@@ -1,4 +1,4 @@
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { base } from './contract.ts';
 import {
   handleBadPayload,

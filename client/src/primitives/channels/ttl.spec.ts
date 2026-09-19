@@ -35,7 +35,7 @@ async function buildActiveAndDrop(channelsOpts: ChannelsOptions, bufferingOpts: 
   ws.emit({
     event: '__subscribeOk__',
     payload: {},
-    __wskit: { source: 'client', channel: 'general' },
+    metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
   });
   await subscribePromise;
 

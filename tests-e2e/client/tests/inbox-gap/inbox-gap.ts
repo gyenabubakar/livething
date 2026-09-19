@@ -1,5 +1,5 @@
-import { channels, client, connect, dedup, gaps, inbox, reconnection } from '@wskit/client';
-import type { InboxGapClient } from '@wskit/tests-e2e-handlers/inbox-gap';
+import { channels, client, connect, dedup, gaps, inbox, reconnection } from '@livething/client';
+import type { InboxGapClient } from '@livething/tests-e2e-handlers/inbox-gap';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives inbox OVERFLOW against the real inbox-gap server definition (retention keeps one
@@ -66,8 +66,10 @@ export function setup(): void {
   WebSocket.prototype.send = function (data) {
     if (typeof data === 'string') {
       try {
-        const frame = JSON.parse(data) as { event?: unknown };
-        if (frame.event === '__unsubscribe__') unsubscribeFrames.push(data);
+        const frame = JSON.parse(data);
+        if (Array.isArray(frame) && frame.length === 3 && frame[0] === '__unsubscribe__') {
+          unsubscribeFrames.push(data);
+        }
       } catch {
         // The socket still sends the original frame; only the test capture is skipped.
       }

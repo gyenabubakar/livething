@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
@@ -70,7 +70,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
   it("rejects an app-owned 'constructor' instead of silently dropping it", async () => {
     const engine = engineWithApi(() => ({ constructor: () => 'not-a-class-marker' }));
     const initialization = engine.initialize();
-    await expect(initialization).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(initialization).rejects.toBeInstanceOf(LiveThingConfigError);
     await expect(initialization).rejects.toThrow(/constructor/);
   });
 
@@ -87,7 +87,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
     });
     const engine = engineWithApi(() => api);
 
-    await expect(engine.initialize()).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(engine.initialize()).rejects.toBeInstanceOf(LiveThingConfigError);
     await expect(engine.initialize()).rejects.toThrow(/constructor/);
   });
 
@@ -100,7 +100,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
     const engine = engineWithApi(() => Object.create(prototype));
 
     const initialization = engine.initialize();
-    await expect(initialization).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(initialization).rejects.toBeInstanceOf(LiveThingConfigError);
     await expect(initialization).rejects.toThrow(/constructor/);
   });
 

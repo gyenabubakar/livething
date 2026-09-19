@@ -33,7 +33,7 @@ export default defineConfig({
         'last-seen': resolve(__dirname, 'src/last-seen/capability.ts'),
         streams: resolve(__dirname, 'src/streams.ts'),
         // Each stream capability is its own entry so a consumer importing only
-        // one of them from `@wskit/server/streams` does not pull the engines of
+        // one of them from `@livething/server/streams` does not pull the engines of
         // the others — the barrel re-exports these separable chunks.
         'stream/capability': resolve(__dirname, 'src/stream/capability.ts'),
         'stream-resumable/capability': resolve(__dirname, 'src/stream-resumable/capability.ts'),
@@ -48,10 +48,10 @@ export default defineConfig({
     minify: true,
     sourcemap: true,
     rollupOptions: {
-      // @wskit/core is now a real published peer; consumers install it
-      // alongside @wskit/server. Keep it external so the server bundle does
+      // @livething/core is now a real published peer; consumers install it
+      // alongside @livething/server. Keep it external so the server bundle does
       // not duplicate core's runtime code.
-      external: [/^@wskit\/core(?:\/.*)?$/, /^@standard-schema\/.+$/],
+      external: [/^@livething\/core(?:\/.*)?$/, /^@standard-schema\/.+$/],
     },
   },
 });

@@ -17,7 +17,7 @@ const _primitiveType: ErrorsPrimitive<
 > = declared;
 void _primitiveType;
 
-const _tag: 'errors' = declared.__wskit;
+const _tag: 'errors' = declared.__livething;
 const _kind: PrimitiveKind = declared.__kind;
 void [_tag, _kind];
 

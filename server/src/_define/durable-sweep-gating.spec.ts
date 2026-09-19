@@ -5,10 +5,11 @@ import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
 import { describe, expect, it } from 'vitest';
 
-const SWEEP_TASK = '__wskit:stream-durable-sweep';
+const SWEEP_TASK = '__livething:stream-durable-sweep';
 
 function sweepCount(def: { primitives: readonly any[] }): number {
-  return def.primitives.filter((p) => p.__wskit === 'scheduled' && p.taskId === SWEEP_TASK).length;
+  return def.primitives.filter((p) => p.__livething === 'scheduled' && p.taskId === SWEEP_TASK)
+    .length;
 }
 
 describe('durable-stream retention sweep gating (Minor 1)', () => {

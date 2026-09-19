@@ -87,8 +87,12 @@ describe('durable membership user gate', () => {
 });
 
 describe('kick(userRef, { revoke: true })', () => {
-  function userRef(id: string): { __wskit: 'user-ref'; id: string; instance: string | undefined } {
-    return { __wskit: 'user-ref', id, instance: undefined };
+  function userRef(id: string): {
+    __livething: 'user-ref';
+    id: string;
+    instance: string | undefined;
+  } {
+    return { __livething: 'user-ref', id, instance: undefined };
   }
 
   function makeConnection(id: string, userId: string): RuntimeConnection {
@@ -301,11 +305,7 @@ describe('durable membership is the channel default', () => {
 
   async function subscribeToRoom(handle: ReturnType<Engine['accept']>): Promise<void> {
     await handle.handleMessage(
-      JSON.stringify({
-        event: '__subscribe__',
-        payload: {},
-        __wskit: { channel: 'room', channelFamily: null },
-      }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'room' } }]),
     );
   }
 

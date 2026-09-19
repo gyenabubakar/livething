@@ -1,4 +1,4 @@
-// Tree-shaking guard for the published `@wskit/*` packages (server spec §24).
+// Tree-shaking guard for the published `@livething/*` packages (server spec §24).
 //
 // Each package ships lightweight subpath entries alongside its main one, and
 // promises that importing a light subpath does NOT drag heavy runtime code in.
@@ -17,10 +17,10 @@
 // makes a forbidden marker appear — and the check fails.
 //
 // Three suites run:
-//   • @wskit/server — one bundle entry per feature; the split is fine-grained.
-//   • @wskit/client — one socket runtime plus a few light utility subpaths; the
+//   • @livething/server — one bundle entry per feature; the split is fine-grained.
+//   • @livething/client — one socket runtime plus a few light utility subpaths; the
 //     guarantee is that those utilities never pull the connection runtime.
-//   • @wskit/server-node — the public Node adapter entry; the check makes sure
+//   • @livething/server-node — the public Node adapter entry; the check makes sure
 //     its runtime is present and no Cloudflare runtime is bundled into it.
 
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -33,7 +33,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
 
 // ---------------------------------------------------------------------------
-// @wskit/server — every feature is its own bundle entry.
+// @livething/server — every feature is its own bundle entry.
 //
 // Not every capability has a detectable engine here. `intercept` is deliberately
 // absent: the intercept primitive is core infrastructure (server, channels,
@@ -51,29 +51,29 @@ const SERVER_DIST = resolve(repoRoot, 'server/dist');
 
 const SERVER_ENGINES = {
   streamDurable: {
-    marker: '__wskit_stream_chunks',
+    marker: '__livething_stream_chunks',
     label: 'durable-stream engine (recorded chunk store)',
   },
   channel: { marker: '__subscribeOk__', label: 'channel runtime' },
   channelStorage: {
-    marker: '__wskit_channel_memberships',
+    marker: '__livething_channel_memberships',
     label: 'channel membership storage engine',
   },
-  scheduled: { marker: '__wskit_scheduled', label: 'scheduled-task engine' },
-  sequence: { marker: '__wskit_sequence', label: 'sequence engine' },
-  tags: { marker: '__wskit_tags', label: 'tags storage engine' },
-  replay: { marker: '__wskit_replay', label: 'replay engine' },
-  inbox: { marker: '__wskit_inbox', label: 'inbox engine' },
-  lastSeen: { marker: '__wskit_last_seen', label: 'last-seen engine' },
-  keepalive: { marker: '__wskit: "keepalive"', label: 'keepalive capability' },
-  dedup: { marker: '__wskit: "dedup"', label: 'dedup capability' },
-  request: { marker: '__wskit: "request"', label: 'request engine' },
+  scheduled: { marker: '__livething_scheduled', label: 'scheduled-task engine' },
+  sequence: { marker: '__livething_sequence', label: 'sequence engine' },
+  tags: { marker: '__livething_tags', label: 'tags storage engine' },
+  replay: { marker: '__livething_replay', label: 'replay engine' },
+  inbox: { marker: '__livething_inbox', label: 'inbox engine' },
+  lastSeen: { marker: '__livething_last_seen', label: 'last-seen engine' },
+  keepalive: { marker: '__livething: "keepalive"', label: 'keepalive capability' },
+  dedup: { marker: '__livething: "dedup"', label: 'dedup capability' },
+  request: { marker: '__livething: "request"', label: 'request engine' },
   serverRequest: { marker: 'request-not-declared', label: 'server-request engine' },
   rateLimit: { marker: ' at scope ', label: 'rate-limit engine' },
   // `plugins.ts` is a bundle entry, so a bundler keeps the module whole: one
   // value import of anything it exports drags the wire-namespacing pass and the
   // plugin-scoped context in with it. This marker is the canary for that edge.
-  plugin: { marker: '__wskit: "pluginSurface"', label: 'plugin runtime' },
+  plugin: { marker: '__livething: "pluginSurface"', label: 'plugin runtime' },
 };
 
 function serverScenarios(f) {
@@ -158,12 +158,12 @@ function serverScenarios(f) {
 }
 
 // ---------------------------------------------------------------------------
-// @wskit/client — one connection runtime plus light utility subpaths.
+// @livething/client — one connection runtime plus light utility subpaths.
 //
 // There is no per-feature split on the client: the socket owns every wire
 // behavior. The single guarantee worth pinning is that the utility subpaths
 // (`errors`, `environment`, `platform`) and the test-helper entry (`testing`)
-// never pull the connection runtime — importing `@wskit/client/errors` must not
+// never pull the connection runtime — importing `@livething/client/errors` must not
 // ship a WebSocket engine.
 // ---------------------------------------------------------------------------
 const CLIENT_DIST = resolve(repoRoot, 'client/dist');
@@ -188,7 +188,7 @@ function clientScenarios(f) {
 }
 
 const NODE_ADAPTER_DIST = resolve(repoRoot, 'server-adapters/node/dist');
-const NODE_ADAPTER_MARKER = '[wskit] Node binding is shutting down';
+const NODE_ADAPTER_MARKER = '[livething] Node binding is shutting down';
 
 // ---------------------------------------------------------------------------
 // Runner
@@ -202,7 +202,7 @@ function importNamed(path, ...names) {
 }
 
 async function bundle(source, options = {}) {
-  const dir = await mkdtemp(join(tmpdir(), 'wskit-bundle-check-'));
+  const dir = await mkdtemp(join(tmpdir(), 'livething-bundle-check-'));
   const entry = join(dir, 'entry.mjs');
   await writeFile(entry, source);
   try {
@@ -213,9 +213,14 @@ async function bundle(source, options = {}) {
       format: 'esm',
       platform: options.platform ?? 'neutral',
       minify: false,
-      // @wskit/core is an external peer in the built packages; keep it external
+      // @livething/core is an external peer in the built packages; keep it external
       // here too so we only inspect each package's own code.
-      external: ['@wskit/core', '@wskit/core/*', '@standard-schema/*', ...(options.external ?? [])],
+      external: [
+        '@livething/core',
+        '@livething/core/*',
+        '@standard-schema/*',
+        ...(options.external ?? []),
+      ],
       logLevel: 'silent',
     });
     return result.outputFiles.map((file) => file.text).join('\n');
@@ -225,7 +230,7 @@ async function bundle(source, options = {}) {
 }
 
 async function runNodeAdapterSuite() {
-  console.log('\n@wskit/server-node');
+  console.log('\n@livething/server-node');
   const failures = [];
 
   await assertMarkersResolve(
@@ -239,8 +244,8 @@ async function runNodeAdapterSuite() {
       platform: 'node',
       external: [
         'node:*',
-        '@wskit/server',
-        '@wskit/server/*',
+        '@livething/server',
+        '@livething/server/*',
         '@fastify/*',
         'better-sqlite3',
         'ws',
@@ -249,20 +254,20 @@ async function runNodeAdapterSuite() {
 
     if (!code.includes(NODE_ADAPTER_MARKER)) {
       failures.push(
-        `  [@wskit/server-node · index] expected Node adapter runtime marker ${JSON.stringify(NODE_ADAPTER_MARKER)} is absent`,
+        `  [@livething/server-node · index] expected Node adapter runtime marker ${JSON.stringify(NODE_ADAPTER_MARKER)} is absent`,
       );
     }
 
     if (code.includes('cloudflare:workers')) {
       failures.push(
-        '  [@wskit/server-node · index] Cloudflare runtime code leaked into the Node adapter bundle',
+        '  [@livething/server-node · index] Cloudflare runtime code leaked into the Node adapter bundle',
       );
     }
 
     console.log(`  ${failures.length ? '✗' : '✓'} index (runtime)`);
   } catch (error) {
     failures.push(
-      `  [@wskit/server-node · index] could not bundle the public entry — ${error instanceof Error ? error.message : String(error)}`,
+      `  [@livething/server-node · index] could not bundle the public entry — ${error instanceof Error ? error.message : String(error)}`,
     );
     console.log('  ✗ index (runtime)');
   }
@@ -361,11 +366,11 @@ function withDir(dir) {
 async function main() {
   const failures = [
     ...(await runSuite(
-      { label: '@wskit/server', distDir: SERVER_DIST, engines: SERVER_ENGINES },
+      { label: '@livething/server', distDir: SERVER_DIST, engines: SERVER_ENGINES },
       serverScenarios(withDir(SERVER_DIST)),
     )),
     ...(await runSuite(
-      { label: '@wskit/client', distDir: CLIENT_DIST, engines: CLIENT_ENGINES },
+      { label: '@livething/client', distDir: CLIENT_DIST, engines: CLIENT_ENGINES },
       clientScenarios(withDir(CLIENT_DIST)),
     )),
     ...(await runNodeAdapterSuite()),

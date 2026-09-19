@@ -83,7 +83,7 @@ describe('framework alarm multiplexer', () => {
       await expect(rescheduleAlarm(core)).resolves.toBeUndefined();
 
       expect(setAlarm).toHaveBeenCalledWith(1_500);
-      expect(error).toHaveBeenCalledWith('[wskit] durable alarm source failed; retrying', {
+      expect(error).toHaveBeenCalledWith('[livething] durable alarm source failed; retrying', {
         error: 'source read failed',
         sources: ['broken'],
       });
@@ -149,7 +149,7 @@ describe('framework alarm multiplexer', () => {
       rescheduleAlarm(core);
       await Promise.resolve();
       await Promise.resolve();
-      expect(error).toHaveBeenCalledWith('[wskit] durable alarm reschedule failed', {
+      expect(error).toHaveBeenCalledWith('[livething] durable alarm reschedule failed', {
         error: 'temporary alarm failure',
       });
 

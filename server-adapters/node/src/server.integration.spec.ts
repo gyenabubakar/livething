@@ -1,12 +1,12 @@
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
-import { server as createServerDefinition, emits, t, translator } from '@wskit/server';
-import { CloseCodes, RejectUpgrade } from '@wskit/server/errors';
-import { scheduled } from '@wskit/server/scheduled';
+import { server as createServerDefinition, emits, t, translator } from '@livething/server';
+import { CloseCodes, RejectUpgrade } from '@livething/server/errors';
+import { scheduled } from '@livething/server/scheduled';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
-import type { ApiOf, KVProvider, Logger, ServerDefinition } from '@wskit/server/adapters';
+import type { ApiOf, KVProvider, Logger, ServerDefinition } from '@livething/server/adapters';
 import type { Server } from 'node:http';
 import type { RawData } from 'ws';
 import { binding } from './binding.ts';
@@ -15,10 +15,7 @@ import type { NodeAdmin } from './endpoint.ts';
 import type { NodeServerEndpointOptions } from './setup.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
 
-interface WireMessage {
-  event: string;
-  payload?: unknown;
-}
+type WireFrame = readonly [event: string, payload: unknown, metadata: null];
 
 interface IntegrationState {
   upgradeRequest?: Request;
@@ -31,7 +28,7 @@ interface TestService<TApi = unknown> {
   readonly server: Server;
   readonly ready: Promise<void>;
   admin(): Promise<TApi>;
-  shutdownWSKit(): Promise<void>;
+  shutdownLiveThing(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -43,8 +40,8 @@ function createTestService<TDefinition extends ServerDefinition>(
     response.statusCode = 404;
     response.end();
   });
-  const wskit = setup();
-  const endpoint = wskit.bind(definition, options);
+  const livething = setup();
+  const endpoint = livething.bind(definition, options);
   httpServer.on('upgrade', endpoint.upgrade);
   let shutdown: Promise<void> | undefined;
 
@@ -63,10 +60,10 @@ function createTestService<TDefinition extends ServerDefinition>(
     server: httpServer,
     ready,
     admin: endpoint.admin,
-    shutdownWSKit: wskit.shutdown,
+    shutdownLiveThing: livething.shutdown,
     shutdown() {
       if (!shutdown) {
-        shutdown = wskit.shutdown().then(
+        shutdown = livething.shutdown().then(
           () =>
             new Promise<void>((resolve, reject) => {
               httpServer.close((error) => (error ? reject(error) : resolve()));
@@ -211,11 +208,11 @@ function createTranslatedHandler(state: IntegrationState) {
         const frame = JSON.parse(raw) as { data?: unknown; type?: string };
         if (frame.type === 'ignore') return null;
 
-        return JSON.stringify({ event: frame.type, payload: frame.data });
+        return JSON.stringify([frame.type, frame.data, null]);
       },
       outbound(raw) {
-        const frame = JSON.parse(raw) as { event: string; payload?: unknown };
-        return JSON.stringify({ type: frame.event, data: frame.payload });
+        const [event, payload] = JSON.parse(raw) as [string, unknown, unknown];
+        return JSON.stringify({ type: event, data: payload });
       },
     })),
     upgrade(request) {
@@ -272,23 +269,23 @@ function waitForJson<T>(socket: WebSocket): Promise<T> {
   });
 }
 
-function waitForMessage(socket: WebSocket): Promise<WireMessage> {
-  return waitForJson<WireMessage>(socket);
+function waitForMessage(socket: WebSocket): Promise<WireFrame> {
+  return waitForJson<WireFrame>(socket);
 }
 
 function createMessageQueue(socket: WebSocket): {
-  next(): Promise<WireMessage>;
+  next(): Promise<WireFrame>;
   dispose(): void;
 } {
-  const messages: WireMessage[] = [];
+  const messages: WireFrame[] = [];
   const waiters: Array<{
-    resolve: (message: WireMessage) => void;
+    resolve: (message: WireFrame) => void;
     reject: (error: unknown) => void;
   }> = [];
 
   function onMessage(data: RawData): void {
     try {
-      const message = JSON.parse(data.toString()) as WireMessage;
+      const message = JSON.parse(data.toString()) as WireFrame;
       const waiter = waiters.shift();
       if (waiter) waiter.resolve(message);
       else messages.push(message);
@@ -552,16 +549,10 @@ describe('Node server integration', () => {
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
 
-    await expect(connected).resolves.toMatchObject({
-      event: 'connected',
-      payload: { role: 'member' },
-    });
+    await expect(connected).resolves.toEqual(['connected', { role: 'member' }, null]);
 
-    socket.send(JSON.stringify({ event: 'echo', payload: { text: 'hello' } }));
-    await expect(waitForMessage(socket)).resolves.toMatchObject({
-      event: 'echoed',
-      payload: { text: 'hello' },
-    });
+    socket.send(JSON.stringify(['echo', { text: 'hello' }, null]));
+    await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text: 'hello' }, null]);
 
     expect(state.upgradeRequest?.url).toBe(
       `http://127.0.0.1:${serverPort(service.server)}/chat?user=alice`,
@@ -569,7 +560,7 @@ describe('Node server integration', () => {
     expect(state.upgradeRequest?.method).toBe('GET');
     expect(state.upgradeRequest?.headers.get('cookie')).toBe('session=abc');
     expect(state.upgradeRequest?.headers.get('x-role')).toBe('member');
-    expect(state.upgradeRequest?.headers.get('WSKit-Client-IP')).toMatch(
+    expect(state.upgradeRequest?.headers.get('LiveThing-Client-IP')).toMatch(
       /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/,
     );
 
@@ -593,7 +584,7 @@ describe('Node server integration', () => {
     await waitForOpen(socket);
     await connected;
 
-    expect(state.upgradeRequest?.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
+    expect(state.upgradeRequest?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
   });
 
   it('rejects a real upgrade with an HTTP response', async () => {
@@ -696,7 +687,7 @@ describe('Node server integration', () => {
 
     await connected;
 
-    socket.send(JSON.stringify({ event: 'invalid-close', payload: {} }));
+    socket.send(JSON.stringify(['invalid-close', {}, null]));
 
     await expect(closed).resolves.toEqual({ code: 1011, reason: 'Internal error' });
   });
@@ -718,12 +709,12 @@ describe('Node server integration', () => {
 
     await expect(closed).resolves.toEqual({
       code: 1003,
-      reason: '[wskit] binary frames are not supported yet',
+      reason: '[livething] binary frames are not supported yet',
     });
     await vi.waitFor(() =>
       expect(state.disconnect).toEqual({
         code: 1003,
-        reason: '[wskit] binary frames are not supported yet',
+        reason: '[livething] binary frames are not supported yet',
       }),
     );
   });
@@ -782,23 +773,18 @@ describe('Node server integration', () => {
     await waitForOpen(socket);
     await connected;
 
-    socket.send(JSON.stringify({ event: 'store', payload: { value: 'persisted' } }));
-    await expect(waitForMessage(socket)).resolves.toMatchObject({
-      event: 'stored',
-      payload: { sql: 'persisted', kv: 'persisted' },
-    });
+    socket.send(JSON.stringify(['store', { value: 'persisted' }, null]));
+    await expect(waitForMessage(socket)).resolves.toEqual([
+      'stored',
+      { sql: 'persisted', kv: 'persisted' },
+      null,
+    ]);
 
     const messages = createMessageQueue(socket);
     try {
-      socket.send(JSON.stringify({ event: 'schedule', payload: {} }));
-      await expect(messages.next()).resolves.toMatchObject({
-        event: 'scheduledQueued',
-        payload: { ok: true },
-      });
-      await expect(messages.next()).resolves.toMatchObject({
-        event: 'scheduled',
-        payload: { text: 'from alarm' },
-      });
+      socket.send(JSON.stringify(['schedule', {}, null]));
+      await expect(messages.next()).resolves.toEqual(['scheduledQueued', { ok: true }, null]);
+      await expect(messages.next()).resolves.toEqual(['scheduled', { text: 'from alarm' }, null]);
     } finally {
       messages.dispose();
     }
@@ -811,7 +797,7 @@ describe('Node server integration', () => {
     await endpoint.ready();
 
     const upgrade = await endpoint.prepare(
-      new Request('https://example.test/chat', { headers: { 'WSKit-Client-IP': 'spoofed' } }),
+      new Request('https://example.test/chat', { headers: { 'LiveThing-Client-IP': 'spoofed' } }),
       { clientIp: '203.0.113.7' },
     );
     expect(upgrade.type).toBe('accept');
@@ -828,10 +814,10 @@ describe('Node server integration', () => {
     };
 
     const connection = upgrade.accept(transport);
-    await connection.message(JSON.stringify({ event: 'echo', payload: { text: 'custom host' } }));
+    await connection.message(JSON.stringify(['echo', { text: 'custom host' }, null]));
 
     await vi.waitFor(() => expect(transport.sent.join()).toContain('custom host'));
-    expect(state.upgradeRequest?.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
+    expect(state.upgradeRequest?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
     await node.shutdown();
   });
 
@@ -857,11 +843,12 @@ describe('Node server integration', () => {
     await waitForOpen(socket);
     await connected;
 
-    socket.send(JSON.stringify({ event: 'store', payload: { value: 'injected' } }));
-    await expect(waitForMessage(socket)).resolves.toMatchObject({
-      event: 'stored',
-      payload: { sql: 'injected', kv: 'injected' },
-    });
+    socket.send(JSON.stringify(['store', { value: 'injected' }, null]));
+    await expect(waitForMessage(socket)).resolves.toEqual([
+      'stored',
+      { sql: 'injected', kv: 'injected' },
+      null,
+    ]);
     expect(kv.set).toHaveBeenCalledWith('answer', 'injected', undefined);
 
     socket.send('not json');
@@ -882,11 +869,12 @@ describe('Node server integration', () => {
     await waitForOpen(socket);
     await connected;
 
-    socket.send(JSON.stringify({ event: 'buffered', payload: {} }));
-    await expect(waitForMessage(socket)).resolves.toMatchObject({
-      event: 'buffered',
-      payload: { amount: expect.any(Number) },
-    });
+    socket.send(JSON.stringify(['buffered', {}, null]));
+    await expect(waitForMessage(socket)).resolves.toEqual([
+      'buffered',
+      { amount: expect.any(Number) },
+      null,
+    ]);
   });
 
   it('runs custom admin API methods through the real engine', async () => {
@@ -903,10 +891,11 @@ describe('Node server integration', () => {
 
     const announcement = waitForMessage(socket);
     expect((await service.admin()).announce('from admin')).toBe(1);
-    await expect(announcement).resolves.toMatchObject({
-      event: 'adminAnnouncement',
-      payload: { text: 'from admin' },
-    });
+    await expect(announcement).resolves.toEqual([
+      'adminAnnouncement',
+      { text: 'from admin' },
+      null,
+    ]);
   });
 
   it('reconciles stale persisted connections when a new Node service starts', async () => {
@@ -1007,13 +996,13 @@ describe('Node server integration', () => {
     expect(state.shutdowns).toBe(1);
   });
 
-  it('drops upgrades that arrive after WSKit shutdown starts', async () => {
+  it('drops upgrades that arrive after LiveThing shutdown starts', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
-    await service.shutdownWSKit();
+    await service.shutdownLiveThing();
 
     await expect(sendOpenUpgrade(serverPort(service.server), '/chat')).resolves.toBe('');
   });

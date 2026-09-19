@@ -268,7 +268,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
     await processTextMessage(
       runtime,
       connection,
-      JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'chat' } }]),
     );
 
     expect(sightings.check).toEqual({
@@ -358,7 +358,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
     await processTextMessage(
       runtime,
       connection,
-      JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'chat' } }]),
     );
 
     expect(sightings.subscribe).toEqual({
@@ -395,11 +395,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
     await processTextMessage(
       runtime,
       connection,
-      JSON.stringify({
-        event: '__subscribe__',
-        payload: {},
-        __wskit: { channel: 'room:one', channelFamily: 'rooms' },
-      }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'room:one', family: 'rooms' } }]),
     );
 
     const gateSighting = {

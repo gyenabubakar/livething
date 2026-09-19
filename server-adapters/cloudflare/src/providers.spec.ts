@@ -234,7 +234,7 @@ describe('createSql.transaction', () => {
     const sql = createSql(state);
     const callback = vi.fn();
 
-    expect(() => sql.transaction(callback)).toThrow(/\[wskit\].*transactionSync/);
+    expect(() => sql.transaction(callback)).toThrow(/\[livething\].*transactionSync/);
     expect(callback).not.toHaveBeenCalled();
   });
 

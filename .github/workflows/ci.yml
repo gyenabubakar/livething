@@ -156,72 +156,72 @@ jobs:
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
           - name: cf-raw
-            command: pnpm --filter @wskit/tests-e2e-server-cloudflare run test:e2e:cloudflare
+            command: pnpm --filter @livething/tests-e2e-server-cloudflare run test:e2e:cloudflare
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
           - name: cf-packaged
-            command: pnpm --filter @wskit/tests-e2e-client run test:e2e:cloudflare
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:cloudflare
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
           - name: node-http-raw
-            command: pnpm --filter @wskit/tests-e2e-server-node run test:e2e:node:http
+            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:node:http
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
           - name: node-http-packaged
-            command: pnpm --filter @wskit/tests-e2e-client run test:e2e:node:http
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:node:http
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
           - name: express-raw
-            command: pnpm --filter @wskit/tests-e2e-server-node run test:e2e:express
+            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:express
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
           - name: express-packaged
-            command: pnpm --filter @wskit/tests-e2e-client run test:e2e:express
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:express
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
           - name: koa-raw
-            command: pnpm --filter @wskit/tests-e2e-server-node run test:e2e:koa
+            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:koa
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
           - name: koa-packaged
-            command: pnpm --filter @wskit/tests-e2e-client run test:e2e:koa
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:koa
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
           - name: hono-raw
-            command: pnpm --filter @wskit/tests-e2e-server-node run test:e2e:hono
+            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:hono
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
           - name: hono-packaged
-            command: pnpm --filter @wskit/tests-e2e-client run test:e2e:hono
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:hono
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
           - name: fastify-raw
-            command: pnpm --filter @wskit/tests-e2e-server-node run test:e2e:fastify
+            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:fastify
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
           - name: fastify-packaged
-            command: pnpm --filter @wskit/tests-e2e-client run test:e2e:fastify
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:fastify
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
           - name: h3-raw
-            command: pnpm --filter @wskit/tests-e2e-server-node run test:e2e:h3
+            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:h3
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
           - name: h3-packaged
-            command: pnpm --filter @wskit/tests-e2e-client run test:e2e:h3
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:h3
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/

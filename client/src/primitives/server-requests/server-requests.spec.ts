@@ -49,12 +49,15 @@ describe('serverRequests — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'read' },
-      __wskit: { correlationId: 'x1', source: 'server' },
+      metadata: { exchange: { id: 'x1', source: 'server' } },
     });
     await new Promise((r) => setTimeout(r, 0));
 
     const reply = ws.sentFrames().find((f) => f.event === 'ask-permission');
-    expect(reply).toMatchObject({ payload: { allowed: true }, __wskit: { correlationId: 'x1' } });
+    expect(reply).toMatchObject({
+      payload: { allowed: true },
+      metadata: { exchange: { id: 'x1' } },
+    });
   });
 
   it('replies with a request-no-response error frame when the handler throws', async () => {
@@ -66,14 +69,14 @@ describe('serverRequests — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: { correlationId: 'x2', source: 'server' },
+      metadata: { exchange: { id: 'x2', source: 'server' } },
     });
     await new Promise((r) => setTimeout(r, 0));
 
     const reply = ws.sentFrames().find((f) => f.event === '__error__');
     expect(reply).toMatchObject({
       payload: { code: 'request-no-response' },
-      __wskit: { correlationId: 'x2' },
+      metadata: { exchange: { id: 'x2' } },
     });
   });
 
@@ -87,14 +90,18 @@ describe('serverRequests — answering server-initiated requests', () => {
 
     const pending = (socket as any).request('get-balance', { user: 'a' });
     const reqFrame = ws.sentFrames().find((f) => f.event === 'get-balance');
-    const correlationId = reqFrame.__wskit.correlationId;
+    const correlationId = reqFrame.metadata.exchange?.id;
 
-    ws.emit({ event: 'get-balance', payload: { balance: 5 }, __wskit: { correlationId } });
+    ws.emit({
+      event: 'get-balance',
+      payload: { balance: 5 },
+      metadata: { exchange: { id: correlationId } },
+    });
     await expect(pending).resolves.toEqual({ balance: 5 });
     expect(handlerHits).toHaveLength(0);
   });
 
-  it('replies with an empty payload for a void acknowledgement handler', async () => {
+  it('replies with a null payload for a void acknowledgement handler', async () => {
     const { socket, ws } = build();
     const hits: unknown[] = [];
     (socket as any).onRequest('ack-me', (p: unknown) => {
@@ -104,26 +111,30 @@ describe('serverRequests — answering server-initiated requests', () => {
     ws.emit({
       event: 'ack-me',
       payload: { action: 'commit' },
-      __wskit: { correlationId: 'ack1', source: 'server' },
+      metadata: { exchange: { id: 'ack1', source: 'server' } },
     });
     await new Promise((r) => setTimeout(r, 0));
 
     expect(hits).toEqual([{ action: 'commit' }]);
     const reply = ws.sentFrames().find((f) => f.event === 'ack-me');
     expect(reply).toBeDefined();
-    expect(reply?.__wskit?.correlationId).toBe('ack1');
-    expect(reply?.payload).toBeUndefined();
+    expect(reply?.metadata?.exchange?.id).toBe('ack1');
+    expect(reply?.payload).toBeNull();
 
     expect(ws.sentFrames().some((f) => f.event === '__error__')).toBe(false);
   });
 
-  it('resolves a void acknowledgement request with undefined', async () => {
+  it('turns a null wire payload into an undefined void response', async () => {
     const { socket, ws } = build();
     const pending = (socket as any).request('ack-thing', { go: true });
-    const correlationId = ws.sentFrames().find((f) => f.event === 'ack-thing')
-      ?.__wskit?.correlationId;
+    const correlationId = ws.sentFrames().find((f) => f.event === 'ack-thing')?.metadata
+      ?.exchange?.id;
 
-    ws.emit({ event: 'ack-thing', payload: undefined, __wskit: { correlationId } });
+    ws.emit({
+      event: 'ack-thing',
+      payload: null,
+      metadata: { exchange: { id: correlationId } },
+    });
     await expect(pending).resolves.toBeUndefined();
   });
 
@@ -136,15 +147,17 @@ describe('serverRequests — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: { correlationId: 'x3', channel: 'room-1', channelFamily: 'rooms', source: 'server' },
+      metadata: {
+        exchange: { id: 'x3', source: 'server' },
+        channel: { name: 'room-1', family: 'rooms' },
+      },
     });
     await new Promise((r) => setTimeout(r, 0));
 
     const reply = ws.sentFrames().find((f) => f.event === 'ask-permission');
-    expect(reply.__wskit).toMatchObject({
-      correlationId: 'x3',
-      channel: 'room-1',
-      channelFamily: 'rooms',
+    expect(reply.metadata).toMatchObject({
+      exchange: { id: 'x3' },
+      channel: { name: 'room-1', family: 'rooms' },
     });
   });
 
@@ -161,7 +174,7 @@ describe('serverRequests — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: { correlationId: 'x4', source: 'server' },
+      metadata: { exchange: { id: 'x4', source: 'server' } },
     });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -171,7 +184,7 @@ describe('serverRequests — answering server-initiated requests', () => {
     const nak = ws.sentFrames().find((f) => f.event === '__error__');
     expect(nak).toMatchObject({
       payload: { code: 'request-no-response' },
-      __wskit: { correlationId: 'x4' },
+      metadata: { exchange: { id: 'x4' } },
     });
   });
 
@@ -190,11 +203,9 @@ describe('serverRequests — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: {
-        correlationId: 'x5',
-        channel: 'room-1',
-        channelFamily: 'rooms',
-        source: 'server',
+      metadata: {
+        exchange: { id: 'x5', source: 'server' },
+        channel: { name: 'room-1', family: 'rooms' },
       },
     });
     await new Promise((r) => setTimeout(r, 0));
@@ -204,7 +215,7 @@ describe('serverRequests — answering server-initiated requests', () => {
     const nak = ws.sentFrames().find((f) => f.event === '__error__');
     expect(nak).toMatchObject({
       payload: { code: 'request-no-response' },
-      __wskit: { correlationId: 'x5' },
+      metadata: { exchange: { id: 'x5' } },
     });
   });
 
@@ -224,11 +235,9 @@ describe('serverRequests — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: {
-        correlationId: 'x7',
-        channel: 'room-1',
-        channelFamily: 'rooms',
-        source: 'server',
+      metadata: {
+        exchange: { id: 'x7', source: 'server' },
+        channel: { name: 'room-1', family: 'rooms' },
       },
     });
     await new Promise((r) => setTimeout(r, 0));
@@ -244,14 +253,14 @@ describe('serverRequests — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: { correlationId: 'x6', source: 'server' },
+      metadata: { exchange: { id: 'x6', source: 'server' } },
     });
     await new Promise((r) => setTimeout(r, 0));
 
     const nak = ws.sentFrames().find((f) => f.event === '__error__');
     expect(nak).toMatchObject({
       payload: { code: 'request-no-response' },
-      __wskit: { correlationId: 'x6' },
+      metadata: { exchange: { id: 'x6' } },
     });
   });
 
@@ -261,9 +270,13 @@ describe('serverRequests — answering server-initiated requests', () => {
     // no serverRequests handler. It must not be NAK'd — clientRequests claims it.
     const pending = (socket as any).request('get-balance', { user: 'a' });
     const reqFrame = ws.sentFrames().find((f) => f.event === 'get-balance');
-    const correlationId = reqFrame.__wskit.correlationId;
+    const correlationId = reqFrame.metadata.exchange?.id;
 
-    ws.emit({ event: 'get-balance', payload: { balance: 7 }, __wskit: { correlationId } });
+    ws.emit({
+      event: 'get-balance',
+      payload: { balance: 7 },
+      metadata: { exchange: { id: correlationId } },
+    });
     await expect(pending).resolves.toEqual({ balance: 7 });
     const nak = ws.sentFrames().find((f) => f.event === '__error__');
     expect(nak).toBeUndefined();

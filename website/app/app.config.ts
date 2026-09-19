@@ -6,8 +6,8 @@ export default defineAppConfig({
     rootDir: 'website',
   },
   seo: {
-    titleTemplate: '%s - WSKit',
-    title: 'WSKit',
+    titleTemplate: '%s - LiveThing',
+    title: 'LiveThing',
     description: 'A typed WebSocket framework for TypeScript. Call server() once and the client inherits the exact types — events, requests, channels, and streams, end to end.',
   },
   assistant: {
@@ -18,8 +18,8 @@ export default defineAppConfig({
       {
         category: 'Getting Started',
         items: [
-          'What is WSKit?',
-          'How do I install WSKit?',
+          'What is LiveThing?',
+          'How do I install LiveThing?',
           'How do I create a typed contract?',
         ],
       },
@@ -36,7 +36,7 @@ export default defineAppConfig({
         items: [
           'How do I authenticate a connection?',
           'How do I rate limit events?',
-          'Which platforms does WSKit run on?',
+          'Which platforms does LiveThing run on?',
         ],
       },
     ],

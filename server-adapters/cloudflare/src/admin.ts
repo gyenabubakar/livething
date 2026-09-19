@@ -1,4 +1,4 @@
-import { ADMIN_CONTEXT_MEMBERS } from '@wskit/server/adapters';
+import { ADMIN_CONTEXT_MEMBERS } from '@livething/server/adapters';
 import { RpcTarget } from 'cloudflare:workers';
 import type {
   AdminContext,
@@ -7,7 +7,7 @@ import type {
   PurgeUserOptions,
   TagRef,
   UserRef,
-} from '@wskit/server/adapters';
+} from '@livething/server/adapters';
 
 type FilterParameter = { userId?: string };
 type OptsParameter = { reason: string; revoke?: boolean };
@@ -45,7 +45,7 @@ function toPlainInfo<TMeta>(info: ConnectionInfo<TMeta>): AdminConnectionInfo<TM
  * sql, and the rest) inside the Durable Object; that richness is for use inside
  * your api methods, not for surfacing directly over the stub.
  */
-export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
+export class LiveThingAdmin<TMeta = Record<string, never>> extends RpcTarget {
   readonly #ctx: AdminContext<TMeta>;
   readonly #instanceId: string | undefined;
 
@@ -62,7 +62,7 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
    * left intact so the engine can reject it rather than silently rerouting.
    */
   #localTarget(target: UserRef | TagRef): UserRef | TagRef {
-    if (target.__wskit !== 'user-ref' || target.instance !== undefined) return target;
+    if (target.__livething !== 'user-ref' || target.instance !== undefined) return target;
 
     if (this.#instanceId === undefined) return target;
 
@@ -156,7 +156,7 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
 }
 
 /**
- * Project an `Engine.admin()` surface onto a {@link WSKitAdmin}. The app's own
+ * Project an `Engine.admin()` surface onto a {@link LiveThingAdmin}. The app's own
  * api methods go on a per-call subclass prototype — Cloudflare RPC only exposes
  * methods found on the prototype chain, not own properties — and a method that
  * collides with a built-in is dropped, so built-ins always win.
@@ -170,22 +170,22 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
 export function buildAdmin<TApi, TMeta>(
   surface: AdminContext<TMeta> & TApi,
   instanceId?: string,
-): WSKitAdmin<TMeta> & TApi {
+): LiveThingAdmin<TMeta> & TApi {
   const devMethods = Object.entries(surface as Record<string, unknown>).filter(
     (entry) =>
       typeof entry[1] === 'function' &&
       !ADMIN_CONTEXT_MEMBERS.has(entry[0]) &&
-      !(entry[0] in WSKitAdmin.prototype),
+      !(entry[0] in LiveThingAdmin.prototype),
   );
   if (devMethods.length === 0) {
-    return new WSKitAdmin(surface, instanceId) as WSKitAdmin<TMeta> & TApi;
+    return new LiveThingAdmin(surface, instanceId) as LiveThingAdmin<TMeta> & TApi;
   }
 
-  const Extended = class extends WSKitAdmin<TMeta> {};
+  const Extended = class extends LiveThingAdmin<TMeta> {};
   const proto = Extended.prototype as unknown as Record<string, unknown>;
   for (const [key, value] of devMethods) {
     proto[key] = value;
   }
 
-  return new Extended(surface, instanceId) as WSKitAdmin<TMeta> & TApi;
+  return new Extended(surface, instanceId) as LiveThingAdmin<TMeta> & TApi;
 }

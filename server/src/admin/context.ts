@@ -1,4 +1,4 @@
-import { ChannelNotFound } from '@wskit/core';
+import { ChannelNotFound } from '@livething/core';
 import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -56,7 +56,7 @@ export function createAdminContext(
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {
-      deps.logger.error('[wskit] cancelScheduled matched no runs', {
+      deps.logger.error('[livething] cancelScheduled matched no runs', {
         taskId,
         filter,
         taskExists: result.taskExists,
@@ -133,7 +133,7 @@ export type UnlistedAdminContextMember = Exclude<
 export const ADMIN_CONTEXT_MEMBERS: ReadonlySet<string> = new Set(ADMIN_CONTEXT_MEMBER_NAMES);
 
 /**
- * Names an app's `api` factory may not use. These are not WSKit's to give away:
+ * Names an app's `api` factory may not use. These are not LiveThing's to give away:
  * JavaScript itself assigns them a meaning that an ordinary method would break.
  *
  * - `then` makes any object a thenable, so `await` on the admin surface calls it

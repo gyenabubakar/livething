@@ -116,13 +116,13 @@ export const durableStreamService: DurableStreamService = {
     connection: RuntimeConnection,
     options: DurableTriggerOptions,
   ): Promise<void> {
-    const { scope, durable, kind, payload, wskit } = options;
+    const { scope, durable, kind, payload, livething } = options;
     ensureSchemaOnce(runtime);
     await DurableStreamRuntime.runDurableStream(runtime, connection, {
       scope,
       def: buildRuntimeDef(durable, kind),
       payload,
-      wskit,
+      livething,
     });
   },
 

@@ -6,7 +6,7 @@ import type { LocalKey } from './local-key/local-key.ts';
 type OptionsParameter = { ttl?: number };
 type OptsParameter = { timeout?: number };
 type WireParameter = {
-  seq: number;
+  deliverySeq: number;
   messageId: string;
   channel?: string;
   channelFamily?: string | null;
@@ -58,7 +58,7 @@ export interface SqlResult<T = unknown> {
  * many bytes the statement text may be, and how many bytes a single bound
  * value (or returned column) may be. The caps differ wildly by engine — a
  * Cloudflare Durable Object allows 100 bound parameters per statement, while
- * `node:sqlite` allows 32,766. WSKit does not pick a number for you: each
+ * `node:sqlite` allows 32,766. LiveThing does not pick a number for you: each
  * adapter states its engine's real numbers here, and code that builds
  * variable-length SQL (batched inserts, `WHERE id IN (...)`, and similar)
  * reads `limits` to stay under them instead of assuming one shared ceiling.
@@ -109,7 +109,7 @@ export interface SQLProvider {
    * Run one SQL statement. Bind values with positional `?` placeholders.
    *
    * Pass a generic row type when you know the query's result shape. The generic
-   * is a TypeScript hint only; WSKit does not validate SQL rows at runtime.
+   * is a TypeScript hint only; LiveThing does not validate SQL rows at runtime.
    */
   exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
 
@@ -265,7 +265,7 @@ export interface Logger {
  */
 export interface ConnectionRef {
   /** Brand tag so the type cannot be confused with a plain object. */
-  readonly __wskit: 'connection-ref';
+  readonly __livething: 'connection-ref';
 
   /** Engine-generated id of the target connection. */
   readonly id: string;
@@ -292,7 +292,7 @@ export interface ConnectionRef {
  */
 export interface UserRef {
   /** Brand tag so the type cannot be confused with a plain object. */
-  readonly __wskit: 'user-ref';
+  readonly __livething: 'user-ref';
 
   /** The user id — same value as `ConnectionRef.userId` / `ctx.user.id`. */
   readonly id: string;
@@ -315,7 +315,7 @@ export interface UserRef {
  */
 export interface TagRef {
   /** Brand tag so the type cannot be confused with a plain object. */
-  readonly __wskit: 'tag-ref';
+  readonly __livething: 'tag-ref';
 
   /** Which kind of group the tag belongs to. */
   readonly kind: 'ephemeral' | 'persistent';
@@ -550,7 +550,7 @@ export type ChannelRecipient =
   | UserRef
   | TagRef
   | {
-      readonly __wskit: 'group-handle';
+      readonly __livething: 'group-handle';
       readonly kind: 'ephemeral' | 'persistent';
       readonly group: string;
     };
@@ -763,7 +763,7 @@ export interface ChannelHandle<
       | UserRef
       | TagRef
       | {
-          readonly __wskit: 'group-handle';
+          readonly __livething: 'group-handle';
           readonly kind: 'ephemeral' | 'persistent';
           readonly group: string;
         },

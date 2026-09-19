@@ -1,8 +1,8 @@
-import { emits, errors, server, t } from '@wskit/server';
-import { error } from '@wskit/server/errors';
-import { stream } from '@wskit/server/streams';
+import { emits, errors, server, t } from '@livething/server';
+import { error } from '@livething/server/errors';
+import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Token = t<{ index: number }>();

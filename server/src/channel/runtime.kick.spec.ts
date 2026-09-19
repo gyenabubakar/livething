@@ -48,7 +48,7 @@ describe('channels.kick end-to-end', () => {
     banned.tags.ephemeral.set('user', new Set(['troll']));
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 
-    const protocol: { connectionId: string; event: string; payload: any; wskit: any }[] = [];
+    const protocol: { connectionId: string; event: string; payload: any; livething: any }[] = [];
     const broadcasts: {
       channelName: string;
       event: string;
@@ -99,7 +99,7 @@ describe('channels.kick end-to-end', () => {
           quality: 'good' as const,
           bufferedAmount: 0,
           ref: () => ({
-            __wskit: 'connection-ref' as const,
+            __livething: 'connection-ref' as const,
             id: c.id,
             instance: undefined,
             userId: c.userId,
@@ -112,9 +112,9 @@ describe('channels.kick end-to-end', () => {
       persistAttachment() {},
       sendProtocolMessage(
         c: ReturnType<typeof createConnection>,
-        { event, payload, wskit }: SendProtocolMessageOptions,
+        { event, payload, livething }: SendProtocolMessageOptions,
       ) {
-        protocol.push({ connectionId: c.id, event, payload, wskit });
+        protocol.push({ connectionId: c.id, event, payload, livething });
       },
       broadcastToChannel({
         channelName,
@@ -139,7 +139,7 @@ describe('channels.kick end-to-end', () => {
       {
         channelName: 'room:general',
         target: {
-          __wskit: 'tag-ref' as const,
+          __livething: 'tag-ref' as const,
           kind: 'ephemeral' as const,
           group: 'user',
           key: 'troll',
@@ -152,7 +152,7 @@ describe('channels.kick end-to-end', () => {
     const kicked = protocol.filter((p) => p.event === '__kicked__');
     expect(kicked).toHaveLength(2);
     expect(kicked.every((p) => p.payload.reason === 'spam')).toBe(true);
-    expect(kicked.every((p) => p.wskit.channel === 'room:general')).toBe(true);
+    expect(kicked.every((p) => p.livething.channel === 'room:general')).toBe(true);
     expect(new Set(kicked.map((p) => p.connectionId))).toEqual(new Set(['banned', 'also_banned']));
 
     const memberLeaves = broadcasts.filter((b) => b.event === '__memberLeave__');
@@ -262,7 +262,7 @@ describe('channels.kick end-to-end', () => {
         {
           channelName: 'room:general',
           target: {
-            __wskit: 'tag-ref' as const,
+            __livething: 'tag-ref' as const,
             kind: 'ephemeral' as const,
             group: 'user',
             key: 'troll',
@@ -327,7 +327,7 @@ describe('channels.kick end-to-end', () => {
           quality: 'good' as const,
           bufferedAmount: 0,
           ref: () => ({
-            __wskit: 'connection-ref' as const,
+            __livething: 'connection-ref' as const,
             id: c.id,
             instance: undefined,
             userId: c.userId,
@@ -358,7 +358,7 @@ describe('channels.kick end-to-end', () => {
       {
         channelName: 'room:123',
         target: {
-          __wskit: 'tag-ref' as const,
+          __livething: 'tag-ref' as const,
           kind: 'ephemeral' as const,
           group: 'role',
           key: 'spammer',

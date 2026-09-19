@@ -1,8 +1,8 @@
-import { client, connect, stream } from '@wskit/client';
-import type { StreamNudgesClient } from '@wskit/tests-e2e-handlers/stream-nudges';
+import { client, connect, stream } from '@livething/client';
+import type { StreamNudgesClient } from '@livething/tests-e2e-handlers/stream-nudges';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's stream().nudge() against the real `stream-nudges`
+// Drives @livething/client's stream().nudge() against the real `stream-nudges`
 // server definition, typed by the same contract the server implements
 // (StreamNudgesClient = InferClient<definition>).
 export function setup(): void {

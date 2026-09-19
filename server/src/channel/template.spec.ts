@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { describe, expect, it } from 'vitest';
 import { compileChannelTemplate } from './template.ts';
 
@@ -49,7 +49,7 @@ describe('compileChannelTemplate — valid templates', () => {
 
 describe('compileChannelTemplate — rejections', () => {
   it('rejects an empty template', () => {
-    expect(() => compileChannelTemplate('')).toThrow(WSKitConfigError);
+    expect(() => compileChannelTemplate('')).toThrow(LiveThingConfigError);
   });
 
   it('rejects an unclosed {', () => {

@@ -266,7 +266,7 @@ export function stream<
   ...nudges: TNudges
 ): StreamPrimitive<TEvent, TPayload, TChunks, TNudges> {
   return {
-    __wskit: 'stream',
+    __livething: 'stream',
     __kind: 'handler',
     __identity: [STREAM_KEY, startDeclaration.event],
     __requires: {},
@@ -300,7 +300,7 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
   >,
 ): GeneratePrimitive<TStream, TBaseCtx, TNext> {
   return {
-    __wskit: 'stream-generate',
+    __livething: 'stream-generate',
     __kind: 'handler',
     __identity: [GENERATE_KEY, streamDeclaration.event],
     __requires: {},

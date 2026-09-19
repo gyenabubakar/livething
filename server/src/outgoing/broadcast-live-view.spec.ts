@@ -37,7 +37,7 @@ function createRuntime(): Parameters<typeof broadcastToConnections>[0] {
     generateId: () => 'id',
     logger: undefined,
     outgoingHooks: [],
-    wskitStampHooks: [],
+    livethingStampHooks: [],
   } as unknown as Parameters<typeof broadcastToConnections>[0];
 }
 
@@ -93,9 +93,9 @@ describe('broadcastToConnections over a live view', () => {
   it('serializes nothing when every peer is excluded', () => {
     let serialized = 0;
     const runtime = createRuntime() as unknown as {
-      wskitStampHooks: ((...args: unknown[]) => unknown)[];
+      livethingStampHooks: ((...args: unknown[]) => unknown)[];
     };
-    runtime.wskitStampHooks = [
+    runtime.livethingStampHooks = [
       (...args: unknown[]) => {
         serialized += 1;
         return args[0];

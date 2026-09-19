@@ -24,7 +24,7 @@
           label="Start building"
         />
         <UButton
-          to="https://github.com/plain-software-co/wskit"
+          to="https://github.com/plain-software-co/livething"
           target="_blank"
           size="lg"
           variant="ghost"

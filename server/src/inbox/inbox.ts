@@ -46,7 +46,7 @@ function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
   const onDelivered = config.onDelivered ?? 'delete';
   if (onDelivered === 'retain' && !config.retention) {
     throw new Error(
-      "[wskit] inbox `onDelivered: 'retain'` requires `retention` so kept rows can age out.",
+      "[livething] inbox `onDelivered: 'retain'` requires `retention` so kept rows can age out.",
     );
   }
 
@@ -73,7 +73,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
   const options = resolveInboxOptions(config);
 
   return {
-    __wskit: 'inbox',
+    __livething: 'inbox',
     __kind: 'infrastructure',
     __identity: [INBOX_KEY],
     __requires: {},
@@ -85,13 +85,13 @@ export function inbox(config: InboxOptions): InboxPrimitive {
     __validate(view) {
       if (!view.sequencePersistent) {
         throw new Error(
-          '[wskit] inbox requires `sequence: { persist: true }` for durable delivery.',
+          '[livething] inbox requires `sequence: { persist: true }` for durable delivery.',
         );
       }
 
       if (view.channelKey && !view.isChannelDurable(view.channelKey)) {
         throw new Error(
-          `[wskit] Channel "${view.channelKey}" has inbox() but is not persistent, so guaranteed ` +
+          `[livething] Channel "${view.channelKey}" has inbox() but is not persistent, so guaranteed ` +
             `delivery silently degrades to live-only — inbox fans out to the durable membership roster, ` +
             `which stays empty on an ephemeral channel. Remove \`membership: 'ephemeral'\` from this ` +
             `channel, or remove inbox().`,
@@ -103,7 +103,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
       const { channelKey } = engine.getScopeInfo();
       if (!channelKey) {
         throw new Error(
-          '[wskit] inbox is channel-scoped; set `inbox` inside a channel definition.',
+          '[livething] inbox is channel-scoped; set `inbox` inside a channel definition.',
         );
       }
 
@@ -197,8 +197,8 @@ function buildReceivedHandler(deps: BuildReceivedHandlerDepsParameter) {
       ENGINE_INTERNAL_CONNECTION
     ];
     const userId = connection?.userId ?? '';
-    const channelName = frame.__wskit.channel;
-    const channelFamily = frame.__wskit.channelFamily ?? null;
+    const channelName = frame.__livething.channel;
+    const channelFamily = frame.__livething.channelFamily ?? null;
     if (userId && isMember(connection, channelName, channelFamily)) {
       applyInboxAck(engine.storage.sql, {
         userId,
@@ -250,8 +250,8 @@ function buildReceivedQueryHandler(deps: BuildReceivedQueryHandlerDepsParameter)
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
-    const channelName = frame.__wskit.channel;
-    const channelFamily = frame.__wskit.channelFamily ?? null;
+    const channelName = frame.__livething.channel;
+    const channelFamily = frame.__livething.channelFamily ?? null;
     const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
       ENGINE_INTERNAL_CONNECTION
     ];
@@ -263,16 +263,16 @@ function buildReceivedQueryHandler(deps: BuildReceivedQueryHandlerDepsParameter)
       seq: frame.payload.seq,
     });
 
-    const wskit: Record<string, unknown> = {
+    const livething: Record<string, unknown> = {
       channel: channelName,
-      correlationId: frame.__wskit.correlationId,
+      correlationId: frame.__livething.correlationId,
     };
 
-    if (channelFamily !== null) wskit.channelFamily = channelFamily;
+    if (channelFamily !== null) livething.channelFamily = channelFamily;
     engine.sendProtocolFrame(connection.id, {
       event: '__receivedQuery__',
       payload: { userIds },
-      wskit,
+      livething,
     });
 
     return true;

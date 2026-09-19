@@ -82,7 +82,7 @@ function readFrame(readThrough: number): Protocol.IncomingProtocolFrame {
   return {
     event: '__read__',
     payload: { readThrough },
-    __wskit: { channel: 'room' },
+    __livething: { channel: 'room' },
   } as unknown as Protocol.IncomingProtocolFrame;
 }
 
@@ -109,7 +109,7 @@ describe('readReceipts __read__ handler', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 3, messageId: 'm3', event: 'msg', payload: {} },
+      frame: { deliverySeq: 3, messageId: 'm3', event: 'msg', payload: {} },
       now: 1,
     });
     const ctx = ctxFor('alice', memberConnection('c1', 'room'));
@@ -142,7 +142,7 @@ describe('readReceipts __read__ handler', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 3, messageId: 'm3', event: 'msg', payload: {} },
+      frame: { deliverySeq: 3, messageId: 'm3', event: 'msg', payload: {} },
       now: 1,
     });
     const ctx = ctxFor('alice', memberConnection('c1', 'room'));
@@ -234,7 +234,7 @@ describe('readReceipts __readQuery__ handler', () => {
     return {
       event: '__readQuery__',
       payload: { seq },
-      __wskit: { channel: 'room', correlationId: 'q-1' },
+      __livething: { channel: 'room', correlationId: 'q-1' },
     } as unknown as Protocol.IncomingProtocolFrame;
   }
 
@@ -255,7 +255,7 @@ describe('readReceipts __readQuery__ handler', () => {
     expect(sentFrames[0]!.frame).toMatchObject({
       event: '__readQuery__',
       payload: { userIds: ['bob'] },
-      wskit: { channel: 'room', correlationId: 'q-1' },
+      livething: { channel: 'room', correlationId: 'q-1' },
     });
   });
 
@@ -281,7 +281,7 @@ describe('readReceipts scope isolation', () => {
     const frame = {
       event: '__read__',
       payload: { readThrough: 5 },
-      __wskit: { channel: 'other' },
+      __livething: { channel: 'other' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__read__')!(ctx, frame)).toBe(false);
@@ -299,7 +299,7 @@ describe('readReceipts scope isolation', () => {
     const frame = {
       event: '__read__',
       payload: { readThrough: 5 },
-      __wskit: { channel: 'alpha', channelFamily: 'rooms' },
+      __livething: { channel: 'alpha', channelFamily: 'rooms' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__read__')!(ctx, frame)).toBe(false);
@@ -317,7 +317,7 @@ describe('readReceipts scope isolation', () => {
     const frame = {
       event: '__read__',
       payload: { readThrough: 5 },
-      __wskit: { channel: 'alpha' },
+      __livething: { channel: 'alpha' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__read__')!(ctx, frame)).toBe(false);
@@ -335,7 +335,7 @@ describe('readReceipts scope isolation', () => {
     const frame = {
       event: '__readQuery__',
       payload: { seq: 5 },
-      __wskit: { channel: 'alpha', channelFamily: 'rooms', correlationId: 'q-1' },
+      __livething: { channel: 'alpha', channelFamily: 'rooms', correlationId: 'q-1' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__readQuery__')!(ctx, frame)).toBe(false);
@@ -353,7 +353,7 @@ describe('readReceipts scope isolation', () => {
     const frame = {
       event: '__readQuery__',
       payload: { seq: 5 },
-      __wskit: { channel: 'alpha', correlationId: 'q-1' },
+      __livething: { channel: 'alpha', correlationId: 'q-1' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__readQuery__')!(ctx, frame)).toBe(false);

@@ -2,11 +2,11 @@
 import {
   Block,
   ChannelNotSubscribed,
+  LiveThingError,
   rethrowIfConfigError,
   UnsupportedProtocol,
   ValidationFailed,
-  WSKitError,
-} from '@wskit/core';
+} from '@livething/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
@@ -18,7 +18,7 @@ import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
-import { resolveChannel, routingFromWSKit } from './scope.ts';
+import { resolveChannel, routingFromLiveThing } from './scope.ts';
 import { runConnectionWork } from './work-queue.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -26,21 +26,21 @@ type MessageParameter = { event: string; payload: unknown };
 type FrameParameter = {
   event: string;
   payload: unknown;
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 };
 type OptsParameter = {
   event: string;
   payload: Record<string, unknown>;
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
 };
 type OptsParameter2 = {
   channelName: string | null;
   channelFamily: string | null;
   event: string;
   payload: unknown;
-  wire: { seq: number; messageId: string; channel?: string };
+  wire: { deliverySeq: number; messageId: string; channel?: string };
 };
-type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.WSKitRouting };
+type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
 type OptsParameter4 = {
   event: string;
   validationError: unknown;
@@ -64,7 +64,8 @@ interface InterceptRoutingFields {
   streamId?: string;
   channel?: string;
   channelFamily?: string | null;
-  seq?: number;
+  deliverySeq?: number;
+  streamSeq?: number;
 }
 
 /**
@@ -191,7 +192,7 @@ interface DispatchRuntime
  * malformed wire frame settles as a `__error__` frame instead of crashing the
  * adapter message handler.
  */
-function toValidationFailed(event: string, error: unknown): WSKitError {
+function toValidationFailed(event: string, error: unknown): LiveThingError {
   if (error instanceof v.ValiError) {
     return ValidationFailed({
       event,
@@ -228,10 +229,10 @@ function toValidationFailed(event: string, error: unknown): WSKitError {
  */
 function isDuplicateIncoming(
   connection: EngineRuntimeTypes.RuntimeConnection,
-  wskit: Protocol.WSKitProtocol | undefined,
+  livething: Protocol.LiveThingProtocol | undefined,
   cap: number,
 ): boolean {
-  const messageId = wskit?.messageId;
+  const messageId = livething?.messageId;
   // The wire schema bounds and non-empties `messageId` (`WireId`); absent means
   // the client opted out of receiver-side dedup for this frame.
   if (messageId === undefined) return false;
@@ -254,26 +255,27 @@ function isDuplicateIncoming(
 }
 
 /**
- * Build the curated `routing` view of a frame's `__wskit` envelope for the
+ * Build the curated `routing` view of a frame's `__livething` envelope for the
  * intercept callback. Returns an empty object when no routing markers were
  * sent so callers never have to null-check.
  */
 function buildInterceptRouting(
-  wskit: Protocol.WSKitProtocol | undefined,
+  livething: Protocol.LiveThingProtocol | undefined,
 ): InterceptPrimitive.InterceptRouting {
-  if (!wskit) return {};
+  if (!livething) return {};
 
   const routing: InterceptRoutingFields = {};
-  if (wskit.messageId !== undefined) routing.messageId = wskit.messageId;
-  if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
-  if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
+  if (livething.messageId !== undefined) routing.messageId = livething.messageId;
+  if (livething.correlationId !== undefined) routing.correlationId = livething.correlationId;
+  if (livething.streamId !== undefined) routing.streamId = livething.streamId;
 
-  if (wskit.channel !== undefined) {
-    routing.channel = wskit.channel;
-    routing.channelFamily = wskit.channelFamily ?? null;
+  if (livething.channel !== undefined) {
+    routing.channel = livething.channel;
+    routing.channelFamily = livething.channelFamily ?? null;
   }
 
-  if (wskit.seq !== undefined) routing.seq = wskit.seq;
+  if (livething.deliverySeq !== undefined) routing.deliverySeq = livething.deliverySeq;
+  if (livething.streamSeq !== undefined) routing.streamSeq = livething.streamSeq;
 
   return routing;
 }
@@ -281,7 +283,7 @@ function buildInterceptRouting(
 export interface DispatchIncomingOptions {
   event: string;
   payload: unknown;
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
   attempt?: number;
   // The already-resolved scope from processTextMessage, so a channel frame isn't
   // resolved twice. Omitted on a Defer retry, which re-resolves from scratch.
@@ -293,7 +295,7 @@ interface HandleDispatchErrorOptions {
 
   payload: unknown;
 
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 
   scope: EngineRuntimeTypes.ResolvedChannel;
 
@@ -322,7 +324,7 @@ export async function dispatchIncoming(
   connection: EngineRuntimeTypes.RuntimeConnection,
   opts: DispatchIncomingOptions,
 ): Promise<void> {
-  const { event, payload, wskit, attempt = 0 } = opts;
+  const { event, payload, livething, attempt = 0 } = opts;
   // Dedup runs in `processTextMessage`. Defer retries re-enter here directly
   // and skip dedup — that is the engine replaying its own work, not a resend.
 
@@ -337,12 +339,12 @@ export async function dispatchIncoming(
     scope = opts.scope;
   } else {
     try {
-      scope = resolveChannel(runtime.compiled, wskit);
+      scope = resolveChannel(runtime.compiled, livething);
     } catch (error) {
       await runtime.handleRuntimeError(connection, {
         error,
         event,
-        routing: routingFromWSKit(wskit),
+        routing: routingFromLiveThing(livething),
       });
       return;
     }
@@ -354,11 +356,11 @@ export async function dispatchIncoming(
   ) {
     // Keep every incoming routing id (correlationId/ackId/streamId/…) so the
     // client can match this error to its pending op, then stamp the channel markers.
-    const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? {};
+    const routing: Protocol.LiveThingRouting = routingFromLiveThing(livething) ?? {};
     routing.channel = scope.channelName;
     routing.channelFamily = scope.channelFamily ?? null;
     // A nudge frame's reject is non-terminal — keep the stream alive on the client.
-    if (wskit?.streamNudgeId !== undefined) routing.streamTerminated = false;
+    if (livething?.streamNudgeId !== undefined) routing.streamTerminated = false;
     await runtime.handleRuntimeError(connection, {
       error: ChannelNotSubscribed(),
       event,
@@ -404,7 +406,7 @@ export async function dispatchIncoming(
       if (incoming) interceptKind = 'incoming';
       else if (request) interceptKind = 'request';
       else if (stream || resumableStream || recordedStream) interceptKind = 'stream';
-      const interceptRouting = buildInterceptRouting(wskit);
+      const interceptRouting = buildInterceptRouting(livething);
       let frame: InterceptPrimitive.InterceptFrame = {
         event,
         payload: message.payload,
@@ -450,7 +452,7 @@ export async function dispatchIncoming(
       await runtime.handleRuntimeError(connection, {
         error,
         event,
-        routing: routingFromWSKit(wskit),
+        routing: routingFromLiveThing(livething),
       });
       return;
     }
@@ -478,7 +480,7 @@ export async function dispatchIncoming(
           event,
           request,
           payload: payloadValue,
-          wskit,
+          livething,
         });
       });
       return;
@@ -490,7 +492,7 @@ export async function dispatchIncoming(
         event,
         stream,
         payload: payloadValue,
-        wskit,
+        livething,
       });
     } else if (resumableStream || recordedStream) {
       const durable = resumableStream ?? recordedStream!;
@@ -499,14 +501,14 @@ export async function dispatchIncoming(
         durable,
         kind: resumableStream ? 'resumable' : 'recorded',
         payload: payloadValue,
-        wskit,
+        livething,
       });
     }
   } catch (error) {
     await handleDispatchError(runtime, connection, {
       event,
       payload: message.payload,
-      wskit,
+      livething,
       scope,
       error,
       attempt,
@@ -520,12 +522,14 @@ async function handleDispatchError(
   connection: RuntimeConnection,
   opts: HandleDispatchErrorOptions,
 ): Promise<void> {
-  const { event, payload, wskit, scope, error, attempt, fromIncomingHandler } = opts;
+  const { event, payload, livething, scope, error, attempt, fromIncomingHandler } = opts;
   rethrowIfConfigError(error);
   if (error === Block) return;
 
   const isDefer =
-    !!error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer';
+    !!error &&
+    typeof error === 'object' &&
+    (error as { __livething?: string }).__livething === 'defer';
 
   // `Defer` re-queues the message, which only makes sense for an `on()` handler.
   // Thrown from an intercept (fires on every frame kind), a request handler
@@ -533,17 +537,17 @@ async function handleDispatchError(
   // log it and let it fall through to `internal-error` below.
   if (isDefer && !fromIncomingHandler) {
     runtime.logger.error(
-      '[wskit] Defer is only valid in an on() handler — ignoring it and surfacing internal-error',
+      '[livething] Defer is only valid in an on() handler — ignoring it and surfacing internal-error',
       { event },
     );
   }
 
-  if (error instanceof WSKitError && error.code === 'validation-failed') {
+  if (error instanceof LiveThingError && error.code === 'validation-failed') {
     await runtime.handleValidationError(connection, { event, validationError: error, scope });
     await runtime.handleRuntimeError(connection, {
       error,
       event,
-      routing: routingFromWSKit(wskit),
+      routing: routingFromLiveThing(livething),
     });
     return;
   }
@@ -551,7 +555,7 @@ async function handleDispatchError(
   if (
     error &&
     typeof error === 'object' &&
-    (error as { __wskit?: string }).__wskit === 'disconnect'
+    (error as { __livething?: string }).__livething === 'disconnect'
   ) {
     connection.descriptor.close(
       (error as { code: number }).code,
@@ -588,7 +592,12 @@ async function handleDispatchError(
     const timers = (connection.deferTimers ??= new Set());
     const timer = setTimeout(() => {
       timers.delete(timer);
-      void dispatchIncoming(runtime, connection, { event, payload, wskit, attempt: attempt + 1 });
+      void dispatchIncoming(runtime, connection, {
+        event,
+        payload,
+        livething,
+        attempt: attempt + 1,
+      });
     }, delay);
     timers.add(timer);
     return;
@@ -596,7 +605,11 @@ async function handleDispatchError(
 
   // Keep routing markers (`correlationId`) so a thrown request error settles
   // on the client instead of hanging until timeout.
-  await runtime.handleRuntimeError(connection, { error, event, routing: routingFromWSKit(wskit) });
+  await runtime.handleRuntimeError(connection, {
+    error,
+    event,
+    routing: routingFromLiveThing(livething),
+  });
 }
 
 /** Handle a client `__resumeStream__` frame for a suspended or ended durable stream. */
@@ -605,26 +618,26 @@ async function handleResumeStream(
   connection: RuntimeConnection,
   frame: Protocol.ResumeStreamFrame,
 ): Promise<void> {
-  const streamId = frame.__wskit.streamId;
+  const streamId = frame.__livething.streamId;
   const lastKnownSeq = frame.payload.lastKnownSeq ?? 0;
 
   if (!runtime.durableStream) {
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: UnsupportedProtocol.code, detail: { event: '__resumeStream__' } },
-      wskit: { streamId },
+      livething: { streamId },
     });
     return;
   }
 
   let resumeScope: EngineRuntimeTypes.ResolvedChannel;
   try {
-    resumeScope = resolveChannel(runtime.compiled, frame.__wskit);
+    resumeScope = resolveChannel(runtime.compiled, frame.__livething);
   } catch (error) {
     await runtime.handleRuntimeError(connection, {
       error,
       event: frame.event,
-      routing: routingFromWSKit(frame.__wskit),
+      routing: routingFromLiveThing(frame.__livething),
     });
     return;
   }
@@ -640,13 +653,13 @@ async function dispatchProtocolFrame(
     activityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
   },
   connection: RuntimeConnection,
-  parsed: object,
+  parsed: unknown,
 ): Promise<void> {
   let frame: Protocol.IncomingProtocolFrame;
   try {
     frame = v.parse(Protocol.IncomingProtocolFrame, parsed);
   } catch (error) {
-    const rawEvent = (parsed as { event?: unknown }).event;
+    const rawEvent = Array.isArray(parsed) ? parsed[0] : undefined;
     const event = typeof rawEvent === 'string' ? rawEvent : 'protocol';
     await runtime.handleRuntimeError(connection, {
       error: toValidationFailed(event, error),
@@ -670,22 +683,22 @@ async function dispatchProtocolFrame(
         return;
 
       case '__streamCancel__': {
-        await runtime.streamCancel?.(runtime, connection, frame.__wskit.streamId);
+        await runtime.streamCancel?.(runtime, connection, frame.__livething.streamId);
         if (runtime.durableStream && runtime.sql) {
           let cancelScope: EngineRuntimeTypes.ResolvedChannel;
           try {
-            cancelScope = resolveChannel(runtime.compiled, frame.__wskit);
+            cancelScope = resolveChannel(runtime.compiled, frame.__livething);
           } catch (error) {
             await runtime.handleRuntimeError(connection, {
               error,
               event: frame.event,
-              routing: routingFromWSKit(frame.__wskit),
+              routing: routingFromLiveThing(frame.__livething),
             });
             return;
           }
 
           await runtime.durableStream.cancel(runtime, connection, {
-            streamId: frame.__wskit.streamId,
+            streamId: frame.__livething.streamId,
             cancelScope,
           });
         }
@@ -699,7 +712,7 @@ async function dispatchProtocolFrame(
 
       case '__replay__': {
         const handlers = runtime.protocolHandlers.get('__replay__') ?? [];
-        const scope = resolveChannel(runtime.compiled, frame.__wskit);
+        const scope = resolveChannel(runtime.compiled, frame.__livething);
         const ctx = runtime.buildConnectionContext(connection, scope);
         for (const handler of handlers) {
           const handled = await handler(ctx, frame);
@@ -711,7 +724,7 @@ async function dispatchProtocolFrame(
         await runtime.handleRuntimeError(connection, {
           error: UnsupportedProtocol({ event: '__replay__' }),
           event: '__replay__',
-          routing: routingFromWSKit(frame.__wskit),
+          routing: routingFromLiveThing(frame.__livething),
         });
         return;
       }
@@ -721,7 +734,7 @@ async function dispatchProtocolFrame(
       case '__receivedQuery__':
       case '__readQuery__': {
         const handlers = runtime.protocolHandlers.get(frame.event) ?? [];
-        const scope = resolveChannel(runtime.compiled, frame.__wskit);
+        const scope = resolveChannel(runtime.compiled, frame.__livething);
         const ctx = runtime.buildConnectionContext(connection, scope);
         // Acks are fire-and-forget. A handler consuming the frame settles it; an
         // ack for a channel without inbox/receipts is dropped silently — there is
@@ -738,7 +751,7 @@ async function dispatchProtocolFrame(
     await runtime.handleRuntimeError(connection, {
       error,
       event: frame.event,
-      routing: routingFromWSKit(frame.__wskit),
+      routing: routingFromLiveThing(frame.__livething),
     });
   }
 }
@@ -760,7 +773,7 @@ async function runConnectionHooks(
     try {
       await hook(observed.connectionId);
     } catch (error) {
-      observed.logger.error(`[wskit] ${hookName} hook threw`, {
+      observed.logger.error(`[livething] ${hookName} hook threw`, {
         connectionId: observed.connectionId,
         error,
       });
@@ -784,7 +797,7 @@ interface StreamNudgeBufferInput {
   connection: RuntimeConnection;
   event: string;
   frame: Protocol.UserEventFrame;
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
   triggerScope: EngineRuntimeTypes.ResolvedChannel;
 }
 
@@ -802,7 +815,7 @@ async function runPluginConnectionHooks(
     try {
       await entry.handler(observed.ctx);
     } catch (error) {
-      observed.logger.error(`[wskit] ${hookName} hook threw`, {
+      observed.logger.error(`[livething] ${hookName} hook threw`, {
         connectionId: observed.connectionId,
         error,
       });
@@ -811,10 +824,10 @@ async function runPluginConnectionHooks(
 }
 
 async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boolean> {
-  const { runtime, connection, event, frame, wskit, triggerScope } = input;
-  if (!wskit?.streamId) return false;
+  const { runtime, connection, event, frame, livething, triggerScope } = input;
+  if (!livething?.streamId) return false;
 
-  const activeStream = runtime.activeStreams.get(wskit.streamId);
+  const activeStream = runtime.activeStreams.get(livething.streamId);
   if (activeStream && activeStream.connectionId === connection.id && !activeStream.closed) {
     const storedScope = activeStream.scope ?? {};
     const sameScope =
@@ -828,8 +841,12 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
         storedScope.channelFamily ?? null,
       );
     if (!sameScope || !memberOk) {
-      const routing: Protocol.WSKitRouting = { streamId: wskit.streamId, streamTerminated: false };
-      if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;
+      const routing: Protocol.LiveThingRouting = {
+        streamId: livething.streamId,
+        streamTerminated: false,
+      };
+
+      if (livething.streamNudgeId !== undefined) routing.streamNudgeId = livething.streamNudgeId;
       await runtime.handleRuntimeError(connection, {
         error: ChannelNotSubscribed(),
         event,
@@ -854,7 +871,7 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
         event,
         payload,
         kind: 'nudge',
-        routing: buildInterceptRouting(wskit),
+        routing: buildInterceptRouting(livething),
         owner: frameOwner(event),
       };
 
@@ -879,7 +896,7 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
       if (
         error &&
         typeof error === 'object' &&
-        (error as { __wskit?: string }).__wskit === 'disconnect'
+        (error as { __livething?: string }).__livething === 'disconnect'
       ) {
         connection.descriptor.close(
           (error as { code: number }).code,
@@ -888,15 +905,19 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
         return true;
       }
 
-      const routing: Protocol.WSKitRouting = { streamId: wskit.streamId, streamTerminated: false };
-      if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;
+      const routing: Protocol.LiveThingRouting = {
+        streamId: livething.streamId,
+        streamTerminated: false,
+      };
+
+      if (livething.streamNudgeId !== undefined) routing.streamNudgeId = livething.streamNudgeId;
 
       await runtime.handleRuntimeError(connection, { error, event, routing });
       return true;
     }
   }
 
-  return !!(await runtime.streamNudgeBuffer?.(runtime, connection, { event, payload, wskit }));
+  return !!(await runtime.streamNudgeBuffer?.(runtime, connection, { event, payload, livething }));
 }
 
 /**
@@ -964,23 +985,18 @@ export async function processTextMessage(
     return;
   }
 
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    Array.isArray(parsed) ||
-    typeof (parsed as { event?: unknown }).event !== 'string'
-  ) {
+  if (!Array.isArray(parsed) || parsed.length !== 3 || typeof parsed[0] !== 'string') {
     runtime.logger.warn('Invalid message shape dropped');
     return;
   }
 
-  const event = (parsed as { event: string }).event;
+  const event = parsed[0];
 
   if (runtime.messageActivityHooks.length > 0) {
     await runConnectionHooks(runtime.messageActivityHooks, 'message activity', observed);
   }
 
-  let wskit: Protocol.WSKitProtocol | undefined;
+  let livething: Protocol.LiveThingProtocol | undefined;
   try {
     // A declined server→client request comes back as an `__error__` frame echoing
     // the request's correlationId. `__error__` is protocol-shaped, so without this
@@ -991,11 +1007,12 @@ export async function processTextMessage(
     // it (no serverRequests() capability, or the request already settled/timed out), drop
     // it rather than emit a spurious protocol-validation error back to the client.
     if (event === '__error__') {
-      const declineWskit = (parsed as { __wskit?: Protocol.WSKitProtocol }).__wskit;
-      if (declineWskit?.correlationId !== undefined) {
-        const payload = (parsed as { payload?: unknown }).payload;
+      const declineFrame = Protocol.parseUserEventFrame(parsed);
+      const declineLiveThing = declineFrame.__livething;
+      if (declineLiveThing?.correlationId !== undefined) {
+        const payload = declineFrame.payload;
         for (const hook of runtime.answerFrameHooks) {
-          if (hook(connection.id, { event, payload, wskit: declineWskit })) return;
+          if (hook(connection.id, { event, payload, livething: declineLiveThing })) return;
         }
 
         return;
@@ -1020,7 +1037,7 @@ export async function processTextMessage(
       return;
     }
 
-    wskit = frame.__wskit;
+    livething = frame.__livething;
 
     // A user-event frame echoing a `correlationId` may be the client's answer to a
     // server-initiated request. Offer it to the answer-frame hooks (owned by the
@@ -1028,16 +1045,16 @@ export async function processTextMessage(
     // promise and stop routing so the answer never reaches an `on`/`request`
     // handler or gets dropped by dedup. A correlationId with no matching pending
     // entry falls through to normal routing.
-    if (wskit?.correlationId !== undefined) {
+    if (livething?.correlationId !== undefined) {
       for (const hook of runtime.answerFrameHooks) {
-        if (hook(connection.id, { event, payload: frame.payload, wskit })) return;
+        if (hook(connection.id, { event, payload: frame.payload, livething })) return;
       }
     }
 
     // Dedup here so every frame with a `messageId` shares one idempotency budget.
     if (
       runtime.incomingDedupCap > 0 &&
-      isDuplicateIncoming(connection, wskit, runtime.incomingDedupCap)
+      isDuplicateIncoming(connection, livething, runtime.incomingDedupCap)
     ) {
       return;
     }
@@ -1047,7 +1064,7 @@ export async function processTextMessage(
     let triggerScope: EngineRuntimeTypes.ResolvedChannel = {};
     let scopeError: unknown;
     try {
-      triggerScope = resolveChannel(runtime.compiled, wskit);
+      triggerScope = resolveChannel(runtime.compiled, livething);
     } catch (error) {
       scopeError = error;
     }
@@ -1057,13 +1074,13 @@ export async function processTextMessage(
     // channel deliver into a same-named top-level stream. If the frame carries
     // a streamId and scope resolution failed, surface the resolution error to
     // the client and stop.
-    if (scopeError && wskit?.streamId) {
+    if (scopeError && livething?.streamId) {
       // Preserve the nudge routing so the client can match the rejected nudge
       // Promise; a nudge reject is non-terminal, so the stream stays alive.
-      const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? {
-        streamId: wskit.streamId,
+      const routing: Protocol.LiveThingRouting = routingFromLiveThing(livething) ?? {
+        streamId: livething.streamId,
       };
-      if (wskit.streamNudgeId !== undefined) routing.streamTerminated = false;
+      if (livething.streamNudgeId !== undefined) routing.streamTerminated = false;
       await runtime.handleRuntimeError(connection, {
         error: scopeError,
         event,
@@ -1082,14 +1099,14 @@ export async function processTextMessage(
         runtime.compiled.recordedStreams.has(event);
     if (
       !isStreamTrigger &&
-      (await bufferNudgeIfNeeded({ runtime, connection, event, frame, wskit, triggerScope }))
+      (await bufferNudgeIfNeeded({ runtime, connection, event, frame, livething, triggerScope }))
     )
       return;
 
     await dispatchIncoming(runtime, connection, {
       event,
       payload: frame.payload,
-      wskit,
+      livething,
       // Reuse the scope resolved above; on a resolve failure pass none so
       // dispatchIncoming re-resolves and routes the error.
       scope: scopeError ? undefined : triggerScope,
@@ -1098,7 +1115,7 @@ export async function processTextMessage(
     await runtime.handleRuntimeError(connection, {
       error,
       event,
-      routing: routingFromWSKit(wskit),
+      routing: routingFromLiveThing(livething),
     });
   }
 }

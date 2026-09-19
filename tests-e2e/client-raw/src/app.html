@@ -10,6 +10,7 @@
     <script>
       (() => {
         const nativeWebSocket = window.WebSocket;
+        const nativeJsonStringify = JSON.stringify;
         const lease = crypto.randomUUID();
         const fetchLater =
           globalThis.fetchLater ??
@@ -23,12 +24,37 @@
             document.addEventListener('visibilitychange', sendWhenHidden);
           });
 
-        window.__wskitFixtureLeaseInstalled = true;
+        window.__livethingEncode = (frame) => {
+          if (!frame || typeof frame.event !== 'string') throw new Error('invalid LiveThing frame');
+          const payload = frame.payload;
+          const metadata = frame.metadata;
+          return nativeJsonStringify([
+            frame.event,
+            payload ?? null,
+            metadata && typeof metadata === 'object' && Object.keys(metadata).length === 0
+              ? null
+              : (metadata ?? null),
+          ]);
+        };
+        window.__livethingDecode = (text) => {
+          const value = JSON.parse(text);
+          if (
+            !Array.isArray(value) ||
+            value.length !== 3 ||
+            typeof value[0] !== 'string' ||
+            (value[2] !== null && (typeof value[2] !== 'object' || Array.isArray(value[2])))
+          ) {
+            throw new Error('invalid LiveThing wire frame');
+          }
+          return { event: value[0], payload: value[1], metadata: value[2] };
+        };
+
+        window.__livethingFixtureLeaseInstalled = true;
         window.WebSocket = new Proxy(nativeWebSocket, {
           construct(target, args) {
             const url = new URL(String(args[0]), location.href);
             if (url.host === location.host && url.pathname.startsWith('/ws/')) {
-              url.searchParams.set('__wskitFixtureLease', lease);
+              url.searchParams.set('__livethingFixtureLease', lease);
               args[0] = url.toString();
 
               const releaseUrl = new URL('/ws/__fixtures/release', location.origin);

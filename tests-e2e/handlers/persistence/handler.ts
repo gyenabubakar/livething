@@ -1,10 +1,10 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { clientRequests } from '@wskit/server/client-requests';
-import { Disconnect } from '@wskit/server/errors';
-import { resumableStream } from '@wskit/server/streams';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { Disconnect } from '@livething/server/errors';
+import { resumableStream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { allowAnonymous, requireUsername } from '../_shared/upgrade.ts';
 
 const RoomMessagePayload = v.object({ text: v.string(), from: v.string() });

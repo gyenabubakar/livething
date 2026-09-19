@@ -1,7 +1,7 @@
 import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type * as ServerAdapters from '@wskit/server/adapters';
+import type * as ServerAdapters from '@livething/server/adapters';
 import type { NodeEndpointOptions } from './endpoint.ts';
 
 type FakeEngine = {
@@ -23,7 +23,7 @@ let config: AdapterConfig;
 let fake: FakeEngine;
 let createOptions: unknown[];
 
-vi.mock('@wskit/server/adapters', async (importOriginal) => ({
+vi.mock('@livething/server/adapters', async (importOriginal) => ({
   ...(await importOriginal<typeof ServerAdapters>()),
   adapter: (adapterConfig: AdapterConfig) => {
     config = adapterConfig;
@@ -243,7 +243,7 @@ describe('binding()', () => {
 
     fake.handleUpgrade.mockResolvedValueOnce({ reject: true, code: 401, reason: 'No token' });
     const http = await endpoint.prepare(
-      new Request('https://example.test/socket', { headers: { 'WSKit-Client-IP': 'spoofed' } }),
+      new Request('https://example.test/socket', { headers: { 'LiveThing-Client-IP': 'spoofed' } }),
       { clientIp: '203.0.113.7' },
     );
     expect(http.type).toBe('http');
@@ -254,7 +254,7 @@ describe('binding()', () => {
 
     const request = fake.handleUpgrade.mock.calls[0]?.[0] as Request;
 
-    expect(request.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
+    expect(request.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
 
     fake.handleUpgrade.mockResolvedValueOnce({ reject: true, code: 4001, reason: 'No token' });
     await expect(endpoint.prepareNode(incomingRequest())).resolves.toEqual({

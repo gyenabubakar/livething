@@ -76,12 +76,12 @@ function createRuntime(memberCount: number) {
     persistAttachment: () => {},
     sendProtocolMessage: (
       _connection: RuntimeConnection,
-      { event, payload, wskit }: SendProtocolMessageOptions,
+      { event, payload }: SendProtocolMessageOptions,
     ) => {
-      JSON.stringify({ event, payload, __wskit: wskit });
+      JSON.stringify([event, payload, null]);
     },
     broadcastToChannel: () => {},
-    wskitStampHooks: [],
+    livethingStampHooks: [],
     handleValidationError: async () => {},
     handleRuntimeError: async () => {},
     isChannelDurable: () => false,

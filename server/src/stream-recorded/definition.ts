@@ -60,9 +60,9 @@ interface RecordedStreamConfig<
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { StreamAborted } from '@wskit/server/errors';
- * import { recordedStream } from '@wskit/server/streams';
+ * import { server, t } from '@livething/server';
+ * import { StreamAborted } from '@livething/server/errors';
+ * import { recordedStream } from '@livething/server/streams';
  * import * as v from 'valibot';
  *
  * const TokenChunk = t<{ idx: number }>();

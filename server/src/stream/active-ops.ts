@@ -11,7 +11,7 @@ import type { EngineAccess } from '~/_engine/access.ts';
  * bundle: a handler that lists `recordedStream` but not `stream` never pulls the
  * plain-stream engine.
  */
-const ACTIVE_STREAM_OPS_KEY = Symbol('wskit.activeStreamOps');
+const ACTIVE_STREAM_OPS_KEY = Symbol('livething.activeStreamOps');
 
 export function registerActiveStreamOps(engine: EngineAccess): void {
   engine.installOnce(ACTIVE_STREAM_OPS_KEY, () => {

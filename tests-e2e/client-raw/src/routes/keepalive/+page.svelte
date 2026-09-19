@@ -35,7 +35,7 @@
 
 	function sendEcho() {
 		if (ws && ws.readyState === WebSocket.OPEN) {
-			ws.send(JSON.stringify({ type: 'echo', timestamp: Date.now() }));
+			ws.send(window.__livethingEncode({ event: 'echo', payload: { timestamp: Date.now() } }));
 		}
 	}
 </script>

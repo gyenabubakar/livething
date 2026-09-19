@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 describe('request', () => {
   it('produces correct tag and kind', () => {
     const p = request('get-history', async () => {});
-    expect(p.__wskit).toBe('request');
+    expect(p.__livething).toBe('request');
     expect(p.__kind).toBe('handler');
   });
 

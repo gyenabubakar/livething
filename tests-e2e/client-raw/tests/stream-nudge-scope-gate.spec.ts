@@ -23,22 +23,26 @@ test.describe('stream nudge scope gate', () => {
     const streamId = 'tokens-noscope-1';
 
     const a = await connect(page, { path: WS_PATH, username: 'alice', room });
-    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'channel-tokens',
       payload: {},
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamOk__' && f.metadata?.stream?.id === streamId,
     });
 
     // Wait for a couple of tokens so the stream is firmly running.
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
+        (window.__livethingFrames!(sid as string) ?? []).filter(
           (f: WireFrame) => f.event === 'channel-tokens' && typeof f.payload?.token === 'string',
         ).length >= 2,
       [a],
@@ -49,14 +53,14 @@ test.describe('stream nudge scope gate', () => {
     await send(page, a, {
       event: 'stop',
       payload: {},
-      __wskit: { streamId, streamNudgeId: 'noscope-stop' },
+      metadata: { stream: { id: streamId, nudgeId: 'noscope-stop' } },
     });
 
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamNudgeId === 'noscope-stop',
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.nudgeId === 'noscope-stop',
     });
-    expect(err.__wskit?.streamId).toBe(streamId);
-    expect(err.__wskit?.streamTerminated).toBe(false);
+    expect(err.metadata?.stream?.id).toBe(streamId);
+    expect(err.metadata?.stream?.terminated).toBe(false);
 
     // The nudge never reached the generator, so the stream did NOT stop: it keeps
     // producing tokens past the point a delivered stop would have ended it.
@@ -65,7 +69,7 @@ test.describe('stream nudge scope gate', () => {
     ).length;
     await page.waitForFunction(
       ([sid, n]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
+        (window.__livethingFrames!(sid as string) ?? []).filter(
           (f: WireFrame) => f.event === 'channel-tokens' && typeof f.payload?.token === 'string',
         ).length > (n as number),
       [a, before],
@@ -76,10 +80,10 @@ test.describe('stream nudge scope gate', () => {
     await send(page, a, {
       event: 'stop',
       payload: {},
-      __wskit: { channel: 'rooms', streamId, streamNudgeId: 'scoped-stop' },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId, nudgeId: 'scoped-stop' } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
     });
   });
 
@@ -90,21 +94,25 @@ test.describe('stream nudge scope gate', () => {
     const streamId = 'tokens-left-1';
 
     const a = await connect(page, { path: WS_PATH, username: 'alice', room });
-    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'channel-tokens',
       payload: {},
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamOk__' && f.metadata?.stream?.id === streamId,
     });
 
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
+        (window.__livethingFrames!(sid as string) ?? []).filter(
           (f: WireFrame) => f.event === 'channel-tokens' && typeof f.payload?.token === 'string',
         ).length >= 2,
       [a],
@@ -112,19 +120,23 @@ test.describe('stream nudge scope gate', () => {
 
     // Leave the channel, then nudge with the original channel markers. The
     // connection no longer holds the membership, so the nudge is rejected.
-    await send(page, a, { event: '__unsubscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, a, {
+      event: '__unsubscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
 
     await send(page, a, {
       event: 'stop',
       payload: {},
-      __wskit: { channel: 'rooms', streamId, streamNudgeId: 'left-stop' },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId, nudgeId: 'left-stop' } },
     });
 
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamNudgeId === 'left-stop',
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.nudgeId === 'left-stop',
     });
-    expect(err.__wskit?.streamId).toBe(streamId);
-    expect(err.__wskit?.streamTerminated).toBe(false);
+    expect(err.metadata?.stream?.id).toBe(streamId);
+    expect(err.metadata?.stream?.terminated).toBe(false);
 
     // The stream did not stop on the rejected nudge — it keeps emitting tokens.
     const before = (await frames(page, a)).filter(
@@ -132,7 +144,7 @@ test.describe('stream nudge scope gate', () => {
     ).length;
     await page.waitForFunction(
       ([sid, n]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
+        (window.__livethingFrames!(sid as string) ?? []).filter(
           (f: WireFrame) => f.event === 'channel-tokens' && typeof f.payload?.token === 'string',
         ).length > (n as number),
       [a, before],

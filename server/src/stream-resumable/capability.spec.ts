@@ -41,7 +41,7 @@ describe('resumableStream() capability', () => {
     });
     const primitive = base
       .assemble({ handlers: [handle] })
-      .primitives.find((p) => p.__wskit === 'resumable-stream-generate') as any;
+      .primitives.find((p) => p.__livething === 'resumable-stream-generate') as any;
 
     const ctx: any = {
       nudges: (value: unknown) => (Array.isArray(value) ? value : []),

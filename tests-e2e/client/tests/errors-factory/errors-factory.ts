@@ -1,11 +1,11 @@
-import { client, connect } from '@wskit/client';
-import { WSKitError } from '@wskit/client/errors';
-import type { ErrorsFactoryClient } from '@wskit/tests-e2e-handlers/errors-factory';
+import { client, connect } from '@livething/client';
+import { LiveThingError } from '@livething/client/errors';
+import type { ErrorsFactoryClient } from '@livething/tests-e2e-handlers/errors-factory';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's base socket against the real `errors-factory` server definition.
+// Drives @livething/client's base socket against the real `errors-factory` server definition.
 // Server errors that no request or stream claims surface on socket.onServerError
-// as a typed WSKitError — every trigger here is a fire-and-forget incoming event,
+// as a typed LiveThingError — every trigger here is a fire-and-forget incoming event,
 // so the error always arrives that way.
 export function setup(): void {
   mount(`
@@ -30,7 +30,7 @@ export function setup(): void {
   });
 
   socket.onServerError((err) => {
-    if (!(err instanceof WSKitError)) return;
+    if (!(err instanceof LiveThingError)) return;
 
     el('error-code').textContent = errorCode(err);
     el('error-result').textContent = `${err.code}:${JSON.stringify(err.detail ?? {})}`;

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidWSKitIdentifier } from '@wskit/core';
+import { assertValidLiveThingIdentifier } from '@livething/core';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
@@ -50,9 +50,9 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
   handler: IncomingHandler<TCtx, TPayload>,
   options?: IncomingOptions<TPayload>,
 ): IncomingPrimitive<TEvent, TPayload, TCtx> {
-  assertValidWSKitIdentifier(event, 'incoming() event name');
+  assertValidLiveThingIdentifier(event, 'incoming() event name');
   return {
-    __wskit: 'incoming',
+    __livething: 'incoming',
     __kind: 'handler',
     __identity: [INCOMING_KEY, event],
     __requires: {},

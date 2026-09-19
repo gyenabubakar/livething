@@ -31,7 +31,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'kv-result') {
 				const { key, value } = data.payload ?? {};
 				lastValueForKey = { ...lastValueForKey, [key]: value === null ? 'null' : String(value) };
@@ -44,27 +44,27 @@
 	}
 
 	function kvSet(key: string, value: string, ttlMs?: number) {
-		ws?.send(JSON.stringify({ event: 'kv-set', payload: { key, value, ttlMs } }));
+		ws?.send(window.__livethingEncode({ event: 'kv-set', payload: { key, value, ttlMs } }));
 	}
 
 	function kvGet(key: string) {
-		ws?.send(JSON.stringify({ event: 'kv-get', payload: { key } }));
+		ws?.send(window.__livethingEncode({ event: 'kv-get', payload: { key } }));
 	}
 
 	function kvDelete(key: string) {
-		ws?.send(JSON.stringify({ event: 'kv-delete', payload: { key } }));
+		ws?.send(window.__livethingEncode({ event: 'kv-delete', payload: { key } }));
 	}
 
 	function kvSetGet(key: string, value: string) {
-		ws?.send(JSON.stringify({ event: 'kv-set-get', payload: { key, value } }));
+		ws?.send(window.__livethingEncode({ event: 'kv-set-get', payload: { key, value } }));
 	}
 
 	function kvListProbe(prefix: string) {
-		ws?.send(JSON.stringify({ event: 'kv-list-probe', payload: { prefix } }));
+		ws?.send(window.__livethingEncode({ event: 'kv-list-probe', payload: { prefix } }));
 	}
 
 	function kvTtlZeroProbe(key: string, value: string) {
-		ws?.send(JSON.stringify({ event: 'kv-ttl-zero-probe', payload: { key, value } }));
+		ws?.send(window.__livethingEncode({ event: 'kv-ttl-zero-probe', payload: { key, value } }));
 	}
 </script>
 

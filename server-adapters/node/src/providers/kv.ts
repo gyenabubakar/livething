@@ -1,8 +1,8 @@
 import { deserialize, serialize } from 'node:v8';
-import type { KVProvider, Logger } from '@wskit/server/adapters';
+import type { KVProvider, Logger } from '@livething/server/adapters';
 import type { NodeSqlDatabase } from './sql.ts';
 
-const KV_TABLE = '__wskit_kv';
+const KV_TABLE = '__livething_kv';
 
 interface KvRow {
   key: string;
@@ -53,7 +53,7 @@ export function createKv(database: NodeSqlDatabase, logger?: Logger): KVProvider
     async set(key, value, options) {
       if (options?.ttl === 0) {
         logger?.warn(
-          '[wskit] kv.set called with { ttl: 0 } — Node treats 0 as "no expiry". Pass a positive number of milliseconds to enable expiry, or omit ttl.',
+          '[livething] kv.set called with { ttl: 0 } — Node treats 0 as "no expiry". Pass a positive number of milliseconds to enable expiry, or omit ttl.',
         );
       }
 

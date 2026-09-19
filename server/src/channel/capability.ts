@@ -100,7 +100,7 @@ function withChannelCtx(
  */
 export class ChannelBuilder {
   /** Marks this value for `assemble()` to collect as a channel. @internal */
-  readonly __wskitChannel = true as const;
+  readonly __livethingChannel = true as const;
   /** Self-reference, so a channel and its handlers resolve to the same channel. @internal */
   readonly __channel: ChannelBuilder = this;
   /** The channel's unique key (static name or family key). @internal */
@@ -144,7 +144,7 @@ export class ChannelBuilder {
       const build = deps.buildBuiltinReplay;
       if (!build) {
         throw new Error(
-          `[wskit] channel '${this.__key}' sets replay but no built-in replay capability is ` +
+          `[livething] channel '${this.__key}' sets replay but no built-in replay capability is ` +
             'listed. Add replay.history() or replay.snapshot() to capabilities.',
         );
       }
@@ -159,7 +159,7 @@ export class ChannelBuilder {
         const register = deps.registerServerRequests;
         if (!register) {
           throw new Error(
-            `[wskit] channel '${this.__key}' declares serverRequests(...) but serverRequests() ` +
+            `[livething] channel '${this.__key}' declares serverRequests(...) but serverRequests() ` +
               'is not listed. Add serverRequests() to capabilities.',
           );
         }
@@ -194,13 +194,13 @@ export class ChannelBuilder {
   at(params: Record<string, string>): ChannelRefValue {
     if (typeof this.pattern === 'string') {
       throw new Error(
-        `[wskit] .at(...) is only available on dynamic family channels; '${this.__key}' is a ` +
+        `[livething] .at(...) is only available on dynamic family channels; '${this.__key}' is a ` +
           'static channel — pass it to ctx.channels.get(...) directly.',
       );
     }
 
     const name = fillChannelTemplate(this.pattern.template, params, `channel '${this.__key}'`);
-    return { __wskitChannelRef: true, family: this.__key, name };
+    return { __livethingChannelRef: true, family: this.__key, name };
   }
 
   on(event: string, config: any): ChannelHandlerValue {
@@ -219,7 +219,7 @@ export class ChannelBuilder {
     const build = this.deps.buildClientRequest;
     if (!build) {
       throw new Error(
-        `[wskit] channel '${this.__key}' uses request() but clientRequests() is not ` +
+        `[livething] channel '${this.__key}' uses request() but clientRequests() is not ` +
           'listed. Add clientRequests() to capabilities.',
       );
     }
@@ -270,7 +270,7 @@ export class ChannelBuilder {
     const build = this.deps.buildCustomReplay;
     if (!build) {
       throw new Error(
-        `[wskit] channel '${this.__key}' uses replay() but the replay.custom() capability is ` +
+        `[livething] channel '${this.__key}' uses replay() but the replay.custom() capability is ` +
           'not listed. Add replay.custom() to capabilities.',
       );
     }
@@ -301,7 +301,7 @@ export class ChannelBuilder {
     if (!build) {
       const capabilityName = CHANNEL_STREAM_CAPABILITY[kind];
       throw new Error(
-        `[wskit] channel '${this.__key}' uses ${capabilityName} but the ${capabilityName} ` +
+        `[livething] channel '${this.__key}' uses ${capabilityName} but the ${capabilityName} ` +
           `capability is not listed. Add ${capabilityName} to capabilities.`,
       );
     }
@@ -334,7 +334,7 @@ export class ChannelBuilder {
   private registerOnce(slot: string, primitive: Primitive): void {
     if (this.once.has(slot)) {
       throw new Error(
-        `[wskit] Duplicate ${slot} on channel '${this.__key}'. Only one ${slot} can be attached.`,
+        `[livething] Duplicate ${slot} on channel '${this.__key}'. Only one ${slot} can be attached.`,
       );
     }
 
@@ -343,13 +343,13 @@ export class ChannelBuilder {
   }
 
   private handlerValue(primitive: Primitive): ChannelHandlerValue {
-    return { __wskitChannelHandler: true, __channel: this, __handler: primitive };
+    return { __livethingChannelHandler: true, __channel: this, __handler: primitive };
   }
 }
 
 /** The value a channel handler returns — carries a reference to its channel. @internal */
 export interface ChannelHandlerValue {
-  readonly __wskitChannelHandler: true;
+  readonly __livethingChannelHandler: true;
   readonly __channel: ChannelBuilder;
   readonly __handler: Primitive;
 }
@@ -360,7 +360,7 @@ export interface ChannelHandlerValue {
  * is `ChannelRef` (it carries the channel's emit + request contract). @internal
  */
 export interface ChannelRefValue {
-  readonly __wskitChannelRef: true;
+  readonly __livethingChannelRef: true;
   readonly family: string;
   readonly name: string;
 }
@@ -384,8 +384,8 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  *
  * @example
  * ```ts
- * import { server, emits, t } from '@wskit/server';
- * import { channels } from '@wskit/server/channels';
+ * import { server, emits, t } from '@livething/server';
+ * import { channels } from '@livething/server/channels';
  * import * as v from 'valibot';
  *
  * const base = server({ capabilities: [channels()] });

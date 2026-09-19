@@ -1,18 +1,18 @@
 import websocket from '@fastify/websocket';
-import { setup } from '@wskit/server-node/fastify';
+import { setup } from '@livething/server-node/fastify';
 import Fastify from 'fastify';
-import type { FastifyEndpoint } from '@wskit/server-node/fastify';
+import type { FastifyEndpoint } from '@livething/server-node/fastify';
 import { configureFixtureBinding, getFixture, handleRequest } from './node-http.ts';
 
 configureFixtureBinding((definition, options) => {
-  const wskit = setup();
-  const endpoint = wskit.bind(definition, options);
+  const livething = setup();
+  const endpoint = livething.bind(definition, options);
   return {
     endpoint,
     ready: endpoint.ready(),
     keepAlive: true,
     admin: endpoint.admin,
-    shutdown: wskit.shutdown,
+    shutdown: livething.shutdown,
   };
 });
 
@@ -43,7 +43,7 @@ const route: FastifyEndpoint['upgrade'] = {
   wsHandler(socket, request) {
     const endpoint = endpoints.get(request.raw);
     if (!endpoint) {
-      socket.close(1011, 'Missing WSKit fixture');
+      socket.close(1011, 'Missing LiveThing fixture');
       return;
     }
 
@@ -57,8 +57,8 @@ app.all('*', async (request, reply) => {
   return reply;
 });
 
-const port = Number(process.env.WSKIT_E2E_SERVER_PORT ?? 8787);
+const port = Number(process.env.LIVETHING_E2E_SERVER_PORT ?? 8787);
 await app.listen({ host: '127.0.0.1', port });
 process.once('SIGINT', () => void app.close());
 process.once('SIGTERM', () => void app.close());
-console.log(`WSKit Fastify e2e server listening on 127.0.0.1:${port}`);
+console.log(`LiveThing Fastify e2e server listening on 127.0.0.1:${port}`);

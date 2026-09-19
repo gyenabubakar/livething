@@ -4,7 +4,7 @@ import { sweepDurableStreams } from './runtime.ts';
 import * as Storage from './storage.ts';
 
 function countStreams(sql: ReturnType<typeof createTestSql>): number {
-  return Number(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM __wskit_streams').one()!.n);
+  return Number(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM __livething_streams').one()!.n);
 }
 
 describe('sweepDurableStreams', () => {

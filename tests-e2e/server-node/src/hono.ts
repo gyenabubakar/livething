@@ -1,20 +1,20 @@
 import { createAdaptorServer } from '@hono/node-server';
-import { setup } from '@wskit/server-node/hono';
+import { setup } from '@livething/server-node/hono';
 import { Hono } from 'hono';
-import type { HonoEndpoint } from '@wskit/server-node/hono';
+import type { HonoEndpoint } from '@livething/server-node/hono';
 import type { Server } from 'node:http';
 import { configureFixtureBinding, getFixture, handleFetchRequest, listen } from './node-http.ts';
 
 const transport = setup();
 configureFixtureBinding((definition, options) => {
-  const wskit = setup();
-  const endpoint = wskit.bind(definition, options);
+  const livething = setup();
+  const endpoint = livething.bind(definition, options);
   return {
     endpoint,
     ready: endpoint.ready(),
     keepAlive: true,
     admin: endpoint.admin,
-    shutdown: wskit.shutdown,
+    shutdown: livething.shutdown,
   };
 });
 

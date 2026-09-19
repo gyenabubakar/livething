@@ -1,12 +1,12 @@
 import { connect as connectTcp } from 'node:net';
 import websocket from '@fastify/websocket';
-import { client, connect } from '@wskit/client';
-import { emits, server, t } from '@wskit/server';
-import { RejectUpgrade } from '@wskit/server/errors';
+import { client, connect } from '@livething/client';
+import { emits, server, t } from '@livething/server';
+import { RejectUpgrade } from '@livething/server/errors';
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import type { ServerDefinition } from '@wskit/server/adapters';
+import type { ServerDefinition } from '@livething/server/adapters';
 import { setup } from './index.ts';
 import type { NodeEndpointOptions } from '../../binding.ts';
 
@@ -21,7 +21,7 @@ const base = server({
 
     if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
-    lastClientIp = request.headers.get('WSKit-Client-IP');
+    lastClientIp = request.headers.get('LiveThing-Client-IP');
 
     return { userId: pathname.split('/').at(-1) ?? 'anonymous' };
   },
@@ -50,17 +50,19 @@ interface TestClient {
   outgoing: { echo: { text: string } };
 }
 
+type WireFrame = readonly [event: string, payload: unknown, metadata: null];
+
 async function createApp(
   options: Pick<NodeEndpointOptions, 'clientIp'> = {},
   definition: ServerDefinition = assembled,
 ) {
   const app = Fastify();
   await app.register(websocket);
-  const wskit = setup();
-  const endpoint = wskit.bind(definition, options);
+  const livething = setup();
+  const endpoint = livething.bind(definition, options);
   app.get('/ws/:room', endpoint.upgrade);
 
-  await wskit.ready();
+  await livething.ready();
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
   if (!address || typeof address === 'string') throw new Error('Expected a TCP address');
@@ -68,9 +70,9 @@ async function createApp(
   return {
     app,
     port: address.port,
-    wskit,
+    livething,
     shutdown: async () => {
-      await wskit.shutdown();
+      await livething.shutdown();
       await app.close();
     },
   };
@@ -83,7 +85,7 @@ function waitForOpen(socket: WebSocket): Promise<void> {
   });
 }
 
-function waitForMessage(socket: WebSocket): Promise<{ event: string }> {
+function waitForMessage(socket: WebSocket): Promise<WireFrame> {
   return new Promise((resolve, reject) => {
     socket.once('message', (raw) => resolve(JSON.parse(raw.toString())));
     socket.once('error', reject);
@@ -145,7 +147,7 @@ describe('Fastify binding', () => {
     await Promise.all(apps.splice(0).map((app) => app.shutdown()));
   });
 
-  it('uses Fastify route parameters and forwards messages through WSKit', async () => {
+  it('uses Fastify route parameters and forwards messages through LiveThing', async () => {
     const app = await createApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`);
@@ -153,10 +155,10 @@ describe('Fastify binding', () => {
     const connected = waitForMessage(socket);
 
     await waitForOpen(socket);
-    await expect(connected).resolves.toMatchObject({ event: 'connected' });
+    await expect(connected).resolves.toEqual(['connected', expect.any(Object), null]);
 
-    socket.send(JSON.stringify({ event: 'echo', payload: {} }));
-    await expect(waitForMessage(socket)).resolves.toMatchObject({ event: 'echoed' });
+    socket.send(JSON.stringify(['echo', {}, null]));
+    await expect(waitForMessage(socket)).resolves.toEqual(['echoed', {}, null]);
   });
 
   it('applies the endpoint client IP configuration to the Node request', async () => {
@@ -165,10 +167,11 @@ describe('Fastify binding', () => {
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`);
     sockets.push(socket);
 
-    await expect(waitForMessage(socket)).resolves.toMatchObject({
-      event: 'connected',
-      payload: { clientIp: '127.0.0.1' },
-    });
+    await expect(waitForMessage(socket)).resolves.toEqual([
+      'connected',
+      { clientIp: '127.0.0.1' },
+      null,
+    ]);
   });
 
   it('derives the client IP through a trusted proxy before Fastify upgrades', async () => {
@@ -183,10 +186,7 @@ describe('Fastify binding', () => {
     const connected = waitForMessage(socket);
 
     await waitForOpen(socket);
-    await expect(connected).resolves.toMatchObject({
-      event: 'connected',
-      payload: { clientIp: '203.0.113.7' },
-    });
+    await expect(connected).resolves.toEqual(['connected', { clientIp: '203.0.113.7' }, null]);
   });
 
   it('cancels a pending upgrade before shutdown', async () => {
@@ -218,7 +218,7 @@ describe('Fastify binding', () => {
     socket.on('error', () => {});
     await startedUpgrade;
 
-    const shutdown = app.wskit.shutdown();
+    const shutdown = app.livething.shutdown();
     let stopped = false;
     void shutdown.then(() => {
       stopped = true;
@@ -235,11 +235,11 @@ describe('Fastify binding', () => {
     await shutdown;
   });
 
-  it('drops upgrades that arrive after WSKit shutdown starts', async () => {
+  it('drops upgrades that arrive after LiveThing shutdown starts', async () => {
     const app = await createApp();
     apps.push(app);
 
-    await app.wskit.shutdown();
+    await app.livething.shutdown();
 
     await expect(sendOpenUpgrade(app.port, '/ws/lobby')).resolves.toBe('');
   });
@@ -274,11 +274,11 @@ describe('Fastify binding', () => {
     await waitForOpen(socket);
     await expect(closed).resolves.toEqual({
       code: 1011,
-      reason: '[wskit] connection setup failed',
+      reason: '[livething] connection setup failed',
     });
   });
 
-  it('works with the packaged WSKit client', async () => {
+  it('works with the packaged LiveThing client', async () => {
     const app = await createApp();
     apps.push(app);
     const socket = client<TestClient>()(connect(`ws://127.0.0.1:${app.port}/ws/lobby`));

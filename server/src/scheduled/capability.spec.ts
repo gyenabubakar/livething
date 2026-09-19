@@ -9,8 +9,8 @@ type AnyScheduledPrimitive = Omit<ScheduledPrimitive, 'handler'> & {
   handler: (ctx: unknown, data?: unknown) => void | Promise<void>;
 };
 
-function scheduledPrimitive(primitives: readonly { __wskit: string }[]): AnyScheduledPrimitive {
-  const found = primitives.find((p) => p.__wskit === 'scheduled');
+function scheduledPrimitive(primitives: readonly { __livething: string }[]): AnyScheduledPrimitive {
+  const found = primitives.find((p) => p.__livething === 'scheduled');
   if (!found) throw new Error('no scheduled primitive');
 
   return found as unknown as AnyScheduledPrimitive;

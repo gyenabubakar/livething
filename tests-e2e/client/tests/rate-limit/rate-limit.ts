@@ -1,11 +1,11 @@
-import { client, clientRequests, connect } from '@wskit/client';
-import { WSKitError } from '@wskit/client/errors';
-import type { RateLimitClient } from '@wskit/tests-e2e-handlers/rate-limit';
+import { client, clientRequests, connect } from '@livething/client';
+import { LiveThingError } from '@livething/client/errors';
+import type { RateLimitClient } from '@livething/tests-e2e-handlers/rate-limit';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `rate-limit` server definition. Fire-and-forget
+// Drives @livething/client against the real `rate-limit` server definition. Fire-and-forget
 // events that breach a cap carry no correlationId, so the server's `__error__`
-// frame surfaces on socket.onServerError as a typed WSKitError; a rate-limited
+// frame surfaces on socket.onServerError as a typed LiveThingError; a rate-limited
 // request() rejects with the same code instead.
 export function setup(): void {
   mount(`
@@ -26,7 +26,7 @@ export function setup(): void {
   });
 
   socket.onServerError((err) => {
-    if (!(err instanceof WSKitError)) return;
+    if (!(err instanceof LiveThingError)) return;
 
     el('error-code').textContent = errorCode(err);
     const detail = err.detail as { retryAfterMs?: number } | undefined;

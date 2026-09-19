@@ -2,7 +2,7 @@
 // imports the handler and passes it to `assemble()`, which drags the whole
 // channel in by reference. The channel's ctx is typed against the base (which
 // includes ctx.meta.username) — proving type state survives the file boundary.
-import { emits, t } from '@wskit/server';
+import { emits, t } from '@livething/server';
 import type * as v from 'valibot';
 import { SendRoomMessagePayload } from './events.ts';
 import { base } from './setup.ts';

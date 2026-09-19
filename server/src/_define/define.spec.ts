@@ -61,9 +61,9 @@ describe('server() send/receive core', () => {
 
     expect(compiled.incoming.has('echo')).toBe(true);
     expect(compiled.outgoing.has('welcome')).toBe(true);
-    expect(definition.primitives.some((p) => p.__wskit === 'onUpgrade')).toBe(true);
-    expect(definition.primitives.some((p) => p.__wskit === 'onConnect')).toBe(true);
-    expect(definition.primitives.some((p) => p.__wskit === 'errors')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'onUpgrade')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'onConnect')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'errors')).toBe(true);
   });
 
   it('accepts a handler with no input schema, typing the payload as unknown', () => {
@@ -158,12 +158,12 @@ describe('server() send/receive core', () => {
     await dispatchIncoming(createRuntime(topCompiled), connection, {
       event: 'top-active',
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
     await dispatchIncoming(createRuntime(topCompiled), connection, {
       event: 'top-hidden',
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
     expect(runTop).toHaveBeenCalledOnce();
     expect(runTopHidden).not.toHaveBeenCalled();
@@ -171,12 +171,12 @@ describe('server() send/receive core', () => {
     await dispatchIncoming(createRuntime(pluginCompiled), connection, {
       event: '__acme:hidden::plugin-active',
       payload: {},
-      wskit: { channelFamily: null },
+      livething: { channelFamily: null },
     });
     await dispatchIncoming(createRuntime(pluginCompiled), connection, {
       event: '__acme:hidden::plugin-hidden',
       payload: {},
-      wskit: { channelFamily: null },
+      livething: { channelFamily: null },
     });
     expect(runPlugin).toHaveBeenCalledOnce();
     expect(runPluginHidden).not.toHaveBeenCalled();
@@ -184,12 +184,12 @@ describe('server() send/receive core', () => {
     await dispatchIncoming(createRuntime(compiled), connection, {
       event: 'active',
       payload: {},
-      wskit: { channel: 'room', channelFamily: null },
+      livething: { channel: 'room', channelFamily: null },
     });
     await dispatchIncoming(createRuntime(compiled), connection, {
       event: 'channel-hidden',
       payload: {},
-      wskit: { channel: 'room', channelFamily: null },
+      livething: { channel: 'room', channelFamily: null },
     });
     expect(runChannel).toHaveBeenCalledOnce();
     expect(runChannelHidden).not.toHaveBeenCalled();
@@ -221,14 +221,14 @@ describe('server() send/receive core', () => {
   it('wires hibernation into a primitive and the feature set when enabled', () => {
     const base = server({ hibernation: { enabled: true } });
     const definition = base.assemble({ handlers: [] });
-    expect(definition.primitives.some((p) => p.__wskit === 'hibernation')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'hibernation')).toBe(true);
     expect(definition.__features?.has('hibernation')).toBe(true);
   });
 
   it('omits hibernation when not enabled', () => {
     const base = server({});
     const definition = base.assemble({ handlers: [] });
-    expect(definition.primitives.some((p) => p.__wskit === 'hibernation')).toBe(false);
+    expect(definition.primitives.some((p) => p.__livething === 'hibernation')).toBe(false);
     expect(definition.__features?.has('hibernation')).toBe(false);
   });
 

@@ -70,13 +70,13 @@ describe('topoSort — dependency ordering', () => {
     const first = {
       event: 'msg',
       payload: { text: 'hello' },
-      __wskit: { messageId: 'id-1', seq: 5 },
+      metadata: { delivery: { id: 'id-1', seq: 5 } },
     };
 
     const dup = {
       event: 'msg',
       payload: { text: 'hello' },
-      __wskit: { messageId: 'id-1', seq: 20 },
+      metadata: { delivery: { id: 'id-1', seq: 20 } },
     };
 
     ws.emit(first);
@@ -121,8 +121,12 @@ describe('topoSort — dependency ordering', () => {
       setup() {
         return {
           id: 'order-spy',
-          onIncoming(message: { event: string; payload: unknown; __wskit?: { seq?: number } }) {
-            spySeen.push(message.__wskit?.seq ?? -1);
+          onIncoming(message: {
+            event: string;
+            payload: unknown;
+            metadata?: { delivery?: { seq?: number } };
+          }) {
+            spySeen.push(message.metadata?.delivery?.seq ?? -1);
             return message;
           },
         };
@@ -142,8 +146,17 @@ describe('topoSort — dependency ordering', () => {
     const handler = vi.fn();
     socket.on('msg', handler);
 
-    const first = { event: 'msg', payload: { text: 'hi' }, __wskit: { messageId: 'id-x', seq: 7 } };
-    const dup = { event: 'msg', payload: { text: 'hi' }, __wskit: { messageId: 'id-x', seq: 99 } };
+    const first = {
+      event: 'msg',
+      payload: { text: 'hi' },
+      metadata: { delivery: { id: 'id-x', seq: 7 } },
+    };
+
+    const dup = {
+      event: 'msg',
+      payload: { text: 'hi' },
+      metadata: { delivery: { id: 'id-x', seq: 99 } },
+    };
 
     ws.emit(first);
     expect(spySeen).toEqual([7]);
@@ -174,13 +187,13 @@ describe('topoSort — optionalAfter ordering', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     ws.emit({
       event: 'message',
       payload: { text: 'hi' },
-      __wskit: { channel: 'general', seq: 3, messageId: 'm-1' },
+      metadata: { channel: { name: 'general' }, delivery: { seq: 3, id: 'm-1' } },
     });
 
     ws.serverClose(1006, 'dropped');

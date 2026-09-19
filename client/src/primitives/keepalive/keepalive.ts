@@ -1,4 +1,4 @@
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes } from '@livething/core';
 import { createStore } from '~/internal/store.ts';
 import { KeepaliveLoop } from '~/primitives/keepalive/loop.ts';
 import type { ReadableStore } from '~/internal/store.ts';

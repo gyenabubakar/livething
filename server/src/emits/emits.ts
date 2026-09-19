@@ -27,7 +27,7 @@ export type EmitSlot<TDefs extends EmitDefs> = {
  *
  * @example
  * ```ts
- * import { server, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@livething/server';
  *
  * const base = server({
  *   capabilities: [

@@ -1,5 +1,5 @@
-import { client, connect, reconnection } from '@wskit/client';
-import type { ReplayClient } from '@wskit/tests-e2e-handlers/replay-history';
+import { client, connect, reconnection } from '@livething/client';
+import type { ReplayClient } from '@livething/tests-e2e-handlers/replay-history';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives connect() with a URL *function* against the real `replay` server definition. The

@@ -1,6 +1,6 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { Disconnected, Dropped } from '~/errors.ts';
-import type { FrameOwner, WireMessage } from '~/internal/runtime.ts';
+import type { FrameOwner, Message } from '~/internal/runtime.ts';
 
 /** Settings for the buffer. */
 export interface MessageBufferOptions {
@@ -11,7 +11,7 @@ export interface MessageBufferOptions {
 }
 
 interface BufferedMessage {
-  message: WireMessage;
+  message: Message;
   ttl: number | null;
   queuedAt: number;
   owner?: FrameOwner;
@@ -40,7 +40,7 @@ export class MessageBuffer {
     this.enabled = options.enabled ?? false;
     this.maxSize = options.maxSize ?? 50;
     if (!Number.isInteger(this.maxSize) || this.maxSize < 1) {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `buffering maxSize must be a positive integer, got ${this.maxSize}.`,
       );
     }
@@ -55,7 +55,7 @@ export class MessageBuffer {
    * Add a message. Returns `true` if it was taken, `false` if buffering is off.
    * If the buffer is full the oldest message is dropped to make room.
    */
-  enqueue(message: WireMessage, perCallTtl?: number, owner?: FrameOwner): boolean {
+  enqueue(message: Message, perCallTtl?: number, owner?: FrameOwner): boolean {
     if (!this.enabled) return false;
 
     const ttl = this.resolveTTL(message.event, perCallTtl);
@@ -86,7 +86,7 @@ export class MessageBuffer {
    * not-yet-sent messages in the buffer and they go out on the next flush.
    */
   flush(
-    send: (message: WireMessage) => void,
+    send: (message: Message) => void,
     onComplete?: () => void,
     onError?: (error: unknown) => void,
   ): void {

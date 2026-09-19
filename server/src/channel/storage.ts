@@ -1,7 +1,7 @@
 import type { SQLProvider } from '~/context.ts';
 
 const CREATE_MEMBERSHIPS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_channel_memberships (
+  CREATE TABLE IF NOT EXISTS __livething_channel_memberships (
     user_id       TEXT NOT NULL,
     channel_name  TEXT NOT NULL,
     channel_family TEXT NOT NULL DEFAULT '',
@@ -13,13 +13,13 @@ const CREATE_MEMBERSHIPS_TABLE_SQL = `
 `;
 
 const CREATE_MEMBERSHIPS_USER_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_user
-  ON __wskit_channel_memberships (user_id)
+  CREATE INDEX IF NOT EXISTS __livething_idx_channel_memberships_user
+  ON __livething_channel_memberships (user_id)
 `;
 
 const CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_channel
-  ON __wskit_channel_memberships (channel_name, channel_family)
+  CREATE INDEX IF NOT EXISTS __livething_idx_channel_memberships_channel
+  ON __livething_channel_memberships (channel_name, channel_family)
 `;
 
 // All three DDL statements in one multi-statement string. Cloudflare's SQL
@@ -79,7 +79,7 @@ export function insertMembership(
 ): void {
   sql.exec(
     `
-      INSERT OR REPLACE INTO __wskit_channel_memberships
+      INSERT OR REPLACE INTO __livething_channel_memberships
         (user_id, channel_name, channel_family, joined_at)
       VALUES (?, ?, ?, ?)
     `,
@@ -97,7 +97,7 @@ export function insertMembership(
 export function deleteMembership(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): void {
   sql.exec(
     `
-      DELETE FROM __wskit_channel_memberships
+      DELETE FROM __livething_channel_memberships
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
     key.userId,
@@ -118,7 +118,7 @@ export function listMembershipsByUser(
     .exec<RawMembershipRow>(
       `
         SELECT channel_name, channel_family, joined_at
-        FROM __wskit_channel_memberships
+        FROM __livething_channel_memberships
         WHERE user_id = ?
       `,
       userId,
@@ -144,7 +144,7 @@ export function listIdentitiesByChannel(
   return sql
     .exec<{ user_id: string }>(
       `
-        SELECT user_id FROM __wskit_channel_memberships
+        SELECT user_id FROM __livething_channel_memberships
         WHERE channel_name = ? AND channel_family = ?
       `,
       channelName,
@@ -160,7 +160,7 @@ export function membershipExists(sql: Pick<SQLProvider, 'exec'>, key: Membership
     sql
       .exec(
         `
-          SELECT 1 FROM __wskit_channel_memberships
+          SELECT 1 FROM __livething_channel_memberships
           WHERE user_id = ? AND channel_name = ? AND channel_family = ?
           LIMIT 1
         `,
@@ -176,7 +176,7 @@ export function membershipExists(sql: Pick<SQLProvider, 'exec'>, key: Membership
  * Delete every membership row for one user. Used by `purgeUser`.
  */
 export function purgeMembershipsByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec('DELETE FROM __wskit_channel_memberships WHERE user_id = ?', userId);
+  sql.exec('DELETE FROM __livething_channel_memberships WHERE user_id = ?', userId);
 }
 
 /**
@@ -190,7 +190,7 @@ export function deleteMembershipsByChannel(
 ): void {
   sql.exec(
     `
-      DELETE FROM __wskit_channel_memberships
+      DELETE FROM __livething_channel_memberships
       WHERE channel_name = ? AND channel_family = ?
     `,
     channelName,

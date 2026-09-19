@@ -1,7 +1,7 @@
 /**
  * Wire metadata for one replay frame.
  *
- * `seq`          — monotonically increasing per-connection sequence number.
+ * `deliverySeq`  — monotonically increasing per-connection sequence number.
  * `messageId`    — unique id for dedup on the client.
  * `channel`      — concrete channel name when the replay is pinned to a channel
  *                  (omit for true top-level replays).
@@ -11,7 +11,7 @@
  *                  working on the resent frame.
  */
 export interface ReplayWire {
-  readonly seq: number;
+  readonly deliverySeq: number;
   readonly messageId: string;
   readonly channel?: string;
   readonly channelFamily?: string | null;

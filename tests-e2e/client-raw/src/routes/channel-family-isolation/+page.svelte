@@ -31,7 +31,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'public-members-result') {
 				publicMembers = `${data.payload.name}:${data.payload.count}`;
 			}
@@ -47,14 +47,14 @@
 			if (data.event === '__kicked__') {
 				kicked = [
 					...kicked,
-					`${data.__wskit?.channelFamily ?? 'static'}:${data.__wskit?.channel}:${data.payload.reason ?? ''}`,
+					`${data.metadata?.channel?.family ?? 'static'}:${data.metadata?.channel?.name}:${data.payload.reason ?? ''}`,
 				];
 			}
 
 			if (data.event === '__memberLeave__') {
 				memberLeaves = [
 					...memberLeaves,
-					`${data.__wskit?.channelFamily ?? 'static'}:${data.__wskit?.channel ?? ''}:${data.payload.connectionId ?? ''}`,
+					`${data.metadata?.channel?.family ?? 'static'}:${data.metadata?.channel?.name ?? ''}:${data.payload.connectionId ?? ''}`,
 				];
 			}
 
@@ -75,7 +75,7 @@
 	}
 
 	function send(payload: unknown) {
-		ws?.send(JSON.stringify(payload));
+		ws?.send(window.__livethingEncode(payload));
 	}
 </script>
 
@@ -87,8 +87,8 @@
 	onclick={() =>
 		send({
 			event: '__subscribe__',
-			payload: {},
-			__wskit: { channel: 'room:1', channelFamily: 'publicRooms' },
+			payload: null,
+			metadata: { channel: { name: 'room:1', family: 'publicRooms' } },
 		})}
 >
 	Subscribe public room:1
@@ -98,8 +98,8 @@
 	onclick={() =>
 		send({
 			event: '__subscribe__',
-			payload: {},
-			__wskit: { channel: 'room:1', channelFamily: 'privateRooms' },
+			payload: null,
+			metadata: { channel: { name: 'room:1', family: 'privateRooms' } },
 		})}
 >
 	Subscribe private room:1
@@ -165,7 +165,7 @@
 		send({
 			event: '__replay__',
 			payload: { lastKnownSeq: 0 },
-			__wskit: { channel: 'room:1', channelFamily: 'publicRooms' },
+			metadata: { channel: { name: 'room:1', family: 'publicRooms' } },
 		})}
 >
 	Replay since 0

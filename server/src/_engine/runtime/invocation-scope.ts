@@ -1,4 +1,4 @@
-import { assertSynchronousResult } from '@wskit/core';
+import { assertSynchronousResult } from '@livething/core';
 import { getInvocationScope, withAsyncInvocationScope } from '~/_engine/async-context.ts';
 import { flushDirtyAttachment } from '~/_engine/runtime/hibernation.ts';
 import type { InvocationScopeState } from '~/_engine/async-context.ts';

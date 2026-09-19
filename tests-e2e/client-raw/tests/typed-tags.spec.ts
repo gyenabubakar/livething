@@ -4,8 +4,10 @@ import type { Page } from '@playwright/test';
 type WireFrame = {
   event: string;
   payload: Record<string, unknown>;
-  __wskit?: Record<string, unknown>;
+  metadata?: Record<string, Record<string, unknown>> | null;
 };
+
+type WireInput = Omit<WireFrame, 'payload'> & { payload: Record<string, unknown> | null };
 
 declare global {
   interface Window {
@@ -34,7 +36,7 @@ async function installRig(page: Page) {
       ws.addEventListener('message', (ev) => {
         if (typeof ev.data === 'string') {
           try {
-            frames.get(id)!.push(JSON.parse(ev.data));
+            frames.get(id)!.push(window.__livethingDecode(ev.data));
           } catch {
             /* ignore */
           }
@@ -48,7 +50,7 @@ async function installRig(page: Page) {
     };
 
     window.__wsSend = (id, frame) => {
-      sockets.get(id)?.send(JSON.stringify(frame));
+      sockets.get(id)?.send(window.__livethingEncode(frame));
     };
     window.__wsClose = (id) => sockets.get(id)?.close();
     window.__wsFrames = (id) => frames.get(id) ?? [];
@@ -62,7 +64,7 @@ async function connect(page: Page, username: string, room: string): Promise<stri
   );
 }
 
-async function send(page: Page, id: string, frame: WireFrame) {
+async function send(page: Page, id: string, frame: WireInput) {
   await page.evaluate(([sid, f]) => window.__wsSend!(sid, f as WireFrame), [id, frame] as const);
 }
 
@@ -189,8 +191,16 @@ test.describe('typed tags', () => {
     const alice = await connect(page, 'alice', room);
     const bob = await connect(page, 'bob', room);
 
-    await send(page, alice, { event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } });
-    await send(page, bob, { event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } });
+    await send(page, alice, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'room' } },
+    });
+    await send(page, bob, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'room' } },
+    });
     await waitForFrame(page, alice, (f) => f.event === '__subscribeOk__');
     await waitForFrame(page, bob, (f) => f.event === '__subscribeOk__');
 

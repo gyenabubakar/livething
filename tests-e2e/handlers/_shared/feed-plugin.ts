@@ -1,10 +1,10 @@
-import { emits, errors, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { clientRequests } from '@wskit/server/client-requests';
-import { error } from '@wskit/server/errors';
-import { inbox } from '@wskit/server/inbox';
-import { plugin } from '@wskit/server/plugins';
-import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
+import { emits, errors, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { error } from '@livething/server/errors';
+import { inbox } from '@livething/server/inbox';
+import { plugin } from '@livething/server/plugins';
+import { recordedStream, resumableStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 
 // A plugin-declared error. It leaves the server namespaced as `__e2e:feed::room-full`;
@@ -12,7 +12,7 @@ import * as v from 'valibot';
 const RoomFull = error('room-full', v.object({ limit: v.number() }));
 const PluginFailure = error('plugin-failure', v.object({ reason: v.string() }));
 
-// A pure-wskit plugin (no DO adapter) that OWNS every client-facing wire
+// A pure-LiveThing plugin (no DO adapter) that OWNS every client-facing wire
 // surface a plugin can: an incoming handler, a client→server request, and all
 // three stream kinds. Every one travels under the plugin's `__e2e:feed::`
 // namespace, so this fixture exercises that the typed client can drive each

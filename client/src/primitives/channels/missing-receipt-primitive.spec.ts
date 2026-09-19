@@ -6,7 +6,7 @@ import { inbox } from '~/primitives/inbox/inbox.ts';
 import { readReceipts } from '~/primitives/inbox/read-receipts.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WSKitEnvelope } from '~/internal/runtime.ts';
+import type { LiveThingMetadata } from '~/internal/runtime.ts';
 import type { Primitive } from '~/primitives/types.ts';
 
 interface C {
@@ -34,11 +34,15 @@ function build(extraPrimitives: Primitive[], debug: boolean) {
   return { socket, ws };
 }
 
-function subscribeOk(ws: MockWebSocket, channel: string, flags: WSKitEnvelope) {
+function subscribeOk(
+  ws: MockWebSocket,
+  channel: string,
+  flags: Omit<NonNullable<LiveThingMetadata['channel']>, 'name'>,
+) {
   ws.emit({
     event: '__subscribeOk__',
     payload: {},
-    __wskit: { source: 'client', channel, ...flags },
+    metadata: { exchange: { source: 'client' }, channel: { name: channel, ...flags } },
   });
 }
 

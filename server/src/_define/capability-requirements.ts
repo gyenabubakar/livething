@@ -22,7 +22,7 @@ function walkPrimitives(primitives: readonly Primitive[], visit: (p: Primitive) 
 }
 
 /**
- * The `__wskit` tags of the primitives that declared a requirement on `kind`.
+ * The `__livething` tags of the primitives that declared a requirement on `kind`.
  * Uses each primitive's own self-declared identity — no capability-specific
  * mapping — so the resolver names the requiring features without knowing what
  * any of them are.
@@ -30,7 +30,7 @@ function walkPrimitives(primitives: readonly Primitive[], visit: (p: Primitive) 
 function neededBy(primitives: readonly Primitive[], kind: string): string {
   const tags = new Set<string>();
   walkPrimitives(primitives, (p) => {
-    if ((p.__requiresCapabilities ?? []).includes(kind)) tags.add(p.__wskit);
+    if ((p.__requiresCapabilities ?? []).includes(kind)) tags.add(p.__livething);
   });
   return [...tags].join(', ');
 }
@@ -108,7 +108,7 @@ export function resolveCapabilityRequirements(
           }
 
           throw new Error(
-            `[wskit] The ${name} capability is required by ${neededBy(primitives, kind)} but is not listed. Add ${name} to ${where}.`,
+            `[livething] The ${name} capability is required by ${neededBy(primitives, kind)} but is not listed. Add ${name} to ${where}.`,
           );
         }
       }
@@ -118,7 +118,7 @@ export function resolveCapabilityRequirements(
 
       walk(
         nested,
-        primitive.__wskit === 'channel' ? channelCapabilityKinds(primitive) : channelLocal,
+        primitive.__livething === 'channel' ? channelCapabilityKinds(primitive) : channelLocal,
         inPlugin,
       );
     }
@@ -134,7 +134,7 @@ export function resolveCapabilityRequirements(
  * stamped on it by `ChannelBuilder` from the `__capabilityKind` of each
  * capability in that channel's own `capabilities` list (e.g. `inbox()`,
  * `readReceipts()`). This is the requirement-matching namespace
- * (`CAPABILITY_KIND.*`); it is never inferred from a primitive's `__wskit` tag,
+ * (`CAPABILITY_KIND.*`); it is never inferred from a primitive's `__livething` tag,
  * which is a display identity and is not guaranteed to equal its capability's
  * kind.
  */

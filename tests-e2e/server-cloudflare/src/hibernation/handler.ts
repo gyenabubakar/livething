@@ -1,10 +1,10 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { stream } from '@wskit/server/streams';
-import { tags } from '@wskit/server/tags';
-import { requireUsernameWithUserTag } from '@wskit/tests-e2e-handlers/_shared/upgrade';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { stream } from '@livething/server/streams';
+import { tags } from '@livething/server/tags';
+import { requireUsernameWithUserTag } from '@livething/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 
 const BroadcastToRoomPayload = v.object({ text: v.string() });
 const SaveNotePayload = v.object({ title: v.string(), body: v.string() });

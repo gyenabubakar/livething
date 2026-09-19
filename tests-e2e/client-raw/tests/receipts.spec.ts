@@ -17,8 +17,8 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     const alice = await openMember(browser, { path: '/receipts', room, username: 'alice' });
 
     const ack = await subscribe(alice.page);
-    expect(ack.__wskit?.inbox).toBe(true);
-    expect(ack.__wskit?.readReceipts).toBe(true);
+    expect(ack.metadata?.channel?.inbox).toBe(true);
+    expect(ack.metadata?.channel?.readReceipts).toBe(true);
 
     await alice.close();
   });
@@ -39,19 +39,19 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await send(carol.page, {
       event: 'send-room-msg',
       payload: { text: 'hello' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const msg = await waitForFrame(
       bob.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'hello',
     );
-    const seq = msg.__wskit?.seq as number;
+    const seq = msg.metadata?.delivery?.seq as number;
 
     // Bob acks delivery; the received cursor advances and fans out to members.
     await send(bob.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
 
     // Alice (a member) sees bob's received fan-out (userId present).
@@ -62,7 +62,7 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
         f.payload.userId === 'bob' &&
         f.payload.receivedThrough === seq,
     );
-    expect(fanout.__wskit?.channel).toBe('chat');
+    expect(fanout.metadata?.channel?.name).toBe('chat');
 
     await alice.close();
     await bob.close();
@@ -84,33 +84,33 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await send(carol.page, {
       event: 'send-room-msg',
       payload: { text: 'hello' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const msg = await waitForFrame(
       bob.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'hello',
     );
-    const seq = msg.__wskit?.seq as number;
+    const seq = msg.metadata?.delivery?.seq as number;
 
     // Bob marks it read; the read cursor advances and fans out.
     await send(bob.page, {
       event: '__read__',
       payload: { readThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
 
     const fanout = await waitForFrame(
       alice.page,
       (f) => f.event === '__read__' && f.payload.userId === 'bob' && f.payload.readThrough === seq,
     );
-    expect(fanout.__wskit?.channel).toBe('chat');
+    expect(fanout.metadata?.channel?.name).toBe('chat');
 
     await alice.close();
     await bob.close();
     await carol.close();
   });
 
-  test('__receivedQuery__ / __readQuery__ round-trip userIds on their correlationId', async ({
+  test('__receivedQuery__ / __readQuery__ return userIds with their metadata.exchange.id', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -125,48 +125,48 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await send(carol.page, {
       event: 'send-room-msg',
       payload: { text: 'hello' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const msg = await waitForFrame(
       bob.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'hello',
     );
-    const seq = msg.__wskit?.seq as number;
+    const seq = msg.metadata?.delivery?.seq as number;
 
     // Bob acks received and marks read so both cursors carry bob at seq.
     await send(bob.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await send(bob.page, {
       event: '__read__',
       payload: { readThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await bob.page.waitForTimeout(300);
 
-    // receiversOf(seq): the reply echoes the correlationId and lists bob.
+    // receiversOf(seq): the reply echoes `metadata.exchange.id` and lists bob.
     await send(alice.page, {
       event: '__receivedQuery__',
       payload: { seq },
-      __wskit: { channel: 'chat', correlationId: 'q-received-1' },
+      metadata: { exchange: { id: 'q-received-1' }, channel: { name: 'chat' } },
     });
     const receivedReply = await waitForFrame(
       alice.page,
-      (f) => f.event === '__receivedQuery__' && f.__wskit?.correlationId === 'q-received-1',
+      (f) => f.event === '__receivedQuery__' && f.metadata?.exchange?.id === 'q-received-1',
     );
     expect(receivedReply.payload.userIds).toContain('bob');
 
-    // readersOf(seq): a separate correlationId, likewise listing bob.
+    // readersOf(seq): a separate exchange ID, likewise listing bob.
     await send(alice.page, {
       event: '__readQuery__',
       payload: { seq },
-      __wskit: { channel: 'chat', correlationId: 'q-read-1' },
+      metadata: { exchange: { id: 'q-read-1' }, channel: { name: 'chat' } },
     });
     const readReply = await waitForFrame(
       alice.page,
-      (f) => f.event === '__readQuery__' && f.__wskit?.correlationId === 'q-read-1',
+      (f) => f.event === '__readQuery__' && f.metadata?.exchange?.id === 'q-read-1',
     );
     expect(readReply.payload.userIds).toContain('bob');
 
@@ -188,18 +188,18 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await send(carol.page, {
       event: 'send-room-msg',
       payload: { text: 'hello' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const msg = await waitForFrame(
       bob.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'hello',
     );
-    const seq = msg.__wskit?.seq as number;
+    const seq = msg.metadata?.delivery?.seq as number;
 
     await send(bob.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await bob.page.waitForTimeout(300);
 
@@ -207,7 +207,7 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await send(alice.page, {
       event: 'ask-cursor',
       payload: { kind: 'received', seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const answer = await waitForFrame(
       alice.page,
@@ -236,25 +236,25 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await send(carol.page, {
       event: 'send-room-msg',
       payload: { text: 'hello' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const msg = await waitForFrame(
       alice.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'hello',
     );
-    const seq = msg.__wskit?.seq as number;
+    const seq = msg.metadata?.delivery?.seq as number;
 
     // A non-member's read ack must not fan out a __read__ to real members.
     await send(mallory.page, {
       event: '__read__',
       payload: { readThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     // A non-member's query gets no reply — it is dropped silently.
     await send(mallory.page, {
       event: '__readQuery__',
       payload: { seq },
-      __wskit: { channel: 'chat', correlationId: 'mallory-q' },
+      metadata: { exchange: { id: 'mallory-q' }, channel: { name: 'chat' } },
     });
 
     await alice.page.waitForTimeout(800);
@@ -266,7 +266,7 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     expect(malloryFanout).toHaveLength(0);
 
     const malloryReply = (await frames(mallory.page)).filter(
-      (f) => f.event === '__readQuery__' && f.__wskit?.correlationId === 'mallory-q',
+      (f) => f.event === '__readQuery__' && f.metadata?.exchange?.id === 'mallory-q',
     );
     expect(malloryReply).toHaveLength(0);
 

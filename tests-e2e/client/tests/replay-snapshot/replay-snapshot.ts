@@ -1,8 +1,8 @@
-import { client, connect, dedup, reconnection, replay } from '@wskit/client';
-import type { ReplaySnapshotClient } from '@wskit/tests-e2e-handlers/replay-snapshot';
+import { client, connect, dedup, reconnection, replay } from '@livething/client';
+import type { ReplaySnapshotClient } from '@livething/tests-e2e-handlers/replay-snapshot';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's replay() against the real `replay-snapshot` server definition.
+// Drives @livething/client's replay() against the real `replay-snapshot` server definition.
 // replay() needs dedup() (it filters resent frames) and reconnection() (it only
 // catches up after the socket comes back). After an unexpected drop the client
 // auto-sends __replay__ and the server-replayed doc-snapshot frames arrive

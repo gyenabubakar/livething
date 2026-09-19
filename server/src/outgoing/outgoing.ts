@@ -1,9 +1,9 @@
-import { assertValidWSKitIdentifier } from '@wskit/core';
+import { assertValidLiveThingIdentifier } from '@livething/core';
 import type { Primitive } from '~/primitive.ts';
 
 /**
  * Engine-side primitive for an outgoing event. Carries the event name and a
- * phantom payload type so WSKit can type-check server-to-client sends and
+ * phantom payload type so LiveThing can type-check server-to-client sends and
  * generate the matching client types.
  *
  * `_TPayload` is only used for typing. It is not stored on the primitive at
@@ -30,9 +30,9 @@ const OUTGOING_KEY = Symbol('outgoing');
 export function outgoing<TEvent extends string, TPayload = unknown>(
   event: TEvent,
 ): OutgoingPrimitive<TEvent, TPayload> {
-  assertValidWSKitIdentifier(event, 'outgoing() event name');
+  assertValidLiveThingIdentifier(event, 'outgoing() event name');
   return {
-    __wskit: 'outgoing',
+    __livething: 'outgoing',
     __kind: 'contract',
     __identity: [OUTGOING_KEY, event],
     __requires: {},

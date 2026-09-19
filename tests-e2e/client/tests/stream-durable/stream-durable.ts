@@ -1,8 +1,8 @@
-import { client, connect, reconnection, stream } from '@wskit/client';
-import type { StreamDurableClient } from '@wskit/tests-e2e-handlers/stream-durable';
+import { client, connect, reconnection, stream } from '@livething/client';
+import type { StreamDurableClient } from '@livething/tests-e2e-handlers/stream-durable';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's stream() + resumeStream() against the real
+// Drives @livething/client's stream() + resumeStream() against the real
 // `stream-durable` server definition. Proves durable streams auto-resume across an
 // unexpected drop (close 4900) and that manual resume of an unknown id aborts
 // with reason not-found.

@@ -1,5 +1,5 @@
-import { createPluginsDefinition } from '@wskit/tests-e2e-handlers/plugins';
-import type { InferClient } from '@wskit/server';
+import { createPluginsDefinition } from '@livething/tests-e2e-handlers/plugins';
+import type { InferClient } from '@livething/server';
 import { Drizzle } from './drizzle-plugin.ts';
 
 export const pluginsDefinition = createPluginsDefinition(Drizzle);

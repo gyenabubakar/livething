@@ -1,5 +1,5 @@
-import { bind } from '@wskit/server-cloudflare';
-import { persistenceDefinition } from '@wskit/tests-e2e-handlers/persistence';
+import { bind } from '@livething/server-cloudflare';
+import { persistenceDefinition } from '@livething/tests-e2e-handlers/persistence';
 
 const Base = bind(persistenceDefinition);
 

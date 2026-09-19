@@ -29,7 +29,7 @@ const pills = [
 ]
 
 // The AI reply that streams in, one token per chunk.
-const tokens = ['WSKit ', 'gives ', 'your ', 'server ', 'and ', 'client ', 'one ', 'inferred ', 'contract, ', 'so ', 'realtime ', 'stays ', 'type-safe ', 'end ', 'to ', 'end. ', 'Each ', 'yield ', 'is ', 'one ', 'typed ', 'chunk ', 'on ', 'the ', 'wire, ', 'and ', 'the ', 'client ', 'reads ', 'them ', 'with ', 'a ', 'plain ', 'for-await ', 'loop ', 'as ', 'they ', 'arrive.']
+const tokens = ['LiveThing ', 'gives ', 'your ', 'server ', 'and ', 'client ', 'one ', 'inferred ', 'contract, ', 'so ', 'realtime ', 'stays ', 'type-safe ', 'end ', 'to ', 'end. ', 'Each ', 'yield ', 'is ', 'one ', 'typed ', 'chunk ', 'on ', 'the ', 'wire, ', 'and ', 'the ', 'client ', 'reads ', 'them ', 'with ', 'a ', 'plain ', 'for-await ', 'loop ', 'as ', 'they ', 'arrive.']
 const visibleText = computed(() => tokens.slice(0, shown.value).join(''))
 
 // One chunk per agent step; the redirect nudge is read between two of them.

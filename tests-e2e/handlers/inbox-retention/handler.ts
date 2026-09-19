@@ -1,11 +1,11 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { inbox } from '@wskit/server/inbox';
-import { scheduled } from '@wskit/server/scheduled';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { inbox } from '@livething/server/inbox';
+import { scheduled } from '@livething/server/scheduled';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 import { SendRoomMsg } from '../inbox/events.ts';
 import type { RoomMsg } from '../inbox/events.ts';
@@ -87,7 +87,7 @@ export const handleRetentionProbe = base.on('probe-retention', {
           SELECT
             COUNT(*) AS count,
             SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) AS delivered
-          FROM __wskit_inbox
+          FROM __livething_inbox
         `,
       )
       .one();
@@ -95,7 +95,7 @@ export const handleRetentionProbe = base.on('probe-retention', {
       .exec<{ count: number; max_evicted_through: number | null }>(
         `
           SELECT COUNT(*) AS count, MAX(evicted_through_seq) AS max_evicted_through
-          FROM __wskit_inbox_watermark
+          FROM __livething_inbox_watermark
         `,
       )
       .one();

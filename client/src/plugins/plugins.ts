@@ -1,12 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { runMessageHook } from '~/internal/dispatch.ts';
-import { toWSKitError } from '~/internal/error-frame.ts';
+import { toLiveThingError } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { NAMESPACE_DELIMITER, namespacedName } from '~/internal/namespace.ts';
 import { applyAugmenters, getAugmenters } from '~/internal/scoped.ts';
-import type { WSKitError } from '@wskit/core';
-import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
+import type { LiveThingError } from '@livething/core';
+import type { Message, PrimitiveHelpers, PrimitiveRuntime } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type {
@@ -15,7 +15,7 @@ import type {
   PluginInstance,
   PrimitiveFactory,
 } from '~/plugins/types.ts';
-import type { WSKitSocket } from '~/socket/socket.ts';
+import type { LiveThingSocket } from '~/socket/socket.ts';
 import type { SocketContract } from '~/types.ts';
 
 /**
@@ -27,7 +27,7 @@ import type { SocketContract } from '~/types.ts';
 function resolveTag(factory: PrimitiveFactory): string {
   if (typeof factory.tag === 'string') return factory.tag;
 
-  throw new WSKitConfigError(
+  throw new LiveThingConfigError(
     `a plugin dependency must be a primitive factory with a static 'tag' (e.g. [clientRequests, channels]).`,
   );
 }
@@ -42,7 +42,7 @@ type PluginResult = { ok: true; api: unknown } | { ok: false; error: unknown };
 type PluginEntry = { build: () => unknown; result?: PluginResult };
 const pluginRegistries = new WeakMap<object, Map<string, PluginEntry>>();
 
-function registerPlugin(socket: WSKitSocket, id: string, build: () => unknown): void {
+function registerPlugin(socket: LiveThingSocket, id: string, build: () => unknown): void {
   let byId = pluginRegistries.get(socket);
   if (!byId) {
     byId = new Map();
@@ -55,7 +55,7 @@ function registerPlugin(socket: WSKitSocket, id: string, build: () => unknown): 
 function usePlugin(socket: object, id: string): unknown {
   const entry = pluginRegistries.get(socket)?.get(id);
   if (!entry) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `plugin '${id}' is not registered on this socket, or it exposes no API. Pass it to client().`,
     );
   }
@@ -73,12 +73,12 @@ function usePlugin(socket: object, id: string): unknown {
   return entry.result.api;
 }
 
-type IncomingHook = (message: WireMessage) => WireMessage | void;
-type OpenHook = () => WireMessage[] | void;
+type IncomingHook = (message: Message) => Message | void;
+type OpenHook = () => Message[] | void;
 type CloseHook = (code: number, reason: string, suspended: boolean) => void;
 type PluginErrorRegistration = {
   code?: string;
-  handler: (error: WSKitError<string, unknown>) => void;
+  handler: (error: LiveThingError<string, unknown>) => void;
 };
 
 interface PluginSendOptions {
@@ -91,9 +91,9 @@ interface PluginSendOptions {
  * or stream primitive — those run before the plugin and handle it — so the plugin
  * leaves it alone even when the name is in the plugin's namespace.
  */
-function ownsFrame(message: WireMessage): boolean {
-  const envelope = message.__wskit;
-  return !envelope?.channel && !envelope?.correlationId && !envelope?.streamId;
+function ownsFrame(message: Message): boolean {
+  const metadata = message.metadata;
+  return !metadata?.channel && !metadata?.exchange && !metadata?.stream;
 }
 
 /**
@@ -113,15 +113,15 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
   // Stored pre-wrapped in the `runMessageHook` shape (a hook returning nothing
   // passes the message through), so no wrapper closure is built per frame.
-  let userIncoming: ((message: WireMessage) => WireMessage) | null = null;
-  let userOutgoing: ((message: WireMessage) => WireMessage) | null = null;
+  let userIncoming: ((message: Message) => Message) | null = null;
+  let userOutgoing: ((message: Message) => Message) | null = null;
   let userOpen: OpenHook | null = null;
   let userReconnect: OpenHook | null = null;
   let userClose: CloseHook | null = null;
 
   function once<T>(name: string, current: T | null, handler: T): T {
     if (current) {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `plugin '${id}' registered ${name}() twice — use a single callback.`,
       );
     }
@@ -140,7 +140,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   // don't affect tree-shaking.
   function missing(verb: string, primitive: string): () => never {
     return () => {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `plugin '${id}' used socket.${verb}(), but the ${primitive} primitive isn't registered. ` +
           `List ${primitive} in the plugin's dependencies and register ${primitive}() in client().`,
       );
@@ -149,7 +149,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
   function missingReceiptMethod(verb: string, primitive: 'inbox' | 'readReceipts'): () => never {
     return () => {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `plugin '${id}' used channel.${verb}(), but ${primitive}() is not registered. ` +
           `Register ${primitive}() in client().`,
       );
@@ -158,7 +158,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
   function installMissingReceiptSurfaces(messaging: MessagingObject, scope: ScopeInfo): void {
     const markers = scope.markers();
-    const channelOwner = markers.channelFamily ?? markers.channel;
+    const channelOwner = markers.family ?? markers.name;
     if (channelOwner === undefined || !scope.prefixName || !channelOwner.startsWith(ownPrefix))
       return;
 
@@ -223,7 +223,10 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     send(event: string, payload: unknown, options?: PluginSendOptions): boolean {
       if (typeof event !== 'string' || event.length === 0) return false;
 
-      const result = helpers.send({ event: namespacedName(id, event), payload }, options);
+      const result = helpers.send(
+        { event: namespacedName(id, event), payload, metadata: null },
+        options,
+      );
       return result === 'sent' || result === 'buffered';
     },
 
@@ -237,13 +240,13 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     onClose: (handler: CloseHook) => void (userClose = once('onClose', userClose, handler)),
 
     onServerError(
-      codeOrHandler: string | ((error: WSKitError<string, unknown>) => void),
-      maybeHandler?: (error: WSKitError<string, unknown>) => void,
+      codeOrHandler: string | ((error: LiveThingError<string, unknown>) => void),
+      maybeHandler?: (error: LiveThingError<string, unknown>) => void,
     ): () => void {
       const code = typeof codeOrHandler === 'string' ? codeOrHandler : undefined;
       const handler = typeof codeOrHandler === 'function' ? codeOrHandler : maybeHandler;
       if (!handler)
-        throw new TypeError(`[wskit] plugin '${id}' onServerError requires a callback.`);
+        throw new TypeError(`[livething] plugin '${id}' onServerError requires a callback.`);
 
       const registration = { code, handler };
       errorHandlers.add(registration);
@@ -281,13 +284,13 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
   // Frames a plugin returns from onOpen/onReconnect carry plain names, like send();
   // stamp each with the plugin's namespace so it lands in the plugin's own space.
-  function namespaceFrames(frames: WireMessage[] | void): WireMessage[] | null {
+  function namespaceFrames(frames: Message[] | void): Message[] | null {
     if (!frames) return null;
 
     return frames.map((frame) => ({ ...frame, event: namespacedName(id, frame.event) }));
   }
 
-  function dispatchError(error: WSKitError): boolean {
+  function dispatchError(error: LiveThingError): boolean {
     const matching = [...errorHandlers].filter(
       (registration) => registration.code === undefined || registration.code === error.code,
     );
@@ -311,17 +314,17 @@ function createPluginRuntime<P extends SocketContract, TApi>(
    * stripped; with no matching handler it reaches the host's onServerError path
    * rather than leaking into the app as a normal frame.
    */
-  function claimError(message: WireMessage): boolean {
+  function claimError(message: Message): boolean {
     if (message.event !== '__error__' || !ownsFrame(message)) return false;
 
     const payload = message.payload as { code?: unknown; detail?: unknown } | null;
     if (typeof payload?.code !== 'string' || !payload.code.startsWith(ownPrefix)) return false;
 
-    const error = toWSKitError({
+    const error = toLiveThingError({
       code: payload.code.slice(ownPrefix.length),
       detail: payload.detail,
     });
-    if (!dispatchError(error)) helpers.reportServerError(toWSKitError(message.payload));
+    if (!dispatchError(error)) helpers.reportServerError(toLiveThingError(message.payload));
 
     return true;
   }
@@ -474,7 +477,7 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
     // would make one plugin's prefix a prefix of another's — and swallow its
     // frames. Ids follow the `vendor:name` convention (a single colon).
     if (id.includes(NAMESPACE_DELIMITER)) {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `plugin id '${id}' must not contain '${NAMESPACE_DELIMITER}' — use a single colon, like 'vendor:name'.`,
       );
     }

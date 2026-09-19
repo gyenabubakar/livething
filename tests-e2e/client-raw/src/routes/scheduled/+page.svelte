@@ -63,13 +63,13 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			eventHandlers[data.event]?.(data.payload ?? {});
 		};
 	}
 
-	function send(event: string, payload: Record<string, unknown> = {}) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(event: string, payload: Record<string, unknown> | null = null) {
+		ws?.send(window.__livethingEncode({ event, payload }));
 	}
 </script>
 
@@ -77,58 +77,58 @@
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
 
-<button data-testid="who-am-i" onclick={() => send('who-am-i')}>Who am I</button>
+<button data-testid="who-am-i" onclick={() => send('who-am-i', {})}>Who am I</button>
 <button data-testid="schedule-cleanup-soon" onclick={() => send('schedule-cleanup', { delayMs: 200 })}>
 	Schedule cleanup soon
 </button>
 <button data-testid="schedule-cleanup-long" onclick={() => send('schedule-cleanup', { delayMs: 10_000 })}>
 	Schedule cleanup long
 </button>
-<button data-testid="cancel-cleanup" onclick={() => send('cancel-cleanup')}>Cancel cleanup</button>
-<button data-testid="start-heartbeat" onclick={() => send('start-heartbeat')}>Start heartbeat</button>
-<button data-testid="trigger-flaky" onclick={() => send('trigger-flaky-task')}>Trigger flaky</button>
-<button data-testid="trigger-default-retry" onclick={() => send('trigger-default-retry-task')}>
+<button data-testid="cancel-cleanup" onclick={() => send('cancel-cleanup', {})}>Cancel cleanup</button>
+<button data-testid="start-heartbeat" onclick={() => send('start-heartbeat', {})}>Start heartbeat</button>
+<button data-testid="trigger-flaky" onclick={() => send('trigger-flaky-task', {})}>Trigger flaky</button>
+<button data-testid="trigger-default-retry" onclick={() => send('trigger-default-retry-task', {})}>
 	Trigger default retry
 </button>
-<button data-testid="trigger-always-fail" onclick={() => send('trigger-always-fail')}>
+<button data-testid="trigger-always-fail" onclick={() => send('trigger-always-fail', {})}>
 	Trigger always-fail
 </button>
-<button data-testid="trigger-bigint-throw" onclick={() => send('trigger-bigint-throw')}>
+<button data-testid="trigger-bigint-throw" onclick={() => send('trigger-bigint-throw', {})}>
 	Trigger bigint-throw
 </button>
-<button data-testid="query-dlq" onclick={() => send('query-dead-letter')}>Query DLQ</button>
-<button data-testid="schedule-filtered" onclick={() => send('schedule-filtered-tasks')}>
+<button data-testid="query-dlq" onclick={() => send('query-dead-letter', {})}>Query DLQ</button>
+<button data-testid="schedule-filtered" onclick={() => send('schedule-filtered-tasks', {})}>
 	Schedule filtered (drop+keep)
 </button>
 <button data-testid="cancel-drop" onclick={() => send('cancel-filtered-task', { label: 'drop' })}>
 	Cancel drop
 </button>
-<button data-testid="cancel-nothing" onclick={() => send('cancel-nothing')}>Cancel nothing</button>
-<button data-testid="trigger-invalid-cleanup-data" onclick={() => send('trigger-invalid-cleanup-data')}>
+<button data-testid="cancel-nothing" onclick={() => send('cancel-nothing', {})}>Cancel nothing</button>
+<button data-testid="trigger-invalid-cleanup-data" onclick={() => send('trigger-invalid-cleanup-data', {})}>
 	Trigger invalid cleanup data
 </button>
-<button data-testid="trigger-invalid-schedule-time" onclick={() => send('trigger-invalid-schedule-time')}>
+<button data-testid="trigger-invalid-schedule-time" onclick={() => send('trigger-invalid-schedule-time', {})}>
 	Trigger invalid schedule time
 </button>
-<button data-testid="trigger-empty-backoff" onclick={() => send('trigger-empty-backoff')}>
+<button data-testid="trigger-empty-backoff" onclick={() => send('trigger-empty-backoff', {})}>
 	Trigger empty backoff
 </button>
-<button data-testid="schedule-broadcast-task" onclick={() => send('schedule-broadcast-task')}>
+<button data-testid="schedule-broadcast-task" onclick={() => send('schedule-broadcast-task', {})}>
 	Schedule broadcast task
 </button>
-<button data-testid="schedule-send-to-tag" onclick={() => send('schedule-send-to-tag')}>
+<button data-testid="schedule-send-to-tag" onclick={() => send('schedule-send-to-tag', {})}>
 	Schedule send-to-tag
 </button>
-<button data-testid="cancel-nonexistent-task" onclick={() => send('cancel-nonexistent')}>
+<button data-testid="cancel-nonexistent-task" onclick={() => send('cancel-nonexistent', {})}>
 	Cancel nonexistent
 </button>
 <button
 	data-testid="schedule-unknown-task"
-	onclick={() => send('trigger-schedule-unknown-task')}
+	onclick={() => send('trigger-schedule-unknown-task', {})}
 >
 	Schedule unknown task
 </button>
-<button data-testid="tag-vip" onclick={() => send('tag-vip')}>Tag vip</button>
+<button data-testid="tag-vip" onclick={() => send('tag-vip', {})}>Tag vip</button>
 
 <input data-testid="target-id" bind:value={targetId} placeholder="target connection id" />
 <button

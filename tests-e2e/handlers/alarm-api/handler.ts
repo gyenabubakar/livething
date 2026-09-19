@@ -1,7 +1,7 @@
-import { emits, server, t } from '@wskit/server';
-import { scheduled } from '@wskit/server/scheduled';
+import { emits, server, t } from '@livething/server';
+import { scheduled } from '@livething/server/scheduled';
 import * as v from 'valibot';
-import type { ConnectionContext, InferClient } from '@wskit/server';
+import type { ConnectionContext, InferClient } from '@livething/server';
 
 function assertNoConnectionAlarm(ctx: ConnectionContext) {
   // @ts-expect-error Product connection contexts cannot call the platform alarm API.

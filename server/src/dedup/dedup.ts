@@ -36,7 +36,7 @@ export function dedup(options?: DedupOptionsParameter): DedupPrimitive {
   const cap = options?.cap ?? DEDUP_DEFAULT_INCOMING_CAP;
 
   return {
-    __wskit: 'dedup',
+    __livething: 'dedup',
     __kind: 'infrastructure',
     __identity: [DEDUP_KEY],
     __requires: {},
@@ -44,9 +44,9 @@ export function dedup(options?: DedupOptionsParameter): DedupPrimitive {
       engine.installOnce(DEDUP_KEY, () => {
         engine.enableIncomingDedup(cap);
 
-        // Stamp `messageId` into every outgoing user frame's `__wskit`. The
+        // Stamp `messageId` into every outgoing user frame's `__livething`. The
         // pipeline already skips protocol frames before calling stampers.
-        engine.onWSKitStamp(() => ({ messageId: engine.generateId('msg') }));
+        engine.onLiveThingStamp(() => ({ messageId: engine.generateId('msg') }));
       });
     },
   };

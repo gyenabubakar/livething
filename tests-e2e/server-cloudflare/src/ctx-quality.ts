@@ -1,4 +1,4 @@
-import { bind } from '@wskit/server-cloudflare';
-import { ctxQualityDefinition } from '@wskit/tests-e2e-handlers/ctx-quality';
+import { bind } from '@livething/server-cloudflare';
+import { ctxQualityDefinition } from '@livething/tests-e2e-handlers/ctx-quality';
 
 export class CtxQualityServer extends bind(ctxQualityDefinition) {}

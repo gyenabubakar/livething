@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- merging primitive types needs `any` */
-import { WSKitConfigError } from '@wskit/core';
-import { WSKitSocket } from '~/socket/socket.ts';
+import { LiveThingConfigError } from '@livething/core';
+import { LiveThingSocket } from '~/socket/socket.ts';
 import type { ConnectDescriptor } from '~/connect.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveRuntime } from '~/internal/runtime.ts';
@@ -93,7 +93,7 @@ export function client<TContract extends SocketContract = SocketContract>() {
 function buildSocket(
   connectDescriptor: ConnectDescriptor,
   primitives: readonly Primitive[],
-): WSKitSocket {
+): LiveThingSocket {
   const pluginSpecs = primitives.filter((spec) => spec._plugin !== undefined);
   const primitiveSpecs = [
     connectDescriptor,
@@ -112,10 +112,10 @@ function buildSocket(
   const config = {} as SocketConfig;
   for (const spec of sorted) spec.applyConfig?.(config);
   if (config.url === undefined) {
-    throw new WSKitConfigError('client() requires a connect() capability.');
+    throw new LiveThingConfigError('client() requires a connect() capability.');
   }
 
-  const socket = new WSKitSocket(config);
+  const socket = new LiveThingSocket(config);
   socket._setKnownTags(new Set(sorted.map((spec) => spec._tag).filter(Boolean)));
   const helpers = socket._helpers();
 
@@ -139,7 +139,7 @@ function assertNoDuplicateTags(specs: readonly Primitive[]): void {
     if (REPEATABLE_TAGS.has(spec._tag)) continue;
 
     if (seen.has(spec._tag)) {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `duplicate ${spec._tag}() — register each primitive at most once.`,
       );
     }
@@ -158,7 +158,7 @@ function assertUniquePluginIds(pluginSpecs: readonly Primitive[]): void {
   for (const spec of pluginSpecs) {
     const { id } = spec._plugin!;
     if (seen.has(id)) {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `plugin '${id}' is registered more than once. Each plugin id owns a namespace and must be unique.`,
       );
     }
@@ -172,7 +172,7 @@ function assertDependenciesPresent(specs: readonly Primitive[]): void {
   for (const spec of specs) {
     for (const dependency of spec.dependencies ?? []) {
       if (!tags.has(dependency)) {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           `${spec._tag} requires ${dependency}. Register ${dependency}() in client.`,
         );
       }
@@ -202,7 +202,7 @@ function topoSort(specs: readonly Primitive[]): Primitive[] {
     if (status === 'done') return;
 
     if (status === 'visiting') {
-      throw new WSKitConfigError(`circular primitive dependency detected at ${spec._tag}.`);
+      throw new LiveThingConfigError(`circular primitive dependency detected at ${spec._tag}.`);
     }
 
     state.set(spec, 'visiting');

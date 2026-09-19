@@ -42,9 +42,9 @@ describe('channels() runtime install', () => {
       .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
       .toArray()
       .map((row) => row.name);
-    expect(created).toContain('__wskit_channel_memberships');
-    expect(created).toContain('__wskit_idx_channel_memberships_user');
-    expect(created).toContain('__wskit_idx_channel_memberships_channel');
+    expect(created).toContain('__livething_channel_memberships');
+    expect(created).toContain('__livething_idx_channel_memberships_user');
+    expect(created).toContain('__livething_idx_channel_memberships_channel');
   });
 
   it('registers a purgeUser hook', async () => {

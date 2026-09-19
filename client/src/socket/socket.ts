@@ -1,22 +1,21 @@
-import { Block, CloseCodes } from '@wskit/core';
+import { Block, CloseCodes, decodeMessage, encodeMessage } from '@livething/core';
 import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
-import { toWSKitError } from '~/internal/error-frame.ts';
+import { toLiveThingError } from '~/internal/error-frame.ts';
 import { createStore } from '~/internal/store.ts';
 import { isThenable } from '~/internal/thenable.ts';
 import { isProtocolFrameEvent, isReservedEventName } from '~/internal/wire-validation.ts';
 import { Emitter } from '~/socket/emitter.ts';
-import type { WSKitError } from '@wskit/core';
+import type { LiveThingError } from '@livething/core';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
   FrameOwner,
   InterceptFn,
   InternalSendOptions,
+  Message,
   PrimitiveHelpers,
   PrimitiveLogger,
   PrimitiveRuntime,
   SendResult,
-  WireMessage,
-  WSKitEnvelope,
 } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { SendOptions } from '~/messaging.ts';
@@ -40,7 +39,7 @@ type SocketEvents = {
   reconnectFailed: [];
   close: [event: CloseEvent];
   error: [error: unknown];
-  serverError: [error: WSKitError];
+  serverError: [error: LiveThingError];
 };
 
 type ServerErrorRegistration = { code?: string };
@@ -50,24 +49,14 @@ interface TeardownOptions {
   suspended: boolean;
 }
 
-/** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
-function defaultParse(raw: string): WireMessage | null {
-  const parsed = JSON.parse(raw) as Record<string, unknown>;
-  if (typeof parsed.event !== 'string') return null;
-
-  const message: WireMessage = { event: parsed.event, payload: parsed.payload };
-  if (parsed.__wskit && typeof parsed.__wskit === 'object') {
-    message.__wskit = parsed.__wskit as WSKitEnvelope;
-  }
-
-  return message;
+/** Default reader for the fixed LiveThing three-item tuple. */
+function defaultParse(raw: string): Message | null {
+  return decodeMessage(raw);
 }
 
 /** Default writer: turn a message into the JSON string sent over the wire. */
-function defaultSerialize(message: WireMessage): string {
-  return message.__wskit
-    ? JSON.stringify({ event: message.event, payload: message.payload, __wskit: message.__wskit })
-    : JSON.stringify({ event: message.event, payload: message.payload });
+function defaultSerialize(message: Message): string {
+  return encodeMessage(message);
 }
 
 function isValidCloseCode(code: unknown): code is number {
@@ -91,7 +80,7 @@ function isValidCloseReason(reason: unknown): reason is string {
  * bundle. You never create this directly — `client()` creates it and returns a
  * typed `Socket`.
  */
-export class WSKitSocket {
+export class LiveThingSocket {
   /** The native WebSocket, or `null` when not connected. */
   ws: WebSocket | null = null;
 
@@ -171,9 +160,8 @@ export class WSKitSocket {
 
   private _pongHandlers: (() => void)[] = [];
 
-  private _outgoingFallback:
-    | ((message: WireMessage, options?: InternalSendOptions) => boolean)
-    | null = null;
+  private _outgoingFallback: ((message: Message, options?: InternalSendOptions) => boolean) | null =
+    null;
 
   private readonly _shared = new Map<string, unknown>();
 
@@ -182,8 +170,8 @@ export class WSKitSocket {
 
   private readonly _serverErrorRegistrations = new Set<ServerErrorRegistration>();
 
-  private readonly _parse: (raw: string) => WireMessage | null;
-  private readonly _serialize: (message: WireMessage) => string;
+  private readonly _parse: (raw: string) => Message | null;
+  private readonly _serialize: (message: Message) => string;
   private readonly _intercepts: readonly InterceptFn[];
 
   private readonly _logger: PrimitiveLogger = {
@@ -239,8 +227,8 @@ export class WSKitSocket {
         suspended: false,
       });
       const error = !validCode
-        ? new RangeError(`[wskit] invalid client close code: ${String(code)}`)
-        : new RangeError('[wskit] invalid client close reason: exceeds 123 UTF-8 bytes');
+        ? new RangeError(`[livething] invalid client close code: ${String(code)}`)
+        : new RangeError('[livething] invalid client close reason: exceeds 123 UTF-8 bytes');
       this._reportError(error);
       return;
     }
@@ -336,7 +324,7 @@ export class WSKitSocket {
       return false;
     }
 
-    const result = this._send({ event, payload }, options);
+    const result = this._send({ event, payload, metadata: null }, options);
     return result === 'sent' || result === 'buffered';
   }
 
@@ -369,16 +357,19 @@ export class WSKitSocket {
   }
 
   /** Listen for every unclaimed server error, including codes this client does not know. */
-  onServerError(callback: (error: WSKitError<string, unknown>) => void): () => void;
+  onServerError(callback: (error: LiveThingError<string, unknown>) => void): () => void;
   /** Listen only for an unclaimed server error with one code. */
-  onServerError(code: string, callback: (error: WSKitError<string, unknown>) => void): () => void;
   onServerError(
-    codeOrCallback: string | ((error: WSKitError<string, unknown>) => void),
-    maybeCallback?: (error: WSKitError<string, unknown>) => void,
+    code: string,
+    callback: (error: LiveThingError<string, unknown>) => void,
+  ): () => void;
+  onServerError(
+    codeOrCallback: string | ((error: LiveThingError<string, unknown>) => void),
+    maybeCallback?: (error: LiveThingError<string, unknown>) => void,
   ): () => void {
     const code = typeof codeOrCallback === 'string' ? codeOrCallback : undefined;
     const callback = typeof codeOrCallback === 'function' ? codeOrCallback : maybeCallback;
-    if (!callback) throw new TypeError('[wskit] onServerError requires a callback.');
+    if (!callback) throw new TypeError('[livething] onServerError requires a callback.');
 
     const registration: ServerErrorRegistration = { code };
     this._serverErrorRegistrations.add(registration);
@@ -682,7 +673,7 @@ export class WSKitSocket {
       if (attemptId !== this._connectAttemptId) return;
 
       this._log('connection failed', error);
-      this._reportError(toWSKitError(error));
+      this._reportError(toLiveThingError(error));
       this._reconnectDecision = null;
 
       // Run primitive close cleanup first (same order as ws.onclose), so a failed
@@ -723,11 +714,11 @@ export class WSKitSocket {
     // through the normal error path instead of throwing out of `onmessage`
     // (an uncaught exception there would crash the WebSocket callback).
     if (typeof raw !== 'string') {
-      this._reportError(new Error('[wskit] binary frames are not supported yet'));
+      this._reportError(new Error('[livething] binary frames are not supported yet'));
       return;
     }
 
-    let parsed: WireMessage | null = null;
+    let parsed: Message | null = null;
     try {
       parsed = this._parse(raw);
     } catch {
@@ -746,11 +737,11 @@ export class WSKitSocket {
    * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
    * can push a message through the same path without a live socket.
    */
-  _processIncoming(parsed: WireMessage): void {
+  _processIncoming(parsed: Message): void {
     // Let add-on modules see it first; any of them can consume it by returning null.
     // A throw is isolated (same as intercepts and lifecycle callbacks): we log it
     // and skip that module so the rest of the pipeline still runs.
-    let message: WireMessage = parsed;
+    let message: Message = parsed;
     for (const primitive of this._incoming) {
       try {
         const result = primitive.onIncoming!(message);
@@ -769,7 +760,7 @@ export class WSKitSocket {
     // of a normal event. It never falls into onError: those callbacks are for
     // local, transport, and hook failures.
     if (message.event === '__error__') {
-      this._reportServerError(toWSKitError(message.payload));
+      this._reportServerError(toLiveThingError(message.payload));
       return;
     }
 
@@ -801,8 +792,8 @@ export class WSKitSocket {
     // Top-level handlers only see top-level events. Messages tagged with a
     // channel or stream id are delivered by the matching add-on module, so they
     // don't fire here too.
-    const envelope = message.__wskit;
-    if (envelope?.channel === undefined && envelope?.streamId === undefined) {
+    const metadata = message.metadata;
+    if (metadata?.channel === undefined && metadata?.stream === undefined) {
       // Guard the log so the message string and args aren't built on every
       // frame when debug is off (they would be, even though _logAt no-ops).
       if (this._debug) this._log(`received '${message.event}'`, message.payload);
@@ -863,10 +854,10 @@ export class WSKitSocket {
    * adjust or cancel the message, then either write it, hand it to the outgoing
    * buffer, or drop it.
    */
-  _send(message: WireMessage, options?: InternalSendOptions): SendResult {
+  _send(message: Message, options?: InternalSendOptions): SendResult {
     this._ensureConnected();
 
-    let outgoing: WireMessage | null = message;
+    let outgoing: Message | null = message;
     for (const primitive of this._outgoing) {
       // Block cancels the send; any other throw is reported and the message
       // passes through unchanged.
@@ -911,7 +902,7 @@ export class WSKitSocket {
    * Send each frame a primitive returned from `onOpen`/`onReconnect`, isolating
    * every frame so one that won't serialize is reported without stranding the rest.
    */
-  private _flushPrimitiveFrames(messages: WireMessage[] | null | undefined): void {
+  private _flushPrimitiveFrames(messages: Message[] | null | undefined): void {
     if (!messages) return;
 
     for (const message of messages) {
@@ -932,7 +923,7 @@ export class WSKitSocket {
    * to the caller — so a flush of one bad frame can't strand the owner or the
    * frames queued behind it.
    */
-  _rawSend(message: WireMessage, owner?: FrameOwner): SendResult {
+  _rawSend(message: Message, owner?: FrameOwner): SendResult {
     if (this._state === 'open' && this.ws) {
       if (owner) {
         let serialized: string;
@@ -964,11 +955,11 @@ export class WSKitSocket {
     this._logAt('log', ...args);
   }
 
-  /** @internal — all log output goes through here; checks debug mode and adds the `[wskit]` prefix. */
+  /** @internal — all log output goes through here; checks debug mode and adds the `[livething]` prefix. */
   private _logAt(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
     if (!this._debug) return;
 
-    console[level]('[wskit]', ...args);
+    console[level]('[livething]', ...args);
   }
 
   /**
@@ -987,7 +978,7 @@ export class WSKitSocket {
   }
 
   /** Surface an unclaimed server error without routing it to the local error event. */
-  _reportServerError(error: WSKitError): void {
+  _reportServerError(error: LiveThingError): void {
     const handled = [...this._serverErrorRegistrations].some(
       (registration) => registration.code === undefined || registration.code === error.code,
     );

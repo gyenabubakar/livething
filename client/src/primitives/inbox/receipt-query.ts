@@ -1,6 +1,6 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { idGenerator } from '~/internal/id.ts';
-import type { PrimitiveHelpers, WireMessage } from '~/internal/runtime.ts';
+import type { Message, PrimitiveHelpers } from '~/internal/runtime.ts';
 import type { ScopeInfo } from '~/internal/scoped.ts';
 
 /** The two query events: inbox owns `__receivedQuery__`, read-receipts `__readQuery__`. */
@@ -34,16 +34,28 @@ export function runReceiptQuery(
   const { scope, seq, event, timeout } = args;
   return new Promise<string[]>((resolve, reject) => {
     scope.assertReady?.();
+    const markers = scope.markers();
     const correlationId = idGenerator(helpers)('receipt');
     const timer = setTimeout(() => {
       pending.delete(correlationId);
       reject(Timeout());
     }, timeout);
     pending.set(correlationId, { resolve, reject, timer });
+
     const result = helpers.rawSend({
       event,
       payload: { seq },
-      __wskit: { ...scope.markers(), correlationId },
+      metadata: {
+        exchange: { id: correlationId, source: 'client' },
+        ...(markers.name
+          ? {
+              channel: {
+                name: markers.name,
+                ...(markers.family ? { family: markers.family } : {}),
+              },
+            }
+          : {}),
+      },
     });
 
     if (result !== 'sent') {
@@ -61,9 +73,9 @@ export function runReceiptQuery(
  */
 export function resolveOwnQuery(
   pending: Map<string, PendingQuery>,
-  message: WireMessage,
-): WireMessage | null {
-  const correlationId = message.__wskit?.correlationId;
+  message: Message,
+): Message | null {
+  const correlationId = message.metadata?.exchange?.id;
   const waiter = correlationId ? pending.get(correlationId) : undefined;
   if (!waiter || correlationId === undefined) return message;
 

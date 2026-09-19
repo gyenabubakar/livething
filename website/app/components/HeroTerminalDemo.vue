@@ -21,7 +21,7 @@ const clientSide = [
 
 type Kind = 'event' | 'request' | 'stream' | 'channel'
 
-// One coherent, readable exchange — every WSKit message kind, both directions.
+// One coherent, readable exchange — every LiveThing message kind, both directions.
 // dir 'out' = client → server (server is on the left, so it travels leftward).
 const steps: { dir: 'out' | 'in', name: string, type: string, kind: Kind }[] = [
   { dir: 'out', name: 'join', type: '"general"', kind: 'channel' },
@@ -113,7 +113,7 @@ onUnmounted(() => {
               <div class="size-2.5 rounded-full bg-muted border border-accented/40" />
             </div>
             <div class="flex-1 flex justify-center">
-              <span class="font-mono text-[10px] tracking-wider text-dimmed">wss://chat.wskit.dev</span>
+              <span class="font-mono text-[10px] tracking-wider text-dimmed">wss://chat.livething.dev</span>
             </div>
             <div class="flex items-center gap-2">
               <span v-play-when-visible class="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" :class="{ 'animate-pulse': started }" />

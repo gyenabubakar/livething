@@ -1,5 +1,5 @@
-import { channels, client, connect, reconnection } from '@wskit/client';
-import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
+import { channels, client, connect, reconnection } from '@livething/client';
+import type { PersistenceClient } from '@livething/tests-e2e-handlers/persistence';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives a PERSISTENT channel (archive-room) whose auto-rejoin the server

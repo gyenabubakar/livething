@@ -1,5 +1,5 @@
-import { channels, client, connect, dedup, gaps, reconnection, replay } from '@wskit/client';
-import type { ReplayGapClient } from '@wskit/tests-e2e-handlers/replay-gap';
+import { channels, client, connect, dedup, gaps, reconnection, replay } from '@livething/client';
+import type { ReplayGapClient } from '@livething/tests-e2e-handlers/replay-gap';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives gaps() against the real replay server definition, which keeps only

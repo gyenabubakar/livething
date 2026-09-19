@@ -1,9 +1,9 @@
 import { Disconnected, Timeout } from '~/errors.ts';
-import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
-import type { FrameOwner, SendResult, WireMessage } from '~/internal/runtime.ts';
+import type { FrameOwner, Message, SendResult } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type {
   ClientRequestsOptions,
@@ -47,7 +47,7 @@ export function clientRequests(
       const pending = new Map<string, Pending>();
       // frames for requests made before the socket is open when no buffering is
       // installed to hold them.
-      const outbox = new Map<string, { message: WireMessage; owner: FrameOwner }>();
+      const outbox = new Map<string, { message: Message; owner: FrameOwner }>();
 
       function ownerFor(correlationId: string): FrameOwner {
         return {
@@ -98,11 +98,21 @@ export function clientRequests(
             },
           });
 
-          const frame: WireMessage = {
+          const frame: Message = {
             event,
             payload,
             // The client originates this request, so its reply routes back here.
-            __wskit: { correlationId, source: 'client', ...callOptions.markers },
+            metadata: {
+              exchange: { id: correlationId, source: 'client' },
+              ...(callOptions.markers.name
+                ? {
+                    channel: {
+                      name: callOptions.markers.name,
+                      ...(callOptions.markers.family ? { family: callOptions.markers.family } : {}),
+                    },
+                  }
+                : {}),
+            },
           };
 
           // send through the normal path so buffering can take it — queueing it
@@ -147,13 +157,13 @@ export function clientRequests(
         },
 
         onIncoming(message) {
-          const correlationId = message.__wskit?.correlationId;
+          const correlationId = message.metadata?.exchange?.id;
           if (typeof correlationId !== 'string') return message;
 
           // A server-originated request is not a reply to our own request — let
           // the serverRequests primitive answer it, whatever order they run in. We
           // only ever claim a frame that matches one of our pending requests.
-          if (message.__wskit?.source === 'server') return message;
+          if (message.metadata?.exchange?.source === 'server') return message;
 
           const waiter = pending.get(correlationId);
           // Forward a protocol frame (e.g. a receipt-query result) for another primitive
@@ -168,8 +178,8 @@ export function clientRequests(
             helpers.log.info(`matched response for request '${correlationId}'`);
           }
 
-          if (message.event === '__error__') waiter.reject(toWSKitError(message.payload));
-          else waiter.resolve(message.payload);
+          if (message.event === '__error__') waiter.reject(toLiveThingError(message.payload));
+          else waiter.resolve(message.payload ?? undefined);
 
           return null;
         },

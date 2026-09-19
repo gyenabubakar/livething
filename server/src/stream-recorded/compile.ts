@@ -20,7 +20,7 @@ export function compileRecordedStreamDef(
   const generator = handlers.get(def.name);
   if (!generator) {
     throw new Error(
-      `[wskit] No handler assembled for recordedStream('${def.name}'). Include the value returned by base.recordedStream(...) in base.assemble({ handlers: [...] }).`,
+      `[livething] No handler assembled for recordedStream('${def.name}'). Include the value returned by base.recordedStream(...) in base.assemble({ handlers: [...] }).`,
     );
   }
 

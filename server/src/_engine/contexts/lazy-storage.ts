@@ -7,7 +7,7 @@ import type * as PublicApi from '~/context.ts';
  * keys are built by the framework, not forged by app code, so they are trusted.
  * App handlers never see this symbol, so they can't reach the privileged path.
  */
-export const PRIVILEGED_KV = Symbol('wskit.privilegedKv');
+export const PRIVILEGED_KV = Symbol('livething.privilegedKv');
 
 /**
  * Reject a kv key that uses the reserved namespace form. A leading `__` and `::`
@@ -24,7 +24,7 @@ function assertWritableKvKey(key: unknown): void {
   if (!key.startsWith('__') && !key.includes('::')) return;
 
   throw new Error(
-    `[wskit] kv key '${key}' uses a reserved form: a key may not start with '__' or contain ` +
+    `[livething] kv key '${key}' uses a reserved form: a key may not start with '__' or contain ` +
       `'::' (reserved for the plugin namespace, '__<id>::<key>'). Pick a different key.`,
   );
 }

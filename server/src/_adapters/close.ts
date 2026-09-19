@@ -1,4 +1,4 @@
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes } from '@livething/core';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
 import type { ConnectionDescriptor } from './types.ts';
 

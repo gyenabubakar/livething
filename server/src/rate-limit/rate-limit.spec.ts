@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RateLimited } from '@wskit/core';
+import { RateLimited } from '@livething/core';
 import { describe, expect, it } from 'vitest';
 import { rateLimit } from './rate-limit.ts';
 
@@ -11,7 +11,7 @@ describe('rateLimit primitive', () => {
       ]),
       eventOverrides: new Map(),
     }) as any;
-    expect(prim.__wskit).toBe('intercept');
+    expect(prim.__livething).toBe('intercept');
     expect(typeof prim.handler).toBe('function');
   });
 

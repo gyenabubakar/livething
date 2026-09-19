@@ -10,7 +10,7 @@ const OutOfStock = error('out-of-stock', v.object({ channel: v.string() }));
 describe('errors', () => {
   it('produces correct tag and kind', () => {
     const p = errors(Forbidden);
-    expect(p.__wskit).toBe('errors');
+    expect(p.__livething).toBe('errors');
     expect(p.__kind).toBe('contract');
   });
 

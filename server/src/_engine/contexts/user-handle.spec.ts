@@ -84,7 +84,7 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
       quality: c.quality,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref' as const,
+        __livething: 'connection-ref' as const,
         id: c.id,
         instance: undefined,
         userId: c.userId,
@@ -207,7 +207,7 @@ describe('UserHandle.info — last-seen storage reads', () => {
     const reads: string[] = [];
     const sql = createTestSql({
       onExec: (query) => {
-        if (query.includes('__wskit_last_seen')) reads.push(query);
+        if (query.includes('__livething_last_seen')) reads.push(query);
       },
     });
     ensureLastSeenSchema(sql);
@@ -250,8 +250,8 @@ describe('UserHandle.info — tag collisions across colon-joined keys', () => {
     expect(info!.tags).toHaveLength(2);
     expect(info!.tags).toEqual(
       expect.arrayContaining([
-        { __wskit: 'tag-ref', kind: 'ephemeral', group: 'a:b', key: 'c' },
-        { __wskit: 'tag-ref', kind: 'ephemeral', group: 'a', key: 'b:c' },
+        { __livething: 'tag-ref', kind: 'ephemeral', group: 'a:b', key: 'c' },
+        { __livething: 'tag-ref', kind: 'ephemeral', group: 'a', key: 'b:c' },
       ]),
     );
   });

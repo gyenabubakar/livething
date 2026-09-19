@@ -118,7 +118,7 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  *
  * @example
  * ```ts
- * import { Block } from '@wskit/server/errors';
+ * import { Block } from '@livething/server/errors';
  *
  * base.channel('private-room', {
  *   subscribe: v.object({ token: v.string() }),
@@ -140,7 +140,7 @@ export function check<TCtx, TData = unknown, TResult = unknown>(
   options?: CheckOptions<TData>,
 ): CheckPrimitive<TCtx, TData, TResult> {
   return {
-    __wskit: 'check',
+    __livething: 'check',
     __kind: 'lifecycle',
     __identity: [ON_CHECK_KEY],
     __requires: {},
@@ -175,7 +175,7 @@ export function check<TCtx, TData = unknown, TResult = unknown>(
  */
 export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePrimitive<TCtx> {
   return {
-    __wskit: 'revalidate',
+    __livething: 'revalidate',
     __kind: 'lifecycle',
     __identity: [ON_REVALIDATE_KEY],
     __requires: {},
@@ -183,7 +183,7 @@ export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePr
     __validate(view: ValidationView) {
       if (view.channelKey && !view.isChannelDurable(view.channelKey)) {
         throw new Error(
-          `[wskit] Channel "${view.channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
+          `[livething] Channel "${view.channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
             `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
             `Remove \`membership: 'ephemeral'\` from this channel, or remove the .revalidate() hook (use \`.check()\` ` +
             `for first-subscribe authorization).`,
@@ -221,7 +221,7 @@ export function commit<TCtx, TCheck = unknown>(
   handler: CommitHandler<TCtx, TCheck>,
 ): CommitPrimitive<TCtx, TCheck> {
   return {
-    __wskit: 'commit',
+    __livething: 'commit',
     __kind: 'lifecycle',
     __identity: [ON_COMMIT_KEY],
     __requires: {},
@@ -250,7 +250,7 @@ export function commit<TCtx, TCheck = unknown>(
  */
 export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePrimitive<TCtx> {
   return {
-    __wskit: 'onSubscribe',
+    __livething: 'onSubscribe',
     __kind: 'lifecycle',
     __identity: [ON_SUBSCRIBE_KEY],
     __requires: {},
@@ -269,7 +269,7 @@ export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePri
  */
 export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): UnsubscribePrimitive<TCtx> {
   return {
-    __wskit: 'onUnsubscribe',
+    __livething: 'onUnsubscribe',
     __kind: 'lifecycle',
     __identity: [ON_UNSUBSCRIBE_KEY],
     __requires: {},
@@ -288,7 +288,7 @@ export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): Unsubscr
  */
 export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEndPrimitive<TCtx> {
   return {
-    __wskit: 'onSessionEnd',
+    __livething: 'onSessionEnd',
     __kind: 'lifecycle',
     __identity: [ON_SESSION_END_KEY],
     __requires: {},

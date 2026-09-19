@@ -1,12 +1,12 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { Disconnect } from '@wskit/server/errors';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { Disconnect } from '@livething/server/errors';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
-import type { ReplaySnapshotValue } from '@wskit/server/replay';
+import type { InferClient } from '@livething/server';
+import type { ReplaySnapshotValue } from '@livething/server/replay';
 import { requireUsername } from '../_shared/upgrade.ts';
 import { BurstCounter, DeleteDoc, IncrementCounter, RoomUpdateDoc, UpdateDoc } from './events.ts';
 import type {
@@ -83,13 +83,9 @@ export const handleIncrementCounter = base.on('increment-counter', {
   },
 });
 
-// Burst handler used for the snapshot-coalescing benchmark. It sends a
-// pile of counter-snapshot messages in one go, all targeting the same
-// snapshot key. Before the snapshot-batching change, each send hit SQL
-// and wrote a row that the next send overwrote anyway — `count` writes
-// for one final row. After the change, all the sends fold together in
-// memory inside the open handler scope and one row gets written when
-// the handler finishes.
+// Burst handler used for the snapshot-coalescing benchmark. It sends many
+// counter snapshots for one key in a single handler run; they fold in memory
+// and produce one SQL write when the handler finishes.
 export const handleBurstCounter = base.on('burst-counter', {
   input: BurstCounter,
   run(ctx, payload) {

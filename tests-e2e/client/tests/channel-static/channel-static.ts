@@ -1,9 +1,9 @@
-import { channels, client, clientRequests, connect, platform, stream } from '@wskit/client';
-import { WebEnvironment } from '@wskit/client/environment';
-import type { ChannelStaticClient } from '@wskit/tests-e2e-handlers/channel-static';
+import { channels, client, clientRequests, connect, platform, stream } from '@livething/client';
+import { WebEnvironment } from '@livething/client/environment';
+import type { ChannelStaticClient } from '@livething/tests-e2e-handlers/channel-static';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channels() against the real `channel-static` server definition,
+// Drives @livething/client's channels() against the real `channel-static` server definition,
 // typed by the same contract the server implements
 // (ChannelStaticClient = InferClient<definition>).
 export function setup(): void {

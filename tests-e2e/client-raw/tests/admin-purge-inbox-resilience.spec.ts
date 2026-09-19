@@ -14,17 +14,17 @@ test.describe('inbox purge resilience (real Durable Object)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'purge-me' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const message = await waitForFrame(
       alice.page,
       (frame) => frame.event === 'room-msg' && frame.payload.text === 'purge-me',
     );
-    const seq = Number(message.__wskit?.seq);
+    const seq = Number(message.metadata?.delivery?.seq);
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await expect
       .poll(async () => {

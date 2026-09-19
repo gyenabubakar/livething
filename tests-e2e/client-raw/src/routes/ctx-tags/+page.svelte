@@ -27,7 +27,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'tag-result') tags = data.payload?.tags ?? '';
 			if (data.event === 'connection-info') connCount = data.payload?.count ?? null;
 			if (data.event === 'connections-by-tag-result') {
@@ -37,19 +37,19 @@
 	}
 
 	function tagSelf(tag: string) {
-		ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag } }));
+		ws?.send(window.__livethingEncode({ event: 'tag-self', payload: { tag } }));
 	}
 
 	function untagSelf(tag: string) {
-		ws?.send(JSON.stringify({ event: 'untag-self', payload: { tag } }));
+		ws?.send(window.__livethingEncode({ event: 'untag-self', payload: { tag } }));
 	}
 
 	function connInfo() {
-		ws?.send(JSON.stringify({ event: 'get-connection-info', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'get-connection-info', payload: {} }));
 	}
 
 	function getByTag(tag: string) {
-		ws?.send(JSON.stringify({ event: 'get-by-tag', payload: { tag } }));
+		ws?.send(window.__livethingEncode({ event: 'get-by-tag', payload: { tag } }));
 	}
 </script>
 

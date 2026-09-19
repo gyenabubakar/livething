@@ -114,16 +114,16 @@ test.describe('replay-snapshot handler', () => {
       const collected: {
         event: string;
         payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
       }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string' && ev.data !== 'pong') {
           try {
-            const parsed = JSON.parse(ev.data) as {
+            const parsed = window.__livethingDecode(ev.data) as {
               event: string;
               payload: Record<string, unknown>;
-              __wskit?: Record<string, unknown>;
+              metadata?: Record<string, Record<string, unknown>> | null;
             };
             collected.push(parsed);
           } catch {
@@ -134,7 +134,11 @@ test.describe('replay-snapshot handler', () => {
         if (typeof original === 'function') original.call(ws, ev);
       };
       ws.send(
-        JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: since }, __wskit: {} }),
+        window.__livethingEncode({
+          event: '__replay__',
+          payload: { lastKnownSeq: since },
+          metadata: null,
+        }),
       );
 
       await new Promise((r) => setTimeout(r, 1500));
@@ -145,7 +149,7 @@ test.describe('replay-snapshot handler', () => {
     expect(replayed).toHaveLength(1);
     const merged = replayed[0]!;
     expect(merged.payload.total).toBe(8);
-    expect(merged.__wskit?.seq).toBe(secondSeq);
+    expect(merged.metadata?.delivery?.seq).toBe(secondSeq);
   });
 
   test('reduce can delete a snapshot key', async ({ page }) => {
@@ -168,7 +172,7 @@ test.describe('replay-snapshot handler', () => {
       if (!ws) return;
 
       ws.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'update-doc',
           payload: { docId: 'age-fresh', title: 'fresh-message' },
         }),

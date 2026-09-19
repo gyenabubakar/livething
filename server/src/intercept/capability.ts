@@ -39,8 +39,8 @@ const interceptRuntimePrimitive = definePrimitive({
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { intercepts } from '@wskit/server/intercepts';
+ * import { server, t } from '@livething/server';
+ * import { intercepts } from '@livething/server/intercepts';
  *
  * const base = server({ capabilities: [intercepts()] });
  *

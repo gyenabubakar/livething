@@ -75,7 +75,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     const calls: string[] = [];
@@ -86,7 +86,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
     room.on('message', () => calls.push('B'));
 
     expect(() =>
-      ws.emit({ event: 'message', payload: {}, __wskit: { channel: 'general' } }),
+      ws.emit({ event: 'message', payload: {}, metadata: { channel: { name: 'general' } } }),
     ).not.toThrow();
     expect(calls).toEqual(['A', 'B']);
   });
@@ -99,7 +99,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'lobby', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'lobby', family: 'rooms' } },
     });
 
     const calls: string[] = [];
@@ -113,7 +113,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
       ws.emit({
         event: 'message',
         payload: {},
-        __wskit: { channel: 'lobby', channelFamily: 'rooms' },
+        metadata: { channel: { name: 'lobby', family: 'rooms' } },
       }),
     ).not.toThrow();
     expect(calls).toEqual(['A', 'B']);
@@ -129,7 +129,7 @@ describe('a throwing presence or stream callback is isolated from its siblings',
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     const calls: string[] = [];
@@ -143,7 +143,7 @@ describe('a throwing presence or stream callback is isolated from its siblings',
       ws.emit({
         event: '__memberJoin__',
         payload: { connectionId: 'c1' },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       }),
     ).not.toThrow();
     expect(calls).toEqual(['A', 'B']);
@@ -162,13 +162,13 @@ describe('a throwing presence or stream callback is isolated from its siblings',
     socket.onStream('feed', { onChunk: () => calls.push('B') });
 
     expect(() =>
-      ws.emit({ event: 'feed', payload: {}, __wskit: { streamId: 's1' } }),
+      ws.emit({ event: 'feed', payload: {}, metadata: { stream: { id: 's1' } } }),
     ).not.toThrow();
     expect(calls).toEqual(['A', 'B']);
     ws.emit({
       event: '__streamEnd__',
       payload: {},
-      __wskit: { streamId: 's1', eventName: 'feed' },
+      metadata: { stream: { id: 's1', event: 'feed' } },
     });
   });
 });

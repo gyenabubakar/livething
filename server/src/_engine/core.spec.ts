@@ -42,7 +42,7 @@ describe('EngineCore constructor — adapter option guards', () => {
     const options = validOptions();
     options.storage = undefined as never;
     expect(() => new EngineCore(definition, options)).toThrow(
-      '[wskit] Adapter "test-adapter" did not provide storage.',
+      '[livething] Adapter "test-adapter" did not provide storage.',
     );
   });
 
@@ -50,7 +50,7 @@ describe('EngineCore constructor — adapter option guards', () => {
     const options = validOptions();
     options.timers = undefined as never;
     expect(() => new EngineCore(definition, options)).toThrow(
-      '[wskit] Adapter "test-adapter" did not provide timers.',
+      '[livething] Adapter "test-adapter" did not provide timers.',
     );
   });
 });

@@ -1,4 +1,4 @@
-import { t } from '@wskit/server';
+import { t } from '@livething/server';
 import * as v from 'valibot';
 
 export const Note = v.object({ text: v.string(), author: v.string() });

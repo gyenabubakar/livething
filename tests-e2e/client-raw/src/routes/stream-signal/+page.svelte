@@ -42,11 +42,11 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			switch (data.event) {
 				case '__streamOk__':
 					streamOkReceived = true;
-					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
+					if (data.metadata?.stream?.id) lastStreamId = data.metadata.stream?.id;
 					break;
 
 				case 'slow-signal':
@@ -68,12 +68,12 @@
 
 	function startSlow() {
 		reset();
-		ws?.send(JSON.stringify({ event: 'slow-signal', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'slow-signal', payload: {} }));
 	}
 
 	function cancelStream() {
 		ws?.send(
-			JSON.stringify({ event: '__streamCancel__', payload: {}, __wskit: { streamId: lastStreamId } }),
+			window.__livethingEncode({ event: '__streamCancel__', payload: null, metadata: { stream: { id: lastStreamId } } }),
 		);
 	}
 

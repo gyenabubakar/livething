@@ -143,7 +143,7 @@ test.describe('lifecycle-hooks', () => {
     });
     expect(response.status()).toBe(403);
     expect(response.headers()['content-type']).toContain('text/plain');
-    if (process.env.WSKIT_E2E_FRAMEWORK !== 'hono') {
+    if (process.env.LIVETHING_E2E_FRAMEWORK !== 'hono') {
       await expect(response.text()).resolves.toBe('Forbidden HTTP upgrade');
     }
   });

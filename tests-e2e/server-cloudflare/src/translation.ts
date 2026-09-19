@@ -1,11 +1,11 @@
-import { emits, server, t, translator } from '@wskit/server';
-import { bind } from '@wskit/server-cloudflare';
-import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
+import { emits, server, t, translator } from '@livething/server';
+import { bind } from '@livething/server-cloudflare';
+import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
 import {
   translationDefinition,
   translationInboundOnlyDefinition,
   translationPassThroughDefinition,
-} from '@wskit/tests-e2e-handlers/translation';
+} from '@livething/tests-e2e-handlers/translation';
 import * as v from 'valibot';
 
 const hibernationForeignProtocol = translator(() => {
@@ -19,16 +19,13 @@ const hibernationForeignProtocol = translator(() => {
         v.object({ type: v.literal('send'), text: v.string() }),
         JSON.parse(raw),
       );
-      return JSON.stringify({
-        event: 'echo',
-        payload: { text: frame.text, translatorSequence: ++sequence },
-      });
+      return JSON.stringify(['echo', { text: frame.text, translatorSequence: ++sequence }, null]);
     },
     outbound(outgoing) {
       if (outgoing === 'pong') return 'foreign-pong';
 
-      const frame = JSON.parse(outgoing) as { event: string; payload: unknown };
-      return JSON.stringify({ type: 'message', name: frame.event, body: frame.payload });
+      const frame = JSON.parse(outgoing) as [string, unknown, unknown];
+      return JSON.stringify({ type: 'message', name: frame[0], body: frame[1] });
     },
     hibernation: {
       serialize() {

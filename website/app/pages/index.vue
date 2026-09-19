@@ -17,7 +17,7 @@ useHead({
   ],
 })
 
-const { data: page } = await useAsyncData('wskit-docs-home', () => {
+const { data: page } = await useAsyncData('livething-docs-home', () => {
   return queryCollection('docs').path('/landing').first()
 }, {
   getCachedData(key, nuxtApp) {
@@ -28,7 +28,7 @@ const { data: page } = await useAsyncData('wskit-docs-home', () => {
 useSeo({
   title:
     page.value?.title
-    || 'WSKit — The complete WebSocket stack for TypeScript',
+    || 'LiveThing — The complete WebSocket stack for TypeScript',
   description:
     page.value?.description
     || 'A typed, batteries-included WebSocket framework for TypeScript. One inferred contract types your client and server: channels, streams, requests, reconnection.',

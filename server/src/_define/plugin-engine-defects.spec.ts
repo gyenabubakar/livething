@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { WSKitError } from '@wskit/core';
+import { LiveThingError } from '@livething/core';
 import { server } from '~/_define/server.ts';
 import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { emits } from '~/emits/emits.ts';
@@ -16,7 +16,7 @@ function outgoingRuntime(compiled: any) {
   return {
     compiled,
     outgoingHooks: [],
-    wskitStampHooks: [],
+    livethingStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
     logger: { warn() {}, error() {} },
@@ -25,9 +25,9 @@ function outgoingRuntime(compiled: any) {
 }
 
 /** Pull a plugin's namespaced primitive out of its capability `__primitives`. */
-function findPrimitive(primitives: readonly any[], wskit: string, event: string) {
-  const found = primitives.find((p) => p.__wskit === wskit && p.event === event);
-  if (!found) throw new Error(`no ${wskit} primitive for ${event}`);
+function findPrimitive(primitives: readonly any[], livething: string, event: string) {
+  const found = primitives.find((p) => p.__livething === livething && p.event === event);
+  if (!found) throw new Error(`no ${livething} primitive for ${event}`);
 
   return found;
 }
@@ -65,7 +65,7 @@ describe('plugin engine defect — a plugin can emit its own declared event', ()
     ).not.toThrow();
 
     expect(sent).toHaveLength(1);
-    expect(JSON.parse(sent[0]!).event).toBe('__e2e:drizzle::own-event');
+    expect(JSON.parse(sent[0]!)[0]).toBe('__e2e:drizzle::own-event');
   });
 
   it('still rejects a genuinely undeclared __x__ event', () => {
@@ -107,7 +107,7 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
     const undeclared = h.on('boom', {
       input: v.object({}),
       run() {
-        throw new WSKitError('not-mine', { x: 1 });
+        throw new LiveThingError('not-mine', { x: 1 });
       },
     });
 
@@ -129,12 +129,12 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
       thrown = e;
     }
 
-    expect(thrown).toBeInstanceOf(WSKitError);
-    expect((thrown as WSKitError).code).toBe('__acme:auth::denied');
-    expect((thrown as WSKitError).detail).toEqual({ reason: 'sync-no' });
+    expect(thrown).toBeInstanceOf(LiveThingError);
+    expect((thrown as LiveThingError).code).toBe('__acme:auth::denied');
+    expect((thrown as LiveThingError).detail).toEqual({ reason: 'sync-no' });
     expect(normalizeRuntimeError(thrown, undefined, declaredCodes)).toEqual({
       payload: { code: '__acme:auth::denied', detail: { reason: 'sync-no' } },
-      wskit: {},
+      livething: {},
     });
   });
 
@@ -147,12 +147,12 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
       (e: unknown) => e,
     );
 
-    expect(thrown).toBeInstanceOf(WSKitError);
-    expect((thrown as WSKitError).code).toBe('__acme:auth::denied');
-    expect((thrown as WSKitError).detail).toEqual({ reason: 'async-no' });
+    expect(thrown).toBeInstanceOf(LiveThingError);
+    expect((thrown as LiveThingError).code).toBe('__acme:auth::denied');
+    expect((thrown as LiveThingError).detail).toEqual({ reason: 'async-no' });
     expect(normalizeRuntimeError(thrown, undefined, declaredCodes)).toEqual({
       payload: { code: '__acme:auth::denied', detail: { reason: 'async-no' } },
-      wskit: {},
+      livething: {},
     });
   });
 
@@ -167,10 +167,10 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
       thrown = e;
     }
 
-    expect((thrown as WSKitError).code).toBe('not-mine');
+    expect((thrown as LiveThingError).code).toBe('not-mine');
     expect(normalizeRuntimeError(thrown, undefined, declaredCodes)).toEqual({
       payload: { code: 'internal-error' },
-      wskit: {},
+      livething: {},
     });
   });
 

@@ -1,4 +1,4 @@
-import { bind } from '@wskit/server-cloudflare';
+import { bind } from '@livething/server-cloudflare';
 import { hibernationDefinition } from './hibernation/handler.ts';
 
 export class HibernationServer extends bind(hibernationDefinition) {}

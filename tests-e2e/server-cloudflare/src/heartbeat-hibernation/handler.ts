@@ -1,6 +1,6 @@
-import { emits, server, t } from '@wskit/server';
-import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
-import type { InferClient } from '@wskit/server';
+import { emits, server, t } from '@livething/server';
+import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
+import type { InferClient } from '@livething/server';
 
 /**
  * A hibernation-enabled server that reports every heartbeat hook it sees.

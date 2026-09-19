@@ -69,8 +69,8 @@ function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroup
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { tags } from '@wskit/server/tags';
+ * import { server, t } from '@livething/server';
+ * import { tags } from '@livething/server/tags';
  * import * as v from 'valibot';
  *
  * const base = server({

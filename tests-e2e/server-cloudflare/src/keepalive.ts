@@ -1,4 +1,4 @@
-import { bind } from '@wskit/server-cloudflare';
-import { keepaliveDefinition } from '@wskit/tests-e2e-handlers/keepalive';
+import { bind } from '@livething/server-cloudflare';
+import { keepaliveDefinition } from '@livething/tests-e2e-handlers/keepalive';
 
 export class KeepaliveServer extends bind(keepaliveDefinition) {}

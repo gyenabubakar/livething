@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 type Frame = {
   event: string;
   payload: Record<string, unknown>;
-  __wskit?: Record<string, unknown>;
+  metadata?: Record<string, Record<string, unknown>> | null;
 };
 
 async function setupClient(page: Page, username: string, room: string) {
@@ -17,7 +17,7 @@ async function setupClient(page: Page, username: string, room: string) {
 async function send(page: Page, frame: unknown) {
   await page.evaluate((f) => {
     const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-    ws?.send(JSON.stringify(f));
+    ws?.send(window.__livethingEncode(f));
   }, frame);
 }
 
@@ -29,7 +29,7 @@ async function startCapture(page: Page) {
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') return;
 
-      w.__frames!.push(JSON.parse(ev.data));
+      w.__frames!.push(window.__livethingDecode(ev.data));
     });
   });
 }
@@ -42,14 +42,18 @@ async function frames(page: Page): Promise<Frame[]> {
 }
 
 async function subscribeStatic(page: Page, name: string) {
-  await send(page, { event: '__subscribe__', payload: {}, __wskit: { channel: name } });
+  await send(page, {
+    event: '__subscribe__',
+    payload: null,
+    metadata: { channel: { name: name } },
+  });
 }
 
 async function subscribeFamily(page: Page, scopeKey: string, name: string) {
   await send(page, {
     event: '__subscribe__',
-    payload: {},
-    __wskit: { channel: name, channelFamily: scopeKey },
+    payload: null,
+    metadata: { channel: { name: name, family: scopeKey } },
   });
 }
 
@@ -158,7 +162,10 @@ test.describe('static-vs-family-isolation', () => {
     await waitForFrame(c, (f) => f.event === 'kick-ack' && f.payload.where === 'static');
 
     // A receives __kicked__ for general.
-    await waitForFrame(a, (f) => f.event === '__kicked__' && f.__wskit?.channel === 'general');
+    await waitForFrame(
+      a,
+      (f) => f.event === '__kicked__' && f.metadata?.channel?.name === 'general',
+    );
 
     // Wait a beat to let any stray __kicked__ land for B.
     await b.waitForTimeout(300);
@@ -169,7 +176,7 @@ test.describe('static-vs-family-isolation', () => {
     await send(b, {
       event: 'send-in-room',
       payload: { name: 'room:1', text: 'still-here' },
-      __wskit: { channel: 'room:1', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'room:1', family: 'rooms' } },
     });
     await waitForFrame(
       b,
@@ -237,8 +244,8 @@ test.describe('static-vs-family-isolation', () => {
       b,
       (f) =>
         f.event === '__kicked__' &&
-        f.__wskit?.channel === 'room:1' &&
-        f.__wskit?.channelFamily === 'rooms',
+        f.metadata?.channel?.name === 'room:1' &&
+        f.metadata?.channel?.family === 'rooms',
     );
 
     // A is untouched.
@@ -250,7 +257,7 @@ test.describe('static-vs-family-isolation', () => {
     await send(a, {
       event: 'send-in-general',
       payload: { text: 'static-alive' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     await waitForFrame(
       a,

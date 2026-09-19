@@ -31,7 +31,7 @@
 	];
 </script>
 
-<h1>wskit e2e feature index</h1>
+<h1>LiveThing E2E feature index</h1>
 <ul>
 	{#each features as feature}
 		<li><a href={`/${feature}`} data-testid={`link-${feature}`}>{feature}</a></li>

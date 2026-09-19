@@ -2,16 +2,17 @@
 
 import {
   DurableStreamRequiresUser,
-  isWSKitConfigError,
+  isLiveThingConfigError,
   rethrowIfConfigError,
   StreamAborted,
   StreamIdCollision,
-} from '@wskit/core';
+} from '@livething/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { connectionStorageKeyOf, RESERVED_USER_ID_PREFIX } from '~/_engine/runtime/user-key.ts';
+import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import {
   abortActiveStream,
   assertNoConcurrentStream,
@@ -36,16 +37,16 @@ import type {
 import type { Logger } from '~/context.ts';
 import { isCursorChunk, makeCursorChunk } from './cursor.ts';
 import * as Storage from './storage.ts';
-import type { DurableStreamKind } from './types.ts';
+import type { DurableStreamDurability } from './types.ts';
 
 type OptsParameter = {
   event: string;
   payload: Record<string, unknown>;
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
 };
 type OptsParameter2 = { routing: RoutingTarget | undefined; event: string; payload: unknown };
 type OptionsParameter = { force?: boolean };
-type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.WSKitRouting };
+type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
 type EnsureUniqueStreamIdOptsParameter = { streamId: string; storageUserId: string };
 type FindResumeRowOptsParameter = { resumeScope: ResolvedChannel; streamId: string };
 type SweepDurableStreamsRuntimeParameter = { sql: DurableStreamRuntime['sql'] };
@@ -123,7 +124,7 @@ export interface DurableNudge {
 export interface DurableStreamRuntimeDef {
   readonly event: string;
 
-  readonly kind: DurableStreamKind;
+  readonly kind: DurableStreamDurability;
 
   readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
 
@@ -149,22 +150,22 @@ export interface DurableStreamRuntimeDef {
   readonly highWaterMark?: number;
 }
 
-/** Build the `__wskit` routing block for a durable-stream frame from a live scope. */
-function buildScopeRouting(scope: ResolvedChannel): Partial<Protocol.WSKitProtocol> {
-  const wskit: Partial<Protocol.WSKitProtocol> = {};
-  if (scope.channelName) wskit.channel = scope.channelName;
-  if (scope.channelFamily) wskit.channelFamily = scope.channelFamily;
-  return wskit;
+/** Build the `__livething` routing block for a durable-stream frame from a live scope. */
+function buildScopeRouting(scope: ResolvedChannel): Partial<Protocol.LiveThingProtocol> {
+  const livething: Partial<Protocol.LiveThingProtocol> = {};
+  if (scope.channelName) livething.channel = scope.channelName;
+  if (scope.channelFamily) livething.channelFamily = scope.channelFamily;
+  return livething;
 }
 
-/** Build the `__wskit` routing block from a stored stream row. */
-function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.WSKitProtocol> {
-  const wskit: Partial<Protocol.WSKitProtocol> = {};
+/** Build the `__livething` routing block from a stored stream row. */
+function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.LiveThingProtocol> {
+  const livething: Partial<Protocol.LiveThingProtocol> = {};
 
-  if (row.channelKey) wskit.channel = row.channelKey;
-  if (row.channelFamily) wskit.channelFamily = row.channelFamily;
+  if (row.channelKey) livething.channel = row.channelKey;
+  if (row.channelFamily) livething.channelFamily = row.channelFamily;
 
-  return wskit;
+  return livething;
 }
 
 /** A stream chunk becomes the frame payload; a non-object chunk is wrapped in `{ value }`. */
@@ -180,8 +181,8 @@ function chunkToPayload(chunkValue: unknown): Record<string, unknown> {
  * Each chunk's payload is already a valid JSON string in the database (it was
  * `JSON.stringify`-ed on write), so we splice it directly into the frame
  * string rather than parse → spread → re-stringify per chunk. The constant
- * parts of `__wskit` (scope markers + streamId) are also serialized once
- * before the loop, then only the per-chunk `seq` (a plain number) and the
+ * parts of `__livething` (scope markers + streamId) are also serialized once
+ * before the loop, then only the per-chunk `streamSeq` (a plain number) and the
  * optional `messageId` are appended.
  */
 interface SendChunkFramesOpts {
@@ -198,18 +199,14 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
   const { eventName, chunks, scopeMarkers, streamId } = opts;
   if (chunks.length === 0) return true;
 
-  const eventJson = JSON.stringify(eventName);
-  // Serialize the constant part of __wskit (scope fields + streamId), strip the
-  // closing "}" so we can append ,"seq":N} per chunk without a full re-serialize.
-  const wskitPrefix =
-    JSON.stringify({ ...scopeMarkers, streamId, streamKind: 'persistent' }).slice(0, -1) +
-    ',"seq":';
-
   for (const chunk of chunks) {
-    const wire =
-      chunk.messageId !== null
-        ? `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq},"messageId":${JSON.stringify(chunk.messageId)}}}`
-        : `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq}}}`;
+    const wire = serializeWireFrame(eventName, JSON.parse(chunk.payload), {
+      ...scopeMarkers,
+      streamId,
+      streamDurability: 'persistent',
+      streamSeq: chunk.seq,
+      ...(chunk.messageId === null ? {} : { messageId: chunk.messageId }),
+    });
 
     if (connection.descriptor.send(wire) === false || connection.closing) return false;
   }
@@ -234,7 +231,7 @@ export interface RunDurableStreamOptions {
   scope: ResolvedChannel;
   def: DurableStreamRuntimeDef;
   payload: unknown;
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 }
 
 /** Start a fresh durable stream from a client trigger frame. */
@@ -243,7 +240,7 @@ export async function runDurableStream(
   connection: RuntimeConnection,
   opts: RunDurableStreamOptions,
 ): Promise<void> {
-  const { scope, def, payload, wskit } = opts;
+  const { scope, def, payload, livething } = opts;
 
   // A durable stream keys its stored state by the user id so a reconnect can
   // resume it. An anonymous connection has no stable id to resume against, so
@@ -262,7 +259,7 @@ export async function runDurableStream(
 
   // The wire schema already bounds and non-empties `streamId` (`StreamIdString`),
   // so its presence is the only thing left to check.
-  const streamId = wskit?.streamId ?? runtime.generateId('dstream');
+  const streamId = livething?.streamId ?? runtime.generateId('dstream');
   ensureUniqueStreamId(runtime, { streamId, storageUserId });
 
   const now = Date.now();
@@ -305,7 +302,7 @@ export async function runDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__streamOk__',
       payload: {},
-      wskit: { ...buildScopeRouting(scope), streamId, streamKind: 'persistent' },
+      livething: { ...buildScopeRouting(scope), streamId, streamDurability: 'persistent' },
     });
   } catch (error) {
     Storage.deleteStream(runtime.sql, storageUserId, streamId);
@@ -371,7 +368,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
-      wskit: { streamId },
+      livething: { streamId },
     });
     return;
   }
@@ -386,7 +383,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'expired' as const } },
-      wskit: { ...buildRowRouting(row), streamId },
+      livething: { ...buildRowRouting(row), streamId },
     });
     return;
   }
@@ -401,7 +398,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
-      wskit: { ...buildRowRouting(row), streamId },
+      livething: { ...buildRowRouting(row), streamId },
     });
     return;
   }
@@ -419,7 +416,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'unsubscribed' as const } },
-      wskit: { streamId },
+      livething: { streamId },
     });
     return;
   }
@@ -429,7 +426,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
-      wskit: { streamId },
+      livething: { streamId },
     });
     return;
   }
@@ -478,7 +475,7 @@ export async function resumeDurableStream(
         runtime.sendProtocolMessage(connection, {
           event: '__streamOk__',
           payload: {},
-          wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
+          livething: { ...scopeMarkers, streamId, streamDurability: 'persistent' },
         });
       } catch (error) {
         rollbackResumeAttachment();
@@ -523,7 +520,7 @@ export async function resumeDurableStream(
       void Promise.resolve()
         .then(() => existing.generator.return(undefined))
         .catch((error) => {
-          runtime.logger.warn('[wskit] durable stream stale-generator cleanup rejected', {
+          runtime.logger.warn('[livething] durable stream stale-generator cleanup rejected', {
             streamId,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -536,13 +533,13 @@ export async function resumeDurableStream(
       runtime.sendProtocolMessage(connection, {
         event: '__streamEnd__',
         payload: {},
-        wskit: { ...scopeMarkers, streamId, seq: row.lastSeq, eventName: def.event },
+        livething: { ...scopeMarkers, streamId, streamSeq: row.lastSeq, eventName: def.event },
       });
     } else {
       runtime.sendProtocolMessage(connection, {
         event: '__streamOk__',
         payload: {},
-        wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
+        livething: { ...scopeMarkers, streamId, streamDurability: 'persistent' },
       });
     }
 
@@ -584,7 +581,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
-      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq, eventName: def.event },
+      livething: { ...scopeMarkers, streamId, streamSeq: row.lastSeq, eventName: def.event },
     });
     return;
   }
@@ -599,7 +596,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
-      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq, eventName: def.event },
+      livething: { ...scopeMarkers, streamId, streamSeq: row.lastSeq, eventName: def.event },
     });
     return;
   }
@@ -636,7 +633,7 @@ export async function resumeDurableStream(
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
         payload: { code: StreamAborted.code, detail: { reason: 'cursor-invalid' as const } },
-        wskit: { ...scopeMarkers, streamId },
+        livething: { ...scopeMarkers, streamId },
       });
       return;
     }
@@ -651,7 +648,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'cursor-invalid' as const } },
-      wskit: { ...scopeMarkers, streamId },
+      livething: { ...scopeMarkers, streamId },
     });
     return;
   }
@@ -659,7 +656,7 @@ export async function resumeDurableStream(
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
-    wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
+    livething: { ...scopeMarkers, streamId, streamDurability: 'persistent' },
   });
 
   if (connection.closing) return;
@@ -775,7 +772,7 @@ async function runGenerator(
 
   // A run "owns the slot" while no *other* ActiveStream holds this streamId. A
   // resume/replace with the same streamId swaps in a new ActiveStream; once
-  // that happens this old run must not touch the shared row, attachment, or
+  // that happens the superseded run must not touch the shared row, attachment, or
   // wire — doing so would corrupt the replacement. Before this run registers
   // (activeStream undefined) the slot is its own to manage.
   function stillOwnsSlot(): boolean {
@@ -824,7 +821,7 @@ async function runGenerator(
       if (result.done) break;
 
       // A resume/replace took over this streamId while next() was pending. This
-      // old run no longer owns the slot, so it must stop before persisting or
+      // superseded run no longer owns the slot, so it must stop before persisting or
       // sending — its work would corrupt the replacement's shared state.
       if (!stillOwnsSlot()) return;
 
@@ -917,7 +914,7 @@ async function runGenerator(
             return sub !== null && sub.unsubscribedAt === null && seq > sub.caughtUpSeq;
           },
         });
-        // The pipeline adds streamId + seq to __wskit from the routing markers.
+        // The pipeline adds streamId + streamSeq to __livething from the routing markers.
         forEachIsolated(
           targets,
           (target) =>
@@ -926,8 +923,8 @@ async function runGenerator(
                 channel: scope.channelName,
                 channelFamily: scope.channelFamily,
                 streamId,
-                seq,
-                streamKind: 'persistent',
+                streamSeq: seq,
+                streamDurability: 'persistent',
               },
               event: def.event,
               payload: wirePayload,
@@ -945,8 +942,8 @@ async function runGenerator(
             channel: scope.channelName,
             channelFamily: scope.channelFamily,
             streamId,
-            seq,
-            streamKind: 'persistent',
+            streamSeq: seq,
+            streamDurability: 'persistent',
           },
           event: def.event,
           payload: wirePayload,
@@ -985,7 +982,7 @@ async function runGenerator(
       runtime.sendProtocolMessage(ownerConnection, {
         event: '__streamEnd__',
         payload: {},
-        wskit: { ...buildScopeRouting(scope), streamId, seq },
+        livething: { ...buildScopeRouting(scope), streamId, streamSeq: seq },
       });
     }
 
@@ -1005,14 +1002,20 @@ async function runGenerator(
         },
       });
 
-      const endWSKit = { ...buildScopeRouting(scope), streamId, seq, eventName: def.event };
+      const endLiveThing = {
+        ...buildScopeRouting(scope),
+        streamId,
+        streamSeq: seq,
+        eventName: def.event,
+      };
+
       forEachIsolated(
         peerTargets,
         (target) =>
           runtime.sendProtocolMessage(target, {
             event: '__streamEnd__',
             payload: {},
-            wskit: endWSKit,
+            livething: endLiveThing,
           }),
         { context: `durable broadcast __streamEnd__ fan-out streamId="${streamId}"` },
       );
@@ -1021,7 +1024,7 @@ async function runGenerator(
     // A config error must propagate, but the row still has to leave 'active' or
     // it blocks every future start/resume — mark it ended before rethrowing.
     // Only when this run still owns the slot; a replacement manages its own row.
-    if (isWSKitConfigError(error)) {
+    if (isLiveThingConfigError(error)) {
       if (stillOwnsSlot()) {
         Storage.markEnded(runtime.sql, { userId, streamId, now: Date.now() });
       }
@@ -1029,7 +1032,7 @@ async function runGenerator(
       throw error;
     }
 
-    const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
+    const routing: Protocol.LiveThingRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelFamily) routing.channelFamily = scope.channelFamily;
     const ownerConnection = attachedConnection();
@@ -1059,12 +1062,20 @@ async function runGenerator(
           return sub !== null && sub.unsubscribedAt === null;
         },
       });
-      const { payload, wskit } = normalizeRuntimeError(error, routing, runtime.declaredErrorCodes);
-      const peerWSKit = { ...wskit, eventName: def.event };
+      const { payload, livething } = normalizeRuntimeError(
+        error,
+        routing,
+        runtime.declaredErrorCodes,
+      );
+      const peerLiveThing = { ...livething, eventName: def.event };
       forEachIsolated(
         peerTargets,
         (target) =>
-          runtime.sendProtocolMessage(target, { event: '__error__', payload, wskit: peerWSKit }),
+          runtime.sendProtocolMessage(target, {
+            event: '__error__',
+            payload,
+            livething: peerLiveThing,
+          }),
         { context: `durable broadcast __error__ on error streamId="${streamId}"` },
       );
     }
@@ -1075,7 +1086,7 @@ async function runGenerator(
   } finally {
     // A resume run may have already taken over this streamId. Only the run that
     // still owns the slot may tear down the shared connection/attachment state;
-    // otherwise an old run would delete the replacement's activeStreamIds entry
+    // otherwise the superseded run would delete the replacement's activeStreamIds entry
     // and persist a stale attachment.
     const ownsSlot = stillOwnsSlot();
     if (activeStream) {
@@ -1134,7 +1145,7 @@ export async function cancelDurableStream(
     try {
       await active.generator.return(undefined);
     } catch (error) {
-      runtime.logger.warn('[wskit] durable stream cleanup threw on cancel', {
+      runtime.logger.warn('[livething] durable stream cleanup threw on cancel', {
         streamId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -1161,10 +1172,10 @@ export async function cancelDurableStream(
         return sub !== null && sub.unsubscribedAt === null;
       },
     });
-    const endWSKit = {
+    const endLiveThing = {
       ...buildScopeRouting(cancelScope),
       streamId,
-      seq: row.lastSeq,
+      streamSeq: row.lastSeq,
       eventName: row.event,
     };
 
@@ -1174,7 +1185,7 @@ export async function cancelDurableStream(
         runtime.sendProtocolMessage(target, {
           event: '__streamEnd__',
           payload: {},
-          wskit: endWSKit,
+          livething: endLiveThing,
         }),
       { context: `durable broadcast __streamEnd__ on cancel streamId="${streamId}"` },
     );

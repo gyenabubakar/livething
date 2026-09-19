@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RateLimited } from '@wskit/core';
+import { RateLimited } from '@livething/core';
 import { registerInterceptRuntime } from '~/intercept/capability.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -44,9 +44,9 @@ const RATE_LIMIT_KEY = Symbol('rate-limit');
  * runs as an intercept: it fires before validation and before the handler,
  * so a rejected frame never reaches user code.
  *
- * On rejection it throws `RateLimited({ retryAfterMs })` which the engine
- * routes to an `__error__` frame, preserving `__wskit.correlationId` if the
- * original frame carried it.
+ * On rejection it throws `RateLimited({ retryAfterMs })`, which the engine
+ * routes to an `__error__` frame while preserving the request's
+ * `metadata.exchange.id` when present.
  *
  * Use the `rateLimit({...})` capability for the server-wide rule, plus the
  * optional `rateLimit` field on a `base.on(...)` / `base.request(...)` config or

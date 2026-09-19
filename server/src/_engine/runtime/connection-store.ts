@@ -1,4 +1,4 @@
-import { assertSynchronousResult } from '@wskit/core';
+import { assertSynchronousResult } from '@livething/core';
 import { parseJsonOrUndefined, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { chunkForBind } from '~/_engine/sql-batch.ts';
 import type { SQLProvider } from '~/context.ts';
@@ -8,7 +8,7 @@ type BuildConnectionRowOptionsParameter = { translatorState: unknown };
 type WriteConnectionRowOptionsParameter = { translatorStateJson?: string };
 
 const CREATE_CONNECTIONS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_connections (
+  CREATE TABLE IF NOT EXISTS __livething_connections (
     connection_id         TEXT PRIMARY KEY,
     user_id               TEXT NOT NULL,
     meta                  TEXT NOT NULL,
@@ -22,8 +22,8 @@ const CREATE_CONNECTIONS_TABLE_SQL = `
 `;
 
 const CREATE_CONNECTIONS_USER_ID_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_connections_user_id
-  ON __wskit_connections (user_id)
+  CREATE INDEX IF NOT EXISTS __livething_idx_connections_user_id
+  ON __livething_connections (user_id)
 `;
 
 /**
@@ -37,7 +37,7 @@ export interface StoredEphemeralTag {
 }
 
 /**
- * The shape persisted into the `__wskit_connections` row. The engine writes one
+ * The shape persisted into the `__livething_connections` row. The engine writes one
  * row per live connection and reads it back on hibernation wake.
  */
 export interface StoredConnectionRow {
@@ -83,13 +83,15 @@ const CONNECTION_SCHEMA_SQL = `${CREATE_CONNECTIONS_TABLE_SQL};\n${CREATE_CONNEC
  */
 export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(CONNECTION_SCHEMA_SQL);
-  const columns = sql.exec<{ name: string }>('PRAGMA table_info(__wskit_connections)').toArray();
+  const columns = sql
+    .exec<{ name: string }>('PRAGMA table_info(__livething_connections)')
+    .toArray();
   if (!columns.some((column) => column.name === 'metadata')) {
-    sql.exec("ALTER TABLE __wskit_connections ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'");
+    sql.exec("ALTER TABLE __livething_connections ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'");
   }
 
   if (!columns.some((column) => column.name === 'translator_state')) {
-    sql.exec('ALTER TABLE __wskit_connections ADD COLUMN translator_state TEXT');
+    sql.exec('ALTER TABLE __livething_connections ADD COLUMN translator_state TEXT');
   }
 }
 
@@ -146,7 +148,7 @@ export function writeConnectionRow(
 ): void {
   sql.exec(
     `
-      INSERT OR REPLACE INTO __wskit_connections
+      INSERT OR REPLACE INTO __livething_connections
         (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, translator_state, metadata)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
@@ -179,7 +181,7 @@ export function readConnectionRow(
     .exec<RawRow>(
       `
         SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, translator_state, metadata
-        FROM __wskit_connections
+        FROM __livething_connections
         WHERE connection_id = ?
       `,
       connectionId,
@@ -211,7 +213,7 @@ export function readAllConnectionRows(
     .exec<RawRow>(
       `
         SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, translator_state, metadata
-        FROM __wskit_connections
+        FROM __livething_connections
       `,
     )
     .toArray();
@@ -236,7 +238,7 @@ export function readAllConnectionRows(
  * Delete one connection row on real disconnect.
  */
 export function deleteConnectionRow(sql: Pick<SQLProvider, 'exec'>, connectionId: string): void {
-  sql.exec('DELETE FROM __wskit_connections WHERE connection_id = ?', connectionId);
+  sql.exec('DELETE FROM __livething_connections WHERE connection_id = ?', connectionId);
 }
 
 /**
@@ -259,12 +261,12 @@ export function reconcileConnectionRows(
   surviving: ReadonlySet<string>,
 ): void {
   if (surviving.size === 0) {
-    sql.exec('DELETE FROM __wskit_connections');
+    sql.exec('DELETE FROM __livething_connections');
     return;
   }
 
   const storedIds = sql
-    .exec<{ connection_id: string }>('SELECT connection_id FROM __wskit_connections')
+    .exec<{ connection_id: string }>('SELECT connection_id FROM __livething_connections')
     .toArray()
     .map((row) => row.connection_id);
   const orphanIds = storedIds.filter((id) => !surviving.has(id));
@@ -272,7 +274,10 @@ export function reconcileConnectionRows(
 
   for (const batch of chunkForBind(orphanIds, 1, sql.limits)) {
     const placeholders = batch.map(() => '?').join(', ');
-    sql.exec(`DELETE FROM __wskit_connections WHERE connection_id IN (${placeholders})`, ...batch);
+    sql.exec(
+      `DELETE FROM __livething_connections WHERE connection_id IN (${placeholders})`,
+      ...batch,
+    );
   }
 }
 

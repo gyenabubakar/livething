@@ -34,11 +34,11 @@ export type ReadReceiptsCapability = ChannelOnlyCapability<
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { channels } from '@wskit/server/channels';
- * import { sequence } from '@wskit/server/sequence';
- * import { dedup } from '@wskit/server/dedup';
- * import { inbox } from '@wskit/server/inbox';
+ * import { server, t } from '@livething/server';
+ * import { channels } from '@livething/server/channels';
+ * import { sequence } from '@livething/server/sequence';
+ * import { dedup } from '@livething/server/dedup';
+ * import { inbox } from '@livething/server/inbox';
  *
  * const base = server({
  *   capabilities: [channels(), sequence({ persist: true }), dedup()],

@@ -47,7 +47,7 @@ export function recordedGenerateFactory(
   input: BuildRecordedStreamGenerateInput,
 ): RecordedStreamGeneratePrimitive {
   return {
-    __wskit: 'recorded-stream-generate',
+    __livething: 'recorded-stream-generate',
     __kind: 'handler',
     __identity: [RECORDED_STREAM_GENERATE_KEY, input.event],
     __requires: {},

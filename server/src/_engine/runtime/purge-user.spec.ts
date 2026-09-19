@@ -1,4 +1,4 @@
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
@@ -155,14 +155,14 @@ describe('admin().purgeUser() — every owning capability enabled together', () 
       userIds: ['alice'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'm-alice', event: 'msg', payload: { text: 'hi' } },
+      frame: { deliverySeq: 1, messageId: 'm-alice', event: 'msg', payload: { text: 'hi' } },
       now,
     });
     insertInboxRows(sql, {
       userIds: ['bob'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { seq: 2, messageId: 'm-bob', event: 'msg', payload: { text: 'yo' } },
+      frame: { deliverySeq: 2, messageId: 'm-bob', event: 'msg', payload: { text: 'yo' } },
       now,
     });
 
@@ -224,7 +224,7 @@ describe('admin().purgeUser() — every owning capability enabled together', () 
     expect(loadUndeliveredRows(sql, 'bob')).toHaveLength(1);
     expect(
       sql
-        .exec<{ n: number }>('SELECT COUNT(*) AS n FROM __wskit_inbox WHERE user_id = ?', 'bob')
+        .exec<{ n: number }>('SELECT COUNT(*) AS n FROM __livething_inbox WHERE user_id = ?', 'bob')
         .one(),
     ).toMatchObject({ n: 1 });
 
@@ -310,7 +310,7 @@ describe('admin().purgeUser()', () => {
     // call above completing without throwing is itself the "touches no storage" proof.
     expect(
       sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").toArray(),
-    ).not.toContainEqual(expect.objectContaining({ name: '__wskit_channel_memberships' }));
+    ).not.toContainEqual(expect.objectContaining({ name: '__livething_channel_memberships' }));
   });
 });
 

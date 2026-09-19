@@ -27,7 +27,7 @@ export interface RecordedStreamCapability extends Capability<
 }
 
 function buildDurableSweep(): Primitive {
-  return scheduledFactory('__wskit:stream-durable-sweep', (b) =>
+  return scheduledFactory('__livething:stream-durable-sweep', (b) =>
     b.every(60_000).run((ctx: BuildDurableSweepCtxParameter) => {
       ensureDurableStreamSchema(ctx.sql);
       sweepDurableStreams({ sql: ctx.sql });
@@ -43,8 +43,8 @@ function buildDurableSweep(): Primitive {
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { recordedStream } from '@wskit/server/streams';
+ * import { server, t } from '@livething/server';
+ * import { recordedStream } from '@livething/server/streams';
  * import * as v from 'valibot';
  *
  * const base = server({ capabilities: [recordedStream()] });

@@ -13,7 +13,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { ConnectionBusy, InternalError } from '@wskit/core';
+import { ConnectionBusy, InternalError } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
@@ -51,11 +51,11 @@ function makeFakeStorage(opts?: { initialized?: boolean }) {
     // already wrote it — this does not count against the round-trip budget.
     storage.sql.exec(
       `
-        CREATE TABLE IF NOT EXISTS __wskit_meta (
+        CREATE TABLE IF NOT EXISTS __livething_meta (
           key   TEXT PRIMARY KEY,
           value TEXT NOT NULL
         );
-        INSERT OR REPLACE INTO __wskit_meta (key, value) VALUES ('initialized', '1')
+        INSERT OR REPLACE INTO __livething_meta (key, value) VALUES ('initialized', '1')
       `,
     );
     calls.length = 0;
@@ -328,7 +328,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // the tables exist either way.
     //
     // The resumableStream()/recordedStream() capabilities install an internal
-    // recurring '__wskit:stream-durable-sweep' task whenever a server declares a
+    // recurring '__livething:stream-durable-sweep' task whenever a server declares a
     // durable stream. That task boots the scheduled engine, which adds the schema
     // hook (#8), the bootstrap loads (#13-14), and the one persist-after-restore
     // INSERT (#15) — so a durable-stream server pays 15 round trips on a cold boot.
@@ -357,7 +357,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // The schema hooks run on every boot rather than being skipped by a
     // warm-boot gate, so a capability added after this storage was first
     // initialized still gets its tables. The recurring
-    // '__wskit:stream-durable-sweep' task (installed whenever a server
+    // '__livething:stream-durable-sweep' task (installed whenever a server
     // declares a durable stream) was already persisted during the cold boot
     // that seeded this storage, so the bootstrap finds it in the loaded rows
     // and issues no extra persist write.

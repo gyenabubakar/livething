@@ -1,11 +1,11 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { Disconnect } from '@wskit/server/errors';
-import { inbox, readReceipts } from '@wskit/server/inbox';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { Disconnect } from '@livething/server/errors';
+import { inbox, readReceipts } from '@livething/server/inbox';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 import { SendRoomMsg } from './events.ts';
 import type { RoomMsg } from './events.ts';
@@ -75,7 +75,7 @@ export const receiptsDefinition = base.assemble({
   api: (ctx) => ({
     seedStaleReceipt() {
       ctx.sql.exec(
-        `INSERT OR REPLACE INTO __wskit_inbox_receipts
+        `INSERT OR REPLACE INTO __livething_inbox_receipts
           (channel_name, channel_family, user_id, received_through, read_through, updated_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
         'old-chat',
@@ -92,19 +92,19 @@ export const receiptsDefinition = base.assemble({
           .exec<{
             count: number;
           }>(
-            'SELECT COUNT(*) AS count FROM __wskit_inbox_receipts WHERE channel_name = ?',
+            'SELECT COUNT(*) AS count FROM __livething_inbox_receipts WHERE channel_name = ?',
             'old-chat',
           )
           .one()?.count ?? 0,
       );
     },
     dropInboxTable() {
-      ctx.sql.exec('DROP TABLE __wskit_inbox');
+      ctx.sql.exec('DROP TABLE __livething_inbox');
     },
     receiptUsers(channelName: string, seq: number): string[] {
       return ctx.sql
         .exec<{ user_id: string }>(
-          `SELECT user_id FROM __wskit_inbox_receipts
+          `SELECT user_id FROM __livething_inbox_receipts
            WHERE channel_name = ? AND channel_family = ? AND received_through >= ?`,
           channelName,
           '',

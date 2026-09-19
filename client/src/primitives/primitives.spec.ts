@@ -1,4 +1,4 @@
-import { Block, WSKitError } from '@wskit/core';
+import { Block, LiveThingError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
@@ -84,15 +84,15 @@ describe('intercept', () => {
 });
 
 describe('error routing', () => {
-  it('fires onServerError with a WSKitError for an unclaimed __error__ frame', () => {
+  it('fires onServerError with a LiveThingError for an unclaimed __error__ frame', () => {
     const onErr = vi.fn();
     const { socket, ws } = build();
     socket.onServerError(onErr);
     ws.emit({ event: '__error__', payload: { code: 'forbidden', detail: { reason: 'no' } } });
     expect(onErr).toHaveBeenCalledTimes(1);
 
-    const err = onErr.mock.calls[0]![0] as WSKitError;
-    expect(err).toBeInstanceOf(WSKitError);
+    const err = onErr.mock.calls[0]![0] as LiveThingError;
+    expect(err).toBeInstanceOf(LiveThingError);
     expect(err.code).toBe('forbidden');
     expect(err.detail).toEqual({ reason: 'no' });
   });
@@ -116,7 +116,11 @@ describe('buffering', () => {
     const ws = MockWebSocket.last();
     ws.open();
 
-    expect(ws.sentFrames()).toContainEqual({ event: 'typing', payload: { channelId: 'a' } });
+    expect(ws.sentFrames()).toContainEqual({
+      event: 'typing',
+      payload: { channelId: 'a' },
+      metadata: null,
+    });
   });
 });
 

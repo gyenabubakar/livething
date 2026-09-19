@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineAsyncContextStore } from '~/_engine/async-context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -261,7 +261,7 @@ describe('withInvocationScope', () => {
 
     expect(() => persistAttachment(core, connection)).toThrow(/async callbacks are not supported/);
     expect(connection.lastPersistedFingerprint).toBeUndefined();
-    expect(close).toHaveBeenCalledWith(1011, '[wskit] connection state could not be persisted');
+    expect(close).toHaveBeenCalledWith(1011, '[livething] connection state could not be persisted');
     expect(connection.preserveStateOnClose).not.toBe(true);
   });
 
@@ -278,8 +278,8 @@ describe('withInvocationScope', () => {
       },
     };
 
-    expect(() => persistAttachment(core, connection)).toThrow(WSKitConfigError);
-    expect(close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(() => persistAttachment(core, connection)).toThrow(LiveThingConfigError);
+    expect(close).toHaveBeenCalledWith(1011, '[livething] translator configuration failed');
     expect(connection.preserveStateOnClose).toBe(true);
   });
 

@@ -7,11 +7,11 @@ import { tags } from './capability.ts';
 import type { TagGroupsPrimitive } from './tags.ts';
 
 function tagGroupsPrimitive(
-  primitives: readonly { __wskit: string }[],
+  primitives: readonly { __livething: string }[],
   kind: 'ephemeral' | 'persistent',
 ): TagGroupsPrimitive {
   const found = primitives.find(
-    (p) => p.__wskit === 'tag-groups' && (p as { kind?: string }).kind === kind,
+    (p) => p.__livething === 'tag-groups' && (p as { kind?: string }).kind === kind,
   );
   if (!found) throw new Error(`no ${kind} tag-groups primitive`);
 
@@ -48,7 +48,7 @@ describe('tags() capability', () => {
       capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
     });
     const { primitives } = base.assemble({ handlers: [] });
-    expect(primitives.some((p) => p.__wskit === 'tag-groups')).toBe(true);
+    expect(primitives.some((p) => p.__livething === 'tag-groups')).toBe(true);
     expect(() => tagGroupsPrimitive(primitives, 'ephemeral')).toThrow(/no ephemeral/);
     expect(tagGroupsPrimitive(primitives, 'persistent').groups.map((g) => g.name)).toEqual([
       'favorite',
@@ -64,12 +64,12 @@ describe('tags() capability', () => {
     });
     const upgradePrimitive = base
       .assemble({ handlers: [] })
-      .primitives.find((p) => p.__wskit === 'onUpgrade') as unknown as {
+      .primitives.find((p) => p.__livething === 'onUpgrade') as unknown as {
       handler(request: Request, helpers: unknown): Promise<{ tags?: unknown }>;
     };
     const result = await upgradePrimitive.handler(new Request('http://x'), {});
     expect(result.tags).toEqual([
-      { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key: 'admin' },
+      { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key: 'admin' },
     ]);
   });
 
@@ -82,7 +82,7 @@ describe('tags() capability', () => {
     });
     const upgradePrimitive = base
       .assemble({ handlers: [] })
-      .primitives.find((p) => p.__wskit === 'onUpgrade') as unknown as {
+      .primitives.find((p) => p.__livething === 'onUpgrade') as unknown as {
       handler(request: Request, helpers: unknown): Promise<{ tags?: unknown }>;
     };
     const result = await upgradePrimitive.handler(new Request('http://x'), {});

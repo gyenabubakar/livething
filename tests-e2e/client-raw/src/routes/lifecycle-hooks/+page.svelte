@@ -35,7 +35,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'connected') connectedUser = data.payload?.username ?? '';
 			if (data.event === 'disconnected') {
 				disconnectedUsers = [...disconnectedUsers, data.payload?.username ?? ''];
@@ -71,11 +71,11 @@
 	}
 
 	function sendBadEvent() {
-		ws?.send(JSON.stringify({ event: 'bad-event', payload: { value: 'not-a-number' } }));
+		ws?.send(window.__livethingEncode({ event: 'bad-event', payload: { value: 'not-a-number' } }));
 	}
 
 	function triggerError() {
-		ws?.send(JSON.stringify({ event: 'trigger-error', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'trigger-error', payload: {} }));
 	}
 
 	function disconnectSelf() {

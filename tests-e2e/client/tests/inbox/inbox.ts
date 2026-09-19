@@ -1,8 +1,8 @@
-import { channels, client, connect, dedup, inbox, reconnection } from '@wskit/client';
-import type { InboxClient } from '@wskit/tests-e2e-handlers/inbox';
+import { channels, client, connect, dedup, inbox, reconnection } from '@livething/client';
+import type { InboxClient } from '@livething/tests-e2e-handlers/inbox';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's inbox() against the real inbox server definition: a persistent,
+// Drives @livething/client's inbox() against the real inbox server definition: a persistent,
 // inbox-backed channel that writes a durable per-member row on every broadcast
 // and holds it until the member acks `__received__`. A member OFFLINE at
 // broadcast time still receives the message — its rows drain on reconnect (after

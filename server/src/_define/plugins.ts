@@ -86,7 +86,7 @@ function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<str
       const factory = engine.getPluginApiFactory(id);
       if (!factory) {
         throw new Error(
-          `[wskit] ctx.plugin('${id}') — no plugin with id '${id}' is registered. ` +
+          `[livething] ctx.plugin('${id}') — no plugin with id '${id}' is registered. ` +
             'List the plugin in server({ capabilities: [...] }).',
         );
       }
@@ -106,7 +106,7 @@ function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<str
  */
 function pluginSurfacePrimitive(): Primitive {
   return {
-    __wskit: 'pluginSurface',
+    __livething: 'pluginSurface',
     __kind: 'plugin',
     __identity: [PLUGIN_SURFACE_KEY],
     __requires: {},
@@ -228,7 +228,7 @@ export type InferPluginClient<TPlugin> = TPlugin extends () => PluginCapability<
 /** Build the primitive whose `__setup` registers the plugin's API factory with the engine. */
 function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primitive {
   return {
-    __wskit: 'pluginApi',
+    __livething: 'pluginApi',
     __kind: 'plugin',
     __identity: [PLUGIN_API_KEY, id],
     __requires: {},
@@ -240,10 +240,10 @@ function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primiti
 
 /** Reject any plugin primitive a plugin cannot contribute, with a pointed message. */
 function assertSupported(id: string, primitive: Primitive): void {
-  if (ALLOWED_PLUGIN_KINDS.has(primitive.__wskit)) return;
+  if (ALLOWED_PLUGIN_KINDS.has(primitive.__livething)) return;
 
   throw new Error(
-    `[wskit] plugin('${id}') uses '${primitive.__wskit}', which a plugin cannot contribute. ` +
+    `[livething] plugin('${id}') uses '${primitive.__livething}', which a plugin cannot contribute. ` +
       'Host-owned engines (dedup, replay, rateLimit, …) belong on the host — list ' +
       'them there and reach them from the plugin with dependsOn.',
   );
@@ -260,8 +260,8 @@ function assertSupported(id: string, primitive: Primitive): void {
  *
  * @example
  * ```ts
- * import { server, emits, t } from '@wskit/server';
- * import { plugin } from '@wskit/server/plugins';
+ * import { server, emits, t } from '@livething/server';
+ * import { plugin } from '@livething/server/plugins';
  * import * as v from 'valibot';
  *
  * const h = server({
@@ -295,12 +295,14 @@ export function plugin<
   manifest: PluginManifest<TContract, TApi, TScopedCtx>,
 ): () => PluginCapability<TId, TContract, TApi> {
   if (!PLUGIN_ID.test(id)) {
-    throw new Error(`[wskit] Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`);
+    throw new Error(
+      `[livething] Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`,
+    );
   }
 
   if (!manifest.definition.__scoped) {
     throw new Error(
-      `[wskit] plugin('${id}') definition must be built with server({ scope: 'plugin' }). ` +
+      `[livething] plugin('${id}') definition must be built with server({ scope: 'plugin' }). ` +
         'Author the plugin as a scoped server definition, then pass its assemble() result here.',
     );
   }

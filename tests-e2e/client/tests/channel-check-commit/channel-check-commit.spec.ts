@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's channel subscribe (check + commit) against the
-// real wskit `channel-check-commit` server definition. Adapter-oblivious — it talks to
+// Conformance: @livething/client's channel subscribe (check + commit) against the
+// real LiveThing `channel-check-commit` server definition. Adapter-oblivious — it talks to
 // whatever server the run booted over the /ws proxy.
 async function open(page: Page, room: string, username = 'alice'): Promise<void> {
   await page.goto(`/tests/channel-check-commit/index.html?room=${room}&username=${username}`);

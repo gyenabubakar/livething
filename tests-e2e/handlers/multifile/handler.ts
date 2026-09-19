@@ -4,7 +4,7 @@
 // inline connect lifecycle hook. If primitives or type state didn't survive the
 // file boundary, either the channel wouldn't dispatch or this file would stop
 // type-checking.
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { handleSendRoomMessage } from './rooms.ts';
 import { base } from './setup.ts';
 

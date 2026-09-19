@@ -32,14 +32,14 @@ function replayDb() {
 
 function replayKeys(sql: ReturnType<typeof createTestSql>): string[] {
   return sql
-    .exec<{ rowKey: string }>('SELECT rowKey FROM __wskit_replay')
+    .exec<{ rowKey: string }>('SELECT rowKey FROM __livething_replay')
     .toArray()
     .map((row) => row.rowKey);
 }
 
 function replaySeqs(sql: ReturnType<typeof createTestSql>): number[] {
   return sql
-    .exec<{ seq: number }>('SELECT seq FROM __wskit_replay')
+    .exec<{ seq: number }>('SELECT seq FROM __livething_replay')
     .toArray()
     .map((row) => Number(row.seq));
 }
@@ -54,10 +54,10 @@ describe('replay/runtime', () => {
       .toArray()
       .map((row) => row.name);
 
-    expect(created).toContain('__wskit_replay');
-    expect(created).toContain('__wskit_idx_replay_seq');
-    expect(created).toContain('__wskit_idx_replay_scope_seq');
-    expect(created).toContain('__wskit_replay_watermark');
+    expect(created).toContain('__livething_replay');
+    expect(created).toContain('__livething_idx_replay_seq');
+    expect(created).toContain('__livething_idx_replay_scope_seq');
+    expect(created).toContain('__livething_replay_watermark');
   });
 
   it('matches replay ownership by scope and excludes mismatched messages', () => {
@@ -73,14 +73,14 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(['typing']),
       }),
     ).toBe(true);
     expect(
       shouldStoreReplayMessage('typing', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(['typing']),
       }),
     ).toBe(false);
@@ -90,7 +90,7 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(true);
@@ -98,7 +98,7 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
         claimedChannelKeys: new Set(['rooms']),
       }),
@@ -107,7 +107,7 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: { channel: 'lobby' },
+        livething: { channel: 'lobby' },
         exclude: new Set(),
         claimedChannelKeys: new Set(['lobby']),
       }),
@@ -116,7 +116,7 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: {},
+        livething: {},
         exclude: new Set(),
         claimedChannelKeys: new Set(['rooms']),
       }),
@@ -127,19 +127,23 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('get-token', {
         channelKey: undefined,
-        wskit: { correlationId: 'req-abc' },
+        livething: { correlationId: 'req-abc' },
         exclude: new Set(),
       }),
     ).toBe(false);
     expect(
       shouldStoreReplayMessage('get-token', {
         channelKey: 'rooms',
-        wskit: { correlationId: 'req-abc', channel: 'room-1', channelFamily: 'rooms' },
+        livething: { correlationId: 'req-abc', channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
     expect(
-      shouldStoreReplayMessage('message', { channelKey: undefined, wskit: {}, exclude: new Set() }),
+      shouldStoreReplayMessage('message', {
+        channelKey: undefined,
+        livething: {},
+        exclude: new Set(),
+      }),
     ).toBe(true);
   });
 
@@ -147,19 +151,23 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('token', {
         channelKey: undefined,
-        wskit: { streamId: 'stream_abc_1' },
+        livething: { streamId: 'stream_abc_1' },
         exclude: new Set(),
       }),
     ).toBe(false);
     expect(
       shouldStoreReplayMessage('token', {
         channelKey: 'rooms',
-        wskit: { streamId: 'stream_abc_1', channel: 'room-1', channelFamily: 'rooms' },
+        livething: { streamId: 'stream_abc_1', channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
     expect(
-      shouldStoreReplayMessage('token', { channelKey: undefined, wskit: {}, exclude: new Set() }),
+      shouldStoreReplayMessage('token', {
+        channelKey: undefined,
+        livething: {},
+        exclude: new Set(),
+      }),
     ).toBe(true);
   });
 
@@ -170,35 +178,39 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('__memberOffline__', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
     for (const event of ['__memberJoin__', '__subscribeOk__', '__error__', '__streamEnd__']) {
       expect(
-        shouldStoreReplayMessage(event, { channelKey: undefined, wskit: {}, exclude: new Set() }),
+        shouldStoreReplayMessage(event, {
+          channelKey: undefined,
+          livething: {},
+          exclude: new Set(),
+        }),
       ).toBe(false);
     }
 
     expect(
       shouldStoreReplayMessage('room-msg', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(true);
   });
 
-  it('builds replay rows from pure payloads and wskit metadata', () => {
+  it('builds replay rows from pure payloads and livething metadata', () => {
     const payload = { text: 'hello' };
-    const wskit = {
-      seq: 7,
+    const livething = {
+      deliverySeq: 7,
       messageId: 'msg_1',
       channel: 'room-1',
       channelFamily: 'rooms',
     };
 
-    expect(readReplayScope(wskit)).toEqual({
+    expect(readReplayScope(livething)).toEqual({
       channel: 'room-1',
       channelFamily: 'rooms',
     });
@@ -210,7 +222,7 @@ describe('replay/runtime', () => {
           snapshotKey: (_event: string, next: Record<string, unknown>) => String(next.text),
         },
         payload,
-        wskit,
+        livething,
         now: 99,
       }),
     ).toMatchObject({
@@ -226,7 +238,7 @@ describe('replay/runtime', () => {
 
     expect(
       JSON.parse(
-        buildReplayRow('message', { options: { type: 'history' }, payload, wskit, now: 99 })
+        buildReplayRow('message', { options: { type: 'history' }, payload, livething, now: 99 })
           .payload,
       ),
     ).toEqual({
@@ -240,12 +252,12 @@ describe('replay/runtime', () => {
     // A raw `|` join makes both `snapshot|a|b||c`; JSON encoding keeps them apart.
     const a = buildReplayRow('e', {
       options: { type: 'snapshot', snapshotKey: () => 'c' },
-      wskit: { seq: 1, messageId: 'm', channel: 'a|b' },
+      livething: { deliverySeq: 1, messageId: 'm', channel: 'a|b' },
       ...base,
     });
     const b = buildReplayRow('e', {
       options: { type: 'snapshot', snapshotKey: () => '|c' },
-      wskit: { seq: 1, messageId: 'm', channel: 'a', channelFamily: 'b' },
+      livething: { deliverySeq: 1, messageId: 'm', channel: 'a', channelFamily: 'b' },
       ...base,
     });
     expect(a.rowKey).not.toBe(b.rowKey);
@@ -258,7 +270,7 @@ describe('replay/runtime', () => {
       options: { type: 'history' },
       event: 'message',
       payload: { text: 'one' },
-      wskit: { seq: 1, messageId: 'msg_1' },
+      livething: { deliverySeq: 1, messageId: 'msg_1' },
       now: 100,
     });
 
@@ -282,7 +294,7 @@ describe('replay/runtime', () => {
       },
       event: 'doc-content-set',
       payload: { id: 'doc-1', content: 'hello' },
-      wskit: { seq: 2, messageId: 'msg_2' },
+      livething: { deliverySeq: 2, messageId: 'msg_2' },
       now: 101,
     });
 
@@ -307,7 +319,7 @@ describe('replay/runtime', () => {
       },
       event: 'doc-deleted',
       payload: { id: 'doc-1' },
-      wskit: { seq: 3, messageId: 'msg_3' },
+      livething: { deliverySeq: 3, messageId: 'msg_3' },
       now: 102,
     });
 
@@ -665,11 +677,8 @@ describe('buildLoadReplayQuery', () => {
     expect(query.params).toEqual(['room:1', 'rooms', 7]);
   });
 
-  it('still produces the family query when the family key happens to equal the channel name', () => {
-    // Regression: the previous heuristic compared scope.channelFamily to
-    // scope.channelName and silently fell into the static path. Now the
-    // null-vs-string marker drives the branch, so a family with key 'rooms'
-    // and concrete name 'rooms' resolves as a family query.
+  it('produces the family query when the family key equals the channel name', () => {
+    // The null-vs-string family marker keeps this in the family query path.
     const query = buildLoadReplayQuery(0, { channelName: 'rooms', channelFamily: 'rooms' });
     expect(query.sql).toMatch(/channelFamily\s+IS\s+\?/);
     expect(query.sql).not.toMatch(/channelFamily\s+IS\s+NULL/);
@@ -686,31 +695,23 @@ describe('buildLoadReplayQuery', () => {
 
 describe('ReplayFrame schema', () => {
   it('accepts a top-level replay frame with no scope markers', () => {
-    const result = v.safeParse(ReplayFrame, {
-      event: '__replay__',
-      payload: { lastKnownSeq: 5 },
-      __wskit: {},
-    });
+    const result = v.safeParse(ReplayFrame, ['__replay__', { lastKnownSeq: 5 }, null]);
     expect(result.success).toBe(true);
   });
 
   it('accepts a channel-scoped replay frame', () => {
-    const result = v.safeParse(ReplayFrame, {
-      event: '__replay__',
-      payload: {},
-      __wskit: { channel: 'room', channelFamily: 'rooms' },
-    });
+    const result = v.safeParse(ReplayFrame, [
+      '__replay__',
+      {},
+      { channel: { name: 'room', family: 'rooms' } },
+    ]);
     expect(result.success).toBe(true);
   });
 
   it('rejects a replay frame that carries an unknown routing marker', () => {
-    // The replay frame's __wskit carries only known routing keys; a stray
+    // The replay frame's __livething carries only known routing keys; a stray
     // unknown marker must fail validation, not be silently ignored.
-    const result = v.safeParse(ReplayFrame, {
-      event: '__replay__',
-      payload: {},
-      __wskit: { bogus: 'admin' },
-    });
+    const result = v.safeParse(ReplayFrame, ['__replay__', {}, { bogus: { admin: true } }]);
     expect(result.success).toBe(false);
   });
 });

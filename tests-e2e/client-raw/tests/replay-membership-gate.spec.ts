@@ -23,7 +23,7 @@ test.describe('replay-membership-gate', () => {
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
 
-              messages.push(JSON.parse(ev.data));
+              messages.push(window.__livethingDecode(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
             ws.onerror = (e) => reject(e);
@@ -41,7 +41,9 @@ test.describe('replay-membership-gate', () => {
     async function send(name: 'member' | 'snooper', frame: unknown) {
       await page.evaluate(
         ({ h, name, frame }) =>
-          (h as unknown as Record<string, { ws: WebSocket }>)[name]!.ws.send(JSON.stringify(frame)),
+          (h as unknown as Record<string, { ws: WebSocket }>)[name]!.ws.send(
+            window.__livethingEncode(frame),
+          ),
         { h: handle, name, frame },
       );
     }
@@ -62,7 +64,11 @@ test.describe('replay-membership-gate', () => {
     }
 
     // Member subscribes to the private channel — __subscribeOk__ arrives.
-    await send('member', { event: '__subscribe__', payload: {}, __wskit: { channel: 'private' } });
+    await send('member', {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'private' } },
+    });
     await expect
       .poll(async () => (await messages('member')).some((m) => m.event === '__subscribeOk__'))
       .toBe(true);
@@ -71,7 +77,7 @@ test.describe('replay-membership-gate', () => {
     await send('member', {
       event: '__replay__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'private' },
+      metadata: { channel: { name: 'private' } },
     });
     await expect
       .poll(async () =>
@@ -81,13 +87,12 @@ test.describe('replay-membership-gate', () => {
       )
       .toBe(true);
 
-    // Snooper never subscribed. They craft the same __replay__ frame with the
-    // private channel name on it. Pre-fix this returned the secret row;
-    // post-fix the server silently acks (no row, no __error__).
+    // Snooper never subscribed. A replay request for the private channel
+    // returns no rows and no error, so the channel's existence stays private.
     await send('snooper', {
       event: '__replay__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'private' },
+      metadata: { channel: { name: 'private' } },
     });
     // Wait a beat to let any leaked frames arrive.
     await page.waitForTimeout(500);

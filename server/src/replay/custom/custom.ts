@@ -29,7 +29,7 @@ export type CustomReplayScope = 'top' | 'channel';
 /**
  * Metadata attached to every outgoing message a top-level `replayCustom()`
  * primitive observes. Your `onBeforeSend` / `onAfterSend` hooks receive
- * this as `message.wire`. Use `seq` as a replay cursor and `messageId` as
+ * this as `message.wire`. Use `deliverySeq` as a replay cursor and `messageId` as
  * a storage key.
  *
  * Top-level custom replay also observes channel-scoped messages by default
@@ -41,7 +41,7 @@ export type CustomReplayScope = 'top' | 'channel';
  */
 export interface TopLevelOutgoingWire {
   /** A monotonically increasing sequence number, unique per connection. */
-  readonly seq: number;
+  readonly deliverySeq: number;
 
   /** A unique ID for this message. */
   readonly messageId: string;
@@ -151,9 +151,9 @@ interface BaseCustomReplayContext {
 export interface TopLevelReplayContext extends BaseCustomReplayContext {
   /** Routing markers from the client's `__replay__` frame. */
   readonly request: {
-    /** Channel name from `__wskit.channel` on the request, or `null`. */
+    /** Channel name from `__livething.channel` on the request, or `null`. */
     readonly channel: string | null;
-    /** Family key from `__wskit.channelFamily` on the request, or `null`. */
+    /** Family key from `__livething.channelFamily` on the request, or `null`. */
     readonly channelFamily: string | null;
   };
   /**
@@ -161,7 +161,7 @@ export interface TopLevelReplayContext extends BaseCustomReplayContext {
    *
    * @param event   The original event name.
    * @param payload The original application payload.
-   * @param wire    The original wire metadata (seq, messageId, channel).
+   * @param wire    The original wire metadata (deliverySeq, messageId, channel).
    */
   sendReplay(event: string, payload: Record<string, unknown>, wire: ReplayWire): void;
 }
@@ -249,18 +249,20 @@ const CUSTOM_REPLAY_KEY = Symbol('custom-replay');
 /**
  * Shape one outgoing wire message into the `OutgoingWireMessage<'top'>` the
  * developer's `onBeforeSend` / `onAfterSend` hooks receive. The wire metadata
- * comes from the frame's `__wskit`; the payload is already pure user data.
+ * comes from the frame's `__livething`; the payload is already pure user data.
  */
 function toTopLevelWireMessage(message: WireOutgoingMessage): OutgoingWireMessage<'top'> {
   return {
     event: message.event,
     payload: message.payload,
     wire: {
-      seq: Number(message.wskit.seq),
-      messageId: String(message.wskit.messageId),
-      channel: typeof message.wskit.channel === 'string' ? message.wskit.channel : null,
+      deliverySeq: Number(message.livething.deliverySeq),
+      messageId: String(message.livething.messageId),
+      channel: typeof message.livething.channel === 'string' ? message.livething.channel : null,
       channelFamily:
-        typeof message.wskit.channelFamily === 'string' ? message.wskit.channelFamily : null,
+        typeof message.livething.channelFamily === 'string'
+          ? message.livething.channelFamily
+          : null,
     },
   };
 }
@@ -274,11 +276,13 @@ function toChannelWireMessage(message: WireOutgoingMessage): OutgoingWireMessage
     event: message.event,
     payload: message.payload,
     wire: {
-      seq: Number(message.wskit.seq),
-      messageId: String(message.wskit.messageId),
-      channel: String(message.wskit.channel),
+      deliverySeq: Number(message.livething.deliverySeq),
+      messageId: String(message.livething.messageId),
+      channel: String(message.livething.channel),
       channelFamily:
-        typeof message.wskit.channelFamily === 'string' ? message.wskit.channelFamily : null,
+        typeof message.livething.channelFamily === 'string'
+          ? message.livething.channelFamily
+          : null,
     },
   };
 }
@@ -383,7 +387,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
   const opts = options as CustomReplayOptions<CustomReplayScope>;
 
   return {
-    __wskit: 'replayCustom',
+    __livething: 'replayCustom',
     __kind: 'infrastructure',
     __identity: [CUSTOM_REPLAY_KEY],
     __requires: {},
@@ -414,7 +418,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           if (
             !shouldStoreReplayMessage(message.event, {
               channelKey,
-              wskit: message.wskit,
+              livething: message.livething,
               exclude: new Set(),
               claimedChannelKeys: engine.getReplayClaimedChannelKeys(),
             })
@@ -435,7 +439,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           if (
             !shouldStoreReplayMessage(message.event, {
               channelKey,
-              wskit: message.wskit,
+              livething: message.livething,
               exclude: new Set(),
               claimedChannelKeys: engine.getReplayClaimedChannelKeys(),
             })
@@ -463,7 +467,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
         const connection = baseCtx[ENGINE_INTERNAL_CONNECTION] as RuntimeConnection | undefined;
         // Channel replay needs a membership check, or anyone could read its history.
-        if (!isChannelReplayAuthorized(connection, scope, frame.__wskit)) {
+        if (!isChannelReplayAuthorized(connection, scope, frame.__livething)) {
           return true;
         }
 
@@ -473,7 +477,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           await opts.onReplay(
             createChannelReplayContext(engine, baseCtx, {
               channelName: scope.channelName,
-              channelFamily: frame.__wskit.channelFamily ?? null,
+              channelFamily: frame.__livething.channelFamily ?? null,
             }) as ReplayContext<CustomReplayScope>,
             since,
           );
@@ -482,8 +486,8 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
         await opts.onReplay(
           createTopLevelReplayContext(engine, baseCtx, {
-            channel: frame.__wskit.channel ?? null,
-            channelFamily: frame.__wskit.channelFamily ?? null,
+            channel: frame.__livething.channel ?? null,
+            channelFamily: frame.__livething.channelFamily ?? null,
           }) as ReplayContext<CustomReplayScope>,
           since,
         );

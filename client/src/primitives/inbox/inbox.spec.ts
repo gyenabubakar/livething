@@ -55,8 +55,11 @@ function buildFamilyReceived() {
 function subscribeOk(ws: MockWebSocket, channel: string, isInbox: boolean) {
   ws.emit({
     event: '__subscribeOk__',
-    payload: {},
-    __wskit: isInbox ? { source: 'client', channel, inbox: true } : { source: 'client', channel },
+    payload: null,
+    metadata: {
+      exchange: { source: 'client' },
+      channel: { name: channel, ...(isInbox ? { inbox: true } : {}) },
+    },
   });
 }
 
@@ -84,11 +87,19 @@ describe('inbox — ack gating', () => {
     const { ws } = build();
     subscribeOk(ws, 'room', true);
 
-    ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room', seq: 5 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'hi' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 5 } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toEqual([
-      { event: '__received__', payload: { receivedThrough: 5 }, __wskit: { channel: 'room' } },
+      {
+        event: '__received__',
+        payload: { receivedThrough: 5 },
+        metadata: { channel: { name: 'room' } },
+      },
     ]);
   });
 
@@ -96,7 +107,11 @@ describe('inbox — ack gating', () => {
     const { ws } = build();
     subscribeOk(ws, 'room', false);
 
-    ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room', seq: 5 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'hi' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 5 } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toEqual([]);
@@ -106,12 +121,24 @@ describe('inbox — ack gating', () => {
     const { ws } = build();
     subscribeOk(ws, 'room', true);
 
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 3 } });
-    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 7 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 3 } },
+    });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'b' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 7 } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toEqual([
-      { event: '__received__', payload: { receivedThrough: 7 }, __wskit: { channel: 'room' } },
+      {
+        event: '__received__',
+        payload: { receivedThrough: 7 },
+        metadata: { channel: { name: 'room' } },
+      },
     ]);
   });
 
@@ -120,13 +147,16 @@ describe('inbox — ack gating', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-1', channelFamily: 'rooms', inbox: true },
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { name: 'room-1', family: 'rooms', inbox: true },
+      },
     });
 
     ws.emit({
       event: 'msg',
       payload: { text: 'hi' },
-      __wskit: { channel: 'room-1', channelFamily: 'rooms', seq: 2 },
+      metadata: { channel: { name: 'room-1', family: 'rooms' }, delivery: { seq: 2 } },
     });
     await flush();
 
@@ -134,7 +164,7 @@ describe('inbox — ack gating', () => {
       {
         event: '__received__',
         payload: { receivedThrough: 2 },
-        __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        metadata: { channel: { name: 'room-1', family: 'rooms' } },
       },
     ]);
   });
@@ -148,11 +178,9 @@ describe('inbox — ack gating', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: {
-        source: 'client',
-        channel: 'room-1',
-        channelFamily: 'rooms',
-        inbox: true,
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { name: 'room-1', family: 'rooms', inbox: true },
       },
     });
     await firstSubscribe;
@@ -161,11 +189,9 @@ describe('inbox — ack gating', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: {
-        source: 'client',
-        channel: 'room-2',
-        channelFamily: 'rooms',
-        inbox: true,
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { name: 'room-2', family: 'rooms', inbox: true },
       },
     });
     await secondSubscribe;
@@ -173,21 +199,21 @@ describe('inbox — ack gating', () => {
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'room-1', family: 'rooms' } },
     });
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 7 },
-      __wskit: { channel: 'room-2', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'room-2', family: 'rooms' } },
     });
 
     const leave = first.unsubscribe();
-    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const unsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     const rejoin = first.subscribe();
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room-1', channelFamily: 'rooms', unsubscribeId },
+      metadata: { channel: { name: 'room-1', family: 'rooms', unsubscribeId: unsubscribeId } },
     });
     await leave;
 
@@ -196,18 +222,16 @@ describe('inbox — ack gating', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room-2', channelFamily: 'rooms', unsubscribeId },
+      metadata: { channel: { name: 'room-2', family: 'rooms', unsubscribeId: unsubscribeId } },
     });
     expect(second.receivers.get()).toEqual(new Map([['bob', 7]]));
 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: {
-        source: 'client',
-        channel: 'room-1',
-        channelFamily: 'rooms',
-        inbox: true,
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { name: 'room-1', family: 'rooms', inbox: true },
       },
     });
     await rejoin;
@@ -223,7 +247,7 @@ describe('inbox — frames that must not ack', () => {
     ws.emit({
       event: 'tokens',
       payload: { text: 'x' },
-      __wskit: { channel: 'room', streamId: 's-1', seq: 50 },
+      metadata: { channel: { name: 'room' }, stream: { id: 's-1', seq: 50 } },
     });
     await flush();
 
@@ -234,7 +258,7 @@ describe('inbox — frames that must not ack', () => {
     const { ws } = build();
     subscribeOk(ws, 'room', true);
 
-    ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room' } });
+    ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { channel: { name: 'room' } } });
     await flush();
 
     expect(receivedFrames(ws)).toEqual([]);
@@ -252,24 +276,32 @@ describe('inbox — scope forgetting on leave', () => {
     await subscribed;
     expect(room.status.get()).toBe('subscribed');
 
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 4 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 4 } },
+    });
     await flush();
     expect(receivedFrames(ws)).toHaveLength(1);
 
     const leave = room.unsubscribe();
     expect(room.status.get()).toBe('unsubscribed');
-    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const unsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: unsubscribeId } },
     });
     await leave;
 
     expect(room.status.get()).toBe('unsubscribed');
 
     // A later message on the left channel must not be acked.
-    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 9 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'b' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 9 } },
+    });
     await flush();
     expect(receivedFrames(ws)).toHaveLength(1);
 
@@ -284,12 +316,24 @@ describe('inbox — scope forgetting on leave', () => {
   it('forgets a scope on __kicked__ too', async () => {
     const { ws } = build();
     subscribeOk(ws, 'room', true);
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 4 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 4 } },
+    });
     await flush();
 
-    ws.emit({ event: '__kicked__', payload: { reason: 'bye' }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__kicked__',
+      payload: { reason: 'bye' },
+      metadata: { channel: { name: 'room' } },
+    });
 
-    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 9 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'b' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 9 } },
+    });
     await flush();
     expect(receivedFrames(ws)).toHaveLength(1);
   });
@@ -300,7 +344,11 @@ describe('inbox — reconnect re-ack', () => {
     vi.useFakeTimers();
     const { ws } = build();
     subscribeOk(ws, 'room', true);
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 6 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 6 } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toHaveLength(1);
@@ -313,7 +361,11 @@ describe('inbox — reconnect re-ack', () => {
     // The reconnect re-acks the same mark so a lost ack cannot strand the row,
     // even though dedup would drop the re-drained frame.
     expect(receivedFrames(next)).toEqual([
-      { event: '__received__', payload: { receivedThrough: 6 }, __wskit: { channel: 'room' } },
+      {
+        event: '__received__',
+        payload: { receivedThrough: 6 },
+        metadata: { channel: { name: 'room' } },
+      },
     ]);
   });
 });
@@ -353,7 +405,7 @@ async function subscribedReceived(
   ws.emit({
     event: '__subscribeOk__',
     payload: {},
-    __wskit: { source: 'client', channel: 'room', inbox: true },
+    metadata: { exchange: { source: 'client' }, channel: { name: 'room', inbox: true } },
   });
   await p;
 
@@ -370,19 +422,19 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     // A lower value must not regress the cursor, and must not re-fire the listener.
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 3 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     // A genuine advance still fires.
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 9 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     expect(events).toEqual([
@@ -398,7 +450,7 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     const snapshotAfterFirst = room.receivers.get();
     const events: Array<[string, number]> = [];
@@ -409,13 +461,13 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     // A lower value.
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 2 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     expect(events).toEqual([]);
@@ -429,7 +481,7 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     ws.emit({
       event: '__received__',
       payload: { userId: 42, receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     expect(room.receivers.get().size).toBe(0);
   });
@@ -440,7 +492,7 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     await flush();
     // The fan-out is not an app message, so it must not trigger our own ack.
@@ -453,17 +505,17 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     expect(room.receivers.get().size).toBe(1);
 
     const leave = room.unsubscribe();
     expect(room.status.get()).toBe('unsubscribed');
-    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const unsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: unsubscribeId } },
     });
     await leave;
 
@@ -488,7 +540,7 @@ describe('inbox — a throwing onReceived listener', () => {
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     expect(onError).toHaveBeenCalledTimes(1);
@@ -507,14 +559,14 @@ describe('inbox — receivers projection', () => {
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     expect(room.receivers.get()).toEqual(new Map([['bob', 5]]));
 
     ws.emit({
       event: '__received__',
       payload: { userId: 'alice', receivedThrough: 2 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     expect(room.receivers.get()).toEqual(
       new Map([
@@ -546,7 +598,7 @@ describe('inbox — receiversOf query without readReceipts()', () => {
     ws.emit({
       event: '__receivedQuery__',
       payload: { userIds: ['alice', 'bob'] },
-      __wskit: { channel: 'room', correlationId: query.__wskit.correlationId },
+      metadata: { exchange: { id: query.metadata.exchange?.id }, channel: { name: 'room' } },
     });
 
     await expect(promise).resolves.toEqual(['alice', 'bob']);
@@ -579,16 +631,24 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     const { socket, ws } = buildReceived();
     const room = await subscribedReceived(socket, ws);
 
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 5 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 5 } },
+    });
     await flush();
     expect(receivedFrames(ws)).toEqual([
-      { event: '__received__', payload: { receivedThrough: 5 }, __wskit: { channel: 'room' } },
+      {
+        event: '__received__',
+        payload: { receivedThrough: 5 },
+        metadata: { channel: { name: 'room' } },
+      },
     ]);
 
     // Leave, then immediately rejoin before the leave is confirmed — the rejoin
     // is deferred behind the leave and only sent once it settles.
     const leave = room.unsubscribe();
-    const staleUnsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const staleUnsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     const rejoin = room.subscribe();
 
     // The server's confirmation for the leave arrives while the member is
@@ -596,25 +656,29 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: staleUnsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: staleUnsubscribeId } },
     });
     await leave;
 
     // A message arrives in that gap, before the rejoin is confirmed.
-    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 6 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'b' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 6 } },
+    });
     await flush();
 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room', inbox: true },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room', inbox: true } },
     });
     await rejoin;
 
     expect(receivedFrames(ws).at(-1)).toEqual({
       event: '__received__',
       payload: { receivedThrough: 6 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
   });
 
@@ -622,19 +686,27 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     const { socket, ws } = buildReceived();
     const room = await subscribedReceived(socket, ws);
 
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 5 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 5 } },
+    });
     await flush();
 
     const leave = room.unsubscribe();
-    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const unsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: unsubscribeId } },
     });
     await leave;
 
-    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 9 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'b' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 9 } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toHaveLength(1);
@@ -644,22 +716,34 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     const { socket, ws } = buildReceived();
     const room = await subscribedReceived(socket, ws);
 
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 5 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 5 } },
+    });
     await flush();
 
     const leave = room.unsubscribe();
-    const staleUnsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const staleUnsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     room.subscribe().catch(() => {});
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: staleUnsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: staleUnsubscribeId } },
     });
     await leave;
 
-    ws.emit({ event: '__kicked__', payload: { reason: 'bye' }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__kicked__',
+      payload: { reason: 'bye' },
+      metadata: { channel: { name: 'room' } },
+    });
 
-    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 9 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'b' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 9 } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toHaveLength(1);
@@ -672,26 +756,26 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     // Keep the first leave's receipt state through a queued rejoin. This is the
     // continuity window in which its confirmation is no longer actionable for
     // receipt cleanup, even though it matches the leave that was sent.
     const leave1 = room.unsubscribe();
-    const leave1Id = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const leave1Id = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     const rejoin1 = room.subscribe();
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+      metadata: { channel: { name: 'room', unsubscribeId: leave1Id } },
     });
     await leave1;
 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room', inbox: true },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room', inbox: true } },
     });
     await rejoin1;
     expect(room.receivers.get()).toEqual(new Map([['bob', 5]]));
@@ -700,12 +784,12 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+      metadata: { channel: { name: 'room', unsubscribeId: leave1Id } },
     });
     expect(room.receivers.get()).toEqual(new Map([['bob', 5]]));
 
     const leave2 = room.unsubscribe();
-    const leave2Id = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const leave2Id = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     let leave2Settled = false;
     void leave2.then(() => {
       leave2Settled = true;
@@ -716,7 +800,7 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+      metadata: { channel: { name: 'room', unsubscribeId: leave1Id } },
     });
     await Promise.resolve();
     expect(leave2Settled).toBe(false);
@@ -724,20 +808,20 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     ws.emit({
       event: '__gap__',
       payload: { missedThrough: 20 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     await flush();
     expect(receivedFrames(ws).at(-1)).toEqual({
       event: '__received__',
       payload: { receivedThrough: 20 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: leave2Id },
+      metadata: { channel: { name: 'room', unsubscribeId: leave2Id } },
     });
     await leave2;
     expect(room.receivers.get()).toEqual(new Map());
@@ -747,13 +831,13 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     ws.emit({
       event: '__gap__',
       payload: { missedThrough: 30 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     await flush();
     expect(receivedFrames(ws)).not.toContainEqual({
       event: '__received__',
       payload: { receivedThrough: 30 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
   });
 
@@ -764,11 +848,11 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     const leave = room.unsubscribe();
-    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const unsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     const error = new Error('rejoin payload failed');
     const rejoin = room.subscribe(() => {
       throw error;
@@ -777,7 +861,7 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: unsubscribeId } },
     });
 
     await expect(leave).resolves.toBeUndefined();
@@ -787,13 +871,13 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     ws.emit({
       event: '__gap__',
       payload: { missedThrough: 9 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     await flush();
     expect(receivedFrames(ws)).not.toContainEqual({
       event: '__received__',
       payload: { receivedThrough: 9 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
   });
 });

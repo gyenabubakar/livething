@@ -1,5 +1,6 @@
-import { InternalError } from '@wskit/core';
+import { InternalError } from '@livething/core';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
@@ -8,14 +9,14 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 export interface SendProtocolMessageOptions {
   event: string;
   payload: Record<string, unknown>;
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
 }
 
 /**
  * Send an internal protocol frame. Skips outgoing validation and decoration.
  *
- * The frame is `{ event, payload, __wskit }` — `payload` is the protocol
- * event's own data, `__wskit` is its routing/correlation metadata. If the
+ * The frame is `[event, payload, metadata]` — `payload` is the protocol
+ * event's own data and metadata is grouped routing/correlation data. If the
  * frame can't be JSON-serialized (BigInt, circular, function, symbol), log it
  * and send a sanitized `__error__` frame instead so the client can still
  * correlate the request or stream.
@@ -25,23 +26,22 @@ export function sendProtocolMessage(
   connection: RuntimeConnection,
   options: SendProtocolMessageOptions,
 ): void {
-  const { event, payload, wskit } = options;
+  const { event, payload, livething } = options;
   let wire: string;
   try {
-    wire = JSON.stringify({ event, payload, __wskit: wskit });
+    wire = serializeWireFrame(event, payload, livething);
   } catch (error) {
-    core.logger.error('[wskit] Failed to serialize protocol frame; sending fallback __error__', {
-      event,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    core.logger.error(
+      '[livething] Failed to serialize protocol frame; sending fallback __error__',
+      {
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
     try {
-      wire = JSON.stringify({
-        event: '__error__',
-        payload: { code: InternalError.code },
-        __wskit: wskit,
-      });
+      wire = serializeWireFrame('__error__', { code: InternalError.code }, livething);
     } catch (fallbackError) {
-      core.logger.error('[wskit] Fallback __error__ frame also failed to serialize; dropping', {
+      core.logger.error('[livething] Fallback __error__ frame also failed to serialize; dropping', {
         error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
       });
       return;
@@ -70,14 +70,14 @@ export function sendGap(
   options: SendGapOptions,
 ): void {
   const { channelName, channelFamily, missedThrough } = options;
-  const wskit: Record<string, unknown> = {};
-  if (channelName !== null) wskit.channel = channelName;
-  if (channelFamily !== null) wskit.channelFamily = channelFamily;
+  const livething: Record<string, unknown> = {};
+  if (channelName !== null) livething.channel = channelName;
+  if (channelFamily !== null) livething.channelFamily = channelFamily;
 
   sendProtocolMessage(core, connection, {
     event: '__gap__',
     payload: { missedThrough },
-    wskit,
+    livething,
   });
 }
 
@@ -90,7 +90,7 @@ export interface SendReplayOptions {
 
   payload: unknown;
 
-  wire: { seq: number; messageId: string; channel?: string };
+  wire: { deliverySeq: number; messageId: string; channel?: string };
 }
 
 /** Send one replay entry with its stored wire metadata reattached. */
@@ -101,35 +101,31 @@ export function sendReplay(
 ): void {
   const { channelName, channelFamily, event, payload, wire } = options;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('[wskit] Outgoing payload must be a plain object.');
+    throw new Error('[livething] Outgoing payload must be a plain object.');
   }
 
   const resolvedChannel = channelName ?? wire.channel ?? null;
-  const wskit: Record<string, unknown> = {
-    seq: wire.seq,
+  const livething: Record<string, unknown> = {
+    deliverySeq: wire.deliverySeq,
     messageId: wire.messageId,
   };
 
-  if (resolvedChannel !== null) wskit.channel = resolvedChannel;
-  if (channelFamily !== null) wskit.channelFamily = channelFamily;
+  if (resolvedChannel !== null) livething.channel = resolvedChannel;
+  if (channelFamily !== null) livething.channelFamily = channelFamily;
 
   let frame: string;
   try {
     const payloadJson = serializeJsonOrThrow(payload, `Replay payload for "${event}"`);
-    frame = `{"event":${JSON.stringify(event)},"payload":${payloadJson},"__wskit":${JSON.stringify(wskit)}}`;
+    frame = serializeWireFrame(event, JSON.parse(payloadJson), livething);
   } catch (error) {
-    core.logger.error('[wskit] Failed to serialize replay frame; sending fallback __error__', {
+    core.logger.error('[livething] Failed to serialize replay frame; sending fallback __error__', {
       event,
       error: error instanceof Error ? error.message : String(error),
     });
     try {
-      frame = JSON.stringify({
-        event: '__error__',
-        payload: { code: InternalError.code },
-        __wskit: wskit,
-      });
+      frame = serializeWireFrame('__error__', { code: InternalError.code }, livething);
     } catch (fallbackError) {
-      core.logger.error('[wskit] Fallback __error__ frame also failed to serialize; dropping', {
+      core.logger.error('[livething] Fallback __error__ frame also failed to serialize; dropping', {
         error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
       });
       return;

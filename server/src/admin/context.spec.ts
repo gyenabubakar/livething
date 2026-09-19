@@ -82,7 +82,7 @@ describe('createAdminContext', () => {
 
   it('channels.get(family, instance) resolves a dynamic channel and kick revokes membership', () => {
     const { deps } = makeDeps();
-    const target: PublicApi.UserRef = { __wskit: 'user-ref', id: 'alice', instance: undefined };
+    const target: PublicApi.UserRef = { __livething: 'user-ref', id: 'alice', instance: undefined };
     createAdminContext(deps)
       .channels.get('rooms', 'rooms:42')
       .kick(target, { reason: 'banned', revoke: true });

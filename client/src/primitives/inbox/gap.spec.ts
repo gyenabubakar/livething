@@ -36,7 +36,7 @@ describe('protocol frame leak guard (no gaps)', () => {
     // A user could subscribe to the reserved name; the frame must still be dropped.
     (socket as unknown as { on(e: string, h: () => void): void }).on('__gap__', onMessage);
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 5 }, __wskit: {} });
+    ws.emit({ event: '__gap__', payload: { missedThrough: 5 }, metadata: null });
 
     expect(onMessage).not.toHaveBeenCalled();
   });
@@ -54,7 +54,11 @@ describe('inbox overflow gap surfacing', () => {
     socket.channel('room').onGap((info) => roomGap.push(info));
     socket.onGap((info) => socketGap.push(info));
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 7 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 7 },
+      metadata: { channel: { name: 'room' } },
+    });
 
     expect(roomGap).toEqual([{ missedThrough: 7, channel: 'room' }]);
     expect(socketGap).toEqual([]);
@@ -82,7 +86,7 @@ describe('inbox overflow gap surfacing', () => {
     ws.emit({
       event: '__gap__',
       payload: { missedThrough: 9 },
-      __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'room-1', family: 'rooms' } },
     });
 
     expect(roomGap).toEqual([{ missedThrough: 9, channel: 'room-1', channelFamily: 'rooms' }]);
@@ -98,7 +102,11 @@ describe('inbox overflow gap surfacing', () => {
     socket.channel('room').on('__gap__' as never, onMessage);
 
     // No gap listener exists, and reserved frames never reach application handlers.
-    ws.emit({ event: '__gap__', payload: { missedThrough: 7 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 7 },
+      metadata: { channel: { name: 'room' } },
+    });
 
     expect(onMessage).not.toHaveBeenCalled();
   });
@@ -117,8 +125,11 @@ function receivedFrames(ws: MockWebSocket) {
 function subscribeOk(ws: MockWebSocket, channel: string, isInbox: boolean) {
   ws.emit({
     event: '__subscribeOk__',
-    payload: {},
-    __wskit: isInbox ? { source: 'client', channel, inbox: true } : { source: 'client', channel },
+    payload: null,
+    metadata: {
+      exchange: { source: 'client' },
+      channel: { name: channel, ...(isInbox ? { inbox: true } : {}) },
+    },
   });
 }
 
@@ -130,11 +141,19 @@ describe('inbox — acknowledging an overflow gap', () => {
     ws.open();
     subscribeOk(ws, 'room', true);
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 12 },
+      metadata: { channel: { name: 'room' } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toEqual([
-      { event: '__received__', payload: { receivedThrough: 12 }, __wskit: { channel: 'room' } },
+      {
+        event: '__received__',
+        payload: { receivedThrough: 12 },
+        metadata: { channel: { name: 'room' } },
+      },
     ]);
   });
 
@@ -145,11 +164,19 @@ describe('inbox — acknowledging an overflow gap', () => {
     ws.open();
     subscribeOk(ws, 'room', true);
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 12 },
+      metadata: { channel: { name: 'room' } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toEqual([
-      { event: '__received__', payload: { receivedThrough: 12 }, __wskit: { channel: 'room' } },
+      {
+        event: '__received__',
+        payload: { receivedThrough: 12 },
+        metadata: { channel: { name: 'room' } },
+      },
     ]);
   });
 
@@ -160,7 +187,11 @@ describe('inbox — acknowledging an overflow gap', () => {
     ws.open();
     subscribeOk(ws, 'room', false);
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 12 },
+      metadata: { channel: { name: 'room' } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toEqual([]);
@@ -173,17 +204,33 @@ describe('inbox — acknowledging an overflow gap', () => {
     ws.open();
     subscribeOk(ws, 'room', true);
 
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 10 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 10 } },
+    });
     await flush();
     expect(receivedFrames(ws)).toEqual([
-      { event: '__received__', payload: { receivedThrough: 10 }, __wskit: { channel: 'room' } },
+      {
+        event: '__received__',
+        payload: { receivedThrough: 10 },
+        metadata: { channel: { name: 'room' } },
+      },
     ]);
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 5 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 5 },
+      metadata: { channel: { name: 'room' } },
+    });
     await flush();
 
     expect(receivedFrames(ws)).toEqual([
-      { event: '__received__', payload: { receivedThrough: 10 }, __wskit: { channel: 'room' } },
+      {
+        event: '__received__',
+        payload: { receivedThrough: 10 },
+        metadata: { channel: { name: 'room' } },
+      },
     ]);
   });
 });

@@ -14,7 +14,7 @@ import {
   StreamIdCollision,
   UnsupportedProtocol,
   ValidationFailed,
-} from '@wskit/core';
+} from '@livething/core';
 import { createAsyncContext } from '~/_engine/async-context.ts';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
@@ -170,7 +170,7 @@ export class EngineCore {
   readonly pluginApiFactories = new Map<string, (ctx: unknown) => unknown>();
 
   readonly declaredErrorCodes = new Set<string>([
-    // The engine's own fallback code for any non-WSKitError. It is always a
+    // The engine's own fallback code for any non-LiveThingError. It is always a
     // valid code to surface, so declaring it here keeps an explicit
     // `throw InternalError()` from logging a spurious "not declared" warning.
     InternalError.code,
@@ -232,24 +232,24 @@ export class EngineCore {
 
   constructor(definition: ServerTypes.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
     if (options.storage === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide storage.`);
+      throw new Error(`[livething] Adapter "${options.adapterId}" did not provide storage.`);
     }
 
     if (options.timers === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide timers.`);
+      throw new Error(`[livething] Adapter "${options.adapterId}" did not provide timers.`);
     }
 
     if (options.platform === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide platform.`);
+      throw new Error(`[livething] Adapter "${options.adapterId}" did not provide platform.`);
     }
 
     if (options.logger === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide logger.`);
+      throw new Error(`[livething] Adapter "${options.adapterId}" did not provide logger.`);
     }
 
     if (options.asyncContextFactory === undefined) {
       throw new Error(
-        `[wskit] Adapter "${options.adapterId}" did not provide async-context support.`,
+        `[livething] Adapter "${options.adapterId}" did not provide async-context support.`,
       );
     }
 

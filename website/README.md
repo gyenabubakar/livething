@@ -59,15 +59,15 @@ For detailed documentation on customizing your Docus project, visit the [Docus D
 
 ## Cloudflare deployment
 
-The site is a static Nuxt build deployed with Cloudflare Workers Static Assets at `https://wskit.dev`.
+The site is a static Nuxt build deployed with Cloudflare Workers Static Assets at `https://livething.dev`.
 
 From the repository root, run the local Worker preview with:
 
 ```bash
-pnpm --filter @wskit/website run preview
+pnpm --filter @livething/website run preview
 ```
 
-For Cloudflare Workers Builds, configure the `wskit` Worker with:
+For Cloudflare Workers Builds, configure the `livething` Worker with:
 
 - Root directory: `website`
 - Build command: `pnpm install && pnpm run generate`
@@ -75,7 +75,7 @@ For Cloudflare Workers Builds, configure the `wskit` Worker with:
 - Non-production deploy command: `pnpm exec wrangler versions upload`
 - Build variables: `NODE_VERSION=24` and `PNPM_VERSION=11.25.0`
 
-`wrangler.jsonc` uploads `.output/public` as static assets. Once the `wskit.dev` zone is active in Cloudflare, attach the apex domain to the Worker.
+`wrangler.jsonc` uploads `.output/public` as static assets. Once the `livething.dev` zone is active in Cloudflare, attach the apex domain to the Worker.
 
 Use Cloudflare Web Analytics automatic setup for the proxied zone. Do not set `NUXT_PUBLIC_CF_BEACON_TOKEN`, which is only for a manual beacon installation.
 

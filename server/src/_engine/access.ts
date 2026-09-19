@@ -14,7 +14,7 @@ type MessageParameter = { event: string; payload: unknown };
 type FrameParameter = {
   event: string;
   payload: unknown;
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 };
 type OptsParameter = {
   event: string;
@@ -28,14 +28,14 @@ type OptionsParameter = {
   channelFamily: string | null;
   event: string;
   payload: unknown;
-  wire: { seq: number; messageId: string; channel?: string };
+  wire: { deliverySeq: number; messageId: string; channel?: string };
 };
 type OptionsParameter2 = {
   channelName: string | null;
   channelFamily: string | null;
   missedThrough: number;
 };
-type OptionsParameter3 = { event: string; payload: unknown; wskit?: Record<string, unknown> };
+type OptionsParameter3 = { event: string; payload: unknown; livething?: Record<string, unknown> };
 type OptsParameter2 = {
   channelName: string;
   channelFamily: string | null;
@@ -146,22 +146,22 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Contribute `__wskit` metadata to every outgoing user frame.
+   * Contribute `__livething` metadata to every outgoing user frame.
    *
-   * The handler receives the event name and returns a partial `__wskit`
+   * The handler receives the event name and returns a partial `__livething`
    * object merged into the frame — used by `sequence()` and `dedup()` to add
-   * `seq` and `messageId`. Skipped for protocol frames. A value already set
-   * from routing (e.g. a durable stream's own `seq`) is not overwritten.
+   * `deliverySeq` and `messageId`. Skipped for protocol frames. A value already
+   * set from routing (e.g. a stream's own `streamSeq`) is not overwritten.
    *
    * @internal
    */
-  onWSKitStamp(handler: (event: string) => Record<string, unknown>): void;
+  onLiveThingStamp(handler: (event: string) => Record<string, unknown>): void;
 
   /**
    * Observe one fully prepared outgoing wire message before it is sent.
    *
-   * The framework metadata — `seq`, `messageId`, scope routing markers — lives
-   * on `message.wskit` by this point. This is an internal observer hook for
+   * The framework metadata — `deliverySeq`, `messageId`, scope routing markers — lives
+   * on `message.livething` by this point. This is an internal observer hook for
    * framework features such as replay storage; it is not a payload rewrite
    * hook. Throw to stop the send.
    *
@@ -480,7 +480,7 @@ export interface EngineAccess {
    *
    * When enabled, the engine remembers the most recent `cap` `messageId`
    * values per connection and silently drops any incoming frame whose
-   * `__wskit.messageId` is already in the window. Used by `dedup()` to protect
+   * `__livething.messageId` is already in the window. Used by `dedup()` to protect
    * handlers from duplicate client sends (retries, flaky networks).
    *
    * @internal
@@ -491,7 +491,7 @@ export interface EngineAccess {
    * Register the application's declared error definitions.
    *
    * The engine uses this registry only for runtime checks such as warning when
-   * a thrown `WSKitError` was never declared in the contract's `errors: [...]`.
+   * a thrown `LiveThingError` was never declared in the contract's `errors: [...]`.
    */
   registerErrorDefinitions(defs: readonly ErrorsPrimitive.ErrorDef<string, unknown>[]): void;
 
@@ -733,7 +733,7 @@ export interface EngineAccess {
   rawSend(connectionId: string, event: string, payload: unknown): void;
 
   /**
-   * Like `rawSend`, but carries a `__wskit` routing block (channel scope,
+   * Like `rawSend`, but carries a `__livething` routing block (channel scope,
    * correlationId) on the frame. Used to answer a scoped, correlated protocol
    * query — e.g. `inbox()` replying to a `__receivedQuery__` on one connection.
    *

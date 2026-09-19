@@ -1,4 +1,4 @@
-import { assertValidWSKitIdentifier } from '@wskit/core';
+import { assertValidLiveThingIdentifier } from '@livething/core';
 import { buildTagsApi } from '~/tags/runtime.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { TypeMarker } from '~/_api/definitions.ts';
@@ -22,7 +22,7 @@ export interface TagGroupDef<
   TName extends string = string,
   TValue extends string = string,
 > {
-  readonly __wskit_tag_def: true;
+  readonly __livething_tag_def: true;
   readonly kind: TKind;
   readonly name: TName;
   /** Runtime validator — present only when the group was declared with a Standard Schema. */
@@ -53,7 +53,7 @@ function isStandardSchema(value: unknown): value is Validator {
 function makeTagGroupBuilder<TKind extends TagKind>(kind: TKind): TagGroupBuilder<TKind> {
   function builder(name: string, type?: unknown): TagGroupDef<TKind, string, string> {
     return {
-      __wskit_tag_def: true,
+      __livething_tag_def: true,
       kind,
       name,
       schema: isStandardSchema(type) ? type : undefined,
@@ -91,15 +91,15 @@ const TAG_API_KEY = Symbol('tag-api');
 
 function validateGroupRegistrations(kind: TagKind, groups: readonly TagGroupRegistration[]): void {
   if (groups.length === 0) {
-    throw new Error(`[wskit] tagGroups('${kind}', ...) requires at least one group name.`);
+    throw new Error(`[livething] tagGroups('${kind}', ...) requires at least one group name.`);
   }
 
   const seen = new Set<string>();
   for (const { name } of groups) {
-    assertValidWSKitIdentifier(name, `tagGroups('${kind}', ...) name`);
+    assertValidLiveThingIdentifier(name, `tagGroups('${kind}', ...) name`);
     if (seen.has(name)) {
       throw new Error(
-        `[wskit] tagGroups('${kind}', ...): '${name}' declared twice in the same call.`,
+        `[livething] tagGroups('${kind}', ...): '${name}' declared twice in the same call.`,
       );
     }
 
@@ -124,7 +124,7 @@ export function tagGroups<TKind extends TagKind>(
   validateGroupRegistrations(kind, groups);
   const key = kind === 'ephemeral' ? TAG_GROUPS_EPHEMERAL_KEY : TAG_GROUPS_PERSISTENT_KEY;
   return {
-    __wskit: 'tag-groups',
+    __livething: 'tag-groups',
     __kind: 'infrastructure',
     __identity: [key],
     __requires: {},

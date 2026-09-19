@@ -1,6 +1,6 @@
 import { upgradeWebSocket } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
-import type { ApiOf, ServerDefinition } from '@wskit/server/adapters';
+import type { ApiOf, ServerDefinition } from '@livething/server/adapters';
 import type { MiddlewareHandler } from 'hono';
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
@@ -9,7 +9,7 @@ import { closeWebSocket } from '../../close.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions } from '../../binding.ts';
 
-/** One WSKit definition registered as a Hono WebSocket route. */
+/** One LiveThing definition registered as a Hono WebSocket route. */
 export interface HonoEndpoint<TApi = unknown> {
   upgrade: MiddlewareHandler;
   ready(): Promise<void>;
@@ -51,7 +51,7 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
       ) {
         const incoming = getIncomingRequest(context.env);
         if (!incoming)
-          return new Response('[wskit] Hono did not provide a Node request', { status: 500 });
+          return new Response('[livething] Hono did not provide a Node request', { status: 500 });
 
         const upgrade = await lifecycle.prepare(incoming, (signal) =>
           endpoint.prepareNode(incoming, { signal }),
@@ -82,12 +82,12 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
               });
               connections.set(socket, connection);
             } catch {
-              closeWebSocket(socket, 1011, '[wskit] connection setup failed');
+              closeWebSocket(socket, 1011, '[livething] connection setup failed');
             }
           },
           onMessage(event, socket) {
             if (typeof event.data !== 'string') {
-              closeWebSocket(socket, 1003, '[wskit] binary frames are not supported yet');
+              closeWebSocket(socket, 1003, '[livething] binary frames are not supported yet');
               return;
             }
 

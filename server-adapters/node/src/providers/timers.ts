@@ -1,6 +1,6 @@
-import type { Logger, SQLProvider, TimerProvider } from '@wskit/server/adapters';
+import type { Logger, SQLProvider, TimerProvider } from '@livething/server/adapters';
 
-const ALARM_TABLE = '__wskit_node_alarm';
+const ALARM_TABLE = '__livething_node_alarm';
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const ALARM_RETRY_BASE_DELAY_MS = 2_000;
 const MAX_ALARM_RETRIES = 6;
@@ -50,7 +50,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
 
   async function setAlarm(timeMs: number): Promise<void> {
     if (!Number.isSafeInteger(timeMs) || timeMs <= 0) {
-      throw new RangeError('[wskit] Node alarm time must be a positive safe integer.');
+      throw new RangeError('[livething] Node alarm time must be a positive safe integer.');
     }
 
     await ensureTable();
@@ -122,7 +122,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   }
 
   function retryAlarmDelivery(error: unknown): void {
-    logger?.error('[wskit] Node durable alarm delivery failed', {
+    logger?.error('[livething] Node durable alarm delivery failed', {
       error: error instanceof Error ? error.message : String(error),
     });
 

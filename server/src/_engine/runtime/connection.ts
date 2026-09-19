@@ -1,10 +1,10 @@
 import {
   assertSynchronousResult,
   CloseCodes,
-  isWSKitConfigError,
+  isLiveThingConfigError,
+  LiveThingConfigError,
   StreamAborted,
-  WSKitConfigError,
-} from '@wskit/core';
+} from '@livething/core';
 import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
@@ -19,6 +19,7 @@ import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type { Translator, TranslatorFactory } from '~/translation/translator.ts';
+import { serializeWireFrame } from './wire-serialize.ts';
 import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -302,7 +303,7 @@ function createHandle(
     try {
       await runtime.handleRuntimeError(connection, error, undefined);
     } catch (handlerError) {
-      runtime.logger?.error('[wskit] connection error handler failed', {
+      runtime.logger?.error('[livething] connection error handler failed', {
         error: handlerError instanceof Error ? handlerError.message : String(handlerError),
       });
     }
@@ -335,7 +336,7 @@ function createHandle(
         await waitForLifecycle();
         await runtime.handleRuntimeError(connection, error, undefined);
       } catch (handlerError) {
-        runtime.logger?.error('[wskit] connection error handler failed', {
+        runtime.logger?.error('[livething] connection error handler failed', {
           error: handlerError instanceof Error ? handlerError.message : String(handlerError),
         });
       }
@@ -370,11 +371,11 @@ function closeForTranslationFailure(failure: TranslationFailure): void {
     code = CloseCodes.INTERNAL_ERROR,
   } = failure;
   if (connection) connection.closing = true;
-  runtime.logger?.error('[wskit] translator failed', {
+  runtime.logger?.error('[livething] translator failed', {
     stage,
     error: error instanceof Error ? error.message : String(error),
   });
-  descriptor.close(code, '[wskit] translator failed');
+  descriptor.close(code, '[livething] translator failed');
 }
 
 function rethrowTranslatorConfigError(
@@ -382,7 +383,7 @@ function rethrowTranslatorConfigError(
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
   connection?: EngineRuntimeTypes.RuntimeConnection,
 ): void {
-  if (!isWSKitConfigError(error)) return;
+  if (!isLiveThingConfigError(error)) return;
 
   // A translator shape error is a developer configuration failure: close the
   // affected connection, then rethrow so the host process can see the error.
@@ -394,18 +395,18 @@ function rethrowTranslatorConfigError(
     connection.preserveStateOnClose = true;
   }
 
-  descriptor.close(CloseCodes.INTERNAL_ERROR, '[wskit] translator configuration failed');
+  descriptor.close(CloseCodes.INTERNAL_ERROR, '[livething] translator configuration failed');
   throw error;
 }
 
 function assertTranslator(value: unknown): Translator {
   if (!value || typeof value !== 'object' || typeof (value as Translator).inbound !== 'function') {
-    throw new WSKitConfigError('translator factory did not return inbound(raw).');
+    throw new LiveThingConfigError('translator factory did not return inbound(raw).');
   }
 
   const translator = value as Translator;
   if (translator.outbound !== undefined && typeof translator.outbound !== 'function') {
-    throw new WSKitConfigError('translator outbound must be a function when provided.');
+    throw new LiveThingConfigError('translator outbound must be a function when provided.');
   }
 
   if (
@@ -415,7 +416,7 @@ function assertTranslator(value: unknown): Translator {
       typeof translator.hibernation.serialize !== 'function' ||
       typeof translator.hibernation.restore !== 'function')
   ) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       'translator hibernation must provide both serialize() and restore().',
     );
   }
@@ -472,7 +473,7 @@ function translatedDescriptor(
             'translator.outbound',
           );
           if (translated !== null && typeof translated !== 'string') {
-            throw new Error('[wskit] translator outbound must return a string or null.');
+            throw new Error('[livething] translator outbound must return a string or null.');
           }
 
           if (translated !== null) outgoing = translated;
@@ -534,7 +535,7 @@ function translateInbound(
       'translator.inbound',
     );
     if (translated !== null && typeof translated !== 'string') {
-      throw new Error('[wskit] translator inbound must return a string or null.');
+      throw new Error('[livething] translator inbound must return a string or null.');
     }
 
     runtime.persistAttachment(connection);
@@ -625,7 +626,7 @@ export async function cancelActiveStreamsForConnection(
       // stream's teardown blows up.
       await activeStream.generator.return(undefined);
     } catch (error) {
-      runtime.logger?.error('[wskit] stream cleanup threw on connection close', {
+      runtime.logger?.error('[livething] stream cleanup threw on connection close', {
         streamId: activeStream.id,
         connectionId,
         error: error instanceof Error ? error.message : String(error),
@@ -713,7 +714,7 @@ export async function handleConnectionClose(
     await runtime.runConnectionLifecycle('disconnect', ctx);
     /* oxlint-disable-next-line @typescript-eslint/no-unused-vars */
   } catch (error) {
-    runtime.logger?.error('[wskit] disconnect lifecycle hook threw', {
+    runtime.logger?.error('[livething] disconnect lifecycle hook threw', {
       connectionId: connection.id,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -740,7 +741,7 @@ export async function handleConnectionClose(
         disconnect: true,
       });
     } catch (error) {
-      runtime.logger?.error('[wskit] leaveChannel threw during close', {
+      runtime.logger?.error('[livething] leaveChannel threw during close', {
         connectionId: connection.id,
         channel: membership.channelName,
         channelFamily: membership.channelFamily,
@@ -765,7 +766,7 @@ export async function handleConnectionClose(
     try {
       hook(connection.id);
     } catch (error) {
-      runtime.logger?.error('[wskit] connection cleanup hook threw', {
+      runtime.logger?.error('[livething] connection cleanup hook threw', {
         connectionId: connection.id,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -784,7 +785,7 @@ export function acceptConnection(
 ): EngineAdapterTypes.ConnectionHandle {
   const normalizedDescriptor = normalizeConnectionDescriptor(descriptor, {
     onInvalidCloseCode: (code) => {
-      runtime.logger?.error('[wskit] invalid server close code; closing with internal error', {
+      runtime.logger?.error('[livething] invalid server close code; closing with internal error', {
         code,
       });
     },
@@ -894,7 +895,7 @@ export function acceptConnection(
         .catch((error) => {
           // A rejoin failure (e.g. a storage hiccup) must not skip onConnect.
           // Log it and still run the connect lifecycle so the handler fires.
-          runtime.logger?.error('[wskit] auto-rejoin failed; running onConnect anyway', {
+          runtime.logger?.error('[livething] auto-rejoin failed; running onConnect anyway', {
             connectionId: connection.id,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -944,11 +945,11 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
 
     for (const streamId of restoredStreamIds) {
       const sent = connection.descriptor.send(
-        JSON.stringify({
-          event: '__error__',
-          payload: { code: StreamAborted.code, detail: { reason: 'hibernation-wake' as const } },
-          __wskit: { streamId },
-        }),
+        serializeWireFrame(
+          '__error__',
+          { code: StreamAborted.code, detail: { reason: 'hibernation-wake' as const } },
+          { streamId },
+        ),
       );
       if (connection.closing) {
         rollbackConnectionIndexes(runtime, connection);
@@ -1001,7 +1002,7 @@ export function wakeHibernatedConnection(
       ? assertSynchronousResult(runtime.restoreAttachment(wsKey), 'adapter hibernation.restore')
       : undefined;
   } catch (error) {
-    wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[wskit] hibernation restore failed');
+    wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[livething] hibernation restore failed');
     throw error;
   }
 
@@ -1029,12 +1030,12 @@ export function wakeHibernatedConnection(
   const userId = row?.user_id ?? '';
   const meta = row?.meta ?? {};
   if (runtime.connections.has(id)) {
-    wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[wskit] duplicate hibernation connection id');
-    throw new Error(`[wskit] hibernation restore found duplicate connection id "${id}".`);
+    wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[livething] duplicate hibernation connection id');
+    throw new Error(`[livething] hibernation restore found duplicate connection id "${id}".`);
   }
 
   const ephemeralRefs: PublicApi.TagRef[] = (row?.ephemeral_tags ?? []).map((t) => ({
-    __wskit: 'tag-ref' as const,
+    __livething: 'tag-ref' as const,
     kind: 'ephemeral' as const,
     group: t.group,
     key: t.key,
@@ -1058,9 +1059,12 @@ export function wakeHibernatedConnection(
     },
     {
       onInvalidCloseCode: (code) => {
-        runtime.logger?.error('[wskit] invalid server close code; closing with internal error', {
-          code,
-        });
+        runtime.logger?.error(
+          '[livething] invalid server close code; closing with internal error',
+          {
+            code,
+          },
+        );
       },
     },
   );
@@ -1147,7 +1151,7 @@ export async function handleUpgrade(
       if (result.userId !== undefined) {
         if (userIdOwner !== undefined) {
           throw new Error(
-            `[wskit] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
+            `[livething] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
               'A user id has exactly one owner per connection — the app or one plugin, never both.',
           );
         }
@@ -1164,13 +1168,13 @@ export async function handleUpgrade(
         for (const ref of result.tags) {
           if (ref.kind === 'persistent') {
             throw new Error(
-              `[wskit] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
+              `[livething] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
             );
           }
 
           if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
             throw new Error(
-              `[wskit] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
+              `[livething] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
             );
           }
 
@@ -1203,7 +1207,7 @@ export async function handleUpgrade(
     if (
       error &&
       typeof error === 'object' &&
-      (error as { __wskit?: string }).__wskit === 'reject-upgrade'
+      (error as { __livething?: string }).__livething === 'reject-upgrade'
     ) {
       const code = (error as { code: number }).code;
       if (isValidCloseCode(code) || isValidHttpUpgradeStatus(code)) {
@@ -1214,7 +1218,7 @@ export async function handleUpgrade(
         };
       }
 
-      runtime.logger?.error('[wskit] invalid upgrade rejection code; rejecting with HTTP 403', {
+      runtime.logger?.error('[livething] invalid upgrade rejection code; rejecting with HTTP 403', {
         code,
       });
       return {
@@ -1273,7 +1277,7 @@ export async function handleShutdown(
     try {
       await hook(runtime.createShutdownContext());
     } catch (error) {
-      runtime.logger?.error('[wskit] shutdown hook threw', {
+      runtime.logger?.error('[livething] shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1285,7 +1289,7 @@ export async function handleShutdown(
     try {
       await pluginShutdowns[i]!.handler(runtime.createShutdownContext());
     } catch (error) {
-      runtime.logger?.error('[wskit] plugin shutdown hook threw', {
+      runtime.logger?.error('[livething] plugin shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1312,7 +1316,7 @@ export async function handleShutdown(
       try {
         await runtime.handleConnectionClose(connection);
       } catch (error) {
-        runtime.logger?.error('[wskit] handleConnectionClose threw during shutdown', {
+        runtime.logger?.error('[livething] handleConnectionClose threw during shutdown', {
           connectionId: connection.id,
           error: error instanceof Error ? error.message : String(error),
         });

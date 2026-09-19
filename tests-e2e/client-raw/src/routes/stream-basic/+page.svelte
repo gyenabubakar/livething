@@ -41,11 +41,11 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			switch (data.event) {
 				case '__streamOk__':
 					streamOkReceived = true;
-					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
+					if (data.metadata?.stream?.id) lastStreamId = data.metadata.stream?.id;
 					break;
 
 				case '__streamEnd__':
@@ -53,7 +53,7 @@
 					break;
 
 				case '__error__':
-					if (data.__wskit?.streamId) {
+					if (data.metadata?.stream?.id) {
 						streamError = `stream-error:${data.payload.code}`;
 					}
 
@@ -79,37 +79,37 @@
 
 	function startTokens(count: number) {
 		reset();
-		ws?.send(JSON.stringify({ event: 'start-tokens', payload: { count } }));
+		ws?.send(window.__livethingEncode({ event: 'start-tokens', payload: { count } }));
 	}
 
 	function startBoom() {
 		reset();
-		ws?.send(JSON.stringify({ event: 'start-boom', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'start-boom', payload: {} }));
 	}
 
 	function startBoomImmediate() {
 		reset();
-		ws?.send(JSON.stringify({ event: 'start-boom-immediate', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'start-boom-immediate', payload: {} }));
 	}
 
 	function startTypedError() {
 		reset();
-		ws?.send(JSON.stringify({ event: 'start-typed-error', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'start-typed-error', payload: {} }));
 	}
 
 	function startCancelObserve() {
 		reset();
-		ws?.send(JSON.stringify({ event: 'start-cancel-observe', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'start-cancel-observe', payload: {} }));
 	}
 
 	function startEmpty() {
 		reset();
-		ws?.send(JSON.stringify({ event: 'start-empty', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'start-empty', payload: {} }));
 	}
 
 	function cancelStream() {
 		ws?.send(
-			JSON.stringify({ event: '__streamCancel__', payload: {}, __wskit: { streamId: lastStreamId } }),
+			window.__livethingEncode({ event: '__streamCancel__', payload: null, metadata: { stream: { id: lastStreamId } } }),
 		);
 	}
 </script>

@@ -3,7 +3,7 @@
   "plugins": ["typescript", "import", "unicorn"],
   "jsPlugins": [
     { "name": "eslint-js", "specifier": "oxlint-plugin-eslint" },
-    { "name": "wskit", "specifier": "./lint-rules/index.mjs" }
+    { "name": "livething", "specifier": "./lint-rules/index.mjs" }
   ],
   "categories": {
     "correctness": "off"
@@ -106,23 +106,23 @@
         "message": "Do not destructure function parameters; use a named parameter."
       }
     ],
-    "wskit/max-consecutive-statements": ["error", { "max": 5 }],
-    "wskit/padding-after-block": "error",
-    "wskit/padding-after-guard-clause": "error",
-    "wskit/padding-after-object-literal-declaration": "error",
-    "wskit/padding-before-final-return": ["error", { "minStatements": 5 }],
-    "wskit/switch-case-padding": ["error", { "minCases": 3 }]
+    "livething/max-consecutive-statements": ["error", { "max": 5 }],
+    "livething/padding-after-block": "error",
+    "livething/padding-after-guard-clause": "error",
+    "livething/padding-after-object-literal-declaration": "error",
+    "livething/padding-before-final-return": ["error", { "minStatements": 5 }],
+    "livething/switch-case-padding": ["error", { "minCases": 3 }]
   },
   "overrides": [
     {
       "files": ["**/*.svelte"],
       "rules": {
-        "wskit/max-consecutive-statements": "off",
-        "wskit/padding-after-block": "off",
-        "wskit/padding-after-guard-clause": "off",
-        "wskit/padding-after-object-literal-declaration": "off",
-        "wskit/padding-before-final-return": "off",
-        "wskit/switch-case-padding": "off"
+        "livething/max-consecutive-statements": "off",
+        "livething/padding-after-block": "off",
+        "livething/padding-after-guard-clause": "off",
+        "livething/padding-after-object-literal-declaration": "off",
+        "livething/padding-before-final-return": "off",
+        "livething/switch-case-padding": "off"
       }
     },
     {
@@ -198,7 +198,7 @@
           "error",
           {
             "object": "globalThis",
-            "message": "WSKit server code must not read runtime globals through globalThis."
+            "message": "LiveThing server code must not read runtime globals through globalThis."
           }
         ],
         "no-restricted-imports": [
@@ -210,17 +210,17 @@
                 "message": "Runtime bindings belong in a server adapter."
               },
               {
-                "name": "@wskit/server-node",
+                "name": "@livething/server-node",
                 "message": "Server code must depend on adapter interfaces, not a runtime adapter."
               },
               {
-                "name": "@wskit/server-cloudflare",
+                "name": "@livething/server-cloudflare",
                 "message": "Server code must depend on adapter interfaces, not a runtime adapter."
               }
             ],
             "patterns": [
               {
-                "group": ["@wskit/server-node/*", "@wskit/server-cloudflare/*"],
+                "group": ["@livething/server-node/*", "@livething/server-cloudflare/*"],
                 "message": "Server code must depend on adapter interfaces, not a runtime adapter."
               }
             ]

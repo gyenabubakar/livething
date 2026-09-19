@@ -36,8 +36,8 @@ describe('dedup', () => {
     const { socket, ws } = buildDedup();
     const handler = vi.fn();
     socket.on('trade', handler);
-    ws.emit({ event: 'trade', payload: { id: 'a' }, __wskit: { messageId: 'm1' } });
-    ws.emit({ event: 'trade', payload: { id: 'a' }, __wskit: { messageId: 'm1' } });
+    ws.emit({ event: 'trade', payload: { id: 'a' }, metadata: { delivery: { id: 'm1' } } });
+    ws.emit({ event: 'trade', payload: { id: 'a' }, metadata: { delivery: { id: 'm1' } } });
 
     expect(handler).toHaveBeenCalledTimes(1);
   });
@@ -65,7 +65,7 @@ describe('replay', () => {
       socket.connect();
       const first = MockWebSocket.last();
       first.open();
-      first.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { seq: 5 } });
+      first.emit({ event: 'msg', payload: { text: 'a' }, metadata: { delivery: { seq: 5 } } });
 
       first.serverClose(1006, 'dropped');
 
@@ -77,7 +77,7 @@ describe('replay', () => {
       expect(second.sentFrames()).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 5 },
-        __wskit: {},
+        metadata: null,
       });
     } finally {
       vi.useRealTimers();

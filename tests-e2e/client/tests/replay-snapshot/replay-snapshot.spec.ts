@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's replay() against the real wskit `replay-snapshot`
+// Conformance: @livething/client's replay() against the real LiveThing `replay-snapshot`
 // server definition. Adapter-oblivious — it talks to whatever server the run booted over
 // the /ws proxy.
 //

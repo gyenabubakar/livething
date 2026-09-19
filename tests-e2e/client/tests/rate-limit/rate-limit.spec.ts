@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client against the real wskit `rate-limit` server definition.
+// Conformance: @livething/client against the real LiveThing `rate-limit` server definition.
 // Adapter-oblivious — it talks to whatever server the run booted over the /ws
 // proxy.
 async function open(page: Page, room: string): Promise<void> {

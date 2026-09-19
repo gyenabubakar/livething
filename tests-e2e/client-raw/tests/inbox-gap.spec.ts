@@ -36,12 +36,12 @@ test.describe('inbox-gap (raw wire, overflow gap frame)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'm1' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'm2' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await bob.page.waitForTimeout(400);
 
@@ -51,9 +51,9 @@ test.describe('inbox-gap (raw wire, overflow gap frame)', () => {
 
     const gap = await waitForFrame(
       alice.page,
-      (f) => f.event === '__gap__' && f.__wskit?.channel === 'chat',
+      (f) => f.event === '__gap__' && f.metadata?.channel?.name === 'chat',
     );
-    expect(gap.__wskit?.channel).toBe('chat');
+    expect(gap.metadata?.channel?.name).toBe('chat');
     expect(typeof gap.payload.missedThrough).toBe('number');
     const missedThrough = gap.payload.missedThrough as number;
     expect(missedThrough).toBeGreaterThan(0);
@@ -62,8 +62,8 @@ test.describe('inbox-gap (raw wire, overflow gap frame)', () => {
       alice.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'm2',
     );
-    expect(surviving.__wskit?.channel).toBe('chat');
-    expect(surviving.__wskit?.seq).toBeGreaterThan(missedThrough);
+    expect(surviving.metadata?.channel?.name).toBe('chat');
+    expect(surviving.metadata?.delivery?.seq).toBeGreaterThan(missedThrough);
 
     // The gap is not cleared merely by sending it. With no acknowledgement,
     // the watermark and surviving row must both be sent again on reconnect.
@@ -72,7 +72,7 @@ test.describe('inbox-gap (raw wire, overflow gap frame)', () => {
 
     const repeatedGap = await waitForFrame(
       alice.page,
-      (f) => f.event === '__gap__' && f.__wskit?.channel === 'chat',
+      (f) => f.event === '__gap__' && f.metadata?.channel?.name === 'chat',
     );
     expect(repeatedGap.payload.missedThrough).toBe(missedThrough);
 
@@ -80,14 +80,14 @@ test.describe('inbox-gap (raw wire, overflow gap frame)', () => {
       alice.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'm2',
     );
-    expect(repeatedSurviving.__wskit?.seq).toBe(surviving.__wskit?.seq);
+    expect(repeatedSurviving.metadata?.delivery?.seq).toBe(surviving.metadata?.delivery?.seq);
 
     // A cumulative receipt covering the surviving row also covers the gap's
     // missed-through watermark. The next reconnect must be empty.
     await send(alice.page, {
       event: '__received__',
-      payload: { receivedThrough: repeatedSurviving.__wskit?.seq },
-      __wskit: { channel: 'chat' },
+      payload: { receivedThrough: repeatedSurviving.metadata?.delivery?.seq },
+      metadata: { channel: { name: 'chat' } },
     });
     await alice.page.waitForTimeout(300);
 

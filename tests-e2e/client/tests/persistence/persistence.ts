@@ -1,8 +1,8 @@
-import { channels, client, connect } from '@wskit/client';
-import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
+import { channels, client, connect } from '@livething/client';
+import type { PersistenceClient } from '@livething/tests-e2e-handlers/persistence';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channels() against the real `persistence` server definition. The
+// Drives @livething/client's channels() against the real `persistence` server definition. The
 // spec reloads the page to get a COLD client (one that never re-subscribes), so
 // the engine's server-driven auto-rejoin of a persistent channel (archive-room)
 // is observable: onSubscribed fires with source 'server', members repopulates,

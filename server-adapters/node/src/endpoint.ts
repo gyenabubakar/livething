@@ -1,4 +1,4 @@
-import { adapter } from '@wskit/server/adapters';
+import { adapter } from '@livething/server/adapters';
 import type {
   AdminContext,
   ApiOf,
@@ -8,7 +8,7 @@ import type {
   Logger,
   ServerDefinition,
   UpgradeDecision,
-} from '@wskit/server/adapters';
+} from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import { createAsyncContext } from './async-context.ts';
 import { createClientIpResolver } from './client-ip.ts';
@@ -28,7 +28,7 @@ export interface NodeEndpointOptions extends Omit<NodeStorageOptions, 'logger'> 
 /** The in-process admin surface for one Node endpoint. */
 export type NodeAdmin<TApi = unknown> = AdminContext<Record<string, unknown>, unknown> & TApi;
 
-/** One initialized WSKit endpoint, independent of any HTTP server. */
+/** One initialized LiveThing endpoint, independent of any HTTP server. */
 export interface NodeEndpoint<TApi = unknown> {
   readonly ready: Promise<void>;
   admin(): Promise<NodeAdmin<TApi>>;
@@ -76,7 +76,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       signal?: AbortSignal,
     ): Promise<UpgradeDecision> {
       await ready;
-      if (shuttingDown) throw new Error('[wskit] Node endpoint is shutting down');
+      if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
       let webRequest: Request;
       try {
@@ -93,11 +93,11 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 
     async function decideWebUpgrade(request: Request, clientIp?: string): Promise<UpgradeDecision> {
       await ready;
-      if (shuttingDown) throw new Error('[wskit] Node endpoint is shutting down');
+      if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
       const headers = new Headers(request.headers);
-      headers.delete('WSKit-Client-IP');
-      if (clientIp !== undefined) headers.set('WSKit-Client-IP', clientIp);
+      headers.delete('LiveThing-Client-IP');
+      if (clientIp !== undefined) headers.set('LiveThing-Client-IP', clientIp);
 
       return engine.handleUpgrade(
         new Request(request.url, {
@@ -121,7 +121,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       decideWebUpgrade,
 
       attachTransport(token, transport, decision) {
-        if (shuttingDown) throw new Error('[wskit] Node endpoint is shutting down');
+        if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
         return createConnectionBridge({ engine, token, transport, decision });
       },
@@ -162,7 +162,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
   },
 });
 
-/** Creates one Node endpoint for a compiled WSKit server definition. */
+/** Creates one Node endpoint for a compiled LiveThing server definition. */
 export function createNodeEndpoint<TDefinition extends ServerDefinition>(
   definition: TDefinition,
   options: NodeEndpointOptions,

@@ -1,5 +1,5 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
 import {
   Block,
   CloseCodes,
@@ -7,11 +7,11 @@ import {
   DeferExhausted,
   Disconnect,
   ValidationFailed,
-} from '@wskit/server/errors';
-import { intercepts } from '@wskit/server/intercepts';
-import { stream } from '@wskit/server/streams';
+} from '@livething/server/errors';
+import { intercepts } from '@livething/server/intercepts';
+import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const StreamToken = t<{ index: number }>();

@@ -31,11 +31,11 @@ test.describe('stream-durable', () => {
     await send(page, socket, {
       event: 'primitive-recorded',
       payload: {},
-      __wskit: { streamId },
+      metadata: { stream: { id: streamId } },
     });
     await waitForFrame(page, socket, { match: (f) => f.event === '__streamOk__' });
     await waitForFrame(page, socket, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
     });
 
     const liveChunks = (await frames(page, socket)).filter(
@@ -46,13 +46,14 @@ test.describe('stream-durable', () => {
     await send(page, socket, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { streamId },
+      metadata: { stream: { id: streamId } },
     });
 
     await page.waitForFunction(
       ([sid]) =>
-        window.__wskitFrames!(sid as string).filter((frame) => frame.event === 'primitive-recorded')
-          .length >= 4,
+        window.__livethingFrames!(sid as string).filter(
+          (frame) => frame.event === 'primitive-recorded',
+        ).length >= 4,
       [socket],
     );
 
@@ -221,7 +222,7 @@ test.describe('stream-durable', () => {
 
     // Both contexts use the SAME username, so they share identity and both
     // land on the same durable-object room. Fire 'count-tokens' with the
-    // same _streamId from each socket as close together as possible. One
+    // same `metadata.stream.id` from each socket as close together as possible. One
     // succeeds; the other gets a stream-id-collision _error.
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();

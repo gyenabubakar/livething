@@ -20,14 +20,14 @@ interface ErrorHandlerDeps {
 }
 
 /**
- * Pull a `ResolvedChannel` out of the `__wskit` routing markers on a runtime
+ * Pull a `ResolvedChannel` out of the `__livething` routing markers on a runtime
  * error so `onError` sees `ctx.channel` matching the throwing handler. Returns
  * `undefined` for unknown or malformed routing — hooks still observe the error
  * at top level.
  */
 export function resolveScopeFromRouting(
   core: EngineCore,
-  routing: Protocol.WSKitRouting,
+  routing: Protocol.LiveThingRouting,
 ): ResolvedChannel | undefined {
   if (routing.channel !== undefined) {
     if (routing.channelFamily != null) {

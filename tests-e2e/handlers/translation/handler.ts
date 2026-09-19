@@ -1,6 +1,6 @@
-import { emits, errors, server, t, translator } from '@wskit/server';
-import { error } from '@wskit/server/errors';
-import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
+import { emits, errors, server, t, translator } from '@livething/server';
+import { error } from '@livething/server/errors';
+import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
 
 const ForeignFrame = v.object({
@@ -26,19 +26,16 @@ const foreignProtocol = translator(() => {
 
       if (frame.name === 'echo') {
         const body = frame.body as { text: string };
-        return JSON.stringify({
-          event: 'echo',
-          payload: { text: body.text, translatorSequence: ++sequence },
-        });
+        return JSON.stringify(['echo', { text: body.text, translatorSequence: ++sequence }, null]);
       }
 
-      return JSON.stringify({ event: frame.name, payload: {} });
+      return JSON.stringify([frame.name, {}, null]);
     },
     outbound(outgoing) {
-      const frame = JSON.parse(outgoing) as { event: string; payload: unknown };
-      if (frame.event === 'outbound-throw') throw new Error('outbound failure');
+      const frame = JSON.parse(outgoing) as [string, unknown, unknown];
+      if (frame[0] === 'outbound-throw') throw new Error('outbound failure');
 
-      return JSON.stringify({ type: 'message', name: frame.event, body: frame.payload });
+      return JSON.stringify({ type: 'message', name: frame[0], body: frame[1] });
     },
   };
 });
@@ -102,7 +99,7 @@ export const translationPassThroughDefinition = passThroughBase.assemble({
 const inboundOnly = translator(() => ({
   input: v.object({ type: v.literal('send'), text: v.string() }),
   inbound(frame) {
-    return JSON.stringify({ event: 'echo', payload: { text: frame.text } });
+    return JSON.stringify(['echo', { text: frame.text }, null]);
   },
 }));
 

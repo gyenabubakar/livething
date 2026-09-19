@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { WSKitError } from '@wskit/core';
+import { LiveThingError } from '@livething/core';
 import {
   Block,
   CloseCodes,
@@ -17,7 +17,7 @@ import type { ErrorDef, ErrorDefWithFactory } from './errors.ts';
 const _err: ErrorDef<'test', void> = error('test');
 void _err;
 
-const _block: { readonly __wskit: 'block' } = Block;
+const _block: { readonly __livething: 'block' } = Block;
 void _block;
 
 const _closeCodes: typeof CloseCodes = CloseCodes;
@@ -30,21 +30,21 @@ const _vf: ErrorDefWithFactory<
 void _vf;
 
 const dc = Disconnect(4009, 'banned');
-const _dcWSKit: 'disconnect' = dc.__wskit;
+const _dcLiveThing: 'disconnect' = dc.__livething;
 const _dcCode: number = dc.code;
 const _dcReason: string = dc.reason;
-void [_dcWSKit, _dcCode, _dcReason];
+void [_dcLiveThing, _dcCode, _dcReason];
 
 const ru = RejectUpgrade(4002, 'Invalid token');
-const _ruWSKit: 'reject-upgrade' = ru.__wskit;
+const _ruLiveThing: 'reject-upgrade' = ru.__livething;
 const _ruCode: number = ru.code;
 const _ruReason: string = ru.reason;
-void [_ruWSKit, _ruCode, _ruReason];
+void [_ruLiveThing, _ruCode, _ruReason];
 
 const df = Defer(1000);
-const _dfWSKit: 'defer' = df.__wskit;
+const _dfLiveThing: 'defer' = df.__livething;
 const _dfDelay: number = df.delay;
-void [_dfWSKit, _dfDelay];
+void [_dfLiveThing, _dfDelay];
 
 const _deCode: 'defer-exhausted' = DeferExhausted.code;
 void _deCode;
@@ -87,5 +87,5 @@ if (DeferExhausted.matches(unknownErr)) {
   void [_mc, _md];
 }
 
-const _isWSKitErr: boolean = deErr instanceof WSKitError;
-void _isWSKitErr;
+const _isLiveThingErr: boolean = deErr instanceof LiveThingError;
+void _isLiveThingErr;

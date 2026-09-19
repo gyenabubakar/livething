@@ -19,7 +19,7 @@ async function askLastSeen(page: Page, identity: string): Promise<Frame> {
   }
 
   const already = (await frames(page)).filter(match).length;
-  await send(page, { event: 'ask-last-seen', payload: { identity }, __wskit: {} });
+  await send(page, { event: 'ask-last-seen', payload: { identity }, metadata: null });
   await expect
     .poll(async () => (await frames(page)).filter(match).length, { timeout: 15_000 })
     .toBeGreaterThan(already);
@@ -28,7 +28,7 @@ async function askLastSeen(page: Page, identity: string): Promise<Frame> {
 }
 
 async function askLastSeenMany(page: Page, identities: string[]): Promise<Frame> {
-  await send(page, { event: 'ask-last-seen-many', payload: { identities }, __wskit: {} });
+  await send(page, { event: 'ask-last-seen-many', payload: { identities }, metadata: null });
   return waitForFrame(page, (f) => f.event === 'last-seen-many-answer');
 }
 

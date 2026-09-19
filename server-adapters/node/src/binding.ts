@@ -3,7 +3,7 @@ import type {
   ConnectionHandle,
   ServerDefinition,
   UpgradeDecision,
-} from '@wskit/server/adapters';
+} from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import { createNodeEndpoint } from './endpoint.ts';
 import { createHttpRejectionResponse, isSocketRejection } from './upgrade.ts';
@@ -18,14 +18,14 @@ export type { UpgradeLifecycle } from './upgrade-lifecycle.ts';
 export type { NodeAdmin, NodeEndpointOptions } from './endpoint.ts';
 export type { ConnectionTransport } from './socket.ts';
 
-/** Forwards lifecycle events from an accepted transport to WSKit. */
+/** Forwards lifecycle events from an accepted transport to LiveThing. */
 export interface NodeConnection {
   message(data: string): Promise<void>;
   close(code: number, reason: string): Promise<void>;
   error(error: unknown): Promise<void>;
 }
 
-/** The possible result of checking a WebSocket upgrade with WSKit. */
+/** The possible result of checking a WebSocket upgrade with LiveThing. */
 export type NodeUpgrade = NodeHttpRejection | NodeSocketRejection | NodeAcceptedUpgrade;
 
 /** An upgrade rejected as an HTTP response before a WebSocket handshake. */
@@ -47,7 +47,7 @@ export interface NodeAcceptedUpgrade {
   accept(transport: ConnectionTransport): NodeConnection;
 }
 
-/** One WSKit definition prepared for a host integration to upgrade. */
+/** One LiveThing definition prepared for a host integration to upgrade. */
 export interface NodeBindingEndpoint<TApi = unknown> {
   ready(): Promise<void>;
   prepare(request: Request, options?: NodePrepareOptions): Promise<NodeUpgrade>;
@@ -58,7 +58,7 @@ export interface NodeBindingEndpoint<TApi = unknown> {
 /**
  * Metadata a Fetch-based host derived from its own trusted connection details.
  *
- * `prepare()` always removes a client-supplied `WSKit-Client-IP` header. Set
+ * `prepare()` always removes a client-supplied `LiveThing-Client-IP` header. Set
  * `clientIp` only after the host has derived it from a trusted peer or proxy.
  */
 export interface NodePrepareOptions {
@@ -88,7 +88,7 @@ export function binding(): NodeBinding {
 
   return {
     bind(definition, options) {
-      if (shutdownPromise) throw new Error('[wskit] Node binding is shutting down');
+      if (shutdownPromise) throw new Error('[livething] Node binding is shutting down');
 
       const endpoint = createNodeEndpoint(definition, options);
       endpoints.add(endpoint);
@@ -136,7 +136,8 @@ function toNodeUpgrade<TApi>(
     return {
       type: 'accept',
       accept(transport) {
-        if (accepted) throw new Error('[wskit] an accepted upgrade can only attach one transport');
+        if (accepted)
+          throw new Error('[livething] an accepted upgrade can only attach one transport');
 
         accepted = true;
 

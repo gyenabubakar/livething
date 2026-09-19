@@ -1,8 +1,8 @@
 /**
  * The Cloudflare-specific escape hatch exposed as `ctx.platform` inside your
- * handlers. Most handler code should use the higher-level WSKit APIs
+ * handlers. Most handler code should use the higher-level LiveThing APIs
  * (`ctx.sql`, `ctx.kv`, `ctx.schedule`). Reach for `ctx.platform`
- * only when you need a Cloudflare capability that WSKit doesn't wrap — for
+ * only when you need a Cloudflare capability that LiveThing doesn't wrap — for
  * example, listing all hibernated sockets by tag or accessing raw Durable
  * Object storage.
  *

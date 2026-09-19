@@ -87,7 +87,7 @@ function receivedFrame(receivedThrough: number): Protocol.IncomingProtocolFrame 
   return {
     event: '__received__',
     payload: { receivedThrough },
-    __wskit: { channel: 'room' },
+    __livething: { channel: 'room' },
   } as unknown as Protocol.IncomingProtocolFrame;
 }
 
@@ -104,7 +104,7 @@ describe('inbox __received__ handler', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq, messageId: `m${seq}`, event: 'msg', payload: {} },
+      frame: { deliverySeq: seq, messageId: `m${seq}`, event: 'msg', payload: {} },
       now: 1,
     });
   }
@@ -165,7 +165,7 @@ describe('inbox __received__ handler', () => {
       userIds: ['alice'],
       channelName: 'alpha',
       channelFamily: 'rooms',
-      frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
+      frame: { deliverySeq: 1, messageId: 'm1', event: 'msg', payload: {} },
       now: 1,
     });
     const ctx = {
@@ -177,7 +177,7 @@ describe('inbox __received__ handler', () => {
     const frame = {
       event: '__received__',
       payload: { receivedThrough: 1 },
-      __wskit: { channel: 'alpha', channelFamily: 'rooms' },
+      __livething: { channel: 'alpha', channelFamily: 'rooms' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     handlers.get('__received__')!(ctx, frame);
@@ -191,7 +191,7 @@ describe('inbox __received__ handler', () => {
       userIds: ['alice'],
       channelName: 'alpha',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
+      frame: { deliverySeq: 1, messageId: 'm1', event: 'msg', payload: {} },
       now: 1,
     });
     const ctx = {
@@ -203,7 +203,7 @@ describe('inbox __received__ handler', () => {
     const frame = {
       event: '__received__',
       payload: { receivedThrough: 1 },
-      __wskit: { channel: 'alpha' },
+      __livething: { channel: 'alpha' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__received__')!(ctx, frame)).toBe(false);
@@ -257,7 +257,7 @@ describe('inbox __receivedQuery__ handler', () => {
     return {
       event: '__receivedQuery__',
       payload: { seq },
-      __wskit: { channel: 'room', correlationId: 'q-1' },
+      __livething: { channel: 'room', correlationId: 'q-1' },
     } as unknown as Protocol.IncomingProtocolFrame;
   }
 
@@ -277,7 +277,7 @@ describe('inbox __receivedQuery__ handler', () => {
     expect(sentFrames[0]!.frame).toMatchObject({
       event: '__receivedQuery__',
       payload: { userIds: ['bob'] },
-      wskit: { channel: 'room', correlationId: 'q-1' },
+      livething: { channel: 'room', correlationId: 'q-1' },
     });
   });
 
@@ -301,7 +301,7 @@ describe('inbox __receivedQuery__ handler', () => {
     const frame = {
       event: '__receivedQuery__',
       payload: { seq: 5 },
-      __wskit: { channel: 'alpha', channelFamily: 'rooms', correlationId: 'q-1' },
+      __livething: { channel: 'alpha', channelFamily: 'rooms', correlationId: 'q-1' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     handlers.get('__receivedQuery__')!(ctx, frame);
@@ -320,7 +320,7 @@ describe('inbox __receivedQuery__ handler', () => {
     const frame = {
       event: '__receivedQuery__',
       payload: { seq: 5 },
-      __wskit: { channel: 'alpha', correlationId: 'q-1' },
+      __livething: { channel: 'alpha', correlationId: 'q-1' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__receivedQuery__')!(ctx, frame)).toBe(false);

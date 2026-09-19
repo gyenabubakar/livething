@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 type Frame = {
   event: string;
   payload: Record<string, unknown>;
-  __wskit?: Record<string, unknown>;
+  metadata?: Record<string, Record<string, unknown>> | null;
 };
 
 async function setupClient(page: Page, username: string, room: string) {
@@ -22,7 +22,7 @@ async function startCapture(page: Page) {
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') return;
 
-      w.__frames!.push(JSON.parse(ev.data));
+      w.__frames!.push(window.__livethingDecode(ev.data));
     });
   });
 }
@@ -30,7 +30,7 @@ async function startCapture(page: Page) {
 async function send(page: Page, frame: unknown) {
   await page.evaluate((f) => {
     const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-    ws?.send(JSON.stringify(f));
+    ws?.send(window.__livethingEncode(f));
   }, frame);
 }
 
@@ -67,8 +67,8 @@ test.describe('replay-family-key-equals-name', () => {
     // Subscribe to family member 'rooms' (the only name the pattern accepts).
     await send(page, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
+      payload: null,
+      metadata: { channel: { name: 'rooms', family: 'rooms' } },
     });
     await expect
       .poll(async () => (await frames(page)).some((f) => f.event === '__subscribeOk__'), {
@@ -80,22 +80,22 @@ test.describe('replay-family-key-equals-name', () => {
     await send(page, {
       event: 'send-batch',
       payload: { count: 3 },
-      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'rooms', family: 'rooms' } },
     });
     await expect
       .poll(
         async () =>
           (await frames(page)).filter(
-            (f) => f.event === 'room-message' && f.__wskit?.channel === 'rooms',
+            (f) => f.event === 'room-message' && f.metadata?.channel?.name === 'rooms',
           ).length,
         { timeout: 5_000 },
       )
       .toBe(3);
 
     const liveRoomMsgs = (await frames(page)).filter(
-      (f) => f.event === 'room-message' && f.__wskit?.channel === 'rooms',
+      (f) => f.event === 'room-message' && f.metadata?.channel?.name === 'rooms',
     );
-    const liveSeqs = liveRoomMsgs.map((f) => f.__wskit?.seq as number);
+    const liveSeqs = liveRoomMsgs.map((f) => f.metadata?.delivery?.seq as number);
     expect(liveSeqs.length).toBe(3);
     expect(liveSeqs.every((s) => typeof s === 'number' && s > 0)).toBe(true);
     const lastSeq = Math.max(...liveSeqs);
@@ -110,8 +110,8 @@ test.describe('replay-family-key-equals-name', () => {
     // Re-subscribe.
     await send(page, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
+      payload: null,
+      metadata: { channel: { name: 'rooms', family: 'rooms' } },
     });
     await expect
       .poll(async () => (await frames(page)).some((f) => f.event === '__subscribeOk__'), {
@@ -125,7 +125,7 @@ test.describe('replay-family-key-equals-name', () => {
     await send(page, {
       event: '__replay__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'rooms', family: 'rooms' } },
     });
     await expect
       .poll(
@@ -133,8 +133,8 @@ test.describe('replay-family-key-equals-name', () => {
           (await frames(page)).filter(
             (f) =>
               f.event === 'room-message' &&
-              f.__wskit?.channel === 'rooms' &&
-              f.__wskit?.channelFamily === 'rooms',
+              f.metadata?.channel?.name === 'rooms' &&
+              f.metadata?.channel?.family === 'rooms',
           ).length,
         { timeout: 5_000 },
       )
@@ -143,11 +143,11 @@ test.describe('replay-family-key-equals-name', () => {
     const replayed = (await frames(page)).filter(
       (f) =>
         f.event === 'room-message' &&
-        f.__wskit?.channel === 'rooms' &&
-        f.__wskit?.channelFamily === 'rooms',
+        f.metadata?.channel?.name === 'rooms' &&
+        f.metadata?.channel?.family === 'rooms',
     );
     expect(replayed.map((f) => f.payload.text).sort()).toEqual(['msg-0', 'msg-1', 'msg-2']);
-    expect(replayed.map((f) => f.__wskit?.seq as number).sort((a, b) => a - b)).toEqual(
+    expect(replayed.map((f) => f.metadata?.delivery?.seq as number).sort((a, b) => a - b)).toEqual(
       liveSeqs.slice().sort((a, b) => a - b),
     );
 
@@ -155,14 +155,14 @@ test.describe('replay-family-key-equals-name', () => {
     await send(page, {
       event: '__replay__',
       payload: { lastKnownSeq: lastSeq },
-      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'rooms', family: 'rooms' } },
     });
     await page.waitForTimeout(500);
     const after = (await frames(page)).filter(
       (f) =>
         f.event === 'room-message' &&
-        f.__wskit?.channel === 'rooms' &&
-        f.__wskit?.channelFamily === 'rooms',
+        f.metadata?.channel?.name === 'rooms' &&
+        f.metadata?.channel?.family === 'rooms',
     );
     // Still exactly the 3 from the previous since:0 replay — no new rows.
     expect(after.length).toBe(3);

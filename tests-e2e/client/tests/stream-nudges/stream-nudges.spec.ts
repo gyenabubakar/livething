@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's stream().nudge() against the real wskit
+// Conformance: @livething/client's stream().nudge() against the real LiveThing
 // `stream-nudges` server definition. Adapter-oblivious — it talks to whatever server the
 // run booted over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {

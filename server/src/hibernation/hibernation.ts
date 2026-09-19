@@ -23,7 +23,7 @@ const HIBERNATION_KEY = Symbol('hibernation');
  */
 export function hibernation(enabled = true): HibernationPrimitive {
   return {
-    __wskit: 'hibernation',
+    __livething: 'hibernation',
     __kind: 'infrastructure',
     __identity: [HIBERNATION_KEY],
     __requires: enabled ? { hibernation: true } : {},

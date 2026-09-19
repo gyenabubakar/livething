@@ -1,4 +1,4 @@
-import { ValidationFailed } from '@wskit/core';
+import { ValidationFailed } from '@livething/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { addConnectionTag } from '~/_engine/runtime/tag-index.ts';
 import { deleteTag, listTagsByUser } from '~/tags/storage.ts';
@@ -40,7 +40,7 @@ export function restorePersistentTags(opts: RestorePersistentTagsOptions): void 
       // coming back on every future connect.
       deleteTag(sql, { userId: connection.userId, group: tag.group, key: tag.key });
       opts.logger?.error(
-        '[wskit] dropped a stored persistent tag whose group is no longer declared',
+        '[livething] dropped a stored persistent tag whose group is no longer declared',
         { group: tag.group },
       );
       continue;
@@ -57,7 +57,7 @@ export function restorePersistentTags(opts: RestorePersistentTagsOptions): void 
         if (!ValidationFailed.matches(error)) throw error;
 
         deleteTag(sql, { userId: connection.userId, group: tag.group, key: tag.key });
-        opts.logger?.error('[wskit] dropped a stored persistent tag that failed validation', {
+        opts.logger?.error('[livething] dropped a stored persistent tag that failed validation', {
           group: tag.group,
           error: error.detail.issues[0]?.message ?? 'validation failed',
         });

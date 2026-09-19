@@ -1,4 +1,4 @@
-import type { KVProvider, Logger } from '@wskit/server/adapters';
+import type { KVProvider, Logger } from '@livething/server/adapters';
 
 type KvEntry = { value: unknown; expiresAt?: number };
 
@@ -35,7 +35,7 @@ export function createKv(state: DurableObjectState, logger: Logger): KVProvider 
     async set(key, value, options) {
       if (options?.ttl === 0) {
         logger.warn(
-          '[wskit] kv.set called with { ttl: 0 } — Cloudflare treats 0 as "no expiry". Pass a positive number of milliseconds to enable expiry, or omit ttl.',
+          '[livething] kv.set called with { ttl: 0 } — Cloudflare treats 0 as "no expiry". Pass a positive number of milliseconds to enable expiry, or omit ttl.',
         );
       }
 

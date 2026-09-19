@@ -10,7 +10,7 @@ export function compileStreamDef(
   const generator = handlers.get(def.name);
   if (!generator) {
     throw new Error(
-      `[wskit] No handler assembled for stream('${def.name}'). Include the value returned by base.stream(...) in base.assemble({ handlers: [...] }).`,
+      `[livething] No handler assembled for stream('${def.name}'). Include the value returned by base.stream(...) in base.assemble({ handlers: [...] }).`,
     );
   }
 

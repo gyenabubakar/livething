@@ -60,16 +60,13 @@ test.describe('stream-broadcast', () => {
     await expect(a.getByTestId('room-subscribed')).toHaveText('yes');
     await expect(b.getByTestId('room-subscribed')).toHaveText('yes');
 
-    // Trigger the broadcast stream from alice. Pre-fix, the peer (bob)
-    // never received chunks because the engine rejected them as undeclared
-    // (channelFamily dropped from broadcast options) — or received them
-    // without _channelFamily so the page filter skipped them.
+    // Trigger the broadcast stream from Alice. Bob receives every chunk with
+    // `metadata.channel.family` so the client can route it to the family.
     await a.getByTestId('start-room-3').click();
     await expect(a.getByTestId('room-stream-end')).toHaveText('yes');
     await expect(a.getByTestId('room-indices')).toHaveText('0,1,2');
 
-    // Peer received every chunk AND the chunks carried _channelFamily so the
-    // client could attribute them to the 'rooms' family.
+    // The peer receives every chunk in the `rooms` family.
     await expect(b.getByTestId('room-indices')).toHaveText('0,1,2');
     await expect(b.getByTestId('room-scope-seen')).toHaveText('rooms');
 

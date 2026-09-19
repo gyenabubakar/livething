@@ -79,8 +79,8 @@ export interface RateLimitCapability extends Capability<
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { rateLimit } from '@wskit/server/rate-limit';
+ * import { server, t } from '@livething/server';
+ * import { rateLimit } from '@livething/server/rate-limit';
  *
  * const base = server({
  *   capabilities: [rateLimit({ windowMs: 60_000, max: 100 })],

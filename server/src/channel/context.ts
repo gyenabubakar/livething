@@ -1,4 +1,4 @@
-import { ChannelNotFound } from '@wskit/core';
+import { ChannelNotFound } from '@livething/core';
 import * as ChannelRuntime from '~/channel/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
@@ -116,12 +116,12 @@ function toChannelTarget(args: unknown[]): string | { family: string; name: stri
 
   const arg = args[0];
   if (arg && typeof arg === 'object') {
-    if ('__wskitChannelRef' in arg) {
+    if ('__livethingChannelRef' in arg) {
       const ref = arg as unknown as { family: string; name: string };
       return { family: ref.family, name: ref.name };
     }
 
-    if ('__wskitChannel' in arg) return (arg as unknown as { __key: string }).__key;
+    if ('__livethingChannel' in arg) return (arg as unknown as { __key: string }).__key;
   }
 
   return arg as string;

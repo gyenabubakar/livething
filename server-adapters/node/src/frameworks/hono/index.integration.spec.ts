@@ -1,8 +1,8 @@
 import { connect as connectTcp } from 'node:net';
 import { createAdaptorServer } from '@hono/node-server';
-import { client, connect } from '@wskit/client';
-import { server as createServerDefinition, emits, t } from '@wskit/server';
-import { RejectUpgrade } from '@wskit/server/errors';
+import { client, connect } from '@livething/client';
+import { server as createServerDefinition, emits, t } from '@livething/server';
+import { RejectUpgrade } from '@livething/server/errors';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
@@ -22,7 +22,7 @@ const base = createServerDefinition({
 
     if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
-    lastClientIp = request.headers.get('WSKit-Client-IP');
+    lastClientIp = request.headers.get('LiveThing-Client-IP');
 
     return { userId: pathname.split('/').at(-1) ?? 'anonymous' };
   },
@@ -63,6 +63,8 @@ interface TestClient {
   outgoing: { echo: { text: string } };
 }
 
+type WireFrame = readonly [event: string, payload: unknown, metadata: null];
+
 function listen(
   app: Hono,
   websocket: { server: WebSocketServer },
@@ -89,9 +91,7 @@ function listen(
   });
 }
 
-function waitForMessage(
-  socket: WebSocket,
-): Promise<{ event: string; payload: { userId?: string; text?: string } }> {
+function waitForMessage(socket: WebSocket): Promise<WireFrame> {
   return new Promise((resolve, reject) => {
     socket.once('message', (raw) => resolve(JSON.parse(raw.toString())));
     socket.once('error', reject);
@@ -213,73 +213,74 @@ describe('Hono binding', () => {
     disconnects = 0;
   });
 
-  it('uses Hono route matching while WSKit handles the accepted socket', async () => {
+  it('uses Hono route matching while LiveThing handles the accepted socket', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, {});
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
-    await wskit.ready();
+    await livething.ready();
 
     const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/lobby`);
     sockets.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
-    await expect(connected).resolves.toMatchObject({ event: 'connected' });
+    await expect(connected).resolves.toEqual(['connected', expect.any(Object), null]);
 
-    socket.send(JSON.stringify({ event: 'echo', payload: { text: 'hello' } }));
-    await expect(waitForMessage(socket)).resolves.toMatchObject({ event: 'echoed' });
+    socket.send(JSON.stringify(['echo', { text: 'hello' }, null]));
+    await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text: 'hello' }, null]);
   });
 
   it('uses a caller-provided WebSocket server', async () => {
     const app = new Hono();
     const webSocketServer = new WebSocketServer({ noServer: true });
     const close = vi.spyOn(webSocketServer, 'close');
-    const wskit = setup({ webSocketServer });
+    const livething = setup({ webSocketServer });
 
-    const endpoint = wskit.bind(assembled, {});
+    const endpoint = livething.bind(assembled, {});
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
-    expect(wskit.websocket.server).toBe(webSocketServer);
+    expect(livething.websocket.server).toBe(webSocketServer);
 
     const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/lobby`);
     sockets.push(socket);
-    await expect(waitForMessage(socket)).resolves.toMatchObject({ event: 'connected' });
+    await expect(waitForMessage(socket)).resolves.toEqual(['connected', expect.any(Object), null]);
 
-    await wskit.shutdown();
+    await livething.shutdown();
     expect(close).not.toHaveBeenCalled();
     close.mockRestore();
   });
 
   it('applies the endpoint client IP configuration to the Node request', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, { clientIp: { mode: 'direct' } });
+    const livething = setup();
+    const endpoint = livething.bind(assembled, { clientIp: { mode: 'direct' } });
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
     const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/lobby`);
     sockets.push(socket);
 
-    await expect(waitForMessage(socket)).resolves.toMatchObject({
-      event: 'connected',
-      payload: { clientIp: '127.0.0.1' },
-    });
+    await expect(waitForMessage(socket)).resolves.toEqual([
+      'connected',
+      { userId: 'lobby', clientIp: '127.0.0.1' },
+      null,
+    ]);
   });
 
   it('derives the client IP through a trusted proxy before Hono upgrades', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, {
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {
       clientIp: { mode: 'proxy', trustedProxies: ['127.0.0.1', '::1'] },
     });
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
     const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/lobby`, {
@@ -289,10 +290,11 @@ describe('Hono binding', () => {
     const connected = waitForMessage(socket);
 
     await waitForOpen(socket);
-    await expect(connected).resolves.toMatchObject({
-      event: 'connected',
-      payload: { clientIp: '203.0.113.7' },
-    });
+    await expect(connected).resolves.toEqual([
+      'connected',
+      { userId: 'lobby', clientIp: '203.0.113.7' },
+      null,
+    ]);
   });
 
   it('reports the real outbound queue while a Hono client is slow', async () => {
@@ -315,11 +317,11 @@ describe('Hono binding', () => {
       },
     });
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(queued.assemble({ handlers: [fillQueue] }), {});
+    const livething = setup();
+    const endpoint = livething.bind(queued.assemble({ handlers: [fillQueue] }), {});
 
     app.get('/ws/slow-client', endpoint.upgrade);
-    const runningServer = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const runningServer = await listen(app, livething.websocket, () => livething.shutdown());
     servers.push(runningServer);
 
     const socket = new WebSocket(`ws://127.0.0.1:${runningServer.port}/ws/slow-client`);
@@ -328,18 +330,15 @@ describe('Hono binding', () => {
 
     const queuedAmount = new Promise<number>((resolve, reject) => {
       socket.on('message', (raw) => {
-        const message = JSON.parse(raw.toString()) as {
-          event: string;
-          payload: { amount: number };
-        };
-        if (message.event === 'queued') resolve(message.payload.amount);
+        const message = JSON.parse(raw.toString()) as WireFrame;
+        if (message[0] === 'queued') resolve((message[1] as { amount: number }).amount);
       });
       socket.once('error', reject);
     });
 
     const clientSocket = getClientSocket(socket);
     clientSocket.pause();
-    socket.send(JSON.stringify({ event: 'fill-queue', payload: {} }));
+    socket.send(JSON.stringify(['fill-queue', {}, null]));
     await new Promise((resolve) => setTimeout(resolve, 20));
     clientSocket.resume();
 
@@ -368,11 +367,11 @@ describe('Hono binding', () => {
       },
     }).assemble({ handlers: [] });
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(slowDefinition, {});
+    const livething = setup();
+    const endpoint = livething.bind(slowDefinition, {});
     app.get('/ws/slow', endpoint.upgrade);
 
-    const runningServer = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const runningServer = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(runningServer);
     const socket = new WebSocket(`ws://127.0.0.1:${runningServer.port}/ws/slow`);
@@ -380,7 +379,7 @@ describe('Hono binding', () => {
     socket.on('error', () => {});
     await startedUpgrade;
 
-    const shutdown = wskit.shutdown();
+    const shutdown = livething.shutdown();
     let stopped = false;
     void shutdown.then(() => {
       stopped = true;
@@ -397,26 +396,26 @@ describe('Hono binding', () => {
     await shutdown;
   });
 
-  it('drops upgrades that arrive after WSKit shutdown starts', async () => {
+  it('drops upgrades that arrive after LiveThing shutdown starts', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, {});
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
 
-    await wskit.shutdown();
+    await livething.shutdown();
 
     await expect(sendOpenUpgrade(server.port, '/ws/lobby')).resolves.toBe('');
   });
 
   it('keeps the connection until close after a transport error', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, {});
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
     await sendInvalidClientFrame(server.port, '/ws/lobby');
@@ -425,10 +424,10 @@ describe('Hono binding', () => {
 
   it('returns an HTTP rejection before Hono upgrades the connection', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, {});
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
 
@@ -439,10 +438,10 @@ describe('Hono binding', () => {
 
   it('upgrades then closes a socket-level rejection', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, {});
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
 
@@ -455,10 +454,10 @@ describe('Hono binding', () => {
 
   it('trims a long socket rejection reason to the WebSocket control-frame limit', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, {});
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
 
@@ -471,10 +470,10 @@ describe('Hono binding', () => {
 
   it('closes with an internal error when connection setup fails after upgrade', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, {});
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
 
@@ -484,16 +483,16 @@ describe('Hono binding', () => {
     await waitForOpen(socket);
     await expect(closed).resolves.toEqual({
       code: 1011,
-      reason: '[wskit] connection setup failed',
+      reason: '[livething] connection setup failed',
     });
   });
 
-  it('works with the packaged WSKit client', async () => {
+  it('works with the packaged LiveThing client', async () => {
     const app = new Hono();
-    const wskit = setup();
-    const endpoint = wskit.bind(assembled, {});
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
     app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
 

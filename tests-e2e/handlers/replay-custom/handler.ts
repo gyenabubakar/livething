@@ -1,10 +1,10 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
-import { stream } from '@wskit/server/streams';
-import type { InferClient } from '@wskit/server';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
+import { stream } from '@livething/server/streams';
+import type { InferClient } from '@livething/server';
 import type * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 import {
@@ -48,18 +48,18 @@ base.replay({
       'INSERT INTO _custom_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
       msg.event,
       JSON.stringify(msg.payload),
-      msg.wire.seq,
+      msg.wire.deliverySeq,
       msg.wire.messageId,
     );
   },
   afterSend(ctx, msg) {
-    ctx.sql.exec('UPDATE _custom_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
+    ctx.sql.exec('UPDATE _custom_replay SET confirmed = 1 WHERE seq = ?', msg.wire.deliverySeq);
   },
   async replay(ctx, since) {
     if (since === 2_147_483_647) {
       let undeclared = '';
       try {
-        ctx.sendReplay('not-declared-event', { ok: true }, { seq: 1, messageId: 'bad-1' });
+        ctx.sendReplay('not-declared-event', { ok: true }, { deliverySeq: 1, messageId: 'bad-1' });
       } catch (err) {
         undeclared = err instanceof Error ? err.message : String(err);
       }
@@ -83,7 +83,7 @@ base.replay({
 
     for (const row of rows) {
       ctx.sendReplay(row.event, JSON.parse(row.payload), {
-        seq: row.seq,
+        deliverySeq: row.seq,
         messageId: row.message_id,
       });
     }
@@ -185,12 +185,15 @@ customRoom.replay({
       'INSERT INTO _custom_room_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
       msg.event,
       JSON.stringify(msg.payload),
-      msg.wire.seq,
+      msg.wire.deliverySeq,
       msg.wire.messageId,
     );
   },
   afterSend(ctx, msg) {
-    ctx.sql.exec('UPDATE _custom_room_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
+    ctx.sql.exec(
+      'UPDATE _custom_room_replay SET confirmed = 1 WHERE seq = ?',
+      msg.wire.deliverySeq,
+    );
   },
   async replay(ctx, since) {
     const rows = (
@@ -208,7 +211,7 @@ customRoom.replay({
     ).toArray();
     for (const row of rows) {
       ctx.sendReplay(row.event, JSON.parse(row.payload), {
-        seq: row.seq,
+        deliverySeq: row.seq,
         messageId: row.message_id,
       });
     }

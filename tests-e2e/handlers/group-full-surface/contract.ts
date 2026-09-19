@@ -1,13 +1,13 @@
-import { server, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { clientRequests } from '@wskit/server/client-requests';
-import { dedup } from '@wskit/server/dedup';
-import { intercepts } from '@wskit/server/intercepts';
-import { rateLimit } from '@wskit/server/rate-limit';
-import { replay } from '@wskit/server/replay';
-import { scheduled } from '@wskit/server/scheduled';
-import { sequence } from '@wskit/server/sequence';
-import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { dedup } from '@livething/server/dedup';
+import { intercepts } from '@livething/server/intercepts';
+import { rateLimit } from '@livething/server/rate-limit';
+import { replay } from '@livething/server/replay';
+import { scheduled } from '@livething/server/scheduled';
+import { sequence } from '@livething/server/sequence';
+import { recordedStream, resumableStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 

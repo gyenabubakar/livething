@@ -34,30 +34,38 @@ test.describe('stream-durable broadcast (channel scope)', () => {
     try {
       const a = await connect(pageA, { path: WS_PATH, username: 'alice', room: room });
       const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
-      await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageA, a, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
-      await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageB, b, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
 
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
 
       await send(pageA, a, {
         event: 'feed',
         payload: {},
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
 
       await waitForFrame(pageA, a, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+        match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
       });
       await waitForFrame(pageB, b, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+        match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
       });
 
       const tokensA = (await frames(pageA, a))
-        .filter((f) => f.event === 'feed' && f.__wskit?.channel === 'rooms')
+        .filter((f) => f.event === 'feed' && f.metadata?.channel?.name === 'rooms')
         .map((f) => f.payload.token as string);
       const tokensB = (await frames(pageB, b))
-        .filter((f) => f.event === 'feed' && f.__wskit?.channel === 'rooms')
+        .filter((f) => f.event === 'feed' && f.metadata?.channel?.name === 'rooms')
         .map((f) => f.payload.token as string);
       expect(tokensA).toEqual(['t1', 't2', 't3', 't4', 't5']);
       expect(tokensB).toEqual(['t1', 't2', 't3', 't4', 't5']);
@@ -75,36 +83,44 @@ test.describe('stream-durable broadcast (channel scope)', () => {
     const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
     try {
       const a = await connect(pageA, { path: WS_PATH, username: 'alice', room: room });
-      await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageA, a, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageA, a, {
         event: 'feed',
         payload: {},
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
 
       await pageA.waitForFunction(
         ([sid]) =>
-          (window.__wskitFrames!(sid as string) ?? []).filter(
+          (window.__livethingFrames!(sid as string) ?? []).filter(
             (f: WireFrame) => f.event === 'feed' && typeof f.payload?.token === 'string',
           ).length >= 3,
         [a],
       );
 
       const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
-      await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageB, b, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageB, b, {
         event: '__resumeStream__',
         payload: { lastKnownSeq: 0 },
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
 
       await waitForFrame(pageB, b, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+        match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
       });
       const tokensB = (await frames(pageB, b))
-        .filter((f) => f.event === 'feed' && f.__wskit?.channel === 'rooms')
+        .filter((f) => f.event === 'feed' && f.metadata?.channel?.name === 'rooms')
         .map((f) => f.payload.token as string);
       expect(tokensB).toEqual(['t1', 't2', 't3', 't4', 't5']);
     } finally {
@@ -121,39 +137,47 @@ test.describe('stream-durable broadcast (channel scope)', () => {
     const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
     try {
       const a = await connect(pageA, { path: WS_PATH, username: 'alice', room: room });
-      await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageA, a, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageA, a, {
         event: 'paginate',
         payload: {},
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
 
       // Let the source get well past the start before the peer joins, so the
       // missed rows (which a live stream never replays) are unambiguous.
       await pageA.waitForFunction(
         ([sid]) =>
-          (window.__wskitFrames!(sid as string) ?? []).filter(
+          (window.__livethingFrames!(sid as string) ?? []).filter(
             (f: WireFrame) => f.event === 'paginate' && typeof f.payload?.row === 'number',
           ).length >= 3,
         [a],
       );
 
       const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
-      await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageB, b, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageB, b, {
         event: '__resumeStream__',
         payload: { lastKnownSeq: 0 },
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
 
       await waitForFrame(pageB, b, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+        match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
         timeoutMs: 10_000,
       });
       const rowsB = (await frames(pageB, b))
-        .filter((f) => f.event === 'paginate' && f.__wskit?.channel === 'rooms')
+        .filter((f) => f.event === 'paginate' && f.metadata?.channel?.name === 'rooms')
         .map((f) => f.payload.row as number);
 
       // Resumable broadcast is live: the peer never gets the rows produced
@@ -182,20 +206,28 @@ test.describe('stream-durable broadcast (channel scope)', () => {
     try {
       const a = await connect(pageA, { path: WS_PATH, username: 'alice', room: room });
       const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
-      await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageA, a, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
-      await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageB, b, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
 
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
 
       await send(pageA, a, {
         event: 'feed',
         payload: {},
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
       await pageB.waitForFunction(
         ([sid]) =>
-          (window.__wskitFrames!(sid as string) ?? []).filter(
+          (window.__livethingFrames!(sid as string) ?? []).filter(
             (f: WireFrame) => f.event === 'feed' && typeof f.payload?.token === 'string',
           ).length >= 2,
         [b],
@@ -203,8 +235,8 @@ test.describe('stream-durable broadcast (channel scope)', () => {
 
       await send(pageA, a, {
         event: '__streamCancel__',
-        payload: {},
-        __wskit: { channel: 'rooms', streamId },
+        payload: null,
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
 
       // Let in-flight tokens flush, then assert the stream truly stopped by
@@ -224,7 +256,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageB, b, {
         event: '__resumeStream__',
         payload: { lastKnownSeq: 0 },
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
       const errB = await waitForFrame(pageB, b, { match: (f) => f.event === '__error__' });
       expect(errB.payload.code).toBe('stream-aborted');
@@ -233,7 +265,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageA, a, {
         event: '__resumeStream__',
         payload: { lastKnownSeq: 0 },
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
       const errA = await waitForFrame(pageA, a, { match: (f) => f.event === '__error__' });
       expect(errA.payload.code).toBe('stream-aborted');
@@ -253,20 +285,28 @@ test.describe('stream-durable broadcast (channel scope)', () => {
     try {
       const a = await connect(pageA, { path: WS_PATH, username: 'alice', room: room });
       const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
-      await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageA, a, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
-      await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageB, b, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
 
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
 
       await send(pageA, a, {
         event: 'feed',
         payload: {},
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
       await pageB.waitForFunction(
         ([sid]) =>
-          (window.__wskitFrames!(sid as string) ?? []).filter(
+          (window.__livethingFrames!(sid as string) ?? []).filter(
             (f: WireFrame) => f.event === 'feed' && typeof f.payload?.token === 'string',
           ).length >= 1,
         [b],
@@ -276,22 +316,22 @@ test.describe('stream-durable broadcast (channel scope)', () => {
 
       await send(pageB, b, {
         event: '__streamCancel__',
-        payload: {},
-        __wskit: { channel: 'rooms', streamId },
+        payload: null,
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
 
       await waitForFrame(pageA, a, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+        match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
         timeoutMs: 10_000,
       });
 
       // B's cancel cuts it off, so B ends up with fewer tokens than the full
       // stream A received. The exact straggler count before the cancel lands is
-      // the generator's loop, not a wskit guarantee, so we don't assert it.
+      // the generator's loop, not a LiveThing guarantee, so we don't assert it.
       const bTokensAfter = (await frames(pageB, b)).filter((f) => f.event === 'feed').length;
 
       const aTokens = (await frames(pageA, a))
-        .filter((f) => f.event === 'feed' && f.__wskit?.channel === 'rooms')
+        .filter((f) => f.event === 'feed' && f.metadata?.channel?.name === 'rooms')
         .map((f) => f.payload.token as string);
       expect(aTokens).toEqual(['t1', 't2', 't3', 't4', 't5']);
       expect(bTokensAfter).toBeLessThan(aTokens.length);
@@ -300,7 +340,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageB, b, {
         event: '__resumeStream__',
         payload: { lastKnownSeq: 0 },
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
       const err = await waitForFrame(pageB, b, { match: (f) => f.event === '__error__' });
       expect(err.payload.code).toBe('stream-aborted');
@@ -321,9 +361,17 @@ test.describe('stream-durable broadcast (channel scope)', () => {
     try {
       const a = await connect(pageA, { path: WS_PATH, username: 'alice', room: room });
       const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
-      await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageA, a, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
-      await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await send(pageB, b, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'rooms' } },
+      });
 
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
 
@@ -331,7 +379,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageA, a, {
         event: 'feed-nudged',
         payload: {},
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
       await waitForFrame(pageA, a, {
         match: (f) => f.event === 'feed-nudged' && typeof f.payload?.token === 'string',
@@ -345,14 +393,14 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageA, a, {
         event: 'stop',
         payload: {},
-        __wskit: { channel: 'rooms', streamId },
+        metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
 
       await waitForFrame(pageA, a, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+        match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
       });
       await waitForFrame(pageB, b, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+        match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
       });
 
       // The nudge stopped it early — far fewer than the 20 it would otherwise

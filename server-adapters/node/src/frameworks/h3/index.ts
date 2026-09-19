@@ -1,5 +1,5 @@
 import { defineWebSocketHandler } from 'h3';
-import type { ApiOf, ServerDefinition } from '@wskit/server/adapters';
+import type { ApiOf, ServerDefinition } from '@livething/server/adapters';
 import type { WebSocketMessage, WebSocketPeer } from 'h3';
 import type { IncomingMessage } from 'node:http';
 import { binding } from '../../binding.ts';
@@ -7,7 +7,7 @@ import { closeWebSocket } from '../../close.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
 
-/** One WSKit definition registered as an H3 and CrossWS WebSocket route. */
+/** One LiveThing definition registered as an H3 and CrossWS WebSocket route. */
 export interface H3Endpoint<TApi = unknown> {
   upgrade: ReturnType<typeof defineWebSocketHandler>;
   ready(): Promise<void>;
@@ -36,7 +36,7 @@ export function setup(): H3Setup {
 
       const route = defineWebSocketHandler(async (event) => {
         const incoming = getIncomingRequest(event.req);
-        if (!incoming) throw new Error('[wskit] H3 did not provide a Node request');
+        if (!incoming) throw new Error('[livething] H3 did not provide a Node request');
 
         return {
           async upgrade() {
@@ -57,13 +57,13 @@ export function setup(): H3Setup {
           open(peer) {
             const upgrade = peer.context.upgrade as NodeUpgrade | undefined;
             if (!upgrade) {
-              closeWebSocket(peer, 1011, '[wskit] upgrade decision was not available');
+              closeWebSocket(peer, 1011, '[livething] upgrade decision was not available');
               return;
             }
 
             if (upgrade.type !== 'accept') {
               if (upgrade.type === 'http') {
-                closeWebSocket(peer, 1011, '[wskit] upgrade response was not available');
+                closeWebSocket(peer, 1011, '[livething] upgrade response was not available');
                 return;
               }
 
@@ -80,13 +80,13 @@ export function setup(): H3Setup {
               });
               connections.set(peer, connection);
             } catch {
-              closeWebSocket(peer, 1011, '[wskit] connection setup failed');
+              closeWebSocket(peer, 1011, '[livething] connection setup failed');
             }
           },
 
           message(peer, message: WebSocketMessage) {
             if (typeof message.rawData !== 'string') {
-              closeWebSocket(peer, 1003, '[wskit] binary frames are not supported yet');
+              closeWebSocket(peer, 1003, '[livething] binary frames are not supported yet');
               return;
             }
 

@@ -1,10 +1,10 @@
 import { channelKey } from '~/internal/channel-key.ts';
-import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
+import type { LiveThingMetadata, Message } from '~/internal/runtime.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
 /**
  * Catches you up after a reconnect. As messages arrive it remembers the highest
- * sequence number (`__wskit.seq`) it has seen, per scope. When the socket
+ * sequence number (`metadata.stream.seq` or `metadata.delivery.seq`) it has seen, per scope. When the socket
  * reconnects it asks the server for everything after that, so you don't miss
  * what happened while you were away.
  *
@@ -33,16 +33,20 @@ export function replay(): Primitive<EmptyTypeFn> {
         if (!current || seq > current.seq) lastSeq.set(key, { seq, channel, channelFamily });
       }
 
-      function handleGap(message: WireMessage): WireMessage {
+      function handleGap(message: Message): Message {
         const payload = message.payload as { missedThrough?: unknown } | null | undefined;
         if (typeof payload?.missedThrough === 'number') {
-          remember(payload.missedThrough, message.__wskit?.channel, message.__wskit?.channelFamily);
+          remember(
+            payload.missedThrough,
+            message.metadata?.channel?.name,
+            message.metadata?.channel?.family,
+          );
         }
 
         return message;
       }
 
-      function handleError(message: WireMessage): WireMessage {
+      function handleError(message: Message): Message {
         const payload = message.payload as
           | { code?: string; detail?: { event?: string } }
           | null
@@ -56,16 +60,16 @@ export function replay(): Primitive<EmptyTypeFn> {
         return message;
       }
 
-      function handleIncoming(message: WireMessage): WireMessage {
+      function handleIncoming(message: Message): Message {
         if (message.event === '__gap__') return handleGap(message);
 
         if (message.event === '__error__') return handleError(message);
 
-        if (message.__wskit?.streamId !== undefined) return message;
+        if (message.metadata?.stream?.id !== undefined) return message;
 
-        const seq = message.__wskit?.seq;
+        const seq = message.metadata?.stream?.seq ?? message.metadata?.delivery?.seq;
         if (typeof seq === 'number') {
-          remember(seq, message.__wskit?.channel, message.__wskit?.channelFamily);
+          remember(seq, message.metadata?.channel?.name, message.metadata?.channel?.family);
         }
 
         return message;
@@ -77,18 +81,21 @@ export function replay(): Primitive<EmptyTypeFn> {
         onReconnect() {
           if (lastSeq.size === 0) return null;
 
-          const requests: WireMessage[] = [];
+          const requests: Message[] = [];
           for (const info of lastSeq.values()) {
-            const wskit: WSKitEnvelope = {};
-            if (info.channel) {
-              wskit.channel = info.channel;
-              if (info.channelFamily) wskit.channelFamily = info.channelFamily;
-            }
+            const metadata: LiveThingMetadata | null = info.channel
+              ? {
+                  channel: {
+                    name: info.channel,
+                    ...(info.channelFamily ? { family: info.channelFamily } : {}),
+                  },
+                }
+              : null;
 
             requests.push({
               event: '__replay__',
               payload: { lastKnownSeq: info.seq },
-              __wskit: wskit,
+              metadata,
             });
           }
 

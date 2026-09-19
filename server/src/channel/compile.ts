@@ -34,7 +34,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
 
   const scopeLabel = `channel "${key}"`;
   for (const child of primitive.primitives) {
-    switch (child.__wskit) {
+    switch (child.__livething) {
       case 'outgoing': {
         const p = child as AnyOutgoing;
         setUniqueOrThrow(scope.outgoing, p.event, { value: p, kind: `outgoing in ${scopeLabel}` });
@@ -88,7 +88,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
 
 /**
  * Refuse to boot when a channel family pattern matches a static channel name.
- * The two would route the same wire `__wskit.channel` value to different compiled
+ * The two would route the same wire `__livething.channel` value to different compiled
  * definitions depending on which side the lookup hit first. Surface the
  * conflict at boot time to keep runtime behaviour unambiguous.
  */
@@ -99,7 +99,7 @@ export function validateChannelFamilyPatternsDisjointFromStaticNames(
     for (const staticName of compiled.channels.keys()) {
       if (matchesFamilyPattern(family.pattern, staticName)) {
         throw new Error(
-          `[wskit] Channel family '${familyKey}' has a pattern that matches the static ` +
+          `[livething] Channel family '${familyKey}' has a pattern that matches the static ` +
             `channel name '${staticName}'. Static channel names and family patterns must be ` +
             `disjoint — narrow the family pattern or rename the static channel.`,
         );

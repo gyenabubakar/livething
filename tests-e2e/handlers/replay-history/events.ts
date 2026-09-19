@@ -1,4 +1,4 @@
-import { t } from '@wskit/server';
+import { t } from '@livething/server';
 import * as v from 'valibot';
 
 export const ChatMsg = v.object({ text: v.string(), from: v.string() });

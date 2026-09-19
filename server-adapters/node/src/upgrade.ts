@@ -1,6 +1,6 @@
 import { STATUS_CODES } from 'node:http';
-import { CloseCodes } from '@wskit/server/errors';
-import type { UpgradeDecision } from '@wskit/server/adapters';
+import { CloseCodes } from '@livething/server/errors';
+import type { UpgradeDecision } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { RawData, WebSocket } from 'ws';
@@ -94,7 +94,7 @@ async function handleNodeUpgrade(options: NodeUpgradeRequest): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       let accepted = false;
       function rejectClosedUpgrade(): void {
-        if (!accepted) reject(new Error('[wskit] WebSocket upgrade closed before acceptance'));
+        if (!accepted) reject(new Error('[livething] WebSocket upgrade closed before acceptance'));
       }
 
       function detachListeners(): void {
@@ -128,7 +128,11 @@ async function handleNodeUpgrade(options: NodeUpgradeRequest): Promise<void> {
     });
   } catch (error) {
     if (acceptedSocket) {
-      closeWebSocket(acceptedSocket, CloseCodes.INTERNAL_ERROR, '[wskit] connection setup failed');
+      closeWebSocket(
+        acceptedSocket,
+        CloseCodes.INTERNAL_ERROR,
+        '[livething] connection setup failed',
+      );
     }
 
     throw error;
@@ -163,7 +167,7 @@ function attachAcceptedWebSocket(socket: WebSocket, connection: NodeConnection):
       closeWebSocket(
         socket,
         CloseCodes.UNSUPPORTED_DATA,
-        '[wskit] binary frames are not supported yet',
+        '[livething] binary frames are not supported yet',
       );
       return;
     }

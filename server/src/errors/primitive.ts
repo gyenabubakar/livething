@@ -33,8 +33,8 @@ const ERRORS_KEY = Symbol('errors');
  *
  * @example
  * ```ts
- * import { server, errors, t } from '@wskit/server';
- * import { error } from '@wskit/server/errors';
+ * import { server, errors, t } from '@livething/server';
+ * import { error } from '@livething/server/errors';
  * import * as v from 'valibot';
  *
  * const NotFound = error('not-found', v.object({ id: v.string() }));
@@ -56,7 +56,7 @@ export function errors<const TDefs extends readonly [AnyErrorDef, ...AnyErrorDef
   ...defs: TDefs
 ): ErrorsPrimitive<TDefs> {
   return {
-    __wskit: 'errors',
+    __livething: 'errors',
     __kind: 'contract',
     __identity: [ERRORS_KEY],
     __requires: {},

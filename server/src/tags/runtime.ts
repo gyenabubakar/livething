@@ -46,7 +46,7 @@ function assertGroupDeclared(
   if (runtime.isTagGroupDeclared(kind, group)) return;
 
   throw new Error(
-    `[wskit] tag group '${group}' is not declared under tags (${kind}). Add it to your contract's tags: builder or check for a typo.`,
+    `[livething] tag group '${group}' is not declared under tags (${kind}). Add it to your contract's tags: builder or check for a typo.`,
   );
 }
 
@@ -60,7 +60,7 @@ function makeRefHandle(
 ): TagRefHandle {
   const { kind, group, key } = tag;
   return {
-    __wskit: 'tag-ref',
+    __livething: 'tag-ref',
     kind,
     group,
     key,
@@ -114,7 +114,7 @@ export function buildGroupHandle(
   const persistsDurably = connection.userId.length > 0;
 
   return {
-    __wskit: 'group-handle',
+    __livething: 'group-handle',
     kind,
     group,
 

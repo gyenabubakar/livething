@@ -73,7 +73,11 @@ test.describe('stream-basic', () => {
     await b.evaluate((sid) => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({ event: '__streamCancel__', payload: {}, __wskit: { streamId: sid } }),
+        window.__livethingEncode({
+          event: '__streamCancel__',
+          payload: null,
+          metadata: { stream: { id: sid } },
+        }),
       );
     }, aliceStreamId);
 
@@ -139,7 +143,7 @@ test.describe('stream-basic', () => {
     await expect(page.getByTestId('cancel-observed')).toHaveText('yes');
   });
 
-  test('multiple concurrent streams from same connection each have distinct _streamId', async ({
+  test('concurrent streams from one connection have distinct metadata.stream.id values', async ({
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);

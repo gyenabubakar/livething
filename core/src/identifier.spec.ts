@@ -1,53 +1,57 @@
 import { describe, expect, it } from 'vitest';
 import { error } from './errors.ts';
 import {
-  assertValidWSKitIdentifier,
+  assertValidLiveThingIdentifier,
   exceedsWireLimit,
-  isValidWSKitIdentifier,
+  isValidLiveThingIdentifier,
   WIRE_LIMITS,
 } from './identifier.ts';
 
-describe('isValidWSKitIdentifier', () => {
+describe('isValidLiveThingIdentifier', () => {
   it('accepts ordinary names, including a single colon for plugin ids', () => {
-    expect(isValidWSKitIdentifier('message')).toBe(true);
-    expect(isValidWSKitIdentifier('user-joined')).toBe(true);
-    expect(isValidWSKitIdentifier('acme:analytics')).toBe(true);
-    expect(isValidWSKitIdentifier('_single-underscore-ok')).toBe(true);
+    expect(isValidLiveThingIdentifier('message')).toBe(true);
+    expect(isValidLiveThingIdentifier('user-joined')).toBe(true);
+    expect(isValidLiveThingIdentifier('acme:analytics')).toBe(true);
+    expect(isValidLiveThingIdentifier('_single-underscore-ok')).toBe(true);
   });
 
   it('rejects empty strings, non-strings, and reserved double-underscore edges', () => {
-    expect(isValidWSKitIdentifier('')).toBe(false);
-    expect(isValidWSKitIdentifier(undefined)).toBe(false);
-    expect(isValidWSKitIdentifier(123)).toBe(false);
-    expect(isValidWSKitIdentifier('__subscribe__')).toBe(false);
-    expect(isValidWSKitIdentifier('__anything')).toBe(false);
+    expect(isValidLiveThingIdentifier('')).toBe(false);
+    expect(isValidLiveThingIdentifier(undefined)).toBe(false);
+    expect(isValidLiveThingIdentifier(123)).toBe(false);
+    expect(isValidLiveThingIdentifier('__subscribe__')).toBe(false);
+    expect(isValidLiveThingIdentifier('__anything')).toBe(false);
 
-    expect(isValidWSKitIdentifier('anything__')).toBe(false);
+    expect(isValidLiveThingIdentifier('anything__')).toBe(false);
   });
 });
 
-describe('assertValidWSKitIdentifier', () => {
+describe('assertValidLiveThingIdentifier', () => {
   it('throws a non-empty-string message for empty/non-string names', () => {
-    expect(() => assertValidWSKitIdentifier('', 'event name')).toThrow(
+    expect(() => assertValidLiveThingIdentifier('', 'event name')).toThrow(
       /event name must be a non-empty string/,
     );
   });
 
   it('throws a reserved-prefix message for a leading __', () => {
-    expect(() => assertValidWSKitIdentifier('__foo', 'event name')).toThrow(/reserved '__' prefix/);
+    expect(() => assertValidLiveThingIdentifier('__foo', 'event name')).toThrow(
+      /reserved '__' prefix/,
+    );
   });
 
   it('throws a reserved-suffix message for a trailing __', () => {
-    expect(() => assertValidWSKitIdentifier('foo__', 'event name')).toThrow(/reserved '__' suffix/);
+    expect(() => assertValidLiveThingIdentifier('foo__', 'event name')).toThrow(
+      /reserved '__' suffix/,
+    );
   });
 
   it('passes through a valid name', () => {
-    expect(() => assertValidWSKitIdentifier('ok', 'event name')).not.toThrow();
+    expect(() => assertValidLiveThingIdentifier('ok', 'event name')).not.toThrow();
   });
 
   it('throws a wire-limit message when the name is over maxLength', () => {
     const tooLong = 'e'.repeat(WIRE_LIMITS.event + 1);
-    expect(() => assertValidWSKitIdentifier(tooLong, 'event name', WIRE_LIMITS.event)).toThrow(
+    expect(() => assertValidLiveThingIdentifier(tooLong, 'event name', WIRE_LIMITS.event)).toThrow(
       /wire protocol limit is 128/,
     );
   });
@@ -55,7 +59,7 @@ describe('assertValidWSKitIdentifier', () => {
   it('allows a name exactly at maxLength', () => {
     const atLimit = 'e'.repeat(WIRE_LIMITS.event);
     expect(() =>
-      assertValidWSKitIdentifier(atLimit, 'event name', WIRE_LIMITS.event),
+      assertValidLiveThingIdentifier(atLimit, 'event name', WIRE_LIMITS.event),
     ).not.toThrow();
   });
 });

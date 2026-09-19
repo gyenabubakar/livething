@@ -146,13 +146,13 @@ describe('plugin upgrade — meta merge + user id single owner', () => {
           {
             pluginId: 'acme:a',
             handler: () => ({
-              tags: [{ __wskit: 'tag-ref', kind: 'ephemeral', group: 'g', key: 'k1' }],
+              tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'g', key: 'k1' }],
             }),
           },
         ],
         builderUpgradeHook: () => ({
           userId: 'u',
-          tags: [{ __wskit: 'tag-ref', kind: 'ephemeral', group: 'g', key: 'k2' }],
+          tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'g', key: 'k2' }],
         }),
       }),
       new Request('https://x/'),

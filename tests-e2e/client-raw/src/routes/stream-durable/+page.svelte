@@ -41,7 +41,7 @@
 			if (typeof ev.data !== 'string') return;
 
 			allMsgCount += 1;
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'count-tokens' && typeof data.payload?.idx === 'number') {
 				tokenChunks = [...tokenChunks, data.payload.idx];
 			} else if (data.event === 'paginate' && typeof data.payload?.row === 'number') {
@@ -57,51 +57,55 @@
 			} else if (data.event === '__error__') {
 				lastErrorCode = data.payload?.code ?? null;
 				lastErrorReason = data.payload?.detail?.reason ?? null;
-				lastErrorStreamId = data.__wskit?.streamId ?? null;
+				lastErrorStreamId = data.metadata?.stream?.id ?? null;
 			}
 		};
 	}
 
 	function send(
 		event: string,
-		payload: Record<string, unknown>,
-		__wskit?: Record<string, unknown>,
+		payload: Record<string, unknown> | null,
+		metadata: { stream?: { id: string } } | null = null,
 	) {
-		ws?.send(JSON.stringify({ event, payload, __wskit }));
+		ws?.send(window.__livethingEncode({
+			event,
+			payload,
+			metadata,
+		}));
 	}
 
 	function startCountTokens() {
 		tokenChunks = [];
 		streamEndCount = 0;
-		send('count-tokens', {}, { streamId: streamIdInput });
+		send('count-tokens', {}, { stream: { id: streamIdInput } });
 	}
 
 	function startPaginate() {
 		paginateRows = [];
 		streamEndCount = 0;
-		send('paginate', {}, { streamId: streamIdInput });
+		send('paginate', {}, { stream: { id: streamIdInput } });
 	}
 
 	function startPaginateBare() {
 		paginateBareRows = [];
 		streamEndCount = 0;
-		send('paginate-bare', {}, { streamId: streamIdInput });
+		send('paginate-bare', {}, { stream: { id: streamIdInput } });
 	}
 
 	function startAttemptStream() {
 		attemptValue = null;
 		streamEndCount = 0;
-		send('attempt-stream', {}, { streamId: streamIdInput });
+		send('attempt-stream', {}, { stream: { id: streamIdInput } });
 	}
 
 	function startBufferFullDemo() {
 		bufferChunkCount = 0;
 		streamEndCount = 0;
-		send('buffer-full-demo', {}, { streamId: streamIdInput });
+		send('buffer-full-demo', {}, { stream: { id: streamIdInput } });
 	}
 
 	function sendCancel() {
-		send('__streamCancel__', {}, { streamId: streamIdInput });
+		send('__streamCancel__', null, { stream: { id: streamIdInput } });
 	}
 
 	function dropSocket() {
@@ -118,7 +122,7 @@
 	}
 
 	function sendResume() {
-		send('__resumeStream__', { lastKnownSeq: Number(sinceInput) || 0 }, { streamId: streamIdInput });
+		send('__resumeStream__', { lastKnownSeq: Number(sinceInput) || 0 }, { stream: { id: streamIdInput } });
 	}
 </script>
 

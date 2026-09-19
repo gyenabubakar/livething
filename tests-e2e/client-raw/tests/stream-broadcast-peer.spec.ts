@@ -5,13 +5,12 @@ import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 const WS_PATH = '/ws/stream-broadcast';
 
 /**
- * A plain (non-durable) broadcast must give peers the full lifecycle: chunks
- * tagged with streamId + seq + streamKind, and a terminal __streamEnd__. Before
- * the server fix, peer chunks carried no streamId and no end frame, so a client
- * could neither group nor complete the stream.
+ * A plain broadcast gives peers chunks tagged with `metadata.stream.id`,
+ * `metadata.stream.seq`, and `metadata.stream.durability`, followed by a
+ * terminal `__streamEnd__` so peers can group and complete the stream.
  */
 test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
-  test('a peer receives chunks tagged with streamId/seq/streamKind, then __streamEnd__', async ({
+  test('a peer receives stream metadata on each chunk, then __streamEnd__', async ({
     browser,
   }: {
     browser: Browser;
@@ -41,25 +40,25 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
       const chunks = (await frames(pageB, b)).filter((f) => f.event === 'start-broadcast');
       expect(chunks.map((f) => (f.payload as { index: number }).index)).toEqual([0, 1, 2]);
 
-      // Each peer chunk carries the same streamId, a monotonic seq, and streamKind.
-      const streamId = chunks[0]!.__wskit?.streamId;
+      // Each peer chunk carries the same stream ID, a monotonic sequence, and durability.
+      const streamId = chunks[0]!.metadata?.stream?.id;
       expect(typeof streamId).toBe('string');
       for (const f of chunks) {
-        expect(f.__wskit?.streamId).toBe(streamId);
-        expect(f.__wskit?.streamKind).toBe('ephemeral');
-        expect(typeof f.__wskit?.seq).toBe('number');
+        expect(f.metadata?.stream?.id).toBe(streamId);
+        expect(f.metadata?.stream?.durability).toBe('ephemeral');
+        expect(typeof f.metadata?.stream?.seq).toBe('number');
       }
 
-      const seqs = chunks.map((f) => f.__wskit?.seq as number);
+      const seqs = chunks.map((f) => f.metadata?.stream?.seq as number);
       expect(seqs[0]).toBeLessThan(seqs[1]!);
 
       expect(seqs[1]).toBeLessThan(seqs[2]!);
 
       // ...and a terminal __streamEnd__ for the same stream.
       const end = await waitForFrame(pageB, b, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+        match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
       });
-      expect(typeof end.__wskit?.seq).toBe('number');
+      expect(typeof end.metadata?.stream?.seq).toBe('number');
     } finally {
       await ctxA.close();
       await ctxB.close();
@@ -88,22 +87,25 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
       // A long-running broadcast (100 chunks × 10ms) so a cancel lands mid-stream.
       await send(pageA, a, { event: 'start-broadcast', payload: { count: 100 } });
 
-      // Bob receives a chunk and learns the streamId.
+      // Bob receives a chunk and learns `metadata.stream.id`.
       const firstChunk = await waitForFrame(pageB, b, {
         match: (f) => f.event === 'start-broadcast',
       });
-      const streamId = firstChunk.__wskit?.streamId;
+      const streamId = firstChunk.metadata?.stream?.id;
       expect(typeof streamId).toBe('string');
 
       // Alice cancels the stream mid-flight.
-      await send(pageA, a, { event: '__streamCancel__', payload: {}, __wskit: { streamId } });
-
-      // Bob must get a terminal __streamEnd__ for that stream — before the fix the
-      // cancel path notified no peers, so Bob's run hung until socket close.
-      const end = await waitForFrame(pageB, b, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      await send(pageA, a, {
+        event: '__streamCancel__',
+        payload: null,
+        metadata: { stream: { id: streamId } },
       });
-      expect(end.__wskit?.eventName).toBe('start-broadcast');
+
+      // Bob receives the terminal __streamEnd__ when Alice cancels the stream.
+      const end = await waitForFrame(pageB, b, {
+        match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
+      });
+      expect(end.metadata?.stream?.event).toBe('start-broadcast');
     } finally {
       await ctxA.close();
       await ctxB.close();
@@ -134,9 +136,9 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
 
       // The peer is told the stream broke — a terminal __error__, not a clean end.
       const errB = await waitForFrame(pageB, b, {
-        match: (f) => f.event === '__error__' && f.__wskit?.streamTerminated === true,
+        match: (f) => f.event === '__error__' && f.metadata?.stream?.terminated === true,
       });
-      const streamId = errB.__wskit?.streamId;
+      const streamId = errB.metadata?.stream?.id;
       expect(typeof streamId).toBe('string');
       expect(errB.payload.code).toBe('internal-error');
 
@@ -144,15 +146,15 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
       const errA = await waitForFrame(pageA, a, {
         match: (f) =>
           f.event === '__error__' &&
-          f.__wskit?.streamTerminated === true &&
-          f.__wskit?.streamId === streamId,
+          f.metadata?.stream?.terminated === true &&
+          f.metadata?.stream?.id === streamId,
       });
       expect(errA.payload.code).toBe('internal-error');
 
       // The peer must NOT also receive a misleading clean end for this stream.
       const peerFrames = await frames(pageB, b);
       expect(
-        peerFrames.some((f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId),
+        peerFrames.some((f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId),
       ).toBe(false);
     } finally {
       await ctxA.close();

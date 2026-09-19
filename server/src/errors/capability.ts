@@ -18,7 +18,7 @@ type ErrorsSlot<TDefs extends readonly ErrorDef<string, any>[]> = { errors: Erro
  *
  * @example
  * ```ts
- * import { server, errors, error, t } from '@wskit/server';
+ * import { server, errors, error, t } from '@livething/server';
  * import * as v from 'valibot';
  *
  * const NotFound = error('not-found', v.object({ id: v.string() }));

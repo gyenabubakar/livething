@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter, normalizeCloseReason } from '@wskit/server/adapters';
-import { CloseCodes } from '@wskit/server/errors';
+import { adapter, normalizeCloseReason } from '@livething/server/adapters';
+import { CloseCodes } from '@livething/server/errors';
 import { DurableObject } from 'cloudflare:workers';
 import type {
   ApiOf,
@@ -10,11 +10,11 @@ import type {
   Logger,
   MetaOf,
   ServerDefinition,
-} from '@wskit/server/adapters';
+} from '@livething/server/adapters';
 import { buildAdmin } from './admin.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
-import type { WSKitAdmin } from './admin.ts';
+import type { LiveThingAdmin } from './admin.ts';
 
 /**
  * The instance shape of a `bind()`-produced Durable Object.
@@ -26,7 +26,7 @@ import type { WSKitAdmin } from './admin.ts';
  * so `const admin = await stub.admin(); await admin.purgeUser(userId)` reaches
  * into the running server from a webhook or cron with no socket of its own.
  */
-export interface WSKitDurableObjectInstance<
+export interface LiveThingDurableObjectInstance<
   Env = unknown,
   TApi = unknown,
   TMeta = Record<string, never>,
@@ -38,7 +38,7 @@ export interface WSKitDurableObjectInstance<
    * await admin.purgeUser(id)`, plus whatever the server definition's own `api` factory
    * returned.
    */
-  admin(): Promise<WSKitAdmin<TMeta> & TApi>;
+  admin(): Promise<LiveThingAdmin<TMeta> & TApi>;
 }
 
 /**
@@ -54,7 +54,7 @@ export type CloudflareDurableObjectClass<
   Env = unknown,
   TApi = unknown,
   TMeta = Record<string, never>,
-> = new (ctx: DurableObjectState, env: Env) => WSKitDurableObjectInstance<Env, TApi, TMeta>;
+> = new (ctx: DurableObjectState, env: Env) => LiveThingDurableObjectInstance<Env, TApi, TMeta>;
 
 function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
@@ -76,7 +76,7 @@ const buildBind = adapter<
   asyncContextFactory: createAsyncContext,
 
   setup<TApi>(createEngine: (options: EngineRuntimeOptions) => Engine<TApi>) {
-    return class WSKitDurableObject<Env = unknown> extends DurableObject<Env> {
+    return class LiveThingDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine<TApi>;
       private readonly liveConnections = new Map<WebSocket, ConnectionHandle>();
       private readonly ready: Promise<void>;
@@ -177,7 +177,7 @@ const buildBind = adapter<
             // CloseCodes.UNSUPPORTED_DATA tells the client why the socket is closing.
             socket.close(
               CloseCodes.UNSUPPORTED_DATA,
-              '[wskit] binary frames are not supported yet',
+              '[livething] binary frames are not supported yet',
             );
           }
         });
@@ -208,9 +208,9 @@ const buildBind = adapter<
 
         const descriptor = this.createConnectionDescriptor(server, result);
 
-        // Tags are NOT forwarded into Cloudflare's per-socket tag store: WSKit
+        // Tags are NOT forwarded into Cloudflare's per-socket tag store: LiveThing
         // persists them in its hibernation attachment, and the store's caps (10
-        // tags, 256 chars each) would crash the upgrade for larger WSKit tags.
+        // tags, 256 chars each) would crash the upgrade for larger LiveThing tags.
         const hibernating = this.engine.usesHibernation();
         if (hibernating) {
           this.ctx.acceptWebSocket(server);
@@ -222,7 +222,7 @@ const buildBind = adapter<
         try {
           connection = this.engine.accept(server, descriptor);
         } catch (error) {
-          descriptor.close(CloseCodes.INTERNAL_ERROR, '[wskit] connection setup failed');
+          descriptor.close(CloseCodes.INTERNAL_ERROR, '[livething] connection setup failed');
           throw error;
         }
 
@@ -245,7 +245,7 @@ const buildBind = adapter<
 
         const connection = this.liveConnections.get(ws);
         if (!connection) {
-          throw new Error('[wskit] Connection is not active for this websocket.');
+          throw new Error('[livething] Connection is not active for this websocket.');
         }
 
         return connection;
@@ -264,7 +264,7 @@ const buildBind = adapter<
           return;
         }
 
-        throw new Error('[wskit] binary frames are not supported yet');
+        throw new Error('[livething] binary frames are not supported yet');
       }
 
       // oxlint-disable-next-line max-params
@@ -330,7 +330,7 @@ const buildBind = adapter<
        */
       // The engine erases the app's meta type at runtime; `bind()` casts the
       // finished class back to the handler's own `TMeta`.
-      async admin(): Promise<WSKitAdmin<Record<string, unknown>> & TApi> {
+      async admin(): Promise<LiveThingAdmin<Record<string, unknown>> & TApi> {
         await this.ready;
         if (this.engine.usesHibernation()) {
           for (const ws of this.ctx.getWebSockets()) {
@@ -346,16 +346,16 @@ const buildBind = adapter<
 
 function requestWithClientIp(request: Request): Request {
   const headers = new Headers(request.headers);
-  headers.delete('WSKit-Client-IP');
+  headers.delete('LiveThing-Client-IP');
 
   const clientIp = request.headers.get('CF-Connecting-IP');
-  if (clientIp) headers.set('WSKit-Client-IP', clientIp);
+  if (clientIp) headers.set('LiveThing-Client-IP', clientIp);
 
   return new Request(request, { headers });
 }
 
 /**
- * Turn a WSKit server definition into a Cloudflare Durable Object class.
+ * Turn a LiveThing server definition into a Cloudflare Durable Object class.
  *
  * Export the returned class from your Worker so the Cloudflare runtime can
  * instantiate one DO per `idFromName(...)`. Each DO instance owns its own
@@ -379,7 +379,7 @@ function requestWithClientIp(request: Request): Request {
  * which needs a **type** of that name; a `const` exports only a value, so the
  * binding falls back to `any` and every `stub.…()` call goes unchecked.
  *
- * **WSKit requires `compatibility_date` `2026-04-07` or later** in
+ * **LiveThing requires `compatibility_date` `2026-04-07` or later** in
  * `wrangler.jsonc`. On that date the Workers runtime completes a
  * client-initiated WebSocket close handshake itself; on earlier dates it does
  * not, so a client that calls `socket.disconnect()` (or `ws.close()`) can hang
@@ -389,7 +389,7 @@ function requestWithClientIp(request: Request): Request {
  * @example
  * ```ts
  * // src/worker.ts
- * import { bind } from '@wskit/server-cloudflare';
+ * import { bind } from '@livething/server-cloudflare';
  * import { serverDefinition } from './server-definition';
  *
  * export class GameRoom extends bind(serverDefinition) {}

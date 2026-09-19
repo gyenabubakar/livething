@@ -1,8 +1,8 @@
-import { channels, client, connect, serverRequests } from '@wskit/client';
-import type { BroadcastRequestClient } from '@wskit/tests-e2e-handlers/broadcast-request';
+import { channels, client, connect, serverRequests } from '@livething/client';
+import type { BroadcastRequestClient } from '@livething/tests-e2e-handlers/broadcast-request';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's serverRequests() against the real `broadcast-request`
+// Drives @livething/client's serverRequests() against the real `broadcast-request`
 // server definition, typed by the same contract the server implements
 // (BroadcastRequestClient = InferClient<definition>). Members join the `lobby`
 // channel; the server fans a broadcast request out to every member and resolves

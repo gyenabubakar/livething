@@ -1,4 +1,4 @@
-import { error } from '@wskit/core';
+import { error } from '@livething/core';
 
 /** A pending `request()` timed out. */
 export const Timeout = /* @__PURE__ */ error('timeout');
@@ -14,4 +14,4 @@ export const Disconnected = /* @__PURE__ */ error('disconnected');
  */
 export const Dropped = /* @__PURE__ */ error('dropped');
 
-export { error, WSKitError, Block, ValidationFailed } from '@wskit/core';
+export { error, LiveThingError, Block, ValidationFailed } from '@livething/core';

@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { setup } from '@wskit/server-node';
+import { setup } from '@livething/server-node';
 import Koa from 'koa';
 import {
   attachUpgradeHandler,
@@ -9,13 +9,13 @@ import {
 } from './node-http.ts';
 
 configureFixtureBinding((definition, options) => {
-  const wskit = setup();
-  const endpoint = wskit.bind(definition, options);
+  const livething = setup();
+  const endpoint = livething.bind(definition, options);
   return {
     endpoint,
     ready: endpoint.ready(),
     admin: endpoint.admin,
-    shutdown: wskit.shutdown,
+    shutdown: livething.shutdown,
   };
 });
 

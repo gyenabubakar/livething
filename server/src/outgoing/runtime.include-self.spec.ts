@@ -36,7 +36,7 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
       channelFamilies: new Map(),
     } as unknown as OutgoingRuntime['compiled'],
     outgoingHooks: [],
-    wskitStampHooks: [],
+    livethingStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
     logger: { warn() {}, error() {} },

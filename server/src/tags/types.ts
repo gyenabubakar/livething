@@ -28,7 +28,7 @@ export interface TagRefHandle<Meta = Record<string, unknown>> extends TagRef {
  */
 export interface TagGroupHandle<Meta = Record<string, unknown>> {
   /** Brand tag so the type cannot be confused with a plain object. */
-  readonly __wskit: 'group-handle';
+  readonly __livething: 'group-handle';
   /** Whether this group is ephemeral or persistent. */
   readonly kind: TagKind;
   /** Group name as declared in the contract's `tags:` builder. */

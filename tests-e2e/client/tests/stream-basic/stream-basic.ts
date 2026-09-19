@@ -1,8 +1,8 @@
-import { client, connect, stream } from '@wskit/client';
-import type { StreamBasicClient } from '@wskit/tests-e2e-handlers/stream-basic';
+import { client, connect, stream } from '@livething/client';
+import type { StreamBasicClient } from '@livething/tests-e2e-handlers/stream-basic';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's stream() against the real `stream-basic` server definition, typed
+// Drives @livething/client's stream() against the real `stream-basic` server definition, typed
 // by the same contract the server implements (StreamBasicClient = InferClient<definition>).
 export function setup(): void {
   mount(`

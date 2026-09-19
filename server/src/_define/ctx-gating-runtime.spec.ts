@@ -80,7 +80,7 @@ async function captureCtx(server: ProbeServer): Promise<any> {
     captured = ctx;
   };
 
-  await conn.handleMessage(JSON.stringify({ event: 'probe', payload: {} }));
+  await conn.handleMessage(JSON.stringify(['probe', {}, null]));
   if (!captured) throw new Error('probe handler did not run');
 
   return captured;

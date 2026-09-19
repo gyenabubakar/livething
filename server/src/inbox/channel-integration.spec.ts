@@ -79,7 +79,7 @@ describe('inbox() on a channel — writes real per-member rows on broadcast', ()
       channelFamily: null,
       event: 'room-msg',
       payload: { text: 'hi' },
-      seq: 1,
+      deliverySeq: 1,
       messageId: 'm1',
     });
 
@@ -107,7 +107,7 @@ describe('inbox() on a channel — writes real per-member rows on broadcast', ()
       channelFamily: null,
       event: 'room-msg',
       payload: { text: 'hi' },
-      seq: 1,
+      deliverySeq: 1,
       messageId: 'm1',
     });
 
@@ -121,34 +121,34 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const firstChat = base.channel('chat', { capabilities: [inbox()] });
-    const firstLegacy = base.channel('legacy', { capabilities: [inbox()] });
+    const removedChannel = base.channel('removed', { capabilities: [inbox()] });
     const storage = createTestStorage();
-    const first = buildEngine(base.assemble({ handlers: [firstChat, firstLegacy] }), storage);
+    const first = buildEngine(base.assemble({ handlers: [firstChat, removedChannel] }), storage);
 
     await first.engine.initialize();
 
     insertInboxRows(storage.sql, {
       userIds: ['alice'],
-      channelName: 'legacy',
+      channelName: 'removed',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'legacy-1', event: 'old', payload: {} },
+      frame: { deliverySeq: 1, messageId: 'removed-1', event: 'message', payload: {} },
       now: 1,
     });
     bumpInboxWatermark(storage.sql, {
       userId: 'alice',
-      channelName: 'legacy',
+      channelName: 'removed',
       channelFamily: null,
       evictedThroughSeq: 1,
     });
     advanceReceivedThrough(storage.sql, {
-      channelName: 'legacy',
+      channelName: 'removed',
       channelFamily: null,
       userId: 'alice',
       receivedThrough: 1,
       now: 1,
     });
     advanceReadThrough(storage.sql, {
-      channelName: 'legacy',
+      channelName: 'removed',
       channelFamily: null,
       userId: 'alice',
       readThrough: 1,
@@ -162,10 +162,10 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
     expect(loadUndeliveredRows(storage.sql, 'alice')).toEqual([]);
     expect(loadInboxWatermarks(storage.sql, 'alice')).toEqual([]);
     expect(
-      listReceivers(storage.sql, { channelName: 'legacy', channelFamily: null, seq: 1 }),
+      listReceivers(storage.sql, { channelName: 'removed', channelFamily: null, seq: 1 }),
     ).toEqual([]);
     expect(
-      listReaders(storage.sql, { channelName: 'legacy', channelFamily: null, seq: 1 }),
+      listReaders(storage.sql, { channelName: 'removed', channelFamily: null, seq: 1 }),
     ).toEqual([]);
   });
 
@@ -186,14 +186,14 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
       userIds: ['alice'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'm1', event: 'room-msg', payload: {} },
+      frame: { deliverySeq: 1, messageId: 'm1', event: 'room-msg', payload: {} },
       now: 1,
     });
     insertInboxRows(storage.sql, {
       userIds: ['alice'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { seq: 2, messageId: 'm2', event: 'room-msg', payload: {} },
+      frame: { deliverySeq: 2, messageId: 'm2', event: 'room-msg', payload: {} },
       now: 2,
     });
 
@@ -235,7 +235,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
         channelFamily: null,
         event: 'room-msg',
         payload: { text: 'quiet' },
-        seq: 1,
+        deliverySeq: 1,
         messageId: 'm1',
       });
 
@@ -290,7 +290,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
         channelFamily: null,
         event: 'room-msg',
         payload: { text: 'static' },
-        seq: 1,
+        deliverySeq: 1,
         messageId: 'static-1',
       });
       core.inboxService!.fanOut(core, {
@@ -298,7 +298,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
         channelFamily: 'rooms',
         event: 'room-msg',
         payload: { text: 'dynamic' },
-        seq: 2,
+        deliverySeq: 2,
         messageId: 'dynamic-1',
       });
 
@@ -332,7 +332,7 @@ describe('a host missing sequence()/dedup() fails the build, naming what to add 
     const base = server({ capabilities: [channels()] });
     const chat = base.channel('chat', { capabilities: [inbox()] });
     expect(() => base.assemble({ handlers: [chat] })).toThrow(
-      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to server({ capabilities: [...] }).',
+      '[livething] The sequence() capability is required by inbox but is not listed. Add sequence() to server({ capabilities: [...] }).',
     );
   });
 
@@ -346,7 +346,7 @@ describe('a host missing sequence()/dedup() fails the build, naming what to add 
     });
     const escapeHatch = base as unknown as { channel(name: string, config?: unknown): unknown };
     expect(() => escapeHatch.channel('chat', { capabilities: [inbox()] })).toThrow(
-      '[wskit] base.channel() needs the channels() capability. Add channels() to capabilities.',
+      '[livething] base.channel() needs the channels() capability. Add channels() to capabilities.',
     );
   });
 });

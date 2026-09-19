@@ -1,4 +1,4 @@
-import { RejectUpgrade } from '@wskit/server/errors';
+import { RejectUpgrade } from '@livething/server/errors';
 
 /**
  * The plain upgrade result: a stable `userId` and inferred `meta`, with no

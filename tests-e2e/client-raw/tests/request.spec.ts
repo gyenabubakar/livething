@@ -32,7 +32,7 @@ test.describe('request', () => {
     await expect(page.getByTestId('last-response')).toContainText('"channel":"room"');
   });
 
-  test('void request reply omits the payload key on the wire', async ({ page }, testInfo) => {
+  test('void request reply uses a null payload slot on the wire', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
 
     const frame = await page.evaluate(async () => {
@@ -50,9 +50,9 @@ test.describe('request', () => {
         ws.onmessage = (event) => {
           if (typeof event.data !== 'string') return;
 
-          const candidate = JSON.parse(event.data) as Record<string, unknown>;
+          const candidate = window.__livethingDecode(event.data) as Record<string, unknown>;
           if (
-            (candidate.__wskit as { correlationId?: unknown } | undefined)?.correlationId !==
+            (candidate.metadata as { exchange?: { id?: unknown } } | undefined)?.exchange?.id !==
             correlationId
           ) {
             if (typeof previous === 'function') previous.call(ws, event);
@@ -65,28 +65,24 @@ test.describe('request', () => {
         };
 
         ws.send(
-          JSON.stringify({
+          window.__livethingEncode({
             event: 'no-response',
             payload: {},
-            __wskit: { correlationId },
+            metadata: { exchange: { id: correlationId } },
           }),
         );
       });
     });
 
     expect(frame.event).toBe('no-response');
-    expect(Object.hasOwn(frame, 'payload')).toBe(false);
+    expect(frame.payload).toBe(null);
   });
 
-  test('schema-failed request settles via __error__ frame with the original correlationId', async ({
+  test('schema-failed request returns __error__ with its metadata.exchange.id', async ({
     page,
   }, testInfo) => {
-    // Pre-fix the inner schema-validation catch (separate code path from
-    // a thrown handler) called handleRuntimeError without routing — the
-    // `__error__` reached the client uncorrelated and the request hung
-    // until timeout. The page only records frames whose __wskit carries
-    // a correlationId, so the assertion `last-response not empty` is the
-    // pin: a populated value means the error was correlated.
+    // A schema validation error keeps the request ID so the waiting request
+    // rejects immediately instead of timing out.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('malformed-strict-echo').click();
     await expect(page.getByTestId('last-response')).not.toHaveText('');
@@ -94,19 +90,15 @@ test.describe('request', () => {
     expect(text).toContain('"code"');
   });
 
-  test('thrown request handler error settles via __error__ frame with the original correlationId', async ({
+  test('thrown request handler error returns __error__ with its metadata.exchange.id', async ({
     page,
   }, testInfo) => {
-    // Pre-fix handleDispatchError called handleRuntimeError without
-    // routing, so the `__error__` the client received carried no
-    // correlationId. The request-response plugin only settles
-    // pending requests when an inbound message has a matching id, so
-    // the request hung until timeout instead of failing fast with the
-    // server error.
+    // The error keeps the request ID so the request primitive can match it to
+    // the pending call and reject that call immediately.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('throwing-request').click();
 
-    // The page records any frame whose __wskit carries a correlationId
+    // The page records any frame whose metadata carries an exchange id
     // into responses[id] and exposes it as `last-response`.
     await expect(page.getByTestId('last-response')).not.toHaveText('');
     const text = (await page.getByTestId('last-response').textContent()) ?? '';
@@ -116,10 +108,8 @@ test.describe('request', () => {
     expect(text).toContain('"code"');
   });
 
-  test('non-string correlationId surfaces __error__ with code "validation-failed"', async ({
-    page,
-  }, testInfo) => {
-    // A buggy client wrapper might send `correlationId` as an object or a
+  test('non-string metadata.exchange.id returns validation-failed', async ({ page }, testInfo) => {
+    // A buggy client wrapper might send the request ID as an object or a
     // number. The server rejects the frame with a typed validation error
     // so the wrapper learns immediately, instead of the response sitting
     // open until the wrapper's own timeout fires.
@@ -134,12 +124,12 @@ test.describe('request', () => {
       return await new Promise<ErrorFrame>((resolve, reject) => {
         const timer = window.setTimeout(() => {
           ws.onmessage = original;
-          reject(new Error('timed out waiting for the malformed correlationId error'));
+          reject(new Error('timed out waiting for the malformed request ID error'));
         }, 5_000);
 
         ws.onmessage = (event) => {
           if (typeof event.data === 'string') {
-            const frame = JSON.parse(event.data) as ErrorFrame;
+            const frame = window.__livethingDecode(event.data) as ErrorFrame;
             const detail = frame.payload?.detail;
             if (
               frame.event === '__error__' &&
@@ -157,26 +147,26 @@ test.describe('request', () => {
         };
 
         ws.send(
-          JSON.stringify({
+          window.__livethingEncode({
             event: 'get-time',
             payload: {},
-            __wskit: { correlationId: { reqId: 1 } },
+            metadata: { exchange: { id: { reqId: 1 } } },
           }),
         );
       });
     });
 
-    // The non-string correlationId fails the envelope schema, so the server
+    // The non-string request ID fails the frame schema, so the server
     // cannot echo it back. The error detail carries the event name, which ties
     // this response to the get-time frame.
     expect(err.payload.code).toBe('validation-failed');
   });
 
-  test('strict-object request schema accepts the payload with correlationId in __wskit', async ({
+  test('strict-object request schema accepts metadata.exchange.id outside the payload', async ({
     page,
   }, testInfo) => {
-    // The request-response wire envelope carries the correlationId in
-    // `__wskit`, kept out of `payload`. With a strict-object schema
+    // The frame carries the request ID in `metadata.exchange.id`, outside
+    // `payload`. With a strict-object schema
     // (v.strictObject({ id: ... })), the user payload stays clean so
     // validation accepts it without seeing any transport markers.
     await openPage(page, `test-${testInfo.testId}`);
@@ -201,11 +191,11 @@ test.describe('request', () => {
     await expect(page.getByTestId('last-response')).toContainText('fixed-now-string');
   });
 
-  test('a request frame with no correlationId at all surfaces __error__ code "request-no-correlation"', async ({
+  test('a request frame without metadata.exchange.id returns request-no-correlation', async ({
     page,
   }, testInfo) => {
-    // A request handler needs a correlationId to route its response. A frame
-    // that omits __wskit.correlationId entirely cannot be answered, so the
+    // A request handler needs `metadata.exchange.id` to route its response. A
+    // frame that omits it cannot be answered, so the
     // server rejects it with a typed code instead of running the handler and
     // dropping the reply on the floor.
     await openPage(page, `test-${testInfo.testId}`);
@@ -219,12 +209,12 @@ test.describe('request', () => {
       return await new Promise<ErrorFrame>((resolve, reject) => {
         const timer = window.setTimeout(() => {
           ws.onmessage = original;
-          reject(new Error('timed out waiting for the missing correlationId error'));
+          reject(new Error('timed out waiting for the missing request ID error'));
         }, 5_000);
 
         ws.onmessage = (event) => {
           if (typeof event.data === 'string') {
-            const frame = JSON.parse(event.data) as ErrorFrame;
+            const frame = window.__livethingDecode(event.data) as ErrorFrame;
             if (frame.event === '__error__' && frame.payload?.code === 'request-no-correlation') {
               window.clearTimeout(timer);
               ws.onmessage = original;
@@ -236,7 +226,7 @@ test.describe('request', () => {
           if (typeof original === 'function') original.call(ws, event);
         };
 
-        ws.send(JSON.stringify({ event: 'get-time', payload: {} }));
+        ws.send(window.__livethingEncode({ event: 'get-time', payload: {} }));
       });
     });
 
@@ -260,18 +250,18 @@ test.describe('request', () => {
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') {
-          const frame = JSON.parse(ev.data);
-          if (frame.__wskit?.correlationId === 'anything-1') responses.push(frame);
+          const frame = window.__livethingDecode(ev.data);
+          if (frame.metadata?.exchange?.id === 'anything-1') responses.push(frame);
         }
 
         if (typeof original === 'function') original.call(ws, ev);
       };
 
       ws.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'echo-anything-req',
           payload: { deep: { list: [1, 2, 3] }, flag: true },
-          __wskit: { correlationId: 'anything-1' },
+          metadata: { exchange: { id: 'anything-1' } },
         }),
       );
       await new Promise((r) => setTimeout(r, 400));

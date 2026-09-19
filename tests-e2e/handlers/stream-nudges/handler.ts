@@ -1,18 +1,17 @@
-import { emits, errors, server, t } from '@wskit/server';
-import { dedup } from '@wskit/server/dedup';
-import { error } from '@wskit/server/errors';
-import { intercepts } from '@wskit/server/intercepts';
-import { stream } from '@wskit/server/streams';
+import { emits, errors, server, t } from '@livething/server';
+import { dedup } from '@livething/server/dedup';
+import { error } from '@livething/server/errors';
+import { intercepts } from '@livething/server/intercepts';
+import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Token = t<{ token: string }>();
 const overflowGates = new Map<string, () => void>();
 
 // A typed error a nudge intercept can throw. The client must see nudge() reject
-// with this code while the stream keeps running (regression: a thrown nudge
-// intercept used to terminate the stream and hang the nudge() Promise).
+// with this code while the stream keeps running.
 export const NudgeRejected = error('nudge-rejected');
 
 const base = server({

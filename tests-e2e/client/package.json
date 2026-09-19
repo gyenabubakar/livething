@@ -1,34 +1,34 @@
 {
-  "name": "@wskit/tests-e2e-client",
+  "name": "@livething/tests-e2e-client",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev:ui": "vite",
     "dev:ws": "node tests/puppet/ws-server.mjs",
-    "build:client": "pnpm --filter @wskit/client run build",
+    "build:client": "pnpm --filter @livething/client run build",
     "test:e2e": "pnpm run build:client && playwright test",
-    "test:e2e:cloudflare": "pnpm run build:client && WSKIT_E2E_SERVER_COMMAND='pnpm --filter @wskit/tests-e2e-server-cloudflare run dev:worker' WSKIT_E2E_SERVER_PORT=${WSKIT_E2E_SERVER_PORT:-8787} playwright test",
-    "test:e2e:node:http": "pnpm run build:client && WSKIT_E2E_SERVER_COMMAND='pnpm --filter @wskit/tests-e2e-server-node run dev:node-http' WSKIT_E2E_SERVER_PORT=8787 playwright test",
-    "test:e2e:express": "pnpm run build:client && WSKIT_E2E_SERVER_COMMAND='pnpm --filter @wskit/tests-e2e-server-node run dev:express' WSKIT_E2E_SERVER_PORT=8787 playwright test",
-    "test:e2e:koa": "pnpm run build:client && WSKIT_E2E_SERVER_COMMAND='pnpm --filter @wskit/tests-e2e-server-node run dev:koa' WSKIT_E2E_SERVER_PORT=8787 playwright test",
-    "test:e2e:hono": "pnpm run build:client && WSKIT_E2E_FRAMEWORK=hono WSKIT_E2E_SERVER_COMMAND='pnpm --filter @wskit/tests-e2e-server-node run dev:hono' WSKIT_E2E_SERVER_PORT=8787 playwright test",
-    "test:e2e:fastify": "pnpm run build:client && WSKIT_E2E_SERVER_COMMAND='pnpm --filter @wskit/tests-e2e-server-node run dev:fastify' WSKIT_E2E_SERVER_PORT=8787 playwright test",
-    "test:e2e:h3": "pnpm run build:client && WSKIT_E2E_SERVER_COMMAND='pnpm --filter @wskit/tests-e2e-server-node run dev:h3' WSKIT_E2E_SERVER_PORT=8787 playwright test",
+    "test:e2e:cloudflare": "pnpm run build:client && LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-cloudflare run dev:worker' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
+    "test:e2e:node:http": "pnpm run build:client && LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:node-http' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
+    "test:e2e:express": "pnpm run build:client && LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:express' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
+    "test:e2e:koa": "pnpm run build:client && LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:koa' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
+    "test:e2e:hono": "pnpm run build:client && LIVETHING_E2E_FRAMEWORK=hono LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:hono' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
+    "test:e2e:fastify": "pnpm run build:client && LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:fastify' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
+    "test:e2e:h3": "pnpm run build:client && LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:h3' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
     "test:e2e:node": "pnpm run test:e2e:node:http && pnpm run test:e2e:express && pnpm run test:e2e:koa && pnpm run test:e2e:hono && pnpm run test:e2e:fastify && pnpm run test:e2e:h3",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf node_modules test-results playwright-report"
   },
   "dependencies": {
-    "@wskit/client": "workspace:*",
-    "@wskit/core": "workspace:*"
+    "@livething/client": "workspace:*",
+    "@livething/core": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "1.59.1",
     "@types/ws": "^8.5.12",
-    "@wskit/tests-e2e-handlers": "workspace:*",
-    "@wskit/tests-e2e-server-cloudflare": "workspace:*",
-    "@wskit/tests-e2e-server-node": "workspace:*",
+    "@livething/tests-e2e-handlers": "workspace:*",
+    "@livething/tests-e2e-server-cloudflare": "workspace:*",
+    "@livething/tests-e2e-server-node": "workspace:*",
     "typescript": "^6.0.2",
     "vite": "^8.0.7",
     "ws": "^8.18.0"

@@ -69,7 +69,7 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
       quality: c.quality,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref',
+        __livething: 'connection-ref',
         id: c.id,
         instance: undefined,
         userId: c.userId,

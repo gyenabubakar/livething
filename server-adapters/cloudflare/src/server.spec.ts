@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type * as ServerAdapters from '@wskit/server/adapters';
+import type * as ServerAdapters from '@livething/server/adapters';
 import {
   FakeDurableObjectBase,
   installPermissiveResponse,
@@ -7,7 +7,7 @@ import {
   makeFakeDOState,
   makeFakeEngine,
 } from './test-utils.ts';
-import type { WSKitAdmin } from './admin.ts';
+import type { LiveThingAdmin } from './admin.ts';
 import type { FakeEngine } from './test-utils.ts';
 
 const responseRestore = installPermissiveResponse();
@@ -25,7 +25,7 @@ type AdapterSetup = (
 
 let fake: FakeEngine;
 
-vi.mock('@wskit/server/adapters', async (importOriginal) => ({
+vi.mock('@livething/server/adapters', async (importOriginal) => ({
   ...(await importOriginal<typeof ServerAdapters>()),
   adapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
@@ -51,7 +51,7 @@ type DOInstance = {
 };
 
 /** The real built-in surface, plus whatever dev api methods a test stages on it. */
-type AdminSurface = WSKitAdmin & Record<string, unknown>;
+type AdminSurface = LiveThingAdmin & Record<string, unknown>;
 
 function buildClass(opts?: { hibernation?: boolean; translation?: boolean }) {
   fake = makeFakeEngine();
@@ -66,7 +66,7 @@ function upgradeRequest() {
   });
 }
 
-describe('WSKitDurableObject fetch / upgrade', () => {
+describe('LiveThingDurableObject fetch / upgrade', () => {
   let pairs: ReturnType<typeof installWebSocketPair>['pairs'];
 
   beforeEach(() => {
@@ -93,12 +93,12 @@ describe('WSKitDurableObject fetch / upgrade', () => {
         headers: {
           Upgrade: 'websocket',
           'CF-Connecting-IP': '203.0.113.7',
-          'WSKit-Client-IP': '198.51.100.99',
+          'LiveThing-Client-IP': '198.51.100.99',
         },
       }),
     );
 
-    expect(fake.calls.handleUpgrade[0]?.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
+    expect(fake.calls.handleUpgrade[0]?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
   });
 
   it('does not pass through a client-supplied IP metadata header', async () => {
@@ -110,19 +110,19 @@ describe('WSKitDurableObject fetch / upgrade', () => {
       new Request('https://do.example/', {
         headers: {
           Upgrade: 'websocket',
-          'WSKit-Client-IP': '198.51.100.99',
+          'LiveThing-Client-IP': '198.51.100.99',
         },
       }),
     );
 
-    expect(fake.calls.handleUpgrade[0]?.headers.get('WSKit-Client-IP')).toBeNull();
+    expect(fake.calls.handleUpgrade[0]?.headers.get('LiveThing-Client-IP')).toBeNull();
   });
 
   it('upgrades and returns 101 with client socket when accepted (standard mode)', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
     function ref(kind: 'ephemeral', group: string, key: string) {
-      return { __wskit: 'tag-ref' as const, kind, group, key };
+      return { __livething: 'tag-ref' as const, kind, group, key };
     }
 
     fake.stageUpgrade({ meta: { user: 'a' }, tags: [ref('ephemeral', 'role', 't1')] });
@@ -144,7 +144,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     };
     expect(desc.meta).toEqual({ user: 'a' });
     expect(desc.tags).toEqual([
-      { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key: 't1' },
+      { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key: 't1' },
     ]);
     expect(fake.calls.create).toHaveLength(1);
 
@@ -171,7 +171,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
 
     const [, server] = pairs[0]!;
     expect(state.acceptWebSocket).toHaveBeenCalledWith(server);
-    expect(server.close).toHaveBeenCalledWith(1011, '[wskit] connection setup failed');
+    expect(server.close).toHaveBeenCalledWith(1011, '[livething] connection setup failed');
   });
 
   it('does not close an accepted socket again when the engine already closed it', async () => {
@@ -181,7 +181,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     const setupError = new Error('translator setup failed');
     (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (_ws: unknown, descriptor: { close(code: number, reason: string): void }) => {
-        descriptor.close(1011, '[wskit] translator configuration failed');
+        descriptor.close(1011, '[livething] translator configuration failed');
         throw setupError;
       },
     );
@@ -192,7 +192,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
 
     const [, server] = pairs[0]!;
     expect(server.close).toHaveBeenCalledTimes(1);
-    expect(server.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(server.close).toHaveBeenCalledWith(1011, '[livething] translator configuration failed');
   });
 
   it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
@@ -257,8 +257,13 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     const state = makeFakeDOState();
     fake.stageUpgrade({
       tags: [
-        { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'room', key: 'lobby' },
-        { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'tier', key: 'free' },
+        {
+          __livething: 'tag-ref' as const,
+          kind: 'ephemeral' as const,
+          group: 'room',
+          key: 'lobby',
+        },
+        { __livething: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'tier', key: 'free' },
       ],
     });
 
@@ -602,7 +607,7 @@ describe('engine wiring in the constructor', () => {
   });
 });
 
-describe('WSKitDurableObject admin()', () => {
+describe('LiveThingDurableObject admin()', () => {
   async function adminOf(opts?: { hibernation?: boolean }) {
     const Cls = buildClass(opts);
     const state = makeFakeDOState({ getWebSockets: vi.fn(() => [{ tag: 'ws1' }]) });
@@ -668,7 +673,7 @@ describe('WSKitDurableObject admin()', () => {
     expect(channels.get).toHaveBeenCalledWith('rooms', 'rooms:42');
     expect(fake.adminSpies.channelMembers).toHaveBeenCalled();
 
-    const target = { __wskit: 'user-ref', id: 'u1', instance: undefined } as const;
+    const target = { __livething: 'user-ref', id: 'u1', instance: undefined } as const;
     await admin.channelKick('lobby', target, { reason: 'banned', revoke: true });
     expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(
       { ...target, instance: 'fake-instance' },
@@ -681,7 +686,7 @@ describe('WSKitDurableObject admin()', () => {
 
   it('preserves an explicit foreign user-ref instance for the engine to reject', async () => {
     const { admin } = await adminOf();
-    const target = { __wskit: 'user-ref', id: 'u1', instance: 'other' } as const;
+    const target = { __livething: 'user-ref', id: 'u1', instance: 'other' } as const;
 
     await admin.channelKick('lobby', target, { reason: 'foreign' });
 

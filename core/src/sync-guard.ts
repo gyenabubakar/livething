@@ -5,26 +5,26 @@
  * This is a developer mistake, not a runtime input failure, so the engine
  * lets it propagate up rather than routing it through `onValidationError`.
  */
-export class WSKitConfigError extends Error {
-  readonly __wskitConfig = true as const;
+export class LiveThingConfigError extends Error {
+  readonly __livethingConfig = true as const;
 
   constructor(message: string) {
-    super(`[wskit] ${message}`);
-    this.name = 'WSKitConfigError';
+    super(`[livething] ${message}`);
+    this.name = 'LiveThingConfigError';
   }
 }
 
-/** Type guard for `WSKitConfigError`, robust across realm boundaries. */
-export function isWSKitConfigError(error: unknown): error is WSKitConfigError {
+/** Type guard for `LiveThingConfigError`, robust across realm boundaries. */
+export function isLiveThingConfigError(error: unknown): error is LiveThingConfigError {
   return (
     !!error &&
     typeof error === 'object' &&
-    (error as { __wskitConfig?: unknown }).__wskitConfig === true
+    (error as { __livethingConfig?: unknown }).__livethingConfig === true
   );
 }
 
 /**
- * If `error` is a `WSKitConfigError`, rethrow it immediately. Otherwise return
+ * If `error` is a `LiveThingConfigError`, rethrow it immediately. Otherwise return
  * normally so the caller can run its own error routing.
  *
  * Use this at the start of every `catch` block that wraps validator calls or
@@ -33,7 +33,7 @@ export function isWSKitConfigError(error: unknown): error is WSKitConfigError {
  * the developer-facing signal that something is misconfigured.
  */
 export function rethrowIfConfigError(error: unknown): void {
-  if (isWSKitConfigError(error)) throw error;
+  if (isLiveThingConfigError(error)) throw error;
 }
 
 /**
@@ -49,7 +49,7 @@ export function assertSynchronousResult<T>(
 ): T {
   if (result && typeof (result as { then?: unknown }).then === 'function') {
     void Promise.resolve(result).catch(() => {});
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       kind === 'validator'
         ? `async validators are not supported (${label}). Use a sync schema or parse function.`
         : `async callbacks are not supported (${label}). Use a synchronous callback.`,

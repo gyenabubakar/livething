@@ -16,7 +16,12 @@ function seedRow(
     userIds: [row.userId],
     channelName: SCOPE.channelName,
     channelFamily: SCOPE.channelFamily,
-    frame: { seq: row.seq, messageId: `m${row.seq}-${row.userId}`, event: 'msg', payload: {} },
+    frame: {
+      deliverySeq: row.seq,
+      messageId: `m${row.seq}-${row.userId}`,
+      event: 'msg',
+      payload: {},
+    },
     now: row.createdAt,
   });
 }

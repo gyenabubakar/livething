@@ -62,7 +62,7 @@ function createFakeEngine(options: { hibernating?: boolean } = {}) {
 describe('keepalive', () => {
   it('produces correct tag, kind, and option fields', () => {
     const p = keepalive(OPTS);
-    expect(p.__wskit).toBe('keepalive');
+    expect(p.__livething).toBe('keepalive');
     expect(p.__kind).toBe('infrastructure');
     expect(p.pingIntervalMs).toBe(15_000);
     expect(p.idleTimeoutMs).toBe(30_000);

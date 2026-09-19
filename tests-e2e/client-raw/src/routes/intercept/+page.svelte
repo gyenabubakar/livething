@@ -21,8 +21,8 @@
 	let sendChHintOnStarted = $state(false);
 	let sendChHintBlockOnStarted = $state(false);
 
-	function sendNudge(event: string, text: string, wskit: Record<string, unknown>) {
-		ws?.send(JSON.stringify({ event, payload: { text }, __wskit: wskit }));
+	function sendNudge(event: string, text: string, metadata: Record<string, Record<string, unknown>>) {
+		ws?.send(window.__livethingEncode({ event, payload: { text }, metadata }));
 	}
 
 	function handleTopNudge(payload: Record<string, any>) {
@@ -32,12 +32,12 @@
 
 		if (sendHintOnStarted) {
 			sendHintOnStarted = false;
-			sendNudge('hint', 'hello', { streamId: nudgeStreamId });
+			sendNudge('hint', 'hello', { stream: { id: nudgeStreamId } });
 		}
 
 		if (sendBlockHintOnStarted) {
 			sendBlockHintOnStarted = false;
-			sendNudge('hint', 'hint-block', { streamId: nudgeStreamId });
+			sendNudge('hint', 'hint-block', { stream: { id: nudgeStreamId } });
 		}
 	}
 
@@ -46,36 +46,39 @@
 		chNudgeChunks = [...chNudgeChunks, saw];
 		if (saw !== 'started' || !chNudgeStreamId) return;
 
-		const wskit = { streamId: chNudgeStreamId, channel: 'room', channelFamily: null };
+		const metadata = {
+			stream: { id: chNudgeStreamId },
+			channel: { name: 'room' },
+		};
 		if (sendChHintOnStarted) {
 			sendChHintOnStarted = false;
-			sendNudge('ch-hint', 'hello', wskit);
+			sendNudge('ch-hint', 'hello', metadata);
 		}
 
 		if (sendChHintBlockOnStarted) {
 			sendChHintBlockOnStarted = false;
-			sendNudge('ch-hint', 'ch-hint-block', wskit);
+			sendNudge('ch-hint', 'ch-hint-block', metadata);
 		}
 	}
 
 	const eventHandlers: Record<string, (data: any) => void> = {
 		'__subscribeOk__': (data) => {
-			if (data.__wskit?.channelFamily === 'rooms') dynamicSubscribed = true;
+			if (data.metadata?.channel?.family === 'rooms') dynamicSubscribed = true;
 			else subscribed = true;
 		},
 		echoed: (data) => (echoed = [...echoed, data.payload?.text ?? '']),
 		'__error__': (data) => (lastErrorCode = data.payload?.code ?? ''),
 		'__streamOk__': (data) => {
-			const streamId = data.__wskit?.streamId;
+			const streamId = data.metadata?.stream?.id;
 			if (!streamId) return;
 
-			if (data.__wskit.channel === 'room') chNudgeStreamId = streamId;
+			if (data.metadata.channel?.name === 'room') chNudgeStreamId = streamId;
 			else nudgeStreamId = streamId;
 		},
 		'nudge-stream': (data) => handleTopNudge(data.payload ?? {}),
 		'ch-nudge-stream': (data) => handleChannelNudge(data.payload ?? {}),
 		'__streamEnd__': (data) => {
-			if (data.__wskit?.streamId === chNudgeStreamId) chNudgeStreamEnd = true;
+			if (data.metadata?.stream?.id === chNudgeStreamId) chNudgeStreamEnd = true;
 			else nudgeStreamEnd = true;
 		},
 	};
@@ -101,31 +104,31 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			eventHandlers[data.event]?.(data);
 		};
 	}
 
 	function send(text: string, scope?: 'room' | 'dyn-room') {
 		const payload: Record<string, unknown> = { text };
-		let wskit: Record<string, unknown> | undefined;
-		if (scope === 'room') wskit = { channel: 'room' };
-		if (scope === 'dyn-room') wskit = { channel: 'room:dyn', channelFamily: 'rooms' };
+		let metadata: Record<string, Record<string, unknown>> | null = null;
+		if (scope === 'room') metadata = { channel: { name: 'room' } };
+		if (scope === 'dyn-room') metadata = { channel: { name: 'room:dyn', family: 'rooms' } };
 		ws?.send(
-			JSON.stringify(wskit ? { event: 'echo', payload, __wskit: wskit } : { event: 'echo', payload }),
+			window.__livethingEncode({ event: 'echo', payload, metadata }),
 		);
 	}
 
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
+		ws?.send(window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'room' } } }));
 	}
 
 	function subscribeDynamicRoom() {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: '__subscribe__',
-				payload: {},
-				__wskit: { channel: 'room:dyn', channelFamily: 'rooms' },
+				payload: null,
+				metadata: { channel: { name: 'room:dyn', family: 'rooms' } },
 			}),
 		);
 	}
@@ -135,7 +138,7 @@
 		nudgeStreamEnd = false;
 		nudgeStreamId = '';
 		sendHintOnStarted = true;
-		ws?.send(JSON.stringify({ event: 'nudge-stream', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'nudge-stream', payload: {} }));
 	}
 
 	function startNudgeStreamBlock() {
@@ -143,7 +146,7 @@
 		nudgeStreamEnd = false;
 		nudgeStreamId = '';
 		sendBlockHintOnStarted = true;
-		ws?.send(JSON.stringify({ event: 'nudge-stream', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'nudge-stream', payload: {} }));
 	}
 
 	function startChNudgeStream() {
@@ -152,10 +155,10 @@
 		chNudgeStreamId = '';
 		sendChHintOnStarted = true;
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'ch-nudge-stream',
 				payload: {},
-				__wskit: { channel: 'room', channelFamily: null },
+				metadata: { channel: { name: 'room' } },
 			}),
 		);
 	}
@@ -166,10 +169,10 @@
 		chNudgeStreamId = '';
 		sendChHintBlockOnStarted = true;
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'ch-nudge-stream',
 				payload: {},
-				__wskit: { channel: 'room', channelFamily: null },
+				metadata: { channel: { name: 'room' } },
 			}),
 		);
 	}

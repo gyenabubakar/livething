@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's serverRequests() answering a broadcast request
+// Conformance: @livething/client's serverRequests() answering a broadcast request
 // (first answer wins) against the real `broadcast-request` server definition. Two clients
 // join the same `lobby`; the server fans `volunteer` out to both and resolves
 // with the first valid answer plus the answerer's identity. Adapter-oblivious —

@@ -1,8 +1,8 @@
-import { emits, server, t } from '@wskit/server';
-import { scheduled } from '@wskit/server/scheduled';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { scheduled } from '@livething/server/scheduled';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 let flakyAttempts = 0;
@@ -223,7 +223,9 @@ const handleQueryDeadLetter = base.on('query-dead-letter', {
         taskId: string;
         attempts: number;
         error: string;
-      }>('SELECT taskId, attempts, error FROM __wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1')
+      }>(
+        'SELECT taskId, attempts, error FROM __livething_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
+      )
       .toArray();
     const row = rows[0];
     if (!row) return;

@@ -7,7 +7,7 @@ describe('sequence() capability', () => {
   it('adds the sequence primitive and the sequence feature flag', () => {
     const base = server({ capabilities: [sequence()] });
     const definition = base.assemble({ handlers: [] });
-    expect(definition.primitives.some((p) => p.__wskit === 'sequence')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'sequence')).toBe(true);
     expect(definition.__features?.has('sequence')).toBe(true);
   });
 
@@ -17,7 +17,7 @@ describe('sequence() capability', () => {
     });
     const primitive = base
       .assemble({ handlers: [] })
-      .primitives.find((p) => p.__wskit === 'sequence') as unknown as SequencePrimitive;
+      .primitives.find((p) => p.__livething === 'sequence') as unknown as SequencePrimitive;
     expect(primitive.persist).toBe(true);
     expect(primitive.batchSize).toBe(5);
   });

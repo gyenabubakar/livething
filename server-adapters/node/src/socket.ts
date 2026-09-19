@@ -3,7 +3,7 @@ import type {
   ConnectionHandle,
   Engine,
   UpgradeDecision,
-} from '@wskit/server/adapters';
+} from '@livething/server/adapters';
 
 /** Transport functions the engine needs after a WebSocket handshake. */
 export interface ConnectionTransport {

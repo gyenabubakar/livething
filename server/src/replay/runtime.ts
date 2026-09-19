@@ -13,7 +13,7 @@ import type {
 } from '~/replay/types.ts';
 
 const CREATE_REPLAY_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_replay (
+  CREATE TABLE IF NOT EXISTS __livething_replay (
     rowKey TEXT PRIMARY KEY,
     messageId TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -29,17 +29,17 @@ const CREATE_REPLAY_TABLE_SQL = `
 `;
 
 const CREATE_REPLAY_SEQ_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_replay_seq
-  ON __wskit_replay (seq)
+  CREATE INDEX IF NOT EXISTS __livething_idx_replay_seq
+  ON __livething_replay (seq)
 `;
 
 const CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_replay_scope_seq
-  ON __wskit_replay (channel, channelFamily, seq)
+  CREATE INDEX IF NOT EXISTS __livething_idx_replay_scope_seq
+  ON __livething_replay (channel, channelFamily, seq)
 `;
 
 const CREATE_REPLAY_WATERMARK_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_replay_watermark (
+  CREATE TABLE IF NOT EXISTS __livething_replay_watermark (
     scope_key TEXT PRIMARY KEY,
     evicted_through_seq INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-scope fields later without a migration.
@@ -170,7 +170,7 @@ export function matchesReplayScope(
 export function isChannelReplayAuthorized(
   connection: RuntimeConnection | undefined,
   scope: Pick<ReplayRequestScope, 'channelName'>,
-  wskit: ReplayEnvelopeScope | undefined,
+  livething: ReplayEnvelopeScope | undefined,
 ): boolean {
   if (!scope.channelName) return true;
 
@@ -179,7 +179,7 @@ export function isChannelReplayAuthorized(
   return ChannelPrimitive.hasChannelMembership(
     connection,
     scope.channelName,
-    wskit?.channelFamily ?? null,
+    livething?.channelFamily ?? null,
   );
 }
 
@@ -191,12 +191,12 @@ export function readReplayContextScope(ctx: Record<PropertyKey, unknown>): Engin
 }
 
 /**
- * Read replay scope markers from one outgoing frame's `__wskit` block.
+ * Read replay scope markers from one outgoing frame's `__livething` block.
  */
-export function readReplayScope(wskit: Record<string, unknown>): ReplayPayloadScope {
+export function readReplayScope(livething: Record<string, unknown>): ReplayPayloadScope {
   return {
-    channel: typeof wskit.channel === 'string' ? wskit.channel : null,
-    channelFamily: typeof wskit.channelFamily === 'string' ? wskit.channelFamily : null,
+    channel: typeof livething.channel === 'string' ? livething.channel : null,
+    channelFamily: typeof livething.channelFamily === 'string' ? livething.channelFamily : null,
   };
 }
 
@@ -214,7 +214,7 @@ export function readReplayScope(wskit: Record<string, unknown>): ReplayPayloadSc
 export interface ShouldStoreReplayMessageOptions {
   channelKey: string | undefined;
 
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
 
   exclude: ReadonlySet<string>;
 
@@ -225,7 +225,12 @@ export function shouldStoreReplayMessage(
   event: string,
   options: ShouldStoreReplayMessageOptions,
 ): boolean {
-  const { channelKey, wskit, exclude, claimedChannelKeys = EMPTY_CLAIMED_CHANNEL_KEYS } = options;
+  const {
+    channelKey,
+    livething,
+    exclude,
+    claimedChannelKeys = EMPTY_CLAIMED_CHANNEL_KEYS,
+  } = options;
   if (exclude.has(event)) return false;
 
   // Protocol/control frames (presence, subscribe-ok, errors, …) are bookkeeping,
@@ -233,11 +238,11 @@ export function shouldStoreReplayMessage(
   // They're re-derived on reconnect (e.g. __memberSync__), so never record them.
   if (Protocol.isProtocolEventName(event)) return false;
 
-  if (typeof wskit.correlationId === 'string') return false;
+  if (typeof livething.correlationId === 'string') return false;
 
-  if (typeof wskit.streamId === 'string') return false;
+  if (typeof livething.streamId === 'string') return false;
 
-  const scope = readReplayScope(wskit);
+  const scope = readReplayScope(livething);
 
   return scopeMatchesReplayInstance(
     channelKey,
@@ -249,28 +254,30 @@ export function shouldStoreReplayMessage(
 /**
  * Convert one outgoing frame into the replay row that should be stored. The
  * `payload` column holds the pure user payload; sequence number, message id,
- * and scope come from the frame's `__wskit`.
+ * and scope come from the frame's `__livething`.
  */
 export interface BuildReplayRowOptions {
   options: ReplayOptions;
 
   payload: Record<string, unknown>;
 
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
 
   now: number;
 }
 
 export function buildReplayRow(event: string, params: BuildReplayRowOptions): ReplayRow {
-  const { options, payload, wskit, now } = params;
-  const seq = wskit.seq;
-  const messageId = wskit.messageId;
+  const { options, payload, livething, now } = params;
+  const seq = livething.deliverySeq;
+  const messageId = livething.messageId;
 
   if (typeof seq !== 'number' || typeof messageId !== 'string') {
-    throw new Error('[wskit] replay requires `sequence` and `dedup` enabled in the same scope.');
+    throw new Error(
+      '[livething] replay requires `sequence` and `dedup` enabled in the same scope.',
+    );
   }
 
-  const scope = readReplayScope(wskit);
+  const scope = readReplayScope(livething);
   const type = options.type ?? 'history';
   const snapshotKey = type === 'snapshot' ? (options.snapshotKey?.(event, payload) ?? event) : null;
 
@@ -307,7 +314,7 @@ export function getReplayRowByKey(
           channelFamily,
           snapshotKey,
           createdAt
-        FROM __wskit_replay
+        FROM __livething_replay
         WHERE rowKey = ?
       `,
       rowKey,
@@ -335,7 +342,7 @@ export function getReplayRowByKey(
 export function deleteReplayRow(sql: Pick<SQLProvider, 'exec'>, rowKey: string): void {
   sql.exec(
     `
-      DELETE FROM __wskit_replay
+      DELETE FROM __livething_replay
       WHERE rowKey = ?
     `,
     rowKey,
@@ -370,7 +377,7 @@ export interface PersistReplayMessageOptions {
 
   payload: Record<string, unknown>;
 
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
 
   now: number;
 
@@ -420,10 +427,10 @@ export function persistReplayMessage(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
   opts: PersistReplayMessageOptions,
 ): ReplayRow | null {
-  const { options, event, payload, wskit, now, scope, postFlush, validateReduced } = opts;
+  const { options, event, payload, livething, now, scope, postFlush, validateReduced } = opts;
   function noopPostFlush(): void {}
 
-  const row = buildReplayRow(event, { options, payload, wskit, now });
+  const row = buildReplayRow(event, { options, payload, livething, now });
 
   if ((options.type ?? 'history') === 'history') {
     storeReplayRow(sql, row);
@@ -531,7 +538,7 @@ function buildReplayRowKey(
 export function storeReplayRow(sql: Pick<SQLProvider, 'exec'>, row: ReplayRow): void {
   sql.exec(
     `
-      INSERT OR REPLACE INTO __wskit_replay (
+      INSERT OR REPLACE INTO __livething_replay (
         rowKey,
         messageId,
         seq,
@@ -571,7 +578,7 @@ export function bumpReplayWatermark(
 ): void {
   sql.exec(
     `
-      INSERT INTO __wskit_replay_watermark (scope_key, evicted_through_seq)
+      INSERT INTO __livething_replay_watermark (scope_key, evicted_through_seq)
       VALUES (?, ?)
       ON CONFLICT(scope_key) DO UPDATE SET
         evicted_through_seq = MAX(evicted_through_seq, excluded.evicted_through_seq)
@@ -593,7 +600,7 @@ export function readReplayWatermark(
     .exec<{ evicted_through_seq: number }>(
       `
         SELECT evicted_through_seq
-        FROM __wskit_replay_watermark
+        FROM __livething_replay_watermark
         WHERE scope_key = ?
       `,
       scopeKey,
@@ -617,7 +624,7 @@ export function pruneExpiredReplayRows(
     .exec<{ channel: string | null; channelFamily: string | null; m: number }>(
       `
         SELECT channel, channelFamily, MAX(seq) AS m
-        FROM __wskit_replay
+        FROM __livething_replay
         WHERE createdAt < ?
         GROUP BY channel, channelFamily
       `,
@@ -638,7 +645,7 @@ export function pruneExpiredReplayRows(
 
   sql.exec(
     `
-      DELETE FROM __wskit_replay
+      DELETE FROM __livething_replay
       WHERE createdAt < ?
     `,
     cutoff,
@@ -673,7 +680,7 @@ export function pruneReplayScopeRows(
         SELECT MAX(seq) AS m
         FROM (
           SELECT seq
-          FROM __wskit_replay
+          FROM __livething_replay
           WHERE channel IS ?
             AND channelFamily IS ?
           ORDER BY seq DESC
@@ -692,10 +699,10 @@ export function pruneReplayScopeRows(
 
   sql.exec(
     `
-      DELETE FROM __wskit_replay
+      DELETE FROM __livething_replay
       WHERE rowKey IN (
         SELECT rowKey
-        FROM __wskit_replay
+        FROM __livething_replay
         WHERE channel IS ?
           AND channelFamily IS ?
         ORDER BY seq DESC
@@ -717,7 +724,7 @@ export function countReplayScopeRows(
     .exec<{
       n: number;
     }>(
-      `SELECT COUNT(*) AS n FROM __wskit_replay WHERE channel IS ? AND channelFamily IS ?`,
+      `SELECT COUNT(*) AS n FROM __livething_replay WHERE channel IS ? AND channelFamily IS ?`,
       scope.channel,
       scope.channelFamily,
     )
@@ -728,7 +735,7 @@ export function countReplayScopeRows(
 /** The oldest `createdAt` across the whole replay table, or null when empty. */
 export function minReplayCreatedAt(sql: Pick<SQLProvider, 'exec'>): number | null {
   const row = sql
-    .exec<{ m: number | null }>(`SELECT MIN(createdAt) AS m FROM __wskit_replay`)
+    .exec<{ m: number | null }>(`SELECT MIN(createdAt) AS m FROM __livething_replay`)
     .one();
   return row?.m == null ? null : Number(row.m);
 }
@@ -797,7 +804,7 @@ export function buildLoadReplayQuery(
             channelFamily,
             snapshotKey,
             createdAt
-          FROM __wskit_replay
+          FROM __livething_replay
           WHERE channel IS ?
             AND channelFamily IS NULL
             AND seq > ?
@@ -819,7 +826,7 @@ export function buildLoadReplayQuery(
           channelFamily,
           snapshotKey,
           createdAt
-        FROM __wskit_replay
+        FROM __livething_replay
         WHERE channel IS ?
           AND channelFamily IS ?
           AND seq > ?
@@ -845,7 +852,7 @@ export function buildLoadReplayQuery(
         channelFamily,
         snapshotKey,
         createdAt
-      FROM __wskit_replay
+      FROM __livething_replay
       WHERE channel IS NULL
         AND channelFamily IS NULL
         AND seq > ?

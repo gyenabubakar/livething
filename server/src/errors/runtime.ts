@@ -1,4 +1,4 @@
-import { InternalError, WSKitError } from '@wskit/core';
+import { InternalError, LiveThingError } from '@livething/core';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -7,7 +7,7 @@ import type { Logger } from '~/context.ts';
 type OptsParameter = {
   event: string;
   payload: Record<string, unknown>;
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
 };
 
 /**
@@ -20,11 +20,11 @@ interface RuntimeErrorDeps {
   ): Record<PropertyKey, unknown>;
 
   /**
-   * Resolve a scope from the `__wskit` routing markers carried alongside a
+   * Resolve a scope from the `__livething` routing markers carried alongside a
    * runtime error so the hook context can carry `ctx.channel`. Returns
    * undefined when no scope can be derived.
    */
-  resolveScopeFromRouting?(routing: Protocol.WSKitRouting): ResolvedChannel | undefined;
+  resolveScopeFromRouting?(routing: Protocol.LiveThingRouting): ResolvedChannel | undefined;
 
   declaredErrorCodes: ReadonlySet<string>;
 
@@ -52,32 +52,32 @@ interface ValidationErrorDeps {
 }
 
 /**
- * Split a thrown value into the `payload` and `__wskit` halves of WSKit's
+ * Split a thrown value into the `payload` and `__livething` halves of LiveThing's
  * `__error__` protocol frame. `payload` carries `code` (and `detail` when the
- * error has one); `__wskit` carries the routing markers so the client can
+ * error has one); `__livething` carries the routing markers so the client can
  * correlate the failure with its pending operation.
  */
 export function normalizeRuntimeError(
   error: unknown,
-  routing?: Protocol.WSKitRouting,
+  routing?: Protocol.LiveThingRouting,
   declaredErrorCodes?: ReadonlySet<string>,
-): { payload: Record<string, unknown>; wskit: Record<string, unknown> } {
-  const wskit: Record<string, unknown> = { ...(routing ?? {}) };
+): { payload: Record<string, unknown>; livething: Record<string, unknown> } {
+  const livething: Record<string, unknown> = { ...(routing ?? {}) };
 
-  if (error instanceof WSKitError) {
-    // A WSKitError whose code was never declared in `errors: [...]` is not part
+  if (error instanceof LiveThingError) {
+    // A LiveThingError whose code was never declared in `errors: [...]` is not part
     // of the contract, so `InferClient` can't type it. Handing the raw code to
     // the client would give them a code they can't narrow on; collapse it to
     // `internal-error` instead. (sendRuntimeError logs a dev warning so the
     // missing declaration is still visible server-side.)
     if (declaredErrorCodes && !declaredErrorCodes.has(error.code)) {
-      return { payload: { code: InternalError.code }, wskit };
+      return { payload: { code: InternalError.code }, livething };
     }
 
-    return { payload: { code: error.code, detail: error.detail }, wskit };
+    return { payload: { code: error.code, detail: error.detail }, livething };
   }
 
-  return { payload: { code: InternalError.code }, wskit };
+  return { payload: { code: InternalError.code }, livething };
 }
 
 export interface SendRuntimeErrorOptions {
@@ -85,7 +85,7 @@ export interface SendRuntimeErrorOptions {
 
   event?: string;
 
-  routing?: Protocol.WSKitRouting;
+  routing?: Protocol.LiveThingRouting;
 }
 
 /**
@@ -98,9 +98,9 @@ export async function sendRuntimeError(
   options: SendRuntimeErrorOptions,
 ): Promise<void> {
   const { error, event, routing } = options;
-  if (error instanceof WSKitError && !deps.declaredErrorCodes.has(error.code)) {
+  if (error instanceof LiveThingError && !deps.declaredErrorCodes.has(error.code)) {
     deps.logger.warn(
-      '[wskit] Thrown WSKitError was not declared in the contract errors: [...] list',
+      '[livething] Thrown LiveThingError was not declared in the contract errors: [...] list',
       {
         code: error.code,
         event,
@@ -118,15 +118,15 @@ export async function sendRuntimeError(
       // the client — otherwise request Promises hang and stream onError
       // callbacks never fire. Hooks are observational; isolate failures here
       // and continue to the remaining hooks plus the protocol send below.
-      deps.logger.error('[wskit] onError hook threw; sending __error__ to client anyway', {
+      deps.logger.error('[livething] onError hook threw; sending __error__ to client anyway', {
         event,
         error: hookError instanceof Error ? hookError.message : String(hookError),
       });
     }
   }
 
-  const { payload, wskit } = normalizeRuntimeError(error, routing, deps.declaredErrorCodes);
-  deps.sendProtocolMessage(connection, { event: '__error__', payload, wskit });
+  const { payload, livething } = normalizeRuntimeError(error, routing, deps.declaredErrorCodes);
+  deps.sendProtocolMessage(connection, { event: '__error__', payload, livething });
 }
 
 export interface NotifyValidationErrorOptions {

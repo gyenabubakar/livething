@@ -8,7 +8,7 @@ import {
 } from './readable-spacing.mjs';
 
 export default {
-  meta: { name: 'wskit' },
+  meta: { name: 'livething' },
   rules: {
     'max-consecutive-statements': maxConsecutiveStatements,
     'padding-after-block': paddingAfterBlock,

@@ -36,13 +36,13 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
-			if (data.event === '__subscribeOk__' && data.__wskit?.channelFamily === 'rooms') {
+			const data = window.__livethingDecode(ev.data);
+			if (data.event === '__subscribeOk__' && data.metadata?.channel?.family === 'rooms') {
 				roomSubscribed = true;
 			}
 
 			if (data.event === '__streamEnd__') {
-				if (data.__wskit?.channelFamily === 'rooms') roomStreamEnd = true;
+				if (data.metadata?.channel?.family === 'rooms') roomStreamEnd = true;
 				else streamEnd = true;
 			}
 
@@ -52,8 +52,8 @@
 
 			if (data.event === 'start-room-broadcast' && typeof data.payload?.index === 'number') {
 				roomIndices = [...roomIndices, data.payload.index];
-				if (typeof data.__wskit?.channelFamily === 'string') {
-					roomScopeSeen = data.__wskit.channelFamily;
+				if (typeof data.metadata?.channel?.family === 'string') {
+					roomScopeSeen = data.metadata.channel?.family;
 				}
 			}
 		};
@@ -62,15 +62,15 @@
 	function start(count: number) {
 		indices = [];
 		streamEnd = false;
-		ws?.send(JSON.stringify({ event: 'start-broadcast', payload: { count } }));
+		ws?.send(window.__livethingEncode({ event: 'start-broadcast', payload: { count } }));
 	}
 
 	function joinRoom() {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: '__subscribe__',
-				payload: {},
-				__wskit: { channel: 'room:42', channelFamily: 'rooms' },
+				payload: null,
+				metadata: { channel: { name: 'room:42', family: 'rooms' } },
 			}),
 		);
 	}
@@ -80,10 +80,10 @@
 		roomStreamEnd = false;
 		roomScopeSeen = '';
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'start-room-broadcast',
 				payload: { count },
-				__wskit: { channel: 'room:42', channelFamily: 'rooms' },
+				metadata: { channel: { name: 'room:42', family: 'rooms' } },
 			}),
 		);
 	}

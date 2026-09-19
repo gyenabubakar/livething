@@ -1,4 +1,4 @@
-import { RejoinRejected, WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError, RejoinRejected } from '@livething/core';
 import { scope } from '~/channel/channel.ts';
 import {
   addChannelMembership,
@@ -45,7 +45,7 @@ function createRuntime(
     connectionId: string;
     event: string;
     payload: Record<string, unknown>;
-    wskit: Record<string, unknown>;
+    livething: Record<string, unknown>;
   }[] = [];
   const broadcasts: {
     channelName: string;
@@ -99,7 +99,7 @@ function createRuntime(
           quality: connection.quality,
           bufferedAmount: 0,
           ref: () => ({
-            __wskit: 'connection-ref' as const,
+            __livething: 'connection-ref' as const,
             id: connection.id,
             instance: undefined,
             userId: connection.userId,
@@ -116,11 +116,11 @@ function createRuntime(
       persistAttachment: vi.fn(),
       sendProtocolMessage(
         connection: ReturnType<typeof createConnection>,
-        { event, payload, wskit }: SendProtocolMessageOptions,
+        { event, payload, livething }: SendProtocolMessageOptions,
       ) {
-        protocol.push({ connectionId: connection.id, event, payload, wskit });
+        protocol.push({ connectionId: connection.id, event, payload, livething });
       },
-      wskitStampHooks: [],
+      livethingStampHooks: [],
       broadcastToChannel({
         channelName,
         event,
@@ -188,7 +188,7 @@ describe('channel runtime', () => {
         connectionId: 'conn_2',
         event: '__subscribeOk__',
         payload: {},
-        wskit: {
+        livething: {
           channel: 'room:general',
           channelFamily: 'rooms',
           source: 'client',
@@ -199,7 +199,7 @@ describe('channel runtime', () => {
         connectionId: 'conn_2',
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
-        wskit: { channel: 'room:general', channelFamily: 'rooms', source: 'client' },
+        livething: { channel: 'room:general', channelFamily: 'rooms', source: 'client' },
       },
     ]);
     expect(broadcasts).toEqual([
@@ -293,7 +293,7 @@ describe('channel runtime', () => {
       connectionId: 'conn_1',
       event: '__unsubscribeOk__',
       payload: {},
-      wskit: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
+      livething: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
     });
   });
 
@@ -320,7 +320,7 @@ describe('channel runtime', () => {
         connectionId: 'conn_1',
         event: '__unsubscribeOk__',
         payload: {},
-        wskit: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
+        livething: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
       },
     ]);
   });
@@ -369,7 +369,7 @@ describe('channel runtime', () => {
       connectionId: 'conn_1',
       event: '__unsubscribeOk__',
       payload: {},
-      wskit: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
+      livething: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
     });
   });
 
@@ -464,7 +464,7 @@ describe('channel runtime', () => {
     expect(clearInbox).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
   });
 
-  it('a single connection leaving a durable channel still drops the durable row and inbox immediately, as before', async () => {
+  it('a single connection leaving a durable channel drops the durable row and inbox immediately', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1', {}, 'alice');
     addChannelMembership(channelMembers, connection, {
@@ -492,7 +492,7 @@ describe('channel runtime', () => {
     expect(clearInbox).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
   });
 
-  it('an anonymous connection leaving a durable channel behaves sensibly (no user id to share, cleans up exactly as before)', async () => {
+  it('an anonymous connection leaving a durable channel cleans up without a shared user id', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1', {}, '');
     addChannelMembership(channelMembers, connection, {
@@ -618,7 +618,7 @@ describe('channel runtime', () => {
     expect(members.map((m) => m.connectionId)).toEqual(['rooms-member']);
   });
 
-  it('check with an async validator throws WSKitConfigError without routing through handleValidationError', async () => {
+  it('check with an async validator throws LiveThingConfigError without routing through handleValidationError', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -726,7 +726,7 @@ describe('channel runtime', () => {
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
-  it('native-Promise commit throws a synchronous-commit WSKitConfigError before membership is written', async () => {
+  it('native-Promise commit throws a synchronous-commit LiveThingConfigError before membership is written', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -745,12 +745,12 @@ describe('channel runtime', () => {
       { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
     );
 
-    await expect(rejection).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(rejection).rejects.toBeInstanceOf(LiveThingConfigError);
     await expect(rejection).rejects.toThrow(/commit\(\) must be synchronous/);
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
-  it('cross-realm Promise commit throws WSKitConfigError before membership is written', async () => {
+  it('cross-realm Promise commit throws LiveThingConfigError before membership is written', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -771,12 +771,12 @@ describe('channel runtime', () => {
         connection,
         { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
-    ).rejects.toBeInstanceOf(WSKitConfigError);
+    ).rejects.toBeInstanceOf(LiveThingConfigError);
 
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
-  it('custom thenable commit throws WSKitConfigError before membership is written', async () => {
+  it('custom thenable commit throws LiveThingConfigError before membership is written', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -792,7 +792,7 @@ describe('channel runtime', () => {
         connection,
         { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
-    ).rejects.toBeInstanceOf(WSKitConfigError);
+    ).rejects.toBeInstanceOf(LiveThingConfigError);
 
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
@@ -984,11 +984,9 @@ describe('channel runtime', () => {
   });
 
   it('leaveChannel runs membership removal, persistAttachment, and _memberLeave broadcast even when an onUnsubscribe hook throws, then re-throws', async () => {
-    // Pre-fix a throwing onUnsubscribe rejected leaveChannel before the
-    // tail ran — peers never saw `_memberLeave`, the attachment stayed
-    // stale. The hook throw is now contained, the tail runs
-    // unconditionally, and the original error is re-thrown so kick
-    // callers still observe it.
+    // A throwing onUnsubscribe is contained until membership removal,
+    // persistence, and peer notification finish. The original error is then
+    // rethrown so callers still observe it.
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
     addChannelMembership(channelMembers, connection, {
@@ -1050,7 +1048,7 @@ describe('channel runtime', () => {
 });
 
 describe('__subscribeOk__ inbox flag', () => {
-  function subscribeOkFrame(protocol: { event: string; wskit: Record<string, unknown> }[]) {
+  function subscribeOkFrame(protocol: { event: string; livething: Record<string, unknown> }[]) {
     return protocol.find((frame) => frame.event === '__subscribeOk__');
   }
 
@@ -1065,7 +1063,7 @@ describe('__subscribeOk__ inbox flag', () => {
       data: undefined,
     });
 
-    expect(subscribeOkFrame(protocol)?.wskit).toMatchObject({ inbox: true });
+    expect(subscribeOkFrame(protocol)?.livething).toMatchObject({ inbox: true });
   });
 
   it('stamps inbox:true on the server-rejoin confirmation for an inbox channel', async () => {
@@ -1079,7 +1077,7 @@ describe('__subscribeOk__ inbox flag', () => {
       payload: {},
     });
 
-    expect(subscribeOkFrame(protocol)?.wskit).toMatchObject({ inbox: true });
+    expect(subscribeOkFrame(protocol)?.livething).toMatchObject({ inbox: true });
   });
 
   it('omits the inbox flag for a non-inbox channel', async () => {
@@ -1093,7 +1091,7 @@ describe('__subscribeOk__ inbox flag', () => {
       data: undefined,
     });
 
-    expect(subscribeOkFrame(protocol)?.wskit).not.toHaveProperty('inbox');
+    expect(subscribeOkFrame(protocol)?.livething).not.toHaveProperty('inbox');
   });
 });
 
@@ -1117,7 +1115,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: {},
-        wskit: {
+        livething: {
           channel: 'room:general',
           channelFamily: 'rooms',
           source: 'server',
@@ -1128,7 +1126,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__memberSync__',
         payload: { members: [] },
-        wskit: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
+        livething: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
       },
     ]);
     expect(broadcasts).toEqual([
@@ -1188,7 +1186,7 @@ describe('subscribeConnectionAsServer', () => {
     });
 
     const ok = protocol.find((p) => p.event === '__subscribeOk__');
-    expect(ok?.wskit).toEqual({
+    expect(ok?.livething).toEqual({
       channel: 'room:general',
       channelFamily: 'rooms',
       source: 'server',
@@ -1337,7 +1335,7 @@ describe('subscribeConnectionAsServer', () => {
           'rooms',
           [
             () => {
-              throw new WSKitConfigError('bad gate config');
+              throw new LiveThingConfigError('bad gate config');
             },
           ],
         ],
@@ -1356,7 +1354,7 @@ describe('subscribeConnectionAsServer', () => {
       thrown = error;
     }
 
-    expect(thrown).toBeInstanceOf(WSKitConfigError);
+    expect(thrown).toBeInstanceOf(LiveThingConfigError);
     expect(RejoinRejected.matches(thrown)).toBe(false);
   });
 
@@ -1484,13 +1482,13 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: {},
-        wskit: { channel: 'lobby', source: 'server', channelMembership: 'ephemeral' },
+        livething: { channel: 'lobby', source: 'server', channelMembership: 'ephemeral' },
       },
       {
         connectionId: 'target',
         event: '__memberSync__',
         payload: { members: [] },
-        wskit: { channel: 'lobby', source: 'server' },
+        livething: { channel: 'lobby', source: 'server' },
       },
     ]);
   });
@@ -1577,7 +1575,7 @@ describe('subscribeConnectionAsServer', () => {
     expect(order[0]).toBe('wire:__subscribeOk__');
     expect(order[order.length - 1]).toBe('onSubscribe');
     expect(
-      protocol.some((p) => p.event === '__subscribeOk__' && p.wskit?.source === 'server'),
+      protocol.some((p) => p.event === '__subscribeOk__' && p.livething?.source === 'server'),
     ).toBe(true);
   });
 
@@ -1630,7 +1628,7 @@ describe('subscribeConnectionAsServer', () => {
     const target = createConnection('target');
     connections.set(target.id, target);
     runtime.sendProtocolMessage = () => {
-      throw new WSKitConfigError('translator outbound is invalid');
+      throw new LiveThingConfigError('translator outbound is invalid');
     };
 
     await expect(
@@ -1639,7 +1637,7 @@ describe('subscribeConnectionAsServer', () => {
         channelFamily: 'rooms',
         payload: undefined,
       }),
-    ).rejects.toThrow(WSKitConfigError);
+    ).rejects.toThrow(LiveThingConfigError);
 
     expect(target.channelMemberships.size).toBe(0);
     expect(channelMembers.size).toBe(0);
@@ -1851,7 +1849,7 @@ describe('resyncChannelMembers (client __memberSync__ request, bug #16)', () => 
         connectionId: 'conn_2',
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
-        wskit: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
+        livething: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
       },
     ]);
   });

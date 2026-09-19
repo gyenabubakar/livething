@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidWSKitIdentifier } from '@wskit/core';
+import { assertValidLiveThingIdentifier } from '@livething/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
@@ -66,7 +66,9 @@ export interface ScheduledCapability<
 /** A `t<T>()` marker carries a type only — there is no runtime validator on it. */
 function isTypeMarker(value: unknown): value is TypeMarker<unknown> {
   return (
-    !!value && typeof value === 'object' && (value as { __wskit_t?: unknown }).__wskit_t === 't'
+    !!value &&
+    typeof value === 'object' &&
+    (value as { __livething_t?: unknown }).__livething_t === 't'
   );
 }
 
@@ -85,7 +87,7 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
 
   if ('retry' in def && def.retry !== undefined && Array.isArray(def.retry)) {
     if (def.retry.length === 0) {
-      throw new Error(`[wskit] ${context}: 'retry' requires at least one entry.`);
+      throw new Error(`[livething] ${context}: 'retry' requires at least one entry.`);
     }
 
     for (const entry of def.retry) {
@@ -115,8 +117,8 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { scheduled } from '@wskit/server/scheduled';
+ * import { server, t } from '@livething/server';
+ * import { scheduled } from '@livething/server/scheduled';
  *
  * const base = server({
  *   capabilities: [
@@ -140,7 +142,7 @@ export const scheduled = withCapabilityKind(function scheduled<const TDefs exten
 ): ScheduledCapability<TDefs> {
   const declarations = new Map<string, ScheduledDeclaration>();
   for (const [taskId, def] of Object.entries(defs)) {
-    assertValidWSKitIdentifier(taskId, 'scheduled() task id');
+    assertValidLiveThingIdentifier(taskId, 'scheduled() task id');
     declarations.set(taskId, resolveDeclaration(taskId, def));
   }
 

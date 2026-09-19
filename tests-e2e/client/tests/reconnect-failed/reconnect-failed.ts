@@ -1,8 +1,8 @@
-import { client, connect, reconnection } from '@wskit/client';
-import type { RequestClient } from '@wskit/tests-e2e-handlers/request';
+import { client, connect, reconnection } from '@livething/client';
+import type { RequestClient } from '@livething/tests-e2e-handlers/request';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's reconnection give-up path. The URL points at a route
+// Drives @livething/client's reconnection give-up path. The URL points at a route
 // the server doesn't serve, so every handshake fails. With a tiny attempt
 // budget, reconnection exhausts fast and fires onReconnectFailed, then settles
 // in 'closed'.

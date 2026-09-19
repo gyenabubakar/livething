@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 /**
@@ -9,7 +9,7 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 const MAX_USER_ID_LENGTH = 256;
 
 /**
- * Start of the key space WSKit keeps for itself. Some rows are filed under a
+ * Start of the key space LiveThing keeps for itself. Some rows are filed under a
  * key the framework invents rather than a real user — a broadcast stream, for
  * instance, is stored against its channel so every subscriber resolves the same
  * row. Those keys all begin with this prefix, and a real user id may not, or an
@@ -25,14 +25,14 @@ export const RESERVED_USER_ID_PREFIX = '__';
  */
 export function assertUsableUserId(userId: string): void {
   if (userId.length > MAX_USER_ID_LENGTH) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `the user id returned from onUpgrade is ${userId.length} characters; the most allowed is ${MAX_USER_ID_LENGTH}. Use a stable id such as a user id or a ULID, not a token.`,
     );
   }
 
   if (userId.startsWith(RESERVED_USER_ID_PREFIX)) {
-    throw new WSKitConfigError(
-      `the user id returned from onUpgrade starts with "${RESERVED_USER_ID_PREFIX}", which is reserved for keys WSKit files internally. Give this user an id that starts with anything else.`,
+    throw new LiveThingConfigError(
+      `the user id returned from onUpgrade starts with "${RESERVED_USER_ID_PREFIX}", which is reserved for keys LiveThing files internally. Give this user an id that starts with anything else.`,
     );
   }
 }

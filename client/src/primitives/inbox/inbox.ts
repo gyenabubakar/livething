@@ -7,7 +7,7 @@ import {
   resolveOwnQuery,
   runReceiptQuery,
 } from '~/primitives/inbox/receipt-query.ts';
-import type { PrimitiveHelpers, WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
+import type { LiveThingMetadata, Message, PrimitiveHelpers } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { ReadableStore, WritableStore } from '~/internal/store.ts';
 import type { ChannelStatus } from '~/primitives/channels/types.ts';
@@ -47,7 +47,7 @@ const DEFAULT_QUERY_TIMEOUT_MS = 10_000;
  * per-channel `receivers` store and adds `receivers`, `onReceived`, and
  * `receiversOf` to each inbox channel handle.
  *
- * It learns which channels are inbox-backed from the `__wskit.inbox` flag on
+ * It learns which channels are inbox-backed from the metadata inbox flag on
  * `__subscribeOk__`, and acks only those. It needs `dedup()`, because the server
  * re-delivers held copies on reconnect and dedup filters the ones already seen.
  */
@@ -124,7 +124,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         }
       }
 
-      function receiveFanout(key: string, message: WireMessage): null {
+      function receiveFanout(key: string, message: Message): null {
         const payload = message.payload as { userId?: unknown; receivedThrough?: unknown };
         if (typeof payload?.userId === 'string' && typeof payload.receivedThrough === 'number') {
           applyReceived(key, payload.userId, payload.receivedThrough);
@@ -133,7 +133,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         return null;
       }
 
-      function receiveGap(key: string, channel: string, message: WireMessage): WireMessage {
+      function receiveGap(key: string, channel: string, message: Message): Message {
         const payload = message.payload as { missedThrough?: unknown } | null | undefined;
         const missedThrough = payload?.missedThrough;
         if (typeof missedThrough !== 'number' || !inboxScopes.has(key)) return message;
@@ -143,7 +143,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
           marks.set(key, {
             seq: missedThrough,
             channel,
-            channelFamily: message.__wskit?.channelFamily,
+            channelFamily: message.metadata?.channel?.family,
             acked: 0,
           });
           scheduleFlush();
@@ -155,13 +155,16 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         return message;
       }
 
-      function trackIncoming(key: string, channel: string, message: WireMessage): WireMessage {
-        if (message.__wskit?.streamId !== undefined) return message;
+      function trackIncoming(key: string, channel: string, message: Message): Message {
+        if (message.metadata?.stream?.id !== undefined) return message;
 
-        const seq = message.__wskit?.seq;
+        const seq =
+          message.metadata?.stream?.id !== undefined
+            ? message.metadata.stream.seq
+            : message.metadata?.delivery?.seq;
         if (typeof seq !== 'number') return message;
 
-        const channelFamily = message.__wskit?.channelFamily;
+        const channelFamily = message.metadata?.channel?.family;
         const current = marks.get(key);
         if (!current) {
           marks.set(key, { seq, channel, channelFamily, acked: 0 });
@@ -174,15 +177,15 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         return message;
       }
 
-      function handleIncoming(message: WireMessage): WireMessage | null {
-        const channel = message.__wskit?.channel;
+      function handleIncoming(message: Message): Message | null {
+        const channel = message.metadata?.channel?.name;
         if (channel === undefined) return message;
 
-        const key = channelKey(message.__wskit?.channelFamily, channel);
+        const key = channelKey(message.metadata?.channel?.family, channel);
 
         switch (message.event) {
           case '__subscribeOk__':
-            if (message.__wskit?.inbox === true) inboxScopes.add(key);
+            if (message.metadata?.channel?.inbox === true) inboxScopes.add(key);
             return message;
 
           case '__unsubscribeOk__':
@@ -213,7 +216,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         id: 'inbox',
         onIncoming: handleIncoming,
         onReconnect() {
-          const requests: WireMessage[] = [];
+          const requests: Message[] = [];
           for (const [key, mark] of marks) {
             if (inboxScopes.has(key)) requests.push(buildReceived(mark));
           }
@@ -271,13 +274,15 @@ function projectCursor(byUserId: ReadonlyMap<string, number>): CursorList {
   return list;
 }
 
-function buildReceived(mark: ScopeMark): WireMessage {
-  const wskit: WSKitEnvelope = { channel: mark.channel };
-  if (mark.channelFamily) wskit.channelFamily = mark.channelFamily;
+function buildReceived(mark: ScopeMark): Message {
+  const metadata: LiveThingMetadata = {
+    channel: { name: mark.channel, ...(mark.channelFamily ? { family: mark.channelFamily } : {}) },
+  };
+
   return {
     event: '__received__',
     payload: { receivedThrough: mark.seq },
-    __wskit: wskit,
+    metadata,
   };
 }
 
@@ -286,7 +291,7 @@ function sendReceived(helpers: PrimitiveHelpers, mark: ScopeMark): void {
 }
 
 function markersKey(markers: ScopeMarkers): string {
-  return channelKey(markers.channelFamily, markers.channel ?? '');
+  return channelKey(markers.family, markers.name ?? '');
 }
 
 inbox.tag = 'inbox';

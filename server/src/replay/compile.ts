@@ -15,18 +15,18 @@ export function collectReplayClaimedScopes(
   parentChannelKey?: string,
 ): void {
   for (const primitive of primitives) {
-    if (primitive.__wskit === 'replay' || primitive.__wskit === 'replayCustom') {
+    if (primitive.__livething === 'replay' || primitive.__livething === 'replayCustom') {
       if (parentChannelKey) out.add(parentChannelKey);
       continue;
     }
 
-    if (primitive.__wskit === 'group') {
+    if (primitive.__livething === 'group') {
       const group = primitive as Primitive & { primitives: readonly Primitive[] };
       collectReplayClaimedScopes(group.primitives, out, parentChannelKey);
       continue;
     }
 
-    if (primitive.__wskit === 'channel') {
+    if (primitive.__livething === 'channel') {
       const channelPrimitive = primitive as Primitive & {
         pattern: string | { key: string };
         primitives: readonly Primitive[];

@@ -1,16 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-// `purgeUser` runs each capability's durable cleanup, then closes the user's
-// live sockets. Two things used to break that.
-//
-// The admin server declares `resumableStream()` and no test ever starts a
-// stream, so its tables would previously not exist when the purge ran. The
-// delete hit a missing table and threw. And because the cleanup loop had no
-// error handling, that throw aborted the whole purge before the socket-close
-// step — leaving the user's sockets open and other capabilities' rows behind.
-//
-// The socket closing here proves both: the schema exists from boot, and the
-// purge reaches its final step.
+// `purgeUser` must clean every durable capability and close the user's live
+// sockets even when the user has never created a durable stream. The socket
+// closing here proves the purge reaches its final step.
 
 test.describe('purgeUser resilience (Worker→DO stub, real Durable Object)', () => {
   test('purges on a server whose durable streams were never used', async ({ page }, testInfo) => {

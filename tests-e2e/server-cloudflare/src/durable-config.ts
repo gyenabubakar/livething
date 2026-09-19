@@ -1,5 +1,5 @@
-import { bind } from '@wskit/server-cloudflare';
-import { durableConfigDefinition } from '@wskit/tests-e2e-handlers/durable-config';
+import { bind } from '@livething/server-cloudflare';
+import { durableConfigDefinition } from '@livething/tests-e2e-handlers/durable-config';
 
 const Base = bind(durableConfigDefinition);
 

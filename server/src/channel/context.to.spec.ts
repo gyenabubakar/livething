@@ -68,7 +68,7 @@ describe('buildChannelHandle().send', () => {
 describe('buildChannelHandle().broadcastTo', () => {
   it('delegates to the channel-scoped audience resolver and returns its delivered count', () => {
     const caller = createConnection('caller', 'u1');
-    const to = { __wskit: 'user-ref' as const, id: 'bob', instance: undefined };
+    const to = { __livething: 'user-ref' as const, id: 'bob', instance: undefined };
     const broadcastToChannelRecipient = vi.fn(() => 3);
     const handle = buildChannelHandle(caller, scope, {
       sendThroughPipeline: vi.fn(),
@@ -94,7 +94,7 @@ describe('buildChannelHandle().broadcastTo', () => {
   it('returns 0 without touching the direct-send pipeline when the audience is empty', () => {
     const caller = createConnection('caller', 'u1');
     const pipeline = vi.fn();
-    const to = { __wskit: 'user-ref' as const, id: 'nobody', instance: undefined };
+    const to = { __livething: 'user-ref' as const, id: 'nobody', instance: undefined };
     const handle = buildChannelHandle(caller, scope, {
       sendThroughPipeline: pipeline,
       broadcastToChannelRecipient: () => 0,

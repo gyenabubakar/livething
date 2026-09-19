@@ -1,8 +1,8 @@
-import { channels, client, connect } from '@wskit/client';
-import type { ChannelDynamicClient } from '@wskit/tests-e2e-handlers/channel-dynamic';
+import { channels, client, connect } from '@livething/client';
+import type { ChannelDynamicClient } from '@livething/tests-e2e-handlers/channel-dynamic';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channels() against the real `channel-dynamic` server definition,
+// Drives @livething/client's channels() against the real `channel-dynamic` server definition,
 // exercising the dynamic-family surface: socket.channel(scope, name) and the
 // socket.channel.scope(scope) handle, typed by the same contract the server
 // implements (ChannelDynamicClient = InferClient<definition>).

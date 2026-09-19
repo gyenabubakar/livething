@@ -93,7 +93,7 @@ export async function purgeChannelMembership(core: EngineCore, userId: string): 
   }
 
   const target: PublicApi.UserRef = {
-    __wskit: 'user-ref',
+    __livething: 'user-ref',
     id: userId,
     instance: core.engineInstanceId,
   };
@@ -127,7 +127,7 @@ export async function autoRejoinIdentity(
       sql,
       subscribeConnectionAsServer: async (target, opts) => {
         const ref: PublicApi.ConnectionRef = {
-          __wskit: 'connection-ref',
+          __livething: 'connection-ref',
           id: target.id,
           instance: core.engineInstanceId,
           userId: target.userId,

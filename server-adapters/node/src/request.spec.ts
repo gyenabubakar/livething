@@ -76,16 +76,16 @@ describe('requestToWebRequest', () => {
 
   it('sets the adapter client IP and removes a client-supplied value', () => {
     const request = requestToWebRequest(
-      incomingRequest({ headers: { 'WSKit-Client-IP': '198.51.100.99' } }),
+      incomingRequest({ headers: { 'LiveThing-Client-IP': '198.51.100.99' } }),
       { clientIp: '203.0.113.7' },
     );
 
-    expect(request.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
+    expect(request.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
 
     const withoutClientIp = requestToWebRequest(
-      incomingRequest({ headers: { 'WSKit-Client-IP': '198.51.100.99' } }),
+      incomingRequest({ headers: { 'LiveThing-Client-IP': '198.51.100.99' } }),
     );
 
-    expect(withoutClientIp.headers.get('WSKit-Client-IP')).toBeNull();
+    expect(withoutClientIp.headers.get('LiveThing-Client-IP')).toBeNull();
   });
 });

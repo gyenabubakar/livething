@@ -1,10 +1,10 @@
 // Type-only checks for the socket error and contract utility types. tsc checks these;
 // vitest never runs them.
-import { ConnectionBusy, RateLimited } from '@wskit/core';
+import { ConnectionBusy, RateLimited } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { expectTypeOf } from 'vitest';
-import type { WSKitError as WSKitErrorType } from '@wskit/core';
+import type { LiveThingError as LiveThingErrorType } from '@livething/core';
 import type { ContractError } from '~/socket/api.ts';
 
 // A contract shaped like `InferClient` output: the framework's built-in errors
@@ -29,14 +29,14 @@ expectTypeOf<Handled>().toEqualTypeOf<unknown>();
 type RoomFull = Extract<ContractError<AppContract>, { code: 'room-full' }>;
 type Kicked = Extract<ContractError<AppContract>, { code: 'kicked' }>;
 type ValidationFailed = Extract<ContractError<AppContract>, { code: 'validation-failed' }>;
-expectTypeOf<RoomFull>().toEqualTypeOf<WSKitErrorType<'room-full', { limit: number }>>();
-expectTypeOf<Kicked>().toEqualTypeOf<WSKitErrorType<'kicked', { reason: string }>>();
+expectTypeOf<RoomFull>().toEqualTypeOf<LiveThingErrorType<'room-full', { limit: number }>>();
+expectTypeOf<Kicked>().toEqualTypeOf<LiveThingErrorType<'kicked', { reason: string }>>();
 expectTypeOf<ValidationFailed>().toEqualTypeOf<
-  WSKitErrorType<'validation-failed', { path: string }>
+  LiveThingErrorType<'validation-failed', { path: string }>
 >();
 
 socket.onError((error) => {
-  // The transport case is a plain Event, not a WSKitError.
+  // The transport case is a plain Event, not a LiveThingError.
   if (error instanceof Event) {
     expectTypeOf(error).toEqualTypeOf<Event>();
     return;
@@ -55,11 +55,11 @@ socket.onError((error) => {
 });
 
 socket.onServerError((error) => {
-  expectTypeOf(error).toEqualTypeOf<WSKitErrorType<string, unknown>>();
+  expectTypeOf(error).toEqualTypeOf<LiveThingErrorType<string, unknown>>();
 });
 
 socket.onServerError('room-full', (error) => {
-  expectTypeOf(error).toEqualTypeOf<WSKitErrorType<'room-full', { limit: number }>>();
+  expectTypeOf(error).toEqualTypeOf<LiveThingErrorType<'room-full', { limit: number }>>();
   expectTypeOf(error.detail.limit).toEqualTypeOf<number>();
 });
 

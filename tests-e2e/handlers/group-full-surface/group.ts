@@ -1,4 +1,4 @@
-import { emits, localKey, t } from '@wskit/server';
+import { emits, localKey, t } from '@livething/server';
 import * as v from 'valibot';
 import {
   BadPayload,
@@ -66,7 +66,7 @@ base.replay({
       'INSERT INTO _replay_log (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
       msg.event,
       JSON.stringify(msg.payload),
-      msg.wire.seq,
+      msg.wire.deliverySeq,
       msg.wire.messageId,
     );
   },
@@ -81,7 +81,7 @@ base.replay({
     ).toArray();
     for (const row of rows) {
       ctx.sendReplay(row.event, JSON.parse(row.payload), {
-        seq: row.seq,
+        deliverySeq: row.seq,
         messageId: row.message_id,
       });
     }

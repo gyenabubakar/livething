@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "wskit-e2e",
+  "name": "livething-e2e",
   "main": "src/index.ts",
   "compatibility_date": "2026-04-07",
   "compatibility_flags": ["nodejs_compat"],

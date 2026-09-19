@@ -1,7 +1,7 @@
-import { emits, server, t } from '@wskit/server';
-import { lastSeen } from '@wskit/server/last-seen';
+import { emits, server, t } from '@livething/server';
+import { lastSeen } from '@livething/server/last-seen';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 // Drives `ctx.lastSeen` — `at`, `atMany`, `online` — end to end. `lastSeen()`

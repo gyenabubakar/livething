@@ -1,5 +1,5 @@
-import type { WSKitError } from '@wskit/core';
-import type { WireMessage } from '~/internal/runtime.ts';
+import type { LiveThingError } from '@livething/core';
+import type { Message } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { AugmentedChannelMethod } from '~/primitives/channels/types.ts';
@@ -56,19 +56,19 @@ export interface PluginBase {
    * See incoming frames. Return one (maybe changed) to pass it on; throw `Block`
    * to drop it.
    */
-  onIncoming(handler: (message: WireMessage) => WireMessage | void): void;
+  onIncoming(handler: (message: Message) => Message | void): void;
 
   /**
    * See outgoing frames. Return one (maybe changed) to send it; throw `Block`
    * to cancel it.
    */
-  onOutgoing(handler: (message: WireMessage) => WireMessage | void): void;
+  onOutgoing(handler: (message: Message) => Message | void): void;
 
   /** Runs on every open (first connect and reconnects). Return frames to send right away. */
-  onOpen(handler: () => WireMessage[] | void): void;
+  onOpen(handler: () => Message[] | void): void;
 
   /** Runs only on reconnects. Return frames to send right away. */
-  onReconnect(handler: () => WireMessage[] | void): void;
+  onReconnect(handler: () => Message[] | void): void;
 
   /**
    * Runs on every close, with the close code and reason. `suspended` is `true`
@@ -109,10 +109,10 @@ type PluginErrorCode<P extends SocketContract> = keyof ErrorsOf<P> & string;
 type PluginErrorHandling<P extends SocketContract> = WhenPresent<
   ErrorsOf<P>,
   {
-    onServerError(handler: (error: WSKitError<string, unknown>) => void): () => void;
+    onServerError(handler: (error: LiveThingError<string, unknown>) => void): () => void;
     onServerError<K extends PluginErrorCode<P>>(
       code: K,
-      handler: (error: WSKitError<K, ErrorsOf<P>[K]>) => void,
+      handler: (error: LiveThingError<K, ErrorsOf<P>[K]>) => void,
     ): () => void;
   }
 >;

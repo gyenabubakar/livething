@@ -5,7 +5,7 @@
  * `ctx.nudges()` helper, and resolve the same broadcast target list.
  */
 
-import { StreamAlreadyActive } from '@wskit/core';
+import { StreamAlreadyActive } from '@livething/core';
 import { assertValidHighWaterMark } from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type {

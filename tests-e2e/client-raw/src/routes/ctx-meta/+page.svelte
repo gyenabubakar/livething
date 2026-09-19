@@ -26,7 +26,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'who-am-i-result') echoed = data.payload?.username ?? '';
 			if (data.event === 'members-list-result') {
 				membersList = (data.payload?.members ?? []).join(', ');
@@ -39,15 +39,15 @@
 	}
 
 	function askWhoAmI() {
-		ws?.send(JSON.stringify({ event: 'who-am-i', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'who-am-i', payload: {} }));
 	}
 
 	function listMembers() {
-		ws?.send(JSON.stringify({ event: 'list-members', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'list-members', payload: {} }));
 	}
 
 	function broadcastIdentity() {
-		ws?.send(JSON.stringify({ event: 'broadcast-identity', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'broadcast-identity', payload: {} }));
 	}
 </script>
 

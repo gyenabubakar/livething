@@ -71,7 +71,7 @@ function createRuntime(
       { handler: (message: { payload: unknown }) => message.payload, owner: APP_HOOK_OWNER },
       { handler: () => undefined, owner: APP_HOOK_OWNER },
     ],
-    wskitStampHooks: withStamper ? [() => ({ seq: seq++ })] : [],
+    livethingStampHooks: withStamper ? [() => ({ deliverySeq: seq++ })] : [],
     beforeSendHooks: [],
     afterSendHooks: [],
     logger: { warn() {}, error() {} },

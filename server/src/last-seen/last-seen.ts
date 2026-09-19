@@ -51,7 +51,7 @@ export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
   const options = resolveLastSeenOptions(config);
 
   return {
-    __wskit: 'last-seen',
+    __livething: 'last-seen',
     __kind: 'infrastructure',
     __identity: [LAST_SEEN_KEY],
     __requires: {},

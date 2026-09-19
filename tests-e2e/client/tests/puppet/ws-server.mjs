@@ -1,4 +1,4 @@
-// Puppet WebSocket server for the client e2e harness. It is NOT the wskit
+// Puppet WebSocket server for the client e2e harness. It is NOT the LiveThing
 // server — it speaks no contract. Each connection's behaviour is chosen by the
 // last path segment, so a test points the client at the behaviour it needs and
 // asserts on what the client does. A small /__count endpoint reports how many
@@ -8,6 +8,24 @@ import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 
 const PORT = 8788;
+
+function encodeFrame(event, payload = null, metadata = null) {
+  return JSON.stringify([event, payload, metadata]);
+}
+
+function decodeFrame(raw) {
+  const frame = JSON.parse(raw);
+  if (
+    !Array.isArray(frame) ||
+    frame.length !== 3 ||
+    typeof frame[0] !== 'string' ||
+    (frame[2] !== null && (typeof frame[2] !== 'object' || Array.isArray(frame[2])))
+  ) {
+    return null;
+  }
+
+  return { event: frame[0], payload: frame[1], metadata: frame[2] };
+}
 
 /** room -> number of sockets opened against it */
 const counts = new Map();
@@ -43,7 +61,7 @@ wss.on('connection', (ws, req) => {
   // accept: stay open, say nothing. silent: same, used to starve keepalive.
   if (behavior === 'accept' || behavior === 'silent') return;
 
-  // server-ping: act like the wskit server keepalive — send a bare "ping" text
+  // server-ping: act like the LiveThing server keepalive — send a bare "ping" text
   // frame and expect the client to auto-reply with a bare "pong" (the only pong
   // form the real server records, see server messages.ts: `data === 'pong'`).
   // On a correct raw pong, send back an `echoed` frame so the test can see the
@@ -51,7 +69,7 @@ wss.on('connection', (ws, req) => {
   if (behavior === 'server-ping') {
     ws.on('message', (data) => {
       if (data.toString() === 'pong') {
-        ws.send(JSON.stringify({ event: 'echoed', payload: { text: 'pong-confirmed' } }));
+        ws.send(encodeFrame('echoed', { text: 'pong-confirmed' }));
       }
     });
     ws.send('ping');
@@ -59,22 +77,24 @@ wss.on('connection', (ws, req) => {
   }
 
   // Simulate a newer server sending an unsolicited error code this client was
-  // not built with. This fixture intentionally bypasses WSKit's server engine;
+  // not built with. This fixture intentionally bypasses LiveThing's server engine;
   // a normal server would normalize an undeclared thrown error to internal-error.
   if (behavior === 'unknown-server-error') {
     ws.on('message', (data) => {
       let frame;
       try {
-        frame = JSON.parse(data.toString());
+        frame = decodeFrame(data.toString());
       } catch {
         return;
       }
 
+      if (!frame) return;
+
       if (frame.event === 'hello') {
         ws.send(
-          JSON.stringify({
-            event: '__error__',
-            payload: { code: 'newer-server-error', detail: { future: true, source: 'server-v2' } },
+          encodeFrame('__error__', {
+            code: 'newer-server-error',
+            detail: { future: true, source: 'server-v2' },
           }),
         );
       }
@@ -86,19 +106,18 @@ wss.on('connection', (ws, req) => {
     ws.on('message', (data) => {
       let frame;
       try {
-        frame = JSON.parse(data.toString());
+        frame = decodeFrame(data.toString());
       } catch {
         return;
       }
 
+      if (!frame) return;
+
       if (frame.event === '__future:plugin::trigger-plugin-error') {
         ws.send(
-          JSON.stringify({
-            event: '__error__',
-            payload: {
-              code: '__future:plugin::plugin-future-error',
-              detail: { future: true, version: 2 },
-            },
+          encodeFrame('__error__', {
+            code: '__future:plugin::plugin-future-error',
+            detail: { future: true, version: 2 },
           }),
         );
       }
@@ -107,20 +126,23 @@ wss.on('connection', (ws, req) => {
   }
 
   ws.on('message', (data) => {
-    // Keepalive: the wskit client sends a bare "ping" text frame (raw, so the
+    // Keepalive: the LiveThing client sends a bare "ping" text frame (raw, so the
     // CF hibernation auto-response can answer it). The `pong` behavior answers
     // with a bare "pong", mirroring the real server; others ignore it.
     if (data.toString() === 'ping') {
       if (behavior === 'pong') ws.send('pong');
+
       return;
     }
 
     let frame;
     try {
-      frame = JSON.parse(data.toString());
+      frame = decodeFrame(data.toString());
     } catch {
       return;
     }
+
+    if (!frame) return;
 
     // drop-on-demand: terminate when the client asks, so a test controls the
     // exact moment the socket dies (no timing races).
@@ -133,7 +155,7 @@ wss.on('connection', (ws, req) => {
     if (behavior === 'pong') return;
 
     // echo: bounce the payload back under a fixed event name.
-    ws.send(JSON.stringify({ event: 'echoed', payload: frame.payload }));
+    ws.send(encodeFrame('echoed', frame.payload));
   });
 });
 

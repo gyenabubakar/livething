@@ -1,11 +1,11 @@
-import type { WireMessage } from '~/internal/runtime.ts';
+import type { Message } from '~/internal/runtime.ts';
 import type { Socket } from '~/socket/api.ts';
-import type { WSKitSocket } from '~/socket/socket.ts';
+import type { LiveThingSocket } from '~/socket/socket.ts';
 import type { ChannelsOf, IncomingOf, SocketContract } from '~/types.ts';
 
 /** Push a message object through the real incoming pipeline, even if the socket is disconnected. */
-function deliver(socket: object, message: WireMessage): void {
-  (socket as unknown as WSKitSocket)._processIncoming(message);
+function deliver(socket: object, message: Message): void {
+  (socket as unknown as LiveThingSocket)._processIncoming(message);
 }
 
 /**
@@ -21,13 +21,13 @@ export function inject<
   TContract extends SocketContract,
   K extends keyof IncomingOf<TContract> & string,
 >(socket: Socket<TContract>, event: K, payload: IncomingOf<TContract>[K]): void {
-  deliver(socket, { event, payload });
+  deliver(socket, { event, payload, metadata: null });
 }
 
 // oxlint-disable max-params -- the scoped injectors need (socket, scope, event, payload)
 
 /**
- * Inject a fake message into a channel. Tags the frame with `__wskit.channel`
+ * Inject a fake message into a channel. Tags the frame with channel metadata.
  * so the `channels` primitive routes it to that channel's handlers.
  *
  * ```ts
@@ -44,7 +44,7 @@ export function injectChannel<
   event: K,
   payload: IncomingOf<ChannelsOf<TContract>[TChannel]>[K],
 ): void {
-  deliver(socket, { event, payload, __wskit: { channel } });
+  deliver(socket, { event, payload, metadata: { channel: { name: channel } } });
 }
 
 // oxlint-enable max-params

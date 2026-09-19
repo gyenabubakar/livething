@@ -1,8 +1,8 @@
-import { server, t } from '@wskit/server';
-import { Disconnect, StreamAborted } from '@wskit/server/errors';
-import { recordedStream, resumableStream } from '@wskit/server/streams';
+import { server, t } from '@livething/server';
+import { Disconnect, StreamAborted } from '@livething/server/errors';
+import { recordedStream, resumableStream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const CountTokensPayload = v.object({ hold: v.optional(v.boolean()) });

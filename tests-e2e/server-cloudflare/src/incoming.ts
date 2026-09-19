@@ -1,4 +1,4 @@
-import { bind } from '@wskit/server-cloudflare';
-import { incomingDefinition } from '@wskit/tests-e2e-handlers/incoming';
+import { bind } from '@livething/server-cloudflare';
+import { incomingDefinition } from '@livething/tests-e2e-handlers/incoming';
 
 export class IncomingServer extends bind(incomingDefinition) {}

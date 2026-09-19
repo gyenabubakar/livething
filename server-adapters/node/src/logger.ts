@@ -1,4 +1,4 @@
-import type { Logger } from '@wskit/server/adapters';
+import type { Logger } from '@livething/server/adapters';
 
 export function createLogger(): Logger {
   return {

@@ -13,7 +13,7 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
     incoming: [],
     answerFrame: [],
     outgoing: [],
-    wskitStamp: [],
+    livethingStamp: [],
     beforeSend: [],
     afterSend: [],
     protocol: new Map(),

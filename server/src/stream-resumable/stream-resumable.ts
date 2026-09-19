@@ -52,7 +52,7 @@ export function resumableGenerateFactory(
   input: BuildResumableStreamGenerateInput,
 ): ResumableStreamGeneratePrimitive {
   return {
-    __wskit: 'resumable-stream-generate',
+    __livething: 'resumable-stream-generate',
     __kind: 'handler',
     __identity: [RESUMABLE_STREAM_GENERATE_KEY, input.event],
     __requires: {},

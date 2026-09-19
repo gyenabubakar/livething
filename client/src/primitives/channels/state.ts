@@ -1,8 +1,8 @@
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { createStore } from '~/internal/store.ts';
 import { channelEventPrefix } from '~/primitives/channels/messaging.ts';
-import type { WSKitError } from '@wskit/core';
-import type { PrimitiveLogger, WireMessage } from '~/internal/runtime.ts';
+import type { LiveThingError } from '@livething/core';
+import type { Message, PrimitiveLogger } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { ChannelMember, ChannelStatus, SubscribeSource } from '~/primitives/channels/types.ts';
 
@@ -72,7 +72,7 @@ export class ChannelState {
   /** The in-flight `subscribe()` promise, reused so overlapping calls don't orphan the first. */
   pendingPromise: Promise<void> | null = null;
   /** A subscribe frame waiting for a connecting socket to open. */
-  pendingSubscribeFrame: WireMessage | null = null;
+  pendingSubscribeFrame: Message | null = null;
   /**
    * An outstanding leave waiting for the server's `__unsubscribeOk__`. Carries
    * the `unsubscribeId` the confirmation must echo. While set it is resent on
@@ -121,16 +121,16 @@ export class ChannelState {
   private readonly subscribed = listeners<(source: SubscribeSource) => void>(() => this.log);
   private readonly unsubscribed = listeners<() => void>(() => this.log);
   private readonly kicked = listeners<(reason: string) => void>(() => this.log);
-  private readonly subFailed = listeners<(error: WSKitError) => void>(() => this.log);
+  private readonly subFailed = listeners<(error: LiveThingError) => void>(() => this.log);
   private readonly memberJoin = listeners<MemberCallback>(() => this.log);
   private readonly memberLeave = listeners<LeaveCallback>(() => this.log);
   private readonly memberOnline = listeners<MemberCallback>(() => this.log);
   private readonly memberOffline = listeners<LeaveCallback>(() => this.log);
 
   constructor(
-    /** The `__wskit.channel` value. */
+    /** The channel metadata name value. */
     readonly name: string,
-    /** The `__wskit.channelFamily` value, for a channel inside a dynamic family. */
+    /** The channel metadata family value, for a channel inside a dynamic family. */
     readonly familyKey: string | undefined,
     /** Debug-gated logger, used to report a throwing event handler. */
     private readonly log: PrimitiveLogger,
@@ -326,7 +326,7 @@ export class ChannelState {
     // hold and clear any in-flight subscribe(), so a later subscribe() starts fresh
     // rather than reusing the stale pending state.
     this.releaseLazy();
-    this.pending?.reject(new Error('[wskit] unsubscribed before the subscribe was confirmed'));
+    this.pending?.reject(new Error('[livething] unsubscribed before the subscribe was confirmed'));
     this.pending = null;
     this.pendingPromise = null;
     this.setStatus('unsubscribed');
@@ -338,7 +338,7 @@ export class ChannelState {
     this.kicked.each((callback) => callback(reason));
   }
 
-  fireSubscriptionFailed(error: WSKitError): void {
+  fireSubscriptionFailed(error: LiveThingError): void {
     const subscriptionFailed = this.pending !== null || this.rejoining;
     if (subscriptionFailed) this.releaseLazy();
     this.pendingSubscribeFrame = null;

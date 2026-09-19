@@ -87,7 +87,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
       quality: c.quality,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref' as const,
+        __livething: 'connection-ref' as const,
         id: c.id,
         instance: undefined,
         userId: c.userId,
@@ -100,7 +100,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
 }
 
 function localRef(id: string) {
-  return { __wskit: 'connection-ref' as const, id, instance: undefined, userId: id };
+  return { __livething: 'connection-ref' as const, id, instance: undefined, userId: id };
 }
 
 describe('ctx.user / ctx.users — anonymous connections', () => {
@@ -177,7 +177,7 @@ describe('ctx.user / ctx.users — anonymous connections', () => {
     expect(sendThroughPipeline).not.toHaveBeenCalled();
   });
 
-  it('an identified connection is reachable via ctx.user and ctx.users exactly as before', () => {
+  it('an identified connection is reachable through ctx.user and ctx.users', () => {
     const alice1 = createConnection('conn_1', 'alice');
     const sendThroughPipeline = vi.fn(() => true);
     const deps = baseDeps({
@@ -305,7 +305,7 @@ describe('ctx.connections.get(ref).send', () => {
     expect(result).toBe(false);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
     expect(deps.logger.error).toHaveBeenCalledWith(
-      '[wskit] ctx.connections.get(ref).send target not found',
+      '[livething] ctx.connections.get(ref).send target not found',
       {
         connectionId: 'nonexistent-id',
         event: 'evt',
@@ -319,7 +319,7 @@ describe('ctx.connections.get(ref).send', () => {
 
     expect(task.connections.get(localRef('missing')).send('evt', {})).toBe(false);
     expect(deps.logger.error).toHaveBeenCalledWith(
-      '[wskit] ctx.connections.get(ref).send target not found',
+      '[livething] ctx.connections.get(ref).send target not found',
       {
         connectionId: 'missing',
         event: 'evt',
@@ -355,7 +355,7 @@ describe('ctx.connections.get(ref).send', () => {
 
     const ctx = buildConnectionContext(deps, self);
     const foreign = {
-      __wskit: 'connection-ref' as const,
+      __livething: 'connection-ref' as const,
       id: 'peer',
       instance: 'engine-b',
       userId: 'peer',
@@ -385,7 +385,7 @@ describe('ctx.cancelScheduled', () => {
     task.cancelScheduled('cleanup', { label: 'drop' });
 
     expect(deps.cancelScheduled).toHaveBeenCalledWith('cleanup', { label: 'drop' });
-    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] cancelScheduled matched no runs', {
+    expect(deps.logger.error).toHaveBeenCalledWith('[livething] cancelScheduled matched no runs', {
       taskId: 'cleanup',
       filter: { label: 'drop' },
       taskExists: true,
@@ -534,7 +534,7 @@ describe('ctx.channels.get(name).members()', () => {
       quality: 'good' as const,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref' as const,
+        __livething: 'connection-ref' as const,
         id: 'c2',
         instance: undefined,
         userId: 'c2',
@@ -576,7 +576,7 @@ describe('ctx.channels.get(name).members()', () => {
       quality: 'good' as const,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref' as const,
+        __livething: 'connection-ref' as const,
         id: 'c2',
         instance: undefined,
         userId: 'c2',
@@ -614,7 +614,7 @@ describe('ctx.channels.get(name).members()', () => {
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    (ctx as any).channels.get({ __wskitChannel: true, __key: 'lobby' }).members();
+    (ctx as any).channels.get({ __livethingChannel: true, __key: 'lobby' }).members();
 
     expect(resolveChannel).toHaveBeenCalledWith('lobby');
     expect(deps.getChannelMembers).toHaveBeenCalledWith('lobby', null);
@@ -635,7 +635,7 @@ describe('ctx.channels.get(name).members()', () => {
 
     const ctx = buildConnectionContext(deps, connection);
     (ctx as any).channels
-      .get({ __wskitChannelRef: true, family: 'rooms', name: 'room:general' })
+      .get({ __livethingChannelRef: true, family: 'rooms', name: 'room:general' })
       .members();
 
     expect(resolveChannel).toHaveBeenCalledWith({ family: 'rooms', name: 'room:general' });

@@ -43,7 +43,7 @@ const PAGE_HELPERS = `
     const frames = [];
     const closes = [];
     ws.addEventListener('message', (e) => {
-      if (typeof e.data === 'string') frames.push(JSON.parse(e.data));
+      if (typeof e.data === 'string') frames.push(window.__livethingDecode(e.data));
     });
     ws.addEventListener('close', (e) => closes.push(e.code + ':' + e.reason));
     await new Promise((resolve, reject) => {
@@ -217,7 +217,11 @@ test.describe('api(ctx) members over the stub', () => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');
       window.__a.ws.send(
-        JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }),
+        window.__livethingEncode({
+          event: '__subscribe__',
+          payload: null,
+          metadata: { channel: { name: 'lobby' } },
+        }),
       );
       await window.__settle();
     }, room);
@@ -239,7 +243,11 @@ test.describe('api(ctx) members over the stub', () => {
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__a.ws.send(
-        JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }),
+        window.__livethingEncode({
+          event: '__subscribe__',
+          payload: null,
+          metadata: { channel: { name: 'lobby' } },
+        }),
       );
       await window.__settle();
     }, room);
@@ -396,7 +404,11 @@ test.describe('built-in flat ops on the stub', () => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');
       window.__a.ws.send(
-        JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }),
+        window.__livethingEncode({
+          event: '__subscribe__',
+          payload: null,
+          metadata: { channel: { name: 'lobby' } },
+        }),
       );
       await window.__settle();
     }, room);

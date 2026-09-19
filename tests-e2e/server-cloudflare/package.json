@@ -1,24 +1,24 @@
 {
-  "name": "@wskit/tests-e2e-server-cloudflare",
+  "name": "@livething/tests-e2e-server-cloudflare",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "postinstall": "pnpm cf-typegen",
     "clean:test-state": "rm -rf .wrangler/state .wrangler/state-* .wrangler/tmp",
-    "build:deps": "pnpm --filter @wskit/server-cloudflare... run build",
-    "dev:worker": "pnpm run build:deps && pnpm run clean:test-state && wrangler dev --ip 127.0.0.1 --port ${WSKIT_E2E_SERVER_PORT:-8787} --persist-to .wrangler/state-${WSKIT_E2E_SERVER_PORT:-8787}",
+    "build:deps": "pnpm --filter @livething/server-cloudflare... run build",
+    "dev:worker": "pnpm run build:deps && pnpm run clean:test-state && wrangler dev --ip 127.0.0.1 --port ${LIVETHING_E2E_SERVER_PORT:-8787} --persist-to .wrangler/state-${LIVETHING_E2E_SERVER_PORT:-8787}",
     "test:hibernation-wake": "vitest run --config vitest.config.ts test/hibernation-wake.test.ts test/translation-hibernation.test.ts",
-    "test:e2e:cloudflare": "pnpm run test:hibernation-wake && WSKIT_E2E_SERVER_COMMAND='pnpm run dev:worker' WSKIT_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @wskit/tests-e2e-client-raw exec playwright test",
+    "test:e2e:cloudflare": "pnpm run test:hibernation-wake && LIVETHING_E2E_SERVER_COMMAND='pnpm run dev:worker' LIVETHING_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @livething/tests-e2e-client-raw exec playwright test",
     "cf-typegen": "wrangler types",
     "typecheck": "wrangler types && tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
     "clean": "rm -rf node_modules .wrangler worker-configuration.d.ts"
   },
   "dependencies": {
-    "@wskit/core": "workspace:*",
-    "@wskit/server": "workspace:*",
-    "@wskit/server-cloudflare": "workspace:*",
-    "@wskit/tests-e2e-handlers": "workspace:*",
+    "@livething/core": "workspace:*",
+    "@livething/server": "workspace:*",
+    "@livething/server-cloudflare": "workspace:*",
+    "@livething/tests-e2e-handlers": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "valibot": "^1.3.1"
   },

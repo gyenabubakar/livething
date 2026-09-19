@@ -81,7 +81,7 @@ describe('inbox runtime install', () => {
       userIds: ['alice', 'bob'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { event: 'room-msg', payload: { text: 'hi' }, seq: 1, messageId: 'm1' },
+      frame: { event: 'room-msg', payload: { text: 'hi' }, deliverySeq: 1, messageId: 'm1' },
       now: 1000,
     });
 
@@ -97,7 +97,7 @@ describe('inbox runtime install', () => {
     const deleteTransactions: number[] = [];
     const storage = createTestStorage({
       onExec(query) {
-        if (/DELETE FROM __wskit_inbox(?:_watermark|_receipts)? WHERE user_id/.test(query)) {
+        if (/DELETE FROM __livething_inbox(?:_watermark|_receipts)? WHERE user_id/.test(query)) {
           deleteTransactions.push(activeTransaction ?? -1);
         }
       },
@@ -127,9 +127,9 @@ describe('inbox runtime install', () => {
   });
 
   it.each([
-    ['inbox rows', '__wskit_inbox WHERE user_id'],
-    ['watermarks', '__wskit_inbox_watermark WHERE user_id'],
-    ['receipts', '__wskit_inbox_receipts WHERE user_id'],
+    ['inbox rows', '__livething_inbox WHERE user_id'],
+    ['watermarks', '__livething_inbox_watermark WHERE user_id'],
+    ['receipts', '__livething_inbox_receipts WHERE user_id'],
   ])('attempts all durable deletes when %s fails', async (_name, needle) => {
     let injected = false;
     const storage = createTestStorage({
@@ -160,7 +160,7 @@ describe('inbox runtime install', () => {
       userIds: ['alice'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { event: 'room-msg', payload: {}, seq: 1, messageId: 'm1' },
+      frame: { event: 'room-msg', payload: {}, deliverySeq: 1, messageId: 'm1' },
       now: 1,
     });
 
@@ -198,11 +198,11 @@ describe('inbox runtime install', () => {
     const storage = createTestStorage({
       onExec(query) {
         if (
-          query.includes('DELETE FROM __wskit_inbox WHERE user_id') ||
-          query.includes('DELETE FROM __wskit_inbox_receipts WHERE user_id')
+          query.includes('DELETE FROM __livething_inbox WHERE user_id') ||
+          query.includes('DELETE FROM __livething_inbox_receipts WHERE user_id')
         ) {
           throw new Error(
-            query.includes('__wskit_inbox_receipts') ? 'receipts failed' : 'inbox failed',
+            query.includes('__livething_inbox_receipts') ? 'receipts failed' : 'inbox failed',
           );
         }
       },
@@ -269,7 +269,7 @@ describe('inbox runtime install', () => {
         userIds: ['alice'],
         channelName: 'chat',
         channelFamily: null,
-        frame: { event: 'room-msg', payload: {}, seq: 1, messageId: 'm1' },
+        frame: { event: 'room-msg', payload: {}, deliverySeq: 1, messageId: 'm1' },
         now: 1,
       });
 

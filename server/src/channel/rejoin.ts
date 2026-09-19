@@ -1,4 +1,4 @@
-import { ChannelNotFound, RejoinRejected, rethrowIfConfigError } from '@wskit/core';
+import { ChannelNotFound, RejoinRejected, rethrowIfConfigError } from '@livething/core';
 import { deleteMembership, listMembershipsByUser } from '~/channel/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
@@ -108,16 +108,16 @@ export async function autoRejoinIdentity(
       else if (error instanceof Error) reason = error.message;
       else reason = String(error);
 
-      const wskit: Record<string, unknown> = { channel: row.channelName };
-      if (row.channelFamily !== null) wskit.channelFamily = row.channelFamily;
+      const livething: Record<string, unknown> = { channel: row.channelName };
+      if (row.channelFamily !== null) livething.channelFamily = row.channelFamily;
 
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
         payload: { code: RejoinRejected.code, detail: { message: reason } },
-        wskit,
+        livething,
       });
 
-      runtime.logger?.error('[wskit] auto-rejoin gate rejected', {
+      runtime.logger?.error('[livething] auto-rejoin gate rejected', {
         userId: connection.userId,
         channel: row.channelName,
         channelFamily: row.channelFamily,

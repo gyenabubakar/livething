@@ -1,6 +1,6 @@
 /* oxlint-disable no-unused-vars */
 
-import { server } from '@wskit/server';
+import { server } from '@livething/server';
 import { expectTypeOf } from 'vitest';
 import * as Adapter from './index.ts';
 import type { NodeWebSocketServer, Platform } from './index.ts';
@@ -17,11 +17,11 @@ const definition = base.assemble({
   }),
 });
 
-const wskit = Adapter.setup();
-const endpoint = wskit.bind(definition, {});
+const livething = Adapter.setup();
+const endpoint = livething.bind(definition, {});
 const admin = await endpoint.admin();
 const upgrade = endpoint.upgrade;
-await wskit.ready();
+await livething.ready();
 void upgrade;
 
 expectTypeOf(admin.archiveRoom).toEqualTypeOf<(room: string) => Promise<number>>();

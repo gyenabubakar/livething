@@ -13,7 +13,7 @@ export interface NodeProxyClientIpConfig {
   trustedProxies: readonly string[];
 }
 
-/** The strategies Node supports for deriving `WSKit-Client-IP`. */
+/** The strategies Node supports for deriving `LiveThing-Client-IP`. */
 export type NodeClientIpConfig = NodeDirectClientIpConfig | NodeProxyClientIpConfig;
 
 /** Resolves a client address for one incoming Node request. */
@@ -22,7 +22,7 @@ export type ClientIpResolver = (request: IncomingMessage) => string | undefined;
 /**
  * Creates the client-IP resolver used while building the Web API `Request`.
  *
- * Without configuration, the adapter omits `WSKit-Client-IP`. Proxy mode only
+ * Without configuration, the adapter omits `LiveThing-Client-IP`. Proxy mode only
  * returns a forwarded address when every hop it trusts is a valid IP address.
  */
 export function createClientIpResolver(config?: NodeClientIpConfig): ClientIpResolver {

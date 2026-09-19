@@ -1,5 +1,5 @@
-import { bind } from '@wskit/server-cloudflare';
-import { sequenceDefinition } from '@wskit/tests-e2e-handlers/sequence';
+import { bind } from '@livething/server-cloudflare';
+import { sequenceDefinition } from '@livething/tests-e2e-handlers/sequence';
 
 const Base = bind(sequenceDefinition);
 

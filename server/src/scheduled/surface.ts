@@ -10,7 +10,7 @@ const SCHEDULE_SURFACE_KEY = Symbol('scheduled-surface');
 /**
  * Build the `ctx.schedule` / `ctx.cancelScheduled` surface for a connection
  * context. Owned by the `scheduled()` capability so a server that only has an
- * internally-built scheduled primitive (a stream-sweep sweep, say) never gets it.
+ * internally built scheduled primitive (such as a stream sweep) never gets it.
  */
 function buildScheduleSurface(engine: EngineAccess): Record<string, unknown> {
   return {
@@ -20,7 +20,7 @@ function buildScheduleSurface(engine: EngineAccess): Record<string, unknown> {
     cancelScheduled: (taskId: string, filter?: Record<string, unknown>) => {
       const result = engine.cancelScheduled(taskId, filter);
       if (result.removed === 0) {
-        engine.getLogger?.()?.error('[wskit] cancelScheduled matched no runs', {
+        engine.getLogger?.()?.error('[livething] cancelScheduled matched no runs', {
           taskId,
           filter,
           taskExists: result.taskExists,
@@ -39,7 +39,7 @@ function buildScheduleSurface(engine: EngineAccess): Record<string, unknown> {
  */
 export function scheduleSurfacePrimitive(): Primitive {
   return {
-    __wskit: 'scheduledSurface',
+    __livething: 'scheduledSurface',
     __kind: 'infrastructure',
     __identity: [SCHEDULE_SURFACE_KEY],
     __requires: {},

@@ -1,4 +1,4 @@
-import type { SqlLimits, SQLProvider, SqlResult } from '@wskit/server/adapters';
+import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapters';
 
 /**
  * Durable Object SQLite's real bind-parameter and payload ceilings, as
@@ -24,7 +24,7 @@ function wrapCursor<TRow = unknown>(
   function claim(method: 'toArray' | 'one' | 'raw'): void {
     if (consumed) {
       throw new Error(
-        `[wskit] sql.exec() result already consumed by .${consumed}(). Call exactly one of .toArray() / .one() / .raw() per exec(). Run the query again if you need both shapes.`,
+        `[livething] sql.exec() result already consumed by .${consumed}(). Call exactly one of .toArray() / .one() / .raw() per exec(). Run the query again if you need both shapes.`,
       );
     }
 
@@ -46,7 +46,7 @@ function wrapCursor<TRow = unknown>(
       const second = iter.next();
       if (!second.done) {
         throw new Error(
-          '[wskit] sql.one() expected at most one row, but the query returned multiple. Add LIMIT 1 to the SQL, or use .toArray().',
+          '[livething] sql.one() expected at most one row, but the query returned multiple. Add LIMIT 1 to the SQL, or use .toArray().',
         );
       }
 
@@ -76,7 +76,7 @@ export function createSql(state: DurableObjectState): SQLProvider {
     transaction<T>(fn: (tx: CloudflareTransactionContext) => T): T {
       if (typeof state.storage.transactionSync !== 'function') {
         throw new Error(
-          '[wskit] this Cloudflare runtime does not support atomic transactions. ' +
+          '[livething] this Cloudflare runtime does not support atomic transactions. ' +
             'ctx.sql.transaction() requires storage.transactionSync(). Upgrade your ' +
             'Cloudflare Workers runtime, or in tests provide a mock storage that ' +
             'implements transactionSync.',

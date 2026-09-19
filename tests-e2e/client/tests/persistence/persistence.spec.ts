@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's channels() + reconnection() against the real
+// Conformance: @livething/client's channels() + reconnection() against the real
 // `persistence` server definition. Adapter-oblivious — it talks to whatever server the run
 // booted over the /ws proxy.
 async function open(page: Page, room: string, username: string): Promise<void> {

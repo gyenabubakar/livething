@@ -57,7 +57,7 @@ describe('adapter', () => {
       setup,
     });
 
-    const definition = { __wskit: 'server', primitives: [] } as unknown as ServerDefinition;
+    const definition = { __livething: 'server', primitives: [] } as unknown as ServerDefinition;
     const result = runAdapter(definition, { port: 3000 });
     const [createEngine, options] = setup.mock.calls[0]! as unknown as [
       (runtimeOptions: RuntimeOptions) => Engine,
@@ -90,7 +90,10 @@ describe('adapter', () => {
       },
     });
 
-    runAdapter({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    runAdapter(
+      { __livething: 'server', primitives: [] } as unknown as ServerDefinition,
+      {} as never,
+    );
     expect(capturedFactory!(runtimeOptions()).core.options.hibernation).toBe(api);
   });
 
@@ -105,7 +108,10 @@ describe('adapter', () => {
       },
     });
 
-    runAdapter({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    runAdapter(
+      { __livething: 'server', primitives: [] } as unknown as ServerDefinition,
+      {} as never,
+    );
     const engine = capturedFactory!(runtimeOptions());
     expect(engine.core.options.hibernation).toBe(undefined);
   });
@@ -121,7 +127,10 @@ describe('adapter', () => {
       },
     });
 
-    runAdapter({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    runAdapter(
+      { __livething: 'server', primitives: [] } as unknown as ServerDefinition,
+      {} as never,
+    );
     const a = capturedFactory!(runtimeOptions());
     const b = capturedFactory!(runtimeOptions());
     expect(a).not.toBe(b);

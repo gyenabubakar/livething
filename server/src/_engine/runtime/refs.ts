@@ -1,4 +1,4 @@
-import { CrossInstanceRef } from '@wskit/core';
+import { CrossInstanceRef } from '@livething/core';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -28,7 +28,7 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
           assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).send');
           const target = deps.connections.get(ref.id);
           if (!target) {
-            deps.logger.error('[wskit] ctx.connections.get(ref).send target not found', {
+            deps.logger.error('[livething] ctx.connections.get(ref).send target not found', {
               connectionId: ref.id,
               event,
             });
@@ -41,7 +41,7 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
           assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).close');
           const target = deps.connections.get(ref.id);
           if (!target) {
-            deps.logger.error('[wskit] ctx.connections.get(ref).close target not found', {
+            deps.logger.error('[livething] ctx.connections.get(ref).close target not found', {
               connectionId: ref.id,
             });
             return;

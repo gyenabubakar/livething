@@ -1,7 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { rethrowIfConfigError } from '@wskit/core';
+import { rethrowIfConfigError } from '@livething/core';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
+import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
 import { isTranslatorConfigError } from '~/translation/error.ts';
@@ -16,7 +17,7 @@ type BroadcastToChannelOptsParameter = {
   channelFamily: string | null;
   event: string;
   payload: Record<string, unknown>;
-  seq: number;
+  deliverySeq: number;
   messageId: string;
   /**
    * Skip writing an inbox row for this user. Set only when the broadcast
@@ -36,10 +37,10 @@ export interface OutgoingRuntime {
   outgoingHooks: readonly OutgoingHookEntry[];
 
   /**
-   * Contributors of `__wskit` metadata for outgoing user frames — the sequence
+   * Contributors of `__livething` metadata for outgoing user frames — the delivery sequence
    * number and the dedup id. Skipped for protocol frames.
    */
-  wskitStampHooks: readonly ((event: string) => Record<string, unknown>)[];
+  livethingStampHooks: readonly ((event: string) => Record<string, unknown>)[];
 
   beforeSendHooks: readonly ((message: EngineRuntimeTypes.WireOutgoingMessage) => void)[];
 
@@ -95,7 +96,7 @@ export function isDeclaredOutgoingEvent(
 /** Throw if the payload is not a plain object — arrays and primitives are rejected. */
 export function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('[wskit] Outgoing payload must be a plain object.');
+    throw new Error('[livething] Outgoing payload must be a plain object.');
   }
 }
 
@@ -128,44 +129,47 @@ function runOutgoingHooks(
 }
 
 /**
- * Build the `__wskit` block for an outgoing frame from its routing target.
+ * Build the `__livething` block for an outgoing frame from its routing target.
  * Returns the typed envelope so each field write is checked; the caller widens
  * it to a loose bag only where plugin stampers add their own open-ended keys.
  */
-function buildWSKit(
+function buildLiveThing(
   routing: EngineRuntimeTypes.RoutingTarget | undefined,
-): Partial<Protocol.WSKitProtocol> {
-  const wskit: Partial<Protocol.WSKitProtocol> = {};
-  if (routing?.channel) wskit.channel = routing.channel;
+): Partial<Protocol.LiveThingProtocol> {
+  const livething: Partial<Protocol.LiveThingProtocol> = {};
+  if (routing?.channel) livething.channel = routing.channel;
   if (routing?.channelFamily !== null && routing?.channelFamily !== undefined) {
-    wskit.channelFamily = routing.channelFamily;
+    livething.channelFamily = routing.channelFamily;
   }
 
-  if (routing?.correlationId) wskit.correlationId = routing.correlationId;
-  if (routing?.source) wskit.source = routing.source;
+  if (routing?.correlationId) livething.correlationId = routing.correlationId;
+  if (routing?.source) livething.source = routing.source;
 
-  if (routing?.streamId) wskit.streamId = routing.streamId;
-  if (typeof routing?.seq === 'number') wskit.seq = routing.seq;
-  if (routing?.streamKind) wskit.streamKind = routing.streamKind;
+  if (routing?.streamId) livething.streamId = routing.streamId;
+  if (typeof routing?.deliverySeq === 'number') livething.deliverySeq = routing.deliverySeq;
+  if (typeof routing?.streamSeq === 'number') livething.streamSeq = routing.streamSeq;
+  if (routing?.streamDurability) livething.streamDurability = routing.streamDurability;
 
-  return wskit;
+  return livething;
 }
 
 /**
- * Run the sequence/dedup stampers and merge their output into `__wskit`. A
- * value already set from routing wins, so a durable stream's own `seq` stays.
+ * Run the sequence/dedup stampers and merge their output into `__livething`. A
+ * value already set from routing wins, so a durable stream's own sequence stays.
  */
-function applyWSKitStampers(
-  stampers: OutgoingRuntime['wskitStampHooks'],
+function applyLiveThingStampers(
+  stampers: OutgoingRuntime['livethingStampHooks'],
   event: string,
-  wskit: Record<string, unknown>,
+  livething: Record<string, unknown>,
 ): void {
   if (Protocol.isProtocolEventName(event)) return;
 
   for (const stamp of stampers) {
     const stamped = stamp(event);
     for (const key in stamped) {
-      if (wskit[key] === undefined) wskit[key] = stamped[key];
+      if (key === 'deliverySeq' && livething.streamSeq !== undefined) continue;
+
+      if (livething[key] === undefined) livething[key] = stamped[key];
     }
   }
 }
@@ -184,18 +188,18 @@ function invokeAfterSendHooks(
         const work = Promise.resolve(result);
         runtime.trackBackgroundWork?.(work);
         void work.catch((error) => {
-          logger.error('[wskit] after-send hook failed', { error });
+          logger.error('[livething] after-send hook failed', { error });
         });
       }
     } catch (error) {
-      logger.error('[wskit] after-send hook failed', { error });
+      logger.error('[livething] after-send hook failed', { error });
     }
   }
 }
 
 /**
  * Push one outgoing event through plugin hooks, declaration checks, and
- * `__wskit` metadata before sending it to a connection.
+ * `__livething` metadata before sending it to a connection.
  */
 export interface SendThroughPipelineOptions {
   routing: EngineRuntimeTypes.RoutingTarget | undefined;
@@ -221,14 +225,14 @@ export function sendThroughPipeline(
 
   if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
     throw new Error(
-      `[wskit] Outgoing event "${message.event}" was not declared in the active scope.`,
+      `[livething] Outgoing event "${message.event}" was not declared in the active scope.`,
     );
   }
 
   // Widen to a loose bag here: from this point plugin stampers contribute
-  // arbitrary, open-ended `__wskit` keys that no fixed type can enumerate.
-  const wskit = buildWSKit(routing) as Record<string, unknown>;
-  applyWSKitStampers(runtime.wskitStampHooks, message.event, wskit);
+  // arbitrary, open-ended `__livething` keys that no fixed type can enumerate.
+  const livething = buildLiveThing(routing) as Record<string, unknown>;
+  applyLiveThingStampers(runtime.livethingStampHooks, message.event, livething);
 
   const finalPayload = message.payload as Record<string, unknown>;
   // A hook may answer a void acknowledgement with real data; only a still-empty
@@ -242,7 +246,7 @@ export function sendThroughPipeline(
     connectionId: connection.id,
     event: message.event,
     payload: finalPayload,
-    wskit,
+    livething,
     meta: connection.meta,
   };
 
@@ -252,8 +256,8 @@ export function sendThroughPipeline(
 
   const sent = connection.descriptor.send(
     payloadJson === undefined
-      ? `{"event":${JSON.stringify(message.event)},"__wskit":${JSON.stringify(wskit)}}`
-      : `{"event":${JSON.stringify(message.event)},"payload":${payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
+      ? serializeWireFrame(message.event, null, livething)
+      : serializeWireFrame(message.event, JSON.parse(payloadJson), livething),
   );
   if (sent === false) return false;
 
@@ -271,14 +275,14 @@ interface PreparedBroadcast {
 
   finalPayload: Record<string, unknown>;
 
-  baseWSKit: Record<string, unknown>;
+  baseLiveThing: Record<string, unknown>;
 
   needsWireMessage: boolean;
 
   /**
    * The whole frame string when it is identical for every recipient — set
-   * whenever no `beforeSend` hook can rewrite `__wskit` per connection. The
-   * sequence/dedup stampers already ran once into `baseWSKit`, so every
+   * whenever no `beforeSend` hook can rewrite `__livething` per connection. The
+   * sequence/dedup stampers already ran once into `baseLiveThing`, so every
    * recipient shares these bytes and `sendPrepared` skips re-serializing.
    */
   sharedFrame?: string;
@@ -286,12 +290,17 @@ interface PreparedBroadcast {
 
 type BroadcastRuntime = Pick<
   OutgoingRuntime,
-  'afterSendHooks' | 'beforeSendHooks' | 'compiled' | 'logger' | 'outgoingHooks' | 'wskitStampHooks'
+  | 'afterSendHooks'
+  | 'beforeSendHooks'
+  | 'compiled'
+  | 'logger'
+  | 'outgoingHooks'
+  | 'livethingStampHooks'
 >;
 
 /**
  * Run the recipient-independent half of the send pipeline once for a whole
- * broadcast: outgoing hooks, the declaration check, the base `__wskit` block,
+ * broadcast: outgoing hooks, the declaration check, the base `__livething` block,
  * and JSON serialization of the event name and payload. `sendPrepared` reuses
  * the result for every recipient instead of repeating this per peer.
  */
@@ -315,36 +324,35 @@ function prepareBroadcast(
 
   if (!isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
     throw new Error(
-      `[wskit] Outgoing event "${message.event}" was not declared in the active scope.`,
+      `[livething] Outgoing event "${message.event}" was not declared in the active scope.`,
     );
   }
 
   const finalPayload = message.payload as Record<string, unknown>;
-  const eventJson = JSON.stringify(message.event);
   const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
 
-  // Stamp once for the whole broadcast: all recipients share one seq/messageId, so replay stores one row, not one per member.
-  const baseWSKit = buildWSKit(routing) as Record<string, unknown>;
-  applyWSKitStampers(runtime.wskitStampHooks, message.event, baseWSKit);
+  // Stamp once for the whole broadcast: all recipients share one deliverySeq/messageId, so replay stores one row, not one per member.
+  const baseLiveThing = buildLiveThing(routing) as Record<string, unknown>;
+  applyLiveThingStampers(runtime.livethingStampHooks, message.event, baseLiveThing);
 
   const hasBeforeSend = runtime.beforeSendHooks.length > 0;
 
   return {
     event: message.event,
-    eventJson,
+    eventJson: JSON.stringify(message.event),
     payloadJson,
     finalPayload,
-    baseWSKit,
+    baseLiveThing,
     needsWireMessage: hasBeforeSend || runtime.afterSendHooks.length > 0,
     sharedFrame: hasBeforeSend
       ? undefined
-      : `{"event":${eventJson},"payload":${payloadJson},"__wskit":${JSON.stringify(baseWSKit)}}`,
+      : serializeWireFrame(message.event, finalPayload, baseLiveThing),
   };
 }
 
 /**
  * Send one prepared broadcast frame to a single recipient. Only per-connection
- * work runs here — `__wskit` stamping, before/after-send hooks, the wire write.
+ * work runs here — `__livething` stamping, before/after-send hooks, the wire write.
  * The frame splices in the prepared payload JSON, so the payload is never
  * re-serialized per recipient.
  */
@@ -364,7 +372,7 @@ function sendPrepared(
         connectionId: connection.id,
         event: prepared.event,
         payload: prepared.finalPayload,
-        wskit: prepared.baseWSKit,
+        livething: prepared.baseLiveThing,
         meta: connection.meta,
       });
     }
@@ -372,7 +380,7 @@ function sendPrepared(
     return true;
   }
 
-  const wskit = { ...prepared.baseWSKit };
+  const livething = { ...prepared.baseLiveThing };
 
   let wireMessage: EngineRuntimeTypes.WireOutgoingMessage | undefined;
   if (prepared.needsWireMessage) {
@@ -380,7 +388,7 @@ function sendPrepared(
       connectionId: connection.id,
       event: prepared.event,
       payload: prepared.finalPayload,
-      wskit,
+      livething,
       meta: connection.meta,
     };
     for (const hook of runtime.beforeSendHooks) {
@@ -390,7 +398,7 @@ function sendPrepared(
 
   if (
     connection.descriptor.send(
-      `{"event":${prepared.eventJson},"payload":${prepared.payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
+      serializeWireFrame(prepared.event, prepared.finalPayload, livething),
     ) === false
   ) {
     return false;
@@ -428,7 +436,7 @@ export function broadcastToConnections(
     | 'generateId'
     | 'logger'
     | 'outgoingHooks'
-    | 'wskitStampHooks'
+    | 'livethingStampHooks'
   >,
   connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
   opts: BroadcastToConnectionsOptions,
@@ -461,7 +469,7 @@ export function broadcastToConnections(
       } catch (error) {
         rethrowIfConfigError(error);
         // A payload or declaration error fails the same way for every peer — log once.
-        runtime.logger?.error('[wskit] broadcast preparation failed; no peers received', {
+        runtime.logger?.error('[livething] broadcast preparation failed; no peers received', {
           event,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -474,7 +482,7 @@ export function broadcastToConnections(
       sendPrepared(runtime, connection, prepared);
     } catch (error) {
       if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
-      runtime.logger?.error('[wskit] broadcast send to one peer threw; continuing fanout', {
+      runtime.logger?.error('[livething] broadcast send to one peer threw; continuing fanout', {
         connectionId: connection.id,
         event,
         error: error instanceof Error ? error.message : String(error),
@@ -511,7 +519,7 @@ export function broadcastToChannel(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'wskitStampHooks'
+      | 'livethingStampHooks'
     > & {
       /**
        * Write a durable inbox copy for every member of the channel, keyed on the
@@ -535,7 +543,7 @@ export function broadcastToChannel(
   } catch (error) {
     rethrowIfConfigError(error);
     // A payload or declaration error fails the same way for every member — log once.
-    runtime.logger?.error('[wskit] channel broadcast preparation failed; no members received', {
+    runtime.logger?.error('[livething] channel broadcast preparation failed; no members received', {
       channel: channelName,
       channelFamily,
       event,
@@ -548,11 +556,11 @@ export function broadcastToChannel(
     ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
   );
 
-  const { seq, messageId } = prepared.baseWSKit;
+  const { deliverySeq, messageId } = prepared.baseLiveThing;
   if (
     runtime.inboxFanOut &&
     !Protocol.isProtocolEventName(prepared.event) &&
-    typeof seq === 'number' &&
+    typeof deliverySeq === 'number' &&
     typeof messageId === 'string'
   ) {
     try {
@@ -561,7 +569,7 @@ export function broadcastToChannel(
         channelFamily,
         event: prepared.event,
         payload: prepared.finalPayload,
-        seq,
+        deliverySeq,
         messageId,
         excludeUserId: includeSelf
           ? undefined
@@ -569,7 +577,7 @@ export function broadcastToChannel(
       });
     } catch (error) {
       rethrowIfConfigError(error);
-      runtime.logger?.error('[wskit] inbox fan-out failed; live broadcast still proceeds', {
+      runtime.logger?.error('[livething] inbox fan-out failed; live broadcast still proceeds', {
         channel: channelName,
         channelFamily,
         event,
@@ -589,13 +597,16 @@ export function broadcastToChannel(
       sendPrepared(runtime, connection, prepared);
     } catch (error) {
       if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
-      runtime.logger?.error('[wskit] channel broadcast send to one peer threw; continuing fanout', {
-        connectionId: connection.id,
-        channel: channelName,
-        channelFamily,
-        event,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      runtime.logger?.error(
+        '[livething] channel broadcast send to one peer threw; continuing fanout',
+        {
+          connectionId: connection.id,
+          channel: channelName,
+          channelFamily,
+          event,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
   }
 }

@@ -27,7 +27,7 @@ export function createShutdownContext(
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {
-      deps.logger.error('[wskit] cancelScheduled matched no runs', {
+      deps.logger.error('[livething] cancelScheduled matched no runs', {
         taskId,
         filter,
         taskExists: result.taskExists,

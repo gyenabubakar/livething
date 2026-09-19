@@ -1,7 +1,7 @@
-import { emits, server, t } from '@wskit/server';
-import { serverRequests } from '@wskit/server/server-requests';
+import { emits, server, t } from '@livething/server';
+import { serverRequests } from '@livething/server/server-requests';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 /**

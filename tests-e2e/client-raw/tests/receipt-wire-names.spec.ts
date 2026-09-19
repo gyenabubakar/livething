@@ -17,26 +17,30 @@ test.describe('receipt frames on the wire (raw, real Durable Object)', () => {
     const alice = await connect(page, { path: '/ws/receipts', username: 'alice', room });
     const bob = await connect(page, { path: '/ws/receipts', username: 'bob', room });
     for (const id of [alice, bob]) {
-      await send(page, id, { event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } });
+      await send(page, id, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'chat' } },
+      });
       await waitForFrame(page, id, {
-        match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'chat',
+        match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'chat',
       });
     }
 
     await send(page, alice, {
       event: 'send-room-msg',
       payload: { text: 'ack-me' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const delivered = await waitForFrame(page, bob, {
       match: (f) => f.event === 'room-msg' && f.payload?.text === 'ack-me',
     });
 
-    const seq = delivered.__wskit?.seq as number;
+    const seq = delivered.metadata?.delivery?.seq as number;
     await send(page, bob, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
 
     // The fan-out reaches the other member.
@@ -56,43 +60,47 @@ test.describe('receipt frames on the wire (raw, real Durable Object)', () => {
     const alice = await connect(page, { path: '/ws/receipts', username: 'alice', room });
     const bob = await connect(page, { path: '/ws/receipts', username: 'bob', room });
     for (const id of [alice, bob]) {
-      await send(page, id, { event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } });
+      await send(page, id, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'chat' } },
+      });
       await waitForFrame(page, id, {
-        match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'chat',
+        match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'chat',
       });
     }
 
     await send(page, alice, {
       event: 'send-room-msg',
       payload: { text: 'query-me' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const delivered = await waitForFrame(page, bob, {
       match: (f) => f.event === 'room-msg' && f.payload?.text === 'query-me',
     });
-    const seq = delivered.__wskit?.seq as number;
+    const seq = delivered.metadata?.delivery?.seq as number;
 
     await send(page, bob, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await waitForFrame(page, alice, { match: (f) => f.event === '__received__' });
 
     await send(page, alice, {
       event: '__receivedQuery__',
       payload: { seq },
-      __wskit: { channel: 'chat', correlationId: 'q1' },
+      metadata: { exchange: { id: 'q1' }, channel: { name: 'chat' } },
     });
     const reply = await waitForFrame(page, alice, {
-      match: (f) => f.event === '__receivedQuery__' && f.__wskit?.correlationId === 'q1',
+      match: (f) => f.event === '__receivedQuery__' && f.metadata?.exchange?.id === 'q1',
     });
 
     expect(Object.keys(reply.payload)).toContain('userIds');
     expect(Object.keys(reply.payload)).not.toContain('identities');
     expect(reply.payload.userIds).toContain('bob');
 
-    // Nothing anywhere in this exchange may use the old field names.
+    // Receipt payloads expose user IDs with the same field names in every frame.
     const all = [...(await frames(page, alice)), ...(await frames(page, bob))];
     const stale = all.filter(
       (f) => 'identity' in (f.payload ?? {}) || 'identities' in (f.payload ?? {}),

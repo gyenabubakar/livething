@@ -4,14 +4,14 @@
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
     role="img"
-    aria-label="WSKit logo"
+    aria-label="LiveThing logo"
   >
-    <g filter="url(#wskit-logo-inner-shadow)">
-      <path d="M108.497 234.63C108.497 235.6 107.977 236.496 107.135 236.982L61.3121 263.389C59.8825 264.207 58.1307 264.207 56.701 263.389L2.83675 232.34C1.07932 231.324 0 229.457 0 227.432V59.3515C0 56.6498 2.93281 54.9633 5.27228 56.3113L70.088 93.6558C73.0377 95.3535 73.0377 99.6063 70.088 101.304L50.9428 112.336C49.1401 113.374 48.0325 115.292 48.0325 117.368V200.37C48.0325 201.814 49.5978 202.717 50.8523 201.995L104.417 171.125C106.231 170.082 108.497 171.385 108.497 173.477V234.63Z" fill="url(#wskit-logo-gradient)" />
-      <path d="M82.503 90.5198V29.3733C82.503 28.4032 83.0228 27.5063 83.8648 27.0213L129.688 0.613383C131.118 -0.204461 132.869 -0.204461 134.299 0.613383L188.163 31.6576C189.921 32.6729 191 34.5398 191 36.5647V204.646C191 207.347 188.067 209.034 185.728 207.686L120.912 170.341C117.962 168.644 117.962 164.391 120.912 162.693L140.057 151.661C141.86 150.623 142.967 148.705 142.967 146.63V63.6268C142.967 62.1829 141.402 61.2805 140.148 62.0024L86.5829 92.8718C84.769 93.9153 82.503 92.6124 82.503 90.5198Z" fill="url(#wskit-logo-gradient)" />
+    <g filter="url(#livething-logo-inner-shadow)">
+      <path d="M108.497 234.63C108.497 235.6 107.977 236.496 107.135 236.982L61.3121 263.389C59.8825 264.207 58.1307 264.207 56.701 263.389L2.83675 232.34C1.07932 231.324 0 229.457 0 227.432V59.3515C0 56.6498 2.93281 54.9633 5.27228 56.3113L70.088 93.6558C73.0377 95.3535 73.0377 99.6063 70.088 101.304L50.9428 112.336C49.1401 113.374 48.0325 115.292 48.0325 117.368V200.37C48.0325 201.814 49.5978 202.717 50.8523 201.995L104.417 171.125C106.231 170.082 108.497 171.385 108.497 173.477V234.63Z" fill="url(#livething-logo-gradient)" />
+      <path d="M82.503 90.5198V29.3733C82.503 28.4032 83.0228 27.5063 83.8648 27.0213L129.688 0.613383C131.118 -0.204461 132.869 -0.204461 134.299 0.613383L188.163 31.6576C189.921 32.6729 191 34.5398 191 36.5647V204.646C191 207.347 188.067 209.034 185.728 207.686L120.912 170.341C117.962 168.644 117.962 164.391 120.912 162.693L140.057 151.661C141.86 150.623 142.967 148.705 142.967 146.63V63.6268C142.967 62.1829 141.402 61.2805 140.148 62.0024L86.5829 92.8718C84.769 93.9153 82.503 92.6124 82.503 90.5198Z" fill="url(#livething-logo-gradient)" />
     </g>
     <defs>
-      <filter id="wskit-logo-inner-shadow" x="0" y="0" width="193" height="266.003" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <filter id="livething-logo-inner-shadow" x="0" y="0" width="193" height="266.003" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
         <feFlood flood-opacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
@@ -21,7 +21,7 @@
         <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.8 0" />
         <feBlend mode="normal" in2="shape" result="effect1_innerShadow" />
       </filter>
-      <linearGradient id="wskit-logo-gradient" x1="170.5" y1="-0.0014329" x2="36.5" y2="263.999" gradientUnits="userSpaceOnUse">
+      <linearGradient id="livething-logo-gradient" x1="170.5" y1="-0.0014329" x2="36.5" y2="263.999" gradientUnits="userSpaceOnUse">
         <stop stop-color="#FF8025" />
         <stop offset="0.615385" stop-color="#FF6011" />
         <stop offset="1" stop-color="#E14300" />

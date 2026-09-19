@@ -1,75 +1,191 @@
-/**
- * The internal fields the library attaches to each message inside a `__wskit`
- * block — kept separate from `payload` so they never clash with your data.
- * Every field is optional; a plain event has no envelope at all.
- *
- * These values come off the wire untyped, so this describes the *expected* shape
- * — code that reads them still guards against malformed input (e.g. a `seq`
- * that isn't really a number).
- */
-export interface WSKitEnvelope {
-  /** Links a `request()` to its reply. */
-  correlationId?: string;
+import { WIRE_LIMITS } from './identifier.ts';
 
-  /**
-   * The side that originated this exchange: `'server'` or `'client'`. One field
-   * shared by every two-way flow (requests, replies, subscribe). It lets
-   * the client tell a server-initiated request (`'server'`) apart from a reply to
-   * its own request (`'client'`), so it can fast-fail with `request-no-response`
-   * when it has no handler instead of leaving the server's pending promise to
-   * hang to timeout.
-   */
+/** Metadata describing the exchange that produced a message. */
+export interface LiveThingExchangeMetadata {
+  id?: string;
   source?: 'server' | 'client';
-
-  /** Names the channel a message belongs to. */
-  channel?: string;
-
-  /** The dynamic channel-family key, paired with `channel`. */
-  channelFamily?: string;
-
-  /** Correlates an `__unsubscribe__` with its `__unsubscribeOk__` confirmation. */
-  unsubscribeId?: string;
-
-  /** Set on `__subscribeOk__` to `'persistent'` when the server manages rejoining the channel on reconnect (so the client should not re-subscribe it) or `'ephemeral'` otherwise. */
-  channelMembership?: 'persistent' | 'ephemeral';
-
-  /** Set to `true` on `__subscribeOk__` when the channel is inbox-backed, so the client acks its messages with `__received__` and stays quiet on other channels. */
-  inbox?: boolean;
-
-  /** Set to `true` on `__subscribeOk__` when the channel enabled read receipts. */
-  readReceipts?: boolean;
-
-  /** Per-message sequence number from the server, used by replay. */
-  seq?: number;
-
-  /** Unique id from the server, used by dedup. */
-  messageId?: string;
-
-  /** Groups the chunks of one stream. */
-  streamId?: string;
-
-  /** The user event a broadcast stream carries, so an end/error frame that
-   * arrives before any chunk can still be routed to the right subscriber. */
-  eventName?: string;
-
-  /** Whether a stream is resumable (`persistent`) or dies on disconnect (`ephemeral`). */
-  streamKind?: 'ephemeral' | 'persistent';
-
-  /** Correlates a nudge with its `__nudgeOk__` / `__error__` reply. */
-  streamNudgeId?: string;
-
-  /** On a stream `__error__`: false means non-terminal (a rejected nudge). */
-  streamTerminated?: boolean;
 }
 
-/**
- * One message as it travels through WSKit's wire protocol. `payload` is your
- * data; everything the framework needs for routing lives separately in
- * `__wskit`. Both the client and the server build every frame — incoming and
- * outgoing — to this shape.
- */
-export interface WireMessage {
+/** Metadata describing the channel a message belongs to. */
+export interface LiveThingChannelMetadata {
+  name: string;
+  family?: string;
+  unsubscribeId?: string;
+  membership?: 'persistent' | 'ephemeral';
+  inbox?: boolean;
+  readReceipts?: boolean;
+}
+
+/** Metadata describing delivery identity and ordering. */
+export interface LiveThingDeliveryMetadata {
+  id?: string;
+  seq?: number;
+}
+
+/** Metadata describing a stream and its delivery state. */
+export interface LiveThingStreamMetadata {
+  id: string;
+  event?: string;
+  durability?: 'ephemeral' | 'persistent';
+  seq?: number;
+  nudgeId?: string;
+  terminated?: boolean;
+}
+
+/** Framework metadata carried in the third item of every wire tuple. */
+export interface LiveThingMetadata {
+  exchange?: LiveThingExchangeMetadata;
+  channel?: LiveThingChannelMetadata;
+  delivery?: LiveThingDeliveryMetadata;
+  stream?: LiveThingStreamMetadata;
+}
+
+/** One message as it travels through the LiveThing wire protocol. */
+export interface Message {
   event: string;
   payload: unknown;
-  __wskit?: WSKitEnvelope;
+  /** Internal callers may omit this; encoding always writes the tuple's null slot. */
+  metadata?: LiveThingMetadata | null;
+}
+
+/** The only JSON shape accepted on the LiveThing wire. */
+export type WireFrame = readonly [
+  event: string,
+  payload: unknown,
+  metadata: LiveThingMetadata | null,
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasOnlyKeys(group: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(group).every((key) => keys.includes(key));
+}
+
+function isBoundedString(value: unknown, limit: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= limit;
+}
+
+function isOptionalString(group: Record<string, unknown>, key: string, limit: number): boolean {
+  return !(key in group) || isBoundedString(group[key], limit);
+}
+
+function isOptionalBoolean(group: Record<string, unknown>, key: string): boolean {
+  return !(key in group) || typeof group[key] === 'boolean';
+}
+
+function isOptionalSequence(group: Record<string, unknown>): boolean {
+  return (
+    !('seq' in group) ||
+    (typeof group.seq === 'number' && Number.isSafeInteger(group.seq) && group.seq >= 0)
+  );
+}
+
+function isExchangeMetadata(group: Record<string, unknown>): boolean {
+  return (
+    hasOnlyKeys(group, ['id', 'source']) &&
+    isOptionalString(group, 'id', WIRE_LIMITS.wireId) &&
+    (!('source' in group) || group.source === 'server' || group.source === 'client')
+  );
+}
+
+function isChannelMetadata(group: Record<string, unknown>): boolean {
+  return (
+    hasOnlyKeys(group, [
+      'name',
+      'family',
+      'unsubscribeId',
+      'membership',
+      'inbox',
+      'readReceipts',
+    ]) &&
+    isBoundedString(group.name, WIRE_LIMITS.channel) &&
+    isOptionalString(group, 'family', WIRE_LIMITS.channelFamily) &&
+    isOptionalString(group, 'unsubscribeId', WIRE_LIMITS.wireId) &&
+    (!('membership' in group) ||
+      group.membership === 'persistent' ||
+      group.membership === 'ephemeral') &&
+    isOptionalBoolean(group, 'inbox') &&
+    isOptionalBoolean(group, 'readReceipts')
+  );
+}
+
+function isDeliveryMetadata(group: Record<string, unknown>): boolean {
+  return (
+    hasOnlyKeys(group, ['id', 'seq']) &&
+    isOptionalString(group, 'id', WIRE_LIMITS.wireId) &&
+    isOptionalSequence(group)
+  );
+}
+
+function isStreamMetadata(group: Record<string, unknown>): boolean {
+  return (
+    hasOnlyKeys(group, ['id', 'event', 'durability', 'seq', 'nudgeId', 'terminated']) &&
+    isBoundedString(group.id, WIRE_LIMITS.streamId) &&
+    isOptionalString(group, 'event', WIRE_LIMITS.event) &&
+    (!('durability' in group) ||
+      group.durability === 'ephemeral' ||
+      group.durability === 'persistent') &&
+    isOptionalSequence(group) &&
+    isOptionalString(group, 'nudgeId', WIRE_LIMITS.wireId) &&
+    isOptionalBoolean(group, 'terminated')
+  );
+}
+
+function isMetadata(value: unknown): value is LiveThingMetadata | null {
+  if (value === null) return true;
+
+  if (!isRecord(value)) return false;
+
+  if (Object.keys(value).length === 0) return false;
+
+  for (const [key, group] of Object.entries(value)) {
+    if (!['exchange', 'channel', 'delivery', 'stream'].includes(key)) return false;
+
+    if (!isRecord(group)) return false;
+
+    if (Object.keys(group).length === 0) return false;
+
+    if (key === 'exchange' && !isExchangeMetadata(group)) return false;
+
+    if (key === 'channel' && !isChannelMetadata(group)) return false;
+
+    if (key === 'delivery' && !isDeliveryMetadata(group)) return false;
+
+    if (key === 'stream' && !isStreamMetadata(group)) return false;
+  }
+
+  return true;
+}
+
+/** Encode a message as the fixed three-item JSON tuple. */
+export function encodeMessage(message: Message): string {
+  const metadata = message.metadata ?? null;
+  if (!isBoundedString(message.event, WIRE_LIMITS.event)) {
+    throw new TypeError('invalid LiveThing message');
+  }
+
+  if (!isMetadata(metadata)) {
+    throw new TypeError('invalid LiveThing metadata');
+  }
+
+  return JSON.stringify([message.event, message.payload, metadata] satisfies WireFrame);
+}
+
+/** Decode a fixed three-item JSON tuple, returning null for malformed input. */
+export function decodeMessage(raw: string): Message | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!Array.isArray(value) || value.length !== 3) return null;
+
+  const [event, payload, metadata] = value;
+  if (!isBoundedString(event, WIRE_LIMITS.event) || !isMetadata(metadata)) return null;
+
+  return { event, payload, metadata };
 }

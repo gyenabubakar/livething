@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
@@ -52,7 +52,7 @@ describe('Plugin.use — not registered', () => {
 
     const socket = buildSocket(); // Chat intentionally omitted
 
-    expect(() => Chat.use(socket)).toThrow(WSKitConfigError);
+    expect(() => Chat.use(socket)).toThrow(LiveThingConfigError);
     expect(() => Chat.use(socket)).toThrow(/not registered on this socket/);
   });
 

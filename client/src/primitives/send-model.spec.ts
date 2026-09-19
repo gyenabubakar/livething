@@ -98,8 +98,12 @@ describe('send-and-await frames are held (not dropped) before open without buffe
     const sent = ws.sentFrames().find((f: { event: string }) => f.event === 'echo');
     expect(sent).toBeDefined();
 
-    const correlationId = sent.__wskit.correlationId as string;
-    ws.emit({ event: 'echo', payload: { ok: true }, __wskit: { correlationId } });
+    const correlationId = sent.metadata.exchange?.id as string;
+    ws.emit({
+      event: 'echo',
+      payload: { ok: true },
+      metadata: { exchange: { id: correlationId } },
+    });
     await expect(pending).resolves.toEqual({ ok: true });
   });
 });

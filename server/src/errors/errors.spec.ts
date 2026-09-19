@@ -1,4 +1,4 @@
-import { WSKitError } from '@wskit/core';
+import { LiveThingError } from '@livething/core';
 import { describe, expect, it } from 'vitest';
 import {
   CloseCodes,
@@ -15,7 +15,7 @@ describe('CloseCodes', () => {
     expect(CloseCodes.GOING_AWAY).toBe(1001);
   });
 
-  it('exposes the wskit 4xxx codes', () => {
+  it('exposes the livething 4xxx codes', () => {
     expect(CloseCodes.AUTH_EXPIRED).toBe(4001);
     expect(CloseCodes.AUTH_INVALID).toBe(4002);
     expect(CloseCodes.DUPLICATE).toBe(4003);
@@ -38,9 +38,9 @@ describe('CloseCodes', () => {
 });
 
 describe('Disconnect', () => {
-  it('creates frozen object with __wskit, code, reason', () => {
+  it('creates frozen object with __livething, code, reason', () => {
     const dc = Disconnect(4009, 'banned');
-    expect(dc.__wskit).toBe('disconnect');
+    expect(dc.__livething).toBe('disconnect');
     expect(dc.code).toBe(4009);
     expect(dc.reason).toBe('banned');
   });
@@ -59,9 +59,9 @@ describe('Disconnect', () => {
 });
 
 describe('RejectUpgrade', () => {
-  it('creates frozen object with __wskit, code, reason', () => {
+  it('creates frozen object with __livething, code, reason', () => {
     const ru = RejectUpgrade(4002, 'Invalid token');
-    expect(ru.__wskit).toBe('reject-upgrade');
+    expect(ru.__livething).toBe('reject-upgrade');
     expect(ru.code).toBe(4002);
     expect(ru.reason).toBe('Invalid token');
   });
@@ -72,9 +72,9 @@ describe('RejectUpgrade', () => {
 });
 
 describe('Defer', () => {
-  it('creates frozen object with __wskit and delay', () => {
+  it('creates frozen object with __livething and delay', () => {
     const df = Defer(1000);
-    expect(df.__wskit).toBe('defer');
+    expect(df.__livething).toBe('defer');
     expect(df.delay).toBe(1000);
   });
 
@@ -88,13 +88,13 @@ describe('DeferExhausted', () => {
     expect(DeferExhausted.code).toBe('defer-exhausted');
   });
 
-  it('creates WSKitError with event, payload, and retries', () => {
+  it('creates LiveThingError with event, payload, and retries', () => {
     const err = DeferExhausted({
       event: 'send-message',
       payload: { text: 'hello' },
       retries: 3,
     });
-    expect(err).toBeInstanceOf(WSKitError);
+    expect(err).toBeInstanceOf(LiveThingError);
     expect(err.code).toBe('defer-exhausted');
     expect(err.detail.event).toBe('send-message');
     expect(err.detail.payload).toEqual({ text: 'hello' });
@@ -103,7 +103,7 @@ describe('DeferExhausted', () => {
   });
 
   it('.matches() returns true for valid DeferExhausted error', () => {
-    const err = new WSKitError('defer-exhausted', {
+    const err = new LiveThingError('defer-exhausted', {
       event: 'test',
       payload: null,
       retries: 1,
@@ -112,11 +112,11 @@ describe('DeferExhausted', () => {
   });
 
   it('.matches() returns false for wrong code', () => {
-    const err = new WSKitError('forbidden', { event: 'x', payload: null, retries: 0 });
+    const err = new LiveThingError('forbidden', { event: 'x', payload: null, retries: 0 });
     expect(DeferExhausted.matches(err)).toBe(false);
   });
 
-  it('.matches() returns false for non-WSKitError', () => {
+  it('.matches() returns false for non-LiveThingError', () => {
     expect(DeferExhausted.matches(new Error('defer-exhausted'))).toBe(false);
   });
 });
@@ -155,7 +155,7 @@ describe('CrossInstanceRef', () => {
       engineInstance: 'local',
     });
 
-    expect(err).toBeInstanceOf(WSKitError);
+    expect(err).toBeInstanceOf(LiveThingError);
     expect(err.code).toBe('cross-instance-ref');
     expect(err.detail).toEqual({
       operation: 'ctx.channel.request({ to })',

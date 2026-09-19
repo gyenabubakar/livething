@@ -1,5 +1,5 @@
 <script lang="ts">
-	type Frame = { event: string; payload: Record<string, unknown>; __wskit?: Record<string, unknown> };
+	type Frame = { event: string; payload: Record<string, unknown>; metadata?: Record<string, Record<string, unknown>> | null };
 
 	let ws: WebSocket | null = $state(null);
 	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
@@ -18,7 +18,7 @@
 		const win = window as unknown as { __ws?: WebSocket; __frames?: Frame[] };
 		win.__frames = [];
 		ws.onmessage = (ev) => {
-			if (typeof ev.data === 'string') win.__frames!.push(JSON.parse(ev.data));
+			if (typeof ev.data === 'string') win.__frames!.push(window.__livethingDecode(ev.data));
 		};
 		ws.onopen = () => {
 			status = 'connected';

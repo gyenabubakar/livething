@@ -34,7 +34,7 @@ export { nudge, stream } from '~/stream/definition.ts';
  * into the contract without any runtime cost.
  */
 export interface TypeMarker<T> {
-  readonly __wskit_t: 't';
+  readonly __livething_t: 't';
   readonly _phantom?: T;
 }
 
@@ -51,7 +51,7 @@ export type Definition =
   | RecordedStreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
   | ChannelDef<string | ScopeDeclaration<string>, readonly Definition[]>;
 
-export { error } from '@wskit/core';
+export { error } from '@livething/core';
 
 /**
  * Type-only carrier used to declare a shape with no runtime schema, such as the
@@ -63,5 +63,5 @@ export { error } from '@wskit/core';
  * ```
  */
 export function t<T>(): TypeMarker<T> {
-  return { __wskit_t: 't' };
+  return { __livething_t: 't' };
 }

@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setup } from '@wskit/server-node';
-import type { NodeEndpointBinding, NodeEndpointOptions } from '@wskit/server-node';
-import type { ServerDefinition } from '@wskit/server/adapters';
+import { setup } from '@livething/server-node';
+import type { NodeEndpointBinding, NodeEndpointOptions } from '@livething/server-node';
+import type { ServerDefinition } from '@livething/server/adapters';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { FEATURE_DEFINITIONS } from './handlers.ts';
@@ -45,18 +45,18 @@ function bindNodeFixture(
   definition: ServerDefinition,
   options: NodeEndpointOptions,
 ): FixtureService {
-  const wskit = setup();
-  const endpoint = wskit.bind(definition, options);
+  const livething = setup();
+  const endpoint = livething.bind(definition, options);
 
   return {
     endpoint,
     ready: endpoint.ready(),
     admin: endpoint.admin,
-    shutdown: wskit.shutdown,
+    shutdown: livething.shutdown,
   };
 }
 
-const stateRoot = mkdtempSync(join(tmpdir(), 'wskit-node-e2e-'));
+const stateRoot = mkdtempSync(join(tmpdir(), 'livething-node-e2e-'));
 const fixtures = new Map<string, Fixture>();
 const fixtureCreations = new Map<string, Promise<Fixture>>();
 const IDLE_FIXTURE_TIMEOUT_MS = 1_000;
@@ -118,7 +118,7 @@ export async function getFixture(route: string, room: string): Promise<Fixture> 
     const definition = FEATURE_DEFINITIONS[route];
     if (!definition) throw new Error(`No Node fixture is registered for ${route}`);
 
-    if (!bindFixture) throw new Error('[wskit] E2E fixture binding was not configured');
+    if (!bindFixture) throw new Error('[livething] E2E fixture binding was not configured');
 
     const service = bindFixture(definition, { sql: databasePath(route, room) });
     const fixture = {
@@ -273,7 +273,7 @@ async function runAdminBuiltIn(admin: AnyAdmin, op: string, args: AdminOpArgs): 
       return (
         (await admin.channelKick(
           channel,
-          { __wskit: 'user-ref', id: userId, instance: undefined },
+          { __livething: 'user-ref', id: userId, instance: undefined },
           { reason: 'admin kick' },
         )) ?? null
       );
@@ -534,7 +534,7 @@ export async function handleUpgrade(
   fixture.idleTimer = undefined;
 
   fixture.sockets.add(socket);
-  const lease = url.searchParams.get('__wskitFixtureLease');
+  const lease = url.searchParams.get('__livethingFixtureLease');
   if (lease) fixture.leases.add(lease);
   socket.once('close', () => {
     fixture.sockets.delete(socket);
@@ -565,9 +565,9 @@ export function attachUpgradeHandler(root: Server): void {
 export function listen(root: Server, name: string): void {
   process.once('SIGINT', () => void shutdownAll(root));
   process.once('SIGTERM', () => void shutdownAll(root));
-  const port = Number(process.env.WSKIT_E2E_SERVER_PORT ?? 8787);
+  const port = Number(process.env.LIVETHING_E2E_SERVER_PORT ?? 8787);
   root.listen(port, '127.0.0.1', () => {
-    console.log(`WSKit ${name} e2e server listening on 127.0.0.1:${port}`);
+    console.log(`LiveThing ${name} e2e server listening on 127.0.0.1:${port}`);
   });
 }
 

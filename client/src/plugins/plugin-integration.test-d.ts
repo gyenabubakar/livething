@@ -58,8 +58,7 @@ socket.on('app-notice', (data) => {
 });
 expectTypeOf(socket.send('app-ping', { at: 1 })).toEqualTypeOf<boolean>();
 
-// The UNCLAIMED namespace must still work at the top level, fully typed — this is
-// the regression the isolated helper test missed.
+// The unclaimed namespace remains available and fully typed at the top level.
 socket.on('__acme:presence::here', (data) => {
   expectTypeOf(data).toEqualTypeOf<{ who: string }>();
   expectTypeOf(data).not.toBeAny();
@@ -127,7 +126,7 @@ const Counter = plugin()({
 });
 expectTypeOf(Counter.use({})).toEqualTypeOf<{ count: () => number }>();
 
-// A plugin whose `setup` returns no `api` is `void`, as before.
+// A plugin whose `setup` returns no `api` has a void API.
 expectTypeOf(Watcher.use({})).toEqualTypeOf<void>();
 
 // The explicit second type argument still pins the API when you want it.

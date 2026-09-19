@@ -1,4 +1,4 @@
-import { assertSynchronousResult, CloseCodes, isWSKitConfigError } from '@wskit/core';
+import { assertSynchronousResult, CloseCodes, isLiveThingConfigError } from '@livething/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -62,7 +62,7 @@ export function flushDirtyAttachment(
   } catch (error) {
     if (options.force && connection.closing) return;
 
-    if (isWSKitConfigError(error)) {
+    if (isLiveThingConfigError(error)) {
       closeForTranslatorStateFailure(connection, error);
     }
 
@@ -105,7 +105,10 @@ function flushConnectionState(
 function closeForTranslatorStateFailure(connection: RuntimeConnection, error: unknown): never {
   connection.preserveStateOnClose = true;
   connection.closing = true;
-  connection.descriptor.close(CloseCodes.INTERNAL_ERROR, '[wskit] translator configuration failed');
+  connection.descriptor.close(
+    CloseCodes.INTERNAL_ERROR,
+    '[livething] translator configuration failed',
+  );
   throw error;
 }
 
@@ -114,16 +117,16 @@ function closeForConnectionStateFailure(
   connection: RuntimeConnection,
   error: unknown,
 ): void {
-  core.logger?.error('[wskit] failed to persist connection state', {
+  core.logger?.error('[livething] failed to persist connection state', {
     connectionId: connection.id,
     error: error instanceof Error ? error.message : String(error),
   });
   connection.closing = true;
   connection.descriptor.close(
     CloseCodes.INTERNAL_ERROR,
-    '[wskit] connection state could not be persisted',
+    '[livething] connection state could not be persisted',
   );
-  if (isWSKitConfigError(error)) throw error;
+  if (isLiveThingConfigError(error)) throw error;
 }
 
 /**

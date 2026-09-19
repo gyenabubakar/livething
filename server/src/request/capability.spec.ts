@@ -1,4 +1,4 @@
-import { WIRE_LIMITS } from '@wskit/core';
+import { WIRE_LIMITS } from '@livething/core';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { compileServerDefinition } from '~/_engine/compile/compile.ts';
@@ -8,8 +8,8 @@ import { clientRequests } from './client-requests.ts';
 import { serverRequests } from './server-requests.ts';
 import type { RequestPrimitive } from './request.ts';
 
-function requestPrimitive(primitives: readonly { __wskit: string }[]): RequestPrimitive {
-  const found = primitives.find((p) => p.__wskit === 'request');
+function requestPrimitive(primitives: readonly { __livething: string }[]): RequestPrimitive {
+  const found = primitives.find((p) => p.__livething === 'request');
   if (!found) throw new Error('no request primitive');
 
   return found as unknown as RequestPrimitive;

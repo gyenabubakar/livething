@@ -1,8 +1,8 @@
-import { channels, client, connect, reconnection } from '@wskit/client';
-import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
+import { channels, client, connect, reconnection } from '@livething/client';
+import type { PersistenceClient } from '@livething/tests-e2e-handlers/persistence';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `persistence` server definition to prove that an
+// Drives @livething/client against the real `persistence` server definition to prove that an
 // unsubscribe() issued WHILE the socket is reconnecting is not lost: the client
 // resends the __unsubscribe__ on reopen, suppresses the persistent channel's
 // auto-rejoin, and the server truly removes the member and confirms it with

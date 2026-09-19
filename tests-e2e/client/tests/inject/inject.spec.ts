@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client/testing inject helpers dispatch through the local
+// Conformance: @livething/client/testing inject helpers dispatch through the local
 // pipeline to on() handlers with no server connection.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/inject/index.html?room=${room}&username=alice`);

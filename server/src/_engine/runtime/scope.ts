@@ -1,41 +1,41 @@
-import { ChannelNotFound } from '@wskit/core';
+import { ChannelNotFound } from '@livething/core';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 /**
- * Read routing markers from a frame's `__wskit` block and resolve the active
+ * Read routing markers from a frame's `__livething` block and resolve the active
  * channel.
  */
 export function resolveChannel(
   compiled: EngineCompileTypes.CompiledServer,
-  wskit: Protocol.WSKitProtocol | undefined,
+  livething: Protocol.LiveThingProtocol | undefined,
 ): EngineRuntimeTypes.ResolvedChannel {
-  if (!wskit) return {};
+  if (!livething) return {};
 
-  if (wskit.channel !== undefined) {
-    if (wskit.channelFamily !== null) {
-      const family = compiled.channelFamilies.get(wskit.channelFamily);
+  if (livething.channel !== undefined) {
+    if (livething.channelFamily !== null) {
+      const family = compiled.channelFamilies.get(livething.channelFamily);
       if (!family) throw ChannelNotFound();
 
-      if (!ChannelPrimitive.matchesFamilyPattern(family.pattern, wskit.channel)) {
+      if (!ChannelPrimitive.matchesFamilyPattern(family.pattern, livething.channel)) {
         throw ChannelNotFound();
       }
 
       return {
         channel: family,
-        channelName: wskit.channel,
-        channelFamily: wskit.channelFamily,
+        channelName: livething.channel,
+        channelFamily: livething.channelFamily,
       };
     }
 
-    const channel = compiled.channels.get(wskit.channel);
+    const channel = compiled.channels.get(livething.channel);
     if (!channel) throw ChannelNotFound();
 
     return {
       channel,
-      channelName: wskit.channel,
+      channelName: livething.channel,
       channelFamily: null,
     };
   }
@@ -44,27 +44,27 @@ export function resolveChannel(
 }
 
 /**
- * Pick the routing markers off a frame's `__wskit` block so they can ride
+ * Pick the routing markers off a frame's `__livething` block so they can ride
  * along on a server-side `__error__` frame and the client can correlate the
  * failure with its pending operation.
  */
-export function routingFromWSKit(
-  wskit: Protocol.WSKitRouting | undefined,
-): Protocol.WSKitRouting | undefined {
-  if (!wskit) return undefined;
+export function routingFromLiveThing(
+  livething: Protocol.LiveThingRouting | undefined,
+): Protocol.LiveThingRouting | undefined {
+  if (!livething) return undefined;
 
-  const routing: Protocol.WSKitRouting = {};
-  if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
+  const routing: Protocol.LiveThingRouting = {};
+  if (livething.correlationId !== undefined) routing.correlationId = livething.correlationId;
   // Echo a client-originated exchange's source so an error reply to a client
   // request carries `source: 'client'`, matching the success reply. Only
   // 'client' is echoed: a server-originated frame's error must not come back
   // looking like a fresh server→client request.
-  if (wskit.source === 'client') routing.source = 'client';
-  if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
-  if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;
-  if (wskit.channel !== undefined) {
-    routing.channel = wskit.channel;
-    routing.channelFamily = wskit.channelFamily ?? null;
+  if (livething.source === 'client') routing.source = 'client';
+  if (livething.streamId !== undefined) routing.streamId = livething.streamId;
+  if (livething.streamNudgeId !== undefined) routing.streamNudgeId = livething.streamNudgeId;
+  if (livething.channel !== undefined) {
+    routing.channel = livething.channel;
+    routing.channelFamily = livething.channelFamily ?? null;
   }
 
   return Object.keys(routing).length > 0 ? routing : undefined;

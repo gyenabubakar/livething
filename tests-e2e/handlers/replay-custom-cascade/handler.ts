@@ -1,10 +1,10 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Note = v.object({ text: v.string() });
@@ -35,7 +35,7 @@ base.replay({
       'INSERT INTO _cascade_replay (event, payload, seq, message_id, channel, channel_family) VALUES (?, ?, ?, ?, ?, ?)',
       msg.event,
       JSON.stringify(msg.payload),
-      msg.wire.seq,
+      msg.wire.deliverySeq,
       msg.wire.messageId,
       msg.wire.channel,
       msg.wire.channelFamily,
@@ -71,7 +71,7 @@ base.replay({
 
     for (const row of rows) {
       ctx.sendReplay(row.event, JSON.parse(row.payload), {
-        seq: row.seq,
+        deliverySeq: row.seq,
         messageId: row.message_id,
         channel: row.channel ?? undefined,
         channelFamily: row.channel_family ?? null,

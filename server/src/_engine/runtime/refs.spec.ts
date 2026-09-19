@@ -26,7 +26,7 @@ function createConnection(id: string, userId: string = id): RuntimeConnection {
 }
 
 function localRef(id: string, userId: string = id) {
-  return { __wskit: 'connection-ref' as const, id, instance: undefined, userId };
+  return { __livething: 'connection-ref' as const, id, instance: undefined, userId };
 }
 
 function baseDeps(connections: RuntimeConnection[], overrides: Record<string, unknown> = {}) {

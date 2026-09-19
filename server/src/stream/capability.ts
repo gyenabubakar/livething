@@ -42,8 +42,8 @@ export interface StreamCapability extends Capability<{}, never, 'stream'> {
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { stream } from '@wskit/server/streams';
+ * import { server, t } from '@livething/server';
+ * import { stream } from '@livething/server/streams';
  * import * as v from 'valibot';
  *
  * const base = server({ capabilities: [stream()] });

@@ -43,13 +43,16 @@ export function registerInboxRuntime(engine: EngineAccess): void {
       const failures: unknown[] = [];
       try {
         engineCore.storage.sql.transaction((tx) => {
-          tryDelete(() => tx.exec('DELETE FROM __wskit_inbox WHERE user_id = ?', userId), failures);
           tryDelete(
-            () => tx.exec('DELETE FROM __wskit_inbox_watermark WHERE user_id = ?', userId),
+            () => tx.exec('DELETE FROM __livething_inbox WHERE user_id = ?', userId),
             failures,
           );
           tryDelete(
-            () => tx.exec('DELETE FROM __wskit_inbox_receipts WHERE user_id = ?', userId),
+            () => tx.exec('DELETE FROM __livething_inbox_watermark WHERE user_id = ?', userId),
+            failures,
+          );
+          tryDelete(
+            () => tx.exec('DELETE FROM __livething_inbox_receipts WHERE user_id = ?', userId),
             failures,
           );
         });

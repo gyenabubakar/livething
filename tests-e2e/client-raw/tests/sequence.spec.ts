@@ -73,15 +73,15 @@ test.describe('sequence', () => {
       await send(page, conn, { event: 'tick', payload: {} });
       await page.waitForFunction(
         ([sid, cnt]) =>
-          (window.__wskitFrames!(sid as string) ?? []).filter((f) => f.event === 'tock').length >
-          (cnt as number),
+          (window.__livethingFrames!(sid as string) ?? []).filter((f) => f.event === 'tock')
+            .length > (cnt as number),
         [conn, before],
       );
       const tocks = (await frames(page, conn)).filter(
-        (f) => f.event === 'tock' && typeof f.__wskit?.seq === 'number',
+        (f) => f.event === 'tock' && typeof f.metadata?.delivery?.seq === 'number',
       );
 
-      seqs.push(tocks[tocks.length - 1]!.__wskit!.seq as number);
+      seqs.push(tocks[tocks.length - 1]!.metadata!.delivery!.seq as number);
     }
 
     for (let i = 1; i < seqs.length; i++) {

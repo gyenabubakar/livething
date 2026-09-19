@@ -174,12 +174,17 @@ test.describe('plugins handler', () => {
         const url = `${protocol}//${location.host}/ws/plugins?username=${encodeURIComponent('erruser')}&room=${encodeURIComponent(currentRoom)}`;
         const ws = new WebSocket(url);
         ws.onopen = () => {
-          ws.send(JSON.stringify({ event: '__e2e:drizzle::trigger-plugin-denied', payload: {} }));
+          ws.send(
+            window.__livethingEncode({
+              event: '__e2e:drizzle::trigger-plugin-denied',
+              payload: {},
+            }),
+          );
         };
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
 
-          const parsed = JSON.parse(ev.data) as Msg;
+          const parsed = window.__livethingDecode(ev.data) as Msg;
           if (parsed.event === '__error__' && (parsed.payload as { code?: string }).code) {
             resolve(parsed);
             ws.close();
@@ -253,7 +258,11 @@ test.describe('plugins handler', () => {
     await page.evaluate((id) => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({ event: '__streamCancel__', payload: {}, __wskit: { streamId: id } }),
+        window.__livethingEncode({
+          event: '__streamCancel__',
+          payload: null,
+          metadata: { stream: { id: id } },
+        }),
       );
     }, streamId);
 
@@ -266,13 +275,8 @@ test.describe('plugins handler', () => {
   test('connection close still runs onDisconnect when a stream finally throws on cancel', async ({
     browser,
   }, testInfo) => {
-    // Pre-fix the engine awaited generator.return() inside
-    // cancelActiveStreamsForConnection without catching. A stream whose
-    // `finally` block threw (e.g. external resource cleanup failing)
-    // aborted the rest of handleConnectionClose — onDisconnect hooks
-    // never ran, channel members were never notified, the connection
-    // entry leaked. The fix catches and logs per-stream and continues
-    // the cleanup.
+    // A stream's throwing `finally` block is contained and logged so the rest
+    // of connection cleanup, including onDisconnect, still runs.
     const room = `multi-${testInfo.testId}-throwfinally`;
     const observer = await browser.newPage();
     const offender = await browser.newPage();
@@ -299,9 +303,7 @@ test.describe('plugins handler', () => {
     await offender.getByTestId('disconnect-btn').click();
     await waitForText(offender, 'status', 'disconnected');
 
-    // Observer asks for the disconnect count from the drizzle plugin's
-    // onDisconnect hook. If the stream cleanup failure aborted the close,
-    // the count would stay 0. Post-fix it ticks to 1.
+    // Observer asks for the disconnect count from the plugin's onDisconnect hook.
     await expect(async () => {
       await observer.getByTestId('disconnect-count-btn').click();
       await expect(observer.getByTestId('disconnect-count')).toHaveText(/disconnects: [1-9]/, {
@@ -316,11 +318,8 @@ test.describe('plugins handler', () => {
   test('plugin hooks.getState() inside a stream generator returns the stream owner connection id', async ({
     page,
   }, testInfo) => {
-    // Pre-fix the engine bracketed setActiveConnectionId around generator
-    // construction (which only returns the iterator — the body never runs
-    // there). By the time iterator.next() advanced the body, the active id
-    // was cleared. Plugin APIs that called hooks.getState() inside a
-    // stream generator saw `undefined`.
+    // The active connection ID remains available while each generator step
+    // runs, so plugin APIs can read the stream owner's state.
     const room = `test-${testInfo.testId}-stream-state`;
     await page.goto(`/plugins?room=${room}`);
     await page.getByTestId('connect-btn').click();
@@ -366,13 +365,21 @@ test.describe('plugins handler — inbox() on a plugin channel', () => {
     const alice = await connect(page, { path: '/ws/plugins', username: 'inbox-alice', room });
     const bob = await connect(page, { path: '/ws/plugins', username: 'inbox-bob', room });
 
-    await send(page, alice, { event: '__subscribe__', payload: {}, __wskit: { channel: CHANNEL } });
-    await waitForFrame(page, alice, {
-      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === CHANNEL,
+    await send(page, alice, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: CHANNEL } },
     });
-    await send(page, bob, { event: '__subscribe__', payload: {}, __wskit: { channel: CHANNEL } });
+    await waitForFrame(page, alice, {
+      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === CHANNEL,
+    });
+    await send(page, bob, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: CHANNEL } },
+    });
     await waitForFrame(page, bob, {
-      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === CHANNEL,
+      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === CHANNEL,
     });
 
     // Alice goes offline before bob's broadcast.
@@ -381,7 +388,7 @@ test.describe('plugins handler — inbox() on a plugin channel', () => {
     await send(page, bob, {
       event: '__e2e:feed::chat',
       payload: { text: 'while-offline' },
-      __wskit: { channel: CHANNEL },
+      metadata: { channel: { name: CHANNEL } },
     });
     await page.waitForTimeout(300);
 
@@ -391,15 +398,15 @@ test.describe('plugins handler — inbox() on a plugin channel', () => {
     const drained = await waitForFrame(page, aliceAgain, {
       match: (f) => f.event === '__e2e:feed::said' && f.payload.text === 'while-offline',
     });
-    expect(drained.__wskit?.channel).toBe(CHANNEL);
-    const seq = drained.__wskit?.seq as number;
+    expect(drained.metadata?.channel?.name).toBe(CHANNEL);
+    const seq = drained.metadata?.delivery?.seq as number;
     expect(typeof seq).toBe('number');
 
     // Ack it, settling the durable row.
     await send(page, aliceAgain, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: CHANNEL },
+      metadata: { channel: { name: CHANNEL } },
     });
     await page.waitForTimeout(300);
     await closeSocket(page, aliceAgain);
@@ -448,19 +455,19 @@ test.describe('plugins handler — inbox() on a plugin-owned dynamic channel fam
     const channel = threadChannel('t1');
     await send(page, alice, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel, channelFamily: FAMILY },
+      payload: null,
+      metadata: { channel: { name: channel, family: FAMILY } },
     });
     await waitForFrame(page, alice, {
-      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === channel,
+      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === channel,
     });
     await send(page, bob, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel, channelFamily: FAMILY },
+      payload: null,
+      metadata: { channel: { name: channel, family: FAMILY } },
     });
     await waitForFrame(page, bob, {
-      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === channel,
+      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === channel,
     });
 
     await closeSocket(page, alice);
@@ -468,7 +475,7 @@ test.describe('plugins handler — inbox() on a plugin-owned dynamic channel fam
     await send(page, bob, {
       event: '__e2e:feed::post',
       payload: { text: 'while-offline' },
-      __wskit: { channel, channelFamily: FAMILY },
+      metadata: { channel: { name: channel, family: FAMILY } },
     });
     await page.waitForTimeout(300);
 
@@ -480,16 +487,16 @@ test.describe('plugins handler — inbox() on a plugin-owned dynamic channel fam
     const drained = await waitForFrame(page, aliceAgain, {
       match: (f) => f.event === '__e2e:feed::thread-msg' && f.payload.text === 'while-offline',
     });
-    expect(drained.__wskit?.channel).toBe(channel);
-    expect(drained.__wskit?.channelFamily).toBe(FAMILY);
-    const seq = drained.__wskit?.seq as number;
+    expect(drained.metadata?.channel?.name).toBe(channel);
+    expect(drained.metadata?.channel?.family).toBe(FAMILY);
+    const seq = drained.metadata?.delivery?.seq as number;
 
     expect(typeof seq).toBe('number');
 
     await send(page, aliceAgain, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel, channelFamily: FAMILY },
+      metadata: { channel: { name: channel, family: FAMILY } },
     });
     await page.waitForTimeout(300);
     await closeSocket(page, aliceAgain);

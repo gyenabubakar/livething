@@ -1,4 +1,4 @@
-import { WIRE_LIMITS } from '@wskit/core';
+import { WIRE_LIMITS } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
@@ -6,7 +6,7 @@ import { reconnection } from '~/primitives/reconnection/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WSKitSocket } from '~/socket/socket.ts';
+import type { LiveThingSocket } from '~/socket/socket.ts';
 import type { StreamHandle } from '~/types.ts';
 
 interface C {
@@ -59,14 +59,14 @@ type StreamSocket = ReturnType<typeof buildStream>['socket'];
 async function start(
   socket: StreamSocket,
   ws: MockWebSocket,
-  options?: { streamKind?: 'ephemeral' | 'persistent' },
+  options?: { streamDurability?: 'ephemeral' | 'persistent' },
 ): Promise<{ handle: AskAiHandle; sid: string }> {
   const promise = socket.stream('ask-ai', { prompt: 'hi' });
-  const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
+  const sid = ws.sentFrames().at(-1).metadata.stream?.id as string;
   ws.emit({
     event: '__streamOk__',
     payload: {},
-    __wskit: { streamId: sid, streamKind: options?.streamKind ?? 'ephemeral' },
+    metadata: { stream: { id: sid, durability: options?.streamDurability ?? 'ephemeral' } },
   });
   const handle = await promise;
 
@@ -91,9 +91,9 @@ describe('triggering and iterating', () => {
   it('resolves on __streamOk__ and yields chunks until __streamEnd__', async () => {
     const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
-    ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, metadata: { stream: { id: sid, seq: 1 } } });
+    ws.emit({ event: 'ask-ai', payload: { text: 'b' }, metadata: { stream: { id: sid, seq: 2 } } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
 
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
   });
@@ -101,11 +101,11 @@ describe('triggering and iterating', () => {
   it('drops chunks already delivered (per-seq dedup)', async () => {
     const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
-    ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
+    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, metadata: { stream: { id: sid, seq: 1 } } });
+    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, metadata: { stream: { id: sid, seq: 1 } } });
+    ws.emit({ event: 'ask-ai', payload: { text: 'b' }, metadata: { stream: { id: sid, seq: 2 } } });
 
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
   });
 
@@ -115,7 +115,7 @@ describe('triggering and iterating', () => {
     ws.emit({
       event: '__error__',
       payload: { code: 'quota-exceeded', detail: { limit: 5 } },
-      __wskit: { streamId: sid },
+      metadata: { stream: { id: sid } },
     });
     await expect(collect(handle)).rejects.toMatchObject({
       code: 'quota-exceeded',
@@ -126,11 +126,11 @@ describe('triggering and iterating', () => {
   it('rejects the stream() promise on an error that arrives before __streamOk__', async () => {
     const { socket, ws } = buildStream();
     const promise = socket.stream('ask-ai', { prompt: 'hi' });
-    const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
+    const sid = ws.sentFrames().at(-1).metadata.stream?.id as string;
     ws.emit({
       event: '__error__',
       payload: { code: 'stream-already-active' },
-      __wskit: { streamId: sid },
+      metadata: { stream: { id: sid } },
     });
     await expect(promise).rejects.toMatchObject({ code: 'stream-already-active' });
   });
@@ -164,16 +164,16 @@ describe('nudge and cancel', () => {
     expect(frame).toEqual({
       event: 'add-context',
       payload: { context: 'ocean' },
-      __wskit: { streamId: sid, streamNudgeId: expect.any(String) },
+      metadata: { stream: { id: sid, nudgeId: expect.any(String) } },
     });
 
     ws.emit({
       event: '__nudgeOk__',
-      payload: {},
-      __wskit: { streamId: sid, streamNudgeId: frame.__wskit.streamNudgeId },
+      payload: null,
+      metadata: { stream: { id: sid, nudgeId: frame.metadata.stream?.nudgeId } },
     });
     await expect(pending).resolves.toBeUndefined();
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
     expect(handle.active).toBe(false);
   });
 
@@ -181,16 +181,16 @@ describe('nudge and cancel', () => {
     const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
     const pending = handle.nudge('add-context', { context: 'ocean' });
-    const streamNudgeId = ws.sentFrames().at(-1).__wskit.streamNudgeId as string;
+    const streamNudgeId = ws.sentFrames().at(-1).metadata.stream?.nudgeId as string;
     ws.emit({
       event: '__error__',
       payload: { code: 'validation-failed' },
-      __wskit: { streamId: sid, streamNudgeId, streamTerminated: false },
+      metadata: { stream: { id: sid, nudgeId: streamNudgeId, terminated: false } },
     });
 
     await expect(pending).rejects.toMatchObject({ code: 'validation-failed' });
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, metadata: { stream: { id: sid, seq: 1 } } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
     expect(await collect(handle)).toEqual([{ text: 'a' }]);
   });
 
@@ -200,8 +200,8 @@ describe('nudge and cancel', () => {
     handle.cancel();
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__streamCancel__',
-      payload: {},
-      __wskit: { streamId: sid },
+      payload: null,
+      metadata: { stream: { id: sid } },
     });
     expect(await collect(handle)).toEqual([]);
   });
@@ -209,7 +209,7 @@ describe('nudge and cancel', () => {
   it('breaking out of the loop cancels the stream', async () => {
     const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
+    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, metadata: { stream: { id: sid, seq: 1 } } });
     for await (const _chunk of handle) {
       void _chunk;
       break;
@@ -225,10 +225,14 @@ describe('onStream (broadcast)', () => {
     const onChunk = vi.fn();
     const onEnd = vi.fn();
     socket.onStream('ask-ai', { onChunk, onEnd });
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: 'bs1', seq: 1 } });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'a' },
+      metadata: { stream: { id: 'bs1', seq: 1 } },
+    });
 
     expect(onChunk).toHaveBeenCalledWith({ text: 'a' }, 'bs1');
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'bs1', seq: 5 } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'bs1', seq: 5 } } });
     expect(onEnd).toHaveBeenCalledWith('bs1', 5);
   });
 
@@ -236,11 +240,15 @@ describe('onStream (broadcast)', () => {
     const { socket, ws } = buildStream();
     const onError = vi.fn();
     socket.onStream('ask-ai', { onChunk: () => {}, onError });
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: 'bs2', seq: 1 } });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'a' },
+      metadata: { stream: { id: 'bs2', seq: 1 } },
+    });
     ws.emit({
       event: '__error__',
       payload: { code: 'internal-error' },
-      __wskit: { streamId: 'bs2' },
+      metadata: { stream: { id: 'bs2' } },
     });
 
     expect(onError).toHaveBeenCalledWith(
@@ -262,7 +270,7 @@ describe('durable resume', () => {
     expect(ws.sentFrames()).toContainEqual({
       event: '__resumeStream__',
       payload: { lastKnownSeq: 4 },
-      __wskit: { streamId: 'feed-lazy' },
+      metadata: { stream: { id: 'feed-lazy' } },
     });
     socket.disconnect();
   });
@@ -274,9 +282,13 @@ describe('durable resume', () => {
       socket.connect();
       const first = MockWebSocket.last();
       first.open();
-      const { sid } = await start(socket, first, { streamKind: 'persistent' });
+      const { sid } = await start(socket, first, { streamDurability: 'persistent' });
 
-      first.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 7 } });
+      first.emit({
+        event: 'ask-ai',
+        payload: { text: 'a' },
+        metadata: { stream: { id: sid, seq: 7 } },
+      });
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
@@ -285,7 +297,7 @@ describe('durable resume', () => {
       expect(second.sentFrames()).toContainEqual({
         event: '__resumeStream__',
         payload: { lastKnownSeq: 7 },
-        __wskit: { streamId: sid },
+        metadata: { stream: { id: sid } },
       });
     } finally {
       vi.useRealTimers();
@@ -298,12 +310,20 @@ describe('durable resume', () => {
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { streamId: 'feed-1' },
+      metadata: { stream: { id: 'feed-1' } },
     });
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: 'feed-1', seq: 1 } });
-    ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: 'feed-1', seq: 2 } });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'a' },
+      metadata: { stream: { id: 'feed-1', seq: 1 } },
+    });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'b' },
+      metadata: { stream: { id: 'feed-1', seq: 2 } },
+    });
 
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'feed-1' } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'feed-1' } } });
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
   });
 
@@ -314,7 +334,7 @@ describe('durable resume', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'r1', family: 'rooms' } },
     });
     await sub;
 
@@ -322,14 +342,14 @@ describe('durable resume', () => {
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'r1', channelFamily: 'rooms', streamId: 'feed-2' },
+      metadata: { channel: { name: 'r1', family: 'rooms' }, stream: { id: 'feed-2' } },
     });
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'x' },
-      __wskit: { channel: 'r1', channelFamily: 'rooms', streamId: 'feed-2', seq: 1 },
+      metadata: { channel: { name: 'r1', family: 'rooms' }, stream: { id: 'feed-2', seq: 1 } },
     });
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'feed-2' } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'feed-2' } } });
     expect(await collect(handle)).toEqual([{ text: 'x' }]);
   });
 });
@@ -342,15 +362,15 @@ describe('scoped streams', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'r1', family: 'rooms' } },
     });
     await sub;
 
     const pending = room.stream('ask-ai', { prompt: 'hi' });
     const frame = ws.sentFrames().at(-1);
     expect(frame.event).toBe('ask-ai');
-    expect(frame.__wskit).toMatchObject({ channel: 'r1', channelFamily: 'rooms' });
-    expect(typeof frame.__wskit.streamId).toBe('string');
+    expect(frame.metadata).toMatchObject({ channel: { name: 'r1', family: 'rooms' } });
+    expect(typeof frame.metadata.stream?.id).toBe('string');
 
     socket.disconnect();
     await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
@@ -381,14 +401,14 @@ describe('lazy consumer leak on failed send', () => {
     }).not.toThrow();
     await expect(promise!).rejects.toThrow('network error');
 
-    expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(0);
+    expect((socket as unknown as LiveThingSocket)._lazyConsumers).toBe(0);
   });
 });
 
 describe('stream() never throws synchronously on a bad payload', () => {
   it('returns a rejected Promise (not a throw) when the payload will not serialize', async () => {
     const { socket } = buildStream();
-    const before = (socket as unknown as WSKitSocket)._lazyConsumers;
+    const before = (socket as unknown as LiveThingSocket)._lazyConsumers;
     const circular: Record<string, unknown> = {};
     circular.self = circular;
 
@@ -398,7 +418,7 @@ describe('stream() never throws synchronously on a bad payload', () => {
     }).not.toThrow();
     await expect(promise!).rejects.toBeInstanceOf(TypeError);
 
-    expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(before);
+    expect((socket as unknown as LiveThingSocket)._lazyConsumers).toBe(before);
   });
 });
 
@@ -417,7 +437,7 @@ describe('stream trigger and nudge reject reserved event names', () => {
 
   it('rejects a reserved nudge event name locally with validation-failed and no send', async () => {
     const { socket, ws } = buildStream();
-    const { handle } = await start(socket, ws, { streamKind: 'persistent' });
+    const { handle } = await start(socket, ws, { streamDurability: 'persistent' });
     const before = ws.sentFrames().length;
     await expect(
       (handle.nudge as (e: string, p: unknown) => Promise<void>)('ping', {}),
@@ -429,7 +449,7 @@ describe('stream trigger and nudge reject reserved event names', () => {
 
   it('nudge returns a rejected Promise when its payload will not serialize', async () => {
     const { socket, ws } = buildStream();
-    const { handle } = await start(socket, ws, { streamKind: 'persistent' });
+    const { handle } = await start(socket, ws, { streamDurability: 'persistent' });
     const circular: Record<string, unknown> = {};
     circular.self = circular;
     await expect(
@@ -443,21 +463,21 @@ describe('stream trigger and nudge reject reserved event names', () => {
 describe('stream wire-limit validation', () => {
   it('rejects an over-limit custom streamId without acquiring a lazy hold', async () => {
     const { socket } = buildStream();
-    const before = (socket as unknown as WSKitSocket)._lazyConsumers;
+    const before = (socket as unknown as LiveThingSocket)._lazyConsumers;
     const tooLong = 'x'.repeat(WIRE_LIMITS.streamId + 1);
 
     await expect(
       socket.stream('ask-ai', { prompt: 'hi' }, { streamId: tooLong }),
     ).rejects.toMatchObject({ code: 'validation-failed' });
 
-    expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(before);
+    expect((socket as unknown as LiveThingSocket)._lazyConsumers).toBe(before);
   });
 
   it('accepts a custom streamId exactly at the limit', async () => {
     const { socket, ws } = buildStream();
     const atLimit = 'x'.repeat(WIRE_LIMITS.streamId);
     const pending = socket.stream('ask-ai', { prompt: 'hi' }, { streamId: atLimit });
-    expect(ws.sentFrames().at(-1).__wskit.streamId).toBe(atLimit);
+    expect(ws.sentFrames().at(-1).metadata.stream?.id).toBe(atLimit);
     socket.disconnect();
 
     await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
@@ -472,8 +492,8 @@ describe('stream id uniqueness across clients (#1)', () => {
     const bPending = b.socket.stream('ask-ai', { prompt: 'hi' });
     // Both counters start at 1; only the per-socket random scope keeps them apart,
     // so a shared server stream map can't have one client clobber the other.
-    expect(a.ws.sentFrames().at(-1).__wskit.streamId).not.toBe(
-      b.ws.sentFrames().at(-1).__wskit.streamId,
+    expect(a.ws.sentFrames().at(-1).metadata.stream?.id).not.toBe(
+      b.ws.sentFrames().at(-1).metadata.stream?.id,
     );
     a.socket.disconnect();
     b.socket.disconnect();
@@ -502,11 +522,11 @@ describe('one reconnect decision per close (#19)', () => {
     ws.open();
     const promise = socket.stream('ask-ai', { prompt: 'hi' });
 
-    const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
+    const sid = ws.sentFrames().at(-1).metadata.stream?.id as string;
     ws.emit({
       event: '__streamOk__',
       payload: {},
-      __wskit: { streamId: sid, streamKind: 'persistent' },
+      metadata: { stream: { id: sid, durability: 'persistent' } },
     });
     const handle = await promise;
 
@@ -527,11 +547,11 @@ describe('stream control frames while not open (#24)', () => {
     ws.open();
     const promise = socket.stream('ask-ai', { prompt: 'hi' });
 
-    const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
+    const sid = ws.sentFrames().at(-1).metadata.stream?.id as string;
     ws.emit({
       event: '__streamOk__',
       payload: {},
-      __wskit: { streamId: sid, streamKind: 'persistent' },
+      metadata: { stream: { id: sid, durability: 'persistent' } },
     });
     const handle = await promise;
 

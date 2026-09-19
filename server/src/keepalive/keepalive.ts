@@ -73,14 +73,14 @@ export function keepalive(options: KeepaliveOptions): KeepalivePrimitive {
   assertPositiveInteger(options.idleTimeoutMs, 'idleTimeoutMs', 'keepalive()');
   if (options.pingIntervalMs >= options.idleTimeoutMs) {
     throw new Error(
-      `[wskit] keepalive pingIntervalMs (${options.pingIntervalMs}) must be less than idleTimeoutMs ` +
+      `[livething] keepalive pingIntervalMs (${options.pingIntervalMs}) must be less than idleTimeoutMs ` +
         `(${options.idleTimeoutMs}): the keepalive ping has to fire before the idle window closes, ` +
         `or a live client would be dropped.`,
     );
   }
 
   return {
-    __wskit: 'keepalive',
+    __livething: 'keepalive',
     __kind: 'infrastructure',
     __identity: [KEEPALIVE_KEY],
     __requires: {},

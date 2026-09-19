@@ -65,7 +65,15 @@ export class MockWebSocket {
 
   /** Pretend a message arrived. Pass an object (auto-JSON) or a raw string. */
   emit(frame: unknown): void {
-    const data = typeof frame === 'string' ? frame : JSON.stringify(frame);
+    let data: string;
+    if (typeof frame === 'string') {
+      data = frame;
+    } else if (isMessage(frame)) {
+      data = JSON.stringify([frame.event, frame.payload, frame.metadata]);
+    } else {
+      data = JSON.stringify(frame);
+    }
+
     this.onmessage?.({ data });
   }
 
@@ -91,13 +99,35 @@ export class MockWebSocket {
         if (typeof s !== 'string') return s;
 
         try {
-          return JSON.parse(s);
+          const frame = JSON.parse(s);
+          return isWireFrame(frame)
+            ? { event: frame[0], payload: frame[1], metadata: frame[2] }
+            : frame;
         } catch {
           return undefined;
         }
       })
       .filter((f) => f !== undefined);
   }
+}
+
+function isMessage(value: unknown): value is {
+  event: string;
+  payload: unknown;
+  metadata?: unknown;
+} {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { event?: unknown }).event === 'string' &&
+    'payload' in value &&
+    true
+  );
+}
+
+function isWireFrame(value: unknown): value is [string, unknown, unknown] {
+  return Array.isArray(value) && value.length === 3 && typeof value[0] === 'string';
 }
 
 /** Swap in the fake WebSocket and return a function that puts the real one back. */

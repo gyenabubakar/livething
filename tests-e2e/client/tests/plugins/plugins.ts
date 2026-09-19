@@ -1,8 +1,8 @@
-import { channels, client, clientRequests, connect, stream } from '@wskit/client';
-import type { SocketContract } from '@wskit/client';
+import { channels, client, clientRequests, connect, stream } from '@livething/client';
+import type { SocketContract } from '@livething/client';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `plugins` server definition over the typed wire.
+// Drives @livething/client against the real `plugins` server definition over the typed wire.
 //
 // Note on typing: the plugins server definition lives in the Cloudflare Worker package
 // (it needs the worker's `Env`/`Platform`/drizzle), so its `InferClient` type is

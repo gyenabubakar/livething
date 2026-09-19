@@ -1,4 +1,4 @@
-import { WIRE_LIMITS } from '@wskit/core';
+import { WIRE_LIMITS } from '@livething/core';
 import { familyKeyError, isReservedEventName, wireIdError } from '~/internal/wire-validation.ts';
 import { describe, expect, it } from 'vitest';
 

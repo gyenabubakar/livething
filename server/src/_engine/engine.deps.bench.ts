@@ -31,7 +31,7 @@ function makeCore(): EngineCore {
       return {};
     },
   });
-  runAdapter({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+  runAdapter({ __livething: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
   return core!;
 }
 

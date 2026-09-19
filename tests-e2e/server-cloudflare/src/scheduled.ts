@@ -1,5 +1,5 @@
-import { bind } from '@wskit/server-cloudflare';
-import { scheduledDefinition } from '@wskit/tests-e2e-handlers/scheduled';
+import { bind } from '@livething/server-cloudflare';
+import { scheduledDefinition } from '@livething/tests-e2e-handlers/scheduled';
 
 const Base = bind(scheduledDefinition);
 

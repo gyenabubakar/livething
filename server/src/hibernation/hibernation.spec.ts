@@ -58,11 +58,11 @@ describe('hibernation()', () => {
     expect(schemaHooks).toHaveLength(1);
     schemaHooks[0]!();
     expect(
-      execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS __wskit_connections')),
+      execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS __livething_connections')),
     ).toBe(true);
     expect(
       execCalls.some((q) =>
-        q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_connections_user_id'),
+        q.includes('CREATE INDEX IF NOT EXISTS __livething_idx_connections_user_id'),
       ),
     ).toBe(true);
   });

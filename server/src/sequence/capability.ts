@@ -14,8 +14,8 @@ import type { SequenceOptions } from '~/sequence/sequence.ts';
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { sequence } from '@wskit/server/sequence';
+ * import { server, t } from '@livething/server';
+ * import { sequence } from '@livething/server/sequence';
  *
  * const base = server({ capabilities: [sequence({ persist: true })] });
  * ```

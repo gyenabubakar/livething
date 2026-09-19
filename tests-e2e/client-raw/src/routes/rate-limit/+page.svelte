@@ -39,18 +39,18 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
-			const cid = data.__wskit?.correlationId as string | undefined;
+			const data = window.__livethingDecode(ev.data);
+			const cid = data.metadata?.exchange?.id as string | undefined;
 			if (data.event === 'tock') tockCount += 1;
 			else if (data.event === 'expensive-done') expensiveDoneCount += 1;
 			else if (data.event === 'msg') {
-				if (data.__wskit?.channel === 'inherit-room') inheritMsgCount += 1;
-				else if (data.__wskit?.channel === 'no-limit') noLimitMsgCount += 1;
+				if (data.metadata?.channel?.name === 'inherit-room') inheritMsgCount += 1;
+				else if (data.metadata?.channel?.name === 'no-limit') noLimitMsgCount += 1;
 			} else if (data.event === 'chatter-broadcast') chatterMsgCount += 1;
 			else if (data.event === 'echo-req' && cid) {
 				echoOutcomes = { ...echoOutcomes, [cid]: 'ok' };
 			} else if (data.event === '__subscribeOk__') {
-				const ch = data.__wskit?.channel;
+				const ch = data.metadata?.channel?.name;
 				if (ch === 'no-limit') subscribedNoLimit = true;
 				else if (ch === 'inherit-room') subscribedInherit = true;
 				else if (ch === 'rooms') subscribedRooms = true;
@@ -69,25 +69,25 @@
 
 	function send(
 		event: string,
-		payload: Record<string, unknown> = {},
-		wskit?: Record<string, unknown>,
+		payload: Record<string, unknown> | null = null,
+		metadata?: Record<string, unknown>,
 	) {
-		ws?.send(JSON.stringify(wskit ? { event, payload, __wskit: wskit } : { event, payload }));
+		ws?.send(window.__livethingEncode(metadata ? { event, payload, metadata } : { event, payload }));
 	}
 
 	function subscribe(channelName: string) {
 		ws?.send(
-			JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: channelName } }),
+			window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: channelName } } }),
 		);
 	}
 
 	function sendEchoReq(text: string) {
 		const id = `echo-${++echoCounter}`;
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'echo-req',
 				payload: { text },
-				__wskit: { correlationId: id },
+				metadata: { exchange: { id: id } },
 			}),
 		);
 		return id;
@@ -98,8 +98,8 @@
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
 
-<button data-testid="tick" onclick={() => send('tick')}>Tick</button>
-<button data-testid="expensive" onclick={() => send('expensive')}>Expensive</button>
+<button data-testid="tick" onclick={() => send('tick', {})}>Tick</button>
+<button data-testid="expensive" onclick={() => send('expensive', {})}>Expensive</button>
 
 <button data-testid="subscribe-no-limit" onclick={() => subscribe('no-limit')}>
 	Subscribe no-limit
@@ -112,19 +112,19 @@
 </button>
 <button
 	data-testid="send-no-limit"
-	onclick={() => send('send', { text: 'hi' }, { channel: 'no-limit' })}
+	onclick={() => send('send', { text: 'hi' }, { channel: { name: 'no-limit' } })}
 >
 	Send in no-limit
 </button>
 <button
 	data-testid="send-inherit"
-	onclick={() => send('send', { text: 'hi' }, { channel: 'inherit-room' })}
+	onclick={() => send('send', { text: 'hi' }, { channel: { name: 'inherit-room' } })}
 >
 	Send in inherit
 </button>
 <button
 	data-testid="send-chatter"
-	onclick={() => send('chatter', { text: 'hi' }, { channel: 'rooms' })}
+	onclick={() => send('chatter', { text: 'hi' }, { channel: { name: 'rooms' } })}
 >
 	Send chatter
 </button>

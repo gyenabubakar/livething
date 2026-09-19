@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { error, RequestInvalidResponse, WSKitError } from '@wskit/core';
+import { error, LiveThingError, RequestInvalidResponse } from '@livething/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
@@ -15,7 +15,7 @@ type ChannelDeclarationKeyHandleParameter = { name?: string; family?: unknown };
 type SettleFrameParameter = {
   event: string;
   payload: unknown;
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 };
 type SettleBroadcastLegArgsParameter = {
   connectionId: string;
@@ -59,8 +59,10 @@ const Timeout = /* @__PURE__ */ error('timeout');
  */
 const Disconnected = /* @__PURE__ */ error('disconnected');
 
-function RequestNotDeclared(event: string): WSKitError<'request-not-declared', { event: string }> {
-  return new WSKitError('request-not-declared', { event });
+function RequestNotDeclared(
+  event: string,
+): LiveThingError<'request-not-declared', { event: string }> {
+  return new LiveThingError('request-not-declared', { event });
 }
 
 /** The built-in wait for a server→client request answer, in ms. */
@@ -183,7 +185,7 @@ function infoMatchesRecipient(
   to: PublicApi.ChannelRecipient,
 ): boolean {
   const ref = info.ref();
-  switch (to.__wskit) {
+  switch (to.__livething) {
     case 'connection-ref':
       return ref.instance === to.instance && info.id === to.id;
 
@@ -222,7 +224,7 @@ function createOutgoingRequestRuntime(
   const pending = new Map<string, PendingServerRequest>();
 
   function settle(connectionId: string, frame: SettleFrameParameter): boolean {
-    const correlationId = frame.wskit?.correlationId;
+    const correlationId = frame.livething?.correlationId;
     if (correlationId === undefined) return false;
 
     const entry = pending.get(correlationId);
@@ -455,7 +457,7 @@ function toRejection(payload: unknown): unknown {
   // factory: a client legitimately declines with a framework-reserved code
   // (e.g. `request-no-response`), which `error()` refuses — and that throw would
   // otherwise escape settle and leave the pending request to hang.
-  return new WSKitError(code as string, detail);
+  return new LiveThingError(code as string, detail);
 }
 
 /**
@@ -472,7 +474,7 @@ export function makeServerRequestsPrimitive(
   serverRequests: ReadonlyMap<string, ResolvedServerRequest>,
 ): Primitive {
   return {
-    __wskit: 'server-requests',
+    __livething: 'server-requests',
     __kind: 'infrastructure',
     __identity: [SERVER_REQUESTS_KEY],
     __requires: {},
@@ -591,7 +593,7 @@ export function makeServerRequestsPrimitive(
             // `from` is dropped so the resolved type stays the bare response.
             const to = options?.to;
             if (to) {
-              if (to.__wskit === 'connection-ref' || to.__wskit === 'user-ref') {
+              if (to.__livething === 'connection-ref' || to.__livething === 'user-ref') {
                 assertLocalRef(to, ctx.connection?.instance, 'ctx.channel.request({ to })');
               }
 

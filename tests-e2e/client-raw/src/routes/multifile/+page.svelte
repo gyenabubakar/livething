@@ -27,7 +27,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'notification') {
 				notifications = [...notifications, data.payload?.title ?? ''];
 			}
@@ -42,15 +42,15 @@
 	}
 
 	function subscribe() {
-		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }));
+		ws?.send(window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'lobby' } } }));
 	}
 
 	function sendRoomMessage(text: string) {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'send-room-message',
 				payload: { text },
-				__wskit: { channel: 'lobby' },
+				metadata: { channel: { name: 'lobby' } },
 			}),
 		);
 	}

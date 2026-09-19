@@ -7,7 +7,7 @@ describe('intercept', () => {
 
     const p = intercept(handler);
 
-    expect(p.__wskit).toBe('intercept');
+    expect(p.__livething).toBe('intercept');
     expect(p.__kind).toBe('infrastructure');
     expect(p.handler).toBe(handler);
   });

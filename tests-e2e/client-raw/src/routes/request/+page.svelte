@@ -28,9 +28,9 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === '__subscribeOk__') subscribed = true;
-			const id = data.__wskit?.correlationId as string | undefined;
+			const id = data.metadata?.exchange?.id as string | undefined;
 			if (id) {
 				responses = { ...responses, [id]: JSON.stringify(data.payload ?? {}) };
 			}
@@ -39,11 +39,11 @@
 
 	function request(
 		event: string,
-		payload: Record<string, unknown> = {},
-		wskit: Record<string, unknown> = {},
+		payload: Record<string, unknown> | null = {},
+		metadata: Record<string, unknown> = {},
 	) {
 		const id = `req-${++correlationCounter}`;
-		ws?.send(JSON.stringify({ event, payload, __wskit: { ...wskit, correlationId: id } }));
+		ws?.send(window.__livethingEncode({ event, payload, metadata: { ...metadata, exchange: { id: id } } }));
 		return id;
 	}
 
@@ -52,11 +52,11 @@
 	}
 
 	function getChannelInfo() {
-		return request('get-channel-info', {}, { channel: 'room' });
+		return request('get-channel-info', {}, { channel: { name: 'room' } });
 	}
 
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
+		ws?.send(window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'room' } } }));
 	}
 
 	function noResponse() {

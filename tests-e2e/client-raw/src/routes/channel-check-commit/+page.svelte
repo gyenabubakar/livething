@@ -25,13 +25,13 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const msg = JSON.parse(ev.data);
+			const msg = window.__livethingDecode(ev.data);
 			if (msg.event === '__subscribeOk__') {
-				subscribeOks = [...subscribeOks, msg.__wskit?.channel ?? ''];
+				subscribeOks = [...subscribeOks, msg.metadata?.channel?.name ?? ''];
 			}
 
-			if (msg.event === '__error__' && msg.__wskit?.channel) {
-				subscribeErrors = [...subscribeErrors, msg.__wskit.channel];
+			if (msg.event === '__error__' && msg.metadata?.channel?.name) {
+				subscribeErrors = [...subscribeErrors, msg.metadata.channel?.name ?? ''];
 			}
 
 			if (msg.event === 'joined') {
@@ -40,28 +40,28 @@
 		};
 	}
 
-	function send(event: string, payload: unknown, wskit: Record<string, unknown>) {
-		ws?.send(JSON.stringify({ event, payload, __wskit: wskit }));
+	function send(event: string, payload: unknown, metadata: Record<string, unknown>) {
+		ws?.send(window.__livethingEncode({ event, payload, metadata }));
 	}
 
 	function subRoom(token: string) {
-		send('__subscribe__', { token }, { channel: 'room' });
+		send('__subscribe__', { token }, { channel: { name: 'room' } });
 	}
 
 	function subRoomNoToken() {
-		send('__subscribe__', {}, { channel: 'room' });
+		send('__subscribe__', null, { channel: { name: 'room' } });
 	}
 
 	function subRoomBadToken() {
-		send('__subscribe__', { token: 42 }, { channel: 'room' });
+		send('__subscribe__', { token: 42 }, { channel: { name: 'room' } });
 	}
 
 	function subCheckOnly() {
-		send('__subscribe__', {}, { channel: 'check-only' });
+		send('__subscribe__', null, { channel: { name: 'check-only' } });
 	}
 
 	function subCommitOnly() {
-		send('__subscribe__', {}, { channel: 'commit-only' });
+		send('__subscribe__', null, { channel: { name: 'commit-only' } });
 	}
 </script>
 

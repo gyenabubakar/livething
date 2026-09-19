@@ -33,7 +33,7 @@
 				return;
 			}
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'quality-result') {
 				quality = data.payload?.quality ?? '';
 				latency = data.payload?.latency ?? null;
@@ -43,7 +43,7 @@
 	}
 
 	function getQuality() {
-		ws?.send(JSON.stringify({ event: 'get-quality', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'get-quality', payload: {} }));
 	}
 </script>
 

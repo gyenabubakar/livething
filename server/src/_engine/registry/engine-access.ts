@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes } from '@livething/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as InboxRuntime from '~/inbox/runtime.ts';
@@ -110,8 +110,8 @@ export function createEngineAccess(
         owner: owner ?? APP_HOOK_OWNER,
       });
     },
-    onWSKitStamp: (handler) => {
-      core.hooks.wskitStamp.push(handler);
+    onLiveThingStamp: (handler) => {
+      core.hooks.livethingStamp.push(handler);
     },
     onBeforeSend: (handler) => {
       core.hooks.beforeSend.push(handler);
@@ -143,7 +143,7 @@ export function createEngineAccess(
     onUpgrade: (handler) => {
       if (onUpgradeCalled) {
         throw new Error(
-          '[wskit] A primitive may only register one onUpgrade hook in its __setup. Compose multiple upgrade-time concerns inside one handler.',
+          '[livething] A primitive may only register one onUpgrade hook in its __setup. Compose multiple upgrade-time concerns inside one handler.',
         );
       }
 
@@ -153,7 +153,7 @@ export function createEngineAccess(
     setBuilderUpgradeHook: (handler) => {
       if (core.hooks.builderUpgrade !== undefined) {
         throw new Error(
-          '[wskit] The builder onUpgrade hook is already set. Compose multiple upgrade-time concerns inside one .onUpgrade(...) handler.',
+          '[livething] The builder onUpgrade hook is already set. Compose multiple upgrade-time concerns inside one .onUpgrade(...) handler.',
         );
       }
 
@@ -239,7 +239,7 @@ export function createEngineAccess(
     registerPluginApi: (id, factory) => {
       if (core.pluginApiFactories.has(id)) {
         throw new Error(
-          `[wskit] Plugin id '${id}' is registered more than once. Each plugin id must be unique.`,
+          `[livething] Plugin id '${id}' is registered more than once. Each plugin id must be unique.`,
         );
       }
 
@@ -258,7 +258,7 @@ export function createEngineAccess(
       for (const group of groups) {
         if (core.declaredTagGroups[kind].has(group.name)) {
           throw new Error(
-            `[wskit] tagGroups.${kind} group '${group.name}' declared more than once in this contract.`,
+            `[livething] tagGroups.${kind} group '${group.name}' declared more than once in this contract.`,
           );
         }
 
@@ -343,7 +343,9 @@ export function createEngineAccess(
     assertReplaySendContract: (event, payload, routing) => {
       OutgoingRuntime.assertPayloadRecord(payload);
       if (!OutgoingRuntime.isDeclaredOutgoingEvent(core.compiled, event, routing)) {
-        throw new Error(`[wskit] Outgoing event "${event}" was not declared in the active scope.`);
+        throw new Error(
+          `[livething] Outgoing event "${event}" was not declared in the active scope.`,
+        );
       }
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
@@ -355,7 +357,7 @@ export function createEngineAccess(
       sendProtocolMessage(core, connection, {
         event,
         payload: payload as Record<string, unknown>,
-        wskit: {},
+        livething: {},
       });
     },
     sendProtocolFrame: (connectionId, options) => {
@@ -365,7 +367,7 @@ export function createEngineAccess(
       sendProtocolMessage(core, connection, {
         event: options.event,
         payload: options.payload as Record<string, unknown>,
-        wskit: options.wskit ?? {},
+        livething: options.livething ?? {},
       });
     },
     setStreamTrigger: (trigger) => {
@@ -462,7 +464,7 @@ function pushChannelHook<T>(
 ): void {
   const { hook, hookName } = options;
   if (!channelKey) {
-    throw new Error(`[wskit] ${hookName}() can only be registered inside channel(...).`);
+    throw new Error(`[livething] ${hookName}() can only be registered inside channel(...).`);
   }
 
   const existing = hooks.get(channelKey) ?? [];

@@ -115,7 +115,7 @@ export function registerChannelRuntime(engine: EngineAccess): void {
         engine
           .getLogger?.()
           ?.info?.(
-            `[wskit] channel membership boot cleanup dropped ${dropped} orphaned channel-scope row group(s)`,
+            `[livething] channel membership boot cleanup dropped ${dropped} orphaned channel-scope row group(s)`,
           );
       }
     });

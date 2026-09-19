@@ -30,7 +30,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'notes-list') {
 				titles = (data.payload?.notes ?? []).map((n: { title: string }) => n.title);
 			}
@@ -59,43 +59,43 @@
 	}
 
 	function saveNote(title: string, body: string) {
-		ws?.send(JSON.stringify({ event: 'save-note', payload: { title, body } }));
+		ws?.send(window.__livethingEncode({ event: 'save-note', payload: { title, body } }));
 	}
 
 	function getNotes() {
-		ws?.send(JSON.stringify({ event: 'get-notes', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'get-notes', payload: {} }));
 	}
 
 	function sqlOne() {
-		ws?.send(JSON.stringify({ event: 'sql-one-probe', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'sql-one-probe', payload: {} }));
 	}
 
 	function sqlRaw() {
-		ws?.send(JSON.stringify({ event: 'sql-raw-probe', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'sql-raw-probe', payload: {} }));
 	}
 
 	function sqlOneEmpty() {
-		ws?.send(JSON.stringify({ event: 'sql-one-empty-probe', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'sql-one-empty-probe', payload: {} }));
 	}
 
 	function sqlReuse() {
-		ws?.send(JSON.stringify({ event: 'sql-reuse-probe', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'sql-reuse-probe', payload: {} }));
 	}
 
 	function sqlTxCommit() {
-		ws?.send(JSON.stringify({ event: 'sql-tx-commit-probe', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'sql-tx-commit-probe', payload: {} }));
 	}
 
 	function sqlTxRollback() {
-		ws?.send(JSON.stringify({ event: 'sql-tx-rollback-probe', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'sql-tx-rollback-probe', payload: {} }));
 	}
 
 	function sqlOneMulti() {
-		ws?.send(JSON.stringify({ event: 'sql-one-multi-probe', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'sql-one-multi-probe', payload: {} }));
 	}
 
 	function connectionsSnapshot() {
-		ws?.send(JSON.stringify({ event: 'connections-snapshot-probe', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'connections-snapshot-probe', payload: {} }));
 	}
 </script>
 

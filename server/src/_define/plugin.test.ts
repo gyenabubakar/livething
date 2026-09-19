@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars */
-import { error } from '@wskit/core';
+import { error } from '@livething/core';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';

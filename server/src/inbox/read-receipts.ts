@@ -42,7 +42,7 @@ const READ_RECEIPTS_KEY = Symbol('read-receipts');
  */
 export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceiptsPrimitive {
   return {
-    __wskit: 'read-receipts',
+    __livething: 'read-receipts',
     __kind: 'infrastructure',
     __identity: [READ_RECEIPTS_KEY],
     __requires: {},
@@ -52,7 +52,7 @@ export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceipts
       const { channelKey } = engine.getScopeInfo();
       if (!channelKey) {
         throw new Error(
-          '[wskit] readReceipts is channel-scoped; set `readReceipts` inside a channel definition.',
+          '[livething] readReceipts is channel-scoped; set `readReceipts` inside a channel definition.',
         );
       }
 
@@ -113,8 +113,8 @@ function buildReadHandler(deps: ReadHandlerDeps) {
     const userId = connection?.userId ?? '';
     if (!userId) return true;
 
-    const channelName = frame.__wskit.channel;
-    const channelFamily = frame.__wskit.channelFamily ?? null;
+    const channelName = frame.__livething.channel;
+    const channelFamily = frame.__livething.channelFamily ?? null;
     if (!isMember(ctx, channelName, channelFamily)) return true;
 
     const cursors = advanceReadThrough(
@@ -174,8 +174,8 @@ function buildReadQueryHandler(deps: BuildReadQueryHandlerDepsParameter) {
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
-    const channelName = frame.__wskit.channel;
-    const channelFamily = frame.__wskit.channelFamily ?? null;
+    const channelName = frame.__livething.channel;
+    const channelFamily = frame.__livething.channelFamily ?? null;
     const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
       ENGINE_INTERNAL_CONNECTION
     ];
@@ -187,16 +187,16 @@ function buildReadQueryHandler(deps: BuildReadQueryHandlerDepsParameter) {
       seq: frame.payload.seq,
     });
 
-    const wskit: Record<string, unknown> = {
+    const livething: Record<string, unknown> = {
       channel: channelName,
-      correlationId: frame.__wskit.correlationId,
+      correlationId: frame.__livething.correlationId,
     };
 
-    if (channelFamily !== null) wskit.channelFamily = channelFamily;
+    if (channelFamily !== null) livething.channelFamily = channelFamily;
     engine.sendProtocolFrame(connection.id, {
       event: '__readQuery__',
       payload: { userIds },
-      wskit,
+      livething,
     });
 
     return true;

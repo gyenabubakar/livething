@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block, WSKitError } from '@wskit/core';
+import { Block, LiveThingError } from '@livething/core';
 import { handleUpgrade, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
@@ -86,7 +86,7 @@ function baseDispatchRuntime(
         quality: connection.quality,
         bufferedAmount: 0,
         ref: () => ({
-          __wskit: 'connection-ref' as const,
+          __livething: 'connection-ref' as const,
           id: connection.id,
           instance: undefined,
           userId: connection.userId,
@@ -176,7 +176,7 @@ describe('handleUpgrade', () => {
 
   it('tags from internal hooks and the builder hook union together', async () => {
     function ref(key: string) {
-      return { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
+      return { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
     }
 
     const result = await handleUpgrade(
@@ -199,7 +199,7 @@ describe('handleUpgrade', () => {
 
   it('builder hook runs alone when no internal hooks are registered', async () => {
     function ref(key: string) {
-      return { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
+      return { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
     }
 
     const result = await handleUpgrade(
@@ -236,7 +236,7 @@ describe('handleUpgrade', () => {
       {
         upgradeHooks: [],
         builderUpgradeHook: async () => ({
-          tags: [{ __wskit: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
+          tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
         }),
         upgradeHelpers: {},
         isTagGroupDeclared: (_kind, group) => group === 'role',
@@ -277,7 +277,11 @@ describe('defer retry behavior', () => {
       },
     });
 
-    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: {},
+      livething: undefined,
+    });
     expect(handler).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(10);
@@ -309,7 +313,7 @@ describe('defer retry behavior', () => {
     await dispatchIncoming(runtime, connection, {
       event: 'work',
       payload: { id: 1 },
-      wskit: undefined,
+      livething: undefined,
     });
     for (let i = 0; i < 5; i++) {
       await vi.advanceTimersByTimeAsync(1);
@@ -338,7 +342,11 @@ describe('defer retry behavior', () => {
       connections: new Map([[connection.id, connection]]),
     });
 
-    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: {},
+      livething: undefined,
+    });
     expect(handler).toHaveBeenCalledTimes(1);
 
     // Simulate the socket closing during the 10ms defer window: the close path
@@ -379,13 +387,13 @@ describe('defer retry behavior', () => {
     await dispatchIncoming(runtime, connection, {
       event: 'ask',
       payload: {},
-      wskit: { correlationId: 'c1' } as any,
+      livething: { correlationId: 'c1' } as any,
     });
     await vi.advanceTimersByTimeAsync(20);
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(errors).toHaveLength(1);
-    expect(errors[0].error.__wskit).toBe('defer');
+    expect(errors[0].error.__livething).toBe('defer');
   });
 
   it('does not retry a Defer thrown from an intercept — surfaces it as an error', async () => {
@@ -410,12 +418,16 @@ describe('defer retry behavior', () => {
       },
     } as any);
 
-    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: {},
+      livething: undefined,
+    });
     await vi.advanceTimersByTimeAsync(20);
 
     expect(interceptCalls).toBe(1);
     expect(handler).not.toHaveBeenCalled();
-    expect(errors[0].error.__wskit).toBe('defer');
+    expect(errors[0].error.__livething).toBe('defer');
   });
 });
 
@@ -434,7 +446,11 @@ describe('Disconnect thrown from handler', () => {
       connections: new Map([[connection.id, connection]]),
     });
 
-    await dispatchIncoming(runtime, connection, { event: 'evict', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'evict',
+      payload: {},
+      livething: undefined,
+    });
 
     expect(connection.descriptor.close).toHaveBeenCalledWith(4403, 'banned');
   });
@@ -460,7 +476,7 @@ describe('Block at dispatch', () => {
     const first = dispatchIncoming(runtime, connection, {
       event: 'work',
       payload: 1,
-      wskit: undefined,
+      livething: undefined,
     });
     await Promise.resolve();
     expect(events).toEqual(['start:1']);
@@ -468,7 +484,7 @@ describe('Block at dispatch', () => {
     const second = dispatchIncoming(runtime, connection, {
       event: 'work',
       payload: 2,
-      wskit: undefined,
+      livething: undefined,
     });
     await Promise.resolve();
     expect(events).toEqual(['start:1']);
@@ -500,14 +516,14 @@ describe('Block at dispatch', () => {
     const first = dispatchIncoming(runtime, connection, {
       event: 'work',
       payload: 1,
-      wskit: undefined,
+      livething: undefined,
     });
     await Promise.resolve();
 
     const second = dispatchIncoming(runtime, connection, {
       event: 'work',
       payload: 2,
-      wskit: undefined,
+      livething: undefined,
     });
     await Promise.resolve();
 
@@ -545,13 +561,13 @@ describe('Block at dispatch', () => {
     const firstDefault = dispatchIncoming(runtime, connection, {
       event: 'default',
       payload: 1,
-      wskit: undefined,
+      livething: undefined,
     });
     await Promise.resolve();
     const secondDefault = dispatchIncoming(runtime, connection, {
       event: 'default',
       payload: 2,
-      wskit: undefined,
+      livething: undefined,
     });
     await Promise.resolve();
 
@@ -564,13 +580,13 @@ describe('Block at dispatch', () => {
     const firstOrdered = dispatchIncoming(runtime, connection, {
       event: 'ordered',
       payload: 1,
-      wskit: undefined,
+      livething: undefined,
     });
     await Promise.resolve();
     const secondOrdered = dispatchIncoming(runtime, connection, {
       event: 'ordered',
       payload: 2,
-      wskit: undefined,
+      livething: undefined,
     });
 
     await Promise.resolve();
@@ -612,14 +628,14 @@ describe('Block at dispatch', () => {
     const incoming = dispatchIncoming(runtime, connection, {
       event: 'work',
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
     await Promise.resolve();
 
     const stream = dispatchIncoming(runtime, connection, {
       event: 'feed',
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
     await stream;
 
@@ -648,7 +664,11 @@ describe('Block at dispatch', () => {
       handleValidationError: validationError,
     });
 
-    await dispatchIncoming(runtime, connection, { event: 'any', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'any',
+      payload: {},
+      livething: undefined,
+    });
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(runtimeError).not.toHaveBeenCalled();
@@ -740,7 +760,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(runtimeWithActivity, connection, 'ping');
 
     expect(error).toHaveBeenCalledWith(
-      '[wskit] ping hook threw',
+      '[livething] ping hook threw',
       expect.objectContaining({ connectionId: connection.id }),
     );
     expect(after).toHaveBeenCalledWith(connection.id);
@@ -770,7 +790,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(runtimeWithActivity, connection, 'pong');
 
     expect(error).toHaveBeenCalledWith(
-      '[wskit] pong hook threw',
+      '[livething] pong hook threw',
       expect.objectContaining({ connectionId: connection.id }),
     );
     expect(after).toHaveBeenCalledWith(connection.id);
@@ -799,7 +819,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(runtimeWithActivity, connection, 'ping');
 
     expect(error).toHaveBeenCalledWith(
-      '[wskit] connection activity hook threw',
+      '[livething] connection activity hook threw',
       expect.objectContaining({ connectionId: connection.id }),
     );
     expect(pingHook).toHaveBeenCalledWith(connection.id);
@@ -825,11 +845,7 @@ describe('processTextMessage protocol branches', () => {
     expect(connectionActivity).toHaveBeenCalledTimes(1);
     expect(messageActivity).not.toHaveBeenCalled();
 
-    await processTextMessage(
-      runtimeWithActivity,
-      connection,
-      JSON.stringify({ event: 'noop', payload: {} }),
-    );
+    await processTextMessage(runtimeWithActivity, connection, JSON.stringify(['noop', {}, null]));
     expect(messageActivity).toHaveBeenCalledWith(connection.id);
   });
 
@@ -881,11 +897,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(
       runtimeWithActivity,
       connection,
-      JSON.stringify({
-        event: '__streamCancel__',
-        payload: {},
-        __wskit: { streamId: 'stream_1' },
-      }),
+      JSON.stringify(['__streamCancel__', null, { stream: { id: 'stream_1' } }]),
     );
 
     expect(generator.return).toHaveBeenCalledTimes(1);
@@ -948,11 +960,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(
       runtimeWithActivity,
       connection,
-      JSON.stringify({
-        event: '__subscribe__',
-        payload: {},
-        __wskit: { channel: 'room:general', channelFamily: 'rooms' },
-      }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'room:general', family: 'rooms' } }]),
     );
 
     expect(errors).toHaveLength(1);
@@ -970,7 +978,7 @@ describe('processTextMessage protocol branches', () => {
     const runtime = baseDispatchRuntime({
       connections: new Map([[connection.id, connection]]),
       async handleUnsubscribe() {
-        throw new WSKitError('channel-not-subscribed', undefined);
+        throw new LiveThingError('channel-not-subscribed', undefined);
       },
       async handleRuntimeError(_conn, { error, event, routing }: SendRuntimeErrorOptions) {
         errors.push({ error, event, routing });
@@ -981,11 +989,11 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(
       runtimeWithActivity,
       connection,
-      JSON.stringify({
-        event: '__unsubscribe__',
-        payload: {},
-        __wskit: { channel: 'room:general', channelFamily: 'rooms' },
-      }),
+      JSON.stringify([
+        '__unsubscribe__',
+        null,
+        { channel: { name: 'room:general', family: 'rooms' } },
+      ]),
     );
 
     expect(errors).toHaveLength(1);
@@ -1078,7 +1086,7 @@ describe('onAfterSend async rejection', () => {
         } as any,
         outgoingHooks: [],
         beforeSendHooks: [],
-        wskitStampHooks: [],
+        livethingStampHooks: [],
         afterSendHooks: [() => Promise.reject(new Error('persist failed'))],
         logger: { warn: vi.fn(), error },
         generateId() {
@@ -1090,6 +1098,6 @@ describe('onAfterSend async rejection', () => {
     );
 
     await Promise.resolve();
-    expect(error).toHaveBeenCalledWith('[wskit] after-send hook failed', expect.any(Object));
+    expect(error).toHaveBeenCalledWith('[livething] after-send hook failed', expect.any(Object));
   });
 });

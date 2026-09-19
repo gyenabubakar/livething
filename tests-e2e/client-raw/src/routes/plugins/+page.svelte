@@ -65,7 +65,7 @@
 			if (typeof payload.tick === 'number') streamThrowChunks++;
 		},
 		'__streamOk__': (_payload, msg) => {
-			if (typeof msg.__wskit?.streamId === 'string') streamThrowId = msg.__wskit.streamId;
+			if (typeof msg.metadata?.stream?.id === 'string') streamThrowId = msg.metadata.stream?.id;
 		},
 	};
 
@@ -96,10 +96,10 @@
 		ws.onmessage = (event) => {
 			if (event.data === 'pong') return;
 
-			const msg = JSON.parse(event.data as string) as {
+			const msg = window.__livethingDecode(event.data) as {
 				event: string;
 				payload: Record<string, unknown>;
-				__wskit?: Record<string, unknown>;
+				metadata?: Record<string, Record<string, unknown>> | null;
 			};
 			const { event: evt, payload } = msg;
 			messageLog = [...messageLog, `${evt}: ${JSON.stringify(payload)}`].slice(-50);
@@ -115,13 +115,13 @@
 		dbConnected = false;
 	}
 
-	function send(event: string, payload: Record<string, unknown> = {}) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(event: string, payload: Record<string, unknown> | null = null) {
+		ws?.send(window.__livethingEncode({ event, payload }));
 	}
 </script>
 
 <main>
-	<h1>wskit plugins e2e</h1>
+	<h1>LiveThing plugins E2E</h1>
 
 	<section>
 		<h2>Connection</h2>
@@ -288,7 +288,7 @@
 		<h2>Stream that throws from finally on cancel</h2>
 		<button
 			data-testid="stream-throw-on-cancel-btn"
-			onclick={() => send('stream-throw-on-cancel')}
+			onclick={() => send('stream-throw-on-cancel', {})}
 			disabled={status !== 'connected'}>Start throwing stream</button
 		>
 		<div data-testid="stream-throw-chunks">{streamThrowChunks}</div>

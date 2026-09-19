@@ -42,7 +42,7 @@ export interface Capability<
   TBrand extends string = never,
   TKind extends string = TBrand,
 > extends Contribution<TSlots> {
-  readonly __wskitCapability: true;
+  readonly __livethingCapability: true;
   /** Runtime primitives this capability contributes to the assembled server. @internal */
   readonly __primitives: readonly Primitive[];
   /** Feature flags this capability turns on, surfaced for build-time checks. @internal */
@@ -78,7 +78,7 @@ export function capability<
   extra?: TExtra,
 ): Capability<TSlots, TFeature, TBrand, TKind> & TExtra {
   return {
-    __wskitCapability: true,
+    __livethingCapability: true,
     __primitives: primitives,
     __features: features,
     ...(extra ?? ({} as TExtra)),
@@ -221,7 +221,7 @@ type CapabilityKindOf<TCapability> = TCapability extends {
   : never;
 
 type DuplicateCapabilityKind<TKind extends string> = {
-  readonly __wskitDuplicateCapabilityKind: TKind;
+  readonly __livethingDuplicateCapabilityKind: TKind;
 };
 
 export type UniqueCapabilityKinds<

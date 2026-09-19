@@ -175,7 +175,7 @@ describe('intercept/runtime', () => {
   });
 
   it('Block in an intercept still propagates as an error', async () => {
-    const { Block } = await import('@wskit/core');
+    const { Block } = await import('@livething/core');
     const connection = createConnection();
 
     const blocker = intercept(async () => {

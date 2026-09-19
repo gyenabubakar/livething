@@ -9,7 +9,7 @@ describe('scheduled', () => {
     const dataSchema = v.object({ roomId: v.string() });
     const primitive = scheduled('cleanup', (t) => t.data(dataSchema).retry(true).run(handler));
 
-    expect(primitive.__wskit).toBe('scheduled');
+    expect(primitive.__livething).toBe('scheduled');
     expect(primitive.__kind).toBe('infrastructure');
     expect(primitive.__identity[1]).toBe('cleanup');
     expect(primitive.__requires).toEqual({});

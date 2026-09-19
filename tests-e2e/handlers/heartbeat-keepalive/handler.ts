@@ -1,6 +1,6 @@
-import { emits, server, t } from '@wskit/server';
-import { keepalive } from '@wskit/server/keepalive';
-import type { InferClient } from '@wskit/server';
+import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 /**

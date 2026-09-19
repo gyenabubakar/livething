@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { WSKitError } from '@wskit/core';
+import { LiveThingError } from '@livething/core';
 import { PRIVILEGED_KV } from '~/_engine/contexts/lazy-storage.ts';
 import type { FrameOwner } from '~/intercept/intercept.ts';
 
@@ -178,16 +178,16 @@ export function scopePluginContext(id: string, ctx: any): any {
 /** Rethrow a plugin-thrown declared error under its namespaced wire code, keeping detail. */
 function rethrowNamespaced(id: string, shortCodes: Set<string>, error: unknown): never {
   // Only the plugin's own declared short codes get namespaced; any other throw
-  // (including arbitrary WSKitErrors) is left alone so it still normalizes as-is.
-  if (error instanceof WSKitError && shortCodes.has(error.code)) {
-    throw new WSKitError(pluginWireName(id, error.code), error.detail);
+  // (including arbitrary LiveThingErrors) is left alone so it still normalizes as-is.
+  if (error instanceof LiveThingError && shortCodes.has(error.code)) {
+    throw new LiveThingError(pluginWireName(id, error.code), error.detail);
   }
 
   throw error;
 }
 
 /**
- * Run plugin user code and, on a thrown `WSKitError` whose code is one of the
+ * Run plugin user code and, on a thrown `LiveThingError` whose code is one of the
  * plugin's declared short codes, rethrow it under the namespaced wire code so it
  * matches `declaredErrorCodes` and reaches the client instead of collapsing to
  * `internal-error`. Handles async: a returned promise is caught too. A plugin
@@ -255,7 +255,7 @@ function scopeHandleEvents(
  * Namespace the lookup target of `ctx.channels.get(...)` so a plugin resolves
  * its own `__<id>::room` rather than the host's bare `room`. Mirrors the runtime
  * normalizer: a `(family, name)` pair namespaces the family; a channel decl
- * (`__wskitChannel.__key`) or `.at()` ref (`__wskitChannelRef.family`) namespaces
+ * (`__livethingChannel.__key`) or `.at()` ref (`__livethingChannelRef.family`) namespaces
  * the family/key in place; a plain string name is namespaced directly. The
  * concrete instance `name` in a ref is a runtime value, not a declared key, so it
  * is left untouched.
@@ -265,12 +265,12 @@ function scopeChannelGetArgs(id: string, args: unknown[]): unknown[] {
 
   const arg = args[0];
   if (arg && typeof arg === 'object') {
-    if ('__wskitChannelRef' in arg) {
+    if ('__livethingChannelRef' in arg) {
       const ref = arg as unknown as { family: string; name: string };
       return [{ ...ref, family: pluginWireName(id, ref.family) }];
     }
 
-    if ('__wskitChannel' in arg) {
+    if ('__livethingChannel' in arg) {
       const decl = arg as unknown as { __key: string };
       return [{ ...decl, __key: pluginWireName(id, decl.__key) }];
     }

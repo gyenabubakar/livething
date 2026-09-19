@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's close-code-aware reconnection against the real
-// wskit `errors-control-flow` server definition. Adapter-oblivious — it talks to whatever
+// Conformance: @livething/client's close-code-aware reconnection against the real
+// LiveThing `errors-control-flow` server definition. Adapter-oblivious — it talks to whatever
 // server the run booted over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/errors-control-flow/index.html?room=${room}&username=alice`);

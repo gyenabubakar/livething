@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
-import type { WSKitError } from '@wskit/core';
+import type { LiveThingError } from '@livething/core';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { ApplyChannelPrimitives, Primitive, TypeFn } from '~/primitives/types.ts';
 import type { IncomingOf, ScopedMessaging } from '~/types.ts';
@@ -87,7 +87,7 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
   /** The server kicked you out, with a reason. */
   onKicked(callback: (reason: string) => void): () => void;
   /** A re-subscribe after reconnect was rejected (e.g. permissions changed). */
-  onSubscriptionFailed(callback: (error: WSKitError) => void): () => void;
+  onSubscriptionFailed(callback: (error: LiveThingError) => void): () => void;
 };
 
 /**

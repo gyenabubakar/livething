@@ -1,7 +1,7 @@
 import type { SQLProvider } from '~/context.ts';
 
 /**
- * `__wskit_meta` marks whether this storage has been initialized before.
+ * `__livething_meta` marks whether this storage has been initialized before.
  * The schema-init hooks (`CREATE TABLE IF NOT EXISTS`) run on every boot
  * regardless — repeating them is cheap and guarantees a capability added
  * after storage was already initialized still gets its tables created on
@@ -31,7 +31,7 @@ export interface SchemaState {
  */
 export function readSchemaState(sql: SqlExec): SchemaState {
   try {
-    sql.exec("SELECT value FROM __wskit_meta WHERE key = 'initialized'").toArray();
+    sql.exec("SELECT value FROM __livething_meta WHERE key = 'initialized'").toArray();
     return { fresh: false };
   } catch (error) {
     // Only a missing meta table means a truly fresh database. Any other storage
@@ -52,10 +52,10 @@ export function readSchemaState(sql: SqlExec): SchemaState {
  */
 export function markSchemaInitialized(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(`
-    CREATE TABLE IF NOT EXISTS __wskit_meta (
+    CREATE TABLE IF NOT EXISTS __livething_meta (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
-    INSERT OR REPLACE INTO __wskit_meta (key, value) VALUES ('initialized', '1')
+    INSERT OR REPLACE INTO __livething_meta (key, value) VALUES ('initialized', '1')
   `);
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@wskit/tests-e2e-client-raw",
+  "name": "@livething/tests-e2e-client-raw",
   "private": true,
   "version": "0.0.0",
   "type": "module",

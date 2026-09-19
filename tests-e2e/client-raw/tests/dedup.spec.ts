@@ -9,7 +9,7 @@ test.describe('dedup', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
   });
 
-  test('outgoing messages have unique messageId', async ({ page }) => {
+  test('outgoing messages have unique metadata.delivery.id values', async ({ page }) => {
     await page.getByTestId('echo-plain').click();
     await expect(page.getByTestId('count-plain')).toHaveText('1');
     await page.getByTestId('echo-plain').click();
@@ -21,7 +21,9 @@ test.describe('dedup', () => {
     expect(new Set(idList).size).toBe(idList.length);
   });
 
-  test('incoming frames with a repeated messageId run the handler once', async ({ page }) => {
+  test('incoming frames with a repeated metadata.delivery.id run the handler once', async ({
+    page,
+  }) => {
     await page.getByTestId('echo-dup-id').click();
     await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
 
@@ -35,17 +37,17 @@ test.describe('dedup', () => {
     await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
   });
 
-  test('incoming frames without a messageId are always dispatched', async ({ page }) => {
+  test('incoming frames without metadata.delivery.id are always dispatched', async ({ page }) => {
     await page.getByTestId('echo-no-id').click();
     await expect(page.getByTestId('count-no-id')).toHaveText('1');
 
-    // No messageId — at-least-once semantics, handler runs again.
+    // No delivery ID means at-least-once delivery, so the handler runs again.
     await page.getByTestId('echo-no-id').click();
     await expect(page.getByTestId('count-no-id')).toHaveText('2');
   });
 
   test('a duplicate __subscribe__ is idempotent server-side (one ack)', async ({ page }) => {
-    // Subscribe is idempotent by membership, not by the messageId dedup cache:
+    // Subscribe is idempotent by membership, not by the delivery-ID cache:
     // the first __subscribe__ joins and acks, the second sees an existing member
     // and answers nothing. Two identical frames must yield exactly one ack.
     const subscribeOkCount = await page.evaluate(async () => {
@@ -56,8 +58,9 @@ test.describe('dedup', () => {
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') {
-          const frame = JSON.parse(ev.data);
-          if (frame.event === '__subscribeOk__' && frame.__wskit?.channel === 'room') acks += 1;
+          const frame = window.__livethingDecode(ev.data);
+          if (frame.event === '__subscribeOk__' && frame.metadata?.channel?.name === 'room')
+            acks += 1;
         }
 
         if (typeof original === 'function') original.call(ws, ev);
@@ -65,12 +68,12 @@ test.describe('dedup', () => {
 
       const frame = {
         event: '__subscribe__',
-        payload: {},
-        __wskit: { channel: 'room' },
+        payload: null,
+        metadata: { channel: { name: 'room' } },
       };
 
-      ws.send(JSON.stringify(frame));
-      ws.send(JSON.stringify(frame));
+      ws.send(window.__livethingEncode(frame));
+      ws.send(window.__livethingEncode(frame));
       await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
 
@@ -80,16 +83,16 @@ test.describe('dedup', () => {
     expect(subscribeOkCount).toBe(1);
   });
 
-  test('incoming messageId dedup drops a resent frame on a connection', async ({ page }) => {
-    // The same messageId resent on one connection is dropped before the handler
+  test('incoming delivery-ID dedup drops a resent frame on a connection', async ({ page }) => {
+    // The same `metadata.delivery.id` on one connection is dropped before the handler
     // runs. (Whether the cache is shared ACROSS event types is a separate gap:
     // this handler declares only one incoming event, so it cannot prove that.)
 
-    // Send first do-echo with a fixed messageId.
+    // Send the first do-echo with a fixed delivery ID.
     await page.getByTestId('echo-dup-id').click();
     await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
 
-    // Resend the identical frame (same messageId): it is dropped. The fresh
+    // Resend the identical frame with the same delivery ID: it is dropped. The fresh
     // echo-plain frame is the positive signal that the connection is alive and
     // still processing, so the unchanged count proves dedup — not a dead link.
     await page.getByTestId('echo-dup-id').click();
@@ -98,10 +101,10 @@ test.describe('dedup', () => {
     await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
   });
 
-  test('dedup is per-connection — the same messageId on two connections both dispatch', async ({
+  test('dedup is per-connection — the same delivery ID on two connections dispatches twice', async ({
     page,
   }, testInfo) => {
-    // The dedup cache is scoped to a connection, so an identical messageId on a
+    // The dedup cache is scoped to a connection, so an identical delivery ID on a
     // different connection is NOT treated as a duplicate — both handlers run.
     await installRig(page);
     const room = `dedup-iso-${testInfo.testId}`;
@@ -112,12 +115,12 @@ test.describe('dedup', () => {
     await send(page, a, {
       event: 'do-echo',
       payload: { text: 'from-alice' },
-      __wskit: { messageId: sharedMsgId },
+      metadata: { delivery: { id: sharedMsgId } },
     });
     await send(page, b, {
       event: 'do-echo',
       payload: { text: 'from-bob' },
-      __wskit: { messageId: sharedMsgId },
+      metadata: { delivery: { id: sharedMsgId } },
     });
 
     await waitForFrame(page, a, {

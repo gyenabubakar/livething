@@ -24,7 +24,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === '__error__') {
 				errorResult = `${data.payload?.code ?? ''}:${JSON.stringify(data.payload?.detail ?? {})}`;
 			}
@@ -32,7 +32,7 @@
 	}
 
 	function send(event: string) {
-		ws?.send(JSON.stringify({ event, payload: {} }));
+		ws?.send(window.__livethingEncode({ event, payload: {} }));
 	}
 </script>
 

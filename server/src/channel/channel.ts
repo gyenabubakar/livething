@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import {
   compileChannelPrimitive,
   validateChannelFamilyPatternsDisjointFromStaticNames,
@@ -78,8 +78,8 @@ export type ExtractParams<S extends string> = S extends `${string}{${infer Name}
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { channels } from '@wskit/server/channels';
+ * import { server, t } from '@livething/server';
+ * import { channels } from '@livething/server/channels';
  *
  * const base = server({ capabilities: [channels()] });
  *
@@ -178,13 +178,13 @@ const CHANNEL_KEY = Symbol('channel');
  */
 function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, source: string): void {
   if (typeof declaration.key !== 'string' || declaration.key.trim() === '') {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `${source} requires a non-empty key — got ${JSON.stringify(declaration.key)}.`,
     );
   }
 
   if (!(declaration.pattern instanceof RegExp) || typeof declaration.template !== 'string') {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `${source} requires a compiled template — build it with scope(key, template), ` +
         `not a hand-rolled object.`,
     );
@@ -203,7 +203,7 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
  * capture at `ctx.channel.params.name`.
  *
  * The template grammar is just literals plus `{name}` captures (`{{`/`}}` for a
- * literal brace). wskit compiles it to a linear-time matcher itself, so unlike a
+ * literal brace). livething compiles it to a linear-time matcher itself, so unlike a
  * raw regex it can never trigger catastrophic backtracking.
  *
  * @param key      Family identifier. Used as the first tuple element in
@@ -250,7 +250,7 @@ export function channel<
 >(pattern: TPattern, ...primitives: TPrimitives): ChannelPrimitive<TPattern, TPrimitives> {
   if (typeof pattern === 'string') {
     if (pattern.trim() === '') {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `channel() requires a non-empty name — got ${JSON.stringify(pattern)}.`,
       );
     }
@@ -259,7 +259,7 @@ export function channel<
   }
 
   return {
-    __wskit: 'channel',
+    __livething: 'channel',
     __kind: 'scope',
     __identity: [CHANNEL_KEY, typeof pattern === 'string' ? pattern : pattern.key],
     __requires: {},

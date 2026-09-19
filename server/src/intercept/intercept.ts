@@ -31,13 +31,13 @@ export interface InterceptFrame<TOwnerId extends string = string> {
   readonly event: string;
   /**
    * The payload value. Type is `unknown` until narrowed by `matches()` or
-   * `unsafeCast()` from `@wskit/server`. `matches()` also validates against
+   * `unsafeCast()` from `@livething/server`. `matches()` also validates against
    * the declared schema; `unsafeCast()` is a type-only assertion.
    */
   readonly payload: unknown;
   /** Which primitive family handles this event, or `'unknown'` if none match. */
   readonly kind: 'incoming' | 'request' | 'stream' | 'nudge' | 'unknown';
-  /** Curated routing metadata from the wire `__wskit` envelope. */
+  /** Curated routing metadata from the wire `__livething` envelope. */
   readonly routing: InterceptRouting;
   /** Whether this event is app-owned or plugin-owned, derived from its name. */
   readonly owner: FrameOwner<TOwnerId>;
@@ -60,7 +60,7 @@ export interface OutgoingFrame<TOwnerId extends string = string> {
 }
 
 /**
- * Curated subset of the wire `__wskit` envelope — the routing/correlation
+ * Curated subset of the wire `__livething` envelope — the routing/correlation
  * markers safe for user code to read inside an intercept.
  */
 export interface InterceptRouting {
@@ -70,7 +70,8 @@ export interface InterceptRouting {
   readonly channel?: string;
   /** The dynamic channel family key for a channel-scoped frame, or `null` for a static channel. */
   readonly channelFamily?: string | null;
-  readonly seq?: number;
+  readonly deliverySeq?: number;
+  readonly streamSeq?: number;
 }
 
 /**
@@ -130,7 +131,7 @@ const INTERCEPT_KEY = Symbol('intercept');
  *
  * @example
  * ```ts
- * import { matches } from '@wskit/server';
+ * import { matches } from '@livething/server';
  *
  * // Log all messages
  * intercept((ctx, frame) => { console.log(frame.kind, frame.event); });
@@ -145,7 +146,7 @@ const INTERCEPT_KEY = Symbol('intercept');
  */
 export function intercept(handler: InterceptHandler<any>): InterceptPrimitive<any> {
   return {
-    __wskit: 'intercept',
+    __livething: 'intercept',
     __kind: 'infrastructure',
     __identity: [INTERCEPT_KEY, 'intercept'],
     __requires: {},
@@ -189,7 +190,7 @@ const OUTGOING_HOOK_KEY = Symbol('outgoingHook');
  */
 export function outgoingHook(handler: OutgoingHandler<any>): OutgoingHookPrimitive<any> {
   return {
-    __wskit: 'outgoingHook',
+    __livething: 'outgoingHook',
     __kind: 'infrastructure',
     __identity: [OUTGOING_HOOK_KEY, 'outgoingHook'],
     __requires: {},

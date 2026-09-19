@@ -7,7 +7,7 @@ describe('incoming', () => {
     const handler = vi.fn();
     const primitive = incoming('send-message', handler);
 
-    expect(primitive.__wskit).toBe('incoming');
+    expect(primitive.__livething).toBe('incoming');
     expect(primitive.__kind).toBe('handler');
     expect(primitive.__identity[1]).toBe('send-message');
     expect(primitive.handler).toBe(handler);

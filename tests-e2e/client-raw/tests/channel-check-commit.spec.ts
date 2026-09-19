@@ -101,10 +101,10 @@ test.describe('channel check/commit', () => {
 
         const a = await open('filler-a');
         const b = await open('filler-b');
-        const frame = JSON.stringify({
+        const frame = window.__livethingEncode({
           event: '__subscribe__',
           payload: { token: 'tok-member' },
-          __wskit: { channel: 'room' },
+          metadata: { channel: { name: 'room' } },
         });
 
         a.send(frame);
@@ -163,10 +163,10 @@ test.describe('channel check/commit', () => {
           s.onerror = (e) => reject(e);
         });
         ws.send(
-          JSON.stringify({
+          window.__livethingEncode({
             event: '__subscribe__',
-            payload: {},
-            __wskit: { channel: 'commit-only' },
+            payload: null,
+            metadata: { channel: { name: 'commit-only' } },
           }),
         );
         await new Promise((r) => setTimeout(r, 200));
@@ -190,8 +190,8 @@ test.describe('channel check/commit', () => {
     // commit() must be synchronous; the engine rejects a returned Promise.
     await send(page, a, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'async-commit' },
+      payload: null,
+      metadata: { channel: { name: 'async-commit' } },
     });
     const err = await waitForFrame(page, a, {
       match: (f) => f.event === '__error__',
@@ -202,11 +202,11 @@ test.describe('channel check/commit', () => {
     // Connection stays alive — a valid subscribe still works afterward.
     await send(page, a, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'check-only' },
+      payload: null,
+      metadata: { channel: { name: 'check-only' } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'check-only',
+      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'check-only',
     });
   });
 });

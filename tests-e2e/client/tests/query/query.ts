@@ -1,8 +1,8 @@
-import { client, connect, query } from '@wskit/client';
-import type { CtxMetaClient } from '@wskit/tests-e2e-handlers/ctx-meta';
+import { client, connect, query } from '@livething/client';
+import type { CtxMetaClient } from '@livething/tests-e2e-handlers/ctx-meta';
 import { button, el, mount, ready } from '../_shared.ts';
 
-// Drives @wskit/client's query() primitive against the real `ctx-meta` server definition.
+// Drives @livething/client's query() primitive against the real `ctx-meta` server definition.
 // The connect URL deliberately omits `username`; query() supplies it, so the
 // server's upgrade reads it from the query string and echoes it back through
 // who-am-i. Proves query params reach the server on connect.

@@ -1,14 +1,14 @@
-import { emits, server, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { clientRequests } from '@wskit/server/client-requests';
-import { dedup } from '@wskit/server/dedup';
-import { Disconnect } from '@wskit/server/errors';
-import { plugin } from '@wskit/server/plugins';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
-import { stream } from '@wskit/server/streams';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { dedup } from '@livething/server/dedup';
+import { Disconnect } from '@livething/server/errors';
+import { plugin } from '@livething/server/plugins';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
+import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 import {
   GetToken,
@@ -102,7 +102,7 @@ export const handleRequestHistory = base.on('request-history', {
     ctx.sendReplay(
       'chat-msg',
       { text: 'injected-history', from: 'system' },
-      { seq: 0, messageId: 'manual-001' },
+      { deliverySeq: 0, messageId: 'manual-001' },
     );
   },
 });
@@ -124,7 +124,7 @@ export const handleTriggerBadReplay = base.on('trigger-bad-replay', {
       ctx.sendReplay(
         'not-declared-event' as 'chat-msg',
         { text: 'x', from: 'system' },
-        { seq: 0, messageId: 'bad-1' },
+        { deliverySeq: 0, messageId: 'bad-1' },
       );
     } catch (err) {
       undeclared = err instanceof Error ? err.message : String(err);
@@ -140,7 +140,12 @@ export const handleInjectFamilyReplay = base.on('inject-family-replay', {
     ctx.sendReplay(
       'room-msg',
       { text: 'family-injected', from: 'system' },
-      { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelFamily: 'fams' },
+      {
+        deliverySeq: 0,
+        messageId: 'fam-manual-001',
+        channel: 'fam-1',
+        channelFamily: 'fams',
+      },
     );
   },
 });
@@ -154,12 +159,12 @@ export const handleTriggerBigIntReplay = base.on('trigger-bigint-replay', {
         text: string;
         from: string;
       },
-      { seq: 1, messageId: 'bigint-row-1' },
+      { deliverySeq: 1, messageId: 'bigint-row-1' },
     );
     ctx.sendReplay(
       'chat-msg',
       { text: 'after-bigint-row', from: 'system' },
-      { seq: 2, messageId: 'after-bigint-row' },
+      { deliverySeq: 2, messageId: 'after-bigint-row' },
     );
   },
 });
@@ -208,7 +213,7 @@ export const handleRequestRoomHistory = replayRoom.on('request-room-history', {
     sendReplay(
       'room-msg',
       { text: 'injected-room-history', from: 'system' },
-      { seq: 0, messageId: 'room-manual-001' },
+      { deliverySeq: 0, messageId: 'room-manual-001' },
     );
   },
 });

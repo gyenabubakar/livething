@@ -1,8 +1,8 @@
-import { channels, client, connect, stream } from '@wskit/client';
-import type { StreamDurableScopedClient } from '@wskit/tests-e2e-handlers/stream-durable-scoped';
+import { channels, client, connect, stream } from '@livething/client';
+import type { StreamDurableScopedClient } from '@livething/tests-e2e-handlers/stream-durable-scoped';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channel-scoped stream() / resumeStream() against the
+// Drives @livething/client's channel-scoped stream() / resumeStream() against the
 // real `stream-durable-scoped` server definition, typed by the same contract the server
 // implements (StreamDurableScopedClient = InferClient<definition>). The `rooms`
 // channel exposes a resumable cursor stream (`paginate`) and a recorded stream

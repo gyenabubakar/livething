@@ -20,10 +20,10 @@ const landingItems = [
         to: '/start/what-is-websocket'
       },
       {
-        label: 'Why WSKit',
+        label: 'Why LiveThing',
         icon: 'i-ph-lightbulb-duotone',
         description: 'What you stop hand-building',
-        to: '/start/why-wskit'
+        to: '/start/why-livething'
       },
       {
         label: 'Installation',

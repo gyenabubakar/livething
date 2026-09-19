@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { signalBus } from '~/internal/signals.ts';
 import { createStore } from '~/internal/store.ts';
@@ -55,7 +55,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
       // You asked for background disconnect but the environment can't see
       // visibility — surface the mistake now, not as a silent no-op.
       if (wantsBackground && !environment.onVisibilityChange) {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           'platform({ backgroundDisconnectMs }) needs an environment that implements onVisibilityChange.',
         );
       }

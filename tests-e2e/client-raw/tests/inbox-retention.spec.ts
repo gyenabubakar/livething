@@ -18,7 +18,7 @@ type RetentionAnswer = {
 
 async function probe(page: Parameters<typeof send>[0]): Promise<RetentionAnswer> {
   const already = (await frames(page)).filter((frame) => frame.event === 'retention-answer').length;
-  await send(page, { event: 'probe-retention', payload: {}, __wskit: {} });
+  await send(page, { event: 'probe-retention', payload: {}, metadata: null });
   await expect
     .poll(
       async () => (await frames(page)).filter((frame) => frame.event === 'retention-answer').length,
@@ -46,18 +46,18 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'acknowledged-only' },
-      __wskit: { channel: 'count' },
+      metadata: { channel: { name: 'count' } },
     });
     const acknowledged = await waitForFrame(
       alice.page,
       (frame) => frame.event === 'room-msg' && frame.payload.text === 'acknowledged-only',
     );
-    const acknowledgedSeq = acknowledged.__wskit?.seq as number;
+    const acknowledgedSeq = acknowledged.metadata?.delivery?.seq as number;
 
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: acknowledgedSeq },
-      __wskit: { channel: 'count' },
+      metadata: { channel: { name: 'count' } },
     });
     await alice.page.waitForTimeout(100);
     await closeSocket(alice.page);
@@ -69,7 +69,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
       await send(bob.page, {
         event: 'send-room-msg',
         payload: { text },
-        __wskit: { channel: 'count' },
+        metadata: { channel: { name: 'count' } },
       });
     }
 
@@ -87,8 +87,8 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
 
     await send(alice.page, {
       event: '__received__',
-      payload: { receivedThrough: surviving.__wskit?.seq },
-      __wskit: { channel: 'count' },
+      payload: { receivedThrough: surviving.metadata?.delivery?.seq },
+      metadata: { channel: { name: 'count' } },
     });
     await alice.page.waitForTimeout(100);
     await alice.close();
@@ -111,18 +111,18 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'acknowledged' },
-      __wskit: { channel: 'count' },
+      metadata: { channel: { name: 'count' } },
     });
     const acknowledged = await waitForFrame(
       alice.page,
       (frame) => frame.event === 'room-msg' && frame.payload.text === 'acknowledged',
     );
-    const acknowledgedSeq = acknowledged.__wskit?.seq as number;
+    const acknowledgedSeq = acknowledged.metadata?.delivery?.seq as number;
 
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: acknowledgedSeq },
-      __wskit: { channel: 'count' },
+      metadata: { channel: { name: 'count' } },
     });
     await alice.page.waitForTimeout(100);
     await closeSocket(alice.page);
@@ -131,7 +131,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
       await send(bob.page, {
         event: 'send-room-msg',
         payload: { text },
-        __wskit: { channel: 'count' },
+        metadata: { channel: { name: 'count' } },
       });
     }
 
@@ -143,7 +143,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await reconnect(alice.page);
     const gap = await waitForFrame(
       alice.page,
-      (frame) => frame.event === '__gap__' && frame.__wskit?.channel === 'count',
+      (frame) => frame.event === '__gap__' && frame.metadata?.channel?.name === 'count',
     );
     const missedThrough = gap.payload.missedThrough as number;
     expect(missedThrough).toBeGreaterThan(acknowledgedSeq);
@@ -153,7 +153,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
       alice.page,
       (frame) => frame.event === 'room-msg' && frame.payload.text === 'undelivered-3',
     );
-    expect(missedThrough).toBeLessThan(surviving.__wskit?.seq as number);
+    expect(missedThrough).toBeLessThan(surviving.metadata?.delivery?.seq as number);
     expect(
       (await frames(alice.page)).some(
         (frame) => frame.event === 'room-msg' && frame.payload.text === 'acknowledged',
@@ -172,8 +172,8 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
 
     await send(alice.page, {
       event: '__received__',
-      payload: { receivedThrough: surviving.__wskit?.seq },
-      __wskit: { channel: 'count' },
+      payload: { receivedThrough: surviving.metadata?.delivery?.seq },
+      metadata: { channel: { name: 'count' } },
     });
     await alice.page.waitForTimeout(100);
     await closeSocket(alice.page);
@@ -204,7 +204,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'quiet-expiry' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const before = await probe(bob.page);
     expect(before.rows).toBe(1);
@@ -225,7 +225,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await reconnect(alice.page);
     const gap = await waitForFrame(
       alice.page,
-      (frame) => frame.event === '__gap__' && frame.__wskit?.channel === 'chat',
+      (frame) => frame.event === '__gap__' && frame.metadata?.channel?.name === 'chat',
     );
     const missedThrough = gap.payload.missedThrough as number;
     expect(missedThrough).toBe(after.maxEvictedThrough);
@@ -233,7 +233,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: missedThrough },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await alice.page.waitForTimeout(100);
     await closeSocket(alice.page);
@@ -262,18 +262,18 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'delivered-retained' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const message = await waitForFrame(
       alice.page,
       (frame) => frame.event === 'room-msg' && frame.payload.text === 'delivered-retained',
     );
-    const seq = message.__wskit?.seq as number;
+    const seq = message.metadata?.delivery?.seq as number;
 
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await alice.page.waitForTimeout(100);
 
@@ -310,7 +310,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'restart-expiry' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     expect((await probe(bob.page)).rows).toBe(1);
 

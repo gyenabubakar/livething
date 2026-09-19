@@ -161,7 +161,7 @@ async function runAdminBuiltIn(
       return (
         (await admin.channelKick(
           channel,
-          { __wskit: 'user-ref', id: userId, instance: undefined },
+          { __livething: 'user-ref', id: userId, instance: undefined },
           { reason: 'admin kick' },
         )) ?? null
       );

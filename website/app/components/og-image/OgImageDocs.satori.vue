@@ -154,10 +154,10 @@ function truncate(str: string, max: number) {
             </defs>
           </svg>
           <div
-            class="flex lowercase font-pixel font-medium text-[40px] leading-none tracking-tight text-[#f5f5f5]"
+            class="flex font-pixel font-medium text-[40px] leading-none tracking-tight text-[#f5f5f5]"
             :style="wordmarkGlow"
           >
-            wskit
+            LiveThing
           </div>
           <div
             class="flex shrink-0"
@@ -174,7 +174,7 @@ function truncate(str: string, max: number) {
           class="flex text-[15px] tracking-[0.16em] font-semibold uppercase"
           :style="{ fontFamily: 'DM Mono', color: '#9ea0a8' }"
         >
-          wskit.dev
+          livething.dev
         </div>
       </div>
 

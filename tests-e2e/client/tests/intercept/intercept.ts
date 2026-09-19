@@ -1,9 +1,9 @@
-import { client, connect, intercept } from '@wskit/client';
-import { Block } from '@wskit/client/errors';
-import type { InterceptClient } from '@wskit/tests-e2e-handlers/intercept';
+import { client, connect, intercept } from '@livething/client';
+import { Block } from '@livething/client/errors';
+import type { InterceptClient } from '@livething/tests-e2e-handlers/intercept';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's intercept() against the real `intercept` server definition, typed
+// Drives @livething/client's intercept() against the real `intercept` server definition, typed
 // by the same contract the server implements (InterceptClient =
 // InferClient<definition>). The client sends `echo` and the server replies with
 // `echoed` carrying { text: `top:<sent>` } — that reply is the INCOMING frame

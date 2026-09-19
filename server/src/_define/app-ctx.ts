@@ -354,7 +354,7 @@ export interface FrameMatchCtx<TSlots> {
 /** The wire metadata a replay resend carries so the client can dedup it. */
 export interface ReplayWire {
   /** Monotonic sequence number for this replayed message. */
-  readonly seq: number;
+  readonly deliverySeq: number;
   /** Stable message id the client uses to dedup the replayed frame. */
   readonly messageId: string;
   /** The channel name, for a channel-scoped replay. */

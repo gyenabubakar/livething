@@ -21,12 +21,12 @@ export function requestToWebRequest(
 
   // WHATWG URL parsing treats backslashes as authority separators in special URLs.
   if (target.includes('\\')) {
-    throw new TypeError('[wskit] request target contains a backslash');
+    throw new TypeError('[livething] request target contains a backslash');
   }
 
   const url = new URL(target.startsWith('//') ? `${base.origin}${target}` : target, base);
   if (url.origin !== base.origin) {
-    throw new TypeError('[wskit] request target authority does not match Host');
+    throw new TypeError('[livething] request target authority does not match Host');
   }
 
   const headers = new Headers();
@@ -41,8 +41,8 @@ export function requestToWebRequest(
     }
   }
 
-  headers.delete('WSKit-Client-IP');
-  if (clientIp !== undefined) headers.set('WSKit-Client-IP', clientIp);
+  headers.delete('LiveThing-Client-IP');
+  if (clientIp !== undefined) headers.set('LiveThing-Client-IP', clientIp);
 
   return new Request(url, {
     method: request.method ?? 'GET',

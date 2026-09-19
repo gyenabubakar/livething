@@ -1,4 +1,4 @@
-import { Block } from '@wskit/core';
+import { Block } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { dedup } from '~/primitives/dedup.ts';
@@ -129,12 +129,12 @@ describe('intercept — transform chains to next intercept', () => {
     const interceptFn = vi.fn();
     const { socket, ws } = build(dedup(), intercept(interceptFn));
     socket.on('message', () => {});
-    ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { messageId: 'msg-1' } });
+    ws.emit({ event: 'message', payload: { text: 'hi' }, metadata: { delivery: { id: 'msg-1' } } });
     expect(interceptFn).toHaveBeenCalledTimes(1);
 
     interceptFn.mockClear();
 
-    ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { messageId: 'msg-1' } });
+    ws.emit({ event: 'message', payload: { text: 'hi' }, metadata: { delivery: { id: 'msg-1' } } });
     expect(interceptFn).not.toHaveBeenCalled();
   });
 });

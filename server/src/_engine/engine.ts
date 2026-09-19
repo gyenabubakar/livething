@@ -1,4 +1,4 @@
-import { CloseCodes, WSKitConfigError } from '@wskit/core';
+import { CloseCodes, LiveThingConfigError } from '@livething/core';
 import { stopAlarmCoordinator } from '~/_engine/alarm.ts';
 import { EngineCore } from '~/_engine/core.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
@@ -87,7 +87,7 @@ export class Engine<TApi = unknown> {
   handleHibernationWake(wsKey: unknown): ConnectionHandle {
     if (!this.usesHibernation()) {
       throw new Error(
-        '[wskit] hibernation is not enabled for this server definition. Set `hibernation: { enabled: true }` in server().',
+        '[livething] hibernation is not enabled for this server definition. Set `hibernation: { enabled: true }` in server().',
       );
     }
 
@@ -218,13 +218,13 @@ export class Engine<TApi = unknown> {
       return (group: string) => {
         if (!isDeclared(kind, group)) {
           throw new Error(
-            `[wskit] tag group '${group}' is not declared under tags (${kind}). Add it to your contract's tags: builder or check for a typo.`,
+            `[livething] tag group '${group}' is not declared under tags (${kind}). Add it to your contract's tags: builder or check for a typo.`,
           );
         }
 
         return {
           ref: (key: string): PublicApi.TagRef => ({
-            __wskit: 'tag-ref',
+            __livething: 'tag-ref',
             kind,
             group,
             key,
@@ -307,7 +307,7 @@ function assertNotReservedApiName(key: string): void {
       `inherited one is already there — and would go missing without explanation.`;
   }
 
-  throw new WSKitConfigError(
+  throw new LiveThingConfigError(
     `assemble({ api }) declared the reserved method name '${key}'. ${reason} Rename it.`,
   );
 }
@@ -393,9 +393,8 @@ function flattenApi(api: unknown): Record<string, unknown> {
         continue;
       }
 
-      // Before the `in flat` guard: `'__proto__' in flat` is true on any plain
-      // object, so a method by that name would be skipped silently instead of
-      // reported.
+      // Check reserved names before the own-property lookup because
+      // `'__proto__' in flat` is true on a plain object.
       assertNotReservedApiName(key);
       if (Object.hasOwn(flat, key)) continue;
 

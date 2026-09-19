@@ -59,7 +59,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -74,7 +74,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       second.emit({
         event: '__error__',
         payload: { code: 'forbidden' },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect(onSubFailed).toHaveBeenCalledWith(expect.objectContaining({ code: 'forbidden' }));
@@ -98,7 +98,10 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       // Drop → reconnect. A persistent channel is auto-rejoined by the server, so
@@ -110,7 +113,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
 
       const clientResubscribes = second
         .sentFrames()
-        .filter((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general');
+        .filter((f) => f.event === '__subscribe__' && f.metadata?.channel?.name === 'general');
       expect(clientResubscribes).toHaveLength(0);
 
       const onSubFailed = vi.fn();
@@ -119,7 +122,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       second.emit({
         event: '__error__',
         payload: { code: 'rejoin-rejected' },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect(onSubFailed).toHaveBeenCalledWith(
@@ -142,7 +145,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     const onSubFailed = vi.fn();
@@ -151,7 +154,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
     ws.emit({
       event: '__error__',
       payload: { code: 'validation-failed' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect(onSubFailed).toHaveBeenCalledWith(
@@ -178,16 +181,17 @@ describe('channels-reconnect-skips-persistent', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: {
-          source: 'client',
-          channel: 'room:1',
-          channelFamily: 'rooms',
-          channelMembership: 'ephemeral',
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'room:1', family: 'rooms', membership: 'ephemeral' },
         },
       });
 
@@ -197,7 +201,7 @@ describe('channels-reconnect-skips-persistent', () => {
       second.open();
 
       const resubscribes = second.sentFrames().filter((f) => f.event === '__subscribe__');
-      expect(resubscribes.map((f) => f.__wskit?.channel)).toEqual(['room:1']);
+      expect(resubscribes.map((f) => f.metadata?.channel?.name)).toEqual(['room:1']);
     } finally {
       vi.useRealTimers();
     }
@@ -220,7 +224,10 @@ describe('channels-reconnect-skips-persistent', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       first.serverClose(1006, 'drop');
@@ -256,7 +263,7 @@ describe('channels-reconnect-rejoin-before-queued-ops', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -299,7 +306,10 @@ describe('channels-unsubscribe-during-reconnect-wins-over-rejoin', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       first.serverClose(1006, 'drop');
@@ -313,10 +323,10 @@ describe('channels-unsubscribe-during-reconnect-wins-over-rejoin', () => {
 
       const sent = second.sentFrames();
       expect(
-        sent.some((f) => f.event === '__unsubscribe__' && f.__wskit?.channel === 'general'),
+        sent.some((f) => f.event === '__unsubscribe__' && f.metadata?.channel?.name === 'general'),
       ).toBe(true);
       expect(
-        sent.some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general'),
+        sent.some((f) => f.event === '__subscribe__' && f.metadata?.channel?.name === 'general'),
       ).toBe(false);
       expect(unsubscribed).toHaveBeenCalledTimes(1);
     } finally {
@@ -345,7 +355,7 @@ describe('channels-reconnect-refreshes-function-subscribe-payload', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -389,7 +399,7 @@ describe('channels-reconnect-payload-refresh-failure-reaches-onError (#22)', () 
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -413,14 +423,14 @@ describe('channels-onclose-keeps-active-clears-members', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await subscribePromise;
 
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().size).toBe(1);
 
@@ -446,7 +456,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'server', channel: 'room-42', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'server' }, channel: { name: 'room-42', family: 'rooms' } },
     });
 
     expect(onFamilySubscribed).toHaveBeenCalledWith('room-42', 'server');
@@ -465,7 +475,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-42', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room-42', family: 'rooms' } },
     });
     await subscribePromise;
 
@@ -474,7 +484,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
     ws.emit({
       event: '__kicked__',
       payload: { reason: 'banned' },
-      __wskit: { channel: 'room-42', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'room-42', family: 'rooms' } },
     });
 
     expect(onFamilyUnsubscribed).toHaveBeenCalledWith('room-42');
@@ -495,7 +505,7 @@ describe('channel-subscribeok-server-leaves-pending-hanging', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'server', channel: 'general' },
+      metadata: { exchange: { source: 'server' }, channel: { name: 'general' } },
     });
 
     await subscribePromise;
@@ -528,7 +538,7 @@ describe('channel-unsubscribe-while-inactive-is-a-no-op', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     const onUnsub = vi.fn();
@@ -536,8 +546,8 @@ describe('channel-unsubscribe-while-inactive-is-a-no-op', () => {
     room.unsubscribe();
 
     const leaveFrame = ws.sentFrames().find((f) => f.event === '__unsubscribe__');
-    expect(leaveFrame).toMatchObject({ payload: {}, __wskit: { channel: 'general' } });
-    expect(typeof leaveFrame.__wskit.unsubscribeId).toBe('string');
+    expect(leaveFrame).toMatchObject({ payload: null, metadata: { channel: { name: 'general' } } });
+    expect(typeof leaveFrame.metadata.channel?.unsubscribeId).toBe('string');
     expect(onUnsub).toHaveBeenCalled();
   });
 });
@@ -562,7 +572,7 @@ describe('scope-handle-list-only-active', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-x', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room-x', family: 'rooms' } },
     });
     await subscribePromise;
 
@@ -581,7 +591,7 @@ describe('scope-handle-list-only-active', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-1', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room-1', family: 'rooms' } },
     });
     await roomSubscribe;
 
@@ -589,7 +599,7 @@ describe('scope-handle-list-only-active', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'lobby-1', channelFamily: 'lobbies' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'lobby-1', family: 'lobbies' } },
     });
     await lobbySubscribe;
 
@@ -669,7 +679,7 @@ describe('BUG subscribe-when-active', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await firstPromise;
 
@@ -702,7 +712,10 @@ describe('BUG persistence-flip', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       first.serverClose(1006, 'drop');
@@ -717,7 +730,7 @@ describe('BUG persistence-flip', () => {
 
       const clientSubscribe = second
         .sentFrames()
-        .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general');
+        .some((f) => f.event === '__subscribe__' && f.metadata?.channel?.name === 'general');
 
       expect(clientSubscribe || onSubFailed.mock.calls.length > 0).toBe(true);
     } finally {
@@ -762,7 +775,10 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       MockWebSocket.last().emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       MockWebSocket.last().serverClose(1006);
@@ -794,12 +810,12 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
       first.emit({
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       const joins: string[] = [];
@@ -814,13 +830,13 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       second.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       second.emit({
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'a' }, { connectionId: 'c' }] },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect(joins).toEqual(['c']);
@@ -848,7 +864,7 @@ describe('reconnection give-up tears down active channels', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(1);
 
@@ -876,13 +892,13 @@ describe('member join deltas after a failed rejoin', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       first.emit({
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'a' }] },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -895,7 +911,7 @@ describe('member join deltas after a failed rejoin', () => {
       second.emit({
         event: '__error__',
         payload: { code: 'forbidden' },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       joins.length = 0;
@@ -904,12 +920,12 @@ describe('member join deltas after a failed rejoin', () => {
       second.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
       second.emit({
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect([...joins].sort()).toEqual(['a', 'b']);
@@ -928,12 +944,12 @@ describe('member join deltas after a failed rejoin', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'a' }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     ws.serverClose(1006, 'drop');
@@ -948,13 +964,13 @@ describe('member join deltas after a failed rejoin', () => {
     second.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     second.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect([...joins].sort()).toEqual(['a', 'b']);
@@ -975,12 +991,12 @@ describe('presence deltas across a double drop', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
       first.emit({
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       const joins: string[] = [];
@@ -1000,12 +1016,12 @@ describe('presence deltas across a double drop', () => {
       third.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
       third.emit({
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect(joins).toEqual([]);
@@ -1026,12 +1042,12 @@ describe('duplicate subscribe confirmation', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'server', channel: 'general' },
+      metadata: { exchange: { source: 'server' }, channel: { name: 'general' } },
     });
     expect(onSub).toHaveBeenCalledTimes(1);
   });
@@ -1057,7 +1073,7 @@ describe('channel.status store', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await subscribePromise;
 
@@ -1073,7 +1089,7 @@ describe('channel.status store', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await subscribePromise;
 
@@ -1081,7 +1097,7 @@ describe('channel.status store', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     expect(room.status.get()).toBe('unsubscribed');
@@ -1095,7 +1111,7 @@ describe('channel.status store', () => {
     ws.emit({
       event: '__error__',
       payload: { code: 'forbidden', message: 'no access' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     await expect(subscribePromise).rejects.toMatchObject({ code: 'forbidden' });

@@ -35,7 +35,7 @@ describe('scopePluginContext — channel broadcastTo', () => {
   it('namespaces broadcastTo event names without changing the recipient', () => {
     const channelBroadcastTo = vi.fn();
     const handleBroadcastTo = vi.fn();
-    const target = { __wskit: 'user-ref', id: 'u1' };
+    const target = { __livething: 'user-ref', id: 'u1' };
     const scoped = scopePluginContext(ID, {
       channel: { broadcastTo: channelBroadcastTo },
       channels: { get: () => ({ broadcastTo: handleBroadcastTo }) },

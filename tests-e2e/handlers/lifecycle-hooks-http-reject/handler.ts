@@ -1,6 +1,6 @@
-import { server } from '@wskit/server';
-import { RejectUpgrade } from '@wskit/server/errors';
-import type { InferClient } from '@wskit/server';
+import { server } from '@livething/server';
+import { RejectUpgrade } from '@livething/server/errors';
+import type { InferClient } from '@livething/server';
 
 const base = server({
   upgrade: () => {

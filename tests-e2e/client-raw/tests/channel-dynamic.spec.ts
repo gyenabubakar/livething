@@ -47,7 +47,7 @@ test.describe('channel-dynamic', () => {
     // Sanity check: top-level dispatch (no channel marker) DOES fire the handler.
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: 'top-only-action', payload: {} }));
+      ws?.send(window.__livethingEncode({ event: 'top-only-action', payload: {} }));
     });
     await expect(page.getByTestId('top-only-action-fired')).toHaveText('testuser');
 
@@ -58,10 +58,10 @@ test.describe('channel-dynamic', () => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'top-only-action',
           payload: {},
-          __wskit: { channel: 'room:general', channelFamily: 'room' },
+          metadata: { channel: { name: 'room:general', family: 'room' } },
         }),
       );
     });
@@ -92,10 +92,10 @@ test.describe('channel-dynamic', () => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: '__replay__',
           payload: { lastKnownSeq: 0 },
-          __wskit: { channel: 'admin', channelFamily: 'room' },
+          metadata: { channel: { name: 'admin', family: 'room' } },
         }),
       );
     });
@@ -254,19 +254,19 @@ test.describe('channel-dynamic', () => {
       const got: {
         event: string;
         payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
       }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof ev.data === 'string') got.push(window.__livethingDecode(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
 
       ws.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: '__subscribe__',
-          payload: {},
-          __wskit: { channel: 'room:general', channelFamily: '' },
+          payload: null,
+          metadata: { channel: { name: 'room:general', family: '' } },
         }),
       );
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -282,10 +282,8 @@ test.describe('channel-dynamic', () => {
   test('onValidationError sees ctx.channel for a manually-thrown ValidationFailed inside a channel handler', async ({
     page,
   }, testInfo) => {
-    // Pre-fix the outer dispatch catch called handleValidationError
-    // without scope, so onValidationError saw a top-level ctx (no
-    // ctx.channel) for manually-thrown ValidationFailed. The hook
-    // couldn't tell which channel the failure happened in.
+    // A manually thrown ValidationFailed keeps its channel scope when the
+    // onValidationError hook runs.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('sub-general').click();
     await expect(page.getByTestId('subscribe-ok')).toContainText('room:general');
@@ -293,10 +291,10 @@ test.describe('channel-dynamic', () => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'trigger-manual-validation',
           payload: {},
-          __wskit: { channel: 'room:general', channelFamily: 'room' },
+          metadata: { channel: { name: 'room:general', family: 'room' } },
         }),
       );
     });
@@ -311,9 +309,8 @@ test.describe('channel-dynamic', () => {
   test('onError sees ctx.channel for an unrecognized error thrown inside a channel handler', async ({
     page,
   }, testInfo) => {
-    // Pre-fix sendRuntimeError built the onError hook ctx without scope, so
-    // ctx.channel was undefined even when the throw came from inside a
-    // channel family. The hook had no way to log "which room blew up."
+    // An error thrown inside a channel family gives onError the matching
+    // `ctx.channel` scope.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('sub-general').click();
     await expect(page.getByTestId('subscribe-ok')).toContainText('room:general');
@@ -321,10 +318,10 @@ test.describe('channel-dynamic', () => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'trigger-scoped-error',
           payload: {},
-          __wskit: { channel: 'room:general', channelFamily: 'room' },
+          metadata: { channel: { name: 'room:general', family: 'room' } },
         }),
       );
     });
@@ -341,12 +338,8 @@ test.describe('channel-dynamic', () => {
     page,
   }, testInfo) => {
     // The fixture's check sleeps 50ms when username starts with "slow-user".
-    // Two clients hit that gate at the same time so both sit in the await
-    // before either commits membership. Pre-fix each snapshotted the empty
-    // member list before the await, then both committed, and each connection
-    // saw an empty initial sync — A's view excluded B and B's view excluded A.
-    // Post-fix membership commits before the snapshot, so each new subscriber
-    // sees every peer that committed before it (filtered against itself).
+    // Two clients enter the gate together. Membership commits before the
+    // initial snapshot, so each subscriber sees every peer committed before it.
     const room = `race-${testInfo.testId}`;
     await page.goto(`/channel-dynamic?room=${room}`);
 
@@ -358,7 +351,7 @@ test.describe('channel-dynamic', () => {
           messages: {
             event: string;
             payload: Record<string, unknown>;
-            __wskit?: Record<string, unknown>;
+            metadata?: Record<string, Record<string, unknown>> | null;
           }[];
         }> {
           return new Promise((resolve, reject) => {
@@ -368,12 +361,12 @@ test.describe('channel-dynamic', () => {
             const messages: {
               event: string;
               payload: Record<string, unknown>;
-              __wskit?: Record<string, unknown>;
+              metadata?: Record<string, Record<string, unknown>> | null;
             }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
 
-              messages.push(JSON.parse(ev.data));
+              messages.push(window.__livethingDecode(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
             ws.onerror = (e) => reject(e);
@@ -395,12 +388,12 @@ test.describe('channel-dynamic', () => {
         const handles = h as unknown as Record<string, { ws: WebSocket }>;
         const frame = {
           event: '__subscribe__',
-          payload: {},
-          __wskit: { channel: `room:${room}`, channelFamily: 'room' },
+          payload: null,
+          metadata: { channel: { name: `room:${room}`, family: 'room' } },
         };
 
-        handles.a!.ws.send(JSON.stringify(frame));
-        handles.b!.ws.send(JSON.stringify(frame));
+        handles.a!.ws.send(window.__livethingEncode(frame));
+        handles.b!.ws.send(window.__livethingEncode(frame));
       },
       { h: handle, room },
     );
@@ -414,7 +407,7 @@ test.describe('channel-dynamic', () => {
               messages: {
                 event: string;
                 payload: Record<string, unknown>;
-                __wskit?: Record<string, unknown>;
+                metadata?: Record<string, Record<string, unknown>> | null;
               }[];
             }
           >;
@@ -453,7 +446,7 @@ test.describe('channel-dynamic', () => {
                   messages: {
                     event: string;
                     payload: Record<string, unknown>;
-                    __wskit?: Record<string, unknown>;
+                    metadata?: Record<string, Record<string, unknown>> | null;
                   }[];
                 }
               >
@@ -469,7 +462,7 @@ test.describe('channel-dynamic', () => {
                   messages: {
                     event: string;
                     payload: Record<string, unknown>;
-                    __wskit?: Record<string, unknown>;
+                    metadata?: Record<string, Record<string, unknown>> | null;
                   }[];
                 }
               >
@@ -495,10 +488,8 @@ test.describe('channel-dynamic', () => {
     const seenByA = await memberJoinSenders('a');
     const seenByB = await memberJoinSenders('b');
 
-    // The connection ids are server-issued so we can't check exact ids;
-    // assert that each side received a _memberJoin frame whose
-    // connectionId is NOT its own. Pre-fix one of these arrays was
-    // empty.
+    // The connection IDs are server-issued, so assert that each side received
+    // a __memberJoin__ frame whose connection ID is not its own.
     const aOwnId = await page.evaluate(
       ({ h }) => {
         const msgs = (
@@ -508,13 +499,13 @@ test.describe('channel-dynamic', () => {
               messages: {
                 event: string;
                 payload: Record<string, unknown>;
-                __wskit?: Record<string, unknown>;
+                metadata?: Record<string, Record<string, unknown>> | null;
               }[];
             }
           >
         ).a!.messages;
         const ok = msgs.find((m) => m.event === '__subscribeOk__');
-        return String(ok?.__wskit?.channel ?? '');
+        return String(ok?.metadata?.channel?.name ?? '');
       },
       { h: handle },
     );
@@ -565,16 +556,16 @@ test.describe('channel-dynamic', () => {
       const got: {
         event: string;
         payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
       }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof ev.data === 'string') got.push(window.__livethingDecode(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
 
       const polluted = JSON.parse(
-        '{"event":"__subscribe__","payload":{"__proto__":{"role":"admin"}},"__wskit":{"channel":"proto:x","channelFamily":"proto-probe"}}',
+        '["__subscribe__",{"__proto__":{"role":"admin"}},{"channel":{"name":"proto:x","family":"proto-probe"}}]',
       );
       ws.send(JSON.stringify(polluted));
       await new Promise((r) => setTimeout(r, 400));
@@ -584,10 +575,12 @@ test.describe('channel-dynamic', () => {
     });
 
     const ok = frames.find(
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'proto:x',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'proto:x',
     );
     expect(ok).toBeTruthy();
-    const err = frames.find((f) => f.event === '__error__' && f.__wskit?.channel === 'proto:x');
+    const err = frames.find(
+      (f) => f.event === '__error__' && f.metadata?.channel?.name === 'proto:x',
+    );
     expect(err).toBeUndefined();
   });
 
@@ -603,19 +596,19 @@ test.describe('channel-dynamic', () => {
       const got: {
         event: string;
         payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
       }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof ev.data === 'string') got.push(window.__livethingDecode(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
 
       ws.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: '__subscribe__',
           payload: { role: 'admin' },
-          __wskit: { channel: 'proto:y', channelFamily: 'proto-probe' },
+          metadata: { channel: { name: 'proto:y', family: 'proto-probe' } },
         }),
       );
       await new Promise((r) => setTimeout(r, 400));
@@ -624,10 +617,12 @@ test.describe('channel-dynamic', () => {
       return got;
     });
 
-    const err = frames.find((f) => f.event === '__error__' && f.__wskit?.channel === 'proto:y');
+    const err = frames.find(
+      (f) => f.event === '__error__' && f.metadata?.channel?.name === 'proto:y',
+    );
     expect(err).toBeTruthy();
     const ok = frames.find(
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'proto:y',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'proto:y',
     );
     expect(ok).toBeUndefined();
   });
@@ -648,23 +643,27 @@ test.describe('channel-dynamic', () => {
       const got: {
         event: string;
         payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
       }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof ev.data === 'string') got.push(window.__livethingDecode(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
 
       ws.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'trigger-server-subscribe-dynamic',
           payload: { name: 'room:auto' },
         }),
       );
       const deadline = Date.now() + 2000;
       while (Date.now() < deadline) {
-        if (got.some((m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room:auto'))
+        if (
+          got.some(
+            (m) => m.event === '__subscribeOk__' && m.metadata?.channel?.name === 'room:auto',
+          )
+        )
           break;
 
         await new Promise((r) => setTimeout(r, 20));
@@ -674,11 +673,11 @@ test.describe('channel-dynamic', () => {
     });
 
     const ok = frames.find(
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'room:auto',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'room:auto',
     );
     expect(ok).toBeDefined();
-    expect(ok!.__wskit?.channelFamily).toBe('room');
-    expect(ok!.__wskit?.source).toBe('server');
+    expect(ok!.metadata?.channel?.family).toBe('room');
+    expect(ok!.metadata?.exchange?.source).toBe('server');
   });
 
   test('auth-race stress: N concurrent subscribes with awaited checks — rejected users never become members, allowed set is complete and symmetric', async ({
@@ -707,7 +706,7 @@ test.describe('channel-dynamic', () => {
         type Msg = {
           event: string;
           payload: Record<string, unknown>;
-          __wskit?: Record<string, unknown>;
+          metadata?: Record<string, Record<string, unknown>> | null;
         };
         type Sock = { ws: WebSocket; messages: Msg[] };
 
@@ -720,7 +719,7 @@ test.describe('channel-dynamic', () => {
             );
             const messages: Msg[] = [];
             ws.onmessage = (ev) => {
-              if (typeof ev.data === 'string') messages.push(JSON.parse(ev.data));
+              if (typeof ev.data === 'string') messages.push(window.__livethingDecode(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
             ws.onerror = (e) => reject(e);
@@ -738,10 +737,10 @@ test.describe('channel-dynamic', () => {
         );
 
         // Fire every __subscribe__ as close to simultaneous as possible.
-        const frame = JSON.stringify({
+        const frame = window.__livethingEncode({
           event: '__subscribe__',
-          payload: {},
-          __wskit: { channel, channelFamily: 'room' },
+          payload: null,
+          metadata: { channel: { name: channel, family: 'room' } },
         });
         for (const s of [...allowed, ...banned]) s.ws.send(frame);
 

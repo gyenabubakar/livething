@@ -35,11 +35,11 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 
-			const data = JSON.parse(ev.data);
+			const data = window.__livethingDecode(ev.data);
 			switch (data.event) {
 				case '__streamOk__':
 					streamOkReceived = true;
-					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
+					if (data.metadata?.stream?.id) lastStreamId = data.metadata.stream?.id;
 					break;
 
 				case '__streamEnd__':
@@ -58,7 +58,7 @@
 
 	function start5() {
 		reset();
-		ws?.send(JSON.stringify({ event: 'drain-feed', payload: { count: 5 } }));
+		ws?.send(window.__livethingEncode({ event: 'drain-feed', payload: { count: 5 } }));
 	}
 
 	function disconnect() {

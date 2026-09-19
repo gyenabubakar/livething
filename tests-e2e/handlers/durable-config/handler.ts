@@ -1,8 +1,8 @@
-import { emits, server, t } from '@wskit/server';
-import { dedup } from '@wskit/server/dedup';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { dedup } from '@livething/server/dedup';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 // Exercises two durable capability configs in one DO:

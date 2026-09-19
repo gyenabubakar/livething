@@ -1,8 +1,8 @@
-import { client, connect, stream } from '@wskit/client';
-import type { StreamBackpressureClient } from '@wskit/tests-e2e-handlers/stream-backpressure';
+import { client, connect, stream } from '@livething/client';
+import type { StreamBackpressureClient } from '@livething/tests-e2e-handlers/stream-backpressure';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's stream() against the real `stream-backpressure`
+// Drives @livething/client's stream() against the real `stream-backpressure`
 // server definition, typed by the same contract the server implements
 // (StreamBackpressureClient = InferClient<definition>). The generator awaits
 // ctx.stream.drain() after every yield; on Cloudflare drain is a no-op, so the

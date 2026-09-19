@@ -20,7 +20,7 @@ const MEMBERSHIP_MARKER_KEY = Symbol('membership-marker');
  */
 export function membershipMarker(durable: boolean): MembershipMarkerPrimitive {
   return {
-    __wskit: 'membership-marker',
+    __livething: 'membership-marker',
     __kind: 'infrastructure',
     __identity: [MEMBERSHIP_MARKER_KEY],
     __requires: {},

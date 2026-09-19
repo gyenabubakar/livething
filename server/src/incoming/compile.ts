@@ -10,7 +10,7 @@ export function compileIncomingDef(
   const handler = handlers.get(def.name);
   if (!handler) {
     throw new Error(
-      `[wskit] No handler assembled for incoming('${def.name}'). Include the value returned by base.on(...) in base.assemble({ handlers: [...] }).`,
+      `[livething] No handler assembled for incoming('${def.name}'). Include the value returned by base.on(...) in base.assemble({ handlers: [...] }).`,
     );
   }
 

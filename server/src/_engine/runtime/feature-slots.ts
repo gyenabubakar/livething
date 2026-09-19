@@ -35,7 +35,7 @@ type OptionsParameter3 = {
   event: string;
   request: any;
   payload: unknown;
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 };
 type OptsParameter = { taskId: string; time: number; data: unknown };
 type OptsParameter2 = { taskId: string; filter?: Record<string, unknown> };
@@ -45,7 +45,7 @@ type OptsParameter3 = {
   channelFamily: string | null;
   event: string;
   payload: Record<string, unknown>;
-  seq: number;
+  deliverySeq: number;
   messageId: string;
 };
 type KeyParameter = { userId: string; channelName: string; channelFamily: string | null };
@@ -89,7 +89,7 @@ export interface DurableTriggerOptions {
   durable: any;
   kind: 'resumable' | 'recorded';
   payload: unknown;
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 }
 
 /**

@@ -24,9 +24,9 @@ describe('tags storage', () => {
       .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
       .toArray()
       .map((row) => row.name);
-    expect(created).toContain('__wskit_tags');
-    expect(created).toContain('__wskit_idx_tags_user');
-    expect(created).toContain('__wskit_idx_tags_group_key');
+    expect(created).toContain('__livething_tags');
+    expect(created).toContain('__livething_idx_tags_user');
+    expect(created).toContain('__livething_idx_tags_group_key');
   });
 
   it('purgeTagsByUser is a no-op when the tag table is empty', () => {

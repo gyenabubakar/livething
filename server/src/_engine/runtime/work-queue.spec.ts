@@ -1,4 +1,4 @@
-import { ConnectionBusy } from '@wskit/core';
+import { ConnectionBusy } from '@livething/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MAX_PENDING_CONNECTION_WORK, runConnectionWork } from './work-queue.ts';
 import type { RuntimeConnection } from './types.ts';

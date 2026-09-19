@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { ConnectionHandle, Engine, UpgradeDecision } from '@wskit/server/adapters';
+import type { ConnectionHandle, Engine, UpgradeDecision } from '@livething/server/adapters';
 
 // `WebSocketRequestResponsePair` is a Workers runtime global; Node test runs
 // lack it, so stand it in for the adapter's setWebSocketAutoResponse wiring.
@@ -202,12 +202,12 @@ export function makeFakeEngine(): FakeEngine {
   };
 
   // What engine.admin() returns: the admin context (spied), which the app's own
-  // api is merged into. WSKitAdmin projects this onto flat RPC methods, so the
+  // api is merged into. LiveThingAdmin projects this onto flat RPC methods, so the
   // managers here carry the same shape the real context builds.
   const adminConnection = {
     id: 'c1',
     userId: 'u1',
-    ref: () => ({ __wskit: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' }),
+    ref: () => ({ __livething: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' }),
   };
 
   const connectionSend = vi.fn(() => true);

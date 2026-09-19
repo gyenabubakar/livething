@@ -19,7 +19,7 @@ function replayRows(sql: ReturnType<typeof createTestSql>): ReplayRow[] {
   return sql
     .exec<ReplayRow>(
       `SELECT rowKey, messageId, seq, event, payload, channel, channelFamily, snapshotKey, createdAt
-       FROM __wskit_replay`,
+       FROM __livething_replay`,
     )
     .toArray();
 }
@@ -27,7 +27,7 @@ function replayRows(sql: ReturnType<typeof createTestSql>): ReplayRow[] {
 describe('replay', () => {
   it('produces correct tag and kind', () => {
     const p = replay();
-    expect(p.__wskit).toBe('replay');
+    expect(p.__livething).toBe('replay');
     expect(p.__kind).toBe('infrastructure');
   });
 
@@ -87,7 +87,7 @@ describe('replay', () => {
       },
       event: 'doc-title-set',
       payload: { id: 'doc-1', title: 'Draft' },
-      wskit: { seq: 1, messageId: 'm1' },
+      livething: { deliverySeq: 1, messageId: 'm1' },
       now: 1,
     });
 
@@ -111,7 +111,7 @@ describe('replay', () => {
       },
       event: 'doc-content-set',
       payload: { id: 'doc-1', content: 'Hello' },
-      wskit: { seq: 2, messageId: 'm2' },
+      livething: { deliverySeq: 2, messageId: 'm2' },
       now: 2,
     });
 
@@ -140,7 +140,7 @@ describe('replay', () => {
       },
       event: 'message-created',
       payload: { id: 'm1', text: 'Hello' },
-      wskit: { seq: 1, messageId: 'm1' },
+      livething: { deliverySeq: 1, messageId: 'm1' },
       now: 1,
     });
 
@@ -158,7 +158,7 @@ describe('replay', () => {
       },
       event: 'message-deleted',
       payload: { id: 'm1' },
-      wskit: { seq: 2, messageId: 'm2' },
+      livething: { deliverySeq: 2, messageId: 'm2' },
       now: 2,
     });
 
@@ -178,7 +178,7 @@ describe('replay', () => {
       },
       event: 'doc-title-set',
       payload: { id: 'doc-1', title: 'Draft' },
-      wskit: { seq: 1, messageId: 'm1' },
+      livething: { deliverySeq: 1, messageId: 'm1' },
       now: 1,
       validateReduced: (event, payload) => seen.push({ event, payload }),
     });
@@ -198,7 +198,7 @@ describe('replay', () => {
         },
         event: 'doc-title-set',
         payload: { id: 'doc-1', title: 'Draft' },
-        wskit: { seq: 1, messageId: 'm1' },
+        livething: { deliverySeq: 1, messageId: 'm1' },
         now: 1,
         validateReduced: () => {
           throw new Error('not a declared outgoing event');
@@ -217,7 +217,7 @@ describe('replay', () => {
       options: { type: 'snapshot', snapshotKey: (_event, payload) => String(payload.id) },
       event: 'doc-snapshot',
       payload: { id: 'doc-1', title: 'Draft' },
-      wskit: { seq: 1, messageId: 'm1' },
+      livething: { deliverySeq: 1, messageId: 'm1' },
       now: 1,
       validateReduced: () => {
         called = true;
@@ -321,7 +321,7 @@ describe('replay', () => {
     (ctx.sendReplay as (event: string, payload: unknown, wire: unknown) => void)(
       'message',
       { text: 'hi' },
-      { seq: 7, messageId: 'm7', channel: 'room-1', channelFamily: 'rooms' },
+      { deliverySeq: 7, messageId: 'm7', channel: 'room-1', channelFamily: 'rooms' },
     );
 
     expect(sent).toHaveLength(1);
@@ -515,20 +515,20 @@ describe('replay', () => {
       await handler(matchingCtx, {
         event: '__replay__',
         payload: { lastKnownSeq: 4 },
-        __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        __livething: { channel: 'room-1', channelFamily: 'rooms' },
       }),
     ).toBe(true);
     expect(
       await handler(
         { id: 'c2', [ENGINE_CHANNEL_META]: {} },
-        { event: '__replay__', payload: { lastKnownSeq: 9 }, __wskit: { channelFamily: null } },
+        { event: '__replay__', payload: { lastKnownSeq: 9 }, __livething: { channelFamily: null } },
       ),
     ).toBe(false);
     expect(
       await handler(nonMemberCtx, {
         event: '__replay__',
         payload: { lastKnownSeq: 4 },
-        __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        __livething: { channel: 'room-1', channelFamily: 'rooms' },
       }),
     ).toBe(true);
     expect(sent).toEqual([
@@ -539,7 +539,7 @@ describe('replay', () => {
           channelFamily: 'rooms',
           event: 'message',
           payload: { text: 'history' },
-          wire: { seq: 5, messageId: 'msg-1', channel: 'room-1' },
+          wire: { deliverySeq: 5, messageId: 'msg-1', channel: 'room-1' },
         },
       ],
     ]);
@@ -578,7 +578,7 @@ describe('replay', () => {
             exec<TRow = unknown>(query: string, ...params: unknown[]) {
               const normalized = query.replaceAll(/\s+/g, ' ').trim();
               const isWatermarkRead = normalized.startsWith(
-                'SELECT evicted_through_seq FROM __wskit_replay_watermark',
+                'SELECT evicted_through_seq FROM __livething_replay_watermark',
               );
               // Faithfully key the watermark read on the scope_key param, so a
               // handler that reads the WRONG scope's watermark fails the test.
@@ -649,7 +649,7 @@ describe('replay', () => {
     const topLevelFrame = {
       event: '__replay__' as const,
       payload: { lastKnownSeq: 4 },
-      __wskit: { channelFamily: null },
+      __livething: { channelFamily: null },
     };
 
     it('emits __gap__ when since is below the top-level watermark in history mode', async () => {
@@ -677,7 +677,7 @@ describe('replay', () => {
       await handler(topLevelCtx, {
         event: '__replay__',
         payload: {},
-        __wskit: { channelFamily: null },
+        __livething: { channelFamily: null },
       });
       expect(gaps).toEqual([]);
     });
@@ -720,7 +720,7 @@ describe('replay', () => {
       await handler(channelCtx, {
         event: '__replay__',
         payload: { lastKnownSeq: 4 },
-        __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        __livething: { channel: 'room-1', channelFamily: 'rooms' },
       });
 
       expect(gaps).toEqual([
@@ -744,7 +744,7 @@ describe('replay', () => {
       const result = await handler(nonMemberCtx, {
         event: '__replay__',
         payload: { lastKnownSeq: 4 },
-        __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        __livething: { channel: 'room-1', channelFamily: 'rooms' },
       });
 
       expect(result).toBe(true);

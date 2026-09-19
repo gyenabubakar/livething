@@ -69,8 +69,16 @@ export type {
 export { stream } from '~/primitives/stream/index.ts';
 export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/index.ts';
 
-export { CloseCodes } from '@wskit/core';
-export type { WireMessage, WSKitEnvelope } from '@wskit/core';
+export { CloseCodes } from '@livething/core';
+export type {
+  LiveThingChannelMetadata,
+  LiveThingDeliveryMetadata,
+  LiveThingExchangeMetadata,
+  LiveThingMetadata,
+  LiveThingStreamMetadata,
+  Message,
+  WireFrame,
+} from '@livething/core';
 
 export type { ReadableStore } from '~/internal/store.ts';
 export type { Socket, SocketConnection, ContractError } from '~/socket/api.ts';

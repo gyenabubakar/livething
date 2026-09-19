@@ -129,7 +129,7 @@ describe('createSql', () => {
     const sql = createSql(state as unknown as DurableObjectState);
 
     expect(() => sql.transaction((tx) => tx.exec('INSERT ...').toArray().length)).toThrow(
-      /\[wskit\].*transactionSync/,
+      /\[livething\].*transactionSync/,
     );
   });
 

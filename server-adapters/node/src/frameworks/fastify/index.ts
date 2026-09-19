@@ -1,4 +1,4 @@
-import type { ApiOf, ServerDefinition } from '@wskit/server/adapters';
+import type { ApiOf, ServerDefinition } from '@livething/server/adapters';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
@@ -7,14 +7,14 @@ import { closeWebSocket } from '../../close.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import type { NodeAdmin, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
 
-/** Route options returned by a Fastify WSKit endpoint. */
+/** Route options returned by a Fastify LiveThing endpoint. */
 export interface FastifyWebSocketRoute {
   preHandler(request: FastifyRequest, reply: FastifyReply): Promise<void>;
   handler(request: FastifyRequest, reply: FastifyReply): Promise<void>;
   wsHandler(socket: WebSocket, request: FastifyRequest): void;
 }
 
-/** One WSKit definition registered as a Fastify WebSocket route. */
+/** One LiveThing definition registered as a Fastify WebSocket route. */
 export interface FastifyEndpoint<TApi = unknown> {
   upgrade: FastifyWebSocketRoute;
   ready(): Promise<void>;
@@ -69,14 +69,14 @@ export function setup(): FastifySetup {
         wsHandler(socket, request) {
           const upgrade = upgrades.get(request.raw);
           if (!upgrade) {
-            closeWebSocket(socket, 1011, '[wskit] upgrade decision was not available');
+            closeWebSocket(socket, 1011, '[livething] upgrade decision was not available');
             return;
           }
 
           upgrades.delete(request.raw);
           if (upgrade.type !== 'accept') {
             if (upgrade.type === 'http') {
-              closeWebSocket(socket, 1011, '[wskit] upgrade response was not available');
+              closeWebSocket(socket, 1011, '[livething] upgrade response was not available');
               return;
             }
 
@@ -93,13 +93,13 @@ export function setup(): FastifySetup {
               backpressureSupported: true,
             });
           } catch {
-            closeWebSocket(socket, 1011, '[wskit] connection setup failed');
+            closeWebSocket(socket, 1011, '[livething] connection setup failed');
             return;
           }
 
           socket.on('message', (data, isBinary) => {
             if (isBinary) {
-              closeWebSocket(socket, 1003, '[wskit] binary frames are not supported yet');
+              closeWebSocket(socket, 1003, '[livething] binary frames are not supported yet');
               return;
             }
 

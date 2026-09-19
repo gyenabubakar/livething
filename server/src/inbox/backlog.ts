@@ -14,8 +14,8 @@ export interface InboxBacklogRow {
 /**
  * Read one row per member that still holds unacked inbox rows for a channel:
  * the held-row count, the member's `received_through` cursor, and the oldest
- * held row's `created_at`. Joins `__wskit_inbox` (held rows) against
- * `__wskit_inbox_receipts` (the cursor) so a member with no cursor row still
+ * held row's `created_at`. Joins `__livething_inbox` (held rows) against
+ * `__livething_inbox_receipts` (the cursor) so a member with no cursor row still
  * reports `received_through` as 0. Backs `handle.inbox().backlog()`.
  */
 export function loadInboxBacklog(
@@ -36,8 +36,8 @@ export function loadInboxBacklog(
           COUNT(*)                             AS held_rows,
           MIN(inbox.created_at)                AS oldest_held_at,
           MAX(COALESCE(receipts.received_through, 0)) AS received_through
-        FROM __wskit_inbox AS inbox
-        LEFT JOIN __wskit_inbox_receipts AS receipts
+        FROM __livething_inbox AS inbox
+        LEFT JOIN __livething_inbox_receipts AS receipts
           ON receipts.channel_name = inbox.channel_name
           AND receipts.channel_family = inbox.channel_family
           AND receipts.user_id = inbox.user_id

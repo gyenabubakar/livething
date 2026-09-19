@@ -1,4 +1,4 @@
-import { RejoinRejected, WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError, RejoinRejected } from '@livething/core';
 import { createTestSql } from '~/_test/sql.ts';
 import { autoRejoinIdentity } from '~/channel/rejoin.ts';
 import {
@@ -108,15 +108,15 @@ describe('autoRejoinIdentity', () => {
     const sent: Array<{
       event: string;
       payload: Record<string, unknown>;
-      wskit: Record<string, unknown>;
+      livething: Record<string, unknown>;
     }> = [];
 
     await autoRejoinIdentity(
       {
         sql,
         subscribeConnectionAsServer: subscribe,
-        sendProtocolMessage: (_c, { event, payload, wskit }: SendProtocolMessageOptions) =>
-          sent.push({ event, payload, wskit }),
+        sendProtocolMessage: (_c, { event, payload, livething }: SendProtocolMessageOptions) =>
+          sent.push({ event, payload, livething }),
       },
       fakeConnection('u-42'),
     );
@@ -124,7 +124,7 @@ describe('autoRejoinIdentity', () => {
     expect(listMembershipsByUser(sql, 'u-42')).toHaveLength(0);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.event).toBe('__error__');
-    expect(sent[0]!.wskit.channel).toBe('team-eng');
+    expect(sent[0]!.livething.channel).toBe('team-eng');
     expect(sent[0]!.payload.code).toBe('rejoin-rejected');
 
     expect((sent[0]!.payload.detail as { message: string }).message).toBe('not on the eng team');
@@ -136,7 +136,7 @@ describe('autoRejoinIdentity', () => {
     insertMembership(sql, { userId: 'u-42', channelName: 'team-eng', channelFamily: null });
 
     const subscribe = vi.fn(async () => {
-      throw new WSKitConfigError('misconfigured gate');
+      throw new LiveThingConfigError('misconfigured gate');
     });
     const sent: unknown[] = [];
 
@@ -149,7 +149,7 @@ describe('autoRejoinIdentity', () => {
         },
         fakeConnection('u-42'),
       ),
-    ).rejects.toBeInstanceOf(WSKitConfigError);
+    ).rejects.toBeInstanceOf(LiveThingConfigError);
 
     expect(listMembershipsByUser(sql, 'u-42')).toHaveLength(1);
     expect(sent).toHaveLength(0);

@@ -1,4 +1,4 @@
-import { normalizeCloseReason } from '@wskit/server/adapters';
+import { normalizeCloseReason } from '@livething/server/adapters';
 
 /** The common close surface shared by Node WebSocket transports. */
 export interface ClosableWebSocket {

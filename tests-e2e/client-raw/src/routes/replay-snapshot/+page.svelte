@@ -45,14 +45,14 @@
 		ws.onmessage = (event) => {
 			if (event.data === 'pong') return;
 
-			const msg = JSON.parse(event.data as string) as {
+			const msg = window.__livethingDecode(event.data) as {
 				event: string;
 				payload: Record<string, unknown>;
-				__wskit?: Record<string, unknown>;
+				metadata?: Record<string, Record<string, unknown>> | null;
 			};
-			const { event: evt, payload, __wskit } = msg;
+			const { event: evt, payload, metadata } = msg;
 
-			if (__wskit?.seq) lastSeq = __wskit.seq as number;
+			if (metadata?.delivery?.seq) lastSeq = metadata.delivery?.seq as number;
 
 			if (evt === 'doc-snapshot') {
 				const entry = `${payload.docId}:${payload.title}`;
@@ -76,7 +76,7 @@
 					roomSnapshots = [...roomSnapshots, entry];
 				}
 			} else if (evt === '__subscribeOk__') {
-				if (__wskit?.channel === 'snapshot-room') roomSubscribed = 'subscribed';
+				if (metadata?.channel?.name === 'snapshot-room') roomSubscribed = 'subscribed';
 			}
 		};
 	}
@@ -87,10 +87,10 @@
 
 	function send(
 		event: string,
-		payload: Record<string, unknown>,
-		__wskit?: Record<string, unknown>,
+		payload: Record<string, unknown> | null,
+		metadata?: Record<string, Record<string, unknown>>,
 	) {
-		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
+		ws?.send(window.__livethingEncode(metadata ? { event, payload, metadata } : { event, payload }));
 	}
 
 	function updateDoc(docId: string, title: string) {
@@ -111,7 +111,7 @@
 		replayCount = 0;
 		snapshots = [];
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
+		ws?.send(window.__livethingEncode({ event: '__replay__', payload: { lastKnownSeq: 0 }, metadata: null }));
 	}
 
 	function incrementCounter(key: string, amount: number) {
@@ -126,7 +126,7 @@
 		counterReplayCount = 0;
 		counterSnapshots = [];
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
+		ws?.send(window.__livethingEncode({ event: '__replay__', payload: { lastKnownSeq: 0 }, metadata: null }));
 	}
 
 	function testMaxAge() {
@@ -135,11 +135,11 @@
 	}
 
 	function joinRoom() {
-		send('__subscribe__', {}, { channel: 'snapshot-room' });
+		send('__subscribe__', null, { channel: { name: 'snapshot-room' } });
 	}
 
 	function updateRoomDoc(docId: string, title: string) {
-		send('update-room-doc', { docId, title }, { channel: 'snapshot-room' });
+		send('update-room-doc', { docId, title }, { channel: { name: 'snapshot-room' } });
 	}
 
 	function requestRoomReplay() {
@@ -147,17 +147,17 @@
 		roomSnapshots = [];
 		replayRequested = true;
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: '__replay__',
 				payload: { lastKnownSeq: 0 },
-				__wskit: { channel: 'snapshot-room' },
+				metadata: { channel: { name: 'snapshot-room' } },
 			}),
 		);
 	}
 </script>
 
 <main>
-	<h1>wskit replay-snapshot e2e</h1>
+	<h1>LiveThing replay-snapshot E2E</h1>
 
 	<section>
 		<h2>Connection</h2>

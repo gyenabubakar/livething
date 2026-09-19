@@ -44,14 +44,14 @@
 		ws.onmessage = (event) => {
 			if (event.data === 'pong') return;
 
-			const msg = JSON.parse(event.data as string) as {
+			const msg = window.__livethingDecode(event.data) as {
 				event: string;
 				payload: Record<string, unknown>;
-				__wskit?: Record<string, unknown>;
+				metadata?: Record<string, Record<string, unknown>> | null;
 			};
-			const { event: evt, payload, __wskit } = msg;
+			const { event: evt, payload, metadata } = msg;
 
-			if (__wskit?.seq) lastSeq = __wskit.seq as number;
+			if (metadata?.delivery?.seq) lastSeq = metadata.delivery?.seq as number;
 
 			if (evt === 'note') {
 				notes = [...notes, `${payload.author}: ${payload.text}`].slice(-50);
@@ -66,7 +66,7 @@
 			} else if (evt === 'bad-replay-log') {
 				badReplayUndeclared = String(payload.undeclared ?? '');
 			} else if (evt === '__subscribeOk__') {
-				if (__wskit?.channel === 'custom-room') roomSubscribed = 'subscribed';
+				if (metadata?.channel?.name === 'custom-room') roomSubscribed = 'subscribed';
 			}
 		};
 	}
@@ -76,33 +76,33 @@
 	}
 
 	function addNote(text: string) {
-		ws?.send(JSON.stringify({ event: 'add-note', payload: { text } }));
+		ws?.send(window.__livethingEncode({ event: 'add-note', payload: { text } }));
 	}
 
 	function requestReplay() {
 		replayCount = 0;
 		replayRequested = true;
 		ws?.send(
-			JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: sinceValue }, __wskit: {} }),
+			window.__livethingEncode({ event: '__replay__', payload: { lastKnownSeq: sinceValue }, metadata: null }),
 		);
 	}
 
 	function getConfirmedCount() {
-		ws?.send(JSON.stringify({ event: 'get-confirmed-count', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'get-confirmed-count', payload: {} }));
 	}
 
 	function joinRoom() {
 		ws?.send(
-			JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'custom-room' } }),
+			window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'custom-room' } } }),
 		);
 	}
 
 	function addRoomNote(text: string) {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'add-room-note',
 				payload: { text },
-				__wskit: { channel: 'custom-room' },
+				metadata: { channel: { name: 'custom-room' } },
 			}),
 		);
 	}
@@ -111,10 +111,10 @@
 		roomReplayCount = 0;
 		replayRequested = true;
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: '__replay__',
 				payload: { lastKnownSeq: roomSinceValue },
-				__wskit: { channel: 'custom-room' },
+				metadata: { channel: { name: 'custom-room' } },
 			}),
 		);
 	}
@@ -122,10 +122,10 @@
 	function getRoomConfirmedCount() {
 		roomConfirmedResult = '';
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'get-room-confirmed-count',
 				payload: {},
-				__wskit: { channel: 'custom-room' },
+				metadata: { channel: { name: 'custom-room' } },
 			}),
 		);
 	}
@@ -133,17 +133,17 @@
 	function triggerBadReplay() {
 		badReplayUndeclared = '';
 		ws?.send(
-			JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 2_147_483_647 }, __wskit: {} }),
+			window.__livethingEncode({ event: '__replay__', payload: { lastKnownSeq: 2_147_483_647 }, metadata: null }),
 		);
 	}
 
 	function queryBadReplayLog() {
-		ws?.send(JSON.stringify({ event: 'query-bad-replay-log', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'query-bad-replay-log', payload: {} }));
 	}
 </script>
 
 <main>
-	<h1>wskit custom replay e2e</h1>
+	<h1>LiveThing custom replay E2E</h1>
 
 	<section>
 		<h2>Connection</h2>

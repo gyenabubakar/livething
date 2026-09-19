@@ -22,7 +22,7 @@ test.describe('inbox (raw wire, guaranteed per-member delivery)', () => {
     const alice = await openMember(browser, { path: '/inbox', room, username: 'alice' });
 
     const ack = await subscribe(alice.page);
-    expect(ack.__wskit?.inbox).toBe(true);
+    expect(ack.metadata?.channel?.inbox).toBe(true);
 
     await alice.close();
   });
@@ -38,7 +38,7 @@ test.describe('inbox (raw wire, guaranteed per-member delivery)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'live-hello' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
 
     // The channel broadcast excludes the sender, so alice (a live member)
@@ -47,8 +47,8 @@ test.describe('inbox (raw wire, guaranteed per-member delivery)', () => {
       alice.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'live-hello',
     );
-    expect(msg.__wskit?.channel).toBe('chat');
-    expect(typeof msg.__wskit?.seq).toBe('number');
+    expect(msg.metadata?.channel?.name).toBe('chat');
+    expect(typeof msg.metadata?.delivery?.seq).toBe('number');
 
     await alice.close();
     await bob.close();
@@ -72,7 +72,7 @@ test.describe('inbox (raw wire, guaranteed per-member delivery)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'while-offline' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     // Give the broadcast time to persist alice's held row.
     await bob.page.waitForTimeout(300);
@@ -84,13 +84,13 @@ test.describe('inbox (raw wire, guaranteed per-member delivery)', () => {
       alice.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'while-offline',
     );
-    const seq = drained.__wskit?.seq as number;
+    const seq = drained.metadata?.delivery?.seq as number;
 
     // Alice acks it, settling (deleting) the durable row.
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await alice.page.waitForTimeout(300);
 
@@ -121,13 +121,13 @@ test.describe('inbox (raw wire, guaranteed per-member delivery)', () => {
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'ack-me' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const msg = await waitForFrame(
       alice.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'ack-me',
     );
-    const seq = msg.__wskit?.seq as number;
+    const seq = msg.metadata?.delivery?.seq as number;
 
     // Alice acks receipt. On a broadcastReceipts channel this would fan a
     // __received__ out to the other members; this channel is inbox: true with the
@@ -135,7 +135,7 @@ test.describe('inbox (raw wire, guaranteed per-member delivery)', () => {
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
 
     // Barrier: alice broadcasts again after the ack. The DO processes the ack
@@ -145,7 +145,7 @@ test.describe('inbox (raw wire, guaranteed per-member delivery)', () => {
     await send(alice.page, {
       event: 'send-room-msg',
       payload: { text: 'barrier' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await waitForFrame(bob.page, (f) => f.event === 'room-msg' && f.payload.text === 'barrier');
 

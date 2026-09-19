@@ -48,7 +48,7 @@ test.describe('ctx-tags', () => {
     // Tag again with a different tag.
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag: 'premium' } }));
+      ws?.send(window.__livethingEncode({ event: 'tag-self', payload: { tag: 'premium' } }));
     });
     await expect(page.getByTestId('tags')).toContainText('vip');
     await expect(page.getByTestId('tags')).toContainText('premium');
@@ -90,19 +90,19 @@ test.describe('ctx-tags', () => {
     // otherwise page1's query below could race ahead of page2's write.
     await page1.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag: 'crew' } }));
+      ws?.send(window.__livethingEncode({ event: 'tag-self', payload: { tag: 'crew' } }));
     });
     await expect(page1.getByTestId('tags')).toContainText('crew');
     await page2.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag: 'crew' } }));
+      ws?.send(window.__livethingEncode({ event: 'tag-self', payload: { tag: 'crew' } }));
     });
     await expect(page2.getByTestId('tags')).toContainText('crew');
 
     // Page1 queries for 'crew' tag and expects to see at least 2 connections.
     await page1.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: 'get-by-tag', payload: { tag: 'crew' } }));
+      ws?.send(window.__livethingEncode({ event: 'get-by-tag', payload: { tag: 'crew' } }));
     });
 
     await expect(page1.getByTestId('by-tag')).toHaveText(/crew:[2-9]\d*/);

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { StreamAborted, WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError, StreamAborted } from '@livething/core';
 import * as ConnectionLifecycle from '~/_engine/runtime/connection.ts';
 import { createTestSql } from '~/_test/sql.ts';
 import { wrapStreamGenerator } from '~/stream/shared.ts';
@@ -38,7 +38,7 @@ function createRuntime(sqlInstance: ReturnType<typeof createTestSql>) {
     targetId: string;
     event: string;
     payload: Record<string, unknown>;
-    wskit: Record<string, unknown>;
+    livething: Record<string, unknown>;
   }[] = [];
   const pipelineSends: { event: string; payload: unknown; routing: unknown; targetId: string }[] =
     [];
@@ -57,9 +57,9 @@ function createRuntime(sqlInstance: ReturnType<typeof createTestSql>) {
     buildConnectionContext: () => ({ id: 'ctx', nudges: () => [] }),
     sendProtocolMessage: (
       conn: RuntimeConnection,
-      { event, payload, wskit }: SendProtocolMessageOptions,
+      { event, payload, livething }: SendProtocolMessageOptions,
     ) => {
-      protocolMessages.push({ targetId: conn.id, event, payload, wskit });
+      protocolMessages.push({ targetId: conn.id, event, payload, livething });
     },
     sendThroughPipeline: (
       conn: RuntimeConnection,
@@ -89,9 +89,17 @@ function createRuntime(sqlInstance: ReturnType<typeof createTestSql>) {
 
 function wireChunks(
   connection: RuntimeConnection,
-): { event: string; __wskit: Record<string, unknown> }[] {
+): { event: string; __livething: Record<string, unknown> }[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((connection.descriptor.send as any).mock.calls as [string][]).map(([w]) => JSON.parse(w));
+  return ((connection.descriptor.send as any).mock.calls as [string][]).map(([wire]) => {
+    const [event, , metadata] = JSON.parse(wire) as [
+      string,
+      unknown,
+      Record<string, unknown> | null,
+    ];
+    const stream = metadata?.stream as { seq?: number } | undefined;
+    return { event, __livething: { streamSeq: stream?.seq } };
+  });
 }
 
 function baseDef(overrides: Partial<DurableStreamRuntimeDef> = {}): DurableStreamRuntimeDef {
@@ -123,12 +131,12 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeDefined();
     const end = protocolMessages.find((m) => m.event === '__streamEnd__');
-    expect(end?.wskit.seq).toBe(2);
+    expect(end?.livething.streamSeq).toBe(2);
 
     const row = Storage.readStream(sql, 'u1', 'gen-1');
     expect(row?.status).toBe('ended');
@@ -143,7 +151,7 @@ describe('durable stream runtime', () => {
     const { runtime } = createRuntime(sql);
     const connection = createConnection();
     runtime.sendProtocolMessage = () => {
-      throw new WSKitConfigError('translator outbound is invalid');
+      throw new LiveThingConfigError('translator outbound is invalid');
     };
 
     await expect(
@@ -151,9 +159,9 @@ describe('durable stream runtime', () => {
         scope: {},
         def: baseDef(),
         payload: {},
-        wskit: { streamId: 'failed-start' } as never,
+        livething: { streamId: 'failed-start' } as never,
       }),
-    ).rejects.toThrow(WSKitConfigError);
+    ).rejects.toThrow(LiveThingConfigError);
 
     expect(Storage.readStream(sql, 'u1', 'failed-start')).toBeNull();
   });
@@ -174,7 +182,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect(runtime.sendThroughPipeline).toHaveBeenCalledTimes(1);
@@ -198,7 +206,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     const row = Storage.readStream(sql, 'u1', 'gen-1')!;
@@ -223,7 +231,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect(pipelineSends).toHaveLength(0);
@@ -250,7 +258,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect(generatorStarted).toBe(false);
@@ -285,7 +293,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect(caughtReason).toBe('buffer-full');
@@ -340,7 +348,7 @@ describe('durable stream runtime', () => {
     const err = protocolMessages.find((m) => m.event === '__error__');
     expect(err?.payload.code).toBe('stream-aborted');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('not-found');
-    expect(err?.wskit.streamId).toBe('missing');
+    expect(err?.livething.streamId).toBe('missing');
   });
 
   it('resumeDurableStream — closes any in-flight generator for the same id and proceeds', async () => {
@@ -391,7 +399,7 @@ describe('durable stream runtime', () => {
     expect(returnSpy).toHaveBeenCalled();
   });
 
-  it('an old run that lost its slot to a replacement does not suspend or end the replacement row', async () => {
+  it('a superseded run does not suspend or end the replacement row', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -420,13 +428,13 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: { streamId: 'shared', channelFamily: null },
+      livething: { streamId: 'shared', channelFamily: null },
     });
 
     await firstYield;
 
     // A resume swaps the live ActiveStream for this streamId and re-attaches it
-    // to the same connection. The old parked run must not touch it afterward.
+    // to the same connection. The parked run must not touch it afterward.
     const replacement = { id: 'shared', closed: false } as unknown as ActiveStream;
     runtime.activeStreams.set('shared', replacement);
     connection.activeStreamIds = new Set(['shared']);
@@ -439,7 +447,7 @@ describe('durable stream runtime', () => {
     expect(runtime.activeStreams.get('shared')).toBe(replacement);
   });
 
-  it('an old run that lost its slot does not remove the replacement attachment', async () => {
+  it('a superseded run does not remove the replacement attachment', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -466,7 +474,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: { streamId: 'shared', channelFamily: null },
+      livething: { streamId: 'shared', channelFamily: null },
     });
 
     await firstYield;
@@ -480,12 +488,12 @@ describe('durable stream runtime', () => {
     await run;
 
     // The replacement's attachment must survive: the streamId stays in the set
-    // and the old run never persists a stale attachment over it.
+    // and the superseded run never persists a stale attachment over it.
     expect(connection.activeStreamIds.has('shared')).toBe(true);
     expect(runtime.persistAttachment).not.toHaveBeenCalled();
   });
 
-  it('an old recorded generator cannot emit a chunk after a replacement takes the slot', async () => {
+  it('a superseded recorded generator cannot emit a chunk after replacement', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
@@ -513,7 +521,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: { streamId: 'shared', channelFamily: null },
+      livething: { streamId: 'shared', channelFamily: null },
     });
 
     await firstYield;
@@ -603,7 +611,7 @@ describe('durable stream runtime', () => {
     });
 
     const replayed = wireChunks(connection).filter((f) => f.event === 'e');
-    expect(replayed.map((f) => f.__wskit.seq)).toEqual([3, 4, 5]);
+    expect(replayed.map((f) => f.__livething.streamSeq)).toEqual([3, 4, 5]);
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeDefined();
   });
 
@@ -890,7 +898,7 @@ describe('durable stream runtime', () => {
 
     const seqs = pipelineSends
       .filter((m) => m.event === 'e')
-      .map((m) => (m.routing as { seq: number }).seq);
+      .map((m) => (m.routing as { streamSeq: number }).streamSeq);
     expect(seqs).toEqual([4, 5]);
   });
 
@@ -1058,7 +1066,7 @@ describe('durable stream runtime', () => {
     const err = protocolMessages.find((m) => m.event === '__error__');
     expect(err?.payload.code).toBe('stream-aborted');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('cursor-invalid');
-    expect(err?.wskit.streamId).toBe('s-bad');
+    expect(err?.livething.streamId).toBe('s-bad');
     expect(generatorSpy).not.toHaveBeenCalled();
 
     expect(pipelineSends).toHaveLength(0);
@@ -1080,7 +1088,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect((pipelineSends[0]!.payload as { attempt: number }).attempt).toBe(1);
@@ -1149,7 +1157,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     // Yield to the runtime so the first chunk emits and the active row
@@ -1192,7 +1200,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     // Wait until the generator is parked in `await gate` — first chunk has
@@ -1230,7 +1238,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     // Row is keyed by broadcast scope key (top-level here), not the
@@ -1241,11 +1249,9 @@ describe('durable stream runtime', () => {
     expect(row!.broadcast).toBe(true);
     expect(row!.creatorUserId).toBe('u-creator');
 
-    // Both chunks were sent to the peer via the outgoing pipeline (same as
-    // the creator's own copies — broadcastToConnections is no longer used
-    // for the chunk fan-out because reserved-field markers must ride the
-    // routing arg, not the payload). One pipeline send per chunk per
-    // recipient: 2 chunks × 2 recipients = 4 sends.
+    // Both chunks were sent to the peer and creator through the outgoing
+    // pipeline, which carries protocol metadata in the routing argument.
+    // One pipeline send per chunk per recipient: 2 chunks × 2 recipients = 4.
     expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(4);
     expect(protocolMessages.filter((m) => m.event === '__streamEnd__')).toHaveLength(2);
   });
@@ -1272,7 +1278,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect(runtime.handleRuntimeError).toHaveBeenCalledWith(
@@ -1281,7 +1287,7 @@ describe('durable stream runtime', () => {
     );
     const peerError = protocolMessages.find((m) => m.event === '__error__');
     expect(peerError).toBeDefined();
-    expect(peerError!.wskit).toMatchObject({ streamTerminated: true });
+    expect(peerError!.livething).toMatchObject({ streamTerminated: true });
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
   });
 
@@ -1335,7 +1341,7 @@ describe('durable stream runtime', () => {
     });
 
     const replayed = wireChunks(peer).filter((f) => f.event === 'e');
-    expect(replayed.map((f) => f.__wskit.seq)).toEqual([2, 3]);
+    expect(replayed.map((f) => f.__livething.streamSeq)).toEqual([2, 3]);
     // Active broadcast — no __streamEnd__ from the resumer (the generator is
     // still running on the creator's connection in a real run).
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
@@ -1361,7 +1367,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     const row = Storage.readStream(sql, '__bcast:top__', 'gen-1')!;
@@ -1397,7 +1403,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect(
@@ -1424,7 +1430,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     const row = Storage.readStream(sql, 'u1', 'gen-1')!;
@@ -1569,12 +1575,12 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     const peerSeqs = pipelineSends
       .filter((p) => p.event === 'e' && p.targetId === 'c-peer')
-      .map((p) => (p.routing as { seq: number }).seq);
+      .map((p) => (p.routing as { streamSeq: number }).streamSeq);
     expect(peerSeqs).toEqual([3, 4]);
   });
 
@@ -1646,7 +1652,7 @@ describe('durable stream runtime', () => {
 
     const produced = pipelineSends
       .filter((p) => p.event === 'e')
-      .map((p) => (p.routing as { seq: number }).seq);
+      .map((p) => (p.routing as { streamSeq: number }).streamSeq);
     expect(produced).toEqual([4]);
 
     const buffered = Storage.readChunksSince(sql, {
@@ -1772,7 +1778,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     await new Promise((r) => setTimeout(r, 10));
@@ -1816,7 +1822,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     await new Promise((r) => setTimeout(r, 10));
@@ -1860,7 +1866,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     await new Promise((r) => setTimeout(r, 10));
@@ -1887,11 +1893,11 @@ describe('durable stream runtime', () => {
     });
 
     const okFrames = protocolMessages.filter(
-      (m) => m.event === '__streamOk__' && m.wskit.streamId === live.id,
+      (m) => m.event === '__streamOk__' && m.livething.streamId === live.id,
     );
     expect(okFrames.length).toBeGreaterThanOrEqual(1);
     const replayed = wireChunks(reconnect).filter((f) => f.event === 'e');
-    expect(replayed.map((f) => f.__wskit.seq)).toEqual([1, 2]);
+    expect(replayed.map((f) => f.__livething.streamSeq)).toEqual([1, 2]);
 
     expect(live.detached).toBe(false);
     expect(live.connection?.id).toBe('c-new');
@@ -1930,7 +1936,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -1963,7 +1969,7 @@ describe('durable stream runtime', () => {
     const reconnect = createConnection('c-new', 'u1');
 
     runtime.sendProtocolMessage = () => {
-      throw new WSKitConfigError('translator outbound is invalid');
+      throw new LiveThingConfigError('translator outbound is invalid');
     };
 
     Storage.insertStream(sql, {
@@ -1990,7 +1996,7 @@ describe('durable stream runtime', () => {
         streamId: live.id,
         lastKnownSeq: 0,
       }),
-    ).rejects.toThrow(WSKitConfigError);
+    ).rejects.toThrow(LiveThingConfigError);
 
     expect(live.detached).toBe(true);
     expect(live.connection?.id).toBe(original.id);
@@ -2025,7 +2031,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     await new Promise((r) => setTimeout(r, 10));
@@ -2053,7 +2059,7 @@ describe('durable stream runtime', () => {
     await run;
 
     const end = protocolMessages.find(
-      (message) => message.event === '__streamEnd__' && message.wskit.streamId === live.id,
+      (message) => message.event === '__streamEnd__' && message.livething.streamId === live.id,
     );
     expect(end?.targetId).toBe(reconnect.id);
     expect(Storage.readStream(sql, 'u1', live.id)?.status).toBe('ended');
@@ -2074,7 +2080,7 @@ describe('durable stream runtime', () => {
         }) as never,
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect(Storage.readStream(sql, 'u1', 'gen-1')?.status).toBe('ended');
@@ -2082,7 +2088,7 @@ describe('durable stream runtime', () => {
     expect(connection.activeStreamIds?.has('gen-1')).toBeFalsy();
   });
 
-  it('WSKitConfigError during iteration marks the row ended then rethrows', async () => {
+  it('LiveThingConfigError during iteration marks the row ended then rethrows', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -2095,13 +2101,13 @@ describe('durable stream runtime', () => {
           kind: 'recorded',
           generator: async function* () {
             yield { i: 1 };
-            throw new WSKitConfigError('bad stream config');
+            throw new LiveThingConfigError('bad stream config');
           },
         }),
         payload: {},
-        wskit: undefined,
+        livething: undefined,
       }),
-    ).rejects.toBeInstanceOf(WSKitConfigError);
+    ).rejects.toBeInstanceOf(LiveThingConfigError);
 
     expect(Storage.readStream(sql, 'u1', 'gen-1')?.status).toBe('ended');
     expect(runtime.activeStreams.has('gen-1')).toBe(false);
@@ -2158,7 +2164,7 @@ describe('durable stream runtime', () => {
     await returned;
     await Promise.resolve();
     expect(runtime.logger.warn).toHaveBeenCalledWith(
-      '[wskit] durable stream stale-generator cleanup rejected',
+      '[livething] durable stream stale-generator cleanup rejected',
       expect.objectContaining({ streamId: 'a', error: 'return blew up' }),
     );
   });
@@ -2207,7 +2213,7 @@ describe('durable stream runtime', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(runtime.logger.warn).toHaveBeenCalledWith(
-      '[wskit] durable stream stale-generator cleanup rejected',
+      '[livething] durable stream stale-generator cleanup rejected',
       expect.objectContaining({ streamId: 'a', error: 'sync return boom' }),
     );
   });
@@ -2244,7 +2250,7 @@ describe('durable stream runtime', () => {
         }) as never,
       }),
       payload: {},
-      wskit: { streamId: 's-sig', channelFamily: null },
+      livething: { streamId: 's-sig', channelFamily: null },
     });
 
     await new Promise((r) => setTimeout(r, 10));
@@ -2286,7 +2292,7 @@ describe('durable stream runtime', () => {
         }) as never,
       }),
       payload: {},
-      wskit: { streamId: 's-drain', channelFamily: null },
+      livething: { streamId: 's-drain', channelFamily: null },
     });
 
     expect(drainResolved).toBe(true);
@@ -2316,7 +2322,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     // Each anonymous connection is its own subscriber row, keyed by its own
@@ -2357,7 +2363,7 @@ describe('durable stream runtime', () => {
     ).toBe(false);
   });
 
-  it('runDurableStream still refuses an anonymous creator (unaffected by the storage-key rename)', async () => {
+  it('runDurableStream refuses an anonymous creator', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -2368,7 +2374,7 @@ describe('durable stream runtime', () => {
         scope: {},
         def: baseDef({ kind: 'recorded' }),
         payload: {},
-        wskit: undefined,
+        livething: undefined,
       }),
     ).rejects.toThrow();
   });
@@ -2390,7 +2396,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: { streamId: 'reconnect-1', channelFamily: null },
+      livething: { streamId: 'reconnect-1', channelFamily: null },
     });
 
     const { runtime: resumeRuntime, protocolMessages } = createRuntime(sql);

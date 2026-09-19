@@ -1,12 +1,12 @@
-import { emits, server, t } from '@wskit/server';
-import { dedup } from '@wskit/server/dedup';
-import { sequence } from '@wskit/server/sequence';
-import { stream } from '@wskit/server/streams';
-import { Feed } from '@wskit/tests-e2e-handlers/_shared/feed-plugin';
-import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
+import { emits, server, t } from '@livething/server';
+import { dedup } from '@livething/server/dedup';
+import { sequence } from '@livething/server/sequence';
+import { stream } from '@livething/server/streams';
+import { Feed } from '@livething/tests-e2e-handlers/_shared/feed-plugin';
+import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
-import type { ServerContract } from '@wskit/server/adapters';
-import type { PluginCapability } from '@wskit/server/plugins';
+import type { ServerContract } from '@livething/server/adapters';
+import type { PluginCapability } from '@livething/server/plugins';
 
 export interface DrizzlePluginApi {
   insert(data: { name: string; value: string }): { id: number } | null;

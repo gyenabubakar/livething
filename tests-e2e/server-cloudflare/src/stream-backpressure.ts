@@ -1,4 +1,4 @@
-import { bind } from '@wskit/server-cloudflare';
-import { streamBackpressureDefinition } from '@wskit/tests-e2e-handlers/stream-backpressure';
+import { bind } from '@livething/server-cloudflare';
+import { streamBackpressureDefinition } from '@livething/tests-e2e-handlers/stream-backpressure';
 
 export class StreamBackpressureServer extends bind(streamBackpressureDefinition) {}

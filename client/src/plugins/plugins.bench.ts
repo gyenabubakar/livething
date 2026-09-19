@@ -59,8 +59,8 @@ function trafficFor(count: number): string[] {
   for (let i = 0; i < count; i++) {
     frames.push(
       i % 2 === 0
-        ? JSON.stringify({ event: 'message', payload: { text: `m${i}` } })
-        : JSON.stringify({ event: `__${ids[i % 5]}::tick`, payload: { n: i } }),
+        ? JSON.stringify(['message', { text: `m${i}` }, null])
+        : JSON.stringify([`__${ids[i % 5]}::tick`, { n: i }, null]),
     );
   }
 

@@ -4,7 +4,7 @@ import type { SQLProvider } from '~/context.ts';
 type StampLastSeenParamsParameter = { userId: string; now: number };
 
 const CREATE_LAST_SEEN_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_last_seen (
+  CREATE TABLE IF NOT EXISTS __livething_last_seen (
     user_id      TEXT PRIMARY KEY,
     last_seen_at INTEGER NOT NULL,
     metadata     TEXT NOT NULL DEFAULT '{}'
@@ -29,7 +29,7 @@ export function stampLastSeen(
 
   sql.exec(
     `
-      INSERT INTO __wskit_last_seen (user_id, last_seen_at)
+      INSERT INTO __livething_last_seen (user_id, last_seen_at)
       VALUES (?, ?)
       ON CONFLICT(user_id) DO UPDATE SET last_seen_at = MAX(last_seen_at, excluded.last_seen_at)
     `,
@@ -45,14 +45,14 @@ export function readLastSeen(sql: Pick<SQLProvider, 'exec'>, userId: string): nu
   const row = sql
     .exec<{
       last_seen_at: number;
-    }>('SELECT last_seen_at FROM __wskit_last_seen WHERE user_id = ?', userId)
+    }>('SELECT last_seen_at FROM __livething_last_seen WHERE user_id = ?', userId)
     .one();
   return row ? Number(row.last_seen_at) : null;
 }
 
 /** Delete a user's last-seen row. Used by `purgeUser`. */
 export function purgeLastSeenByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec('DELETE FROM __wskit_last_seen WHERE user_id = ?', userId);
+  sql.exec('DELETE FROM __livething_last_seen WHERE user_id = ?', userId);
 }
 
 /**
@@ -76,7 +76,7 @@ export function readLastSeenMany(
         user_id: string;
         last_seen_at: number;
       }>(
-        `SELECT user_id, last_seen_at FROM __wskit_last_seen WHERE user_id IN (${placeholders})`,
+        `SELECT user_id, last_seen_at FROM __livething_last_seen WHERE user_id IN (${placeholders})`,
         ...batch,
       )
       .toArray();

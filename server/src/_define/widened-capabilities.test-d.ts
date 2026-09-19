@@ -54,10 +54,7 @@ base.on('ping', {
   },
 });
 
-// ---------------------------------------------------------------------------
-// Regression — an inline, literal-brand `capabilities` array still grants
-// exactly what it lists.
-// ---------------------------------------------------------------------------
+// An inline, literal-brand `capabilities` array grants exactly what it lists.
 
 const rateLimitBase = server({
   capabilities: [channels(), rateLimit({ max: 5 })],

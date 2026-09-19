@@ -13,7 +13,7 @@ describe('channel lifecycle primitives', () => {
     const validator = v.object({ token: v.string() });
     const primitive = check(handler, { validator });
 
-    expect(primitive.__wskit).toBe('check');
+    expect(primitive.__livething).toBe('check');
     expect(primitive.__kind).toBe('lifecycle');
     expect(primitive.validator).toBe(validator);
 
@@ -36,7 +36,7 @@ describe('channel lifecycle primitives', () => {
     const handler = vi.fn();
     const primitive = commit(handler);
 
-    expect(primitive.__wskit).toBe('commit');
+    expect(primitive.__livething).toBe('commit');
     expect(primitive.__kind).toBe('lifecycle');
     expect(primitive.handler).toBe(handler);
 

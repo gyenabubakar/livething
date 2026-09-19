@@ -1,7 +1,7 @@
-import { emits, server, t } from '@wskit/server';
-import { stream } from '@wskit/server/streams';
+import { emits, server, t } from '@livething/server';
+import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Tick = t<{ index: number }>();

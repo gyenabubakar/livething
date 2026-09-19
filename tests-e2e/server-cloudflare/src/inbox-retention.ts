@@ -1,5 +1,5 @@
-import { bind } from '@wskit/server-cloudflare';
-import { inboxRetentionDefinition } from '@wskit/tests-e2e-handlers/inbox-retention';
+import { bind } from '@livething/server-cloudflare';
+import { inboxRetentionDefinition } from '@livething/tests-e2e-handlers/inbox-retention';
 
 const Base = bind(inboxRetentionDefinition);
 

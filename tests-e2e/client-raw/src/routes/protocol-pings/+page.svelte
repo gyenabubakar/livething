@@ -31,7 +31,7 @@
 	}
 
 	function sendJsonPing() {
-		ws?.send(JSON.stringify({ event: 'ping' }));
+		ws?.send(window.__livethingEncode({ event: 'ping' }));
 	}
 
 	if (typeof window !== 'undefined') {

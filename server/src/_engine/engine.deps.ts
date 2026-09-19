@@ -37,7 +37,7 @@ interface InboxFanOutOptions {
   channelFamily: string | null;
   event: string;
   payload: Record<string, unknown>;
-  seq: number;
+  deliverySeq: number;
   messageId: string;
 }
 
@@ -48,7 +48,7 @@ interface PersistAttachmentOptions {
 interface ProtocolMessageOptions {
   event: string;
   payload: Record<string, unknown>;
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
 }
 
 interface ValidationErrorOptions {
@@ -60,11 +60,11 @@ interface ValidationErrorOptions {
 interface RuntimeErrorOptions {
   error: unknown;
   event?: string;
-  routing?: Protocol.WSKitRouting;
+  routing?: Protocol.LiveThingRouting;
 }
 
 interface ReplayWire {
-  seq: number;
+  deliverySeq: number;
   messageId: string;
   channel?: string;
 }
@@ -158,7 +158,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       OutgoingRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
     broadcastToChannelRecipient: (opts) => {
-      if (opts.to.__wskit === 'connection-ref' || opts.to.__wskit === 'user-ref') {
+      if (opts.to.__livething === 'connection-ref' || opts.to.__livething === 'user-ref') {
         assertLocalRef(opts.to, core.engineInstanceId, 'channelHandle.broadcastTo(to, ...)');
       }
 
@@ -182,7 +182,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     getChannelMembers: (channelName, channelFamily) =>
       core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
     kickChannelMembers: (opts) => {
-      if (opts.target.__wskit === 'user-ref') {
+      if (opts.target.__livething === 'user-ref') {
         assertLocalRef(opts.target, core.engineInstanceId, 'channelHandle.kick(target)');
       }
 
@@ -242,7 +242,7 @@ function buildOutgoingRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     outgoingHooks: core.hooks.outgoing,
-    wskitStampHooks: core.hooks.wskitStamp,
+    livethingStampHooks: core.hooks.livethingStamp,
     beforeSendHooks: core.hooks.beforeSend,
     afterSendHooks: core.hooks.afterSend,
     trackBackgroundWork: (work: Promise<void>) => core.trackBackgroundWork(work),

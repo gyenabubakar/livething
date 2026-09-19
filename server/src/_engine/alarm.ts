@@ -7,7 +7,7 @@ type AlarmDeadline = number | null;
 type AlarmCore = Pick<EngineCore, 'alarmSources' | 'timers'> &
   Partial<Pick<EngineCore, 'logger' | 'storage'>>;
 
-const ALARM_STATE_TABLE = '__wskit_alarm_state';
+const ALARM_STATE_TABLE = '__livething_alarm_state';
 
 interface AlarmSyncState {
   /** Do not retry a failed alarm cycle before this time. */
@@ -155,9 +155,9 @@ function reportSourceFailures(
   const error =
     errors.length === 1
       ? errors[0]
-      : new AggregateError(errors, '[wskit] one or more durable alarm sources failed');
+      : new AggregateError(errors, '[livething] one or more durable alarm sources failed');
 
-  core.logger?.error('[wskit] durable alarm source failed; retrying', {
+  core.logger?.error('[livething] durable alarm source failed; retrying', {
     error: error instanceof Error ? error.message : String(error),
     sources: report.failures.map((failure) => failure.name),
   });
@@ -251,7 +251,7 @@ function setProviderRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryA
   try {
     setRetryDeadline(core, state, retryAt);
   } catch (error) {
-    core.logger?.error('[wskit] durable alarm retry could not be stored; retrying locally', {
+    core.logger?.error('[livething] durable alarm retry could not be stored; retrying locally', {
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -276,7 +276,7 @@ function observeProviderWrite(
 ): void {
   void pending.catch((error: unknown) => {
     state.pending = undefined;
-    core.logger?.error('[wskit] durable alarm reschedule failed', {
+    core.logger?.error('[livething] durable alarm reschedule failed', {
       error: error instanceof Error ? error.message : String(error),
     });
     if (!state.stopped) {

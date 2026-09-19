@@ -1,5 +1,5 @@
-import { channels, client, connect, reconnection } from '@wskit/client';
-import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
+import { channels, client, connect, reconnection } from '@livething/client';
+import type { PersistenceClient } from '@livething/tests-e2e-handlers/persistence';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives a PERSISTENT, check-gated channel (archive-room) through a warm

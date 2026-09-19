@@ -1,8 +1,8 @@
-import { client, connect, serverRequests } from '@wskit/client';
-import type { ServerRequestClient } from '@wskit/tests-e2e-handlers/server-request';
+import { client, connect, serverRequests } from '@livething/client';
+import type { ServerRequestClient } from '@livething/tests-e2e-handlers/server-request';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's serverRequests() against the real `server-request`
+// Drives @livething/client's serverRequests() against the real `server-request`
 // server definition, typed by the same contract the server implements
 // (ServerRequestClient = InferClient<definition>). The server asks the client a
 // declared server→client request; the client answers with onRequest(), and the

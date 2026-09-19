@@ -18,7 +18,7 @@ describe('replay capabilities', () => {
       capabilities: [...replayReady(), replay.history({ retention: { maxAgeMs: 60_000 } })],
     });
     const definition = base.assemble({ handlers: [] });
-    const primitive = definition.primitives.find((p) => p.__wskit === 'replay') as unknown as
+    const primitive = definition.primitives.find((p) => p.__livething === 'replay') as unknown as
       | ReplayPrimitive
       | undefined;
     expect(primitive?.options.type).toBe('history');
@@ -31,7 +31,7 @@ describe('replay capabilities', () => {
     });
     const primitive = base
       .assemble({ handlers: [] })
-      .primitives.find((p) => p.__wskit === 'replay') as unknown as ReplayPrimitive;
+      .primitives.find((p) => p.__livething === 'replay') as unknown as ReplayPrimitive;
     expect(primitive.options.type).toBe('snapshot');
   });
 
@@ -44,7 +44,7 @@ describe('replay capabilities', () => {
     const base = server({ capabilities: [replay.custom()] });
     base.replay({ replay() {} });
     const definition = base.assemble({ handlers: [] });
-    expect(definition.primitives.some((p) => p.__wskit === 'replayCustom')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'replayCustom')).toBe(true);
   });
 
   it('throws when base.replay() is used without the replay.custom() capability', () => {

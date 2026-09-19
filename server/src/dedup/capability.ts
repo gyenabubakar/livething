@@ -14,8 +14,8 @@ type OptionsParameter = { cap?: number };
  *
  * @example
  * ```ts
- * import { server, t } from '@wskit/server';
- * import { dedup } from '@wskit/server/dedup';
+ * import { server, t } from '@livething/server';
+ * import { dedup } from '@livething/server/dedup';
  *
  * const base = server({ capabilities: [dedup({ cap: 256 })] });
  * ```

@@ -2,7 +2,7 @@
  * The build-time checks `assemble()` runs over a host's listed capabilities.
  *
  * They live apart from `plugins.ts` because that module is a package entry
- * (`@wskit/server/plugins`), so a bundler keeps it whole: importing one function
+ * (`@livething/server/plugins`), so a bundler keeps it whole: importing one function
  * from it would pull the plugin factory, the wire-namespacing pass, and the
  * plugin-scoped context into every app, plugins or not.
  */
@@ -42,7 +42,7 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
 
       const name = capabilityDisplayName(kind);
       throw new Error(
-        `[wskit] plugin('${pluginCap.__pluginId}') needs the ${name} capability the host does not ` +
+        `[livething] plugin('${pluginCap.__pluginId}') needs the ${name} capability the host does not ` +
           `list. Add ${name} to server({ capabilities: [...] }) — a plugin declares prerequisites ` +
           'instead of owning host engines.',
       );
@@ -64,7 +64,7 @@ export function assertNoChannelOnlyCapabilities(capabilities: readonly AnyCapabi
 
     const name = capabilityDisplayName(kind);
     throw new Error(
-      `[wskit] ${name} is channel-only. List it in a channel's own \`capabilities\` array — ` +
+      `[livething] ${name} is channel-only. List it in a channel's own \`capabilities\` array — ` +
         `base.channel(name, { capabilities: [${name}] }) — not in server({ capabilities: [...] }).`,
     );
   }
@@ -84,7 +84,7 @@ export function assertUniquePluginIds(capabilities: readonly AnyCapability[]): v
 
     if (seen.has(id)) {
       throw new Error(
-        `[wskit] plugin('${id}') is listed more than once. Each plugin id owns a namespace and ` +
+        `[livething] plugin('${id}') is listed more than once. Each plugin id owns a namespace and ` +
           'must be unique — list it once, or give the second one a different id.',
       );
     }

@@ -1,6 +1,6 @@
-import { emits, server, t } from '@wskit/server';
+import { emits, server, t } from '@livething/server';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 function selectNotes(ctx: {

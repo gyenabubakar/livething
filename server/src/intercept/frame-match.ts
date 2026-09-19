@@ -35,7 +35,7 @@ type ParsedKey =
 /** Parse a frame-match key. Throws on a syntactically invalid key. */
 function parseKey(key: string): ParsedKey {
   if (typeof key !== 'string' || key.length === 0) {
-    throw new Error('[wskit] ctx.matches/unsafeCast key must be a non-empty string');
+    throw new Error('[livething] ctx.matches/unsafeCast key must be a non-empty string');
   }
 
   if (key.startsWith('@')) {
@@ -43,7 +43,7 @@ function parseKey(key: string): ParsedKey {
     const sepIdx = rest.indexOf('::');
     if (sepIdx === -1) {
       throw new Error(
-        `[wskit] ctx.matches/unsafeCast key '${key}' starts with '@' but is missing the ` +
+        `[livething] ctx.matches/unsafeCast key '${key}' starts with '@' but is missing the ` +
           `'::' separator. Use '@<family>::<event>'.`,
       );
     }
@@ -52,7 +52,9 @@ function parseKey(key: string): ParsedKey {
     const event = rest.slice(sepIdx + 2);
 
     if (name.length === 0 || event.length === 0) {
-      throw new Error(`[wskit] ctx.matches/unsafeCast key '${key}' has an empty name or event.`);
+      throw new Error(
+        `[livething] ctx.matches/unsafeCast key '${key}' has an empty name or event.`,
+      );
     }
 
     return { scope: 'channel', name, event };
@@ -60,7 +62,7 @@ function parseKey(key: string): ParsedKey {
 
   if (key.includes('::')) {
     throw new Error(
-      `[wskit] ctx.matches/unsafeCast key '${key}' contains '::' but no scope prefix. ` +
+      `[livething] ctx.matches/unsafeCast key '${key}' contains '::' but no scope prefix. ` +
         `Use '@<family>::<event>', or drop the '::' for a top-level event.`,
     );
   }
@@ -101,7 +103,7 @@ function resolveKey(
     const lookup = lookupValidator(compiled, parsed.event);
     if (!lookup.found) {
       throw new Error(
-        `[wskit] ctx.matches/unsafeCast: key '${key}' references an event the server does not ` +
+        `[livething] ctx.matches/unsafeCast: key '${key}' references an event the server does not ` +
           `declare. Check the event name.`,
       );
     }
@@ -112,7 +114,7 @@ function resolveKey(
   const channel = compiled.channels.get(parsed.name) ?? compiled.channelFamilies.get(parsed.name);
   if (!channel) {
     throw new Error(
-      `[wskit] ctx.matches/unsafeCast: key '${key}' references channel '${parsed.name}' which the ` +
+      `[livething] ctx.matches/unsafeCast: key '${key}' references channel '${parsed.name}' which the ` +
         `server does not declare.`,
     );
   }
@@ -120,7 +122,7 @@ function resolveKey(
   const lookup = lookupValidator(channel, parsed.event);
   if (!lookup.found) {
     throw new Error(
-      `[wskit] ctx.matches/unsafeCast: key '${key}' references an event channel '${parsed.name}' ` +
+      `[livething] ctx.matches/unsafeCast: key '${key}' references an event channel '${parsed.name}' ` +
         `does not declare.`,
     );
   }

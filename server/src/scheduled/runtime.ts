@@ -9,7 +9,7 @@ import type {
 } from './types.ts';
 
 const SCHEDULED_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_scheduled (
+  CREATE TABLE IF NOT EXISTS __livething_scheduled (
     id TEXT PRIMARY KEY,
     taskId TEXT NOT NULL,
     time INTEGER NOT NULL,
@@ -24,7 +24,7 @@ const SCHEDULED_TABLE_SQL = `
 `;
 
 const SCHEDULED_DLQ_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_scheduled_dlq (
+  CREATE TABLE IF NOT EXISTS __livething_scheduled_dlq (
     id TEXT PRIMARY KEY,
     taskId TEXT NOT NULL,
     time INTEGER NOT NULL,
@@ -278,7 +278,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
     return;
   }
 
-  runtime.logger.info('[wskit] scheduler persist — applying diff', {
+  runtime.logger.info('[livething] scheduler persist — applying diff', {
     runs: summarizeOps(runOps),
     deadLetters: summarizeOps(dlqOps),
   });
@@ -286,13 +286,13 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   storage.sql.transaction((tx) => {
     for (const op of runOps) {
       if (op.kind === 'delete') {
-        tx.exec('DELETE FROM __wskit_scheduled WHERE id = ?', op.id);
+        tx.exec('DELETE FROM __livething_scheduled WHERE id = ?', op.id);
         continue;
       }
 
       if (op.kind === 'insert') {
         tx.exec(
-          `INSERT INTO __wskit_scheduled
+          `INSERT INTO __livething_scheduled
             (id, taskId, time, data, everyMs, attempts, recurring, retry)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           ...(op.columns as unknown[]),
@@ -313,7 +313,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         number | string,
       ];
       tx.exec(
-        `UPDATE __wskit_scheduled
+        `UPDATE __livething_scheduled
          SET taskId = ?, time = ?, data = ?, everyMs = ?, attempts = ?, recurring = ?, retry = ?
          WHERE id = ?`,
         taskId,
@@ -329,13 +329,13 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
 
     for (const op of dlqOps) {
       if (op.kind === 'delete') {
-        tx.exec('DELETE FROM __wskit_scheduled_dlq WHERE id = ?', op.id);
+        tx.exec('DELETE FROM __livething_scheduled_dlq WHERE id = ?', op.id);
         continue;
       }
 
       if (op.kind === 'insert') {
         tx.exec(
-          `INSERT INTO __wskit_scheduled_dlq
+          `INSERT INTO __livething_scheduled_dlq
             (id, taskId, time, failedAt, data, attempts, error)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           ...(op.columns as unknown[]),
@@ -353,7 +353,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         string,
       ];
       tx.exec(
-        `UPDATE __wskit_scheduled_dlq
+        `UPDATE __livething_scheduled_dlq
          SET taskId = ?, time = ?, failedAt = ?, data = ?, attempts = ?, error = ?
          WHERE id = ?`,
         taskId,
@@ -463,7 +463,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
   runsSnapshot.clear();
   dlqSnapshot.clear();
 
-  runtime.logger.info('[wskit] scheduler boot — loading queue from storage');
+  runtime.logger.info('[livething] scheduler boot — loading queue from storage');
 
   // Drop rows whose taskId is no longer registered in the handler. A
   // recurring task that gets removed in a redeploy would otherwise live
@@ -480,7 +480,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
     .exec<ScheduledRunRow>(
       `
         SELECT id, taskId, time, data, everyMs, attempts, recurring, retry
-        FROM __wskit_scheduled
+        FROM __livething_scheduled
       `,
     )
     .toArray()) {
@@ -515,7 +515,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
     .exec<ScheduledDeadLetterRow>(
       `
         SELECT id, taskId, time, failedAt, data, attempts, error
-        FROM __wskit_scheduled_dlq
+        FROM __livething_scheduled_dlq
       `,
     )
     .toArray()) {
@@ -540,7 +540,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
 
-  runtime.logger.info('[wskit] scheduler boot complete', {
+  runtime.logger.info('[livething] scheduler boot complete', {
     queuedRuns: scheduledRuns.size,
     deadLetters: deadLetters.size,
     recurringTaskIds: [...scheduledRuns.values()]
@@ -562,14 +562,14 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
   const due = [...scheduledRuns.values()].filter((run) => run.time <= now);
 
   if (due.length === 0) {
-    runtime.logger.info('[wskit] scheduler alarm fired — nothing due', {
+    runtime.logger.info('[livething] scheduler alarm fired — nothing due', {
       queuedRuns: scheduledRuns.size,
     });
     runtime.rescheduleAlarm();
     return;
   }
 
-  runtime.logger.info('[wskit] scheduler alarm fired — running due tasks', {
+  runtime.logger.info('[livething] scheduler alarm fired — running due tasks', {
     dueCount: due.length,
     dueTaskIds: due.map((run) => run.taskId),
     queuedAfter: scheduledRuns.size - due.length,
@@ -705,7 +705,7 @@ export function scheduleTaskRun(
   const { taskId, time, data } = options;
   const task = runtime.getScheduledTask(taskId);
   if (!task) {
-    throw new Error(`[wskit] scheduled task "${taskId}" is not registered.`);
+    throw new Error(`[livething] scheduled task "${taskId}" is not registered.`);
   }
 
   assertPositiveInteger(time, 'time', `ctx.schedule("${taskId}", ...)`);
@@ -716,7 +716,7 @@ export function scheduleTaskRun(
   if (task.hasData) {
     normalizedData = validateValue(task.dataSchema, data, taskId);
   } else if (data !== undefined) {
-    throw new Error(`[wskit] scheduled task "${taskId}" does not declare .data(...).`);
+    throw new Error(`[livething] scheduled task "${taskId}" does not declare .data(...).`);
   }
 
   runtime.getScheduledRuns().set(id, {
@@ -751,7 +751,7 @@ export function cancelScheduledRuns(
     for (const [key, value] of Object.entries(filter)) {
       if (value === undefined) {
         throw new Error(
-          `[wskit] ctx.cancelScheduled("${taskId}", filter): filter key "${key}" is undefined. ` +
+          `[livething] ctx.cancelScheduled("${taskId}", filter): filter key "${key}" is undefined. ` +
             `Pass a real value or omit the key — an undefined entry would match runs whose data has no "${key}" at all.`,
         );
       }

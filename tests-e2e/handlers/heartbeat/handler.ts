@@ -1,6 +1,6 @@
-import { emits, server, t } from '@wskit/server';
-import { plugin } from '@wskit/server/plugins';
-import type { InferClient } from '@wskit/server';
+import { emits, server, t } from '@livething/server';
+import { plugin } from '@livething/server/plugins';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 /**

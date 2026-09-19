@@ -227,7 +227,7 @@ describe('the heartbeat hooks', () => {
     it('emits no ping from a server without keepalive(), whatever the client does', async () => {
       const { socket, handle } = await connect(buildEngine());
 
-      await handle.handleMessage(JSON.stringify({ event: 'noop', payload: {} }));
+      await handle.handleMessage(JSON.stringify(['noop', {}, null]));
       await handle.handleMessage('ping');
       await handle.handleMessage('pong');
 

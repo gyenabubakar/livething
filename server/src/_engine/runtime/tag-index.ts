@@ -128,7 +128,7 @@ export function removeConnectionFromTagIndex(
 }
 
 export function makeTagRef(kind: TagKind, group: string, key: string): TagRef {
-  return { __wskit: 'tag-ref', kind, group, key };
+  return { __livething: 'tag-ref', kind, group, key };
 }
 
 /** The public-facing `TagRef` list for one connection, used by `ConnectionInfo.tags`. */

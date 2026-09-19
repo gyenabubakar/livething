@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's stream() / onStream() against the real wskit
+// Conformance: @livething/client's stream() / onStream() against the real LiveThing
 // `stream-broadcast` server definition. Adapter-oblivious — it talks to whatever server
 // the run booted over the /ws proxy. Broadcast fan-out needs a second client,
 // so each test opens a peer in its own browser context on the same room.

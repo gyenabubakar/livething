@@ -57,19 +57,19 @@ test.describe('channel-static', () => {
       const got: {
         event: string;
         payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
       }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof ev.data === 'string') got.push(window.__livethingDecode(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
 
       ws.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: '__subscribe__',
-          payload: {},
-          __wskit: { channel: 42, channelFamily: { evil: true } },
+          payload: null,
+          metadata: { channel: { name: 42, family: { evil: true } } },
         }),
       );
       await new Promise((r) => setTimeout(r, 300));
@@ -82,8 +82,8 @@ test.describe('channel-static', () => {
     const err = errors[0]!;
     // The error reaches the client. Routing fields are stripped because
     // the inputs were not strings.
-    expect(err.__wskit?.channel).toBeUndefined();
-    expect(err.__wskit?.channelFamily).toBeUndefined();
+    expect(err.metadata?.channel?.name).toBeUndefined();
+    expect(err.metadata?.channel?.family).toBeUndefined();
   });
 
   test('_unsubscribe when not subscribed emits _error channel-not-subscribed', async ({
@@ -354,11 +354,8 @@ test.describe('channel-static', () => {
   test('peer still receives _memberLeave on a second channel when the first channel onUnsubscribe throws', async ({
     browser,
   }, testInfo) => {
-    // Pre-fix a throwing onUnsubscribe rejected leaveChannel for that
-    // channel, which aborted the for-loop in handleConnectionClose.
-    // Subsequent channel leaves never ran, so peers in OTHER channels
-    // the same connection was a member of never saw `_memberLeave`.
-    // The fix contains the throw per membership and continues.
+    // A throwing onUnsubscribe is contained to its membership so cleanup and
+    // leave notifications continue for the connection's other channels.
     const room = `test-${testInfo.testId}-throwing-unsubscribe`;
     const ctxThrower = await browser.newContext();
     const ctxObserver = await browser.newContext();
@@ -393,10 +390,8 @@ test.describe('channel-static', () => {
   test('peer still receives _memberLeave when the leaver onDisconnect hook throws', async ({
     browser,
   }, testInfo) => {
-    // Pre-fix a throwing onDisconnect aborted the close sequence: channel
-    // memberships were never released, peers never received the
-    // `_memberLeave` broadcast, the onUnsubscribe hook never ran. The fix
-    // contains the throw so channel-leave fan-out still happens.
+    // A throwing onDisconnect is contained so channel memberships are released
+    // and peers still receive the leave notification.
     const room = `test-${testInfo.testId}-throwing-disconnect`;
     const ctxThrower = await browser.newContext();
     const ctxObserver = await browser.newContext();
@@ -430,16 +425,9 @@ test.describe('channel-static', () => {
   test('throwing onSubscribe still confirms the subscribe; the throw becomes an observational _error scoped to the channel', async ({
     browser,
   }, testInfo) => {
-    // Pre-fix the onSubscribe hook ran between membership commit and the
-    // _subscribeOk send. A throw inside onSubscribe blocked _subscribeOk
-    // from reaching the client — the client treated the subscribe as a
-    // failure even though the server-side membership was committed, so
-    // server and client disagreed on state.
-    //
-    // After the fix _subscribeOk fires before onSubscribe, and the throw
-    // routes through the runtime-error path with channel routing markers,
-    // so the client receives both a successful subscribe confirmation
-    // AND a separate _error addressed to the channel.
+    // The subscribe confirmation is sent before the observational onSubscribe
+    // hook runs. If that hook throws, the client keeps the successful
+    // subscription and receives a separate channel-scoped error.
     const room = `test-${testInfo.testId}-onsubscribe-throw`;
     const ctxThrower = await browser.newContext();
     const ctxObserver = await browser.newContext();
@@ -473,13 +461,8 @@ test.describe('channel-static', () => {
   test('ctx.channel.broadcast survives a non-serializable payload and keeps the connection healthy', async ({
     browser,
   }, testInfo) => {
-    // Pre-fix the broadcast loop's JSON.stringify threw on the BigInt
-    // payload, the throw escaped the handler, and the engine routed an
-    // _error addressed to the channel back to the triggering connection.
-    // Every peer ordered after the failing serialize attempt also
-    // missed the frame. Post-fix the broadcast logs per-peer internally
-    // and returns normally — no _error reaches the triggering client
-    // and a follow-up valid broadcast still works on the same socket.
+    // A serialization failure is logged and contained inside the broadcast.
+    // It does not send an error to the triggering client or break later sends.
     const room = `test-${testInfo.testId}-bad-broadcast`;
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();
@@ -504,9 +487,7 @@ test.describe('channel-static', () => {
     await a.waitForTimeout(500);
     await expect(a.getByTestId('bad-broadcast-error-code')).toHaveText('');
 
-    // Connection still healthy on both sides: a normal send-hello from
-    // alice still reaches bob. Pre-fix this could be affected because
-    // the prior throw might have left the handler in an unclean state.
+    // Both connections remain healthy, so a later valid message still arrives.
     await a.getByTestId('send-hello').click();
     await expect(b.getByTestId('user-messages')).toContainText('alice:hello', { timeout: 5_000 });
 
@@ -528,7 +509,7 @@ test.describe('channel-static', () => {
           messages: {
             event: string;
             payload: Record<string, unknown>;
-            __wskit?: Record<string, unknown>;
+            metadata?: Record<string, Record<string, unknown>> | null;
           }[];
         }> {
           return new Promise((resolve, reject) => {
@@ -538,12 +519,12 @@ test.describe('channel-static', () => {
             const messages: {
               event: string;
               payload: Record<string, unknown>;
-              __wskit?: Record<string, unknown>;
+              metadata?: Record<string, Record<string, unknown>> | null;
             }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
 
-              messages.push(JSON.parse(ev.data));
+              messages.push(window.__livethingDecode(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
             ws.onerror = (e) => reject(e);
@@ -562,10 +543,15 @@ test.describe('channel-static', () => {
     await page.evaluate(
       ({ h }) => {
         const handles = h as unknown as Record<string, { ws: WebSocket }>;
-        const subscribe = { event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } };
-        handles.thrower_a!.ws.send(JSON.stringify(subscribe));
-        handles.thrower_b!.ws.send(JSON.stringify(subscribe));
-        handles.observer!.ws.send(JSON.stringify(subscribe));
+        const subscribe = {
+          event: '__subscribe__',
+          payload: null,
+          metadata: { channel: { name: 'room' } },
+        };
+
+        handles.thrower_a!.ws.send(window.__livethingEncode(subscribe));
+        handles.thrower_b!.ws.send(window.__livethingEncode(subscribe));
+        handles.observer!.ws.send(window.__livethingEncode(subscribe));
       },
       { h: handle },
     );
@@ -579,7 +565,7 @@ test.describe('channel-static', () => {
               messages: {
                 event: string;
                 payload: Record<string, unknown>;
-                __wskit?: Record<string, unknown>;
+                metadata?: Record<string, Record<string, unknown>> | null;
               }[];
             }
           >;
@@ -602,8 +588,8 @@ test.describe('channel-static', () => {
       ({ h }) => {
         const handles = h as unknown as Record<string, { ws: WebSocket }>;
         const tag = { event: 'tag-self', payload: { tag: 'troll' } };
-        handles.thrower_a!.ws.send(JSON.stringify(tag));
-        handles.thrower_b!.ws.send(JSON.stringify(tag));
+        handles.thrower_a!.ws.send(window.__livethingEncode(tag));
+        handles.thrower_b!.ws.send(window.__livethingEncode(tag));
       },
       { h: handle },
     );
@@ -619,7 +605,10 @@ test.describe('channel-static', () => {
       ({ h }) => {
         const handles = h as unknown as Record<string, { ws: WebSocket }>;
         handles.observer!.ws.send(
-          JSON.stringify({ event: 'kick-by-tag', payload: { tag: 'troll', reason: 'spam' } }),
+          window.__livethingEncode({
+            event: 'kick-by-tag',
+            payload: { tag: 'troll', reason: 'spam' },
+          }),
         );
       },
       { h: handle },
@@ -636,12 +625,12 @@ test.describe('channel-static', () => {
             messages: {
               event: string;
               payload: Record<string, unknown>;
-              __wskit?: Record<string, unknown>;
+              metadata?: Record<string, Record<string, unknown>> | null;
             }[];
           }
         >;
         return handles.observer!.messages.filter(
-          (m) => m.event === '__error__' && !m.__wskit?.channel,
+          (m) => m.event === '__error__' && !m.metadata?.channel?.name,
         ).length;
       },
       { h: handle },
@@ -676,20 +665,21 @@ test.describe('channel-static', () => {
       const got: {
         event: string;
         payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
       }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof ev.data === 'string') got.push(window.__livethingDecode(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
 
-      ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
+      ws.send(window.__livethingEncode({ event: 'trigger-server-subscribe', payload: {} }));
 
       // Wait until the __subscribeOk__ for room2 has arrived (or time out).
       const deadline = Date.now() + 2000;
       while (Date.now() < deadline) {
-        if (got.some((m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2')) break;
+        if (got.some((m) => m.event === '__subscribeOk__' && m.metadata?.channel?.name === 'room2'))
+          break;
 
         await new Promise((r) => setTimeout(r, 20));
       }
@@ -698,10 +688,10 @@ test.describe('channel-static', () => {
     });
 
     const subscribeOk = captured.find(
-      (m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2',
+      (m) => m.event === '__subscribeOk__' && m.metadata?.channel?.name === 'room2',
     );
     expect(subscribeOk).toBeDefined();
-    expect(subscribeOk!.__wskit?.source).toBe('server');
+    expect(subscribeOk!.metadata?.exchange?.source).toBe('server');
   });
 
   test('a second channelHandle.subscribe for an already-subscribed connection is a no-op', async ({
@@ -719,21 +709,21 @@ test.describe('channel-static', () => {
       const got: {
         event: string;
         payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
       }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof ev.data === 'string') got.push(window.__livethingDecode(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
 
-      ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
-      ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
+      ws.send(window.__livethingEncode({ event: 'trigger-server-subscribe', payload: {} }));
+      ws.send(window.__livethingEncode({ event: 'trigger-server-subscribe', payload: {} }));
 
       const deadline = Date.now() + 2000;
       while (Date.now() < deadline) {
         const okCount = got.filter(
-          (m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2',
+          (m) => m.event === '__subscribeOk__' && m.metadata?.channel?.name === 'room2',
         ).length;
         if (okCount >= 1) await new Promise((r) => setTimeout(r, 200));
         if (Date.now() >= deadline - 200) break;
@@ -743,10 +733,10 @@ test.describe('channel-static', () => {
 
       return {
         subscribeOks: got.filter(
-          (m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2',
+          (m) => m.event === '__subscribeOk__' && m.metadata?.channel?.name === 'room2',
         ).length,
         memberJoins: got.filter(
-          (m) => m.event === '__memberJoin__' && m.__wskit?.channel === 'room2',
+          (m) => m.event === '__memberJoin__' && m.metadata?.channel?.name === 'room2',
         ).length,
       };
     });
@@ -777,7 +767,7 @@ test.describe('channel-static', () => {
     // alice triggers a server-side subscribe to room2.
     await pageA.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
+      ws?.send(window.__livethingEncode({ event: 'trigger-server-subscribe', payload: {} }));
     });
 
     // bob subscribes to room2 the normal way (client _subscribe), so he can
@@ -793,27 +783,27 @@ test.describe('channel-static', () => {
       const captured: {
         event: string;
         payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
       }[] = [];
       (window as unknown as { __capture?: typeof captured }).__capture = captured;
       const original = ws.onmessage;
 
       ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') captured.push(JSON.parse(ev.data));
+        if (typeof ev.data === 'string') captured.push(window.__livethingDecode(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
     });
     await aliceCaptureSetup;
 
-    // bob broadcasts into room2. Routing markers live in `__wskit`; the
+    // bob broadcasts into room2. Routing markers live in `metadata`; the
     // engine routes on them and `payload` carries only the event data.
     await pageB.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'send-message',
           payload: { text: 'hello from bob' },
-          __wskit: { channel: 'room2' },
+          metadata: { channel: { name: 'room2' } },
         }),
       );
     });
@@ -828,14 +818,14 @@ test.describe('channel-static', () => {
               __capture?: {
                 event: string;
                 payload: Record<string, unknown>;
-                __wskit?: Record<string, unknown>;
+                metadata?: Record<string, Record<string, unknown>> | null;
               }[];
             }
           ).__capture ?? [];
         const hit = captured.find(
           (m) =>
             m.event === 'room-message' &&
-            m.__wskit?.channel === 'room2' &&
+            m.metadata?.channel?.name === 'room2' &&
             m.payload?.text === 'hello from bob',
         );
         if (hit) return true;

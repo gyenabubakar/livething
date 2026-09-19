@@ -5,7 +5,7 @@ import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 import type { AdapterConfig } from './types.ts';
 
 /**
- * Create a platform adapter that wraps a WSKit server definition and returns
+ * Create a platform adapter that wraps a LiveThing server definition and returns
  * a platform-specific service.
  *
  * Implement the `setup` callback to wire your platform's WebSocket API into

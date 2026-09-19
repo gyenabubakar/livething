@@ -12,9 +12,9 @@ type OptsParameter = {
   validationError: unknown;
   scope?: EngineRuntimeTypes.ResolvedChannel;
 };
-type OptsParameter2 = { error: unknown; event?: string; routing?: Protocol.WSKitRouting };
+type OptsParameter2 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
 type SubscribeFromServerRefParameter = {
-  __wskit: 'connection-ref';
+  __livething: 'connection-ref';
   id: string;
   instance: string | undefined;
   userId: string;
@@ -92,7 +92,7 @@ export function kickChannelMembers(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'wskitStampHooks'
+      | 'livethingStampHooks'
     > & {
       leaveChannel(
         connection: EngineRuntimeTypes.RuntimeConnection,
@@ -117,7 +117,7 @@ export async function handleSubscribe(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'wskitStampHooks'
+      | 'livethingStampHooks'
     >,
   connection: EngineRuntimeTypes.RuntimeConnection,
   frame: Protocol.SubscribeFrame,
@@ -130,8 +130,8 @@ export async function handleSubscribe(
     },
     connection,
     {
-      channelName: frame.__wskit.channel,
-      channelFamily: frame.__wskit.channelFamily,
+      channelName: frame.__livething.channel,
+      channelFamily: frame.__livething.channelFamily,
       data: frame.payload,
     },
   );
@@ -159,7 +159,7 @@ export async function subscribeFromServer(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'wskitStampHooks'
+      | 'livethingStampHooks'
     > & { instanceId: string | undefined },
   ref: SubscribeFromServerRefParameter,
   opts: SubscribeFromServerOptions,
@@ -170,7 +170,7 @@ export async function subscribeFromServer(
   const target = runtime.connections.get(ref.id);
   if (!target) {
     throw new Error(
-      `[wskit] channelHandle.subscribe(ref) — no live connection with id "${ref.id}" on this instance.`,
+      `[livething] channelHandle.subscribe(ref) — no live connection with id "${ref.id}" on this instance.`,
     );
   }
 
@@ -196,8 +196,8 @@ export function handleMemberSync(
   frame: Protocol.MemberSyncRequestFrame,
 ): void {
   ChannelPrimitive.resyncChannelMembers(runtime, connection, {
-    channelName: frame.__wskit.channel,
-    channelFamily: frame.__wskit.channelFamily,
+    channelName: frame.__livething.channel,
+    channelFamily: frame.__livething.channelFamily,
   });
 }
 
@@ -214,7 +214,7 @@ export async function handleUnsubscribe(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'wskitStampHooks'
+      | 'livethingStampHooks'
     > & {
       leaveChannel(
         connection: EngineRuntimeTypes.RuntimeConnection,
@@ -225,8 +225,8 @@ export async function handleUnsubscribe(
   frame: Protocol.UnsubscribeFrame,
 ): Promise<void> {
   await ChannelPrimitive.unsubscribeConnection(runtime, connection, {
-    channelName: frame.__wskit.channel,
-    channelFamily: frame.__wskit.channelFamily,
-    unsubscribeId: frame.__wskit.unsubscribeId,
+    channelName: frame.__livething.channel,
+    channelFamily: frame.__livething.channelFamily,
+    unsubscribeId: frame.__livething.unsubscribeId,
   });
 }

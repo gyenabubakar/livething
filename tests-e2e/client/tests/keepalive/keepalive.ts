@@ -1,8 +1,8 @@
-import { client, connect, keepalive, quality } from '@wskit/client';
-import type { KeepaliveClient } from '@wskit/tests-e2e-handlers/keepalive';
+import { client, connect, keepalive, quality } from '@livething/client';
+import type { KeepaliveClient } from '@livething/tests-e2e-handlers/keepalive';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's keepalive() + quality() against the real `keepalive`
+// Drives @livething/client's keepalive() + quality() against the real `keepalive`
 // server definition, typed by the same contract the server implements
 // (KeepaliveClient = InferClient<definition>). The server definition pings every 1s and
 // closes after 2s of silence.

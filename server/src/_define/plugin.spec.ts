@@ -21,9 +21,11 @@ import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { plugin } from './plugins.ts';
 
-function findPrimitive(primitives: readonly any[], wskit: string, event?: string): any {
-  const found = primitives.find((p) => p.__wskit === wskit && (event ? p.event === event : true));
-  if (!found) throw new Error(`no ${wskit} primitive${event ? ` for ${event}` : ''}`);
+function findPrimitive(primitives: readonly any[], livething: string, event?: string): any {
+  const found = primitives.find(
+    (p) => p.__livething === livething && (event ? p.event === event : true),
+  );
+  if (!found) throw new Error(`no ${livething} primitive${event ? ` for ${event}` : ''}`);
 
   return found;
 }
@@ -188,7 +190,7 @@ describe('plugin() — scoped server definition + manifest', () => {
     await dispatchIncoming(runtime as any, connection, {
       event: '__acme:presence::heartbeat',
       payload: {},
-      wskit: { channelFamily: null },
+      livething: { channelFamily: null },
     });
 
     expect(send).toHaveBeenCalledWith('__acme:presence::user-online', { id: 'conn_1' });
@@ -300,8 +302,8 @@ describe('plugin() — hook ownership', () => {
   it('stamps a plugin intercept and outgoing hook with its owner', () => {
     const cap = buildHookPlugin()();
     const primitives = cap.__primitives as readonly any[];
-    const intercept = primitives.find((p) => p.__wskit === 'intercept');
-    const outgoing = primitives.find((p) => p.__wskit === 'outgoingHook');
+    const intercept = primitives.find((p) => p.__livething === 'intercept');
+    const outgoing = primitives.find((p) => p.__livething === 'outgoingHook');
 
     expect(intercept.__owner).toEqual({ kind: 'plugin', id: 'acme:obs' });
     expect(outgoing.__owner).toEqual({ kind: 'plugin', id: 'acme:obs' });
@@ -366,7 +368,7 @@ describe("plugin() — a plugin's own capability satisfies its own nested primit
     const Feed = buildFeed();
     const base = server({ capabilities: [dedup(), Feed()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(
-      "[wskit] plugin('acme:feed') needs the sequence() capability the host does not list.",
+      "[livething] plugin('acme:feed') needs the sequence() capability the host does not list.",
     );
   });
 
@@ -374,7 +376,7 @@ describe("plugin() — a plugin's own capability satisfies its own nested primit
     const Feed = buildFeed();
     const base = server({ capabilities: [sequence({ persist: true }), Feed()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(
-      "[wskit] plugin('acme:feed') needs the dedup() capability the host does not list.",
+      "[livething] plugin('acme:feed') needs the dedup() capability the host does not list.",
     );
   });
 });

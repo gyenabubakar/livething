@@ -5,8 +5,8 @@ import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { stream } from './capability.ts';
 
-function streamPrimitive(primitives: readonly { __wskit: string }[]): any {
-  const found = primitives.find((p) => p.__wskit === 'stream-generate');
+function streamPrimitive(primitives: readonly { __livething: string }[]): any {
+  const found = primitives.find((p) => p.__livething === 'stream-generate');
   if (!found) throw new Error('no stream primitive');
 
   return found;
