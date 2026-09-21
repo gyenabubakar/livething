@@ -18,6 +18,7 @@ export default defineConfig({
         hono: resolve(__dirname, 'src/frameworks/hono/index.ts'),
         fastify: resolve(__dirname, 'src/frameworks/fastify/index.ts'),
         h3: resolve(__dirname, 'src/frameworks/h3/index.ts'),
+        'h3-v1': resolve(__dirname, 'src/frameworks/h3/v1/index.ts'),
       },
       formats: ['es'],
     },

@@ -24,6 +24,10 @@
     "./h3": {
       "types": "./dist/src/frameworks/h3/index.d.ts",
       "import": "./dist/h3.js"
+    },
+    "./h3/v1": {
+      "types": "./dist/src/frameworks/h3/v1/index.d.ts",
+      "import": "./dist/h3-v1.js"
     }
   },
   "publishConfig": {
@@ -37,17 +41,20 @@
   ],
   "scripts": {
     "build": "tsc && vite build",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests && pnpm run test:h3-packages",
     "test:watch": "vitest --passWithNoTests",
     "test:e2e:node": "pnpm run test:e2e:node:raw && pnpm run test:e2e:node:packaged",
-    "test:e2e:node:raw": "pnpm run test:e2e:node:hono:raw && pnpm run test:e2e:node:fastify:raw && pnpm run test:e2e:node:h3:raw",
-    "test:e2e:node:packaged": "pnpm run test:e2e:node:hono:packaged && pnpm run test:e2e:node:fastify:packaged && pnpm run test:e2e:node:h3:packaged",
+    "test:e2e:node:raw": "pnpm run test:e2e:node:hono:raw && pnpm run test:e2e:node:fastify:raw && pnpm run test:e2e:node:h3:raw && pnpm run test:e2e:node:h3-v1:raw",
+    "test:e2e:node:packaged": "pnpm run test:e2e:node:hono:packaged && pnpm run test:e2e:node:fastify:packaged && pnpm run test:e2e:node:h3:packaged && pnpm run test:e2e:node:h3-v1:packaged",
     "test:e2e:node:hono:raw": "vitest run src/frameworks/hono/index.integration.spec.ts --testNamePattern='^(?!.*packaged)'",
     "test:e2e:node:hono:packaged": "vitest run src/frameworks/hono/index.integration.spec.ts --testNamePattern='packaged LiveThing client'",
     "test:e2e:node:fastify:raw": "vitest run src/frameworks/fastify/index.integration.spec.ts --testNamePattern='^(?!.*packaged)'",
     "test:e2e:node:fastify:packaged": "vitest run src/frameworks/fastify/index.integration.spec.ts --testNamePattern='packaged LiveThing client'",
     "test:e2e:node:h3:raw": "vitest run src/frameworks/h3/index.integration.spec.ts --testNamePattern='^(?!.*packaged)'",
     "test:e2e:node:h3:packaged": "vitest run src/frameworks/h3/index.integration.spec.ts --testNamePattern='packaged LiveThing client'",
+    "test:e2e:node:h3-v1:raw": "vitest run src/frameworks/h3/v1/index.integration.spec.ts --testNamePattern='^(?!.*packaged)'",
+    "test:e2e:node:h3-v1:packaged": "vitest run src/frameworks/h3/v1/index.integration.spec.ts --testNamePattern='packaged LiveThing client'",
+    "test:h3-packages": "node check-h3-packages.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist node_modules"
   },
@@ -55,9 +62,9 @@
     "@fastify/websocket": "^11.3.0",
     "@hono/node-server": "^2.1.1",
     "@livething/server": "^1.0.0-beta.0",
-    "crossws": "^0.4.12",
+    "crossws": "^0.3.5 || ^0.4.12",
     "fastify": "^5.12.3",
-    "h3": "^2.0.1-rc.31",
+    "h3": "^1.15.11 || ^2.0.1-rc.31",
     "hono": "^4.13.7"
   },
   "peerDependenciesMeta": {
@@ -93,8 +100,10 @@
     "@hono/node-server": "^2.1.1",
     "@livething/server": "workspace:*",
     "crossws": "^0.4.12",
+    "crossws-v1": "npm:crossws@0.3.5",
     "fastify": "^5.12.3",
     "h3": "^2.0.1-rc.31",
+    "h3-v1": "npm:h3@1.15.11",
     "hono": "^4.13.7",
     "vite": "8.0.5",
     "vite-plugin-dts": "^4.5.4"
