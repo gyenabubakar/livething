@@ -30,11 +30,12 @@
     "shaders": "^2.5.109"
   },
   "devDependencies": {
-    "@lhci/cli": "^0.15.1",
     "@iconify-json/logos": "^1.2.11",
     "@iconify-json/ph": "^1.2.2",
     "@iconify-json/simple-icons": "^1.2.86",
     "@iconify-json/vscode-icons": "^1.2.59",
+    "@lhci/cli": "^0.15.1",
+    "h3": "^1.15.11",
     "vue-tsc": "^2.2.0",
     "wrangler": "^4.0.0"
   }

@@ -573,6 +573,7 @@ describe('durable stream runtime', () => {
     expect(err?.payload.code).toBe('stream-aborted');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('cursor-invalid');
     expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
+    expect(Storage.readStream(sql, 'u1', 'corrupt')).toBeNull();
   });
 
   it('resumeDurableStream — recorded stream replays missed chunks since `since` then _streamEnd', async () => {
@@ -1071,6 +1072,11 @@ describe('durable stream runtime', () => {
 
     expect(pipelineSends).toHaveLength(0);
     expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
+    // The row cannot be restored, so it is removed instead of left 'active' with no generator.
+    expect(Storage.readStream(sql, 'u1', 's-bad')).toBeNull();
+    expect(
+      Storage.readCursorCheckpointAtOrBefore(sql, { userId: 'u1', streamId: 's-bad', seq: 10 }),
+    ).toBeNull();
   });
 
   it('ctx.stream.attempt — is 1 on first run', async () => {
@@ -1126,6 +1132,75 @@ describe('durable stream runtime', () => {
     });
 
     expect((pipelineSends[0]!.payload as { attempt: number }).attempt).toBe(2);
+  });
+
+  it('ctx.stream.attempt — goes up by one on every resume and is stored on the row', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+
+    const def = baseDef({
+      kind: 'resumable',
+      generator: async function* (ctx: any) {
+        yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
+      },
+    });
+
+    await runDurableStream(runtime as never, createConnection('c1'), {
+      scope: {},
+      def,
+      payload: {},
+      livething: { streamId: 'multi' } as never,
+    });
+
+    for (const connectionId of ['c2', 'c3', 'c4']) {
+      await resumeDurableStream(runtime as never, createConnection(connectionId), {
+        resolveDef: () => ({ scope: {}, def }),
+        row: Storage.readStream(sql, 'u1', 'multi'),
+        streamId: 'multi',
+        lastKnownSeq: 0,
+      });
+    }
+
+    const attempts = pipelineSends.map((s) => (s.payload as { attempt: number }).attempt);
+    expect(attempts).toEqual([1, 2, 3, 4]);
+    expect(Storage.readStream(sql, 'u1', 'multi')?.attempt).toBe(4);
+  });
+
+  it('resumeDurableStream — a resume whose connection closes on the ok frame leaves the row and attempt untouched', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+    runtime.sendProtocolMessage = (conn: RuntimeConnection) => {
+      conn.closing = true;
+    };
+
+    Storage.insertStream(sql, {
+      userId: 'u1',
+      streamId: 'closing',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+    Storage.markSuspended(sql, { userId: 'u1', streamId: 'closing', now: Date.now() });
+    const generatorSpy = vi.fn(async function* () {});
+
+    await resumeDurableStream(runtime as never, connection, {
+      resolveDef: () => ({
+        scope: {},
+        def: baseDef({ kind: 'resumable', generator: generatorSpy as never }),
+      }),
+      row: Storage.readStream(sql, 'u1', 'closing'),
+      streamId: 'closing',
+      lastKnownSeq: 0,
+    });
+
+    expect(generatorSpy).not.toHaveBeenCalled();
+    const row = Storage.readStream(sql, 'u1', 'closing');
+    expect(row?.status).toBe('suspended');
+    expect(row?.attempt).toBe(1);
   });
 
   it('nudges — populates nudgeValidators on the active stream', async () => {

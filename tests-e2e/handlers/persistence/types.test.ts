@@ -37,7 +37,7 @@ describe('PersistenceClient — outgoing (server incoming)', () => {
 
   it('has the declared top-level outgoing events', () => {
     expectTypeOf<keyof PersistenceClient['outgoing']>().toEqualTypeOf<
-      'remove-member' | 'ban' | 'server-drop'
+      'remove-member' | 'kick-member' | 'ban' | 'server-drop'
     >();
   });
 });

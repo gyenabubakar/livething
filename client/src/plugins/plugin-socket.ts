@@ -103,8 +103,8 @@ type PluginErrorCode<P extends SocketContract> = keyof ErrorsOf<P> & string;
 /**
  * A plugin with declared errors gets `onServerError`, which sees the server-pushed
  * errors in its namespace that no request or stream claimed. Present only when the
- * plugin declares an `errors` section. Local setup and handler throws still reach
- * the host's `onError`.
+ * plugin declares an `errors` section. A handler throw still reaches the host's
+ * `onError`; a throw in `setup` is not caught and propagates out of `client()`.
  */
 type PluginErrorHandling<P extends SocketContract> = WhenPresent<
   ErrorsOf<P>,

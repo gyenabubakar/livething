@@ -18,6 +18,28 @@ export function upgradeRejection(decision: UpgradeDecision): { body: string; sta
   return { body, status };
 }
 
+/** Reports whether an `Upgrade` header value asks for a WebSocket handshake. */
+export function isWebSocketUpgrade(upgradeHeader: string | null | undefined): boolean {
+  return upgradeHeader?.toLowerCase() === 'websocket';
+}
+
+export function invalidUpgradeResponse(): Response {
+  return new Response('Invalid Upgrade header', {
+    status: 400,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
+}
+
+/** Reports whether a Node request asks for a WebSocket handshake. */
+export function isNodeWebSocketUpgrade(request: IncomingMessage): boolean {
+  const connection = request.headers.connection ?? '';
+  const asksForUpgrade = connection
+    .split(',')
+    .some((token) => token.trim().toLowerCase() === 'upgrade');
+
+  return asksForUpgrade && isWebSocketUpgrade(request.headers.upgrade);
+}
+
 export function isSocketRejection(decision: UpgradeDecision): boolean {
   return decision.code !== undefined && decision.code >= 1000;
 }
@@ -70,6 +92,11 @@ export function createNodeUpgradeHandler(
 
 async function handleNodeUpgrade(options: NodeUpgradeRequest): Promise<void> {
   const { endpoint, webSocketServer, request, socket, head } = options;
+  if (!isNodeWebSocketUpgrade(request)) {
+    await writeHttpResponse(socket, invalidUpgradeResponse());
+    return;
+  }
+
   const abort = createNodeUpgradeAbort(request);
 
   let upgrade;

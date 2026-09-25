@@ -60,12 +60,12 @@ describe('__memberOnline__ and __memberOffline__ frames', () => {
 
     ws.emit({
       event: '__memberOnline__',
-      payload: { connectionId: 'c1', meta: { name: 'Ada' } },
+      payload: { memberId: 'c1', meta: { name: 'Ada' } },
       metadata: { channel: { name: 'general' } },
     });
 
     expect(onOnline).toHaveBeenCalledOnce();
-    expect(onOnline).toHaveBeenCalledWith('c1', { meta: { name: 'Ada' } });
+    expect(onOnline).toHaveBeenCalledWith('c1', { meta: { name: 'Ada' }, online: true });
   });
 
   it('fires onMemberOffline when the server sends __memberOffline__', async () => {
@@ -77,7 +77,7 @@ describe('__memberOnline__ and __memberOffline__ frames', () => {
 
     ws.emit({
       event: '__memberOffline__',
-      payload: { connectionId: 'c1' },
+      payload: { memberId: 'c1' },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -96,11 +96,11 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
 
     ws.emit({
       event: '__memberOnline__',
-      payload: { connectionId: 'c42', meta: { name: 'Bob' } },
+      payload: { memberId: 'c42', meta: { name: 'Bob' } },
       metadata: { channel: { name: 'general' } },
     });
 
-    expect(onOnline).toHaveBeenCalledWith('c42', { meta: { name: 'Bob' } });
+    expect(onOnline).toHaveBeenCalledWith('c42', { meta: { name: 'Bob' }, online: true });
     expect(room.members.get().has('c42')).toBe(false);
     expect(room.members.get().size).toBe(0);
   });
@@ -111,7 +111,7 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
 
     ws.emit({
       event: '__memberJoin__',
-      payload: { connectionId: 'c1', meta: {} },
+      payload: { memberId: 'c1', meta: {} },
       metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().has('c1')).toBe(true);
@@ -121,7 +121,7 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
 
     ws.emit({
       event: '__memberOffline__',
-      payload: { connectionId: 'c1' },
+      payload: { memberId: 'c1' },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -137,19 +137,19 @@ describe('channel.members store — snapshot identity', () => {
 
     ws.emit({
       event: '__memberJoin__',
-      payload: { connectionId: 'c1', meta: {} },
+      payload: { memberId: 'c1', meta: {} },
       metadata: { channel: { name: 'general' } },
     });
     const snapshot = room.members.get();
 
     ws.emit({
       event: '__memberOnline__',
-      payload: { connectionId: 'c42', meta: { name: 'Bob' } },
+      payload: { memberId: 'c42', meta: { name: 'Bob' } },
       metadata: { channel: { name: 'general' } },
     });
     ws.emit({
       event: '__memberOffline__',
-      payload: { connectionId: 'c1' },
+      payload: { memberId: 'c1' },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -165,12 +165,12 @@ describe('channel.members store — snapshot identity', () => {
 
     ws.emit({
       event: '__memberJoin__',
-      payload: { connectionId: 'c1', meta: {} },
+      payload: { memberId: 'c1', meta: {} },
       metadata: { channel: { name: 'general' } },
     });
     ws.emit({
       event: '__memberLeave__',
-      payload: { connectionId: 'c1' },
+      payload: { memberId: 'c1' },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -188,7 +188,7 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
 
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
+      payload: { members: [{ memberId: 'c1', meta: { name: 'Ada' }, online: true }] },
       metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().has('c1')).toBe(true);
@@ -196,7 +196,7 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
 
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c2', meta: { name: 'Bob' } }] },
+      payload: { members: [{ memberId: 'c2', meta: { name: 'Bob' }, online: true }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -211,7 +211,7 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
 
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c1', meta: {} }] },
+      payload: { members: [{ memberId: 'c1', meta: {}, online: true }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -222,14 +222,15 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
 
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c2', meta: { role: 'admin' } }] },
+      payload: { members: [{ memberId: 'c2', meta: { role: 'admin' }, online: true }] },
       metadata: { channel: { name: 'general' } },
     });
 
+    const admin = { meta: { role: 'admin' }, online: true };
     expect(onJoin).toHaveBeenCalledOnce();
-    expect(onJoin).toHaveBeenCalledWith('c2', { meta: { role: 'admin' } });
+    expect(onJoin).toHaveBeenCalledWith('c2', admin);
     expect(onOnline).toHaveBeenCalledOnce();
-    expect(onOnline).toHaveBeenCalledWith('c2', { meta: { role: 'admin' } });
+    expect(onOnline).toHaveBeenCalledWith('c2', admin);
   });
 });
 
@@ -257,7 +258,7 @@ describe('top-level channel and scoped channel with same name are independent', 
 
     ws.emit({
       event: '__memberJoin__',
-      payload: { connectionId: 'c1' },
+      payload: { memberId: 'c1' },
       metadata: { channel: { name: 'general', family: 'rooms' } },
     });
 
@@ -315,7 +316,7 @@ describe('presence frames are ignored while a leave is pending', () => {
     const room = await subscribeChannel(socket, ws, 'general');
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
+      payload: { members: [{ memberId: 'c1', meta: { name: 'Ada' }, online: true }] },
       metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().size).toBe(1);
@@ -328,7 +329,7 @@ describe('presence frames are ignored while a leave is pending', () => {
     const { ws, room } = await subscribedWithPendingLeave();
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c2', meta: {} }] },
+      payload: { members: [{ memberId: 'c2', meta: {}, online: true }] },
       metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().size).toBe(0);
@@ -343,12 +344,12 @@ describe('presence frames are ignored while a leave is pending', () => {
 
     ws.emit({
       event: '__memberJoin__',
-      payload: { connectionId: 'c3', meta: {} },
+      payload: { memberId: 'c3', meta: {} },
       metadata: { channel: { name: 'general' } },
     });
     ws.emit({
       event: '__memberOnline__',
-      payload: { connectionId: 'c3', meta: {} },
+      payload: { memberId: 'c3', meta: {} },
       metadata: { channel: { name: 'general' } },
     });
     expect(onJoin).not.toHaveBeenCalled();
@@ -404,7 +405,7 @@ describe('presence frames after the channel has been left', () => {
 
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
+      payload: { members: [{ memberId: 'c1', meta: { name: 'Ada' }, online: true }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -419,11 +420,183 @@ describe('presence frames after the channel has been left', () => {
 
     ws.emit({
       event: '__memberJoin__',
-      payload: { connectionId: 'c1', meta: { name: 'Ada' } },
+      payload: { memberId: 'c1', meta: { name: 'Ada' } },
       metadata: { channel: { name: 'general' } },
     });
 
     expect(onJoin).not.toHaveBeenCalled();
     expect(room.members.get().size).toBe(0);
+  });
+});
+
+describe('a member keeps one roster entry by its member id', () => {
+  function emit(ws: MockWebSocket, event: string, payload: unknown) {
+    ws.emit({ event, payload, metadata: { channel: { name: 'general' } } });
+  }
+
+  it('keeps one entry across a peer reconnect and removes it on a later leave', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    const onOnline = vi.fn();
+    const onOffline = vi.fn();
+    const onLeave = vi.fn();
+
+    room.onMemberOnline(onOnline);
+    room.onMemberOffline(onOffline);
+    room.onMemberLeave(onLeave);
+
+    emit(ws, '__memberJoin__', { memberId: 'alice', meta: { name: 'Alice' } });
+    emit(ws, '__memberOnline__', { memberId: 'alice', meta: { name: 'Alice' } });
+    emit(ws, '__memberOffline__', { memberId: 'alice' });
+    emit(ws, '__memberOnline__', { memberId: 'alice', meta: { name: 'Alice' } });
+
+    expect([...room.members.get().keys()]).toEqual(['alice']);
+    expect(onOffline).toHaveBeenCalledWith('alice');
+    expect(onOnline.mock.calls.map(([memberId]) => memberId)).toEqual(['alice', 'alice']);
+
+    emit(ws, '__memberLeave__', { memberId: 'alice', meta: { name: 'Alice' } });
+    emit(ws, '__memberOffline__', { memberId: 'alice' });
+
+    expect(room.members.get().size).toBe(0);
+    expect(onLeave).toHaveBeenCalledWith('alice');
+  });
+
+  it('fires leave then offline for an online member that a later sync no longer lists', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    emit(ws, '__memberSync__', {
+      members: [
+        { memberId: 'alice', meta: {}, online: true },
+        { memberId: 'bob', meta: {}, online: true },
+      ],
+    });
+
+    const calls: string[] = [];
+    room.onMemberLeave((memberId) => calls.push(`leave ${memberId}`));
+    room.onMemberOffline((memberId) => calls.push(`offline ${memberId}`));
+    room.onMemberOnline((memberId) => calls.push(`online ${memberId}`));
+
+    emit(ws, '__memberSync__', { members: [{ memberId: 'alice', meta: {}, online: true }] });
+
+    expect(calls).toEqual(['leave bob', 'offline bob']);
+    expect([...room.members.get().keys()]).toEqual(['alice']);
+  });
+});
+
+describe('a member keeps its roster entry while it is offline', () => {
+  function emit(ws: MockWebSocket, event: string, payload: unknown) {
+    ws.emit({ event, payload, metadata: { channel: { name: 'general' } } });
+  }
+
+  it('lists an offline member from the sync with online: false and fires only join', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    const calls: string[] = [];
+    room.onMemberJoin((memberId) => calls.push(`join ${memberId}`));
+    room.onMemberOnline((memberId) => calls.push(`online ${memberId}`));
+
+    room.onMemberOffline((memberId) => calls.push(`offline ${memberId}`));
+
+    emit(ws, '__memberSync__', {
+      members: [
+        { memberId: 'alice', meta: { name: 'Alice' }, online: false },
+        { memberId: 'bob', meta: { name: 'Bob' }, online: true },
+      ],
+    });
+
+    expect(calls).toEqual(['join alice', 'join bob', 'online bob']);
+    expect(room.members.get().get('alice')).toEqual({ meta: { name: 'Alice' }, online: false });
+    expect(room.members.get().get('bob')).toEqual({ meta: { name: 'Bob' }, online: true });
+  });
+
+  it('flips online without adding or removing entries, with a fresh snapshot each time', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    emit(ws, '__memberJoin__', { memberId: 'alice', meta: { name: 'Alice' } });
+    expect(room.members.get().get('alice')).toEqual({ meta: { name: 'Alice' }, online: false });
+
+    emit(ws, '__memberOnline__', { memberId: 'alice', meta: { name: 'Alice' } });
+    const online = room.members.get();
+    expect(online.get('alice')).toEqual({ meta: { name: 'Alice' }, online: true });
+
+    emit(ws, '__memberOffline__', { memberId: 'alice' });
+    const offline = room.members.get();
+    expect(offline).not.toBe(online);
+    expect(offline.get('alice')).toEqual({ meta: { name: 'Alice' }, online: false });
+    expect(offline.size).toBe(1);
+  });
+
+  it('shows a peer that went offline while the observer was away as offline, with no leave', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    emit(ws, '__memberSync__', {
+      members: [{ memberId: 'alice', meta: { name: 'Alice' }, online: true }],
+    });
+
+    const calls: string[] = [];
+    room.onMemberJoin((memberId) => calls.push(`join ${memberId}`));
+    room.onMemberLeave((memberId) => calls.push(`leave ${memberId}`));
+    room.onMemberOnline((memberId) => calls.push(`online ${memberId}`));
+    room.onMemberOffline((memberId) => calls.push(`offline ${memberId}`));
+
+    emit(ws, '__memberSync__', {
+      members: [{ memberId: 'alice', meta: { name: 'Alice' }, online: false }],
+    });
+
+    expect(calls).toEqual(['offline alice']);
+    expect(room.members.get().get('alice')).toEqual({ meta: { name: 'Alice' }, online: false });
+  });
+
+  it('fires only leave for an offline member that a later sync no longer lists', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    emit(ws, '__memberSync__', {
+      members: [{ memberId: 'alice', meta: {}, online: false }],
+    });
+
+    const calls: string[] = [];
+    room.onMemberLeave((memberId) => calls.push(`leave ${memberId}`));
+    room.onMemberOffline((memberId) => calls.push(`offline ${memberId}`));
+
+    emit(ws, '__memberSync__', { members: [] });
+    expect(calls).toEqual(['leave alice']);
+    expect(room.members.get().size).toBe(0);
+  });
+
+  it('re-adds a member after a kick with leave, then join and online', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    emit(ws, '__memberSync__', {
+      members: [{ memberId: 'alice', meta: { name: 'Alice' }, online: true }],
+    });
+
+    const calls: string[] = [];
+    room.onMemberJoin((memberId) => calls.push(`join ${memberId}`));
+    room.onMemberLeave((memberId) => calls.push(`leave ${memberId}`));
+    room.onMemberOnline((memberId) => calls.push(`online ${memberId}`));
+    room.onMemberOffline((memberId) => calls.push(`offline ${memberId}`));
+
+    emit(ws, '__memberLeave__', { memberId: 'alice', meta: { name: 'Alice' } });
+    emit(ws, '__memberOffline__', { memberId: 'alice' });
+    expect(room.members.get().has('alice')).toBe(false);
+
+    emit(ws, '__memberJoin__', { memberId: 'alice', meta: { name: 'Alice' } });
+    emit(ws, '__memberOnline__', { memberId: 'alice', meta: { name: 'Alice' } });
+
+    expect(calls).toEqual(['leave alice', 'offline alice', 'join alice', 'online alice']);
+    expect(room.members.get().get('alice')).toEqual({ meta: { name: 'Alice' }, online: true });
+  });
+
+  it('drops a sync entry that has no online flag', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    emit(ws, '__memberSync__', {
+      members: [
+        { memberId: 'alice', meta: {} },
+        { memberId: 'bob', meta: {}, online: true },
+      ],
+    });
+
+    expect([...room.members.get().keys()]).toEqual(['bob']);
   });
 });

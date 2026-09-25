@@ -180,7 +180,7 @@ export default defineNuxtConfig({
     },
     repository: {
       provider: 'github',
-      owner: 'plain-software-co',
+      owner: 'workmatter',
       repo: 'livething',
       rootDir: 'website',
     },

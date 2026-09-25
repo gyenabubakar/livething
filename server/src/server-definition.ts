@@ -3,27 +3,25 @@ import type { Primitive } from '~/primitive.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
 
 /**
- * The client-facing contract for a server — described from the **client's**
- * point of view.
+ * The contract of a server, described from the **server's** point of view.
  *
  * Each field is a record mapping event names to payload types (or richer
  * shapes for requests and streams). `InferClient<typeof myDefinition>` reads this
- * to produce the typed client SDK. Adapters (server-cloudflare, server-bun,
- * etc.) also consume it so the server definition and its adapter agree on one contract.
+ * and flips `incoming` and `outgoing` to produce the typed client contract.
+ * Adapters (server-cloudflare, server-bun, etc.) also consume it so the server
+ * definition and its adapter agree on one contract.
  *
- * **The naming is client-oriented, which flips against how you author the server.**
- * The table below is the one thing most readers get wrong:
- *
- * | Server authoring            | ServerContract field | Meaning for the client    |
+ * | Server authoring            | ServerContract field | Client contract field     |
  * | --------------------------- | -------------------- | ------------------------- |
- * | `emits({ 'msg': … })`       | `incoming`           | events the client receives|
- * | `base.on('msg', …)`         | `outgoing`           | events the client sends   |
- * | `base.request('r', …)`      | `clientRequests`     | req/response pairs        |
- * | `base.stream('s', …)`       | `streams`            | server-sent streams       |
- * | `base.resumableStream('s', …)` | `streams`         | server-sent streams       |
- * | `base.recordedStream('s', …)`  | `streams`         | server-sent streams       |
- * | `errors([...])`             | `errors`             | typed server errors       |
- * | `base.channel('x', …)`      | `channels`           | per-channel sub-contracts |
+ * | `emits({ 'msg': … })`       | `outgoing`           | `incoming`                |
+ * | `base.on('msg', …)`         | `incoming`           | `outgoing`                |
+ * | `base.request('r', …)`      | `clientRequests`     | `clientRequests`          |
+ * | `serverRequests({...})`     | `serverRequests`     | `serverRequests`          |
+ * | `base.stream('s', …)`       | `streams`            | `streams`                 |
+ * | `base.resumableStream('s', …)` | `streams`         | `streams`                 |
+ * | `base.recordedStream('s', …)`  | `streams`         | `streams`                 |
+ * | `errors([...])`             | `errors`             | `errors`                  |
+ * | `base.channel('x', …)`      | `channels`           | `channels` (each flipped) |
  *
  * `resumableStream` and `recordedStream` collapse into the same client
  * `streams` slot as plain `stream` — the durability mechanism is a server
@@ -48,10 +46,10 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
  * ```
  */
 export interface ServerContract {
-  /** Events the **client** receives — declared on the server with `emits({...})`. */
+  /** Events the server receives — declared with `base.on(...)`. The client sends these. */
   readonly incoming: Record<string, any>;
 
-  /** Events the **client** sends — declared on the server with `base.on(...)`. */
+  /** Events the server sends — declared with `emits({...})`. The client receives these. */
   readonly outgoing: Record<string, any>;
 
   /** Request/response pairs the client can invoke (declared with `base.request(...)`). */

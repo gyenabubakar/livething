@@ -1,3 +1,4 @@
+import { LiveThingConfigError } from '@livething/core';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
 import { createKeepaliveMonitor } from '~/keepalive/runtime.ts';
@@ -64,16 +65,17 @@ function connectionIdOf(ctx: unknown): string {
  *
  * Both options are required and there are no defaults: `pingIntervalMs` must be
  * strictly less than `idleTimeoutMs`, or the ping could not land before the
- * idle window closes and live clients would be dropped. Enable this via
- * `keepalive: { pingIntervalMs, idleTimeoutMs }` on the contract config instead
- * of calling this primitive directly.
+ * idle window closes and live clients would be dropped. Enable this by listing
+ * the `keepalive({ pingIntervalMs, idleTimeoutMs })` capability from
+ * `@livething/server/keepalive` in `server({ capabilities: [...] })` instead of
+ * calling this primitive directly.
  */
 export function keepalive(options: KeepaliveOptions): KeepalivePrimitive {
   assertPositiveInteger(options.pingIntervalMs, 'pingIntervalMs', 'keepalive()');
   assertPositiveInteger(options.idleTimeoutMs, 'idleTimeoutMs', 'keepalive()');
   if (options.pingIntervalMs >= options.idleTimeoutMs) {
-    throw new Error(
-      `[livething] keepalive pingIntervalMs (${options.pingIntervalMs}) must be less than idleTimeoutMs ` +
+    throw new LiveThingConfigError(
+      `keepalive pingIntervalMs (${options.pingIntervalMs}) must be less than idleTimeoutMs ` +
         `(${options.idleTimeoutMs}): the keepalive ping has to fire before the idle window closes, ` +
         `or a live client would be dropped.`,
     );

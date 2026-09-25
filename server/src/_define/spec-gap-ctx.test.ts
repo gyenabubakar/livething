@@ -26,8 +26,9 @@ describe('ctx.sendReplay gating', () => {
     base.on('x', {
       run(ctx) {
         expectTypeOf(ctx.sendReplay).toBeFunction();
-        expectTypeOf(ctx.sendReplay).parameter(0).toEqualTypeOf<'msg'>();
-        expectTypeOf(ctx.sendReplay).parameter(0).not.toBeAny();
+        ctx.sendReplay('msg', { text: 'hi' }, { deliverySeq: 1, messageId: 'm1' });
+        // @ts-expect-error — only declared emits can be replayed.
+        ctx.sendReplay('other', { text: 'hi' }, { deliverySeq: 1, messageId: 'm1' });
       },
     });
   });
@@ -53,8 +54,9 @@ describe('ctx.sendReplay gating', () => {
     base.on('x', {
       run(ctx) {
         expectTypeOf(ctx.sendReplay).toBeFunction();
-        expectTypeOf(ctx.sendReplay).parameter(0).toEqualTypeOf<'msg'>();
-        expectTypeOf(ctx.sendReplay).parameter(0).not.toBeAny();
+        ctx.sendReplay('msg', { text: 'hi' }, { deliverySeq: 1, messageId: 'm1' });
+        // @ts-expect-error — the payload must match the declared `msg` payload.
+        ctx.sendReplay('msg', { body: 'hi' }, { deliverySeq: 1, messageId: 'm1' });
       },
     });
   });

@@ -55,8 +55,9 @@ interface RecordedStreamConfig<
  * `reason: 'buffer-full'` into the generator's `yield`. Wrap the yield in
  * `try/catch` if you want to handle it gracefully.
  *
- * Nudges declared here behave exactly like nudges on a plain `stream(...)`
- * and survive a resume.
+ * Nudges declared here behave exactly like nudges on a plain `stream(...)`.
+ * The generator never re-runs, so with `onDisconnect: 'keep-running'` it
+ * keeps the nudges it already received when the client reconnects.
  *
  * @example
  * ```ts

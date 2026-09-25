@@ -1,6 +1,7 @@
 import type { ApiOf, ServerDefinition } from '@livething/server/adapters';
 import { binding } from '../../../binding.ts';
 import { closeWebSocket } from '../../../close.ts';
+import { invalidUpgradeResponse, isWebSocketUpgrade } from '../../../upgrade.ts';
 import { createWebUpgradeLifecycle } from '../../../web-upgrade-lifecycle.ts';
 import type {
   NodeAdmin,
@@ -79,6 +80,9 @@ export function createH3V1Setup<THandler>(
 
       const route = defineWebSocketHandler({
         async upgrade(request) {
+          if (!isWebSocketUpgrade(request.headers.get('upgrade')))
+            return toH3V1HttpRejection(invalidUpgradeResponse());
+
           let webRequest: Request;
           try {
             webRequest = createWebRequest(request);

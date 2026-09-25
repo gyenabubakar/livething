@@ -26,9 +26,8 @@ export interface RejoinRuntime {
    * Server-side subscribe primitive (from #11). The rejoin path invokes this
    * for every durable membership the user has so the connection lands
    * back in the channel without a client `__subscribe__` frame. The `rejoining`
-   * flag tells the subscribe flow to suppress `__memberJoin__` peer broadcasts
-   * (the user is already a member of the group — only the new socket's
-   * presence has changed).
+   * flag tells the subscribe flow to run `revalidate` instead of the subscribe
+   * gates.
    */
   subscribeConnectionAsServer(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -44,6 +43,13 @@ export interface RejoinRuntime {
     opts: SendProtocolMessageOptions,
   ): void;
 
+  /**
+   * End a stored membership whose `revalidate` gate rejected the rejoin: drop
+   * the row and tell peers the member left. Keeps the row while another
+   * connection of the user is live in the channel.
+   */
+  removeStoredMember(userId: string, channelName: string, channelFamily: string | null): void;
+
   logger?: Pick<Logger, 'error'>;
 }
 
@@ -54,16 +60,16 @@ export interface RejoinRuntime {
  * connection already in its old channels. For each durable membership the
  * engine re-runs the `revalidate` hook. On pass the connection is committed
  * via the server-subscribe primitive (`source: 'server'`), which sends
- * `__subscribeOk__` to the rejoining socket; `__memberJoin__` peer broadcasts
- * are suppressed because the user is still a member — peers see
- * `__memberOnline__` for the new socket's presence instead. On reject the
- * durable row is dropped and a `rejoin-rejected` `__error__` scoped to the
- * channel is sent to the new socket so the client knows that one channel did
- * not restore.
+ * `__subscribeOk__` to the rejoining socket. Peers see `__memberOnline__`, and
+ * `__memberJoin__` before it only when a kick had ended the membership. On
+ * reject the durable row is dropped, peers see `__memberLeave__`, and a
+ * `rejoin-rejected` `__error__` scoped to the channel is sent to the new socket
+ * so the client knows that one channel did not restore.
  *
- * Rows for channels that no longer exist (renamed or removed between
- * deploys) are skipped silently — boot cleanup is where those dead rows
- * get purged.
+ * A row for a channel that no longer exists (renamed or removed between
+ * deploys) is deleted, and the new socket gets the same `rejoin-rejected`
+ * `__error__` scoped to that channel. Peers get no `__memberLeave__`, since
+ * nobody can be in a channel that does not exist.
  *
  * No-ops:
  * - Empty user id (anonymous flow with no key to look rows up by).
@@ -97,11 +103,15 @@ export async function autoRejoinIdentity(
       // The gate rejected (or the channel no longer exists). Drop the row
       // so the next reconnect does not retry the same dead membership, and
       // deliver an error scoped to that channel so the client knows.
-      deleteMembership(runtime.sql, {
-        userId: connection.userId,
-        channelName: row.channelName,
-        channelFamily: row.channelFamily,
-      });
+      if (RejoinRejected.matches(error)) {
+        runtime.removeStoredMember(connection.userId, row.channelName, row.channelFamily);
+      } else {
+        deleteMembership(runtime.sql, {
+          userId: connection.userId,
+          channelName: row.channelName,
+          channelFamily: row.channelFamily,
+        });
+      }
 
       let reason: string;
       if (RejoinRejected.matches(error)) reason = error.detail.message;

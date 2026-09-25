@@ -3,7 +3,7 @@ import { RateLimited } from '@livething/core';
 import { registerInterceptRuntime } from '~/intercept/capability.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import type { Primitive } from '~/primitive.ts';
-import { RateLimitRuntime } from './runtime.ts';
+import { connectionBudgetKey, RateLimitRuntime } from './runtime.ts';
 import type { ResolvedRateLimitPlan } from './runtime.ts';
 
 /**
@@ -23,7 +23,8 @@ export interface RateLimitConfig {
   /**
    * Pick the bucket key from the connection context. Default: `ctx.connection.id`
    * (per-connection). Use `(ctx) => ctx.user.id` to share a single budget
-   * across every socket the user has open.
+   * across every socket the user has open. An empty key falls back to the
+   * connection's own budget, so anonymous connections never share one bucket.
    */
   readonly per?: (ctx: any) => string;
 }
@@ -31,7 +32,7 @@ export interface RateLimitConfig {
 export const RATE_LIMIT_DEFAULTS = Object.freeze({
   windowMs: 60_000,
   max: 60,
-  per: (ctx: any) => String(ctx?.connection?.id ?? ''),
+  per: connectionBudgetKey,
 });
 
 export interface RateLimitPrimitive extends Primitive<'intercept'> {}

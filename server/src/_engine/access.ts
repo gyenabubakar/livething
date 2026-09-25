@@ -135,8 +135,9 @@ export interface EngineAccess {
   /**
    * Observe or rewrite outgoing wire messages before they are serialized.
    *
-   * The handler gets the active connection's context (or `undefined` for a
-   * fan-out broadcast) and the `OutgoingFrame` (`event`, `payload`, `owner`).
+   * The handler gets the context of the connection whose handler, intercept,
+   * or `onConnect` hook is running (the sender, for a broadcast), or
+   * `undefined` when none is, and the `OutgoingFrame` (`event`, `payload`, `owner`).
    * Return a value to replace the payload, or return nothing to keep the
    * original. Same locked-event semantics as `onIncoming`.
    */
@@ -176,6 +177,24 @@ export interface EngineAccess {
    */
   onAfterSend(
     handler: (message: EngineRuntimeTypes.WireOutgoingMessage) => void | Promise<void>,
+  ): void;
+
+  /**
+   * Observe one broadcast once, before any recipient is sent the frame. Runs
+   * even when no connection receives it live. Throw to stop the broadcast.
+   *
+   * @internal
+   */
+  onBeforeBroadcast(handler: (message: EngineRuntimeTypes.WireBroadcastMessage) => void): void;
+
+  /**
+   * Observe one broadcast once, after every recipient was sent the frame. Runs
+   * even when no connection received it live.
+   *
+   * @internal
+   */
+  onAfterBroadcast(
+    handler: (message: EngineRuntimeTypes.WireBroadcastMessage) => void | Promise<void>,
   ): void;
 
   /**
@@ -751,15 +770,16 @@ export interface EngineAccess {
   setStreamTrigger(trigger: FeatureSlots.StreamTrigger): void;
 
   /**
-   * Register the active-stream nudge buffer and cancel, shared by plain and
-   * durable streams. Either stream kind sets it, so the owner registers it
-   * through `installOnce` to keep it set exactly once.
+   * Register the active-stream nudge buffer, cancel, and channel-leave stop,
+   * shared by plain and durable streams. Either stream kind sets it, so the
+   * owner registers it through `installOnce` to keep it set exactly once.
    *
    * @internal
    */
   setActiveStreamOps(
     buffer: FeatureSlots.StreamNudgeBuffer,
     cancel: FeatureSlots.StreamCancel,
+    channelLeave: FeatureSlots.StreamChannelLeave,
   ): void;
 
   /**

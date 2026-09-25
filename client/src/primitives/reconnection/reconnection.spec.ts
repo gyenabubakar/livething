@@ -353,6 +353,33 @@ describe('socket.reconnection store', () => {
     });
   });
 
+  it('clears nextRetryAt when the device goes offline while a retry is pending', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const m = mockEnvironment();
+    const { ws, socket } = build(platform({ environment: m.environment }), reconnection());
+    const typed = socket as typeof socket & ReconnectionApi;
+
+    ws.serverClose(1006);
+    expect(typed.reconnection.get().nextRetryAt).not.toBeNull();
+
+    m.setOnline(false);
+
+    expect(typed.reconnection.get()).toEqual({ retrying: true, attempt: 1, nextRetryAt: null });
+    vi.advanceTimersByTime(60_000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(typed.reconnection.get().nextRetryAt).toBeNull();
+  });
+
+  it('stays idle when the device goes offline while the socket is open', () => {
+    const m = mockEnvironment();
+    const { socket } = build(platform({ environment: m.environment }), reconnection());
+    const typed = socket as typeof socket & ReconnectionApi;
+
+    m.setOnline(false);
+
+    expect(typed.reconnection.get()).toEqual({ retrying: false, attempt: 0, nextRetryAt: null });
+  });
+
   it('stops retrying once the loop gives up after maxAttempts', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const { ws, socket } = buildWithReconnection({ maxAttempts: 2 });

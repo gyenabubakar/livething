@@ -37,8 +37,21 @@ const SCHEDULED_DLQ_TABLE_SQL = `
   )
 `;
 
-// Both DDL statements bundled — one round trip instead of two.
-const SCHEDULED_SCHEMA_SQL = `${SCHEDULED_TABLE_SQL};\n${SCHEDULED_DLQ_TABLE_SQL}`;
+// One row per recurring (`every`) task that `ctx.cancelScheduled(taskId)` stopped.
+// Boot does not re-seed a stopped task; `ctx.schedule(taskId, ...)` starts it again.
+const SCHEDULED_STOPPED_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS __livething_scheduled_stopped (
+    taskId TEXT PRIMARY KEY,
+    stoppedAt INTEGER NOT NULL
+  )
+`;
+
+// All DDL statements bundled — one round trip.
+const SCHEDULED_SCHEMA_SQL = [
+  SCHEDULED_TABLE_SQL,
+  SCHEDULED_DLQ_TABLE_SQL,
+  SCHEDULED_STOPPED_TABLE_SQL,
+].join(';\n');
 type ScheduledRunRow = {
   id: string;
   taskId: string;
@@ -400,29 +413,68 @@ function summarizeOps(ops: readonly DiffOp[]): {
   return { inserts, updates, deletes };
 }
 
+/** Task ids of recurring tasks stopped by `ctx.cancelScheduled(taskId)`. */
+function readStoppedTaskIds(runtime: ScheduledRuntimeAccess): Set<string> {
+  const rows = runtime
+    .getStorage()
+    .sql.exec<{ taskId: string }>('SELECT taskId FROM __livething_scheduled_stopped')
+    .toArray();
+  return new Set(rows.map((row) => String(row.taskId)));
+}
+
+/** Record that a recurring task was stopped. Returns `false` when it already was. */
+function markTaskStopped(runtime: ScheduledRuntimeAccess, taskId: string): boolean {
+  const sql = runtime.getStorage().sql;
+  const existing = sql
+    .exec('SELECT 1 FROM __livething_scheduled_stopped WHERE taskId = ?', taskId)
+    .toArray();
+  if (existing.length > 0) return false;
+
+  sql.exec(
+    'INSERT INTO __livething_scheduled_stopped (taskId, stoppedAt) VALUES (?, ?)',
+    taskId,
+    Date.now(),
+  );
+
+  return true;
+}
+
+/** Clear a stopped marker. Returns `true` when the task was stopped. */
+function clearTaskStopped(runtime: ScheduledRuntimeAccess, taskId: string): boolean {
+  const sql = runtime.getStorage().sql;
+  const existing = sql
+    .exec('SELECT 1 FROM __livething_scheduled_stopped WHERE taskId = ?', taskId)
+    .toArray();
+  if (existing.length === 0) return false;
+
+  sql.exec('DELETE FROM __livething_scheduled_stopped WHERE taskId = ?', taskId);
+
+  return true;
+}
+
 /**
  * Seed a recurring run for each `.scheduled()` task that declares an `every`
- * interval but does not already have one queued.
+ * interval but does not already have one queued. A task stopped by
+ * `ctx.cancelScheduled(taskId)` is not seeded.
  *
  * Called at boot so that recurring tasks resume even after a restart or
  * hibernation wake.
  */
-function ensureRecurringRuns(runtime: ScheduledRuntimeAccess): void {
+function ensureRecurringRuns(runtime: ScheduledRuntimeAccess, stopped: ReadonlySet<string>): void {
   const scheduledRuns = runtime.getScheduledRuns();
   const now = Date.now();
 
   for (const task of runtime.getScheduledTasks()) {
     const every = task.options?.every;
-    if (!every) continue;
+    if (!every || stopped.has(task.taskId)) continue;
 
     const hasRecurringRun = [...scheduledRuns.values()].some(
       (run) => run.taskId === task.taskId && run.recurring,
     );
 
     if (!hasRecurringRun) {
-      // Recurring tasks cannot declare .data(...) — the builder rejects
-      // the combination at registration. The seed therefore always has
-      // an undefined payload.
+      // A task with `every` cannot declare `data` — `scheduled({...})` rejects
+      // the combination. The seed therefore always has an undefined payload.
       const id = runtime.generateId('task');
       scheduledRuns.set(id, {
         id,
@@ -536,7 +588,21 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
     dlqSnapshot.set(entry.id, fingerprint(serializeDlqColumns(entry)));
   }
 
-  ensureRecurringRuns(runtime);
+  // A stopped marker only matters for a task that still declares `every`.
+  const recurringTaskIds = new Set<string>();
+  for (const task of runtime.getScheduledTasks()) {
+    if (task.options?.every) recurringTaskIds.add(task.taskId);
+  }
+
+  const stopped = readStoppedTaskIds(runtime);
+  for (const taskId of stopped) {
+    if (recurringTaskIds.has(taskId)) continue;
+
+    storage.sql.exec('DELETE FROM __livething_scheduled_stopped WHERE taskId = ?', taskId);
+    stopped.delete(taskId);
+  }
+
+  ensureRecurringRuns(runtime, stopped);
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
 
@@ -613,16 +679,31 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
   );
 
   const deadLetters = runtime.getScheduledDlq();
+  // Read after the handlers settle: a handler may have stopped its own task.
+  const stopped = due.some((run) => run.recurring)
+    ? readStoppedTaskIds(runtime)
+    : new Set<string>();
 
   for (const [index, result] of results.entries()) {
     const run = due[index];
     if (!run) continue;
 
-    if (result.status === 'fulfilled') {
+    const requeueRecurring =
+      run.recurring &&
+      !!run.every &&
+      !stopped.has(run.taskId) &&
       // Drop the recurring re-queue when the task was removed from the
       // handler between deploys. Without this guard the row keeps coming
       // back on every alarm tick and storage never shrinks.
-      if (run.recurring && run.every && runtime.getScheduledTask(run.taskId)) {
+      !!runtime.getScheduledTask(run.taskId) &&
+      // A handler that stopped and then scheduled its own task already queued
+      // the restarted cycle; do not add a second one.
+      ![...scheduledRuns.values()].some(
+        (queued) => queued.taskId === run.taskId && queued.recurring,
+      );
+
+    if (result.status === 'fulfilled') {
+      if (requeueRecurring && run.every) {
         scheduledRuns.set(run.id, {
           ...run,
           time: now + run.every,
@@ -636,7 +717,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     const nextAttempts = run.attempts + 1;
     const retryDelay = run.retry ? getRetryDelay(run.attempts, run.retry) : undefined;
 
-    if (retryDelay !== undefined) {
+    if (retryDelay !== undefined && !(run.recurring && stopped.has(run.taskId))) {
       scheduledRuns.set(run.id, {
         ...run,
         time: now + retryDelay,
@@ -655,16 +736,9 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
       error: serializeError(result.reason),
     });
 
-    if (run.recurring && run.every) {
-      // Same orphan guard as the success branch: only re-queue when the
-      // task is still registered. A removed task should not leave a
-      // recurring run alive even after one of its attempts dead-letters.
-      const task = runtime.getScheduledTask(run.taskId);
-      if (!task) continue;
-
-      // Recurring tasks cannot declare .data(...) — the builder rejects
-      // the combination at registration. The re-queue always has an
-      // undefined payload.
+    if (requeueRecurring && run.every) {
+      // A task with `every` cannot declare `data` — `scheduled({...})` rejects
+      // the combination. The re-queue always has an undefined payload.
       const id = runtime.generateId('task');
       scheduledRuns.set(id, {
         id,
@@ -695,8 +769,10 @@ export interface ScheduleTaskRunOptions {
 /**
  * Queue one future run of a scheduled task.
  *
- * This always creates a one-shot run, even if the task also has a recurring
- * `every` schedule.
+ * This creates a one-shot run, even if the task also has a recurring `every`
+ * schedule. The one exception is a recurring task stopped by
+ * `cancelScheduledRuns`: scheduling it starts the recurring cycle again, with
+ * the first run at `time` and one every `every` ms after that.
  */
 export function scheduleTaskRun(
   runtime: ScheduledRuntimeAccess,
@@ -716,17 +792,24 @@ export function scheduleTaskRun(
   if (task.hasData) {
     normalizedData = validateValue(task.dataSchema, data, taskId);
   } else if (data !== undefined) {
-    throw new Error(`[livething] scheduled task "${taskId}" does not declare .data(...).`);
+    throw new Error(
+      `[livething] ctx.schedule("${taskId}", ...) was given data, but task "${taskId}" declares no data. ` +
+        `Declare it as { data: t<...>() } in scheduled({ ... }), or leave data out.`,
+    );
   }
+
+  const every = task.options?.every;
+  const restartsRecurring = every !== undefined && clearTaskStopped(runtime, taskId);
 
   runtime.getScheduledRuns().set(id, {
     id,
     taskId,
     time,
     data: normalizedData,
+    ...(restartsRecurring ? { every } : {}),
     attempts: 0,
-    recurring: false,
-    retry: task?.options?.retry ?? true,
+    recurring: restartsRecurring,
+    retry: task.options?.retry ?? true,
   });
 
   persistSchedulerState(runtime);
@@ -737,7 +820,9 @@ export function scheduleTaskRun(
  * Remove queued runs for one task id.
  *
  * With no filter, all one-shot runs are removed and recurring runs are stopped.
- * With a filter, only runs whose data matches the provided keys are removed.
+ * A stopped recurring task stays stopped across restarts and wakes until
+ * `scheduleTaskRun` starts it again. With a filter, only one-shot runs whose
+ * data matches the provided keys are removed.
  */
 export function cancelScheduledRuns(
   runtime: ScheduledRuntimeAccess,
@@ -759,8 +844,9 @@ export function cancelScheduledRuns(
   }
 
   const scheduledRuns = runtime.getScheduledRuns();
-  const taskExists = !!runtime.getScheduledTask(taskId);
+  const task = runtime.getScheduledTask(taskId);
   let removed = 0;
+  let removedRecurring = false;
 
   for (const [id, run] of scheduledRuns) {
     if (run.taskId !== taskId) continue;
@@ -769,6 +855,7 @@ export function cancelScheduledRuns(
       if (!filter) {
         scheduledRuns.delete(id);
         removed += 1;
+        removedRecurring = true;
       }
 
       continue;
@@ -780,8 +867,14 @@ export function cancelScheduledRuns(
     }
   }
 
+  // Stopping counts as a removal even when no recurring run was queued — for
+  // example when the task cancels itself while its own run is in progress.
+  if (!filter && task?.options?.every && markTaskStopped(runtime, taskId) && !removedRecurring) {
+    removed += 1;
+  }
+
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
 
-  return { taskExists, removed };
+  return { taskExists: !!task, removed };
 }

@@ -122,6 +122,7 @@ export class Engine<TApi = unknown> {
         upgradeHelpers: this.buildUpgradeHelpers(),
         logger: this.core.logger,
         isTagGroupDeclared: (kind, group) => this.core.isTagGroupDeclared(kind, group),
+        getTagGroupSchema: (kind, group) => this.core.getTagGroupSchema(kind, group),
       },
       request,
     );

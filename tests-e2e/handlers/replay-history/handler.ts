@@ -20,6 +20,7 @@ import {
   SendCursor,
   SendMsg,
   SendRoomMsg,
+  SendToUser,
   StartTinyStream,
   TinyChunk,
   TriggerBadReplay,
@@ -40,11 +41,9 @@ const pluginBase = server({
 const handlePluginPingAll = pluginBase.on('ping-all', {
   input: PingAll,
   run(ctx, payload) {
-    // Send to the caller AND broadcast to everyone else. The persist hook fires
-    // per recipient, so the send to the live caller is what stores the frame —
-    // exactly how the top-level `chat-msg` handler seeds a replayable row.
-    ctx.send('plugin-msg', { text: payload.text });
-    ctx.broadcast('plugin-msg', { text: payload.text });
+    // A broadcast is recorded once for replay, the same way the top-level
+    // `chat-msg` handler seeds a replayable row.
+    ctx.broadcast('plugin-msg', { text: payload.text }, { includeSelf: true });
   },
 });
 
@@ -83,16 +82,40 @@ export const handleSendMsg = base.on('send-msg', {
   input: SendMsg,
   run(ctx, payload) {
     const msg = { text: payload.text, from: ctx.meta.username };
-    ctx.send('chat-msg', msg);
-    ctx.broadcast('chat-msg', msg);
+    ctx.broadcast('chat-msg', msg, { includeSelf: true });
   },
 });
 
 export const handleSendCursor = base.on('send-cursor', {
   input: SendCursor,
   run(ctx, payload) {
-    ctx.send('cursor', { x: payload.x, y: payload.y });
-    ctx.broadcast('cursor', { x: payload.x, y: payload.y });
+    ctx.broadcast('cursor', { x: payload.x, y: payload.y }, { includeSelf: true });
+  },
+});
+
+// A private reply to the caller only. Replay never records it, so no other
+// connection can read it back.
+export const handleSendPrivate = base.on('send-private', {
+  input: SendMsg,
+  run(ctx, payload) {
+    ctx.send('chat-msg', { text: payload.text, from: 'private' });
+  },
+});
+
+// A message addressed to one user. Replay records it for that user only.
+export const handleSendToUser = base.on('send-to-user', {
+  input: SendToUser,
+  run(ctx, payload) {
+    ctx.users.get(payload.userId).broadcast('chat-msg', { text: payload.text, from: 'dm' });
+  },
+});
+
+// A broadcast to everyone except the caller. Replay records it even when the
+// caller is the only connection, so nobody receives it live.
+export const handleShout = base.on('shout', {
+  input: SendMsg,
+  run(ctx, payload) {
+    ctx.broadcast('chat-msg', { text: payload.text, from: ctx.meta.username });
   },
 });
 
@@ -140,12 +163,7 @@ export const handleInjectFamilyReplay = base.on('inject-family-replay', {
     ctx.sendReplay(
       'room-msg',
       { text: 'family-injected', from: 'system' },
-      {
-        deliverySeq: 0,
-        messageId: 'fam-manual-001',
-        channel: 'fam-1',
-        channelFamily: 'fams',
-      },
+      { deliverySeq: 0, messageId: 'fam-manual-001', channel: fams.at({ id: '1' }) },
     );
   },
 });
@@ -197,8 +215,16 @@ export const handleSendRoomMsg = replayRoom.on('send-room-msg', {
   run(ctx, payload) {
     const from = ctx.meta.username;
     const msg = { text: payload.text, from };
-    ctx.channel.send('room-msg', msg);
-    ctx.channel.broadcast('room-msg', msg);
+    ctx.channel.broadcast('room-msg', msg, { includeSelf: true });
+  },
+});
+
+// A channel broadcast to every member except the caller. Replay records it
+// even when the caller is the channel's only member.
+export const handleShoutRoom = replayRoom.on('shout-room', {
+  input: SendRoomMsg,
+  run(ctx, payload) {
+    ctx.channel.broadcast('room-msg', { text: payload.text, from: ctx.meta.username });
   },
 });
 
@@ -249,8 +275,7 @@ export const handleOptoutSendRoomMsg = optoutRoom.on('send-room-msg', {
   run(ctx, payload) {
     const from = ctx.meta.username;
     const msg = { text: payload.text, from };
-    ctx.channel.send('room-msg', msg);
-    ctx.channel.broadcast('room-msg', msg);
+    ctx.channel.broadcast('room-msg', msg, { includeSelf: true });
   },
 });
 
@@ -258,6 +283,10 @@ export const replayDefinition = base.assemble({
   handlers: [
     handleSendMsg,
     handleSendCursor,
+    handleSendPrivate,
+    handleSendToUser,
+    handleShout,
+    handleShoutRoom,
     handleRequestHistory,
     handleGetToken,
     handleTriggerBadReplay,

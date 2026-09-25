@@ -1,4 +1,5 @@
 import { assertValidLiveThingIdentifier } from '@livething/core';
+import { assertNoNameSeparator } from '~/event-name.ts';
 import { buildTagsApi } from '~/tags/runtime.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { TypeMarker } from '~/_api/definitions.ts';
@@ -97,6 +98,7 @@ function validateGroupRegistrations(kind: TagKind, groups: readonly TagGroupRegi
   const seen = new Set<string>();
   for (const { name } of groups) {
     assertValidLiveThingIdentifier(name, `tagGroups('${kind}', ...) name`);
+    assertNoNameSeparator(name, `tagGroups('${kind}', ...) name`);
     if (seen.has(name)) {
       throw new Error(
         `[livething] tagGroups('${kind}', ...): '${name}' declared twice in the same call.`,

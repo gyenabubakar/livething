@@ -8,6 +8,7 @@ import type { IncomingMessage } from 'node:http';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
+import { invalidUpgradeResponse, isWebSocketUpgrade } from '../../upgrade.ts';
 import { createWebUpgradeLifecycle } from '../../web-upgrade-lifecycle.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
 
@@ -65,6 +66,9 @@ export function createH3Setup<THandler>(
 
         return {
           async upgrade() {
+            if (!isWebSocketUpgrade(event.req.headers.get('upgrade')))
+              return invalidUpgradeResponse();
+
             let upgrade: NodeUpgrade | undefined;
             if (incoming) {
               upgrade = await nodeLifecycle.prepare(incoming, (signal) =>

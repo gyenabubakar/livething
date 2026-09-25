@@ -61,7 +61,7 @@ base.intercept((ctx, frame) => {
 });
 
 base.replay({
-  beforeSend: (ctx, msg) => {
+  beforeBroadcast: (ctx, msg) => {
     ctx.sql.exec(
       'INSERT INTO _replay_log (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
       msg.event,
@@ -154,7 +154,7 @@ export const handleStartTick = base.on('start-tick', {
 export const handleEmitReplayMarker = base.on('emit-replay-marker', {
   input: v.object({ note: v.string() }),
   run(ctx, payload) {
-    ctx.send('replay-marker', { note: payload.note });
+    ctx.broadcast('replay-marker', { note: payload.note }, { includeSelf: true });
   },
 });
 

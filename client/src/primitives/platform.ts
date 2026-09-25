@@ -142,17 +142,19 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
         bound = false;
       }
 
+      // Bind at the start of each connect attempt, before the socket exists, so
+      // a device that is offline at start is known offline before the first try
+      // fails.
+      helpers.state.subscribe((state) => {
+        if (state === 'connecting') bind();
+      });
+
       return {
         id: 'platform',
 
         install(socket) {
           // @ts-expect-error — install adds the online store to the socket dynamically
           socket.online = onlineStore.store;
-        },
-
-        onOpen() {
-          bind();
-          return null;
         },
 
         onClose(...args) {

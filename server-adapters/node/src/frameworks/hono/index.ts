@@ -7,6 +7,7 @@ import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
+import { isNodeWebSocketUpgrade, isWebSocketUpgrade } from '../../upgrade.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions } from '../../binding.ts';
 
 /** One LiveThing definition registered as a Hono WebSocket route. */
@@ -49,9 +50,13 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
         context: Parameters<MiddlewareHandler>[0],
         next: Parameters<MiddlewareHandler>[1],
       ) {
+        if (!isWebSocketUpgrade(context.req.header('upgrade'))) return next();
+
         const incoming = getIncomingRequest(context.env);
         if (!incoming)
           return new Response('[livething] Hono did not provide a Node request', { status: 500 });
+
+        if (!isNodeWebSocketUpgrade(incoming)) return next();
 
         const upgrade = await lifecycle.prepare(incoming, (signal) =>
           endpoint.prepareNode(incoming, { signal }),

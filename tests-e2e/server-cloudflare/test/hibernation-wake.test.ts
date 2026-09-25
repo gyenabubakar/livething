@@ -31,6 +31,27 @@ function nextMessage(socket: WebSocket): Promise<Record<string, unknown>> {
   });
 }
 
+it('closes a hibernating socket with 1003 when the client sends a binary frame', async () => {
+  const stub = env.HIBERNATION_SERVER.get(env.HIBERNATION_SERVER.idFromName('hibernation-binary'));
+  const response = (await stub.fetch('https://hibernation.test/?username=alice', {
+    headers: { Upgrade: 'websocket' },
+  })) as Response & { webSocket: WebSocket };
+  const socket = response.webSocket;
+  socket.accept();
+
+  const closed = new Promise<{ code: number; reason: string }>((resolve) => {
+    socket.addEventListener('close', ({ code, reason }) => resolve({ code, reason }), {
+      once: true,
+    });
+  });
+  socket.send(new Uint8Array([1, 2, 3]));
+
+  await expect(closed).resolves.toEqual({
+    code: 1003,
+    reason: '[livething] binary frames are not supported yet',
+  });
+});
+
 it('restores connection tags and metadata when a hibernating socket wakes', async () => {
   const stub = env.HIBERNATION_SERVER.get(env.HIBERNATION_SERVER.idFromName('hibernation-wake'));
   const response = (await stub.fetch('https://hibernation.test/?username=alice', {

@@ -7,8 +7,8 @@ const WS_PATH = '/ws/stream-durable-scoped';
 /**
  * A nudge for a channel-scoped stream must resolve to the stream's own scope
  * and the connection must still hold that membership. A nudge that omits the
- * channel markers, or arrives after the connection left the channel, is
- * rejected non-terminally and never reaches the generator.
+ * channel markers is rejected non-terminally and never reaches the generator.
+ * Leaving the channel stops the stream, so a later nudge is rejected too.
  */
 test.describe('stream nudge scope gate', () => {
   test.beforeEach(async ({ page }) => {
@@ -118,12 +118,18 @@ test.describe('stream nudge scope gate', () => {
       [a],
     );
 
-    // Leave the channel, then nudge with the original channel markers. The
-    // connection no longer holds the membership, so the nudge is rejected.
+    // Leaving the channel stops the stream. The nudge sent afterwards with the
+    // original channel markers finds no live stream and is rejected.
     await send(page, a, {
       event: '__unsubscribe__',
       payload: null,
       metadata: { channel: { name: 'rooms' } },
+    });
+    await waitForFrame(page, a, {
+      match: (f) =>
+        f.event === '__error__' &&
+        f.metadata?.stream?.id === streamId &&
+        f.payload?.code === 'stream-aborted',
     });
 
     await send(page, a, {
@@ -137,17 +143,5 @@ test.describe('stream nudge scope gate', () => {
     });
     expect(err.metadata?.stream?.id).toBe(streamId);
     expect(err.metadata?.stream?.terminated).toBe(false);
-
-    // The stream did not stop on the rejected nudge — it keeps emitting tokens.
-    const before = (await frames(page, a)).filter(
-      (f) => f.event === 'channel-tokens' && typeof f.payload?.token === 'string',
-    ).length;
-    await page.waitForFunction(
-      ([sid, n]) =>
-        (window.__livethingFrames!(sid as string) ?? []).filter(
-          (f: WireFrame) => f.event === 'channel-tokens' && typeof f.payload?.token === 'string',
-        ).length > (n as number),
-      [a, before],
-    );
   });
 });

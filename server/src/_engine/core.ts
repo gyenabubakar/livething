@@ -82,6 +82,7 @@ export class EngineCore {
   streamTrigger?: FeatureSlots.StreamTrigger;
   streamNudgeBuffer?: FeatureSlots.StreamNudgeBuffer;
   streamCancel?: FeatureSlots.StreamCancel;
+  streamChannelLeave?: FeatureSlots.StreamChannelLeave;
   durableStream?: FeatureSlots.DurableStreamService;
   requestDispatch?: FeatureSlots.RequestDispatch;
   buildTagsApi?: FeatureSlots.BuildTagsApi;

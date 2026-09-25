@@ -3,6 +3,7 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
+import type { MembershipInsert, StoredMembership } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
 import { assertLocalRef } from './refs.ts';
 import type * as EngineRuntimeTypes from './types.ts';
@@ -25,7 +26,22 @@ type SubscribeFromServerRefParameter = {
  */
 interface ChannelRuntime
   extends EngineRuntimeTypes.ConnectionMembersRuntime, EngineRuntimeTypes.ChannelHooks {
-  hasDurableMembership(userId: string, channelName: string, channelFamily: string | null): boolean;
+  getDurableMembership(
+    userId: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): StoredMembership | undefined;
+
+  markDurableMembershipKicked(
+    userId: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): void;
+
+  listDurableMembers(
+    channelName: string,
+    channelFamily: string | null,
+  ): (StoredMembership & { userId: string })[];
 
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -53,7 +69,7 @@ interface ChannelRuntime
 
   isChannelDurable(channelKey: string): boolean;
 
-  persistMembership(userId: string, channelName: string, channelFamily: string | null): void;
+  persistMembership(row: MembershipInsert): void;
   deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null): void;
 }
 
@@ -191,7 +207,14 @@ export async function subscribeFromServer(
  * Fire-and-forget: a non-member or unknown channel is a silent no-op.
  */
 export function handleMemberSync(
-  runtime: Pick<ChannelRuntime, 'compiled' | 'channelMembers' | 'sendProtocolMessage'>,
+  runtime: Pick<
+    ChannelRuntime,
+    | 'compiled'
+    | 'channelMembers'
+    | 'sendProtocolMessage'
+    | 'isChannelDurable'
+    | 'listDurableMembers'
+  >,
   connection: EngineRuntimeTypes.RuntimeConnection,
   frame: Protocol.MemberSyncRequestFrame,
 ): void {

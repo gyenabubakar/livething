@@ -415,6 +415,32 @@ function sendOpenUpgrade(port: number, target: string): Promise<string> {
   });
 }
 
+function sendNonWebSocketUpgrade(port: number, target: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    let response = '';
+
+    socket.setEncoding('utf8');
+    socket.on('connect', () => {
+      socket.end(
+        [
+          `GET ${target} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: h2c',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (chunk) => {
+      response += chunk;
+    });
+    socket.once('close', () => resolve(response));
+    socket.once('error', reject);
+  });
+}
+
 function sendMalformedUpgrade(port: number, target: string): Promise<ReturnType<typeof connect>> {
   return new Promise<ReturnType<typeof connect>>((resolve, reject) => {
     const socket = connect(port, '127.0.0.1');
@@ -610,6 +636,18 @@ describe('Node server integration', () => {
 
     expect(response).toContain('HTTP/1.1 403 Forbidden');
     expect(response).toContain('Upgrade rejected');
+  });
+
+  it('answers a non-WebSocket upgrade with 400 without running upgrade', async () => {
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
+    services.push(service);
+    await service.ready;
+
+    const response = await sendNonWebSocketUpgrade(serverPort(service.server), '/chat');
+
+    expect(response).toContain('HTTP/1.1 400 Bad Request');
+    expect(state.upgradeRequest).toBeUndefined();
   });
 
   it('rejects a real upgrade with a WebSocket close decision', async () => {

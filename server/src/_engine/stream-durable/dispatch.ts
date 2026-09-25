@@ -149,4 +149,9 @@ export const durableStreamService: DurableStreamService = {
   ): Promise<void> {
     await DurableStreamRuntime.cancelDurableStream(runtime, connection, options);
   },
+
+  endOnLeave(runtime: any, connection: RuntimeConnection, options): void {
+    ensureSchemaOnce(runtime);
+    DurableStreamRuntime.endDurableStreamOnLeave(runtime, connection, options);
+  },
 };

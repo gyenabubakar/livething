@@ -4,7 +4,7 @@ import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
 import {
   deleteDurableMembership,
-  hasDurableMembership,
+  getDurableMembership,
   persistMembership,
 } from '~/channel/membership.ts';
 import {
@@ -46,14 +46,15 @@ describe('durable membership user gate', () => {
       userId: 'user-1',
       channelName: 'room',
       channelFamily: null,
+      meta: { name: 'Ada' },
     });
     expect(
-      hasDurableMembership(makeCore(sql), {
+      getDurableMembership(makeCore(sql), {
         userId: 'user-1',
         channelName: 'room',
         channelFamily: null,
       }),
-    ).toBe(true);
+    ).toEqual({ meta: { name: 'Ada' }, kicked: false });
   });
 
   it('skips the durable delete for an empty user id', () => {
@@ -76,12 +77,12 @@ describe('durable membership user gate', () => {
     ensureMembershipSchema(sql);
     statements = 0;
 
-    const result = hasDurableMembership(makeCore(sql), {
+    const result = getDurableMembership(makeCore(sql), {
       userId: '',
       channelName: 'room',
       channelFamily: null,
     });
-    expect(result).toBe(false);
+    expect(result).toBeUndefined();
     expect(statements).toBe(0);
   });
 });
@@ -147,7 +148,9 @@ describe('kick(userRef, { revoke: true })', () => {
       isChannelDurable: () => true,
       persistMembership() {},
       deleteDurableMembership,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => undefined,
+      markDurableMembershipKicked() {},
+      listDurableMembers: () => [],
     };
   }
 
@@ -197,8 +200,8 @@ describe('kick(userRef, { revoke: true })', () => {
     expect(calls).toEqual([{ userId: 'user-1', channelName: 'room', channelFamily: null }]);
     expect(connection.channelMemberships.size).toBe(0);
     expect(
-      hasDurableMembership(core, { userId: 'user-1', channelName: 'room', channelFamily: null }),
-    ).toBe(false);
+      getDurableMembership(core, { userId: 'user-1', channelName: 'room', channelFamily: null }),
+    ).toBeUndefined();
   });
 
   it('leaves a non-member connection of the same user id untouched', async () => {

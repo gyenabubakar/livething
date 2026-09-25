@@ -22,6 +22,41 @@ describe('scopePluginContext — sendReplay (S1)', () => {
     expect(channelSendReplay).toHaveBeenCalledWith('__acme:feed::feed', { n: 1 }, { wire: true });
   });
 
+  it('namespaces the channel named in ctx.sendReplay wire.channel', () => {
+    const sendReplay = vi.fn();
+    const scoped = scopePluginContext(ID, { sendReplay });
+    const room = { __livethingChannel: true, __key: 'room' };
+    const roomRef = { __livethingChannelRef: true, family: 'rooms', name: 'room-1' };
+
+    scoped.sendReplay('feed', { n: 1 }, { deliverySeq: 1, messageId: 'm1', channel: room });
+    scoped.sendReplay('feed', { n: 2 }, { deliverySeq: 2, messageId: 'm2', channel: roomRef });
+    scoped.sendReplay('feed', { n: 3 }, { deliverySeq: 3, messageId: 'm3' });
+
+    expect(sendReplay.mock.calls).toEqual([
+      [
+        '__acme:feed::feed',
+        { n: 1 },
+        {
+          deliverySeq: 1,
+          messageId: 'm1',
+          channel: { __livethingChannel: true, __key: '__acme:feed::room' },
+        },
+      ],
+      [
+        '__acme:feed::feed',
+        { n: 2 },
+        {
+          deliverySeq: 2,
+          messageId: 'm2',
+          channel: { __livethingChannelRef: true, family: '__acme:feed::rooms', name: 'room-1' },
+        },
+      ],
+      ['__acme:feed::feed', { n: 3 }, { deliverySeq: 3, messageId: 'm3' }],
+    ]);
+    expect(room.__key).toBe('room');
+    expect(roomRef.family).toBe('rooms');
+  });
+
   it('does not invent optional send-like methods', () => {
     const scoped = scopePluginContext(ID, {});
 

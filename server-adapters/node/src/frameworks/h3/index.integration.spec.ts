@@ -178,6 +178,32 @@ function sendOpenUpgrade(port: number, path: string): Promise<string> {
   });
 }
 
+function sendNonWebSocketUpgrade(port: number, path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connectTcp(port, '127.0.0.1');
+    let response = '';
+    socket.setEncoding('utf8');
+    socket.once('connect', () => {
+      socket.end(
+        [
+          `GET ${path} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: h2c',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (chunk) => {
+      response += chunk;
+    });
+
+    socket.once('close', () => resolve(response));
+    socket.once('error', reject);
+  });
+}
+
 function sendInvalidClientFrame(port: number, path: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const socket = connectTcp(port, '127.0.0.1');
@@ -356,6 +382,26 @@ describe('H3 binding', () => {
     const response = await sendUpgrade(app.port, '/ws/http-reject');
     expect(response).toContain('HTTP/1.1 401');
     expect(response).toContain('No token');
+  });
+
+  it('answers a plain HTTP request with 426 without running upgrade', async () => {
+    const upgrade = vi.fn(() => ({ userId: 'plain' }));
+    const app = await createApp({}, createServerDefinition({ upgrade }).assemble({ handlers: [] }));
+    apps.push(app);
+
+    const response = await fetch(`http://127.0.0.1:${app.port}/ws/lobby`);
+    expect(response.status).toBe(426);
+    expect(upgrade).not.toHaveBeenCalled();
+  });
+
+  it('does not run upgrade for a non-WebSocket upgrade request', async () => {
+    const upgrade = vi.fn(() => ({ userId: 'plain' }));
+    const app = await createApp({}, createServerDefinition({ upgrade }).assemble({ handlers: [] }));
+    apps.push(app);
+
+    const response = await sendNonWebSocketUpgrade(app.port, '/ws/lobby');
+    expect(response).toMatch(/^HTTP\/1\.1 400 /);
+    expect(upgrade).not.toHaveBeenCalled();
   });
 
   it('closes a socket-level rejection after CrossWS upgrades it', async () => {

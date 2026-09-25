@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { BroadcastToChannelOptions, LeaveChannelOptions } from '~/channel/runtime.ts';
+import type { StoredMembership } from '~/channel/storage.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
 function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}, userId: string = id) {
@@ -141,7 +142,9 @@ function createRuntime(
       isChannelDurable: () => false,
       persistMembership: () => {},
       deleteDurableMembership: () => {},
-      hasDurableMembership: () => true,
+      getDurableMembership: (): StoredMembership | undefined => ({ meta: {}, kicked: false }),
+      markDurableMembershipKicked: () => {},
+      listDurableMembers: (): (StoredMembership & { userId: string })[] => [],
     },
   };
 }
@@ -198,7 +201,7 @@ describe('channel runtime', () => {
       {
         connectionId: 'conn_2',
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
+        payload: { members: [{ memberId: 'conn_1', meta: { userId: 'a' }, online: true }] },
         livething: { channel: 'room:general', channelFamily: 'rooms', source: 'client' },
       },
     ]);
@@ -207,7 +210,7 @@ describe('channel runtime', () => {
         channelName: 'room:general',
         event: '__memberJoin__',
         payload: {
-          connectionId: 'conn_2',
+          memberId: 'conn_2',
           meta: { userId: 'b' },
         },
         excludeConnectionId: 'conn_2',
@@ -217,7 +220,7 @@ describe('channel runtime', () => {
         channelName: 'room:general',
         event: '__memberOnline__',
         payload: {
-          connectionId: 'conn_2',
+          memberId: 'conn_2',
           meta: { userId: 'b' },
         },
         excludeConnectionId: 'conn_2',
@@ -254,14 +257,14 @@ describe('channel runtime', () => {
       {
         channelName: 'room:general',
         event: '__memberLeave__',
-        payload: { connectionId: 'conn_1', meta: { userId: 'a' } },
+        payload: { memberId: 'conn_1', meta: { userId: 'a' } },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOffline__',
-        payload: { connectionId: 'conn_1' },
+        payload: { memberId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
@@ -563,14 +566,14 @@ describe('channel runtime', () => {
       {
         channelName: 'room:general',
         event: '__memberLeave__',
-        payload: { connectionId: 'conn_1', meta: {} },
+        payload: { memberId: 'conn_1', meta: {} },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOffline__',
-        payload: { connectionId: 'conn_1' },
+        payload: { memberId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
@@ -614,8 +617,8 @@ describe('channel runtime', () => {
     // __memberSync__ to the new subscriber must include only the 'rooms'
     // family member, not the 'lobbies' family member.
     const sync = protocol.find((m) => m.connectionId === 'new-sub' && m.event === '__memberSync__');
-    const members = (sync?.payload.members ?? []) as { connectionId: string }[];
-    expect(members.map((m) => m.connectionId)).toEqual(['rooms-member']);
+    const members = (sync?.payload.members ?? []) as { memberId: string }[];
+    expect(members.map((m) => m.memberId)).toEqual(['rooms-member']);
   });
 
   it('check with an async validator throws LiveThingConfigError without routing through handleValidationError', async () => {
@@ -892,15 +895,15 @@ describe('channel runtime', () => {
 
     // Initial sync to A: empty (A committed first, no peers yet).
     const aSync = protocol.find((m) => m.connectionId === 'conn_A' && m.event === '__memberSync__');
-    const aSyncIds = ((aSync?.payload.members ?? []) as { connectionId: string }[]).map(
-      (m) => m.connectionId,
+    const aSyncIds = ((aSync?.payload.members ?? []) as { memberId: string }[]).map(
+      (m) => m.memberId,
     );
     expect(aSyncIds).toEqual([]);
 
     // Initial sync to B: includes A (committed before B snapshotted).
     const bSync = protocol.find((m) => m.connectionId === 'conn_B' && m.event === '__memberSync__');
-    const bSyncIds = ((bSync?.payload.members ?? []) as { connectionId: string }[]).map(
-      (m) => m.connectionId,
+    const bSyncIds = ((bSync?.payload.members ?? []) as { memberId: string }[]).map(
+      (m) => m.memberId,
     );
     expect(bSyncIds).toEqual(['conn_A']);
 
@@ -908,11 +911,67 @@ describe('channel runtime', () => {
     // B broadcast __memberJoin__{B} (A receives via the broadcast path).
     const broadcastJoiners = broadcasts
       .filter((b) => b.event === '__memberJoin__')
-      .map((b) => (b.payload as { connectionId: string }).connectionId);
+      .map((b) => (b.payload as { memberId: string }).memberId);
     expect(broadcastJoiners).toEqual(['conn_A', 'conn_B']);
 
     expect(aSyncIds).not.toContain('conn_A');
     expect(bSyncIds).not.toContain('conn_B');
+  });
+
+  it('commit and the membership write run in one tick, so two concurrent subscribes cannot both pass a cap of 1', async () => {
+    const connA = createConnection('conn_A');
+    const connB = createConnection('conn_B');
+    const { runtime, connections, channelMembers } = createRuntime();
+    connections.set(connA.id, connA);
+    connections.set(connB.id, connB);
+
+    let releaseChecks!: () => void;
+    const checksReleased = new Promise<void>((resolve) => (releaseChecks = resolve));
+    const membersSeenInCommit: number[] = [];
+
+    const gatedRuntime = {
+      ...runtime,
+      checkHooks: new Map([
+        [
+          'rooms',
+          [
+            {
+              handler: async () => {
+                await checksReleased;
+              },
+              validator: undefined,
+            },
+          ],
+        ],
+      ]),
+      commitHooks: new Map([
+        [
+          'rooms',
+          [
+            {
+              handler: () => {
+                const key = createChannelMembershipKey('room:general', 'rooms');
+                const count = channelMembers.get(key)?.size ?? 0;
+                membersSeenInCommit.push(count);
+                if (count >= 1) throw new Error('room is full');
+              },
+            },
+          ],
+        ],
+      ]),
+    };
+
+    const target = { channelName: 'room:general', channelFamily: 'rooms', data: undefined };
+    const subA = subscribeConnection(gatedRuntime, connA, target);
+    const subB = subscribeConnection(gatedRuntime, connB, target);
+    releaseChecks();
+
+    const results = await Promise.allSettled([subA, subB]);
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+    expect(membersSeenInCommit).toEqual([0, 1]);
+    expect(channelMembers.get(createChannelMembershipKey('room:general', 'rooms'))?.size).toBe(1);
   });
 
   it('sends _subscribeOk before running onSubscribe side effects', async () => {
@@ -1031,14 +1090,14 @@ describe('channel runtime', () => {
       {
         channelName: 'room:general',
         event: '__memberLeave__',
-        payload: { connectionId: 'conn_1', meta: {} },
+        payload: { memberId: 'conn_1', meta: {} },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOffline__',
-        payload: { connectionId: 'conn_1' },
+        payload: { memberId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
@@ -1133,14 +1192,14 @@ describe('subscribeConnectionAsServer', () => {
       {
         channelName: 'room:general',
         event: '__memberJoin__',
-        payload: { connectionId: 'target', meta: { userId: 't' } },
+        payload: { memberId: 'target', meta: { userId: 't' } },
         excludeConnectionId: 'target',
         channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOnline__',
-        payload: { connectionId: 'target', meta: { userId: 't' } },
+        payload: { memberId: 'target', meta: { userId: 't' } },
         excludeConnectionId: 'target',
         channelFamily: 'rooms',
       },
@@ -1156,7 +1215,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => false,
+      getDurableMembership: () => undefined,
     };
 
     await subscribeConnectionAsServer(rejoinRuntime, target, {
@@ -1204,7 +1263,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       checkHooks: new Map([['rooms', [{ handler: checkHook, validator: undefined }]]]),
       revalidateHooks: new Map([['rooms', [revalidateHook]]]),
     };
@@ -1233,7 +1292,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       commitHooks: new Map([['rooms', [{ handler: commitHook }]]]),
       subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
     };
@@ -1259,7 +1318,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       deleteDurableMembership,
       clearInbox,
       sendProtocolMessage: () => {
@@ -1289,7 +1348,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       revalidateHooks: new Map([
         [
           'rooms',
@@ -1329,7 +1388,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       revalidateHooks: new Map([
         [
           'rooms',
@@ -1539,8 +1598,8 @@ describe('subscribeConnectionAsServer', () => {
     });
 
     const sync = protocol.find((p) => p.connectionId === 'target' && p.event === '__memberSync__');
-    const members = (sync?.payload.members ?? []) as { connectionId: string }[];
-    expect(members.map((m) => m.connectionId).sort()).toEqual(['existing-a', 'existing-b']);
+    const members = (sync?.payload.members ?? []) as { memberId: string }[];
+    expect(members.map((m) => m.memberId).sort()).toEqual(['existing-a', 'existing-b']);
   });
 
   it('runs onSubscribe after the subscribe is committed and the wire events have been sent', async () => {
@@ -1848,7 +1907,7 @@ describe('resyncChannelMembers (client __memberSync__ request, bug #16)', () => 
       {
         connectionId: 'conn_2',
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
+        payload: { members: [{ memberId: 'conn_1', meta: { userId: 'a' }, online: true }] },
         livething: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
       },
     ]);

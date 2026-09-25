@@ -48,19 +48,19 @@
 			}
 
 			if (data.event === '__memberJoin__' && data.metadata?.channel?.name) {
-				memberJoins = [...memberJoins, `${data.metadata.channel?.name}:${data.payload.connectionId}`];
+				memberJoins = [...memberJoins, `${data.metadata.channel?.name}:${data.payload.memberId}`];
 			}
 
 			if (data.event === '__memberSync__' && data.metadata?.channel?.name) {
 				for (const m of data.payload.members) {
-					memberJoins = [...memberJoins, `${data.metadata.channel?.name}:${m.connectionId}`];
+					memberJoins = [...memberJoins, `${data.metadata.channel?.name}:${m.memberId}`];
 				}
 			}
 
 			if (data.event === '__memberLeave__' && data.metadata?.channel?.name) {
 				memberLeaves = [
 					...memberLeaves,
-					`${data.metadata.channel?.name}:${data.payload.connectionId}`,
+					`${data.metadata.channel?.name}:${data.payload.memberId}`,
 				];
 			}
 

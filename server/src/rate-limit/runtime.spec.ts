@@ -119,6 +119,20 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'b' }, 'e')).toBeNull();
   });
 
+  it('gives each connection its own budget when `per` returns an empty key', () => {
+    const c = clock();
+    const rt = new RateLimitRuntime(
+      plan([['top', { id: 1, windowMs: 60_000, max: 1, per: (ctx: any) => ctx.user.id }]]),
+      c.read.bind(c),
+    );
+    const anonymousA = { user: { id: '' }, connection: { id: 'conn-a' } };
+    const anonymousB = { user: { id: '' }, connection: { id: 'conn-b' } };
+
+    expect(rt.check(anonymousA, 'e')).toBeNull();
+    expect(rt.check(anonymousA, 'e')).not.toBeNull();
+    expect(rt.check(anonymousB, 'e')).toBeNull();
+  });
+
   it('shares a bucket across events under one scope rule', () => {
     const c = clock();
     const rt = new RateLimitRuntime(

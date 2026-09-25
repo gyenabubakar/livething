@@ -114,9 +114,12 @@ describe('LiveThing wire tuples', () => {
 describe('nested protocol frame schemas', () => {
   it('validates tuple frames with the required metadata group', () => {
     expect(
+      v.safeParse(SubscribeOkFrame, ['__subscribeOk__', {}, { channel: { name: 'room' } }]).success,
+    ).toBe(true);
+    expect(
       v.safeParse(SubscribeOkFrame, ['__subscribeOk__', null, { channel: { name: 'room' } }])
         .success,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       v.safeParse(ReadFrame, ['__read__', { readThrough: 1 }, { channel: { name: 'room' } }])
         .success,

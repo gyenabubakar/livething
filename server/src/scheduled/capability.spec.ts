@@ -1,6 +1,8 @@
+import { LiveThingConfigError } from '@livething/core';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { compileServerDefinition } from '~/_engine/compile/compile.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { scheduled } from './capability.ts';
 import type { ScheduledPrimitive } from './scheduled.ts';
@@ -44,6 +46,12 @@ describe('scheduled() capability', () => {
     base.scheduled('heartbeat', { run() {} });
     const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
     expect(primitive.options?.every).toBe(30_000);
+  });
+
+  it('throws when a task id contains ::', () => {
+    expect(() => scheduled({ 'cleanup::daily': null })).toThrow(
+      /scheduled\(\) task id 'cleanup::daily' contains '::'/,
+    );
   });
 
   it('throws when a declared task has no body', () => {
@@ -126,6 +134,23 @@ describe('scheduled() capability', () => {
     it('accepts positive integers', () => {
       expect(declare(1)).not.toThrow();
       expect(declare(30_000)).not.toThrow();
+    });
+
+    it('rejects every combined with a t<...>() data marker', () => {
+      function declareBoth() {
+        return scheduled({ heartbeat: { every: 1_000, data: t<{ n: number }>() } as never });
+      }
+
+      expect(declareBoth).toThrow(LiveThingConfigError);
+      expect(declareBoth).toThrow(
+        /scheduled\("heartbeat"\): a task with 'every' cannot declare 'data'/,
+      );
+    });
+
+    it('rejects every combined with a schema data validator', () => {
+      expect(() => scheduled({ heartbeat: { every: 1_000, data: v.object({}) } as never })).toThrow(
+        /cannot declare 'data'/,
+      );
     });
   });
 

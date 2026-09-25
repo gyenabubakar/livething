@@ -4,7 +4,7 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-packageExtensionsChecksum: sha256-pXwX1hCCsEnfkUTAeg/drEwF5unakuufbnT8Bw5m9yk=
+packageExtensionsChecksum: sha256-ymJTPpLZSoz2aoqlsqFEA/uhzAU4sF7+0dRCen1wCfs=
 
 importers:
   .:
@@ -366,7 +366,7 @@ importers:
         version: 12.11.1
       docus:
         specifier: ^5.10.1
-        version: 5.12.2(ba10668e6421e3096da5514039acb900)
+        version: 5.12.2(bdc4f97242f91617df385659599852f1)
       motion-v:
         specifier: ^2.2.1
         version: 2.3.0(@vueuse/core@14.3.0(vue@3.5.38(typescript@6.0.2)))(vue@3.5.38(typescript@6.0.2))
@@ -398,6 +398,9 @@ importers:
       '@lhci/cli':
         specifier: ^0.15.1
         version: 0.15.1(supports-color@10.2.2)
+      h3:
+        specifier: ^1.15.11
+        version: 1.15.11
       vue-tsc:
         specifier: ^2.2.0
         version: 2.2.12(typescript@6.0.2)
@@ -19298,12 +19301,12 @@ snapshots:
       - vite
       - vue
 
-  '@nuxtjs/mcp-toolkit@0.17.2(@vue/compiler-sfc@3.5.31)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.4)))(magicast@0.5.3)(rollup@4.62.2)(supports-color@10.2.2)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.2))(zod@4.4.3)':
+  '@nuxtjs/mcp-toolkit@0.17.2(@vue/compiler-sfc@3.5.31)(h3@1.15.11)(magicast@0.5.3)(rollup@4.62.2)(supports-color@10.2.2)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.2))(zod@4.4.3)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(supports-color@10.2.2)(zod@4.4.3)
       '@nuxt/kit': 4.4.8(magicast@0.5.3)
       '@vitejs/plugin-vue': 6.0.7(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.2))
-      h3: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.4))
+      h3: 1.15.11
       tinyglobby: 0.2.17
       vite-plugin-singlefile: 2.3.3(rollup@4.62.2)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))
       zod: 4.4.3
@@ -22542,7 +22545,7 @@ snapshots:
 
   doctypes@1.1.0: {}
 
-  docus@5.12.2(ba10668e6421e3096da5514039acb900):
+  docus@5.12.2(bdc4f97242f91617df385659599852f1):
     dependencies:
       '@ai-sdk/gateway': 3.0.133(zod@4.4.3)
       '@ai-sdk/mcp': 1.0.52(zod@4.4.3)
@@ -22556,7 +22559,7 @@ snapshots:
       '@nuxt/kit': 4.4.8(magicast@0.5.3)
       '@nuxt/ui': 4.9.0(12b9d21d579ca0a302dafdd23268bb25)
       '@nuxtjs/i18n': 10.4.0(@vue/compiler-dom@3.5.38)(db0@0.3.4(better-sqlite3@12.11.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260412.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@12.11.1)))(eslint@10.5.0(jiti@2.7.0)(supports-color@10.2.2))(ioredis@5.11.1(supports-color@10.2.2))(magicast@0.5.3)(rollup@4.62.2)(supports-color@10.2.2)(typescript@6.0.2)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.2))
-      '@nuxtjs/mcp-toolkit': 0.17.2(@vue/compiler-sfc@3.5.31)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.4)))(magicast@0.5.3)(rollup@4.62.2)(supports-color@10.2.2)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.2))(zod@4.4.3)
+      '@nuxtjs/mcp-toolkit': 0.17.2(@vue/compiler-sfc@3.5.31)(h3@1.15.11)(magicast@0.5.3)(rollup@4.62.2)(supports-color@10.2.2)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))(vue@3.5.38(typescript@6.0.2))(zod@4.4.3)
       '@nuxtjs/mdc': 0.22.0(magicast@0.5.3)(supports-color@10.2.2)
       '@nuxtjs/robots': 6.1.1(1a77a9d8d2c6a962f87a6fbe400a3a18)
       '@shikijs/core': 4.2.0
@@ -25298,6 +25301,7 @@ snapshots:
   nuxt-llms@0.2.0(magicast@0.5.3):
     dependencies:
       '@nuxt/kit': 4.4.8(magicast@0.5.3)
+      h3: 1.15.11
     transitivePeerDependencies:
       - magicast
 
@@ -25315,6 +25319,7 @@ snapshots:
       defu: 6.1.7
       devalue: 5.8.1
       exsolve: 1.0.8
+      h3: 1.15.11
       lightningcss: 1.32.0
       magic-string: 0.30.21
       magicast: 0.5.3

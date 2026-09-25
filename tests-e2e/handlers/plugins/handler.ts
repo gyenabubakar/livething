@@ -3,6 +3,7 @@ import { dedup } from '@livething/server/dedup';
 import { sequence } from '@livething/server/sequence';
 import { stream } from '@livething/server/streams';
 import { Feed } from '@livething/tests-e2e-handlers/_shared/feed-plugin';
+import { Probe } from '@livething/tests-e2e-handlers/_shared/probe-plugin';
 import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
 import type { ServerContract } from '@livething/server/adapters';
@@ -61,6 +62,7 @@ export function createPluginsDefinition<
       sequence({ persist: true }),
       dedup(),
       Feed(),
+      Probe(),
       drizzleCapability,
       emits({
         'record-inserted': t<{ id: number }>(),
@@ -171,6 +173,13 @@ export function createPluginsDefinition<
     },
   });
 
+  const handleAppFail = base.on('app-fail', {
+    input: v.object({}),
+    run() {
+      throw new Error('e2e: app handler failed');
+    },
+  });
+
   const handleStreamConnectionId = base.stream('stream-connection-id', {
     input: StreamConnectionIdPayload,
     chunk: StreamConnectionIdChunk,
@@ -214,6 +223,7 @@ export function createPluginsDefinition<
       handleLastState,
       handleShutdownCount,
       handleRewriteProbe,
+      handleAppFail,
       handleStreamConnectionId,
       handleStreamThrowOnCancel,
     ],

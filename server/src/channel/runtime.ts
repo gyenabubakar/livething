@@ -11,6 +11,7 @@ import { userKeyOf } from '~/_engine/runtime/user-key.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ChannelHooks, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { MembershipInsert, StoredMembership } from '~/channel/storage.ts';
 import type { ConnectionInfo, Logger } from '~/context.ts';
 import type { NotifyValidationErrorOptions, SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
@@ -29,7 +30,8 @@ type OptsParameter = {
 type RollbackFailedSubscribeOptsParameter = {
   scope: ResolvedChannelTarget;
   isDurable: boolean;
-  rejoining: boolean;
+  /** The stored row read before this subscribe wrote its own. */
+  stored: StoredMembership | undefined;
 };
 
 /**
@@ -213,11 +215,11 @@ interface ChannelRuntime extends ChannelHooks {
   isChannelDurable(channelKey: string): boolean;
 
   /**
-   * Insert or replace a durable membership row for the given user. Called
-   * after a successful subscribe to a persistent channel. No-op when the
-   * channel is not persistent.
+   * Insert or replace a durable membership row for the given user, with the
+   * joining connection's meta. Called after a successful subscribe to a
+   * persistent channel. No-op when the channel is not persistent.
    */
-  persistMembership(userId: string, channelName: string, channelFamily: string | null): void;
+  persistMembership(row: MembershipInsert): void;
 
   /**
    * Delete a durable membership row for the given user. Called on a TRUE
@@ -227,7 +229,29 @@ interface ChannelRuntime extends ChannelHooks {
    */
   deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null): void;
 
-  hasDurableMembership(userId: string, channelName: string, channelFamily: string | null): boolean;
+  /** Read the user's durable membership row for this channel, if any. */
+  getDurableMembership(
+    userId: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): StoredMembership | undefined;
+
+  /**
+   * Mark the user's durable membership row as kicked. Called when a kick that
+   * does not revoke ends the member: the row stays for the next rejoin, but
+   * the roster no longer lists the user.
+   */
+  markDurableMembershipKicked(
+    userId: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): void;
+
+  /** Read every durable membership row of a channel, for the member roster. */
+  listDurableMembers(
+    channelName: string,
+    channelFamily: string | null,
+  ): (StoredMembership & { userId: string })[];
 
   /**
    * Drop the user's inbox rows for this channel. Called on a true leave —
@@ -247,6 +271,19 @@ interface ChannelRuntime extends ChannelHooks {
    * so the client exposes `markAsRead`/`readers`/`readersOf` only where they work.
    */
   isReadReceiptsChannel?(channelName: string, channelFamily: string | null): boolean;
+
+  /**
+   * Stop the streams the connection runs in a channel it just left. Absent when
+   * no stream capability is listed.
+   */
+  stopChannelStreams?(connection: RuntimeConnection, opts: StopChannelStreamsInput): Promise<void>;
+}
+
+interface StopChannelStreamsInput {
+  channelName: string;
+  channelFamily: string | null;
+  /** True when the user has no connection left in the channel. */
+  userGone: boolean;
 }
 
 interface ChannelTarget {
@@ -308,11 +345,49 @@ export interface LeaveChannelOptions {
 
   /**
    * `true` to keep the durable membership row on an otherwise-true leave, so
-   * the user auto-rejoins the channel on their next reconnect. Set by a
+   * the user auto-rejoins the channel on their next reconnect. The row is
+   * marked kicked, so the roster leaves the user out until then. Set by a
    * non-revoking `kick`. Ignored on a plain disconnect, which already keeps
    * the row via `disconnect`.
    */
   keepDurableRow?: boolean;
+}
+
+/**
+ * Whether this connection holds a per-user seat in the channel. A persistent
+ * channel keeps membership per user, so a signed-in connection is one socket
+ * of that user's seat. An ephemeral channel, or an anonymous connection (no
+ * user id, so no stored row), gets a seat that lasts only as long as the socket.
+ */
+function holdsUserSeat(connection: RuntimeConnection, isDurable: boolean | undefined): boolean {
+  return isDurable === true && connection.userId !== '';
+}
+
+/**
+ * The id peers see for this member in presence frames: the user id for a
+ * per-user seat, so it stays the same across reconnects and tabs, and the
+ * connection id otherwise.
+ */
+function memberIdOf(connection: RuntimeConnection, userSeat: boolean): string {
+  return userSeat ? connection.userId : connection.id;
+}
+
+/** Whether another live connection of this user is still in the channel. */
+function userHasLiveConnectionIn(
+  runtime: Pick<ChannelRuntime, 'channelMembers'>,
+  scope: ChannelTarget,
+  connection: RuntimeConnection,
+): boolean {
+  if (connection.userId === '') return false;
+
+  const members = runtime.channelMembers.get(
+    createChannelMembershipKey(scope.channelName, scope.channelFamily),
+  );
+  for (const member of members ?? []) {
+    if (member !== connection && member.userId === connection.userId) return true;
+  }
+
+  return false;
 }
 
 interface ClearDurableLeaveStateInput {
@@ -322,24 +397,34 @@ interface ClearDurableLeaveStateInput {
   keepDurableRow: boolean | undefined;
 }
 
+/**
+ * Update the stored membership when the last connection of a member truly
+ * leaves: drop the row, or, for a kick that keeps it, mark it kicked so the
+ * roster stops listing the user until they rejoin.
+ */
 function clearDurableLeaveState(
   runtime: ChannelRuntime,
   connection: RuntimeConnection,
   input: ClearDurableLeaveStateInput,
 ): void {
   const { scope, isTrueLeave, isDurable, keepDurableRow } = input;
-  const memberKey = createChannelMembershipKey(scope.channelName, scope.channelFamily);
-  const userHasAnotherConnectionHere =
-    connection.userId !== '' &&
-    [...(runtime.channelMembers.get(memberKey) ?? [])].some(
-      (member) => member.userId === connection.userId,
-    );
   if (
     !isTrueLeave ||
     (!isDurable && scope.channel) ||
-    keepDurableRow ||
-    userHasAnotherConnectionHere
+    userHasLiveConnectionIn(runtime, scope, connection)
   ) {
+    return;
+  }
+
+  if (keepDurableRow) {
+    if (holdsUserSeat(connection, isDurable)) {
+      runtime.markDurableMembershipKicked(
+        connection.userId,
+        scope.channelName,
+        scope.channelFamily,
+      );
+    }
+
     return;
   }
 
@@ -360,22 +445,49 @@ export async function leaveChannel(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
   const channelKey = scope.channel?.key ?? '';
-  const isDurable = scope.channel ? runtime.isChannelDurable(scope.channel.key) : disconnect;
+  const isDurable = runtime.isChannelDurable(scope.channelFamily ?? scope.channelName);
+  const userSeat = holdsUserSeat(connection, isDurable);
+  const memberId = memberIdOf(connection, userSeat);
 
-  // A disconnect on a persistent channel only ends the session. Every other
-  // path also changes group membership.
-  const isTrueLeave = !disconnect || !isDurable;
+  // A disconnect only ends the session when the user keeps a seat to come
+  // back to. Every other path also changes group membership.
+  const isTrueLeave = !disconnect || !userSeat;
 
   // Remove membership before running any async hooks. A concurrent leave
   // will see the member already gone and stop early.
   removeChannelMembership(runtime.channelMembers, connection, scope);
   runtime.persistAttachment(connection);
 
+  // Another tab of the same user keeps the member present. Checked now, so
+  // parallel leaves of one user (a kick) broadcast once, and again before the
+  // broadcast, so a tab that joined during the hooks keeps the member present.
+  const lastLiveConnection = !userSeat || !userHasLiveConnectionIn(runtime, scope, connection);
+  function memberGone(): boolean {
+    return (
+      lastLiveConnection && (!userSeat || !userHasLiveConnectionIn(runtime, scope, connection))
+    );
+  }
+
   clearDurableLeaveState(runtime, connection, { scope, isTrueLeave, isDurable, keepDurableRow });
 
   // Hold the first hook throw and re-throw at the end so the rest of the leave
   // still runs. Callers still see the rejection.
   let firstHookError: unknown;
+
+  // A socket close already stopped the connection's streams before its
+  // channels are left. Any other leave stops the streams scoped to this channel.
+  if (!disconnect && runtime.stopChannelStreams) {
+    try {
+      await runtime.stopChannelStreams(connection, {
+        channelName: scope.channelName,
+        channelFamily: scope.channelFamily,
+        userGone: !userHasLiveConnectionIn(runtime, scope, connection),
+      });
+    } catch (error) {
+      firstHookError = error;
+    }
+  }
+
   if (isTrueLeave) {
     for (const hook of runtime.unsubscribeHooks.get(channelKey) ?? []) {
       try {
@@ -402,23 +514,25 @@ export async function leaveChannel(
 
   // Order: __memberLeave__ before __memberOffline__ — peers update the member
   // list before reacting to the presence change.
-  if (isTrueLeave) {
+  if (memberGone()) {
+    if (isTrueLeave) {
+      runtime.broadcastToChannel({
+        channelName: scope.channelName,
+        event: '__memberLeave__',
+        payload: { memberId, meta: connection.meta },
+        excludeConnectionId: connection.id,
+        channelFamily: scope.channelFamily,
+      });
+    }
+
     runtime.broadcastToChannel({
       channelName: scope.channelName,
-      event: '__memberLeave__',
-      payload: { connectionId: connection.id, meta: connection.meta },
+      event: '__memberOffline__',
+      payload: { memberId },
       excludeConnectionId: connection.id,
       channelFamily: scope.channelFamily,
     });
   }
-
-  runtime.broadcastToChannel({
-    channelName: scope.channelName,
-    event: '__memberOffline__',
-    payload: { connectionId: connection.id },
-    excludeConnectionId: connection.id,
-    channelFamily: scope.channelFamily,
-  });
 
   for (const hook of runtime.sessionEndHooks.get(channelKey) ?? []) {
     try {
@@ -452,7 +566,11 @@ interface RunSubscribeFlowOptions {
 
   source: 'client' | 'server';
 
-  /** Restores a fresh socket for an existing member. Skips `__memberJoin__` but fires `__memberOnline__`. */
+  /**
+   * Restores a fresh socket from a stored membership. Runs `revalidate` instead
+   * of `check`/`commit` and skips `onSubscribe`. Peers get `__memberOnline__`,
+   * plus `__memberJoin__` first when a kick had ended the membership.
+   */
   rejoining?: boolean;
 }
 
@@ -463,7 +581,13 @@ interface SubscribeGatesInput {
   scope: ResolvedChannelTarget;
 }
 
-async function runSubscribeGates(input: SubscribeGatesInput): Promise<boolean> {
+/**
+ * Run the async gates (`check`, or `revalidate` on a rejoin) and return the
+ * sync `commit` gate. The caller runs that commit right before it writes the
+ * membership, with no `await` between them, so a cap checked in `commit`
+ * cannot be passed by two subscribes at once.
+ */
+async function runSubscribeGates(input: SubscribeGatesInput): Promise<() => void> {
   const { runtime, connection, opts, scope } = input;
   const { data, rejoining = false } = opts;
   let gateCtx: Record<PropertyKey, unknown> | undefined;
@@ -507,23 +631,20 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<boolean> {
     }
   }
 
-  const isDurable = runtime.isChannelDurable(scope.channel.key);
+  const commitHook = rejoining ? undefined : runtime.commitHooks.get(scope.channel.key)?.[0];
 
-  if (!rejoining) {
-    const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
-    if (commitHook) {
-      const result: unknown = commitHook.handler(getGateCtx(), checkResult);
-      if (
-        result !== null &&
-        (typeof result === 'object' || typeof result === 'function') &&
-        typeof (result as { then?: unknown }).then === 'function'
-      ) {
-        throw new LiveThingConfigError('commit() must be synchronous.');
-      }
+  return function runCommitGate(): void {
+    if (!commitHook) return;
+
+    const result: unknown = commitHook.handler(getGateCtx(), checkResult);
+    if (
+      result !== null &&
+      (typeof result === 'object' || typeof result === 'function') &&
+      typeof (result as { then?: unknown }).then === 'function'
+    ) {
+      throw new LiveThingConfigError('commit() must be synchronous.');
     }
-  }
-
-  return isDurable;
+  };
 }
 
 async function runSubscribeFlow(
@@ -540,23 +661,39 @@ async function runSubscribeFlow(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
 
-  const isDurable = await runSubscribeGates({ runtime, connection, opts, scope });
+  const runCommitGate = await runSubscribeGates({ runtime, connection, opts, scope });
   if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily))
     return;
 
-  if (
-    rejoining &&
-    isDurable === true &&
-    !runtime.hasDurableMembership(connection.userId, scope.channelName, scope.channelFamily)
-  ) {
-    return;
-  }
+  // Nothing awaits from here to addChannelMembership(), so commit sees the
+  // members exactly as they are when the joiner is added.
+  const isDurable = runtime.isChannelDurable(scope.channel.key);
+  const stored = isDurable
+    ? runtime.getDurableMembership(connection.userId, scope.channelName, scope.channelFamily)
+    : undefined;
+  if (rejoining && isDurable && !stored) return;
+
+  const userSeat = holdsUserSeat(connection, isDurable);
+  const memberId = memberIdOf(connection, userSeat);
+  // A user seat is present while any tab of the user is live, and a member
+  // while its stored row exists, even with no tab live. A kicked row is kept
+  // for the rejoin, but peers already saw that member leave.
+  const memberWasPresent = userSeat && userHasLiveConnectionIn(runtime, scope, connection);
+  const memberAlreadyJoined =
+    memberWasPresent || (userSeat && stored !== undefined && !stored.kicked);
+
+  runCommitGate();
 
   // Write the durable membership row first. If the SQL write throws, the
   // connection must not already be a live member of a channel it was never
   // saved into.
   if (isDurable) {
-    runtime.persistMembership(connection.userId, scope.channelName, scope.channelFamily);
+    runtime.persistMembership({
+      userId: connection.userId,
+      channelName: scope.channelName,
+      channelFamily: scope.channelFamily,
+      meta: connection.meta,
+    });
   }
 
   // Commit live membership before snapshotting the member list. Otherwise two
@@ -565,7 +702,7 @@ async function runSubscribeFlow(
 
   runtime.persistAttachment(connection);
 
-  const members = snapshotMembers(runtime, scope, connection.id);
+  const members = snapshotMembers(runtime, scope, connection);
 
   const livething = buildChannelRouting(scope);
 
@@ -578,7 +715,7 @@ async function runSubscribeFlow(
   const confirmation: Record<string, unknown> = {
     ...livething,
     source,
-    channelMembership: isDurable ? 'persistent' : 'ephemeral',
+    channelMembership: userSeat ? 'persistent' : 'ephemeral',
   };
 
   if (runtime.isInboxChannel?.(scope.channelName, scope.channelFamily)) {
@@ -596,12 +733,12 @@ async function runSubscribeFlow(
       livething: confirmation,
     });
   } catch (error) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, stored });
     throw error;
   }
 
   if (connection.closing) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, stored });
     return;
   }
 
@@ -612,34 +749,37 @@ async function runSubscribeFlow(
       livething: { ...livething, source },
     });
   } catch (error) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, stored });
     throw error;
   }
 
   if (connection.closing) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, stored });
     return;
   }
 
   // Order: __memberJoin__ (group changed) before __memberOnline__ (presence).
-  // Rejoin skips __memberJoin__ — the user was already a member.
-  if (!rejoining) {
+  // A stored member coming back, or a new tab of a user already in the
+  // channel, skips __memberJoin__. A user whose other tab is live skips both.
+  if (!memberAlreadyJoined) {
     runtime.broadcastToChannel({
       channelName: scope.channelName,
       event: '__memberJoin__',
-      payload: { connectionId: connection.id, meta: connection.meta },
+      payload: { memberId, meta: connection.meta },
       excludeConnectionId: connection.id,
       channelFamily: scope.channelFamily,
     });
   }
 
-  runtime.broadcastToChannel({
-    channelName: scope.channelName,
-    event: '__memberOnline__',
-    payload: { connectionId: connection.id, meta: connection.meta },
-    excludeConnectionId: connection.id,
-    channelFamily: scope.channelFamily,
-  });
+  if (!memberWasPresent) {
+    runtime.broadcastToChannel({
+      channelName: scope.channelName,
+      event: '__memberOnline__',
+      payload: { memberId, meta: connection.meta },
+      excludeConnectionId: connection.id,
+      channelFamily: scope.channelFamily,
+    });
+  }
 
   // Auto-rejoin does not fire onSubscribe — the user already joined once, and
   // the rejoin only restores a fresh socket. Re-running join side-effects (a
@@ -663,10 +803,23 @@ function rollbackFailedSubscribe(
   connection: RuntimeConnection,
   opts: RollbackFailedSubscribeOptsParameter,
 ): void {
-  const { scope, isDurable, rejoining } = opts;
+  const { scope, isDurable, stored } = opts;
   removeChannelMembership(runtime.channelMembers, connection, scope);
   runtime.persistAttachment(connection, { force: true });
-  if (rejoining || !isDurable || connection.userId === '') return;
+  if (!isDurable || connection.userId === '') return;
+
+  // The user was already a stored member: keep the row as it was.
+  if (stored) {
+    if (stored.kicked) {
+      runtime.markDurableMembershipKicked(
+        connection.userId,
+        scope.channelName,
+        scope.channelFamily,
+      );
+    }
+
+    return;
+  }
 
   const members = runtime.channelMembers.get(
     createChannelMembershipKey(scope.channelName, scope.channelFamily),
@@ -680,21 +833,52 @@ function rollbackFailedSubscribe(
   runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);
 }
 
-/** Build the public member snapshot for a channel, excluding the given connection. */
+/** One entry of a `__memberSync__` roster. */
+interface SyncMember {
+  memberId: string;
+  meta: Record<string, unknown>;
+  /** Whether the member has a live connection in the channel right now. */
+  online: boolean;
+}
+
+type SnapshotRuntime = Pick<
+  ChannelRuntime,
+  'channelMembers' | 'isChannelDurable' | 'listDurableMembers'
+>;
+
+/**
+ * Build the public member snapshot for a channel as `viewer` sees it: one entry
+ * per member id, without the viewer's own member id. Several tabs of one user
+ * in a persistent channel are one entry, with the first tab's meta. A
+ * persistent channel also lists stored members with no live connection as
+ * offline, with the meta saved when they last joined. A kicked row is left out:
+ * peers already saw that member leave.
+ */
 function snapshotMembers(
-  runtime: Pick<ChannelRuntime, 'channelMembers'>,
-  scope: ChannelTarget,
-  excludeConnectionId: string,
-): { connectionId: string; meta: Record<string, unknown> }[] {
+  runtime: SnapshotRuntime,
+  scope: ResolvedChannelTarget,
+  viewer: RuntimeConnection,
+): SyncMember[] {
+  const isDurable = runtime.isChannelDurable(scope.channel.key);
+  const viewerMemberId = memberIdOf(viewer, holdsUserSeat(viewer, isDurable));
   const memberKey = createChannelMembershipKey(scope.channelName, scope.channelFamily);
-  const members: { connectionId: string; meta: Record<string, unknown> }[] = [];
+  const members = new Map<string, SyncMember>();
   for (const member of runtime.channelMembers.get(memberKey) ?? []) {
-    if (member.id !== excludeConnectionId) {
-      members.push({ connectionId: member.id, meta: member.meta });
+    const memberId = memberIdOf(member, holdsUserSeat(member, isDurable));
+    if (memberId !== viewerMemberId && !members.has(memberId)) {
+      members.set(memberId, { memberId, meta: member.meta, online: true });
     }
   }
 
-  return members;
+  if (isDurable) {
+    for (const row of runtime.listDurableMembers(scope.channelName, scope.channelFamily)) {
+      if (row.kicked || row.userId === viewerMemberId || members.has(row.userId)) continue;
+
+      members.set(row.userId, { memberId: row.userId, meta: row.meta, online: false });
+    }
+  }
+
+  return [...members.values()];
 }
 
 export interface ResyncMembersOptions {
@@ -709,7 +893,7 @@ export interface ResyncMembersOptions {
  * dropped). The reply carries `source: 'server'`.
  */
 export function resyncChannelMembers(
-  runtime: Pick<ChannelRuntime, 'compiled' | 'channelMembers' | 'sendProtocolMessage'>,
+  runtime: SnapshotRuntime & Pick<ChannelRuntime, 'compiled' | 'sendProtocolMessage'>,
   connection: RuntimeConnection,
   opts: ResyncMembersOptions,
 ): void {
@@ -718,7 +902,7 @@ export function resyncChannelMembers(
 
   if (!hasChannelMembership(connection, scope.channelName, scope.channelFamily)) return;
 
-  const members = snapshotMembers(runtime, scope, connection.id);
+  const members = snapshotMembers(runtime, scope, connection);
   runtime.sendProtocolMessage(connection, {
     event: '__memberSync__',
     payload: { members },
@@ -929,9 +1113,9 @@ export function resolveChannelRecipients(
  * Scoped to the exact `channelName + channelFamily` pair: kicks never cross
  * into a different channel family that happens to share a concrete name.
  *
- * Every triggered `leaveChannel` runs to completion. `onUnsubscribe` hook
- * failures are logged through `runtime.logger` and do not cancel the rest
- * of the kick — the same shape the engine uses during shutdown drain.
+ * Every triggered `leaveChannel` runs to completion, even when a leave hook of
+ * another kicked connection throws. Once all of them finished, the kick rejects
+ * with an `AggregateError` holding every failure.
  */
 export interface KickChannelMembersOptions {
   channelName: string;
@@ -951,6 +1135,75 @@ export interface KickChannelMembersOptions {
   revoke?: boolean;
 }
 
+export interface RemoveStoredMemberOptions {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+  /** `true` drops the row; `false` marks it kicked so the user still rejoins later. */
+  revoke: boolean;
+}
+
+/**
+ * End the membership of a user who is a stored member of a persistent channel
+ * but has no live connection in it. There is no socket, so no `__kicked__` and
+ * no leave hooks. Peers get `__memberLeave__` unless an earlier kick already
+ * removed the member. A no-op while the user has a live connection in the
+ * channel, since that connection keeps the membership.
+ */
+export function removeStoredMember(
+  runtime: Pick<
+    ChannelRuntime,
+    | 'channelMembers'
+    | 'getDurableMembership'
+    | 'deleteDurableMembership'
+    | 'markDurableMembershipKicked'
+    | 'clearInbox'
+    | 'broadcastToChannel'
+  >,
+  opts: RemoveStoredMemberOptions,
+): void {
+  const { userId, channelName, channelFamily, revoke } = opts;
+  if (userId === '') return;
+
+  const members = runtime.channelMembers.get(
+    createChannelMembershipKey(channelName, channelFamily),
+  );
+  for (const member of members ?? []) {
+    if (member.userId === userId) return;
+  }
+
+  const stored = runtime.getDurableMembership(userId, channelName, channelFamily);
+  if (!stored) return;
+
+  if (revoke) {
+    runtime.deleteDurableMembership(userId, channelName, channelFamily);
+    runtime.clearInbox?.(userId, channelName, channelFamily);
+  } else {
+    runtime.markDurableMembershipKicked(userId, channelName, channelFamily);
+  }
+
+  if (stored.kicked) return;
+
+  runtime.broadcastToChannel({
+    channelName,
+    event: '__memberLeave__',
+    payload: { memberId: userId, meta: stored.meta },
+    excludeConnectionId: undefined,
+    channelFamily,
+  });
+}
+
+/** A `UserRef` kick also reaches the user's stored membership when no tab is live. */
+function kickStoredMember(runtime: ChannelRuntime, opts: KickChannelMembersOptions): void {
+  const { channelName, channelFamily, target, revoke = false } = opts;
+  if (target.__livething !== 'user-ref') return;
+
+  const channel = resolveCompiledChannel(runtime.compiled, channelName, channelFamily);
+  if (!channel || !runtime.isChannelDurable(channel.key)) return;
+
+  removeStoredMember(runtime, { userId: target.id, channelName, channelFamily, revoke });
+}
+
 export async function kickChannelMembers(
   runtime: ChannelRuntime & {
     leaveChannel(connection: RuntimeConnection, opts: LeaveChannelOptions): Promise<void>;
@@ -959,6 +1212,8 @@ export async function kickChannelMembers(
 ): Promise<void> {
   const { channelName, target, reason, channelFamily, revoke = false } = opts;
   const targetKey = createChannelMembershipKey(channelName, channelFamily);
+  kickStoredMember(runtime, opts);
+
   const pending: Promise<void>[] = [];
   // Snapshot before iterating — members can leave while this loop runs.
   // If two kicks target the same member at once, the second leave is a no-op.
@@ -975,24 +1230,23 @@ export async function kickChannelMembers(
     );
 
     pending.push(
-      runtime
-        .leaveChannel(connection, {
-          channel,
-          channelName: membership.channelName,
-          channelFamily: membership.channelFamily,
-          kickedReason: reason,
-          keepDurableRow: !revoke,
-        })
-        .catch((error) => {
-          runtime.logger?.error('[livething] leaveChannel threw during kick', {
-            channelName: membership.channelName,
-            channelFamily: membership.channelFamily,
-            connectionId: connection.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }),
+      runtime.leaveChannel(connection, {
+        channel,
+        channelName: membership.channelName,
+        channelFamily: membership.channelFamily,
+        kickedReason: reason,
+        keepDurableRow: !revoke,
+      }),
     );
   }
 
-  await Promise.all(pending);
+  const failures = (await Promise.allSettled(pending)).flatMap((result) =>
+    result.status === 'rejected' ? [result.reason as unknown] : [],
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      `[livething] kick from channel "${channelName}" failed for ${failures.length} connection(s)`,
+    );
+  }
 }

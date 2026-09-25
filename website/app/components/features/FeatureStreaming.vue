@@ -395,7 +395,7 @@ onBeforeUnmount(() => {
         <div>
           <p class="section-label">Nudges</p>
           <h3 class="mt-4 text-2xl md:text-3xl font-semibold tracking-tight text-highlighted">
-            Steer it between steps<span class="text-primary">.</span>
+            Send messages into a running stream<span class="text-primary">.</span>
           </h3>
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
             Change your mind mid-stream. Between steps, the client can reach back into a running stream to <code class="font-mono text-primary bg-elevated/60 border border-muted px-1 py-0.5">stop</code> it or point it somewhere new, with no restart and nothing torn down. Typed, like everything else.
@@ -490,7 +490,7 @@ onBeforeUnmount(() => {
         <div>
           <p class="section-label">Durable streams</p>
           <h3 class="mt-4 text-2xl md:text-3xl font-semibold tracking-tight text-highlighted">
-            Lose the socket, keep the stream<span class="text-primary">.</span>
+            Durable streams that resume after a reconnect<span class="text-primary">.</span>
           </h3>
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
             Mark a stream durable and a disconnected client never loses its place — it picks up mid-stream on reconnect, no replay logic on your side. Two flavors, for two kinds of source.

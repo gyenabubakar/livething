@@ -11,7 +11,7 @@ interface C {
       payload: { prompt: string };
       chunk: { text: string };
       kind: 'persistent';
-      nudges: { cancel: { reason: string } };
+      nudges: { cancel: { reason: string }; pause: undefined };
     };
   };
   channels: {
@@ -50,6 +50,13 @@ async function main() {
 
   // @ts-expect-error — 'add-context' is not a declared nudge
   handle.nudge('add-context', {});
+
+  // A nudge with no payload is sent by name, with or without options.
+  void handle.nudge('pause');
+  void handle.nudge('pause', undefined, { timeout: 1000 });
+
+  // @ts-expect-error — 'cancel' needs its payload
+  void handle.nudge('cancel');
 
   socket.onStream('ask-ai', {
     onChunk(chunk, streamId) {

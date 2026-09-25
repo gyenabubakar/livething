@@ -25,8 +25,8 @@ const DEDUP_DEFAULT_INCOMING_CAP = 256;
  *   run, protecting against client-side retries on a flaky socket. Clients
  *   opt in by attaching a stable id; sends without an id always go through.
  *
- * Enable this via `dedup: true` on the contract config instead of calling
- * this primitive directly.
+ * Enable this by listing the `dedup()` capability in
+ * `server({ capabilities: [...] })` instead of calling this primitive directly.
  */
 export function dedup(options?: DedupOptionsParameter): DedupPrimitive {
   if (options?.cap !== undefined) {

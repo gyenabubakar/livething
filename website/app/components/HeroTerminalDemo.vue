@@ -14,8 +14,19 @@ const serverSide = [
 ]
 
 // App clients — anywhere with a WebSocket.
-const clientSide = [
-  { label: 'Browser', icon: 'i-ph-globe-duotone', sublabel: 'React · Vue · Svelte', iconClass: 'text-dimmed' },
+const clientSide: { label: string, icon: string, sublabel: string, iconClass: string, logos?: { src: string, alt: string }[] }[] = [
+  {
+    label: 'Browser',
+    icon: 'i-ph-globe-duotone',
+    sublabel: 'JavaScript · React · Vue · Svelte',
+    iconClass: 'text-dimmed',
+    logos: [
+      { src: '/logos/js.svg', alt: 'JavaScript' },
+      { src: '/logos/react.svg', alt: 'React' },
+      { src: '/logos/vue.svg', alt: 'Vue' },
+      { src: '/logos/svelte.svg', alt: 'Svelte' },
+    ],
+  },
   { label: 'React Native', icon: 'i-logos-react', sublabel: 'iOS · Android', iconClass: '' },
 ]
 
@@ -194,7 +205,10 @@ onUnmounted(() => {
             <UIcon :name="c.icon" class="size-4 shrink-0" :class="c.iconClass" />
             <div class="flex flex-col min-w-0">
               <span class="font-medium text-[11px] text-highlighted truncate">{{ c.label }}</span>
-              <span class="text-[9px] text-muted truncate">{{ c.sublabel }}</span>
+              <span v-if="c.logos" class="flex items-center gap-2 pt-0.5" :aria-label="c.sublabel">
+                <img v-for="logo in c.logos" :key="logo.src" :src="logo.src" :alt="logo.alt" class="size-[13.2px]" width="13" height="13">
+              </span>
+              <span v-else class="text-[9px] text-muted truncate">{{ c.sublabel }}</span>
             </div>
           </div>
         </div>

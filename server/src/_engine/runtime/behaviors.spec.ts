@@ -5,6 +5,7 @@ import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
 import { cancelStream } from '~/stream/runtime.ts';
+import * as v from 'valibot';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
@@ -121,6 +122,7 @@ describe('handleUpgrade', () => {
         ],
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -128,7 +130,8 @@ describe('handleUpgrade', () => {
     expect(result).toEqual({ reject: true, code: 4002, reason: 'nope' });
   });
 
-  it('maps non-RejectUpgrade errors to a 500 reject decision', async () => {
+  it('maps non-RejectUpgrade errors to a 500 reject decision and logs the real error', async () => {
+    const logger = { error: vi.fn() };
     const result = await handleUpgrade(
       {
         upgradeHooks: [
@@ -138,16 +141,115 @@ describe('handleUpgrade', () => {
         ],
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
+        logger,
       },
       new Request('https://example.com/'),
     );
 
     expect(result).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+    expect(logger.error).toHaveBeenCalledWith(
+      '[livething] upgrade hook threw; rejecting with HTTP 500',
+      expect.objectContaining({ error: 'boom', stack: expect.stringContaining('boom') }),
+    );
+  });
+
+  it('logs the helpful message for an undeclared ephemeral tag group', async () => {
+    const logger = { error: vi.fn() };
+    await handleUpgrade(
+      {
+        upgradeHooks: [],
+        builderUpgradeHook: async () => ({
+          tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
+        }),
+        upgradeHelpers: {},
+        isTagGroupDeclared: () => false,
+        getTagGroupSchema: () => undefined,
+        logger,
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(logger.error).toHaveBeenCalledWith(
+      '[livething] upgrade hook threw; rejecting with HTTP 500',
+      expect.objectContaining({
+        error: expect.stringContaining("onUpgrade returned an ephemeral tag for group 'typo'"),
+      }),
+    );
+  });
+
+  it('does not log a RejectUpgrade as an error', async () => {
+    const logger = { error: vi.fn() };
+    await handleUpgrade(
+      {
+        upgradeHooks: [
+          async () => {
+            throw RejectUpgrade(4002, 'nope');
+          },
+        ],
+        upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
+        logger,
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  describe('ephemeral tag keys are checked against the group schema', () => {
+    function roleRef(key: string) {
+      return { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
+    }
+
+    function upgradeWith(key: string, logger = { error: vi.fn() }) {
+      return handleUpgrade(
+        {
+          upgradeHooks: [],
+          builderUpgradeHook: async () => ({ tags: [roleRef(key)] }),
+          upgradeHelpers: {},
+          isTagGroupDeclared: () => true,
+          getTagGroupSchema: () => v.picklist(['admin', 'member']),
+          logger,
+        },
+        new Request('https://example.com/'),
+      );
+    }
+
+    it('accepts a key the schema allows', async () => {
+      const result = await upgradeWith('admin');
+      expect((result.tags ?? []).map((r) => r.key)).toEqual(['admin']);
+    });
+
+    it('rejects the upgrade for a key the schema rejects, and logs why', async () => {
+      const logger = { error: vi.fn() };
+      const result = await upgradeWith('root', logger);
+
+      expect(result).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+      expect(logger.error).toHaveBeenCalledWith(
+        '[livething] upgrade hook threw; rejecting with HTTP 500',
+        expect.objectContaining({
+          error:
+            "[livething] onUpgrade returned the ephemeral tag key 'root' for group 'role', which the group's schema rejects.",
+        }),
+      );
+    });
+
+    it('drops an empty key, the same as add()', async () => {
+      const result = await upgradeWith('');
+      expect(result.tags).toBeUndefined();
+    });
   });
 
   it('returns empty decision when no hooks are registered', async () => {
     const result = await handleUpgrade(
-      { upgradeHooks: [], upgradeHelpers: {}, isTagGroupDeclared: () => true },
+      {
+        upgradeHooks: [],
+        upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
+      },
       new Request('https://example.com/'),
     );
     expect(result).toEqual({});
@@ -165,6 +267,7 @@ describe('handleUpgrade', () => {
         }),
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -188,6 +291,7 @@ describe('handleUpgrade', () => {
         builderUpgradeHook: async () => ({ tags: [ref('user-tag')] }),
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -208,6 +312,7 @@ describe('handleUpgrade', () => {
         builderUpgradeHook: async () => ({ meta: { user_id: 'u_42' }, tags: [ref('authed')] }),
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -223,6 +328,7 @@ describe('handleUpgrade', () => {
         builderUpgradeHook: async () => ({}),
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -240,6 +346,7 @@ describe('handleUpgrade', () => {
         }),
         upgradeHelpers: {},
         isTagGroupDeclared: (_kind, group) => group === 'role',
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );

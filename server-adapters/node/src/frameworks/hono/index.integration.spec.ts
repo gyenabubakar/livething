@@ -163,6 +163,34 @@ function sendInvalidClientFrame(port: number, path: string): Promise<void> {
   });
 }
 
+function sendUpgrade(port: number, path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connectTcp(port, '127.0.0.1');
+    let response = '';
+    socket.setEncoding('utf8');
+    socket.once('connect', () => {
+      socket.end(
+        [
+          `GET ${path} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (chunk) => {
+      response += chunk;
+    });
+
+    socket.once('close', () => resolve(response));
+    socket.once('error', reject);
+  });
+}
+
 function sendOpenUpgrade(port: number, path: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = connectTcp(port, '127.0.0.1');
@@ -431,11 +459,46 @@ describe('Hono binding', () => {
 
     servers.push(server);
 
-    const response = await fetch(`http://127.0.0.1:${server.port}/ws/http-reject`);
-    expect(response.status).toBe(401);
-    expect(await response.text()).toContain('No token');
+    const response = await sendUpgrade(server.port, '/ws/http-reject');
+    expect(response).toMatch(/^HTTP\/1\.1 401 /);
   });
 
+  it('passes a plain HTTP request to the next Hono handler without running upgrade', async () => {
+    const upgrade = vi.fn(() => ({ userId: 'plain' }));
+    const definition = createServerDefinition({ upgrade }).assemble({ handlers: [] });
+    const app = new Hono();
+    const livething = setup();
+    const endpoint = livething.bind(definition, {});
+
+    app.get('/ws/:room', endpoint.upgrade, (context) => context.text('plain page'));
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
+
+    servers.push(server);
+    await livething.ready();
+
+    const response = await fetch(`http://127.0.0.1:${server.port}/ws/lobby`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('plain page');
+    expect(upgrade).not.toHaveBeenCalled();
+  });
+
+  it('does not run upgrade for a plain HTTP request when no other Hono handler matches', async () => {
+    const upgrade = vi.fn(() => ({ userId: 'plain' }));
+    const definition = createServerDefinition({ upgrade }).assemble({ handlers: [] });
+    const app = new Hono();
+    const livething = setup();
+    const endpoint = livething.bind(definition, {});
+
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
+
+    servers.push(server);
+    await livething.ready();
+
+    const response = await fetch(`http://127.0.0.1:${server.port}/ws/lobby`);
+    expect(response.status).toBe(404);
+    expect(upgrade).not.toHaveBeenCalled();
+  });
   it('upgrades then closes a socket-level rejection', async () => {
     const app = new Hono();
     const livething = setup();

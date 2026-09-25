@@ -754,11 +754,20 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             }
           }
 
-          for (const run of broadcastRuns.values()) if (run.timer) clearTimeout(run.timer);
-          broadcastRuns.clear();
+          for (const run of broadcastRuns.values()) {
+            if (run.timer) clearTimeout(run.timer);
+            run.timer = null;
+          }
+
+          // Keep each run's last seq across a drop that will reconnect: a resume
+          // resends stored chunks, and onChunk must not see those twice.
+          if (intentional || !(suspended || helpers.willReconnect(code, reason))) {
+            broadcastRuns.clear();
+          }
         },
 
         onReconnectFailed() {
+          broadcastRuns.clear();
           for (const trigger of triggers.values()) {
             if (trigger.timer) clearTimeout(trigger.timer);
             helpers.lazyRelease();

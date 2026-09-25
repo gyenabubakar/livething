@@ -290,8 +290,8 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
               ? {}
               : {
                   stream: NeedsPrimitive<'[livething] socket.stream needs the stream() primitive — add stream() to client()'>;
-                  onStream: NeedsPrimitive<'[livething] socket.onStream needs the stream() primitive — add onStream() to client()'>;
-                  resumeStream: NeedsPrimitive<'[livething] socket.resumeStream needs the stream() primitive — add resumeStream() to client()'>;
+                  onStream: NeedsPrimitive<'[livething] socket.onStream needs the stream() primitive — add stream() to client()'>;
+                  resumeStream: NeedsPrimitive<'[livething] socket.resumeStream needs the stream() primitive — add stream() to client()'>;
                 }
             : {})
       : {};

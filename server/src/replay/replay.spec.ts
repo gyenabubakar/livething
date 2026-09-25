@@ -241,8 +241,8 @@ describe('replay', () => {
       getReplayClaimedChannelKeys() {
         return new Set();
       },
-      onBeforeSend() {},
-      onAfterSend() {},
+      onBeforeBroadcast() {},
+      onAfterBroadcast() {},
       onBoot() {},
       onBootSchema() {},
       onProtocolMessage() {},
@@ -251,8 +251,8 @@ describe('replay', () => {
       EngineAccess,
       | 'extendContext'
       | 'getScopeInfo'
-      | 'onAfterSend'
-      | 'onBeforeSend'
+      | 'onAfterBroadcast'
+      | 'onBeforeBroadcast'
       | 'onBoot'
       | 'onProtocolMessage'
       | 'setReplayEnabled'
@@ -272,7 +272,7 @@ describe('replay', () => {
     expect(typeof ctx.sendReplay).toBe('function');
   });
 
-  it('top-level sendReplay forwards wire.channelFamily into engine.sendReplay', () => {
+  it('top-level sendReplay resolves wire.channel refs into the channel it targets', () => {
     const extenders: Array<NonNullable<Parameters<EngineAccess['extendContext']>[0]>> = [];
     const sent: Parameters<EngineAccess['sendReplay']>[] = [];
     const engine = {
@@ -286,8 +286,8 @@ describe('replay', () => {
       getReplayClaimedChannelKeys() {
         return new Set();
       },
-      onBeforeSend() {},
-      onAfterSend() {},
+      onBeforeBroadcast() {},
+      onAfterBroadcast() {},
       onBoot() {},
       onBootSchema() {},
       onProtocolMessage() {},
@@ -299,8 +299,8 @@ describe('replay', () => {
       EngineAccess,
       | 'extendContext'
       | 'getScopeInfo'
-      | 'onAfterSend'
-      | 'onBeforeSend'
+      | 'onAfterBroadcast'
+      | 'onBeforeBroadcast'
       | 'onBoot'
       | 'onProtocolMessage'
       | 'setReplayEnabled'
@@ -318,16 +318,26 @@ describe('replay', () => {
 
     extenders[0]!(ctx);
 
-    (ctx.sendReplay as (event: string, payload: unknown, wire: unknown) => void)(
+    const sendReplay = ctx.sendReplay as (event: string, payload: unknown, wire: unknown) => void;
+    const familyRef = { __livethingChannelRef: true, family: 'rooms', name: 'room-1' };
+    const staticDeclaration = { __livethingChannel: true, __key: 'lobby' };
+
+    sendReplay('message', { text: 'hi' }, { deliverySeq: 7, messageId: 'm7', channel: familyRef });
+    sendReplay(
       'message',
       { text: 'hi' },
-      { deliverySeq: 7, messageId: 'm7', channel: 'room-1', channelFamily: 'rooms' },
+      { deliverySeq: 8, messageId: 'm8', channel: staticDeclaration },
     );
+    sendReplay('message', { text: 'hi' }, { deliverySeq: 9, messageId: 'm9' });
 
-    expect(sent).toHaveLength(1);
-    const [, opts] = sent[0]!;
-    expect(opts.channelName).toBe('room-1');
-    expect(opts.channelFamily).toBe('rooms');
+    expect(sent.map(([, opts]) => [opts.channelName, opts.channelFamily, opts.wire])).toEqual([
+      ['room-1', 'rooms', { deliverySeq: 7, messageId: 'm7' }],
+      ['lobby', null, { deliverySeq: 8, messageId: 'm8' }],
+      [null, null, { deliverySeq: 9, messageId: 'm9' }],
+    ]);
+    expect(() =>
+      sendReplay('message', { text: 'hi' }, { deliverySeq: 1, messageId: 'm1', channel: 'lobby' }),
+    ).toThrow(/wire\.channel/);
   });
 
   it('adds channel sendReplay only for the matching channel scope', () => {
@@ -343,8 +353,8 @@ describe('replay', () => {
       getReplayClaimedChannelKeys() {
         return new Set();
       },
-      onBeforeSend() {},
-      onAfterSend() {},
+      onBeforeBroadcast() {},
+      onAfterBroadcast() {},
       onBoot() {},
       onBootSchema() {},
       onProtocolMessage() {},
@@ -353,8 +363,8 @@ describe('replay', () => {
       EngineAccess,
       | 'extendContext'
       | 'getScopeInfo'
-      | 'onAfterSend'
-      | 'onBeforeSend'
+      | 'onAfterBroadcast'
+      | 'onBeforeBroadcast'
       | 'onBoot'
       | 'onProtocolMessage'
       | 'setReplayEnabled'
@@ -415,8 +425,8 @@ describe('replay', () => {
       getReplayClaimedChannelKeys() {
         return new Set();
       },
-      onBeforeSend() {},
-      onAfterSend() {},
+      onBeforeBroadcast() {},
+      onAfterBroadcast() {},
       onBoot() {},
       onBootSchema() {},
       storage: {
@@ -471,8 +481,8 @@ describe('replay', () => {
       EngineAccess,
       | 'extendContext'
       | 'getScopeInfo'
-      | 'onAfterSend'
-      | 'onBeforeSend'
+      | 'onAfterBroadcast'
+      | 'onBeforeBroadcast'
       | 'onBoot'
       | 'onProtocolMessage'
       | 'storage'
@@ -569,8 +579,8 @@ describe('replay', () => {
         getReplayClaimedChannelKeys() {
           return new Set();
         },
-        onBeforeSend() {},
-        onAfterSend() {},
+        onBeforeBroadcast() {},
+        onAfterBroadcast() {},
         onBoot() {},
         onBootSchema() {},
         storage: {

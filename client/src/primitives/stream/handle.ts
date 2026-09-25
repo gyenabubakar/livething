@@ -21,9 +21,10 @@ export function buildStreamHandle(
     get active() {
       return state.active;
     },
-    nudge(event, payload, options) {
+    nudge(event, ...args) {
       if (!state.active) return Promise.resolve();
 
+      const [payload, options] = args;
       return dependencies.nudge(state, { event, payload, timeout: options?.timeout });
     },
     cancel() {

@@ -146,7 +146,7 @@ test.describe('replay-custom-cascade', () => {
       .toBe(true);
 
     // Ask the top-level replay handler to replay channel `lobby` from seq 0.
-    // This works only because the cascade carried channel info to onBeforeSend
+    // This works only because the cascade carried channel info to beforeBroadcast
     // earlier so rows were stored with channel='lobby'; and because the top-
     // level onReplay context now exposes the requested channel on `request`.
     await send('second', {

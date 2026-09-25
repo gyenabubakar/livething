@@ -7,7 +7,7 @@ import type {
 } from '~/replay/custom/custom.ts';
 
 const topLevelReplay = handleReplay({
-  onBeforeSend(ctx, message) {
+  onBeforeBroadcast(ctx, message) {
     const _ctx: CustomReplaySendContext = ctx;
     const _message: OutgoingWireMessage<'top'> = message;
     const _seq: number = message.wire.deliverySeq;
@@ -25,11 +25,19 @@ const topLevelReplay = handleReplay({
       void _afterGuard;
     }
 
-    void [_ctx, _message, _seq, _messageId, _channel, _channelFamily];
+    // A broadcast to everyone in its scope has no user; one sent to a single user names it.
+    const _userId: string | null = message.userId;
+    // @ts-expect-error — userId may be null; calling string methods needs a guard
+    message.userId.toUpperCase();
+    // @ts-expect-error — a broadcast has no single connection, so there is no per-connection meta
+    ctx.meta;
+
+    void [_ctx, _message, _seq, _messageId, _channel, _channelFamily, _userId];
   },
   onReplay(ctx, since) {
     const _since: number = since;
-    void _since;
+    const _requester: string | null = ctx.userId;
+    void [_since, _requester];
     ctx.sendReplay('message', { text: 'history' }, { deliverySeq: 1, messageId: 'm1' });
   },
 });
@@ -41,7 +49,7 @@ const _topLevelRef: PrimitiveRef = handleReplay;
 void [_topLevelReplayPrimitive, _topLevelTag, _topLevelKind, _topLevelRef];
 
 const channelReplay = handleReplay<'channel'>({
-  onBeforeSend(ctx, message) {
+  onBeforeBroadcast(ctx, message) {
     const _ctx: CustomReplaySendContext = ctx;
     const _message: OutgoingWireMessage<'channel'> = message;
     const _seq: number = message.wire.deliverySeq;
@@ -63,7 +71,8 @@ const channelReplay = handleReplay<'channel'>({
   onReplay(ctx, since) {
     const _channelName: string = ctx.channel.name;
     const _since: number = since;
-    void [_channelName, _since];
+    const _requester: string | null = ctx.userId;
+    void [_channelName, _since, _requester];
     ctx.sendReplay('message', { text: 'history' }, { deliverySeq: 1, messageId: 'm1' });
   },
 });

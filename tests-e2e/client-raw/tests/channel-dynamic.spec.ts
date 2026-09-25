@@ -415,7 +415,7 @@ test.describe('channel-dynamic', () => {
 
           const joinIds = msgs
             .filter((m) => m.event === '__memberJoin__')
-            .map((m) => String(m.payload.connectionId));
+            .map((m) => String(m.payload.memberId));
 
           // Since 5d05a08, initial state arrives as __memberSync__ (one frame
           // with all current members), not per-member __memberJoin__ frames.
@@ -423,8 +423,8 @@ test.describe('channel-dynamic', () => {
           const syncIds = msgs
             .filter((m) => m.event === '__memberSync__')
             .flatMap((m) => {
-              const members = m.payload.members as Array<{ connectionId: string }> | undefined;
-              return (members ?? []).map((mb) => mb.connectionId);
+              const members = m.payload.members as Array<{ memberId: string }> | undefined;
+              return (members ?? []).map((mb) => mb.memberId);
             });
 
           return [...new Set([...joinIds, ...syncIds])];
@@ -748,11 +748,11 @@ test.describe('channel-dynamic', () => {
           const ids = new Set<string>();
           for (const m of s.messages) {
             if (m.event === '__memberSync__') {
-              const members = (m.payload.members as { connectionId: string }[] | undefined) ?? [];
-              for (const mb of members) ids.add(mb.connectionId);
+              const members = (m.payload.members as { memberId: string }[] | undefined) ?? [];
+              for (const mb of members) ids.add(mb.memberId);
             }
 
-            if (m.event === '__memberJoin__') ids.add(String(m.payload.connectionId));
+            if (m.event === '__memberJoin__') ids.add(String(m.payload.memberId));
           }
 
           return ids;

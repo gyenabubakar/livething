@@ -35,17 +35,36 @@ function channelEventName(prefix: string, event: string): string {
   return prefix && event.startsWith(prefix) ? event.slice(prefix.length) : event;
 }
 
-/** Parse a `{ connectionId, meta? }` payload from an untrusted wire message — returns null if the shape is wrong. */
-function readMember(
-  payload: unknown,
-): { connectionId: string; meta?: Record<string, unknown> } | null {
-  const fields = (payload ?? {}) as { connectionId?: unknown; meta?: unknown };
-  if (typeof fields.connectionId !== 'string') return null;
+/** Parse a `{ memberId, meta? }` payload from an untrusted wire message — returns null if the shape is wrong. */
+function readMember(payload: unknown): { memberId: string; meta?: Record<string, unknown> } | null {
+  const fields = (payload ?? {}) as { memberId?: unknown; meta?: unknown };
+  if (typeof fields.memberId !== 'string') return null;
 
   return {
-    connectionId: fields.connectionId,
+    memberId: fields.memberId,
     meta: fields.meta as Record<string, unknown> | undefined,
   };
+}
+
+/** Parse one `{ memberId, meta?, online }` roster entry of a `__memberSync__` — null if the shape is wrong. */
+function readSyncMember(
+  entry: unknown,
+): { memberId: string; meta?: Record<string, unknown>; online: boolean } | null {
+  const member = readMember(entry);
+  const online = (entry as { online?: unknown } | null | undefined)?.online;
+  if (!member || typeof online !== 'boolean') return null;
+
+  return { ...member, online };
+}
+
+/** True when an `__error__` payload names the protocol frame it answers, and that frame is not a subscribe. */
+function answersAnotherEvent(payload: unknown): boolean {
+  const detail = (payload as { detail?: { event?: unknown } } | null | undefined)?.detail;
+  return (
+    typeof detail?.event === 'string' &&
+    isProtocolFrameEvent(detail.event) &&
+    detail.event !== '__subscribe__'
+  );
 }
 
 /** The host `channel` method: a fixed/dynamic getter plus `.family`. */
@@ -224,7 +243,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         if (message.event === '__memberSync__') {
           const raw = (message.payload as { members?: unknown })?.members;
           state.syncMembers(
-            Array.isArray(raw) ? raw.map(readMember).filter((m) => m !== null) : [],
+            Array.isArray(raw) ? raw.map(readSyncMember).filter((m) => m !== null) : [],
           );
           return null;
         }
@@ -234,28 +253,36 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
         switch (message.event) {
           case '__memberJoin__':
-            state.addMember(member.connectionId, member.meta);
+            state.addMember(member.memberId, member.meta);
             break;
 
           case '__memberLeave__':
-            state.removeMember(member.connectionId);
+            state.removeMember(member.memberId);
             break;
 
           case '__memberOnline__':
-            state.memberWentOnline(member.connectionId, member.meta);
+            state.memberWentOnline(member.memberId, member.meta);
             break;
 
           case '__memberOffline__':
-            state.memberWentOffline(member.connectionId);
+            state.memberWentOffline(member.memberId);
             break;
         }
 
         return null;
       }
 
+      /**
+       * Claim a channel `__error__` only when it answers a subscribe or a
+       * reconnect rejoin. Any other channel error (a failed send, a `__replay__`
+       * the server does not support) goes on to later primitives and
+       * `onServerError`.
+       */
       function handleChannelError(incoming: ChannelIncoming): Message | null {
         const { message, state, name, familyKey, metadata } = incoming;
         if (metadata?.exchange?.id !== undefined || metadata?.stream !== undefined) return message;
+
+        if (!state.hasSubscribeInFlight || answersAnotherEvent(message.payload)) return message;
 
         const error = unscopeErrorCode(
           familyKey ?? name,

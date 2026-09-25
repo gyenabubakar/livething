@@ -48,6 +48,11 @@ interface BucketState {
   lastRefillMs: number;
 }
 
+/** The default budget key: one budget per connection. */
+export function connectionBudgetKey(ctx: any): string {
+  return String(ctx?.connection?.id ?? '');
+}
+
 /**
  * Identifies the scope a given incoming frame landed in, using the ctx
  * fields populated by the engine when it builds a scoped connection context.
@@ -89,7 +94,7 @@ export class RateLimitRuntime {
       : (this.plan.scopeRules.get(scopeKey) ?? null);
     if (!rule) return null;
 
-    const perKey = rule.per(ctx);
+    const perKey = rule.per(ctx) || connectionBudgetKey(ctx);
     const bucketKey = `${rule.id}|${perKey}`;
     const now = this.now();
     const refillRate = rule.max / rule.windowMs;

@@ -131,3 +131,54 @@ expectTypeOf(Watcher.use({})).toEqualTypeOf<void>();
 
 // The explicit second type argument still pins the API when you want it.
 expectTypeOf(Chat.use({})).toEqualTypeOf<ChatApi>();
+
+interface FeedWire {
+  incoming: { item: { id: string } };
+}
+
+interface FeedApi {
+  latest(): string | undefined;
+  count(): number;
+}
+
+// A pinned API is what `use()` returns, even when `setup` builds a wider object.
+const Feed = plugin<FeedWire, FeedApi>()({
+  id: 'acme:feed',
+  setup: (feedSocket) => {
+    const ids: string[] = [];
+    feedSocket.on('item', (item) => ids.push(item.id));
+    return {
+      api: () => ({
+        latest: () => ids.at(-1),
+        count: () => ids.length,
+        clear: () => ids.splice(0),
+      }),
+    };
+  },
+});
+expectTypeOf(Feed.use({})).toEqualTypeOf<FeedApi>();
+
+plugin<FeedWire, FeedApi>()({
+  id: 'acme:feed-wrong',
+  // @ts-expect-error — the API does not match the pinned FeedApi
+  setup: () => ({ api: () => ({ other: 1 }) }),
+});
+
+plugin<FeedWire, FeedApi>()({
+  id: 'acme:feed-incomplete',
+  // @ts-expect-error — the API is missing count() from the pinned FeedApi
+  setup: () => ({ api: () => ({ latest: () => undefined }) }),
+});
+
+plugin<FeedWire, FeedApi>()({
+  id: 'acme:feed-bad-method',
+  // @ts-expect-error — count() returns a string, not the pinned number
+  setup: () => ({ api: () => ({ latest: () => undefined, count: () => 'many' }) }),
+});
+
+// With only the contract type argument, the API is still inferred from `setup`.
+const InferredFeed = plugin<FeedWire>()({
+  id: 'acme:feed-inferred',
+  setup: () => ({ api: () => ({ other: 1 }) }),
+});
+expectTypeOf(InferredFeed.use({})).toEqualTypeOf<{ other: number }>();

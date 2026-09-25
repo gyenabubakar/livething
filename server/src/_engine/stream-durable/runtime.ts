@@ -601,50 +601,18 @@ export async function resumeDurableStream(
     return;
   }
 
-  const checkpoint = runtime.sql.transaction((sql) => {
-    const restoredCheckpoint = Storage.readCursorCheckpointAtOrBefore(sql, {
-      userId: storageUserId,
-      streamId,
-      seq: lastKnownSeq,
-    });
-    Storage.deleteCursorCheckpointsAfter(sql, {
-      userId: storageUserId,
-      streamId,
-      seq: lastKnownSeq,
-    });
-    Storage.rewindResumableStream(sql, {
-      userId: storageUserId,
-      streamId,
-      lastSeq: restoredCheckpoint?.seq ?? 0,
-      now: Date.now(),
-    });
-    return restoredCheckpoint;
+  const checkpoint = Storage.readCursorCheckpointAtOrBefore(runtime.sql, {
+    userId: storageUserId,
+    streamId,
+    seq: lastKnownSeq,
   });
 
-  const startSeq = checkpoint?.seq ?? 0;
-  const cursorRaw = checkpoint?.cursor ?? null;
-
-  let cursor: unknown = null;
-  if (cursorRaw) {
-    try {
-      const raw = JSON.parse(cursorRaw);
-      cursor = def.cursor ? validateValue(def.cursor, raw, '__resumeStream__') : raw;
-    } catch {
-      runtime.sendProtocolMessage(connection, {
-        event: '__error__',
-        payload: { code: StreamAborted.code, detail: { reason: 'cursor-invalid' as const } },
-        livething: { ...scopeMarkers, streamId },
-      });
-      return;
-    }
-  }
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(row.payload);
-  } catch {
-    // A corrupt or partially-written row must not throw out of resume — send a
-    // terminal error so the client's resuming stream settles.
+  // Parse and validate everything the re-run needs before touching the row. A
+  // stored cursor or payload that cannot be restored never will be, so the row
+  // is deleted: leaving it would strand it with no generator and no sweep.
+  const restored = restoreResumableInputs(def, { cursorRaw: checkpoint?.cursor ?? null, row });
+  if (!restored) {
+    Storage.deleteStream(runtime.sql, storageUserId, streamId);
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'cursor-invalid' as const } },
@@ -661,16 +629,55 @@ export async function resumeDurableStream(
 
   if (connection.closing) return;
 
+  const startSeq = checkpoint?.seq ?? 0;
+  const attempt = runtime.sql.transaction((sql) => {
+    Storage.deleteCursorCheckpointsAfter(sql, {
+      userId: storageUserId,
+      streamId,
+      seq: lastKnownSeq,
+    });
+    return Storage.rewindResumableStream(sql, {
+      userId: storageUserId,
+      streamId,
+      lastSeq: startSeq,
+      now: Date.now(),
+    });
+  });
+
   await runGenerator(runtime, connection, {
     scope,
     def,
-    payload,
+    payload: restored.payload,
     streamId,
     userId: storageUserId,
-    initialCursor: cursor,
-    attempt: 2,
+    initialCursor: restored.cursor,
+    attempt,
     startSeq,
   });
+}
+
+interface RestoreResumableInputsOptions {
+  cursorRaw: string | null;
+  row: Storage.DurableStreamRow;
+}
+
+/** Parse the stored cursor and trigger payload, or `null` when either cannot be restored. */
+function restoreResumableInputs(
+  def: DurableStreamRuntimeDef,
+  opts: RestoreResumableInputsOptions,
+): { cursor: unknown; payload: unknown } | null {
+  const { cursorRaw, row } = opts;
+  try {
+    let cursor: unknown = null;
+    if (cursorRaw) {
+      const raw = JSON.parse(cursorRaw);
+      cursor = def.cursor ? validateValue(def.cursor, raw, '__resumeStream__') : raw;
+    }
+
+    return { cursor, payload: JSON.parse(row.payload) };
+  } catch {
+    return null;
+  }
 }
 
 /** Delete suspended rows past `maxAgeMs` and ended rows past `retentionAfterEndMs`. */
@@ -800,6 +807,7 @@ async function runGenerator(
       scope,
       abortController,
       highWaterMark,
+      durable: true,
     });
     activeStream = built.active;
     const nudgeBuffer = built.nudgeBuffer;
@@ -826,8 +834,14 @@ async function runGenerator(
       if (!stillOwnsSlot()) return;
 
       // Connection closed mid-advance: dropping this chunk keeps a resumable
-      // cursor from moving past a row the client never received.
-      if (activeStream.closed && def.kind === 'resumable') break;
+      // cursor from moving past a row the client never received. A stream
+      // stopped because its connection left the channel keeps nothing.
+      if (
+        activeStream.closed &&
+        (def.kind === 'resumable' || abortController.signal.reason === 'unsubscribed')
+      ) {
+        break;
+      }
 
       seq += 1;
       const { chunkValue, cursorValue } = unwrapYield(result.value);
@@ -1155,14 +1169,31 @@ export async function cancelDurableStream(
     }
   }
 
-  // Broadcast cancel from the creator kills the stream for everyone — tell
-  // current subscribers before the storage row is deleted, otherwise their
-  // clients keep waiting on a stream that will never produce again.
+  endDurableStreamForEveryone(runtime, connection, { row, scope: cancelScope });
+}
+
+interface EndDurableStreamForEveryoneOptions {
+  row: Storage.DurableStreamRow;
+  scope: ResolvedChannel;
+}
+
+/**
+ * Delete a durable stream for good. A broadcast stream first tells its current
+ * subscribers with `__streamEnd__`, so their clients do not keep waiting on a
+ * stream that will never produce again.
+ */
+function endDurableStreamForEveryone(
+  runtime: DurableStreamRuntime,
+  connection: RuntimeConnection,
+  opts: EndDurableStreamForEveryoneOptions,
+): void {
+  const { row, scope } = opts;
+  const { streamId } = row;
   if (row.broadcast) {
     const peerTargets = resolveBroadcastTargets({
       runtime,
       excludeConnectionId: connection.id,
-      scope: cancelScope,
+      scope,
       extraFilter: (candidate) => {
         const sub = Storage.getSubscriber(runtime.sql, {
           storageUserId: row.userId,
@@ -1173,7 +1204,7 @@ export async function cancelDurableStream(
       },
     });
     const endLiveThing = {
-      ...buildScopeRouting(cancelScope),
+      ...buildScopeRouting(scope),
       streamId,
       streamSeq: row.lastSeq,
       eventName: row.event,
@@ -1187,9 +1218,31 @@ export async function cancelDurableStream(
           payload: {},
           livething: endLiveThing,
         }),
-      { context: `durable broadcast __streamEnd__ on cancel streamId="${streamId}"` },
+      { context: `durable broadcast __streamEnd__ on end streamId="${streamId}"` },
     );
   }
 
   Storage.deleteStream(runtime.sql, row.userId, streamId);
+}
+
+export interface EndDurableStreamOnLeaveOptions {
+  streamId: string;
+  scope: ResolvedChannel;
+}
+
+/**
+ * Remove the stored row of a durable stream whose creator left the stream's
+ * channel. The generator is already stopped by the caller. A non-member can
+ * never resume it, so the row is deleted rather than suspended.
+ */
+export function endDurableStreamOnLeave(
+  runtime: DurableStreamRuntime,
+  connection: RuntimeConnection,
+  opts: EndDurableStreamOnLeaveOptions,
+): void {
+  const { streamId, scope } = opts;
+  const row = findResumeRow(runtime, connection, { resumeScope: scope, streamId });
+  if (!row) return;
+
+  endDurableStreamForEveryone(runtime, connection, { row, scope });
 }

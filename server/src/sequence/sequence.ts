@@ -53,8 +53,9 @@ const SEQUENCE_KEY = Symbol('sequence');
  * Stamps every outgoing message with a monotonically increasing number so
  * clients can detect gaps and request a replay of what they missed.
  *
- * Enable this via `sequence: true` (or `sequence: { persist: true }`) on the
- * contract config instead of calling this primitive directly.
+ * Enable this by listing the `sequence()` (or `sequence({ persist: true })`)
+ * capability in `server({ capabilities: [...] })` instead of calling this
+ * primitive directly.
  */
 export function sequence(options?: SequenceOptions): SequencePrimitive {
   assertOptionalPositiveInteger(options?.batchSize, 'batchSize', 'sequence()');

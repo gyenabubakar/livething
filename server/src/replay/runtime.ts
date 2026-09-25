@@ -21,6 +21,8 @@ const CREATE_REPLAY_TABLE_SQL = `
     payload TEXT NOT NULL,
     channel TEXT,
     channelFamily TEXT,
+    -- The one user the frame was addressed to, or NULL when it went to everyone in its scope.
+    userId TEXT,
     snapshotKey TEXT,
     createdAt INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
@@ -55,6 +57,19 @@ const REPLAY_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_REPLAY_WATERMARK_TABLE_SQL,
 ].join(';\n');
 
+const REPLAY_ROW_COLUMNS = `
+  rowKey,
+  messageId,
+  seq,
+  event,
+  payload,
+  channel,
+  channelFamily,
+  userId,
+  snapshotKey,
+  createdAt
+`;
+
 interface ReplayStorageScope {
   channel: string | null;
   channelFamily: string | null;
@@ -73,6 +88,22 @@ interface ReplayRequestScope {
 interface ReplayLoadScope {
   channelName?: string;
   channelFamily: string | null;
+  /**
+   * The requesting connection's user id, or `null` for an anonymous
+   * connection. Rows addressed to one user load only for that user.
+   */
+  userId: string | null;
+}
+
+/**
+ * Which rows one replay instance owns, so its retention never touches another
+ * instance's store. A channel-scoped instance (`channelKey` set) owns only its
+ * own channel's rows; the server-level instance owns every row except the
+ * channels in `claimedChannelKeys`. Mirrors `scopeMatchesReplayInstance`.
+ */
+export interface ReplayStoreOwner {
+  channelKey: string | undefined;
+  claimedChannelKeys: ReadonlySet<string>;
 }
 
 interface ReplayEnvelopeScope {
@@ -82,11 +113,13 @@ interface ReplayEnvelopeScope {
 interface ReplayRowKeyIds {
   messageId: string;
   snapshotKey: string | null;
+  userId: string | null;
 }
 
 interface ReplayPruneOptions {
   retention: ReplayOptions['retention'] | undefined;
   scope: ReplayPayloadScope;
+  owner: ReplayStoreOwner;
   stamp: number;
 }
 
@@ -201,7 +234,14 @@ export function readReplayScope(livething: Record<string, unknown>): ReplayPaylo
 }
 
 /**
- * Decide whether one outgoing frame belongs to this replay instance.
+ * Decide whether one broadcast belongs to this replay instance.
+ *
+ * Built-in replay only ever sees broadcasts — frames addressed to everyone in a
+ * scope (`ctx.broadcast`, `ctx.channel.broadcast`) or to one user
+ * (`ctx.users.get(id).broadcast`, `ctx.channel.broadcastTo(userRef, ...)`). A
+ * frame sent to one connection (`ctx.send`, `ctx.connections.get(ref).send`,
+ * `ctx.channel.send`) or to a tag is never recorded: a reconnect gets a new
+ * connection id, so no later connection could prove it was the addressee.
  *
  * Channel-scoped replay only stores frames for its own channel. Server-level
  * replay (no `channelKey`) cascades — it stores frames for every scope except
@@ -263,11 +303,15 @@ export interface BuildReplayRowOptions {
 
   livething: Record<string, unknown>;
 
+  /** The one user the frame was addressed to; leave it out for a whole-scope broadcast. */
+  userId?: string;
+
   now: number;
 }
 
 export function buildReplayRow(event: string, params: BuildReplayRowOptions): ReplayRow {
   const { options, payload, livething, now } = params;
+  const userId = params.userId || null;
   const seq = livething.deliverySeq;
   const messageId = livething.messageId;
 
@@ -282,15 +326,31 @@ export function buildReplayRow(event: string, params: BuildReplayRowOptions): Re
   const snapshotKey = type === 'snapshot' ? (options.snapshotKey?.(event, payload) ?? event) : null;
 
   return {
-    rowKey: buildReplayRowKey(type, scope, { messageId, snapshotKey }),
+    rowKey: buildReplayRowKey(type, scope, { messageId, snapshotKey, userId }),
     messageId,
     seq,
     event,
     payload: JSON.stringify(payload),
     channel: scope.channel,
     channelFamily: scope.channelFamily,
+    userId,
     snapshotKey,
     createdAt: now,
+  };
+}
+
+function toReplayRow(row: ReplayRow): ReplayRow {
+  return {
+    rowKey: String(row.rowKey),
+    messageId: String(row.messageId),
+    seq: Number(row.seq),
+    event: String(row.event),
+    payload: String(row.payload),
+    channel: (row.channel as string | null) ?? null,
+    channelFamily: (row.channelFamily as string | null) ?? null,
+    userId: (row.userId as string | null) ?? null,
+    snapshotKey: (row.snapshotKey as string | null) ?? null,
+    createdAt: Number(row.createdAt),
   };
 }
 
@@ -304,16 +364,7 @@ export function getReplayRowByKey(
   const row = sql
     .exec<ReplayRow>(
       `
-        SELECT
-          rowKey,
-          messageId,
-          seq,
-          event,
-          payload,
-          channel,
-          channelFamily,
-          snapshotKey,
-          createdAt
+        SELECT ${REPLAY_ROW_COLUMNS}
         FROM __livething_replay
         WHERE rowKey = ?
       `,
@@ -321,19 +372,7 @@ export function getReplayRowByKey(
     )
     .one();
 
-  if (!row) return null;
-
-  return {
-    rowKey: String(row.rowKey),
-    messageId: String(row.messageId),
-    seq: Number(row.seq),
-    event: String(row.event),
-    payload: String(row.payload),
-    channel: (row.channel as string | null) ?? null,
-    channelFamily: (row.channelFamily as string | null) ?? null,
-    snapshotKey: (row.snapshotKey as string | null) ?? null,
-    createdAt: Number(row.createdAt),
-  };
+  return row ? toReplayRow(row) : null;
 }
 
 /**
@@ -378,6 +417,9 @@ export interface PersistReplayMessageOptions {
   payload: Record<string, unknown>;
 
   livething: Record<string, unknown>;
+
+  /** The one user the frame was addressed to; leave it out for a whole-scope broadcast. */
+  userId?: string;
 
   now: number;
 
@@ -427,10 +469,11 @@ export function persistReplayMessage(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
   opts: PersistReplayMessageOptions,
 ): ReplayRow | null {
-  const { options, event, payload, livething, now, scope, postFlush, validateReduced } = opts;
+  const { options, event, payload, livething, userId, now, scope, postFlush, validateReduced } =
+    opts;
   function noopPostFlush(): void {}
 
-  const row = buildReplayRow(event, { options, payload, livething, now });
+  const row = buildReplayRow(event, { options, payload, livething, userId, now });
 
   if ((options.type ?? 'history') === 'history') {
     storeReplayRow(sql, row);
@@ -516,12 +559,16 @@ export function persistReplayMessage(
   });
 }
 
+/**
+ * A snapshot row is keyed per audience too, so a value addressed to one user
+ * never replaces (or is merged into) the value everyone in the scope sees.
+ */
 function buildReplayRowKey(
   type: ReplayType,
   scope: ReplayPayloadScope,
   ids: ReplayRowKeyIds,
 ): string {
-  const { messageId, snapshotKey } = ids;
+  const { messageId, snapshotKey, userId } = ids;
   if (type === 'history') return messageId;
 
   return JSON.stringify([
@@ -529,6 +576,7 @@ function buildReplayRowKey(
     scope.channel ?? '',
     scope.channelFamily ?? '',
     snapshotKey ?? messageId,
+    userId,
   ]);
 }
 
@@ -546,9 +594,10 @@ export function storeReplayRow(sql: Pick<SQLProvider, 'exec'>, row: ReplayRow): 
         payload,
         channel,
         channelFamily,
+        userId,
         snapshotKey,
         createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     row.rowKey,
     row.messageId,
@@ -557,6 +606,7 @@ export function storeReplayRow(sql: Pick<SQLProvider, 'exec'>, row: ReplayRow): 
     row.payload,
     row.channel,
     row.channelFamily,
+    row.userId,
     row.snapshotKey,
     row.createdAt,
   );
@@ -610,15 +660,51 @@ export function readReplayWatermark(
   return row ? Number(row.evicted_through_seq) : null;
 }
 
-/** Delete replay rows older than the max age, first recording each scope's highest dropped seq as its watermark. */
+/**
+ * The SQL condition (and its bound params) matching the rows one replay
+ * instance owns. `COALESCE` keeps a NULL `channel`/`channelFamily` (a top-level
+ * row) from turning the whole `NOT (...)` into NULL.
+ */
+function ownedRowsFilter(owner: ReplayStoreOwner): { where: string; params: unknown[] } {
+  if (owner.channelKey) {
+    return {
+      where: '(channelFamily = ? OR channel = ?)',
+      params: [owner.channelKey, owner.channelKey],
+    };
+  }
+
+  const claimed = [...owner.claimedChannelKeys];
+  if (claimed.length === 0) return { where: '1 = 1', params: [] };
+
+  const marks = claimed.map(() => '?').join(', ');
+
+  return {
+    where: `NOT (COALESCE(channelFamily IN (${marks}), 0) OR COALESCE(channel IN (${marks}), 0))`,
+    params: [...claimed, ...claimed],
+  };
+}
+
+/**
+ * Delete the rows one replay instance owns that are older than the max age,
+ * first recording each scope's highest dropped seq as its watermark. Rows and
+ * watermarks of another instance's store (a channel with its own `replay`, or
+ * the server-level store seen from a channel) are left alone.
+ */
+export interface PruneExpiredReplayRowsOptions {
+  retention: ReplayOptions['retention'] | undefined;
+  now: number;
+  owner: ReplayStoreOwner;
+}
+
 export function pruneExpiredReplayRows(
   sql: Pick<SQLProvider, 'exec'>,
-  retention: ReplayOptions['retention'] | undefined,
-  now: number,
+  opts: PruneExpiredReplayRowsOptions,
 ): void {
+  const { retention, now, owner } = opts;
   if (retention?.maxAgeMs === undefined) return;
 
   const cutoff = now - retention.maxAgeMs;
+  const owned = ownedRowsFilter(owner);
 
   const evicted = sql
     .exec<{ channel: string | null; channelFamily: string | null; m: number }>(
@@ -626,9 +712,11 @@ export function pruneExpiredReplayRows(
         SELECT channel, channelFamily, MAX(seq) AS m
         FROM __livething_replay
         WHERE createdAt < ?
+          AND ${owned.where}
         GROUP BY channel, channelFamily
       `,
       cutoff,
+      ...owned.params,
     )
     .toArray();
 
@@ -647,8 +735,10 @@ export function pruneExpiredReplayRows(
     `
       DELETE FROM __livething_replay
       WHERE createdAt < ?
+        AND ${owned.where}
     `,
     cutoff,
+    ...owned.params,
   );
 }
 
@@ -732,10 +822,16 @@ export function countReplayScopeRows(
   return row ? Number(row.n) : 0;
 }
 
-/** The oldest `createdAt` across the whole replay table, or null when empty. */
-export function minReplayCreatedAt(sql: Pick<SQLProvider, 'exec'>): number | null {
+/** The oldest `createdAt` among the rows one replay instance owns, or null when it has none. */
+export function minReplayCreatedAt(
+  sql: Pick<SQLProvider, 'exec'>,
+  owner: ReplayStoreOwner,
+): number | null {
+  const owned = ownedRowsFilter(owner);
   const row = sql
-    .exec<{ m: number | null }>(`SELECT MIN(createdAt) AS m FROM __livething_replay`)
+    .exec<{
+      m: number | null;
+    }>(`SELECT MIN(createdAt) AS m FROM __livething_replay WHERE ${owned.where}`, ...owned.params)
     .one();
   return row?.m == null ? null : Number(row.m);
 }
@@ -754,18 +850,18 @@ export class ReplayPruneGate {
   private readonly scopeCounts = new Map<string, number>();
 
   prune(sql: Pick<SQLProvider, 'exec'>, opts: ReplayPruneOptions): void {
-    const { retention, scope, stamp } = opts;
+    const { retention, scope, owner, stamp } = opts;
     if (retention?.maxAgeMs !== undefined) {
       if (!this.minSeeded) {
-        this.minCreatedAt = minReplayCreatedAt(sql);
+        this.minCreatedAt = minReplayCreatedAt(sql, owner);
         this.minSeeded = true;
       } else if (this.minCreatedAt === null || stamp < this.minCreatedAt) {
         this.minCreatedAt = stamp;
       }
 
       if (this.minCreatedAt !== null && this.minCreatedAt < stamp - retention.maxAgeMs) {
-        pruneExpiredReplayRows(sql, retention, stamp);
-        this.minCreatedAt = minReplayCreatedAt(sql);
+        pruneExpiredReplayRows(sql, { retention, now: stamp, owner });
+        this.minCreatedAt = minReplayCreatedAt(sql, owner);
       }
     }
 
@@ -785,80 +881,63 @@ export class ReplayPruneGate {
 
 /**
  * Build the SQL string and bound params for one `loadReplayRows` call.
+ *
+ * A row addressed to one user loads only when `scope.userId` is that user; a
+ * whole-scope row loads for anyone who may read the scope. An anonymous
+ * requester (`userId` null) never matches a user row, because `userId = NULL`
+ * is never true in SQL.
  */
 export function buildLoadReplayQuery(
   since: number,
   scope: ReplayLoadScope,
 ): { sql: string; params: unknown[] } {
+  const audience = '(userId IS NULL OR userId = ?)';
+
   if (scope.channelName) {
     if (scope.channelFamily === null) {
       return {
         sql: `
-          SELECT
-            rowKey,
-            messageId,
-            seq,
-            event,
-            payload,
-            channel,
-            channelFamily,
-            snapshotKey,
-            createdAt
+          SELECT ${REPLAY_ROW_COLUMNS}
           FROM __livething_replay
           WHERE channel IS ?
             AND channelFamily IS NULL
             AND seq > ?
+            AND ${audience}
           ORDER BY seq ASC
         `,
-        params: [scope.channelName, since],
+        params: [scope.channelName, since, scope.userId],
       };
     }
 
     return {
       sql: `
-        SELECT
-          rowKey,
-          messageId,
-          seq,
-          event,
-          payload,
-          channel,
-          channelFamily,
-          snapshotKey,
-          createdAt
+        SELECT ${REPLAY_ROW_COLUMNS}
         FROM __livething_replay
         WHERE channel IS ?
           AND channelFamily IS ?
           AND seq > ?
+          AND ${audience}
         ORDER BY seq ASC
       `,
-      params: [scope.channelName, scope.channelFamily, since],
+      params: [scope.channelName, scope.channelFamily, since, scope.userId],
     };
   }
 
-  // Top-level replay returns every non-channel row. There are only two replay
-  // stores, top-level and per-channel. The limit in `pruneReplayScopeRows`
-  // matches this read (it counts the whole top-level store as one), so
-  // `maxMessages` bounds what this read returns.
+  // Top-level replay returns every non-channel row the requester may see.
+  // There are only two replay stores, top-level and per-channel. The limit in
+  // `pruneReplayScopeRows` matches this read (it counts the whole top-level
+  // store as one), so `maxMessages` bounds what this read returns.
   return {
     sql: `
-      SELECT
-        rowKey,
-        messageId,
-        seq,
-        event,
-        payload,
-        channel,
-        channelFamily,
-        snapshotKey,
-        createdAt
+      SELECT ${REPLAY_ROW_COLUMNS}
       FROM __livething_replay
       WHERE channel IS NULL
         AND channelFamily IS NULL
         AND seq > ?
+        AND ${audience}
       ORDER BY seq ASC
     `,
-    params: [since],
+    params: [since, scope.userId],
   };
 }
 
@@ -871,17 +950,8 @@ export function loadReplayRows(
   scope: ReplayLoadScope,
 ): ReplayRow[] {
   const query = buildLoadReplayQuery(since, scope);
-  const rows = sql.exec<ReplayRow>(query.sql, ...query.params);
-
-  return rows.toArray().map((row) => ({
-    rowKey: String(row.rowKey),
-    messageId: String(row.messageId),
-    seq: Number(row.seq),
-    event: String(row.event),
-    payload: String(row.payload),
-    channel: (row.channel as string | null) ?? null,
-    channelFamily: (row.channelFamily as string | null) ?? null,
-    snapshotKey: (row.snapshotKey as string | null) ?? null,
-    createdAt: Number(row.createdAt),
-  }));
+  return sql
+    .exec<ReplayRow>(query.sql, ...query.params)
+    .toArray()
+    .map(toReplayRow);
 }

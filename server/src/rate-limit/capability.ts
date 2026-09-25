@@ -41,7 +41,8 @@ export interface RateLimitGlobalConfig {
   /**
    * Pick the budget key from the connection. Defaults to one budget per
    * connection; return `ctx.user.id` to share one budget across a user's
-   * sockets.
+   * sockets. An empty key falls back to the connection's own budget, so
+   * anonymous connections never share one bucket.
    */
   readonly per?: (ctx: any) => string;
 }

@@ -87,6 +87,12 @@ export interface PrimitiveRuntime {
   /** See an incoming message. Return it (maybe changed), or `null` to swallow it. */
   onIncoming?(message: Message): Message | null;
 
+  /**
+   * Run `onIncoming` before the app's `intercept()` functions. For a primitive
+   * that drops messages the app must never see, such as a duplicate.
+   */
+  beforeIntercepts?: boolean;
+
   /** See an outgoing message. Return it (maybe changed), or `null` to cancel the send. */
   onOutgoing?(message: Message): Message | null;
 

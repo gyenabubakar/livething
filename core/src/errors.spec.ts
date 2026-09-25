@@ -722,6 +722,13 @@ describe('error() reserved-code guard', () => {
     expect(() => error(DurableStreamRequiresUser.code)).toThrow(/reserved/);
   });
 
+  it('reserves the client-side and server-only built-in codes too', () => {
+    expect(() => error('timeout')).toThrow(/reserved/);
+    expect(() => error('disconnected')).toThrow(/reserved/);
+    expect(() => error('dropped')).toThrow(/reserved/);
+    expect(() => error('defer-exhausted')).toThrow(/reserved/);
+  });
+
   it('allows a non-reserved code', () => {
     expect(() => error('my-app-error')).not.toThrow();
     expect(() => error('quota-exceeded', v.object({ limit: v.number() }))).not.toThrow();

@@ -53,7 +53,11 @@ export interface InterceptFrame<TOwnerId extends string = string> {
 export interface OutgoingFrame<TOwnerId extends string = string> {
   /** The event name as it will be sent to the client. */
   readonly event: string;
-  /** The payload value, narrowable with `matches()` / `unsafeCast()`. */
+  /**
+   * The payload value. `ctx.matches()` / `ctx.unsafeCast()` take only an
+   * incoming `InterceptFrame`, so check `frame.event` and narrow the payload
+   * yourself.
+   */
   readonly payload: unknown;
   /** Whether this event is app-owned or plugin-owned, derived from its name. */
   readonly owner: FrameOwner<TOwnerId>;
@@ -161,12 +165,18 @@ intercept.__key = INTERCEPT_KEY;
 
 /**
  * Handler signature for an outgoing hook: runs on every server→client frame
- * before it is serialized. Receives the active connection's context (or
- * `undefined` for a fan-out broadcast) and the `OutgoingFrame`. Return a value
- * to rewrite the payload; return nothing to observe. The event is locked.
+ * before it is serialized. Return a value to rewrite the payload; return
+ * nothing to observe. The event is locked.
+ *
+ * `ctx` is the context of the connection whose `on`, `request` or `stream`
+ * handler, intercept, or `onConnect` hook is running when the frame is sent —
+ * for a broadcast from that code, the sender, not each receiver. It is
+ * `undefined` in every other case, such as a send from a channel `subscribe`
+ * hook, `onDisconnect`, `onError`, a scheduled task, `onInit`, `onShutdown`,
+ * or the admin API.
  */
 export type OutgoingHandler<TCtx = any> = (
-  ctx: TCtx,
+  ctx: TCtx | undefined,
   frame: OutgoingFrame,
 ) => unknown | void | Promise<unknown | void>;
 

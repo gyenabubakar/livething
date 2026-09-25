@@ -40,9 +40,10 @@ test.describe('channel-dynamic (conformance)', () => {
     await expect(page.getByTestId('sub-general-ok')).toHaveText('room:general');
 
     await page.getByTestId('fail-general').click();
-    await expect(page.getByTestId('subscription-failed')).toHaveText('yes');
+    await expect(page.getByTestId('server-error')).not.toHaveText('');
     await page.waitForTimeout(650);
 
+    await expect(page.getByTestId('subscription-failed')).toHaveText('');
     await expect(page.getByTestId('status')).toHaveText('open');
   });
 

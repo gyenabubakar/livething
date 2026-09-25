@@ -14,7 +14,7 @@ const columns = computed<FooterColumn[]>(() => [
       },
       {
         label: 'Releases',
-        to: 'https://github.com/plain-software-co/livething/releases',
+        to: 'https://github.com/workmatter/livething/releases',
         target: '_blank'
       },
       {
@@ -29,12 +29,12 @@ const columns = computed<FooterColumn[]>(() => [
     children: [
       {
         label: 'GitHub',
-        to: 'https://github.com/plain-software-co/livething',
+        to: 'https://github.com/workmatter/livething',
         target: '_blank'
       },
       {
         label: 'Contributing',
-        to: 'https://github.com/plain-software-co/livething/blob/main/CONTRIBUTING.md',
+        to: 'https://github.com/workmatter/livething/blob/main/CONTRIBUTING.md',
         target: '_blank'
       }
     ]
@@ -71,7 +71,7 @@ const columns = computed<FooterColumn[]>(() => [
       <UButton
         color="neutral"
         variant="ghost"
-        to="https://github.com/plain-software-co/livething"
+        to="https://github.com/workmatter/livething"
         target="_blank"
         icon="i-simple-icons-github"
         size="sm"

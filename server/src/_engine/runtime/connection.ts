@@ -8,6 +8,7 @@ import {
 import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
+import { validateValue } from '~/_engine/compile/utils.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
@@ -111,6 +112,11 @@ type HandleUpgradeRuntimeParameter = {
    * which builds refs without going through the declaration-checked helper.
    */
   isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
+  /**
+   * The schema a tag group declared, or `undefined` for a `t<>()` group. Keys
+   * an upgrade returns are checked against it, the same as `add()`.
+   */
+  getTagGroupSchema(kind: 'ephemeral' | 'persistent', group: string): unknown;
   logger?: Pick<PublicApi.Logger, 'error'>;
 };
 type ApplyResultParameter = {
@@ -1178,6 +1184,22 @@ export async function handleUpgrade(
             );
           }
 
+          // Same rules as `add()`: an empty key is a no-op, and a group with a
+          // schema must accept the key.
+          if (ref.key.length === 0) continue;
+
+          const schema = runtime.getTagGroupSchema('ephemeral', ref.group);
+          if (schema) {
+            try {
+              validateValue(schema, ref.key, `tag ephemeral:${ref.group}`);
+            } catch (error) {
+              throw new Error(
+                `[livething] onUpgrade returned the ephemeral tag key '${ref.key}' for group '${ref.group}', which the group's schema rejects.`,
+                { cause: error },
+              );
+            }
+          }
+
           mergedTags.push(ref);
         }
       }
@@ -1228,6 +1250,14 @@ export async function handleUpgrade(
       };
     }
 
+    // The client only sees a generic reason; the real error goes to the log.
+    runtime.logger?.error('[livething] upgrade hook threw; rejecting with HTTP 500', {
+      error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      ...(error instanceof Error && error.cause !== undefined
+        ? { cause: error.cause instanceof Error ? error.cause.message : String(error.cause) }
+        : {}),
+    });
     return {
       reject: true,
       code: 500,

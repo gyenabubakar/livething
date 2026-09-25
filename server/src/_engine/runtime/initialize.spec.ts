@@ -299,7 +299,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
 
   it('heavy (channels + hibernation + replay + sequence + scheduled): cold boot exec budget', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyDefinition);
-    if (execCount !== 15) {
+    if (execCount !== 16) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy cold] sql.exec calls:\n' +
@@ -315,8 +315,8 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //   10. mark sentinel (bundled CREATE meta + INSERT)
     //   11. load any durable framework alarm retry
     //   12. channel membership reconcile (cleanup SELECT)
-    //   13-14. scheduled bootstrap loads queued runs + dlq
-    //   15. scheduled persist-after-restore — one INSERT for the new recurring
+    //   13-15. scheduled bootstrap loads queued runs + dlq + stopped recurring tasks
+    //   16. scheduled persist-after-restore — one INSERT for the new recurring
     //       run added by ensureRecurringRuns. The diff-based persist only
     //       writes genuine new rows, so the empty-load case costs zero extra
     //       writes.
@@ -330,14 +330,14 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // The resumableStream()/recordedStream() capabilities install an internal
     // recurring '__livething:stream-durable-sweep' task whenever a server declares a
     // durable stream. That task boots the scheduled engine, which adds the schema
-    // hook (#8), the bootstrap loads (#13-14), and the one persist-after-restore
-    // INSERT (#15) — so a durable-stream server pays 15 round trips on a cold boot.
-    expect(execCount).toBe(15);
+    // hook (#8), the bootstrap loads (#13-15), and the one persist-after-restore
+    // INSERT (#16) — so a durable-stream server pays 16 round trips on a cold boot.
+    expect(execCount).toBe(16);
   });
 
   it('heavy: WARM boot re-runs every schema hook', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyDefinition, true);
-    if (execCount !== 13) {
+    if (execCount !== 14) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy warm] sql.exec calls:\n' +
@@ -352,7 +352,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //   9. translator-state column check for hibernation migrations
     //   10. load any durable framework alarm retry
     //   11. channel membership reconcile (cleanup SELECT)
-    //   12-13. scheduled bootstrap loads queued runs + dlq
+    //   12-14. scheduled bootstrap loads queued runs + dlq + stopped recurring tasks
     //
     // The schema hooks run on every boot rather than being skipped by a
     // warm-boot gate, so a capability added after this storage was first
@@ -361,7 +361,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // declares a durable stream) was already persisted during the cold boot
     // that seeded this storage, so the bootstrap finds it in the loaded rows
     // and issues no extra persist write.
-    expect(execCount).toBe(13);
+    expect(execCount).toBe(14);
   });
 });
 

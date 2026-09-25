@@ -70,7 +70,9 @@ ownerBase.intercept((ctx, frame) => {
 });
 
 ownerBase.onOutgoing((ctx, frame) => {
-  void ctx;
+  // @ts-expect-error — ctx is undefined when no connection's work is running
+  void ctx.connection;
+  void ctx?.connection;
   if (frame.owner.kind === 'plugin') {
     expectTypeOf(frame.owner.id).toEqualTypeOf<'acme:a' | 'acme:c'>();
   }

@@ -1,4 +1,6 @@
 import { isLiveThingConfigError, LiveThingConfigError } from '@livething/core';
+import { server } from '~/_define/server.ts';
+import { channels } from '~/channel/capability.ts';
 import { describe, expect, it } from 'vitest';
 import { channel, scope } from './channel.ts';
 
@@ -47,6 +49,15 @@ describe('scope() template compilation', () => {
 
     expect(thrown).toBeInstanceOf(LiveThingConfigError);
     expect(isLiveThingConfigError(thrown)).toBe(true);
+  });
+
+  it('names the base.channel() call, not an internal helper, in a template error', () => {
+    const base = server({ capabilities: [channels()] });
+
+    expect(() => base.channel(['rooms', 'room:{id'])).toThrow(
+      `base.channel(['rooms', ...]) template "room:{id" has an unclosed '{'`,
+    );
+    expect(() => base.channel(['rooms', 'room:{id'])).not.toThrow(/scope\(\)/);
   });
 });
 

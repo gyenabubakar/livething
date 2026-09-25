@@ -172,7 +172,7 @@ describe('channels.kick end-to-end', () => {
     ).toBe(false);
   });
 
-  it('logs every onUnsubscribe failure and never rejects the caller, even with multiple throwing members', async () => {
+  it('kicks every member, then rejects with an AggregateError of every onUnsubscribe failure', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const banned = createConnection('banned');
     const alsoBanned = createConnection('also_banned');
@@ -252,30 +252,35 @@ describe('channels.kick end-to-end', () => {
       deleteDurableMembership() {},
     };
 
-    await expect(
-      kickChannelMembers(
-        {
-          ...runtime,
-          leaveChannel: async (connection: any, opts: any) =>
-            leaveChannel(runtime as any, connection, opts),
-        } as any,
-        {
-          channelName: 'room:general',
-          target: {
-            __livething: 'tag-ref' as const,
-            kind: 'ephemeral' as const,
-            group: 'user',
-            key: 'troll',
-          },
-          reason: 'spam',
-          channelFamily: null,
+    const rejection = await kickChannelMembers(
+      {
+        ...runtime,
+        leaveChannel: async (connection: any, opts: any) =>
+          leaveChannel(runtime as any, connection, opts),
+      } as any,
+      {
+        channelName: 'room:general',
+        target: {
+          __livething: 'tag-ref' as const,
+          kind: 'ephemeral' as const,
+          group: 'user',
+          key: 'troll',
         },
-      ),
-    ).resolves.toBeUndefined();
+        reason: 'spam',
+        channelFamily: null,
+      },
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
 
-    const kickErrors = logged.filter((l) => l.message.includes('leaveChannel threw during kick'));
-    expect(kickErrors).toHaveLength(2);
-    expect(new Set(kickErrors.map((l) => l.fields?.connectionId))).toEqual(
+    expect(rejection).toBeInstanceOf(AggregateError);
+    expect(new Set((rejection as AggregateError).errors.map((e: Error) => e.message))).toEqual(
+      new Set(['hook boom 1', 'hook boom 2']),
+    );
+
+    const hookErrors = logged.filter((l) => l.message.includes('onUnsubscribe hook threw'));
+    expect(new Set(hookErrors.map((l) => l.fields?.connectionId))).toEqual(
       new Set(['banned', 'also_banned']),
     );
     expect(banned.channelMemberships.size).toBe(0);
@@ -346,7 +351,9 @@ describe('channels.kick end-to-end', () => {
       deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null) {
         deletedRows.push({ userId, channelName, channelFamily });
       },
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
+      markDurableMembershipKicked() {},
+      listDurableMembers: () => [],
     };
 
     await kickChannelMembers(

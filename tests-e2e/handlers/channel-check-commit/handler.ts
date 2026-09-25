@@ -83,6 +83,19 @@ commitOnly.subscribe((ctx) => {
   ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
 });
 
+// A slow async check followed by a one-member cap in commit. Two subscribes that
+// arrive together both pass check, but only one can pass commit, because commit
+// and the membership write run in the same tick.
+const capOne = base.channel('cap-one', {
+  capabilities: [emits({ joined: t<{ username: string }>() })],
+  async check() {
+    await new Promise((r) => setTimeout(r, 50));
+  },
+  commit(ctx) {
+    if (ctx.channel.members().length >= 1) throw new Error('cap-one room allows one subscriber');
+  },
+});
+
 // Misuse: an async commit. commit() must be synchronous; the engine rejects
 // a returned Promise. This fixture exists to pin the wire behavior.
 const asyncCommit = base.channel('async-commit', {
@@ -129,7 +142,15 @@ const handleServerDrop = base.on('server-drop', {
 });
 
 export const channelCheckCommitDefinition = base.assemble({
-  handlers: [handleRoomSend, checkOnly, commitOnly, asyncCommit, nonceRoom, handleServerDrop],
+  handlers: [
+    handleRoomSend,
+    checkOnly,
+    commitOnly,
+    capOne,
+    asyncCommit,
+    nonceRoom,
+    handleServerDrop,
+  ],
 });
 
 export type ChannelCheckCommitClient = InferClient<typeof channelCheckCommitDefinition>;

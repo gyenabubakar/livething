@@ -104,15 +104,15 @@ type BuiltInErrorUnion =
 type Slot<TContract, TKey extends string> = TKey extends keyof TContract ? TContract[TKey] : {};
 
 /**
- * Drop fields a stream never declared. A stream with no `cursor` validator
- * leaves `cursor` as `unknown`; a stream with no nudges leaves `nudges` as
- * either an open `{ [name: string]: unknown }` map or an empty `{}`. None of
- * these carry information, so the client entry omits them — only streams that
- * declare a real cursor or real nudges keep those fields.
+ * Drop fields the client has no use for. `cursor` is server-only: it never
+ * goes on the wire, so the client entry never has it. A stream with no nudges
+ * leaves `nudges` as either an open `{ [name: string]: unknown }` map or an
+ * empty `{}`, which carries no information, so only streams that declare real
+ * nudges keep that field.
  */
 type TidyStreamEntry<TEntry> = Omit<
   TEntry,
-  | ('cursor' extends keyof TEntry ? (unknown extends TEntry['cursor'] ? 'cursor' : never) : never)
+  | 'cursor'
   | ('nudges' extends keyof TEntry
       ? string extends keyof TEntry['nudges']
         ? 'nudges'
@@ -284,9 +284,9 @@ type PluginsFragmentOf<TContract> =
  * export type MyClient = InferClient<typeof myServer>;
  *
  * // client.ts
- * import { defineClient, connect } from '@livething/client';
+ * import { client, connect } from '@livething/client';
  * import type { MyClient } from './server';
- * const socket = defineClient<MyClient>(connect('wss://example.com/ws'));
+ * const socket = client<MyClient>()(connect('wss://example.com/ws'));
  * socket.connect();
  * socket.send('send-message', { text: 'hello' }); // fully typed
  * ```

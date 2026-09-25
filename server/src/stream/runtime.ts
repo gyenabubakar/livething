@@ -4,6 +4,7 @@ import {
   InternalError,
   NudgeOverflow,
   rethrowIfConfigError,
+  StreamAborted,
   StreamIdCollision,
   ValidationFailed,
 } from '@livething/core';
@@ -24,6 +25,7 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { normalizeRuntimeError } from '~/errors/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
+import type { DurableStreamService } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ActiveStream, ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
@@ -176,6 +178,126 @@ export async function cancelStream(
     }
 
     runtime.activeStreams.delete(activeStream.id);
+  }
+}
+
+export interface StopChannelStreamsOptions {
+  channelName: string;
+
+  channelFamily: string | null;
+
+  /**
+   * True when the user has no connection left in the channel. A stream of that
+   * user that kept running after its connection dropped (`keep-running`) is
+   * then stopped too, since no member can resume it.
+   */
+  userGone: boolean;
+}
+
+type StopChannelStreamsRuntime = Pick<
+  StreamRuntime,
+  'activeStreams' | 'connections' | 'sendProtocolMessage' | 'persistAttachment'
+> & {
+  logger?: Pick<Logger, 'error'>;
+  durableStream?: DurableStreamService;
+};
+
+function belongsToLeaver(
+  activeStream: ActiveStream,
+  connection: RuntimeConnection,
+  opts: StopChannelStreamsOptions,
+): boolean {
+  const scope = activeStream.scope;
+  if (!scope?.channelName) return false;
+
+  if (scope.channelName !== opts.channelName) return false;
+
+  if ((scope.channelFamily ?? null) !== opts.channelFamily) return false;
+
+  if (activeStream.connectionId === connection.id) return true;
+
+  return (
+    opts.userGone &&
+    activeStream.detached === true &&
+    connection.userId !== '' &&
+    activeStream.connection?.userId === connection.userId
+  );
+}
+
+/**
+ * Stop every stream a connection runs in a channel it just left (unsubscribe,
+ * kick, or server-side removal). Each stream's signal aborts with reason
+ * `'unsubscribed'` and its generator's `return()` runs. The owning client gets
+ * a terminal `stream-aborted` error with reason `'unsubscribed'`, and the peers
+ * of a broadcast stream get `__streamEnd__`. A resumable or recorded stream is
+ * also deleted from storage, so nobody can resume it later.
+ */
+export async function stopChannelStreams(
+  runtime: StopChannelStreamsRuntime,
+  connection: RuntimeConnection,
+  opts: StopChannelStreamsOptions,
+): Promise<void> {
+  const leaving = [...runtime.activeStreams.values()].filter(
+    (activeStream) => !activeStream.closed && belongsToLeaver(activeStream, connection, opts),
+  );
+
+  for (const activeStream of leaving) {
+    const scope = activeStream.scope!;
+    activeStream.closed = true;
+    abortActiveStream(activeStream, 'unsubscribed');
+
+    const owner = activeStream.detached ? undefined : activeStream.connection;
+    if (owner && !owner.closing) {
+      const routing: Protocol.LiveThingRouting = {
+        ...buildStreamRouting(activeStream.id, scope),
+        streamTerminated: true,
+      };
+
+      runtime.sendProtocolMessage(owner, {
+        event: '__error__',
+        payload: { code: StreamAborted.code, detail: { reason: 'unsubscribed' } },
+        livething: routing as Record<string, unknown>,
+      });
+    }
+
+    try {
+      await activeStream.generator.return(undefined);
+    } catch (error) {
+      runtime.logger?.error('[livething] stream cleanup threw on channel leave', {
+        streamId: activeStream.id,
+        connectionId: activeStream.connectionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    if (activeStream.durable) {
+      runtime.durableStream?.endOnLeave(runtime, activeStream.connection ?? connection, {
+        streamId: activeStream.id,
+        scope,
+      });
+    } else if (activeStream.broadcast) {
+      const peerEndLiveThing = {
+        ...buildStreamRouting(activeStream.id, scope),
+        eventName: activeStream.event,
+      };
+
+      await forEachIsolatedAsync(
+        streamBroadcastTargets(runtime.connections, activeStream.connectionId, scope),
+        (target) =>
+          runtime.sendProtocolMessage(target, {
+            event: '__streamEnd__',
+            payload: {},
+            livething: peerEndLiveThing,
+          }),
+        { context: `stream broadcast end on channel leave streamId="${activeStream.id}"` },
+      );
+    }
+
+    if (runtime.activeStreams.get(activeStream.id) === activeStream) {
+      runtime.activeStreams.delete(activeStream.id);
+    }
+
+    if (owner?.activeStreamIds?.delete(activeStream.id)) runtime.persistAttachment(owner);
   }
 }
 

@@ -78,6 +78,16 @@ export interface ContextCommonDeps {
     opts: OutgoingRuntime.SendThroughPipelineOptions,
   ): boolean;
 
+  /**
+   * Send one event to the given connections of one user, stamped once and
+   * recorded once for that user. Backs `ctx.user.broadcast` and
+   * `ctx.users.get(id).broadcast`. Returns the number of sockets reached.
+   */
+  broadcastToUser(
+    connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+    opts: OutgoingRuntime.BroadcastToUserOptions,
+  ): number;
+
   broadcastToChannel(opts: OutgoingRuntime.BroadcastToChannelOptions): void;
 
   /**

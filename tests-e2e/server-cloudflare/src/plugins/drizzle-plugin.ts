@@ -165,10 +165,10 @@ h.intercept((ctx, frame) => {
 });
 
 h.onOutgoing((ctx, frame) => {
-  // The outgoing-hook ctx is resolved per send: it is the sending connection's
-  // ctx for a direct ctx.send, but undefined for a broadcast (no one connection
-  // owns it). Only the connection-scoped sends carry a platform, so only those
-  // can reach this DO's state — guard before touching it.
+  // The outgoing-hook ctx is resolved per send: it is the ctx of the connection
+  // whose handler, intercept or onConnect hook is running (the sender, for a
+  // broadcast), and undefined when none is (a subscribe hook, onDisconnect, a
+  // scheduled task). Guard before touching this DO's state through it.
   if (ctx) getState(ctx.platform as Platform).outgoingCount++;
   if (
     frame.owner.kind === 'plugin' &&

@@ -495,7 +495,7 @@ test.describe('channel-static', () => {
     await ctxB.close();
   });
 
-  test('kick across multiple throwing onUnsubscribe hooks resolves and the kicker sees kick-ack plus every _memberLeave', async ({
+  test('kick across multiple throwing onUnsubscribe hooks kicks everyone, then rejects with every hook failure', async ({
     page,
   }, testInfo) => {
     const room = `kick-multi-throw-${testInfo.testId}`;
@@ -614,8 +614,23 @@ test.describe('channel-static', () => {
       { h: handle },
     );
 
-    await expect.poll(async () => countEvents('observer', 'kick-ack')).toBe(1);
+    await expect.poll(async () => countEvents('observer', 'kick-failed')).toBe(1);
     await expect.poll(async () => countEvents('observer', '__memberLeave__')).toBe(2);
+    expect(await countEvents('observer', 'kick-ack')).toBe(0);
+    expect(await countEvents('thrower_a', '__kicked__')).toBe(1);
+    expect(await countEvents('thrower_b', '__kicked__')).toBe(1);
+
+    const failure = await page.evaluate(
+      ({ h }) => {
+        const handles = h as unknown as Record<
+          string,
+          { messages: { event: string; payload: Record<string, unknown> }[] }
+        >;
+        return handles.observer!.messages.find((m) => m.event === 'kick-failed')?.payload;
+      },
+      { h: handle },
+    );
+    expect(failure).toEqual({ tag: 'troll', failures: 2 });
 
     const observerErrors = await page.evaluate(
       ({ h }) => {

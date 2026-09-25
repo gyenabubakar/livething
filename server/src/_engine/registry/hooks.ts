@@ -16,6 +16,8 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
     livethingStamp: [],
     beforeSend: [],
     afterSend: [],
+    beforeBroadcast: [],
+    afterBroadcast: [],
     protocol: new Map(),
     contextExtenders: [],
     boot: [],

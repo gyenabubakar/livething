@@ -172,13 +172,7 @@ const buildBind = adapter<
           if (typeof event.data === 'string') {
             connection.handleMessage(event.data);
           } else {
-            // Binary unsupported. A throw here is swallowed by event dispatch
-            // (frame dropped, socket left open), so close loudly instead.
-            // CloseCodes.UNSUPPORTED_DATA tells the client why the socket is closing.
-            socket.close(
-              CloseCodes.UNSUPPORTED_DATA,
-              '[livething] binary frames are not supported yet',
-            );
+            closeBinaryFrame(socket);
           }
         });
         socket.addEventListener('close', (event) => {
@@ -264,7 +258,7 @@ const buildBind = adapter<
           return;
         }
 
-        throw new Error('[livething] binary frames are not supported yet');
+        closeBinaryFrame(ws);
       }
 
       // oxlint-disable-next-line max-params
@@ -352,6 +346,10 @@ function requestWithClientIp(request: Request): Request {
   if (clientIp) headers.set('LiveThing-Client-IP', clientIp);
 
   return new Request(request, { headers });
+}
+
+function closeBinaryFrame(socket: WebSocket): void {
+  socket.close(CloseCodes.UNSUPPORTED_DATA, '[livething] binary frames are not supported yet');
 }
 
 /**

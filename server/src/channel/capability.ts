@@ -22,12 +22,12 @@ import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 
 type HooksParameter = {
-  beforeSend?: unknown;
-  afterSend?: unknown;
+  beforeBroadcast?: unknown;
+  afterBroadcast?: unknown;
   replay: unknown;
 };
 type ConfigParameter = { input?: unknown; allowInterleaving?: boolean; run: any };
-type HooksParameter2 = { beforeSend?: any; afterSend?: any; replay: any };
+type HooksParameter2 = { beforeBroadcast?: any; afterBroadcast?: any; replay: any };
 
 /** Builds one stream primitive from a `(event, config)` pair. Supplied by a stream capability. */
 type StreamBuild = (event: string, config: unknown) => Primitive;

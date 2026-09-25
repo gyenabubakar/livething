@@ -372,9 +372,10 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   readonly bufferedAmount: number;
 
   /**
-   * This connection's last-seen timestamp (ms), present only when the
-   * `lastSeen()` capability is installed; `null` when it has never been
-   * stamped, and absent from the type entirely without the capability.
+   * This connection's last-seen timestamp (ms), filled only when the
+   * `lastSeen()` capability is listed; `null` when it has never been stamped.
+   * The field is optional on every server: without `lastSeen()` it is always
+   * `undefined`.
    */
   readonly lastSeen?: number | null;
 
@@ -452,9 +453,9 @@ export interface UserInfo<Meta = Record<string, unknown>> {
   readonly tags: readonly TagRef[];
 
   /**
-   * This user's last-seen timestamp (ms), present only when the
-   * `lastSeen()` capability is installed; `null` when it has never been
-   * stamped, and absent from the type entirely without the capability.
+   * This user's last-seen timestamp (ms), filled only when the `lastSeen()`
+   * capability is listed; `null` when it has never been stamped. The field is
+   * optional on every server: without `lastSeen()` it is always `undefined`.
    */
   readonly lastSeen?: number | null;
 
@@ -747,16 +748,23 @@ export interface ChannelHandle<
    * connections, use `ctx.connections.get(ref).close()` instead.
    *
    * Sends `__kicked__` to each removed socket, fires `onUnsubscribe`, and
-   * broadcasts `__memberLeave__` / `__memberOffline__` to remaining members.
-   * Awaits every hook completion; rejections propagate to the caller.
+   * broadcasts `__memberLeave__` / `__memberOffline__` to remaining members
+   * once the member has no live connection left in the channel.
+   * Every targeted connection is kicked even when a leave hook throws. After
+   * all of them finished, the returned promise rejects with an
+   * `AggregateError` whose `errors` hold every hook failure.
+   *
+   * On a persistent channel, a `UserRef` also reaches a user who is a member
+   * but has no live connection in the channel: peers get `__memberLeave__`,
+   * and no hooks run because there is no socket.
    *
    * Pass `revoke: true` to also drop the durable membership row for each
    * kicked connection's user, so they are NOT auto-rejoined on their next
    * reconnect (use this to revoke a user's group membership in response to
    * an external event — an auth provider webhook, an admin action, etc.).
-   * Defaults to `false`: the user is booted now but auto-rejoins later. A
-   * no-op per connection when the channel is ephemeral — there is no durable
-   * row to drop either way.
+   * Defaults to `false`: the user is booted now but auto-rejoins later, and
+   * peers see `__memberJoin__` when they do. A no-op per connection when the
+   * channel is ephemeral — there is no durable row to drop either way.
    */
   kick(
     target:
@@ -869,12 +877,14 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
   meta: Meta;
 
   /**
-   * Send an event to the current connection only. Returns nothing — it either
-   * dispatches the frame or throws (an undeclared event, or a non-object
-   * payload). To target a different socket and learn whether it is still live,
-   * use `ctx.connections.get(ref).send(...)`, which returns a boolean.
+   * Send an event to the current connection only. Returns `true` when the frame
+   * was handed to the socket. Returns `false` when it was not sent: on a server
+   * with a `translator`, the connection is closing or the `outbound` translation
+   * failed (LiveThing then closes the connection). It also returns `false` when
+   * the platform adapter refuses the frame. Throws for an undeclared event or a
+   * non-object payload.
    */
-  send(event: string, payload: unknown): void;
+  send(event: string, payload: unknown): boolean;
 
   /**
    * Send an event to all live connections except the caller. Pass

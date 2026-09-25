@@ -59,20 +59,26 @@ interface ResumableStreamConfig<
  *
  * Inside the generator, `ctx.stream.cursor` holds the last confirmed cursor
  * checkpoint (`null` on first run). `ctx.stream.attempt` is `1` on the first
- * run and increments on every resume. Yield chunks via
+ * run and goes up by one on every resume that re-runs the generator (`2`,
+ * `3`, ...). Yield chunks via
  * `ctx.stream.withCursor(chunk, cursor)` so the framework saves a checkpoint
  * alongside the chunk — on reconnect the generator restarts and
  * `ctx.stream.cursor` is set to that confirmed value.
  *
  * Nudges declared here behave exactly like nudges on a plain `stream(...)`:
  * the client pushes a typed message into the running generator and the
- * generator reads them via `ctx.nudges(yield ...)`. Buffered nudges survive
- * a resume so a paused durable stream stays paused after reconnect.
+ * generator reads them via `ctx.nudges(yield ...)`. Nudges live only in the
+ * running generator: a resume starts a new run with no nudges, and nudges
+ * the old run had not read yet are dropped. State that a nudge changes (for
+ * example "paused") must go in the cursor if it has to survive a resume.
+ *
+ * If the stored cursor or trigger payload cannot be restored on resume, the
+ * stored stream is deleted and the resuming client gets
+ * `StreamAborted({ reason: 'cursor-invalid' })`.
  *
  * Pass a `cursor` validator to pin the cursor type and have the framework
  * runtime-check every checkpoint cursor it restores from storage. A stored
- * cursor that
- * fails the validator surfaces on the wire as
+ * cursor that fails the validator surfaces on the wire as
  * `StreamAborted({ reason: 'cursor-invalid' })` on the resuming client.
  *
  * @example

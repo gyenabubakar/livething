@@ -10,19 +10,19 @@ const props = defineProps<{
 const pills = [
   { label: 'Tree-shakeable', icon: 'i-ph-scissors-duotone' },
   { label: 'Side-effect free', icon: 'i-ph-leaf-duotone' },
-  { label: '4.42 KB minimal', icon: 'i-ph-feather-duotone' },
+  { label: '5.24 KB minimal', icon: 'i-ph-feather-duotone' },
 ]
 
 /* ----------------------------------------------------------------------------
- * A minimal client is 4.42 KB gzipped; pull in every primitive and it reaches
- * ~18 KB. We animate primitives snapping onto a bare socket — the bundle bar
+ * A minimal client is 5.24 KB gzipped; pull in every primitive and it reaches
+ * ~21 KB. We animate primitives snapping onto a bare socket — the bundle bar
  * grows only by what you add — then trim back to lean.
- * Only the two endpoints carry real numbers (4.42 KB / ~18 KB); the steps in
+ * Only the two endpoints carry real numbers (5.24 KB / ~21 KB); the steps in
  * between just show which primitives are on.
  * ------------------------------------------------------------------------- */
 
-const MIN_KB = 4.42
-const MAX_KB = 18
+const MIN_KB = 5.24
+const MAX_KB = 21
 const BASE_PCT = (MIN_KB / MAX_KB) * 100 // bar width for the minimal socket
 
 // The optional primitives you choose to ship — exact client factory names.
@@ -52,8 +52,8 @@ const barPct = computed(() => BASE_PCT + (count.value / primitives.length) * (10
 const atMin = computed(() => count.value === 0)
 const atMax = computed(() => count.value === primitives.length)
 const sizeLabel = computed(() => {
-  if (atMin.value) return '4.42 KB'
-  if (atMax.value) return '~18 KB'
+  if (atMin.value) return '5.24 KB'
+  if (atMax.value) return '~21 KB'
   return `+${count.value}`
 })
 const sizeNote = computed(() => {
@@ -188,7 +188,7 @@ useViewportActivation(wireRef, {
         <div class="px-4 py-6 sm:px-6">
           <!-- the bar: core segment + the primitives you chose -->
           <div class="relative h-9 w-full overflow-hidden border border-muted bg-elevated/30">
-            <!-- ~18 KB marker -->
+            <!-- ~21 KB marker -->
             <div class="absolute inset-y-0 right-0 w-px bg-muted" />
             <div class="bundle-bar absolute inset-y-0 left-0 flex items-center" :style="{ width: `${barPct}%` }">
               <div class="h-full w-full bg-gradient-to-r from-sky-500/40 to-primary/50 border-r border-primary/60" />
@@ -196,7 +196,7 @@ useViewportActivation(wireRef, {
             <div class="absolute inset-y-0 left-3 flex items-center font-mono text-[11px] text-default">
               core · connect
             </div>
-            <div class="absolute inset-y-0 right-2 flex items-center font-mono text-[10px] text-dimmed">~18 KB</div>
+            <div class="absolute inset-y-0 right-2 flex items-center font-mono text-[10px] text-dimmed">~21 KB</div>
           </div>
 
           <!-- the primitives, lighting up as they ship -->

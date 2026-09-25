@@ -270,8 +270,8 @@ export function namespacePluginPrimitives(
  * Scope a hook's ctx so its sends, kv keys, tags, channel sends, requests, and
  * scheduled tasks are namespaced like any other plugin call — the same wrapping
  * the normal handler path uses. An outgoing hook can run with no per-connection
- * ctx (e.g. during a broadcast), so a nullish ctx passes through untouched
- * rather than being proxied.
+ * ctx (e.g. a send from a scheduled task), so a nullish ctx passes through
+ * untouched rather than being proxied.
  */
 function scopeHookCtx(id: string, ctx: any): any {
   return ctx == null ? ctx : scopePluginContext(id, ctx);
@@ -346,15 +346,21 @@ function namespaceScheduled(scope: PluginScope, primitive: Primitive): Primitive
  * `assertValidLiveThingIdentifier` would otherwise reject for a user.
  */
 function namespaceTagGroups(id: string, primitive: Primitive): Primitive {
-  const kind = (primitive as unknown as { kind: 'ephemeral' | 'persistent' }).kind;
   const groups = (primitive as unknown as { groups: { name: string }[] }).groups;
   const namespaced = groups.map((g) => ({ ...g, name: pluginWireName(id, g.name) }));
+  const setup = primitive.__setup;
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __plugin: id,
     groups: namespaced,
+    // Run the original setup so it also installs the `ctx.tags` builder, but
+    // register the namespaced group names in place of the declared ones.
     __setup(engine: EngineAccess) {
-      engine.registerTagGroups(kind, namespaced as never);
+      const scopedEngine: EngineAccess = Object.create(engine);
+      scopedEngine.registerTagGroups = (groupKind) =>
+        engine.registerTagGroups(groupKind, namespaced as never);
+      setup?.call(primitive, scopedEngine);
     },
   } as unknown as Primitive;
 }

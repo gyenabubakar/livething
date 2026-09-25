@@ -199,8 +199,14 @@ export interface PluginCapability<
  * is used for a whole app. The client half then imports one plain type.
  *
  * ```ts
- * // server plugin
- * export const Presence = plugin('acme:presence', { definition, api });
+ * // server plugin — `api` goes on the scoped `assemble`, not on `plugin()`
+ * const presenceBase = server({ scope: 'plugin' });
+ * const handleHere = presenceBase.on('here', { run() {} });
+ * const definition = presenceBase.assemble({
+ *   handlers: [handleHere],
+ *   api: (ctx) => ({ whoAmI: () => ctx.connection.id }),
+ * });
+ * export const Presence = plugin('acme:presence', { definition });
  * export type PresenceWire = InferPluginClient<typeof Presence>;
  *
  * // client plugin

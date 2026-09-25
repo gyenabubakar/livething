@@ -18,12 +18,16 @@ import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import type * as ChannelRuntime from '~/channel/runtime.ts';
-import type { MembershipKey } from '~/channel/storage.ts';
+import type { MembershipInsert, MembershipKey, StoredMembership } from '~/channel/storage.ts';
 import type { ConnectionInfo, ConnectionRef, SQLProvider } from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RunInterceptsOptions } from '~/intercept/runtime.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
-import type { BufferStreamNudgeOptions, RunStreamOptions } from '~/stream/runtime.ts';
+import type {
+  BufferStreamNudgeOptions,
+  RunStreamOptions,
+  StopChannelStreamsOptions,
+} from '~/stream/runtime.ts';
 import type { TagsApi } from '~/tags/types.ts';
 
 type OptionsParameter = { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
@@ -82,6 +86,16 @@ export type StreamCancel = (
   streamId: string,
 ) => Promise<void>;
 
+/**
+ * Stop the streams a connection runs in a channel it just left. Shared by plain
+ * and durable streams, so it is set when either kind is listed.
+ */
+export type StreamChannelLeave = (
+  runtime: any,
+  connection: RuntimeConnection,
+  options: StopChannelStreamsOptions,
+) => Promise<void>;
+
 /** Options the durable trigger needs to start a resumable/recorded stream. */
 export interface DurableTriggerOptions {
   scope: ResolvedChannel;
@@ -109,6 +123,15 @@ export interface DurableStreamService {
   resume(runtime: any, connection: RuntimeConnection, options: OptionsParameter): Promise<void>;
   /** Handle the durable side of a `__streamCancel__` frame. */
   cancel(runtime: any, connection: RuntimeConnection, options: OptionsParameter2): Promise<void>;
+  /**
+   * Delete the stored row of a durable stream whose creator left the stream's
+   * channel. The caller has already stopped the generator.
+   */
+  endOnLeave(
+    runtime: any,
+    connection: RuntimeConnection,
+    options: { streamId: string; scope: ResolvedChannel },
+  ): void;
 }
 
 /** Execute a matched `.request(...)` handler. Set by the `serverRequests()` capability. */
@@ -125,9 +148,15 @@ export type RequestDispatch = (
  * so an unset slot is the same as the opted-out path.
  */
 export interface ChannelMembershipService {
-  persistMembership(core: any, key: MembershipKey): void;
+  persistMembership(core: any, row: MembershipInsert): void;
   deleteDurableMembership(core: any, key: MembershipKey): void;
-  hasDurableMembership(core: any, key: MembershipKey): boolean;
+  getDurableMembership(core: any, key: MembershipKey): StoredMembership | undefined;
+  markDurableMembershipKicked(core: any, key: MembershipKey): void;
+  listDurableMembers(
+    core: any,
+    channelName: string,
+    channelFamily: string | null,
+  ): (StoredMembership & { userId: string })[];
   autoRejoinIdentity(
     core: any,
     subscribeFromServer: any,
@@ -288,6 +317,7 @@ export interface FeatureDispatchSlots {
   streamTrigger?: StreamTrigger;
   streamNudgeBuffer?: StreamNudgeBuffer;
   streamCancel?: StreamCancel;
+  streamChannelLeave?: StreamChannelLeave;
   durableStream?: DurableStreamService;
   requestDispatch?: RequestDispatch;
   channelService?: ChannelService;

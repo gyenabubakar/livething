@@ -16,6 +16,8 @@ import {
   QueryRoomReplayEvents,
   RoomStreamChunk,
   RoomStreamPayload,
+  SendText,
+  SendToUser,
 } from './events.ts';
 import type {
   BadReplayLog,
@@ -43,16 +45,17 @@ const base = server({
 });
 
 base.replay({
-  beforeSend(ctx, msg) {
+  beforeBroadcast(ctx, msg) {
     ctx.sql.exec(
-      'INSERT INTO _custom_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
+      'INSERT INTO _custom_replay (event, payload, seq, message_id, user_id) VALUES (?, ?, ?, ?, ?)',
       msg.event,
       JSON.stringify(msg.payload),
       msg.wire.deliverySeq,
       msg.wire.messageId,
+      msg.userId,
     );
   },
-  afterSend(ctx, msg) {
+  afterBroadcast(ctx, msg) {
     ctx.sql.exec('UPDATE _custom_replay SET confirmed = 1 WHERE seq = ?', msg.wire.deliverySeq);
   },
   async replay(ctx, since) {
@@ -74,8 +77,9 @@ base.replay({
 
     const rows = (
       ctx.sql.exec(
-        'SELECT event, payload, seq, message_id FROM _custom_replay WHERE seq > ? ORDER BY seq ASC',
+        'SELECT event, payload, seq, message_id FROM _custom_replay WHERE seq > ? AND (user_id IS NULL OR user_id = ?) ORDER BY seq ASC',
         since,
+        ctx.userId,
       ) as {
         toArray(): Array<{ event: string; payload: string; seq: number; message_id: string }>;
       }
@@ -98,6 +102,7 @@ base.onInit((ctx) => {
       payload TEXT NOT NULL,
       seq INTEGER NOT NULL,
       message_id TEXT NOT NULL,
+      user_id TEXT,
       confirmed INTEGER NOT NULL DEFAULT 0
     )
   `);
@@ -115,6 +120,7 @@ base.onInit((ctx) => {
       seq INTEGER NOT NULL,
       message_id TEXT NOT NULL,
       channel TEXT,
+      user_id TEXT,
       confirmed INTEGER NOT NULL DEFAULT 0
     )
   `);
@@ -130,12 +136,44 @@ base.onInit((ctx) => {
   } catch {
     // column already exists
   }
+
+  for (const table of ['_custom_replay', '_custom_room_replay']) {
+    try {
+      ctx.sql.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
+    } catch {
+      // column already exists
+    }
+  }
 });
 
 const handleAddNote = base.on('add-note', {
   input: AddNote,
   run(ctx, input) {
-    ctx.send('note', { text: input.text, author: ctx.meta.username });
+    ctx.broadcast('note', { text: input.text, author: ctx.meta.username }, { includeSelf: true });
+  },
+});
+
+// A send to one connection. Custom replay never stores it.
+const handleSendPrivate = base.on('send-private', {
+  input: SendText,
+  run(ctx, input) {
+    ctx.send('note', { text: input.text, author: 'private' });
+  },
+});
+
+// A broadcast to one user. Custom replay stores it once, for that user only.
+const handleSendToUser = base.on('send-to-user', {
+  input: SendToUser,
+  run(ctx, input) {
+    ctx.users.get(input.userId).broadcast('note', { text: input.text, author: 'dm' });
+  },
+});
+
+// A broadcast to everyone except the caller. Custom replay stores it even when
+// the caller is the only connection, so nobody receives it live.
+const handleShout = base.on('shout', {
+  input: SendText,
+  run(ctx, input) {
     ctx.broadcast('note', { text: input.text, author: ctx.meta.username });
   },
 });
@@ -180,16 +218,17 @@ const customRoom = base.channel('custom-room', {
 });
 
 customRoom.replay({
-  beforeSend(ctx, msg) {
+  beforeBroadcast(ctx, msg) {
     ctx.sql.exec(
-      'INSERT INTO _custom_room_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
+      'INSERT INTO _custom_room_replay (event, payload, seq, message_id, user_id) VALUES (?, ?, ?, ?, ?)',
       msg.event,
       JSON.stringify(msg.payload),
       msg.wire.deliverySeq,
       msg.wire.messageId,
+      msg.userId,
     );
   },
-  afterSend(ctx, msg) {
+  afterBroadcast(ctx, msg) {
     ctx.sql.exec(
       'UPDATE _custom_room_replay SET confirmed = 1 WHERE seq = ?',
       msg.wire.deliverySeq,
@@ -198,8 +237,9 @@ customRoom.replay({
   async replay(ctx, since) {
     const rows = (
       ctx.sql.exec(
-        'SELECT event, payload, seq, message_id FROM _custom_room_replay WHERE seq > ? ORDER BY seq ASC',
+        'SELECT event, payload, seq, message_id FROM _custom_room_replay WHERE seq > ? AND (user_id IS NULL OR user_id = ?) ORDER BY seq ASC',
         since,
+        ctx.userId,
       ) as {
         toArray(): Array<{
           event: string;
@@ -221,7 +261,17 @@ customRoom.replay({
 const handleAddRoomNote = customRoom.on('add-room-note', {
   input: AddRoomNote,
   run(ctx, input) {
-    ctx.channel.send('room-note', { text: input.text, author: ctx.meta.username });
+    ctx.channel.broadcast(
+      'room-note',
+      { text: input.text, author: ctx.meta.username },
+      { includeSelf: true },
+    );
+  },
+});
+
+const handleShoutRoom = customRoom.on('shout-room', {
+  input: SendText,
+  run(ctx, input) {
     ctx.channel.broadcast('room-note', { text: input.text, author: ctx.meta.username });
   },
 });
@@ -266,9 +316,13 @@ const handleGetRoomConfirmedCount = customRoom.on('get-room-confirmed-count', {
 export const replayCustomDefinition = base.assemble({
   handlers: [
     handleAddNote,
+    handleSendPrivate,
+    handleSendToUser,
+    handleShout,
     handleQueryBadReplayLog,
     handleGetConfirmedCount,
     handleAddRoomNote,
+    handleShoutRoom,
     handleQueryRoomReplayEvents,
     handleRoomStream,
     handleGetRoomConfirmedCount,

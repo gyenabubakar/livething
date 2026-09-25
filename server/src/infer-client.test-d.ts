@@ -115,12 +115,13 @@ expectTypeOf<StreamClient['streams']['plain']['kind']>().toEqualTypeOf<'ephemera
 expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('cursor');
 expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('nudges');
 
-// A resumable stream is persistent and keeps its declared cursor and nudges.
+// A resumable stream is persistent and keeps its nudges. Its cursor is
+// server-only, so the client entry has no cursor even when one is declared.
 expectTypeOf<StreamClient['streams']['resume']['kind']>().toEqualTypeOf<'persistent'>();
-expectTypeOf<StreamClient['streams']['resume']['cursor']>().toEqualTypeOf<{ at: number }>();
+expectTypeOf<StreamClient['streams']['resume']>().not.toHaveProperty('cursor');
 expectTypeOf<StreamClient['streams']['resume']['nudges']>().toHaveProperty('faster');
 
-// A recorded stream is persistent; with no cursor declared, the field is tidied.
+// A recorded stream is persistent and has no cursor either.
 expectTypeOf<StreamClient['streams']['record']['kind']>().toEqualTypeOf<'persistent'>();
 expectTypeOf<StreamClient['streams']['record']>().not.toHaveProperty('cursor');
 
@@ -160,3 +161,28 @@ expectTypeOf<FlagsClient['channels']['flagged']['outgoing']['join']>().toEqualTy
 
 expectTypeOf<FlagsClient['channels']['plain']>().not.toHaveProperty('inbox');
 expectTypeOf<FlagsClient['channels']['plain']>().not.toHaveProperty('readReceipts');
+
+// A channel's flags travel with its handler values: a definition assembled
+// only from channel handlers still gives the client `inbox` / `readReceipts`.
+const inboxOnlyChannel = flagsBase.channel('inboxOnly', { capabilities: [inbox()] });
+const handleInboxSay = inboxOnlyChannel.on('say', { run() {} });
+
+const receiptsFamily = flagsBase.channel(['receiptsRoom', 'room/:id'], {
+  capabilities: [inbox(), readReceipts()],
+});
+const handleReceiptsSay = receiptsFamily.on('say', { run() {} });
+
+const plainHandlerChannel = flagsBase.channel('plainHandler', {});
+const handlePlainSay = plainHandlerChannel.on('say', { run() {} });
+
+const handlerOnlyDef = flagsBase.assemble({
+  handlers: [handleInboxSay, handleReceiptsSay, handlePlainSay],
+});
+type HandlerOnlyClient = InferClient<typeof handlerOnlyDef>;
+
+expectTypeOf<HandlerOnlyClient['channels']['inboxOnly']['inbox']>().toEqualTypeOf<true>();
+expectTypeOf<HandlerOnlyClient['channels']['inboxOnly']>().not.toHaveProperty('readReceipts');
+expectTypeOf<HandlerOnlyClient['channels']['receiptsRoom']['inbox']>().toEqualTypeOf<true>();
+expectTypeOf<HandlerOnlyClient['channels']['receiptsRoom']['readReceipts']>().toEqualTypeOf<true>();
+expectTypeOf<HandlerOnlyClient['channels']['plainHandler']>().not.toHaveProperty('inbox');
+expectTypeOf<HandlerOnlyClient['channels']['plainHandler']>().not.toHaveProperty('readReceipts');

@@ -142,7 +142,7 @@ describe('a throwing presence or stream callback is isolated from its siblings',
     expect(() =>
       ws.emit({
         event: '__memberJoin__',
-        payload: { connectionId: 'c1' },
+        payload: { memberId: 'c1' },
         metadata: { channel: { name: 'general' } },
       }),
     ).not.toThrow();

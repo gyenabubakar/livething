@@ -81,6 +81,7 @@ describe('plugin upgrade — meta merge + user id single owner', () => {
       builderUpgradeHook: undefined,
       upgradeHelpers: helpers,
       isTagGroupDeclared: () => true,
+      getTagGroupSchema: () => undefined,
       ...overrides,
     } as any;
   }

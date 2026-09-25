@@ -5,6 +5,7 @@ import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
+import { isNodeWebSocketUpgrade } from '../../upgrade.ts';
 import type { NodeAdmin, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
 
 /** Route options returned by a Fastify LiveThing endpoint. */
@@ -43,6 +44,8 @@ export function setup(): FastifySetup {
 
       const route: FastifyWebSocketRoute = {
         async preHandler(request, reply) {
+          if (!isNodeWebSocketUpgrade(request.raw)) return;
+
           const upgrade = await lifecycle.prepare(request.raw, (signal) =>
             endpoint.prepareNode(request.raw, { signal }),
           );

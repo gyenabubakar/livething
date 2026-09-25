@@ -42,6 +42,7 @@ export const ENGINE_INTERNAL_CONNECTION = Symbol('livething-engine-internal-conn
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
   | 'broadcastToConnections'
+  | 'broadcastToUser'
   | 'connections'
   | 'usersByKey'
   | 'instanceId'
@@ -134,16 +135,8 @@ function buildUserHandle(
 
     ref: () => buildUserRef(userId, deps.instanceId),
 
-    broadcast: (event, payload) => {
-      let delivered = 0;
-      for (const connection of userConnections(userId, deps)) {
-        if (deps.sendThroughPipeline(connection, { routing: undefined, event, payload })) {
-          delivered += 1;
-        }
-      }
-
-      return delivered;
-    },
+    broadcast: (event, payload) =>
+      deps.broadcastToUser(userConnections(userId, deps), { userId, event, payload }),
 
     setMeta: (patch) => {
       for (const connection of userConnections(userId, deps)) {

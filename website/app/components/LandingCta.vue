@@ -24,7 +24,7 @@ import { Motion } from 'motion-v'
         <div>
           <div class="relative mb-6">
             <h2 class="section-title text-center text-shadow-lg text-shadow-black">
-              Real-time,<br>finally typed<span class="cta-dot">.</span>
+              Typed realtime,<br>on your own servers<span class="cta-dot">.</span>
             </h2>
           </div>
           <p class="text-base leading-relaxed text-highlighted mb-10">
@@ -43,7 +43,7 @@ import { Motion } from 'motion-v'
               </template>
             </UButton>
             <UButton
-              to="https://github.com/plain-software-co/livething"
+              to="https://github.com/workmatter/livething"
               target="_blank"
               size="lg"
               class="bg-white/10 border border-white/40 text-white hover:bg-white/20 backdrop-blur-sm"
@@ -69,7 +69,7 @@ import { Motion } from 'motion-v'
             <a href="https://x.com/GyenAbubakar" target="_blank" rel="noopener noreferrer" aria-label="X" class="text-muted hover:text-dimmed transition-colors">
               <UIcon name="i-simple-icons-x" class="size-4" />
             </a>
-            <a href="https://github.com/plain-software-co/livething" target="_blank" rel="noopener noreferrer" aria-label="GitHub" class="text-muted hover:text-dimmed transition-colors">
+            <a href="https://github.com/workmatter/livething" target="_blank" rel="noopener noreferrer" aria-label="GitHub" class="text-muted hover:text-dimmed transition-colors">
               <UIcon name="i-simple-icons-github" class="size-4" />
             </a>
           </div>

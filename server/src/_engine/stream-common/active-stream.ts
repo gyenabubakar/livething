@@ -57,6 +57,9 @@ export interface BuildActiveStreamInput {
 
   /** True for a broadcast stream — recorded so cancel can notify fan-out peers. */
   broadcast?: boolean;
+
+  /** True for a resumable or recorded stream. */
+  durable?: boolean;
 }
 
 /** Return value from `buildActiveStream`. */
@@ -96,6 +99,7 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
     abortController: input.abortController ?? new AbortController(),
     highWaterMark: input.highWaterMark ?? DEFAULT_HIGH_WATER_MARK,
     broadcast: input.broadcast ?? false,
+    durable: input.durable ?? false,
   };
 
   return { active, nudgeBuffer };

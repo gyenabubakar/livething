@@ -1,7 +1,8 @@
 /**
  * Wire metadata for one replay frame.
  *
- * `deliverySeq`  — monotonically increasing per-connection sequence number.
+ * `deliverySeq`  — the message's delivery sequence number, from one counter for
+ *                  the whole server (it only grows, with gaps per connection).
  * `messageId`    — unique id for dedup on the client.
  * `channel`      — concrete channel name when the replay is pinned to a channel
  *                  (omit for true top-level replays).

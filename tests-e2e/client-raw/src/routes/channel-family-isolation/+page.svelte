@@ -54,7 +54,7 @@
 			if (data.event === '__memberLeave__') {
 				memberLeaves = [
 					...memberLeaves,
-					`${data.metadata?.channel?.family ?? 'static'}:${data.metadata?.channel?.name ?? ''}:${data.payload.connectionId ?? ''}`,
+					`${data.metadata?.channel?.family ?? 'static'}:${data.metadata?.channel?.name ?? ''}:${data.payload.memberId ?? ''}`,
 				];
 			}
 

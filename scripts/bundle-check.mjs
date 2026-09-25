@@ -107,8 +107,9 @@ function serverScenarios(f) {
       owns: 'rateLimit',
       alsoPulls: [],
     },
-    // Replay can be channel-scoped, so it pulls the channel runtime.
-    { name: 'replay', source: importStar(f('replay.js')), owns: 'replay', alsoPulls: ['channel'] },
+    // Replay can be channel-scoped, but it only checks membership, so the
+    // channel runtime itself stays out.
+    { name: 'replay', source: importStar(f('replay.js')), owns: 'replay', alsoPulls: [] },
     // Durable streams schedule background sweeps to retire their stored state, so
     // the streams barrel pulls the scheduled-task engine. `streamDurable` covers
     // the recorded (chunk-storing) variant; that marker is the durable proof.

@@ -21,6 +21,7 @@ const base = server({
     emits({
       'tag-ack': t<{ tag: string }>(),
       'kick-ack': t<{ tag: string }>(),
+      'kick-failed': t<{ tag: string; failures: number }>(),
     }),
   ],
 });
@@ -42,9 +43,18 @@ const handleTagSelf = base.on('tag-self', {
 const handleKickByTag = base.on('kick-by-tag', {
   input: KickByTagPayload,
   async run(ctx, payload) {
-    await ctx.channels
-      .get('room')
-      .kick(ctx.tags.ephemeral('label').ref(payload.tag), { reason: payload.reason });
+    try {
+      await ctx.channels
+        .get('room')
+        .kick(ctx.tags.ephemeral('label').ref(payload.tag), { reason: payload.reason });
+    } catch (error) {
+      if (!(error instanceof AggregateError)) throw error;
+
+      // Every tagged member was still kicked; only their leave hooks failed.
+      ctx.send('kick-failed', { tag: payload.tag, failures: error.errors.length });
+      return;
+    }
+
     ctx.send('kick-ack', { tag: payload.tag });
   },
 });

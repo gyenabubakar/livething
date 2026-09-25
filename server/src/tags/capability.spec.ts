@@ -103,4 +103,13 @@ describe('tags() capability', () => {
       }),
     ).toThrow(/'role' declared twice/);
   });
+
+  it('throws when a group name contains ::', () => {
+    expect(() =>
+      server({ capabilities: [tags((ephemeral) => [ephemeral('room::guests')])] }),
+    ).toThrow(/name 'room::guests' contains '::'/);
+    expect(() =>
+      server({ capabilities: [tags((_ephemeral, persistent) => [persistent('seat::a')])] }),
+    ).toThrow(/name 'seat::a' contains '::'/);
+  });
 });

@@ -48,6 +48,14 @@ export interface OutgoingRuntime {
     message: EngineRuntimeTypes.WireOutgoingMessage,
   ) => void | Promise<void>)[];
 
+  /** Run once per broadcast, before the recipient loop — even when nobody is live. */
+  beforeBroadcastHooks?: readonly ((message: EngineRuntimeTypes.WireBroadcastMessage) => void)[];
+
+  /** Run once per broadcast, after the recipient loop — even when nobody is live. */
+  afterBroadcastHooks?: readonly ((
+    message: EngineRuntimeTypes.WireBroadcastMessage,
+  ) => void | Promise<void>)[];
+
   /** @internal Tracks engine-owned work that must finish before adapter shutdown. */
   trackBackgroundWork?: (work: Promise<void>) => void;
 
@@ -174,27 +182,45 @@ function applyLiveThingStampers(
   }
 }
 
-/** Fan out after-send hooks and log asynchronous failures. */
-function invokeAfterSendHooks(
-  runtime: Pick<OutgoingRuntime, 'afterSendHooks' | 'logger' | 'trackBackgroundWork'>,
-  wireMessage: EngineRuntimeTypes.WireOutgoingMessage,
+/** Fan out after-send (or after-broadcast) hooks and log asynchronous failures. */
+interface AfterHooksRun<TMessage> {
+  hooks: readonly ((message: TMessage) => void | Promise<void>)[];
+  message: TMessage;
+  failure: string;
+}
+
+function invokeAfterHooks<TMessage>(
+  runtime: Pick<OutgoingRuntime, 'logger' | 'trackBackgroundWork'>,
+  run: AfterHooksRun<TMessage>,
 ): void {
-  const { afterSendHooks, logger } = runtime;
-  for (const hook of afterSendHooks) {
+  const { logger } = runtime;
+  const { hooks, message, failure } = run;
+  for (const hook of hooks) {
     try {
-      const result = hook(wireMessage);
+      const result = hook(message);
 
       if (result && typeof (result as Promise<unknown>).then === 'function') {
         const work = Promise.resolve(result);
         runtime.trackBackgroundWork?.(work);
         void work.catch((error) => {
-          logger.error('[livething] after-send hook failed', { error });
+          logger.error(failure, { error });
         });
       }
     } catch (error) {
-      logger.error('[livething] after-send hook failed', { error });
+      logger.error(failure, { error });
     }
   }
+}
+
+function invokeAfterSendHooks(
+  runtime: Pick<OutgoingRuntime, 'afterSendHooks' | 'logger' | 'trackBackgroundWork'>,
+  wireMessage: EngineRuntimeTypes.WireOutgoingMessage,
+): void {
+  invokeAfterHooks(runtime, {
+    hooks: runtime.afterSendHooks,
+    message: wireMessage,
+    failure: '[livething] after-send hook failed',
+  });
 }
 
 /**
@@ -292,11 +318,79 @@ type BroadcastRuntime = Pick<
   OutgoingRuntime,
   | 'afterSendHooks'
   | 'beforeSendHooks'
+  | 'beforeBroadcastHooks'
+  | 'afterBroadcastHooks'
+  | 'trackBackgroundWork'
   | 'compiled'
   | 'logger'
   | 'outgoingHooks'
   | 'livethingStampHooks'
 >;
+
+function hasBroadcastHooks(runtime: BroadcastRuntime): boolean {
+  return (
+    (runtime.beforeBroadcastHooks?.length ?? 0) > 0 ||
+    (runtime.afterBroadcastHooks?.length ?? 0) > 0
+  );
+}
+
+function toBroadcastMessage(
+  prepared: PreparedBroadcast,
+  userId?: string,
+): EngineRuntimeTypes.WireBroadcastMessage {
+  const message: EngineRuntimeTypes.WireBroadcastMessage = {
+    event: prepared.event,
+    payload: prepared.finalPayload,
+    livething: prepared.baseLiveThing,
+  };
+
+  if (userId) message.userId = userId;
+
+  return message;
+}
+
+function runBeforeBroadcastHooks(
+  runtime: BroadcastRuntime,
+  message: EngineRuntimeTypes.WireBroadcastMessage,
+): void {
+  for (const hook of runtime.beforeBroadcastHooks ?? []) {
+    hook(message);
+  }
+}
+
+/**
+ * Run the before-broadcast hooks, logging instead of throwing. Returns `false`
+ * when a hook threw — the broadcast must then reach nobody, so a strict replay
+ * store never misses a frame its recipients saw.
+ */
+function tryBeforeBroadcastHooks(
+  runtime: BroadcastRuntime,
+  message: EngineRuntimeTypes.WireBroadcastMessage,
+  details: Record<string, unknown>,
+): boolean {
+  try {
+    runBeforeBroadcastHooks(runtime, message);
+    return true;
+  } catch (error) {
+    rethrowIfConfigError(error);
+    runtime.logger?.error('[livething] before-broadcast hook failed; no recipient received it', {
+      ...details,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+function runAfterBroadcastHooks(
+  runtime: BroadcastRuntime,
+  message: EngineRuntimeTypes.WireBroadcastMessage,
+): void {
+  invokeAfterHooks(runtime, {
+    hooks: runtime.afterBroadcastHooks ?? [],
+    message,
+    failure: '[livething] after-broadcast hook failed',
+  });
+}
 
 /**
  * Run the recipient-independent half of the send pipeline once for a whole
@@ -428,25 +522,47 @@ export interface BroadcastToConnectionsOptions {
 }
 
 export function broadcastToConnections(
-  runtime: Pick<
-    OutgoingRuntime,
-    | 'afterSendHooks'
-    | 'beforeSendHooks'
-    | 'compiled'
-    | 'generateId'
-    | 'logger'
-    | 'outgoingHooks'
-    | 'livethingStampHooks'
-  >,
+  runtime: BroadcastRuntime & Pick<OutgoingRuntime, 'generateId'>,
   connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
   opts: BroadcastToConnectionsOptions,
 ): void {
   const { event, payload, options, excludeConnectionId } = opts;
 
-  // Prepared on the first eligible peer, so a broadcast that reaches nobody
-  // never pays to serialize, and the caller can hand over a live view of the
-  // connections rather than a copy of it.
+  function prepareOrLog(): PreparedBroadcast | undefined {
+    try {
+      return prepareBroadcast(runtime, {
+        routing: {
+          channel: options?.channel,
+          channelFamily: options?.channelFamily,
+        },
+        event,
+        payload,
+      });
+    } catch (error) {
+      rethrowIfConfigError(error);
+      // A payload or declaration error fails the same way for every peer — log once.
+      runtime.logger?.error('[livething] broadcast preparation failed; no peers received', {
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+  }
+
+  // Without broadcast hooks the frame is prepared on the first eligible peer,
+  // so a broadcast that reaches nobody never pays to serialize, and the caller
+  // can hand over a live view of the connections rather than a copy of it.
+  // With them (built-in replay), it is prepared up front so the broadcast is
+  // recorded once even when nobody receives it live.
   let prepared: PreparedBroadcast | undefined;
+  let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
+  if (hasBroadcastHooks(runtime)) {
+    prepared = prepareOrLog();
+    if (!prepared) return;
+
+    recorded = toBroadcastMessage(prepared);
+    if (!tryBeforeBroadcastHooks(runtime, recorded, { event })) return;
+  }
 
   for (const connection of connections) {
     if (
@@ -457,24 +573,8 @@ export function broadcastToConnections(
       continue;
 
     if (!prepared) {
-      try {
-        prepared = prepareBroadcast(runtime, {
-          routing: {
-            channel: options?.channel,
-            channelFamily: options?.channelFamily,
-          },
-          event,
-          payload,
-        });
-      } catch (error) {
-        rethrowIfConfigError(error);
-        // A payload or declaration error fails the same way for every peer — log once.
-        runtime.logger?.error('[livething] broadcast preparation failed; no peers received', {
-          event,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return;
-      }
+      prepared = prepareOrLog();
+      if (!prepared) return;
     }
 
     // One bad peer must not stop the rest of the broadcast — log and continue.
@@ -489,6 +589,61 @@ export function broadcastToConnections(
       });
     }
   }
+
+  if (recorded) runAfterBroadcastHooks(runtime, recorded);
+}
+
+/**
+ * Send one event to every live connection of one user, optionally inside one
+ * channel.
+ */
+export interface BroadcastToUserOptions {
+  userId: string;
+
+  event: string;
+
+  payload: unknown;
+
+  channelName?: string;
+
+  channelFamily?: string | null;
+}
+
+/**
+ * Send one event to the given connections of one user. The frame is stamped
+ * once, so every tab shares one `deliverySeq`/`messageId`, and the broadcast
+ * hooks see it once for that user — even when none of the user's tabs is
+ * live — so replay can hand it to the user's next connection. Returns the
+ * number of sockets reached. An empty `userId` (the `ctx.user` of an anonymous
+ * connection) addresses nobody. A payload or declaration error throws.
+ */
+export function broadcastToUser(
+  runtime: BroadcastRuntime,
+  connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+  opts: BroadcastToUserOptions,
+): number {
+  const { userId, event, payload, channelName, channelFamily } = opts;
+  if (!userId) return 0;
+
+  const records = hasBroadcastHooks(runtime);
+  if (connections.length === 0 && !records) return 0;
+
+  const prepared = prepareBroadcast(runtime, {
+    routing: channelName ? { channel: channelName, channelFamily } : undefined,
+    event,
+    payload,
+  });
+  const recorded = records ? toBroadcastMessage(prepared, userId) : undefined;
+  if (recorded) runBeforeBroadcastHooks(runtime, recorded);
+
+  let delivered = 0;
+  for (const connection of connections) {
+    if (sendPrepared(runtime, connection, prepared)) delivered += 1;
+  }
+
+  if (recorded) runAfterBroadcastHooks(runtime, recorded);
+
+  return delivered;
 }
 
 /**
@@ -511,16 +666,8 @@ export interface BroadcastToChannelOptions {
 
 export function broadcastToChannel(
   runtime: EngineRuntimeTypes.ConnectionMembersRuntime &
-    Pick<
-      OutgoingRuntime,
-      | 'afterSendHooks'
-      | 'beforeSendHooks'
-      | 'compiled'
-      | 'generateId'
-      | 'logger'
-      | 'outgoingHooks'
-      | 'livethingStampHooks'
-    > & {
+    BroadcastRuntime &
+    Pick<OutgoingRuntime, 'generateId'> & {
       /**
        * Write a durable inbox copy for every member of the channel, keyed on the
        * `seq`/`messageId` this broadcast already stamped so a member's live frame
@@ -550,6 +697,15 @@ export function broadcastToChannel(
       error: error instanceof Error ? error.message : String(error),
     });
     return;
+  }
+
+  // Recorded before the member lookup, so a broadcast to a channel with no
+  // live member (or only the excluded sender) still reaches the replay store.
+  let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
+  if (hasBroadcastHooks(runtime)) {
+    recorded = toBroadcastMessage(prepared);
+    const details = { channel: channelName, channelFamily, event };
+    if (!tryBeforeBroadcastHooks(runtime, recorded, details)) return;
   }
 
   const members = runtime.channelMembers.get(
@@ -586,9 +742,7 @@ export function broadcastToChannel(
     }
   }
 
-  if (!members || members.size === 0) return;
-
-  for (const connection of members) {
+  for (const connection of members ?? []) {
     if (excludeConnectionId && !(includeSelf ?? false) && connection.id === excludeConnectionId)
       continue;
 
@@ -609,6 +763,8 @@ export function broadcastToChannel(
       );
     }
   }
+
+  if (recorded) runAfterBroadcastHooks(runtime, recorded);
 }
 
 /**

@@ -85,6 +85,7 @@ export const MetadataSchema = v.pipe(
 export const LiveThingProtocolSchema = MetadataSchema;
 const Metadata = v.nullable(MetadataSchema);
 const NoPayload = v.null();
+const EmptyPayload = v.strictObject({});
 
 function metadataToLiveThing(input: unknown): LiveThingProtocol {
   const out: LiveThingProtocol = { channelFamily: null };
@@ -260,19 +261,24 @@ export const IncomingProtocolFrame = v.union([
   ReadQueryFrame,
 ]);
 
-export const SubscribeOkFrame = frame('__subscribeOk__', NoPayload, channelMeta);
-export const UnsubscribeOkFrame = frame('__unsubscribeOk__', NoPayload, channelMeta);
-export const StreamOkFrame = frame('__streamOk__', NoPayload, streamMeta);
-export const NudgeOkFrame = frame('__nudgeOk__', NoPayload, streamMeta);
-export const StreamEndFrame = frame('__streamEnd__', NoPayload, streamMeta);
+export const SubscribeOkFrame = frame('__subscribeOk__', EmptyPayload, channelMeta);
+export const UnsubscribeOkFrame = frame('__unsubscribeOk__', EmptyPayload, channelMeta);
+export const StreamOkFrame = frame('__streamOk__', EmptyPayload, streamMeta);
+export const NudgeOkFrame = frame('__nudgeOk__', EmptyPayload, streamMeta);
+export const StreamEndFrame = frame('__streamEnd__', EmptyPayload, streamMeta);
 export const ErrorFrame = frame(
   '__error__',
   v.strictObject({ code: v.string(), detail: v.optional(v.unknown()) }),
   Metadata,
 );
 export const KickedFrame = frame('__kicked__', v.strictObject({ reason: v.string() }), channelMeta);
+/**
+ * `memberId` is the user id on a persistent channel (stable across reconnects
+ * and tabs) and the connection id on an ephemeral channel or for an anonymous
+ * connection.
+ */
 const MemberPayload = v.strictObject({
-  connectionId: v.string(),
+  memberId: v.string(),
   meta: v.optional(v.record(v.string(), v.unknown())),
 });
 export const MemberJoinFrame = frame('__memberJoin__', MemberPayload, channelMeta);
@@ -280,12 +286,21 @@ export const MemberLeaveFrame = frame('__memberLeave__', MemberPayload, channelM
 export const MemberOnlineFrame = frame('__memberOnline__', MemberPayload, channelMeta);
 export const MemberOfflineFrame = frame(
   '__memberOffline__',
-  v.strictObject({ connectionId: v.string() }),
+  v.strictObject({ memberId: v.string() }),
   channelMeta,
 );
+/**
+ * One roster entry. `online` is `false` for a member of a persistent channel
+ * that has no live connection right now.
+ */
+const SyncMemberPayload = v.strictObject({
+  memberId: v.string(),
+  meta: v.optional(v.record(v.string(), v.unknown())),
+  online: v.boolean(),
+});
 export const MemberSyncFrame = frame(
   '__memberSync__',
-  v.strictObject({ members: v.array(MemberPayload) }),
+  v.strictObject({ members: v.array(SyncMemberPayload) }),
   channelMeta,
 );
 export const ReceivedFanoutFrame = frame(

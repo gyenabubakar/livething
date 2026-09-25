@@ -125,6 +125,8 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
           online = value;
           if (!value) {
             clearTimer();
+            const current = store.get();
+            if (current.nextRetryAt !== null) set({ ...current, nextRetryAt: null });
             return;
           }
 

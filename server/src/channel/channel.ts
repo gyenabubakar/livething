@@ -203,8 +203,11 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
  * capture at `ctx.channel.params.name`.
  *
  * The template grammar is just literals plus `{name}` captures (`{{`/`}}` for a
- * literal brace). livething compiles it to a linear-time matcher itself, so unlike a
- * raw regex it can never trigger catastrophic backtracking.
+ * literal brace). LiveThing compiles it to a matcher itself, built only from
+ * escaped literals and lazy `.+?` groups. In the worst case, matching takes time
+ * polynomial in the name length, with the number of `{name}` captures as the
+ * power (linear for one, quadratic for two), and never exponential. Channel
+ * names are at most 256 characters on the wire, which bounds that cost.
  *
  * @param key      Family identifier. Used as the first tuple element in
  *   `base.channel([key, pattern])` and in `ctx.channels.get(key, name)` lookups.
@@ -224,7 +227,8 @@ export function scope<TKey extends string, const TTemplate extends string>(
   key: TKey,
   template: TTemplate,
 ): ScopeDeclaration<TKey, ExtractParams<TTemplate>> {
-  const compiled = compileChannelTemplate(template, 'scope()');
+  const source = `base.channel(['${String(key)}', ...])`;
+  const compiled = compileChannelTemplate(template, source);
   const declaration: ScopeDeclaration<TKey, ExtractParams<TTemplate>> = {
     key,
     template: compiled.template,
@@ -232,7 +236,8 @@ export function scope<TKey extends string, const TTemplate extends string>(
     paramNames: compiled.paramNames,
   };
 
-  assertValidScopeDeclaration(declaration, 'scope()');
+  assertValidScopeDeclaration(declaration, source);
+
   return declaration;
 }
 

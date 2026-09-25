@@ -1,7 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { error } from '@livething/core';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
-import * as v from 'valibot';
 
 export {
   error,
@@ -12,6 +10,7 @@ export {
   ChannelNotFound,
   ChannelNotSubscribed,
   CrossInstanceRef,
+  DeferExhausted,
   DurableStreamRequiresUser,
   InternalError,
   NudgeOverflow,
@@ -56,12 +55,13 @@ export function Disconnect(code: number, reason: string) {
  * throwing it anywhere else is treated as an unrecognized error.
  *
  * ```ts
- * import { server, t } from '@livething/server';
+ * import { server } from '@livething/server';
  * import { RejectUpgrade } from '@livething/server/errors';
  *
  * server({
  *   async upgrade(req) {
- *     const user = await validateToken(req.headers.get('authorization'));
+ *     // Browsers cannot set headers on a WebSocket handshake, so the token comes in the URL.
+ *     const user = await validateToken(new URL(req.url).searchParams.get('token'));
  *     if (!user) throw RejectUpgrade(4002, 'Invalid token');
  *     return { userId: user.id, meta: { role: user.role } };
  *   },
@@ -106,29 +106,3 @@ export function Defer(delay: number) {
   assertPositiveInteger(delay, 'delay', 'Defer()');
   return Object.freeze({ __livething: 'defer' as const, delay });
 }
-
-/**
- * Fired on your `onError` handler when a message deferred with `Defer(...)`
- * has been retried the maximum number of times (3) and still hasn't
- * succeeded. Use this to dead-letter the message — the detail gives you
- * the original event, payload, and retry count.
- *
- * Never sent to the client; this is a server-side signal only.
- *
- * @example
- * ```ts
- * .onError((ctx, err, event) => {
- *   if (DeferExhausted.matches(err)) {
- *     deadLetter.push({ event: err.detail.event, payload: err.detail.payload });
- *   }
- * })
- * ```
- */
-export const DeferExhausted = error(
-  'defer-exhausted',
-  v.object({
-    event: v.string(),
-    payload: v.unknown(),
-    retries: v.pipe(v.number(), v.finite()),
-  }),
-);

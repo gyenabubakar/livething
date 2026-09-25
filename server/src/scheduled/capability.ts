@@ -1,8 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidLiveThingIdentifier } from '@livething/core';
+import { assertValidLiveThingIdentifier, LiveThingConfigError } from '@livething/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
+import { assertNoNameSeparator } from '~/event-name.ts';
 import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import { scheduleSurfacePrimitive } from '~/scheduled/surface.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
@@ -21,9 +22,9 @@ type Retry = boolean | readonly number[];
  */
 export type ScheduledDef =
   | null
-  | { readonly every: number; readonly retry?: Retry }
-  | { readonly data: TypeMarker<any> | Validator; readonly retry?: Retry }
-  | { readonly retry: Retry };
+  | { readonly every: number; readonly data?: never; readonly retry?: Retry }
+  | { readonly data: TypeMarker<any> | Validator; readonly every?: never; readonly retry?: Retry }
+  | { readonly retry: Retry; readonly every?: never; readonly data?: never };
 
 /** The map of task id → declaration passed to `scheduled(...)`. */
 export type ScheduledDefs = Record<string, ScheduledDef>;
@@ -83,6 +84,11 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
 
   if ('every' in def && def.every !== undefined) {
     assertPositiveInteger(def.every, '.every', context);
+    if (dataValue !== undefined) {
+      throw new LiveThingConfigError(
+        `${context}: a task with 'every' cannot declare 'data'. A recurring run has no caller to supply the payload.`,
+      );
+    }
   }
 
   if ('retry' in def && def.retry !== undefined && Array.isArray(def.retry)) {
@@ -115,6 +121,10 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  * Task payloads are typed with `t<...>()` and trusted, not validated — they
  * originate on the server when you call `ctx.schedule(...)`.
  *
+ * A task with `every` runs on that interval by itself, so it cannot declare
+ * `data`. `ctx.cancelScheduled(taskId)` stops it, and it stays stopped across
+ * restarts until `ctx.schedule(taskId, { time })` starts it again.
+ *
  * @example
  * ```ts
  * import { server, t } from '@livething/server';
@@ -143,6 +153,7 @@ export const scheduled = withCapabilityKind(function scheduled<const TDefs exten
   const declarations = new Map<string, ScheduledDeclaration>();
   for (const [taskId, def] of Object.entries(defs)) {
     assertValidLiveThingIdentifier(taskId, 'scheduled() task id');
+    assertNoNameSeparator(taskId, 'scheduled() task id');
     declarations.set(taskId, resolveDeclaration(taskId, def));
   }
 

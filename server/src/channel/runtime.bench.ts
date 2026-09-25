@@ -87,7 +87,9 @@ function createRuntime(memberCount: number) {
     isChannelDurable: () => false,
     persistMembership: () => {},
     deleteDurableMembership: () => {},
-    hasDurableMembership: () => false,
+    getDurableMembership: () => undefined,
+    markDurableMembershipKicked: () => {},
+    listDurableMembers: () => [],
     logger: { error() {} },
   };
 

@@ -945,6 +945,142 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
   });
 });
 
+describe('broadcast hooks — one call per broadcast', () => {
+  function member(channelMembers: Map<string, Set<RuntimeConnection>>, id: string) {
+    const conn = createConnection(id);
+    addChannelMembership(channelMembers, conn, { channelName: 'general', channelFamily: null });
+    return conn;
+  }
+
+  function channelRuntime(overrides: Partial<OutgoingRuntime>) {
+    return {
+      ...createRuntime({
+        compiled: {
+          outgoing: new Map(),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          channels: new Map([
+            [
+              'general',
+              {
+                outgoing: new Map([['foo', { event: 'foo' }]]),
+                streams: new Map(),
+                resumableStreams: new Map(),
+                recordedStreams: new Map(),
+              },
+            ],
+          ]),
+          channelFamilies: new Map(),
+        } as unknown as OutgoingRuntime['compiled'],
+        ...overrides,
+      }),
+      connections: new Map<string, RuntimeConnection>(),
+      channelMembers: new Map<string, Set<RuntimeConnection>>(),
+      toConnectionInfo: () => {
+        throw new Error('not used by broadcastToChannel');
+      },
+      sendThroughPipeline: () => {
+        throw new Error('not used by broadcastToChannel');
+      },
+    };
+  }
+
+  it('runs the before and after hooks once for a top-level broadcast that reaches nobody', () => {
+    const before = vi.fn();
+    const after = vi.fn();
+    const runtime = createRuntime({
+      livethingStampHooks: [() => ({ deliverySeq: 5, messageId: 'm5' })],
+      beforeBroadcastHooks: [before],
+      afterBroadcastHooks: [after],
+    });
+    const sender = createConnection('sender');
+
+    broadcastToConnections(runtime, [sender], {
+      event: 'foo',
+      payload: { a: 1 },
+      excludeConnectionId: 'sender',
+    });
+
+    expect(sender.descriptor.send).not.toHaveBeenCalled();
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledTimes(1);
+    expect(before.mock.calls[0]![0]).toEqual({
+      event: 'foo',
+      payload: { a: 1 },
+      livething: { deliverySeq: 5, messageId: 'm5' },
+    });
+  });
+
+  it('runs the hooks once for a channel broadcast with no live member', () => {
+    const before = vi.fn();
+    const runtime = channelRuntime({ beforeBroadcastHooks: [before] });
+
+    broadcastToChannel(runtime, {
+      channelName: 'general',
+      channelFamily: null,
+      event: 'foo',
+      payload: {},
+      excludeConnectionId: undefined,
+    });
+
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(before.mock.calls[0]![0].livething).toMatchObject({ channel: 'general' });
+  });
+
+  it('runs the hooks once, not per member, when many members receive it', () => {
+    const before = vi.fn();
+    const runtime = channelRuntime({ beforeBroadcastHooks: [before] });
+    const a = member(runtime.channelMembers, 'a');
+    const b = member(runtime.channelMembers, 'b');
+
+    broadcastToChannel(runtime, {
+      channelName: 'general',
+      channelFamily: null,
+      event: 'foo',
+      payload: {},
+      excludeConnectionId: undefined,
+    });
+
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(a.descriptor.send).toHaveBeenCalledTimes(1);
+    expect(b.descriptor.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends to nobody and logs once when a before-broadcast hook throws', () => {
+    const errors: string[] = [];
+    const runtime = channelRuntime({
+      beforeBroadcastHooks: [
+        () => {
+          throw new Error('disk full');
+        },
+      ],
+      logger: { warn() {}, error: (message: string) => errors.push(message) },
+    });
+    const a = member(runtime.channelMembers, 'a');
+
+    broadcastToChannel(runtime, {
+      channelName: 'general',
+      channelFamily: null,
+      event: 'foo',
+      payload: {},
+      excludeConnectionId: undefined,
+    });
+
+    expect(a.descriptor.send).not.toHaveBeenCalled();
+    expect(errors).toEqual(['[livething] before-broadcast hook failed; no recipient received it']);
+  });
+
+  it('skips preparing a broadcast that reaches nobody when no broadcast hook is registered', () => {
+    const stamp = vi.fn(() => ({}));
+    const runtime = createRuntime({ livethingStampHooks: [stamp] });
+
+    broadcastToConnections(runtime, [], { event: 'foo', payload: {} });
+
+    expect(stamp).not.toHaveBeenCalled();
+  });
+});
+
 describe('outgoing authoring hook (outgoingHooks)', () => {
   it('fires on a send and can rewrite the payload, event stays locked', () => {
     const seen: OutgoingFrame[] = [];

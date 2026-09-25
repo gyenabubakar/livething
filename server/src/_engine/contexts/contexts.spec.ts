@@ -50,7 +50,7 @@ function baseStorage() {
 }
 
 function baseDeps(overrides: Record<string, unknown> = {}) {
-  return {
+  const deps = {
     compiled: {} as any,
     connections: new Map<string, RuntimeConnection>(),
     usersByKey: new Map<string, Set<RuntimeConnection>>(),
@@ -97,6 +97,27 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     contextExtenders: [],
     ...overrides,
   } as any;
+  deps.broadcastToUser ??= userFanOut(deps);
+  return deps;
+}
+
+/** Stand-in for the real user fan-out: one pipeline send per tab, nobody for an empty id. */
+function userFanOut(deps: { sendThroughPipeline: (...args: any[]) => boolean }) {
+  return vi.fn(
+    (
+      connections: RuntimeConnection[],
+      opts: { userId: string; event: string; payload: unknown },
+    ) =>
+      opts.userId
+        ? connections.filter((c) =>
+            deps.sendThroughPipeline(c, {
+              routing: undefined,
+              event: opts.event,
+              payload: opts.payload,
+            }),
+          ).length
+        : 0,
+  );
 }
 
 function localRef(id: string) {

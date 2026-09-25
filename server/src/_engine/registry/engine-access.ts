@@ -100,7 +100,7 @@ export function createEngineAccess(
     sendServerRequest: (connectionId, opts) => deps.sendServerRequest(connectionId, opts),
     onOutgoing: (handler, owner) => {
       // The pipeline supplies the frame; ctx is resolved per-send from the
-      // active connection, or undefined when none is in scope (broadcasts).
+      // active connection in the async context, or undefined when none is set.
       // Note: this ctx is built fresh per send (new locals map) — it carries
       // stable identity/meta/routing but NOT per-dispatch `locals`/`inject` set
       // earlier in the same inbound dispatch. Outgoing hooks must not rely on
@@ -118,6 +118,12 @@ export function createEngineAccess(
     },
     onAfterSend: (handler) => {
       core.hooks.afterSend.push(handler);
+    },
+    onBeforeBroadcast: (handler) => {
+      core.hooks.beforeBroadcast.push(handler);
+    },
+    onAfterBroadcast: (handler) => {
+      core.hooks.afterBroadcast.push(handler);
     },
     onConnectionActivity: (handler) => {
       core.hooks.activity.push(handler);
@@ -373,9 +379,10 @@ export function createEngineAccess(
     setStreamTrigger: (trigger) => {
       core.streamTrigger = trigger;
     },
-    setActiveStreamOps: (buffer, cancel) => {
+    setActiveStreamOps: (buffer, cancel, channelLeave) => {
       core.streamNudgeBuffer = buffer;
       core.streamCancel = cancel;
+      core.streamChannelLeave = channelLeave;
     },
     setDurableStreamService: (service) => {
       core.durableStream = service;

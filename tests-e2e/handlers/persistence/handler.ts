@@ -44,6 +44,17 @@ const handleRemoveMember = base.on('remove-member', {
   },
 });
 
+// A kick that keeps the membership: the user is removed now and rejoins on
+// their next connection.
+const handleKickMember = base.on('kick-member', {
+  input: RemoveMemberPayload,
+  async run(ctx, input) {
+    await ctx.channels
+      .get('archive-room')
+      .kick(ctx.users.get(input.identity).ref(), { reason: 'kicked' });
+  },
+});
+
 // Durable ban: stored under the room's DO so it survives the banned user's
 // disconnect and is visible when their auto-rejoin re-runs the check.
 const handleBan = base.on('ban', {
@@ -170,6 +181,7 @@ const capacityRoom = base.channel('capacity-room', {
 export const persistenceDefinition = base.assemble({
   handlers: [
     handleRemoveMember,
+    handleKickMember,
     handleBan,
     handleServerDrop,
     handleRecordExec,

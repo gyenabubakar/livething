@@ -25,6 +25,7 @@ export function setup(): void {
     <span data-testid="user-msgs-vip"></span>
     <span data-testid="name-result"></span>
     <span data-testid="subscription-failed"></span>
+    <span data-testid="server-error"></span>
   `);
 
   const page = new URLSearchParams(location.search);
@@ -62,6 +63,10 @@ export function setup(): void {
 
   general.onSubscriptionFailed(() => {
     el('subscription-failed').textContent = 'yes';
+  });
+
+  socket.onServerError((error) => {
+    el('server-error').textContent = error.code;
   });
 
   button('connect', () => socket.connect());

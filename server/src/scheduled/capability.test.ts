@@ -53,6 +53,16 @@ describe('scheduled() typing', () => {
     });
   });
 
+  it('rejects a recurring task that also declares data', () => {
+    // @ts-expect-error a task with `every` cannot declare `data`
+    scheduled({ heartbeat: { every: 1_000, data: t<{ n: number }>() } });
+    // @ts-expect-error a task with `every` cannot declare `data`, even with retry
+    scheduled({ heartbeat: { every: 1_000, data: t<{ n: number }>(), retry: true } });
+    // @ts-expect-error a schema validator counts as data too
+    scheduled({ heartbeat: { every: 1_000, data: v.object({}) } });
+    scheduled({ heartbeat: { every: 1_000, retry: [1_000] } });
+  });
+
   it('returns nothing after registering a task body', () => {
     const base = makeBase();
     const result = base.scheduled('heartbeat', { run() {} });

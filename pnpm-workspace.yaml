@@ -19,3 +19,9 @@ packageExtensions:
   '@nuxt/content@3.14.0':
     dependencies:
       h3: ^1.15.11
+  'nuxt-og-image@6.6.0':
+    dependencies:
+      h3: ^1.15.11
+  'nuxt-llms@0.2.0':
+    dependencies:
+      h3: ^1.15.11

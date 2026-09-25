@@ -23,8 +23,8 @@ const base = server({
     }),
     dedup(),
     sequence({ persist: true }),
-    // Default (strict) durability: each row is persisted AND pruned in onBeforeSend,
-    // before the frame goes out. The e2e relies on this — once the witness SEES a
+    // Default (strict) durability: each broadcast is persisted AND pruned before
+    // the frame goes out. The e2e relies on this — once the witness SEES a
     // broadcast, the eviction that lifts the watermark has already committed, so the
     // subject's later reconnect deterministically observes the gap (no flake).
     replay.history({ retention: { maxMessages: 1 } }),
@@ -36,8 +36,7 @@ export const handleSendMsg = base.on('send-msg', {
   input: SendMsg,
   run(ctx, payload) {
     const msg = { text: payload.text, from: ctx.meta.username };
-    ctx.send('chat-msg', msg);
-    ctx.broadcast('chat-msg', msg);
+    ctx.broadcast('chat-msg', msg, { includeSelf: true });
   },
 });
 
@@ -60,8 +59,7 @@ export const handleSendRoomMsg = gapRoom.on('send-room-msg', {
   input: SendRoomMsg,
   run(ctx, payload) {
     const msg = { text: payload.text, from: ctx.meta.username };
-    ctx.channel.send('room-msg', msg);
-    ctx.channel.broadcast('room-msg', msg);
+    ctx.channel.broadcast('room-msg', msg, { includeSelf: true });
   },
 });
 

@@ -84,9 +84,7 @@ test.describe('scheduled', () => {
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('trigger-invalid-cleanup-data').click();
-    await expect(page.getByTestId('schedule-guard-error')).toContainText(
-      'does not declare .data(...)',
-    );
+    await expect(page.getByTestId('schedule-guard-error')).toContainText('declares no data');
     await page.getByTestId('schedule-cleanup-soon').click();
     await expect(page.getByTestId('cleanup-fired')).toHaveText('yes');
   });
@@ -236,6 +234,40 @@ test.describe('scheduled', () => {
     await page.waitForTimeout(1200);
     const countAfter = (await frames(page, a)).filter((f) => f.event === 'heartbeat-tick').length;
     expect(countAfter).toBe(countAtCancel);
+  });
+
+  test('a cancelled recurring task stays stopped after a restart until it is scheduled again', async ({
+    page,
+    request,
+  }, testInfo) => {
+    const room = `sched-x-${testInfo.testId}`;
+    await page.goto('/scheduled');
+    await installRig(page);
+    const a = await connect(page, { path: '/ws/scheduled', username: 'alice', room });
+
+    // The recurring task is seeded at boot; wait for it to tick.
+    await expect(async () => {
+      const ticks = (await frames(page, a)).filter((f) => f.event === 'heartbeat-tick');
+      expect(ticks.length).toBeGreaterThanOrEqual(1);
+    }).toPass({ timeout: 10_000 });
+
+    await send(page, a, { event: 'cancel-heartbeat', payload: {} });
+    await waitForFrame(page, a, { match: (f) => f.event === 'cleanup-cancelled' });
+
+    const res = await request.get(`/ws/scheduled/restart?room=${room}`);
+    expect(res.status()).toBe(204);
+
+    // A fresh boot must not re-seed the cancelled task.
+    const b = await connect(page, { path: '/ws/scheduled', username: 'bob', room });
+    await page.waitForTimeout(1200);
+    expect((await frames(page, b)).filter((f) => f.event === 'heartbeat-tick')).toHaveLength(0);
+
+    // Scheduling it again restarts the recurring cycle, not just one run.
+    await send(page, b, { event: 'start-heartbeat', payload: {} });
+    await expect(async () => {
+      const ticks = (await frames(page, b)).filter((f) => f.event === 'heartbeat-tick');
+      expect(ticks.length).toBeGreaterThanOrEqual(3);
+    }).toPass({ timeout: 10_000 });
   });
 
   test('scheduled queue survives a restart and the task still fires', async ({

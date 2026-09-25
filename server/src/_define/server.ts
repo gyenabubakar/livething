@@ -42,7 +42,11 @@ import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitCapability } from '~/rate-limit/capability.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
-import type { CustomReplayHooks, ReplayCustomCapability } from '~/replay/capability.ts';
+import type {
+  ChannelCustomReplayHooks,
+  CustomReplayHooks,
+  ReplayCustomCapability,
+} from '~/replay/capability.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { ResolvedServerRequest, ServerRequestsCapability } from '~/request/server-requests.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
@@ -66,6 +70,7 @@ import type {
   BroadcastServerRequests,
   ChannelRef,
   ReplayWire,
+  SelfBroadcastRequestOptions,
 } from './app-ctx.ts';
 import type {
   AnyCapability,
@@ -458,7 +463,7 @@ type ResumableStreamCtx<
     NudgesHandle<TNudges> & {
       /** The cursor recorded on the last run, or `null` on the first run. */
       cursor: TCursor | null;
-      /** 1 on the first run, 2+ on each resume. */
+      /** 1 on the first run, then one higher on every resume (2, 3, ...). */
       attempt: number;
       /** Attach a cursor to a chunk so the framework can resume from it. */
       withCursor(chunk: TChunk, cursor: TCursor): TChunk;
@@ -611,11 +616,24 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   /** Server-side subscribe a connection to this channel. */
   subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
   /**
-   * Remove a user (or everyone holding a tag) from this channel. Pass
-   * `revoke: true` to also drop the durable membership row so the user does
-   * not auto-rejoin on reconnect.
+   * Remove a user, everyone holding a tag, or everyone with any key under a
+   * tag group (`ctx.tags.ephemeral(...)` / `.persistent(...)`) from this
+   * channel. Pass `revoke: true` to also drop the durable membership row so
+   * the user does not auto-rejoin on reconnect. Every targeted connection is
+   * kicked even when a leave hook throws; then the promise rejects with an
+   * `AggregateError` holding every hook failure.
    */
-  kick(target: UserRef | TagRef, opts: OptsParameter): Promise<void>;
+  kick(
+    target:
+      | UserRef
+      | TagRef
+      | {
+          readonly __livething: 'group-handle';
+          readonly kind: 'ephemeral' | 'persistent';
+          readonly group: string;
+        },
+    opts: OptsParameter,
+  ): Promise<void>;
   /**
    * Inject a synthetic replay frame for one of this channel's outgoing events.
    * Used from a channel custom-replay handler; `wire` carries the seq/messageId
@@ -668,7 +686,10 @@ type ChannelRequestArm<
         ): Promise<
           ChannelTargetedRequests<TServerRequests>[E] extends { response: infer R } ? R : never
         >;
-      } & BroadcastRequestArm<ChannelBroadcastRequests<TServerRequests>>
+      } & BroadcastRequestArm<
+        ChannelBroadcastRequests<TServerRequests>,
+        SelfBroadcastRequestOptions
+      >
   : {};
 
 /**
@@ -772,8 +793,10 @@ export type ChannelConfig<
     input: InferInput<TSubscribe>,
   ) => TCheckResult | Promise<TCheckResult>;
   /**
-   * Sync gate after the subscriber is counted (members include the joiner).
-   * Throw to reject. Written inside this same config object, before
+   * Sync gate that runs right before the subscriber is added, in the same
+   * JavaScript tick as the membership write. `ctx.channel.members()` does not
+   * include the joiner yet, so a cap of N rejects when `members().length >= N`,
+   * and two subscribes at once cannot both pass it. Throw to reject. Written inside this same config object, before
    * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
    * `ctx.channel.request` / `broadcastRequest` are not available here — read
@@ -834,24 +857,25 @@ type ChannelCapabilityFlags<TBrand extends string> = ('inbox' extends TBrand
   : {}) &
   ('readReceipts' extends TBrand ? { readReceipts: true } : {});
 
-/** Intersect a channel's capability flags onto its contract slice. */
-type ChannelFlagsContribution<TKey extends string, TBrand extends string> = Contribution<{
-  channels: { [K in TKey]: ChannelCapabilityFlags<TBrand> };
-}>;
-
-/** The channel's own contract slice — declared from its config and pattern. */
+/**
+ * The channel's own contract slice — declared from its config and pattern.
+ * It carries the channel's capability flags, so every handler value brings
+ * them along with the rest of the channel surface.
+ */
 type ChannelOwnSlice<
   TParams,
   TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = {
   outgoing: TOutgoing;
   serverRequests: TServerRequests;
   params: TParams;
   __addressing: TAddressing;
-} & ([TSubscribe] extends [never] ? {} : { subscribePayload: TSubscribe });
+} & ([TSubscribe] extends [never] ? {} : { subscribePayload: TSubscribe }) &
+  ChannelCapabilityFlags<TChannelBrand>;
 
 /** Configuration object for a channel `stream`. */
 type ChannelStreamConfig<
@@ -940,7 +964,7 @@ type ChannelResumableStreamConfig<
         NudgesHandle<TNudges> & {
           /** The cursor recorded on the last run, or `null` on the first run. */
           cursor: TCursor | null;
-          /** 1 on the first run, 2+ on each resume. */
+          /** 1 on the first run, then one higher on every resume (2, 3, ...). */
           attempt: number;
           /** Attach a cursor to a chunk so the framework can resume from it. */
           withCursor(chunk: TChunk, cursor: TCursor): TChunk;
@@ -992,7 +1016,7 @@ interface ChannelStreamMethod<
     >,
   ): ChannelHandlerContribution<
     TKey,
-    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests>,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
     {
       streams: Record<
         TEvent,
@@ -1038,7 +1062,7 @@ interface ChannelResumableStreamMethod<
     >,
   ): ChannelHandlerContribution<
     TKey,
-    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests>,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
     {
       resumableStreams: Record<
         TEvent,
@@ -1087,7 +1111,7 @@ interface ChannelRecordedStreamMethod<
     >,
   ): ChannelHandlerContribution<
     TKey,
-    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests>,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
     {
       recordedStreams: Record<
         TEvent,
@@ -1243,7 +1267,14 @@ export type ChannelObjectCore<
 > &
   Contribution<{
     channels: {
-      [K in TKey]: ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests>;
+      [K in TKey]: ChannelOwnSlice<
+        TParams,
+        TOutgoing,
+        TAddressing,
+        TSubscribe,
+        TServerRequests,
+        TChannelBrand
+      >;
     };
   }> &
   ChannelCoreMethods<
@@ -1303,7 +1334,7 @@ export interface ChannelCoreMethods<
     } & RateLimitField<TCaps>,
   ): ChannelHandlerContribution<
     TKey,
-    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests>,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
     { incoming: Record<TEvent, InferInput<TInput>> }
   >;
 
@@ -1326,7 +1357,7 @@ export interface ChannelCoreMethods<
     ) => void | Promise<void>,
   ): void;
   /** Register a custom replay strategy scoped to this channel. */
-  replay(hooks: CustomReplayHooks): void;
+  replay(hooks: ChannelCustomReplayHooks): void;
 }
 
 /** Channel `request(...)`, granted by the `clientRequests()` capability. */
@@ -1360,7 +1391,7 @@ export interface ChannelRequestMethods<
     } & RateLimitField<TCaps>,
   ): ChannelHandlerContribution<
     TKey,
-    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests>,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
     {
       clientRequests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }>;
     }
@@ -1451,8 +1482,7 @@ export interface ChannelMethods<TSlots, TMeta, TCaps extends readonly AnyCapabil
     TCaps,
     ChannelServerRequests<TCapabilities>,
     BrandsOf<TCapabilities>
-  > &
-    ChannelFlagsContribution<TName, BrandsOf<TCapabilities>>;
+  >;
   /** Declare a dynamic channel family from `[familyKey, pattern]`. */
   channel<
     TFamily extends string,
@@ -1484,16 +1514,15 @@ export interface ChannelMethods<TSlots, TMeta, TCaps extends readonly AnyCapabil
     TCaps,
     ChannelServerRequests<TCapabilities>,
     BrandsOf<TCapabilities>
-  > &
-    ChannelFlagsContribution<TFamily, BrandsOf<TCapabilities>>;
+  >;
 }
 
 /** Builder method granted by the `replay.custom()` capability. */
 export interface ReplayMethods {
   /**
    * Register a custom replay strategy: your own storage and resend. The
-   * `replay` hook (the resend) is required; `beforeSend` / `afterSend` are
-   * optional. One registration per server.
+   * `replay` hook (the resend) is required; `beforeBroadcast` /
+   * `afterBroadcast` are optional. One registration per server.
    */
   replay(hooks: CustomReplayHooks): void;
 }
@@ -1532,8 +1561,9 @@ export interface InterceptMethods<TSlots, TMeta, TCaps extends readonly AnyCapab
 
 /**
  * The builder returned by `server(...)`. Carries the methods every server has
- * (`on`, the lifecycle hooks, `intercept`, `assemble`) plus any methods the
- * listed capabilities grant through their brands.
+ * (`on`, the lifecycle hooks, `onOutgoing`, `assemble`) plus any methods the
+ * listed capabilities grant through their brands — for example, `intercept`
+ * exists only when `intercepts()` is listed.
  */
 export type Base<
   TSlots,
@@ -1586,7 +1616,12 @@ export interface CoreBase<
    * is fresh here.
    */
   onPong(handler: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>): void;
-  /** Run on any unhandled error from a handler. `event` is set when the error came from one. */
+  /**
+   * Run on any unhandled error from a handler. `event` is set when the error came from one.
+   * In a plugin (`server({ scope: 'plugin' })`), it runs only for the plugin's own
+   * events and channels, and `event` is the name the plugin declared, without the
+   * `__<id>::` prefix.
+   */
   onError(
     handler: (
       ctx: AppCtx<TSlots, TMeta, TCaps>,
@@ -1594,7 +1629,11 @@ export interface CoreBase<
       event?: string,
     ) => void | Promise<void>,
   ): void;
-  /** Run when an incoming payload fails its schema validation. */
+  /**
+   * Run when an incoming payload fails its schema validation. In a plugin, it
+   * runs only for the plugin's own events, and `event` is the name the plugin
+   * declared, without the `__<id>::` prefix.
+   */
   onValidationError(
     handler: (
       ctx: AppCtx<TSlots, TMeta, TCaps>,
@@ -1609,10 +1648,17 @@ export interface CoreBase<
    * Inspect every outgoing frame before it is serialized. Return a value to
    * rewrite the payload, or nothing to observe. The event is locked. One
    * `onOutgoing` hook per server.
+   *
+   * `ctx` is the context of the connection whose `on`, `request` or `stream`
+   * handler, intercept, or `onConnect` hook is running when the frame is sent.
+   * For a broadcast from that code, `ctx` is the sender, not each receiver. In
+   * every other case `ctx` is `undefined` — for example, a send from a channel
+   * `subscribe` hook, `onDisconnect`, `onError`, a scheduled task, `onInit`,
+   * `onShutdown`, or the admin API.
    */
   onOutgoing(
     handler: (
-      ctx: AppCtx<TSlots, TMeta, TCaps>,
+      ctx: AppCtx<TSlots, TMeta, TCaps> | undefined,
       frame: OutgoingFrame<PluginIdsOf<TSlots>>,
     ) => unknown | void,
   ): void;

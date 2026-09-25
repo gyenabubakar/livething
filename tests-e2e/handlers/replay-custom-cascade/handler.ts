@@ -30,7 +30,7 @@ base.onInit((ctx) => {
 });
 
 base.replay({
-  beforeSend: (ctx, msg) => {
+  beforeBroadcast: (ctx, msg) => {
     ctx.sql.exec(
       'INSERT INTO _cascade_replay (event, payload, seq, message_id, channel, channel_family) VALUES (?, ?, ?, ?, ?, ?)',
       msg.event,

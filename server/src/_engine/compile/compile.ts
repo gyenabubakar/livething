@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertValidLiveThingIdentifier, WIRE_LIMITS } from '@livething/core';
+import { parsePluginWireName } from '~/plugin-scope.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ServerTypes from '~/server-definition.ts';
@@ -221,12 +222,17 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
 
 /**
  * Refuse to boot when replay is enabled but the primitives it relies on are
- * missing or misconfigured. Replay persists every outgoing message keyed by
- * a delivery ID (stamped by dedup) and sequence (allocated by sequence). Without
- * dedup the first persisted send cannot be stored safely;
- * without `sequence: { persist: true }` the seq column is unstable across
+ * missing or misconfigured. Replay stores every recorded message keyed by
+ * a message id (stamped by dedup) and sequence (allocated by sequence). Without
+ * dedup the first recorded message cannot be stored safely;
+ * without `sequence({ persist: true })` the seq column is unstable across
  * restarts and replay cannot order rows. Fail fast at compile so the misconfig
- * surfaces at boot instead of on the first message.
+ * surfaces at boot instead of on the first message. This is the one place the
+ * persistent-sequence rule for replay is checked.
+ *
+ * `replay.custom()` has the same rule: its hooks read `msg.wire.messageId`
+ * (from dedup) and `msg.wire.deliverySeq` (from sequence), and a custom store
+ * that keeps rows across restarts needs a seq that survives them too.
  */
 function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive[]): void {
   // dedup and sequence are top-level only — they have no meaning nested inside
@@ -235,10 +241,27 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
   // catch nested cases that the top-level scan would miss.
   let hasDedup = false;
   let hasPersistentSequence = false;
+  let hasCustomReplay = false;
   for (const primitive of primitives) {
     if (primitive.__livething === 'dedup') hasDedup = true;
     if (primitive.__livething === 'sequence' && (primitive as { persist?: boolean }).persist) {
       hasPersistentSequence = true;
+    }
+
+    if (primitive.__livething === 'replayCustomSend') hasCustomReplay = true;
+  }
+
+  if (hasCustomReplay) {
+    if (!hasDedup) {
+      throw new Error(
+        `[livething] replay.custom() needs the dedup() capability. Custom replay hooks get every broadcast's msg.wire.messageId from dedup. List dedup() in server({ capabilities: [...] }).`,
+      );
+    }
+
+    if (!hasPersistentSequence) {
+      throw new Error(
+        `[livething] replay.custom() needs a persistent sequence. Custom replay hooks get every broadcast's msg.wire.deliverySeq from sequence, and a stored seq only stays valid across restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
+      );
     }
   }
 
@@ -247,13 +270,13 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
 
   if (!hasDedup) {
     throw new Error(
-      `[livething] contract uses replay but did not enable dedup. Replay persists every outgoing message by the delivery ID that dedup stamps. Add \`dedup: true\` to the contract config.`,
+      `[livething] replay needs the dedup() capability. Replay stores every recorded message by the message id that dedup stamps. List dedup() in server({ capabilities: [...] }).`,
     );
   }
 
   if (!hasPersistentSequence) {
     throw new Error(
-      `[livething] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence: { persist: true }\` to the contract config.`,
+      `[livething] replay needs a persistent sequence. Replay orders stored rows by seq, which only survives restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
     );
   }
 }
@@ -283,7 +306,8 @@ function validateScopeAndEventNameSyntax(
   function checkScopeName(name: string, kind: 'channel', limit: number): void {
     // A plugin's channel is framework-namespaced as `__<id>::<name>` — it
     // legitimately carries `__` and `::`. Provenance (not string shape) is what
-    // exempts it, so a hand-declared `::` channel still throws.
+    // exempts the prefix, so a hand-declared `::` channel still throws. The name
+    // the plugin declared follows the same rules as an app channel name.
     if (declaredPluginChannels.has(name)) {
       if (name.length > limit) {
         throw new Error(
@@ -291,10 +315,18 @@ function validateScopeAndEventNameSyntax(
         );
       }
 
+      const declared = parsePluginWireName(name);
+      if (declared) checkDeclaredScopeName(declared.name, kind);
+
       return;
     }
 
     assertValidLiveThingIdentifier(name, `${kind} name`, limit);
+    checkDeclaredScopeName(name, kind);
+  }
+
+  function checkDeclaredScopeName(name: string, kind: 'channel'): void {
+    assertValidLiveThingIdentifier(name, `${kind} name`);
 
     if (name.startsWith('@') || name.startsWith('#')) {
       throw new Error(
@@ -313,12 +345,16 @@ function validateScopeAndEventNameSyntax(
 
   function checkEventName(event: string, scopeLabel: string): void {
     // A namespaced plugin event travels as `__<id>::<name>`, where `::` is the
-    // intentional id↔name boundary. Exempt it only when it is a known plugin
-    // event (by provenance), so a hand-declared `::` name still throws.
-    if (event.includes('::') && !declaredPluginEvents.has(event)) {
+    // intentional id↔name boundary. Exempt that boundary only when it is a known
+    // plugin event (by provenance), so a hand-declared `::` name still throws —
+    // and so does a `::` inside the name the plugin declared.
+    const declared = declaredPluginEvents.has(event) ? parsePluginWireName(event) : null;
+    const declaredName = declared ? declared.name : event;
+    if (declaredName.includes('::')) {
+      const where = declared ? `plugin '${declared.id}' (${scopeLabel})` : scopeLabel;
       throw new Error(
-        `[livething] Event name '${event}' in ${scopeLabel} contains '::', which is reserved as the ` +
-          `separator in the contract.matches(...) path key syntax — pick a different name.`,
+        `[livething] Event name '${declaredName}' in ${where} contains '::', which is reserved as the ` +
+          `separator in plugin names and the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
 

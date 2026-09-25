@@ -180,7 +180,9 @@ test.describe('stream-durable', () => {
       .toBe('does-not-exist');
   });
 
-  test('ctx.stream.attempt — 1 on first run, 2 after resume', async ({ page }, testInfo) => {
+  test('ctx.stream.attempt — 1 on first run, then one higher on every resume', async ({
+    page,
+  }, testInfo) => {
     const room = `sdb-${testInfo.testId}-${Date.now()}`;
     const streamId = 'attempt-1';
     await goConnect(page, { room: room, streamId: streamId });
@@ -189,14 +191,17 @@ test.describe('stream-durable', () => {
     await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe('1');
 
     // Generator is parked in an await on the server. Drop the socket so the
-    // stream goes `suspended`, then reconnect and resume — attempt becomes 2.
-    await page.getByTestId('drop-socket').click();
-    await expect(page.getByTestId('status')).toHaveText('disconnected');
-    await page.getByTestId('connect').click();
-    await expect(page.getByTestId('status')).toHaveText('connected');
-    await page.getByTestId('send-resume').click();
+    // stream goes `suspended`, then reconnect and resume — each resume re-runs
+    // the generator with the next attempt number.
+    for (const expected of ['2', '3', '4']) {
+      await page.getByTestId('drop-socket').click();
+      await expect(page.getByTestId('status')).toHaveText('disconnected');
+      await page.getByTestId('connect').click();
+      await expect(page.getByTestId('status')).toHaveText('connected');
+      await page.getByTestId('send-resume').click();
 
-    await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe('2');
+      await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe(expected);
+    }
   });
 
   test('buffer-full path — handler catches StreamAborted and the stream ends cleanly', async ({

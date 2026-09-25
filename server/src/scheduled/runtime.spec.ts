@@ -250,12 +250,155 @@ describe('scheduled/runtime', () => {
     now.mockRestore();
   });
 
-  it('throws when data is queued for a task without .data(...)', () => {
+  it('throws when data is queued for a task that declares no data', () => {
     const { runtime } = createScheduledRuntime([{ taskId: 'flush' }]);
 
     expect(() =>
       scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { nope: true } }),
-    ).toThrow(/does not declare \.data/);
+    ).toThrow(
+      /declares no data\. Declare it as \{ data: t<\.\.\.>\(\) \} in scheduled\(\{ \.\.\. \}\)/,
+    );
+  });
+
+  describe('stopping a recurring task', () => {
+    function recurringRuns(scheduledRuns: Map<string, ScheduledRun>): ScheduledRun[] {
+      return [...scheduledRuns.values()].filter((run) => run.recurring);
+    }
+
+    it('a cancelled recurring task is not re-seeded by the next boot', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+      expect(recurringRuns(scheduledRuns)).toHaveLength(1);
+
+      expect(cancelScheduledRuns(runtime, 'tick')).toEqual({ taskExists: true, removed: 1 });
+      bootstrapScheduledRuntime(runtime);
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.size).toBe(0);
+    });
+
+    it('ctx.schedule starts a stopped recurring task again, at `time` and then every interval', async () => {
+      const handler = vi.fn(async () => {});
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 }, handler },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+      cancelScheduledRuns(runtime, 'tick');
+
+      scheduleTaskRun(runtime, { taskId: 'tick', time: 5_000, data: undefined });
+
+      expect(recurringRuns(scheduledRuns)).toEqual([
+        expect.objectContaining({ taskId: 'tick', time: 5_000, every: 1_000, recurring: true }),
+      ]);
+
+      bootstrapScheduledRuntime(runtime);
+      expect(recurringRuns(scheduledRuns)).toHaveLength(1);
+
+      const now = vi.spyOn(Date, 'now').mockReturnValue(5_000);
+      await handleScheduledAlarm(runtime);
+      now.mockRestore();
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(recurringRuns(scheduledRuns)).toEqual([
+        expect.objectContaining({ taskId: 'tick', time: 6_000 }),
+      ]);
+    });
+
+    it('ctx.schedule on a running (not stopped) recurring task only adds a one-shot run', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+
+      scheduleTaskRun(runtime, { taskId: 'tick', time: 5_000, data: undefined });
+
+      expect(recurringRuns(scheduledRuns)).toHaveLength(1);
+      expect(scheduledRuns.size).toBe(2);
+    });
+
+    it('a recurring task that cancels itself inside its own run stays stopped', async () => {
+      const handler = vi.fn(async () => {});
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 }, handler },
+      ]);
+      handler.mockImplementation(async () => {
+        expect(cancelScheduledRuns(runtime, 'tick').removed).toBe(1);
+      });
+      bootstrapScheduledRuntime(runtime);
+
+      const now = vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER - 10);
+      await handleScheduledAlarm(runtime);
+      now.mockRestore();
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(scheduledRuns.size).toBe(0);
+      bootstrapScheduledRuntime(runtime);
+      expect(scheduledRuns.size).toBe(0);
+    });
+
+    it('a recurring task that stops and re-schedules itself in its run keeps exactly one cycle', async () => {
+      const handler = vi.fn(async () => {});
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 }, handler },
+      ]);
+      handler.mockImplementation(async () => {
+        cancelScheduledRuns(runtime, 'tick');
+        scheduleTaskRun(runtime, { taskId: 'tick', time: 50_000, data: undefined });
+      });
+      bootstrapScheduledRuntime(runtime);
+
+      const now = vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER - 10);
+      await handleScheduledAlarm(runtime);
+      now.mockRestore();
+
+      expect(recurringRuns(scheduledRuns)).toEqual([expect.objectContaining({ time: 50_000 })]);
+    });
+
+    it('a filtered cancel does not stop the recurring task', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+
+      cancelScheduledRuns(runtime, 'tick', { any: 'filter' });
+      sql.exec('DELETE FROM __livething_scheduled');
+      bootstrapScheduledRuntime(runtime);
+
+      expect(recurringRuns(scheduledRuns)).toHaveLength(1);
+    });
+
+    it('boot drops the stopped marker of a task that no longer declares every', () => {
+      const first = createScheduledRuntime([{ taskId: 'tick', options: { every: 1_000 } }]);
+      bootstrapScheduledRuntime(first.runtime);
+      cancelScheduledRuns(first.runtime, 'tick');
+      function stoppedRows(): { taskId: string }[] {
+        return first.sql
+          .exec<{ taskId: string }>('SELECT taskId FROM __livething_scheduled_stopped')
+          .toArray();
+      }
+
+      expect(stoppedRows()).toHaveLength(1);
+
+      const redeployed = {
+        ...first.runtime,
+        getScheduledTask: () => ({ taskId: 'tick' }) as never,
+        getScheduledTasks: () => [{ taskId: 'tick' }] as never,
+      };
+
+      bootstrapScheduledRuntime(redeployed);
+
+      expect(stoppedRows()).toHaveLength(0);
+    });
+
+    it('cancelling an already stopped task removes nothing', () => {
+      const { runtime } = createScheduledRuntime([{ taskId: 'tick', options: { every: 1_000 } }]);
+      bootstrapScheduledRuntime(runtime);
+      cancelScheduledRuns(runtime, 'tick');
+
+      expect(cancelScheduledRuns(runtime, 'tick')).toEqual({ taskExists: true, removed: 0 });
+    });
   });
 
   it('throws synchronously when scheduling an unregistered task id', () => {

@@ -2,7 +2,9 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
+import { dedup } from '~/primitives/dedup.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
+import { replay } from '~/primitives/replay.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -149,7 +151,9 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
     });
 
     const onSubFailed = vi.fn();
+    const onServerError = vi.fn();
     room.onSubscriptionFailed(onSubFailed);
+    socket.onServerError(onServerError);
 
     ws.emit({
       event: '__error__',
@@ -157,10 +161,72 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       metadata: { channel: { name: 'general' } },
     });
 
-    expect(onSubFailed).toHaveBeenCalledWith(
+    expect(onSubFailed).not.toHaveBeenCalled();
+    expect(onServerError).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'validation-failed' }),
     );
+    expect(room.status.get()).toBe('subscribed');
     expect(() => room.send('send-message', { text: 'x' })).not.toThrow();
+  });
+
+  it('passes an unsupported __replay__ error through during a rejoin instead of failing the channel', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(
+        connect('wss://test'),
+        channels(),
+        dedup(),
+        replay(),
+        reconnection(),
+      );
+      socket.setDebug(true);
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      expect(room.status.get()).toBe('subscribing');
+
+      const onSubFailed = vi.fn();
+      const onServerError = vi.fn();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      room.onSubscriptionFailed(onSubFailed);
+      socket.onServerError(onServerError);
+
+      second.emit({
+        event: '__error__',
+        payload: { code: 'unsupported-protocol', detail: { event: '__replay__' } },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      expect(onSubFailed).not.toHaveBeenCalled();
+      expect(onServerError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'unsupported-protocol' }),
+      );
+      expect(warn.mock.calls.some((args) => String(args[1] ?? '').includes('replay()'))).toBe(true);
+      expect(room.status.get()).toBe('subscribing');
+      warn.mockRestore();
+
+      second.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+      expect(room.status.get()).toBe('subscribed');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -429,7 +495,7 @@ describe('channels-onclose-keeps-active-clears-members', () => {
 
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
+      payload: { members: [{ memberId: 'c1', meta: { name: 'Ada' }, online: true }] },
       metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().size).toBe(1);
@@ -814,7 +880,12 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       });
       first.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
         metadata: { channel: { name: 'general' } },
       });
 
@@ -835,12 +906,77 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
 
       second.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'c' }] },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'c', online: true },
+          ],
+        },
         metadata: { channel: { name: 'general' } },
       });
 
       expect(joins).toEqual(['c']);
       expect(leaves).toEqual(['b']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a peer that went offline during the drop as an offline member, with no leave', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const room = socket.channel('general');
+
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+      first.emit({
+        event: '__memberSync__',
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      const events: string[] = [];
+      room.onMemberJoin((id) => events.push(`join ${id}`));
+      room.onMemberLeave((id) => events.push(`leave ${id}`));
+      room.onMemberOnline((id) => events.push(`online ${id}`));
+      room.onMemberOffline((id) => events.push(`offline ${id}`));
+
+      first.serverClose(1006);
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      second.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+
+      second.emit({
+        event: '__memberSync__',
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: false },
+          ],
+        },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      expect(events).toEqual(['offline b']);
+      expect(room.members.get().get('b')).toEqual({ meta: {}, online: false });
     } finally {
       vi.useRealTimers();
     }
@@ -897,7 +1033,7 @@ describe('member join deltas after a failed rejoin', () => {
 
       first.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }] },
+        payload: { members: [{ memberId: 'a', online: true }] },
         metadata: { channel: { name: 'general' } },
       });
 
@@ -924,7 +1060,12 @@ describe('member join deltas after a failed rejoin', () => {
       });
       second.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
         metadata: { channel: { name: 'general' } },
       });
 
@@ -948,7 +1089,7 @@ describe('member join deltas after a failed rejoin', () => {
     });
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'a' }] },
+      payload: { members: [{ memberId: 'a', online: true }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -969,7 +1110,12 @@ describe('member join deltas after a failed rejoin', () => {
 
     second.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+      payload: {
+        members: [
+          { memberId: 'a', online: true },
+          { memberId: 'b', online: true },
+        ],
+      },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -995,7 +1141,12 @@ describe('presence deltas across a double drop', () => {
       });
       first.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
         metadata: { channel: { name: 'general' } },
       });
 
@@ -1020,7 +1171,12 @@ describe('presence deltas across a double drop', () => {
       });
       third.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
         metadata: { channel: { name: 'general' } },
       });
 

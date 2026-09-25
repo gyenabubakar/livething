@@ -75,16 +75,16 @@ export function setup(): void {
     el('members-count').textContent = String(room.members.get().size);
   });
 
-  room.onMemberJoin((connectionId) => {
+  room.onMemberJoin((memberId) => {
     const span = el('member-joins');
-    const entry = `room:${connectionId}`;
+    const entry = `room:${memberId}`;
     span.textContent = span.textContent ? `${span.textContent},${entry}` : entry;
     el('members-count').textContent = String(room.members.get().size);
   });
 
-  room.onMemberLeave((connectionId) => {
+  room.onMemberLeave((memberId) => {
     const span = el('member-leaves');
-    const entry = `room:${connectionId}`;
+    const entry = `room:${memberId}`;
     span.textContent = span.textContent ? `${span.textContent},${entry}` : entry;
     el('members-count').textContent = String(room.members.get().size);
   });

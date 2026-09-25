@@ -63,23 +63,29 @@ base.onError((_ctx, error, event) => {
 export const handleUpdateDoc = base.on('update-doc', {
   input: UpdateDoc,
   run(ctx, payload) {
-    ctx.send('doc-snapshot', { docId: payload.docId, title: payload.title });
-    ctx.broadcast('doc-snapshot', { docId: payload.docId, title: payload.title });
+    ctx.broadcast(
+      'doc-snapshot',
+      { docId: payload.docId, title: payload.title },
+      { includeSelf: true },
+    );
   },
 });
 
 export const handleDeleteDoc = base.on('delete-doc', {
   input: DeleteDoc,
   run(ctx, payload) {
-    ctx.send('doc-deleted', { docId: payload.docId });
-    ctx.broadcast('doc-deleted', { docId: payload.docId });
+    ctx.broadcast('doc-deleted', { docId: payload.docId }, { includeSelf: true });
   },
 });
 
 export const handleIncrementCounter = base.on('increment-counter', {
   input: IncrementCounter,
   run(ctx, payload) {
-    ctx.send('counter-snapshot', { key: payload.key, total: payload.amount });
+    ctx.broadcast(
+      'counter-snapshot',
+      { key: payload.key, total: payload.amount },
+      { includeSelf: true },
+    );
   },
 });
 
@@ -90,7 +96,7 @@ export const handleBurstCounter = base.on('burst-counter', {
   input: BurstCounter,
   run(ctx, payload) {
     for (let i = 0; i < payload.count; i += 1) {
-      ctx.send('counter-snapshot', { key: payload.key, total: 1 });
+      ctx.broadcast('counter-snapshot', { key: payload.key, total: 1 }, { includeSelf: true });
     }
 
     ctx.send('burst-done', { key: payload.key, sent: payload.count });
@@ -117,11 +123,11 @@ const snapshotRoom = base.channel('snapshot-room', {
 export const handleUpdateRoomDoc = snapshotRoom.on('update-room-doc', {
   input: RoomUpdateDoc,
   run(ctx, payload) {
-    ctx.channel.send('room-doc-snapshot', { docId: payload.docId, title: payload.title });
-    ctx.channel.broadcast('room-doc-snapshot', {
-      docId: payload.docId,
-      title: payload.title,
-    });
+    ctx.channel.broadcast(
+      'room-doc-snapshot',
+      { docId: payload.docId, title: payload.title },
+      { includeSelf: true },
+    );
   },
 });
 

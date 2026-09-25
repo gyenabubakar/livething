@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { error, LiveThingError, RequestInvalidResponse } from '@livething/core';
+import { Disconnected, LiveThingError, RequestInvalidResponse, Timeout } from '@livething/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
@@ -44,20 +44,6 @@ type SendBroadcastRequestArgsParameter = {
   /** The channel definition key whose declarations to resolve, or null for top-level. */
   declarationChannelKey?: string | null;
 };
-
-/**
- * Thrown into a `ctx.request(...)` promise when no answer arrives before the
- * timeout. Shares the `'timeout'` code family with the client-side `Timeout` so
- * a server author matches it the same way.
- */
-const Timeout = /* @__PURE__ */ error('timeout');
-
-/**
- * Thrown into a `ctx.request(...)` promise when the target connection drops
- * before it answers. Shares the `'disconnected'` code family with the
- * client-side `Disconnected`.
- */
-const Disconnected = /* @__PURE__ */ error('disconnected');
 
 function RequestNotDeclared(
   event: string,

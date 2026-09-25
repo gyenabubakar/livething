@@ -17,6 +17,7 @@ const CREATE_STREAMS_TABLE_SQL = `
     kind                      TEXT NOT NULL,
     status                    TEXT NOT NULL DEFAULT 'active',
     last_seq                  INTEGER NOT NULL DEFAULT 0,
+    attempt                   INTEGER NOT NULL DEFAULT 1,
     channel_key               TEXT,
     channel_family             TEXT,
     broadcast                 INTEGER NOT NULL DEFAULT 0,
@@ -97,6 +98,9 @@ export interface DurableStreamRow {
   status: DurableStreamStatus;
 
   lastSeq: number;
+
+  /** How many times the generator has run: 1 on the first run, +1 on every resume that re-runs it. */
+  attempt: number;
 
   channelKey: string | null;
   channelFamily: string | null;
@@ -185,6 +189,7 @@ function rowToStream(row: Record<string, unknown>): DurableStreamRow {
     kind: row.kind as DurableStreamDurability,
     status: row.status as DurableStreamStatus,
     lastSeq: Number(row.last_seq ?? 0),
+    attempt: Number(row.attempt ?? 1),
     channelKey: (row.channel_key as string | null) ?? null,
     channelFamily: (row.channel_family as string | null) ?? null,
     broadcast: Number(row.broadcast ?? 0) === 1,
@@ -300,20 +305,26 @@ export function updateLastSeq(
   );
 }
 
-/** Rewind a resumable stream to the cursor the reconnecting client confirmed. */
+/**
+ * Rewind a resumable stream to the cursor the reconnecting client confirmed,
+ * mark it active for the re-run, and count that run. Returns the new attempt
+ * number.
+ */
 export function rewindResumableStream(
   sql: SqlExec,
   opts: StreamRef & { lastSeq: number; now: number },
-): void {
+): number {
   sql.exec(
     `UPDATE __livething_streams
-     SET last_seq = ?, status = 'active', last_activity_at = ?
+     SET last_seq = ?, status = 'active', last_activity_at = ?, attempt = attempt + 1
      WHERE user_id = ? AND stream_id = ?`,
     opts.lastSeq,
     opts.now,
     opts.userId,
     opts.streamId,
   );
+
+  return readStream(sql, opts.userId, opts.streamId)?.attempt ?? 1;
 }
 
 /** Move an active row to suspended so the sweep can age it out after `maxAgeMs`. */

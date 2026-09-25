@@ -144,14 +144,14 @@ test.describe('persistence', () => {
 
     const bobFrames = await frames(page, bob);
     // Bob's own initial sync arrives as __memberSync__, not __memberJoin__.
-    // What matters: there is NOT a __memberJoin__ frame specifically for
-    // Alice's new socket. The __memberOnline__ frame for Alice should not
-    // be preceded by a matching __memberJoin__.
+    // What matters: there is NOT a __memberJoin__ frame for Alice's member
+    // id. The __memberOnline__ frame for Alice should not be preceded by a
+    // matching __memberJoin__.
     const memberJoinIdx = bobFrames.findIndex(
       (f) =>
         f.event === '__memberJoin__' &&
         f.metadata?.channel?.name === 'archive-room' &&
-        f.payload.connectionId === onlineFrame.payload.connectionId,
+        f.payload.memberId === onlineFrame.payload.memberId,
     );
     expect(memberJoinIdx).toBe(-1);
 
@@ -599,7 +599,7 @@ test.describe('persistence', () => {
       bob,
       (f) => f.event === '__memberSync__' && f.metadata?.channel?.name === 'archive-room',
     );
-    const members = sync.payload.members as { connectionId: string; meta: { username?: string } }[];
+    const members = sync.payload.members as { memberId: string; meta: { username?: string } }[];
     expect(members.some((m) => m.meta?.username === 'alice')).toBe(true);
   });
 

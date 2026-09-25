@@ -22,6 +22,7 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
 
       return {
         id: 'dedup',
+        beforeIntercepts: true,
 
         onIncoming(message) {
           const id = message.metadata?.delivery?.id;

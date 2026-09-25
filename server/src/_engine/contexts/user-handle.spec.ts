@@ -97,48 +97,65 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
 }
 
 describe('UserHandle.broadcast — fan-out', () => {
-  it('reaches every live tab and returns the delivered-socket count', () => {
+  function userIdsAndTargets(deps: any): Array<[string, string[]]> {
+    return deps.broadcastToUser.mock.calls.map((call: any[]) => [
+      call[1].userId,
+      call[0].map((c: RuntimeConnection) => c.id),
+    ]);
+  }
+
+  it('hands every live tab of the user to one user broadcast and returns its delivered count', () => {
     const tab1 = createConnection('t1', 'alice');
     const tab2 = createConnection('t2', 'alice');
     const other = createConnection('o1', 'bob');
-    const deps = baseDeps([tab1, tab2, other]);
+    const deps = baseDeps([tab1, tab2, other], { broadcastToUser: vi.fn(() => 2) });
     const ctx = buildConnectionContext(deps, tab1);
 
     const delivered = ctx.users.get('alice').broadcast('ping', { n: 1 });
 
     expect(delivered).toBe(2);
-    const targets = deps.sendThroughPipeline.mock.calls.map((call: any[]) => call[0].id);
-    expect(new Set(targets)).toEqual(new Set(['t1', 't2']));
+    expect(deps.broadcastToUser).toHaveBeenCalledTimes(1);
+    expect(deps.broadcastToUser.mock.calls[0][1]).toEqual({
+      userId: 'alice',
+      event: 'ping',
+      payload: { n: 1 },
+    });
+    expect(new Set(userIdsAndTargets(deps)[0]![1])).toEqual(new Set(['t1', 't2']));
+    expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
   });
 
-  it('counts only the tabs the pipeline actually delivered to', () => {
+  it('returns the count the user broadcast actually delivered', () => {
     const tab1 = createConnection('t1', 'alice');
     const tab2 = createConnection('t2', 'alice');
-    const deps = baseDeps([tab1, tab2], {
-      sendThroughPipeline: vi.fn((conn: RuntimeConnection) => conn.id === 't1'),
-    });
+    const deps = baseDeps([tab1, tab2], { broadcastToUser: vi.fn(() => 1) });
     const ctx = buildConnectionContext(deps, tab1);
 
     expect(ctx.users.get('alice').broadcast('ping', {})).toBe(1);
   });
 
-  it('a user with no live connections delivers to 0 and touches nothing', () => {
+  it('a user with no live connections still goes through the user broadcast, with no tabs', () => {
     const caller = createConnection('caller', 'u1');
-    const deps = baseDeps([caller]);
+    const deps = baseDeps([caller], { broadcastToUser: vi.fn(() => 0) });
     const ctx = buildConnectionContext(deps, caller);
 
     expect(ctx.users.get('ghost').broadcast('ping', {})).toBe(0);
+    expect(userIdsAndTargets(deps)).toEqual([['ghost', []]]);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
   });
 
   it('ctx.user (self) is the same fan-out target as ctx.users.get(own id)', () => {
     const tab1 = createConnection('t1', 'alice');
     const tab2 = createConnection('t2', 'alice');
-    const deps = baseDeps([tab1, tab2]);
+    const deps = baseDeps([tab1, tab2], { broadcastToUser: vi.fn(() => 2) });
     const ctx = buildConnectionContext(deps, tab1);
 
     expect(ctx.user.id).toBe('alice');
     expect(ctx.user.broadcast('ping', {})).toBe(2);
+    expect(ctx.users.get('alice').broadcast('ping', {})).toBe(2);
+    const [self, byId] = userIdsAndTargets(deps);
+    expect(self![0]).toBe('alice');
+
+    expect(new Set(self![1])).toEqual(new Set(byId![1]));
   });
 });
 

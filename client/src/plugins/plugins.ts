@@ -431,6 +431,17 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   };
 }
 
+declare const inferredApi: unique symbol;
+
+/** The default of `plugin()`'s API type argument: no API type was given. */
+type InferredApi = typeof inferredApi;
+
+/**
+ * A plugin's API type: the one passed to `plugin<P, TApi>()` when given, so
+ * `setup` must return it, or else the one inferred from `setup`.
+ */
+type PluginApi<TApi, TSetupApi> = [TApi] extends [InferredApi] ? TSetupApi : TApi;
+
 /**
  * Define a reusable client feature that owns a namespace on the socket. Its
  * `setup` gets a scoped socket with the same verbs as the app socket — `on`,
@@ -444,7 +455,8 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * socket knows which namespace this plugin claims, and the API type is inferred
  * from what `setup` returns — a plugin with no `api` gets `void`. Pass a second
  * type argument, `plugin<ChatContract, ChatApi>()`, only to pin the API to a type
- * you declared yourself.
+ * you declared yourself: `setup` must then return an API of that type, and
+ * `use()` returns that type.
  *
  * ```ts
  * const Chat = plugin<ChatContract>()({
@@ -466,10 +478,10 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * const chat = Chat.use(socket);
  * ```
  */
-export function plugin<P extends SocketContract = {}, TApi = void>() {
-  return function define<const TId extends string, TSetupApi = TApi>(
-    def: PluginDef<P, TSetupApi> & { id: TId },
-  ): PluginFactory<TSetupApi, TId, P> {
+export function plugin<P extends SocketContract = {}, TApi = InferredApi>() {
+  return function define<const TId extends string, TSetupApi = void>(
+    def: PluginDef<P, PluginApi<TApi, TSetupApi>> & { id: TId },
+  ): PluginFactory<PluginApi<TApi, TSetupApi>, TId, P> {
     const dependencies = def.dependencies?.map(resolveTag);
     const id = def.id;
 
@@ -495,9 +507,9 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
       },
       {
         id,
-        use: (socket: object): TSetupApi => usePlugin(socket, id) as TSetupApi,
+        use: (socket: object) => usePlugin(socket, id),
       },
-    ) as unknown as PluginFactory<TSetupApi, TId, P>;
+    ) as unknown as PluginFactory<PluginApi<TApi, TSetupApi>, TId, P>;
 
     return factory;
   };

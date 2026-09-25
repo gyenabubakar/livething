@@ -3,6 +3,7 @@ import * as v from 'valibot';
 
 export const ChatMsg = v.object({ text: v.string(), from: v.string() });
 export const SendMsg = v.object({ text: v.string() });
+export const SendToUser = v.object({ userId: v.string(), text: v.string() });
 export const Cursor = v.object({ x: v.number(), y: v.number() });
 export const SendCursor = v.object({ x: v.number(), y: v.number() });
 

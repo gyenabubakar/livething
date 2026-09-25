@@ -118,7 +118,14 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  *
  * @example
  * ```ts
- * import { Block } from '@livething/server/errors';
+ * import { errors, server } from '@livething/server';
+ * import { channels } from '@livething/server/channels';
+ * import { error } from '@livething/server/errors';
+ *
+ * const Forbidden = error('forbidden', v.object({ reason: v.string() }));
+ * const RoomFull = error('room-full');
+ *
+ * const base = server({ capabilities: [channels(), errors([Forbidden, RoomFull])] });
  *
  * base.channel('private-room', {
  *   subscribe: v.object({ token: v.string() }),
@@ -129,7 +136,7 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  *   },
  *   commit(ctx, user) {
  *     if (ctx.channel.members().length >= 50) {
- *       throw Block;
+ *       throw RoomFull();
  *     }
  *   },
  * });
@@ -200,18 +207,27 @@ export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePr
  * Creates a `commit` lifecycle primitive for a channel.
  *
  * Run a final sync check right before the subscriber is added to the channel.
+ * It runs in the same JavaScript tick as the membership write, so
+ * `ctx.channel.members()` does not include the joiner yet, and two subscribes
+ * at once cannot both pass a capacity limit.
  *
  * Receives the value returned by `check` — TypeScript knows the type.
- * Use it for things like capacity limits. Throw to deny the subscribe.
+ * Use it for things like capacity limits. Throw an error declared with
+ * `errors([...])` to deny the subscribe; the client's `subscribe()` rejects
+ * with that error.
  *
  * Must be synchronous. Do not use `async` or return a `Promise`.
  *
  * @example
  * ```ts
+ * const RoomFull = error('room-full');
+ *
+ * const base = server({ capabilities: [channels(), errors([RoomFull])] });
+ *
  * base.channel('private-room', {
  *   commit(ctx) {
  *     if (ctx.channel.members().length >= 50) {
- *       throw Block(error('room-full')());
+ *       throw RoomFull();
  *     }
  *   },
  * });

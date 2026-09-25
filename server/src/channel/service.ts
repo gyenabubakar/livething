@@ -6,7 +6,9 @@ import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts'
 import {
   autoRejoinIdentity,
   deleteDurableMembership,
-  hasDurableMembership,
+  getDurableMembership,
+  listDurableMembers,
+  markDurableMembershipKicked,
   persistMembership,
   purgeChannelMembership,
 } from '~/channel/membership.ts';
@@ -28,7 +30,9 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 export const channelMembershipService: ChannelMembershipService = {
   persistMembership,
   deleteDurableMembership,
-  hasDurableMembership,
+  getDurableMembership,
+  markDurableMembershipKicked,
+  listDurableMembers,
   autoRejoinIdentity,
 };
 

@@ -18,3 +18,6 @@ export const RoomStreamPayload = v.object({ count: v.number() });
 export const RoomStreamChunk = t<{ token: string }>();
 export const QueryRoomReplayEvents = v.object({});
 export const RoomReplayEvents = v.object({ events: v.array(v.string()) });
+
+export const SendText = v.object({ text: v.string() });
+export const SendToUser = v.object({ userId: v.string(), text: v.string() });

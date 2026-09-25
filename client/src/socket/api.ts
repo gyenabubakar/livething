@@ -19,7 +19,7 @@ export interface SocketConnection {
    * (`'closed'` | `'connecting'` | `'open'` | `'reconnecting'`), or watch it with
    * `state.subscribe(listener)` — the listener runs with the new state on every
    * change and returns an unsubscribe. This is the standard store shape, so it
-   * drops into any framework (see [Framework Hooks](/recipes/framework-hooks/overview)).
+   * drops into any framework (see [Framework Hooks](/recipes/framework-hooks/react)).
    */
   readonly state: ReadableStore<ConnectionState>;
 

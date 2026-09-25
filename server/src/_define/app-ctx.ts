@@ -79,13 +79,29 @@ export interface BroadcastAnswer<R> {
  * answers in time.
  *
  * @template SR The server→client request map for this scope.
+ * @template TOptions The options this surface accepts.
  */
-export interface BroadcastRequestArm<SR> {
+export interface BroadcastRequestArm<SR, TOptions = BroadcastRequestOptions> {
   broadcastRequest<E extends keyof SR & string>(
     event: E,
     payload: SR[E] extends { payload: infer P } ? P : never,
-    options?: { timeout?: number },
+    options?: TOptions,
   ): Promise<BroadcastAnswer<SR[E] extends { response: infer R } ? R : never>>;
+}
+
+/** Options for a `broadcastRequest(...)`. */
+export interface BroadcastRequestOptions {
+  /** How long to wait for an answer, in milliseconds. */
+  timeout?: number;
+}
+
+/**
+ * Options for `ctx.broadcastRequest(...)` and `ctx.channel.broadcastRequest(...)`,
+ * which run for one current connection.
+ */
+export interface SelfBroadcastRequestOptions extends BroadcastRequestOptions {
+  /** Also ask the current connection. Default `false`: the current connection is left out. */
+  includeSelf?: boolean;
 }
 
 /**
@@ -113,7 +129,8 @@ export interface ConnectionRequestHandle<TSlots> extends ConnectionHandle<TSlots
  * and await its typed answer.
  */
 export interface ServerRequestCtx<TSlots> extends BroadcastRequestArm<
-  BroadcastServerRequests<TSlots>
+  BroadcastServerRequests<TSlots>,
+  SelfBroadcastRequestOptions
 > {
   /**
    * Ask the current connection a declared server→client request and resolve its
@@ -271,7 +288,13 @@ export type CoreCtx<TSlots, TMeta> = {
    */
   inject<T>(key: LocalKey<T>): T | undefined;
 
-  /** Send an event to the current connection. Returns false if the socket can't accept it. */
+  /**
+   * Send an event to the current connection. Returns `true` when the frame was
+   * handed to the socket. Returns `false` when it was not sent: on a server with
+   * a `translator`, the connection is closing or the `outbound` translation
+   * failed (LiveThing then closes the connection). It also returns `false` when
+   * the platform adapter refuses the frame.
+   */
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
   /**
    * Send an event to every other connection on this server. The calling
@@ -353,25 +376,49 @@ export interface FrameMatchCtx<TSlots> {
 
 /** The wire metadata a replay resend carries so the client can dedup it. */
 export interface ReplayWire {
-  /** Monotonic sequence number for this replayed message. */
+  /** The global delivery sequence number of the replayed message. */
   readonly deliverySeq: number;
   /** Stable message id the client uses to dedup the replayed frame. */
   readonly messageId: string;
-  /** The channel name, for a channel-scoped replay. */
-  readonly channel?: string;
-  /** The dynamic channel family key, or `null` for a static channel. */
-  readonly channelFamily?: string | null;
 }
+
+/**
+ * The `wire` of a top-level `ctx.sendReplay` that targets one channel.
+ * `channel` is a static channel declaration, or a family declaration's
+ * `.at(params)` ref — the same values `ctx.channels.get(...)` takes.
+ */
+export interface ChannelReplayWire<R extends ChannelRef = ChannelRef> extends ReplayWire {
+  /** The channel the replayed frame belongs to. */
+  readonly channel: R;
+}
+
+/** The events (event → payload) a `ChannelRef` declares. */
+type ChannelRefOutgoing<R> = R extends ChannelRef<infer TOutgoing> ? TOutgoing : never;
 
 /** The `ctx.sendReplay(...)` surface — owned by a replay capability. */
 export interface SendReplayCtx<TSlots> {
   /**
-   * Inject a synthetic replay frame for one outgoing event. Present only when a
-   * replay capability is listed (`replay.history` / `replay.snapshot` /
-   * `replay.custom`). Use it from a custom replay handler or to seed history;
-   * `wire` carries the seq/messageId the client uses to dedup.
+   * Inject a synthetic replay frame for one top-level outgoing event. Present
+   * only when a replay capability is listed (`replay.history` /
+   * `replay.snapshot` / `replay.custom`). Use it to seed history; `wire`
+   * carries the seq/messageId the client uses to dedup.
    */
-  sendReplay(event: keyof Outgoing<TSlots> & string, payload: unknown, wire: ReplayWire): void;
+  sendReplay<E extends keyof Outgoing<TSlots> & string>(
+    event: E,
+    payload: Outgoing<TSlots>[E],
+    wire: ReplayWire,
+  ): void;
+  /**
+   * Inject a synthetic replay frame for one channel's outgoing event. Name the
+   * channel in `wire.channel` with its declaration (static channel) or
+   * `.at(params)` ref (channel family); the event and payload are checked
+   * against that channel's `emits(...)`.
+   */
+  sendReplay<R extends ChannelRef, E extends keyof ChannelRefOutgoing<R> & string>(
+    event: E,
+    payload: ChannelRefOutgoing<R>[E],
+    wire: ChannelReplayWire<R>,
+  ): void;
 }
 
 /** The `ctx.schedule` / `ctx.cancelScheduled` surface — owned by `scheduled()`. */
@@ -380,6 +427,9 @@ export interface ScheduleCtx<TSlots> {
    * Queue a scheduled task to run once at `time` (unix ms). The body bound with
    * `base.scheduled(taskId, ...)` runs then, receiving `data`. Only tasks
    * declared by the `scheduled(...)` capability are accepted.
+   *
+   * For a recurring (`every`) task that `cancelScheduled(taskId)` stopped, this
+   * starts the task again: it runs at `time`, then every `every` ms after that.
    */
   schedule<TTaskId extends keyof Scheduled<TSlots> & string>(
     taskId: TTaskId,
@@ -390,6 +440,10 @@ export interface ScheduleCtx<TSlots> {
   /**
    * Cancel pending runs of a scheduled task. With no filter it cancels every
    * pending run; with a filter it cancels runs whose `data` matches its keys.
+   *
+   * With no filter, a recurring (`every`) task is stopped: it does not come
+   * back after a restart or a wake from hibernation. Call
+   * `schedule(taskId, { time })` to start it again.
    */
   cancelScheduled<TTaskId extends keyof Scheduled<TSlots> & string>(
     taskId: TTaskId,

@@ -80,7 +80,8 @@ export interface NodeBinding {
  *
  * This does not create, listen on, or close an HTTP server. A host integration
  * calls `prepare()` or `prepareNode()`, performs its own handshake, then passes
- * accepted transport events through the returned connection.
+ * accepted transport events through the returned connection. Both run the
+ * definition's `upgrade` hook, so call them only for a WebSocket upgrade request.
  */
 export function binding(): NodeBinding {
   const endpoints = new Set<NodeEndpointInternals>();

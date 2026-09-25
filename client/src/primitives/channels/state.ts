@@ -7,8 +7,8 @@ import type { ReadableStore } from '~/internal/store.ts';
 import type { ChannelMember, ChannelStatus, SubscribeSource } from '~/primitives/channels/types.ts';
 
 type Handler = (data: unknown) => void;
-type MemberCallback = (connectionId: string, member: ChannelMember) => void;
-type LeaveCallback = (connectionId: string) => void;
+type MemberCallback = (memberId: string, member: ChannelMember) => void;
+type LeaveCallback = (memberId: string) => void;
 
 /**
  * Manages a set of callbacks. `add` registers one and returns an unsubscribe
@@ -97,7 +97,7 @@ export class ChannelState {
   /** Handle for the persistent-rejoin fallback re-subscribe timer, so it can be cancelled. */
   rejoinTimer: ReturnType<typeof setTimeout> | null = null;
   /** Roster captured at a network drop, so the next `__memberSync__` can fire only real deltas. */
-  private priorMembers: Set<string> | null = null;
+  private priorMembers: ReadonlyMap<string, ChannelMember> | null = null;
 
   private readonly roster = new Map<string, ChannelMember>();
   readonly handlers = new Map<string, Set<Handler>>();
@@ -338,25 +338,27 @@ export class ChannelState {
     this.kicked.each((callback) => callback(reason));
   }
 
+  /**
+   * True while a live `subscribe()` call or a reconnect rejoin waits for its
+   * answer. Only a channel `__error__` in this window is a subscription failure.
+   */
+  get hasSubscribeInFlight(): boolean {
+    return this.pending !== null || this.rejoining;
+  }
+
+  /** Fail the in-flight subscribe or rejoin. Call only while `hasSubscribeInFlight`. */
   fireSubscriptionFailed(error: LiveThingError): void {
-    const subscriptionFailed = this.pending !== null || this.rejoining;
-    if (subscriptionFailed) this.releaseLazy();
+    this.releaseLazy();
     this.pendingSubscribeFrame = null;
     this.clearRejoinTimer();
-    // Only deactivate the channel if a subscribe was actually in flight: either a
-    // live subscribe() call (pending !== null) or a reconnect rejoin (rejoining).
-    // A channel __error__ outside that window is a message error — leave the channel
-    // active so one bad send doesn't drop the subscription.
-    if (subscriptionFailed) {
-      this.active = false;
-      this.persistent = false;
-      this.rejoining = false;
-      this.roster.clear();
-      this.publishMembers();
+    this.active = false;
+    this.persistent = false;
 
-      this.priorMembers = null;
-      this.setStatus('failed');
-    }
+    this.rejoining = false;
+    this.roster.clear();
+    this.publishMembers();
+    this.priorMembers = null;
+    this.setStatus('failed');
 
     if (this.pending) {
       this.pending.reject(error);
@@ -368,52 +370,86 @@ export class ChannelState {
   }
 
   /**
-   * Replace the whole member list (from `__memberSync__`). `onMemberJoin` fires
-   * only for connections not already in the roster, `onMemberLeave` for ones that
-   * dropped out, and `onMemberOnline` for everyone in the snapshot. On a reconnect
-   * (where the prior roster was stashed by `clearMembersForReconnect`) this means
-   * an unchanged peer is reported online again but not re-joined.
+   * Replace the whole member list (from `__memberSync__`) and fire only what
+   * changed against the prior roster (the one stashed by
+   * `clearMembersForReconnect` on a reconnect): `onMemberJoin` for a new
+   * member, then `onMemberOnline` if it is online; `onMemberOnline` or
+   * `onMemberOffline` for a known member whose online state flipped; and
+   * `onMemberLeave` for a member no longer listed, then `onMemberOffline` if it
+   * was online (the server's live order).
    */
-  syncMembers(members: { connectionId: string; meta?: Record<string, unknown> }[]): void {
-    const prev = this.priorMembers ?? new Set(this.roster.keys());
+  syncMembers(
+    members: { memberId: string; meta?: Record<string, unknown>; online: boolean }[],
+  ): void {
+    const prev = this.priorMembers ?? new Map(this.roster);
     this.priorMembers = null;
-    const next = new Set<string>();
+    const next = new Map<string, ChannelMember>();
+    for (const { memberId, meta, online } of members) {
+      next.set(memberId, { meta: meta ?? {}, online });
+    }
+
     this.roster.clear();
-    for (const { connectionId, meta } of members) {
-      next.add(connectionId);
-      const member: ChannelMember = { meta: meta ?? {} };
-      this.roster.set(connectionId, member);
-      if (!prev.has(connectionId))
-        this.memberJoin.each((callback) => callback(connectionId, member));
-      this.memberOnline.each((callback) => callback(connectionId, member));
+    for (const [memberId, member] of next) this.roster.set(memberId, member);
+    this.publishMembers();
+
+    for (const [memberId, member] of next) {
+      const before = prev.get(memberId);
+      if (!before) this.memberJoin.each((callback) => callback(memberId, member));
+
+      if (member.online && !before?.online) {
+        this.memberOnline.each((callback) => callback(memberId, member));
+      } else if (!member.online && before?.online) {
+        this.memberOffline.each((callback) => callback(memberId));
+      }
     }
 
-    for (const connectionId of prev) {
-      if (!next.has(connectionId)) this.memberLeave.each((callback) => callback(connectionId));
+    for (const [memberId, before] of prev) {
+      if (next.has(memberId)) continue;
+
+      this.memberLeave.each((callback) => callback(memberId));
+      if (before.online) this.memberOffline.each((callback) => callback(memberId));
+    }
+  }
+
+  /** A member joined. It counts as offline until its `__memberOnline__` arrives. */
+  addMember(memberId: string, meta?: Record<string, unknown>): void {
+    const member: ChannelMember = {
+      meta: meta ?? {},
+      online: this.roster.get(memberId)?.online ?? false,
+    };
+
+    this.roster.set(memberId, member);
+    this.publishMembers();
+    this.memberJoin.each((callback) => callback(memberId, member));
+  }
+
+  removeMember(memberId: string): void {
+    this.roster.delete(memberId);
+    this.publishMembers();
+    this.memberLeave.each((callback) => callback(memberId));
+  }
+
+  /** Mark a roster member online. A member id missing from the roster is not added. */
+  memberWentOnline(memberId: string, meta?: Record<string, unknown>): void {
+    const known = this.roster.get(memberId);
+    const member: ChannelMember = { meta: meta ?? known?.meta ?? {}, online: true };
+    if (known) {
+      this.roster.set(memberId, member);
+      this.publishMembers();
     }
 
-    this.publishMembers();
+    this.memberOnline.each((callback) => callback(memberId, member));
   }
 
-  addMember(connectionId: string, meta?: Record<string, unknown>): void {
-    const member: ChannelMember = { meta: meta ?? {} };
-    this.roster.set(connectionId, member);
-    this.publishMembers();
-    this.memberJoin.each((callback) => callback(connectionId, member));
-  }
+  /** Mark a roster member offline. It stays in the roster until it leaves. */
+  memberWentOffline(memberId: string): void {
+    const known = this.roster.get(memberId);
+    if (known?.online) {
+      this.roster.set(memberId, { ...known, online: false });
+      this.publishMembers();
+    }
 
-  removeMember(connectionId: string): void {
-    this.roster.delete(connectionId);
-    this.publishMembers();
-    this.memberLeave.each((callback) => callback(connectionId));
-  }
-
-  memberWentOnline(connectionId: string, meta?: Record<string, unknown>): void {
-    this.memberOnline.each((callback) => callback(connectionId, { meta: meta ?? {} }));
-  }
-
-  memberWentOffline(connectionId: string): void {
-    this.memberOffline.each((callback) => callback(connectionId));
+    this.memberOffline.each((callback) => callback(memberId));
   }
 
   /** Clear members but keep the subscription (used on a network drop). The prior
@@ -421,10 +457,10 @@ export class ChannelState {
   clearMembersForReconnect(): void {
     // Only stash on the first drop. A second drop before the post-reconnect
     // __memberSync__ refills members would otherwise overwrite the real roster
-    // with an empty set, making the next sync re-fire onMemberJoin for unchanged
+    // with an empty map, making the next sync re-fire onMemberJoin for unchanged
     // peers. The reset paths (markUnsubscribed, fireSubscriptionFailed, syncMembers)
     // null priorMembers, so this re-arms on a genuine resubscribe.
-    this.priorMembers ??= new Set(this.roster.keys());
+    this.priorMembers ??= new Map(this.roster);
     this.roster.clear();
     this.publishMembers();
   }

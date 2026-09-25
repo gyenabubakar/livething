@@ -129,6 +129,38 @@ describe('plugin namespacing — tags', () => {
 
     expect(add).toHaveBeenCalledWith('admin');
   });
+
+  it('prefixes tag group and tag ref broadcast event names', () => {
+    const h = server({
+      scope: 'plugin',
+      capabilities: [
+        emits({ done: t<{}>() }),
+        tags((ephemeral) => [ephemeral('role', t<string>())]),
+      ],
+    });
+    const handler = h.on('go', {
+      input: v.object({}),
+      run(ctx) {
+        ctx.tags.ephemeral('role').broadcast('done', {});
+        ctx.tags.ephemeral('role').ref('admin').broadcast('done', {});
+      },
+    });
+    const Plug = plugin('acme:roles', { definition: h.assemble({ handlers: [handler] }) })();
+    const incoming = Plug.__primitives.find(
+      (p: any) => p.__livething === 'incoming' && p.event === '__acme:roles::go',
+    ) as any;
+
+    const refBroadcast = vi.fn();
+    const groupBroadcast = vi.fn();
+    const ephemeral = vi.fn(() => ({
+      broadcast: groupBroadcast,
+      ref: () => ({ broadcast: refBroadcast }),
+    }));
+    incoming.handler({ id: 'c1', tags: { ephemeral } }, {});
+
+    expect(groupBroadcast).toHaveBeenCalledWith('__acme:roles::done', {});
+    expect(refBroadcast).toHaveBeenCalledWith('__acme:roles::done', {});
+  });
 });
 
 describe('plugin namespacing — errors', () => {
@@ -246,7 +278,7 @@ describe('plugin namespacing — server→client requests', () => {
     expect(broadcastRequest).toHaveBeenCalledWith('__acme:ask::poll', {});
   });
 
-  it('prefixes ctx.connection(ref).request event names', () => {
+  it('prefixes ctx.connections.get(ref).send / request event names', () => {
     const h = server({
       scope: 'plugin',
       capabilities: [
@@ -256,9 +288,9 @@ describe('plugin namespacing — server→client requests', () => {
     });
     const trigger = h.on('go', {
       input: v.object({}),
-      run(ctx: any) {
-        ctx.connection(ctx.self).request('confirm', { q: 'sure?' });
-        ctx.connection(ctx.self).send('done', {});
+      run(ctx) {
+        void ctx.connections.get(ctx.connection).request('confirm', { q: 'sure?' });
+        ctx.connections.get(ctx.connection).send('done', {});
       },
     });
     const { __primitives } = plugin('acme:ask', {
@@ -267,12 +299,75 @@ describe('plugin namespacing — server→client requests', () => {
     const handler = incomingDefinition(__primitives, '__acme:ask::go');
 
     const request = vi.fn();
-    const send = vi.fn();
-    const connection = vi.fn(() => ({ request, send }));
-    handler({ id: 'c1', self: { id: 'c1' }, connection }, {});
+    const send = vi.fn(() => true);
+    const all = vi.fn(() => []);
+    const get = vi.fn(() => ({ request, send }));
+    const ref = { __livething: 'connection-ref', id: 'c1' };
 
+    handler({ connection: ref, connections: { get, all } }, {});
+
+    expect(get).toHaveBeenCalledWith(ref);
     expect(request).toHaveBeenCalledWith('__acme:ask::confirm', { q: 'sure?' });
     expect(send).toHaveBeenCalledWith('__acme:ask::done', {});
+  });
+
+  it('prefixes ctx.user / ctx.users.get(id) broadcast and request event names', () => {
+    const h = server({
+      scope: 'plugin',
+      capabilities: [
+        emits({ done: t<{}>() }),
+        serverRequests({ confirm: { out: t<{ q: string }>(), in: v.object({ ok: v.boolean() }) } }),
+      ],
+    });
+    const trigger = h.on('go', {
+      input: v.object({}),
+      run(ctx) {
+        ctx.user.broadcast('done', {});
+        void ctx.user.request('confirm', { q: 'me?' });
+        ctx.users.get('u2').broadcast('done', {});
+        void ctx.users.get('u2').request('confirm', { q: 'you?' });
+      },
+    });
+    const { __primitives } = plugin('acme:ask', {
+      definition: h.assemble({ handlers: [trigger] }),
+    })();
+    const handler = incomingDefinition(__primitives, '__acme:ask::go');
+
+    const self = { id: 'u1', broadcast: vi.fn(() => 1), request: vi.fn() };
+    const other = { id: 'u2', broadcast: vi.fn(() => 1), request: vi.fn() };
+    const get = vi.fn(() => other);
+    handler({ user: self, users: { get } }, {});
+
+    expect(self.broadcast).toHaveBeenCalledWith('__acme:ask::done', {});
+    expect(self.request).toHaveBeenCalledWith('__acme:ask::confirm', { q: 'me?' });
+    expect(get).toHaveBeenCalledWith('u2');
+    expect(other.broadcast).toHaveBeenCalledWith('__acme:ask::done', {});
+    expect(other.request).toHaveBeenCalledWith('__acme:ask::confirm', { q: 'you?' });
+  });
+
+  it('leaves ctx.connection (a ref) and ctx.connections.all() untouched', () => {
+    const h = server({ scope: 'plugin', capabilities: [emits({ done: t<{}>() })] });
+    let seenRef: unknown;
+    let seenAll: unknown;
+    const trigger = h.on('go', {
+      input: v.object({}),
+      run(ctx) {
+        seenRef = ctx.connection;
+        seenAll = ctx.connections.all();
+      },
+    });
+    const { __primitives } = plugin('acme:ask', {
+      definition: h.assemble({ handlers: [trigger] }),
+    })();
+
+    const handler = incomingDefinition(__primitives, '__acme:ask::go');
+
+    const ref = { __livething: 'connection-ref', id: 'c1' };
+    const snapshot = [{ id: 'c1' }];
+    handler({ connection: ref, connections: { get: vi.fn(), all: () => snapshot } }, {});
+
+    expect(seenRef).toBe(ref);
+    expect(seenAll).toBe(snapshot);
   });
 });
 
@@ -645,5 +740,92 @@ describe('plugin namespacing — app ctx is untouched', () => {
     expect(send).toHaveBeenCalledWith('done', {});
     expect(request).toHaveBeenCalledWith('confirm', {});
     expect(kvSet).toHaveBeenCalledWith('count', 1);
+  });
+});
+
+describe('plugin namespacing — names a plugin declares may not contain ::', () => {
+  function compileWith(definition: any) {
+    const Plug = plugin('acme:presence', { definition });
+    const base = server({ capabilities: [Plug()] });
+    return () => compileServerDefinition(base.assemble({ handlers: [] }));
+  }
+
+  it('rejects a plugin event name containing ::', () => {
+    const h = server({ scope: 'plugin' });
+    const updates = h.on('room::updates', { run() {} });
+    expect(compileWith(h.assemble({ handlers: [updates] }))).toThrow(
+      /Event name 'room::updates' in plugin 'acme:presence' \(top-level\) contains '::'/,
+    );
+  });
+
+  it('rejects a plugin emits() name containing ::', () => {
+    const h = server({ scope: 'plugin', capabilities: [emits({ 'user::online': t<{}>() })] });
+    expect(compileWith(h.assemble({ handlers: [] }))).toThrow(
+      /Event name 'user::online' in plugin 'acme:presence'/,
+    );
+  });
+
+  it('rejects a plugin stream nudge name containing ::', () => {
+    const h = server({ scope: 'plugin', capabilities: [stream()] });
+    const ticks = h.stream('ticks', {
+      nudges: { 'go::faster': null },
+      async *run() {
+        yield 1;
+      },
+    });
+    expect(compileWith(h.assemble({ handlers: [ticks] }))).toThrow(
+      /Event name 'go::faster' in plugin 'acme:presence'/,
+    );
+  });
+
+  it('rejects a plugin channel name or family key containing ::', () => {
+    const staticH = server({ scope: 'plugin', capabilities: [channels()] });
+    const room = staticH.channel('room::a', {});
+    expect(compileWith(staticH.assemble({ handlers: [room] }))).toThrow(
+      /channel name 'room::a' contains '::'/,
+    );
+
+    const familyH = server({ scope: 'plugin', capabilities: [channels()] });
+    const rooms = familyH.channel(['rooms::all', 'room:{id}'], {});
+    expect(compileWith(familyH.assemble({ handlers: [rooms] }))).toThrow(
+      /channel name 'rooms::all' contains '::'/,
+    );
+  });
+
+  it('applies the app channel-name rules to a plugin channel name', () => {
+    const h = server({ scope: 'plugin', capabilities: [channels()] });
+    const room = h.channel('@room', {});
+    expect(compileWith(h.assemble({ handlers: [room] }))).toThrow(
+      /channel name '@room' starts with a reserved prefix character/,
+    );
+  });
+
+  it('rejects a plugin channel event name containing ::', () => {
+    const h = server({ scope: 'plugin', capabilities: [channels()] });
+    const room = h.channel('room', {});
+    const say = room.on('say::loud', { run() {} });
+    expect(compileWith(h.assemble({ handlers: [say] }))).toThrow(
+      /Event name 'say::loud' in plugin 'acme:presence'/,
+    );
+  });
+
+  it('rejects a plugin tag group or scheduled task id containing ::', () => {
+    expect(() =>
+      server({
+        scope: 'plugin',
+        capabilities: [tags((ephemeral) => [ephemeral('room::guests', t<string>())])],
+      }),
+    ).toThrow(/'room::guests' contains '::'/);
+    expect(() => server({ scope: 'plugin', capabilities: [scheduled({ 'a::b': null })] })).toThrow(
+      /'a::b' contains '::'/,
+    );
+  });
+
+  it('still compiles plugin names without ::', () => {
+    const h = server({ scope: 'plugin', capabilities: [channels()] });
+    const room = h.channel('room', {});
+    const say = room.on('say', { run() {} });
+    const updates = h.on('room-updates', { run() {} });
+    expect(compileWith(h.assemble({ handlers: [say, updates] }))).not.toThrow();
   });
 });

@@ -55,7 +55,7 @@ describe('inbox capability — option resolution and validation', () => {
   it('__validate throws when the sequence is not persistent', () => {
     const primitive = inbox({});
     expect(() => primitive.__validate?.({ sequencePersistent: false } as never)).toThrow(
-      /sequence.*persist/,
+      'List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().',
     );
     expect(() => primitive.__validate?.({ sequencePersistent: true } as never)).not.toThrow();
   });

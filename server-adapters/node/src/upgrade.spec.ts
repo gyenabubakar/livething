@@ -3,7 +3,7 @@ import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
 import { CloseCodes } from '@livething/server/errors';
 import { describe, expect, it, vi } from 'vitest';
-import { createNodeUpgradeHandler } from './upgrade.ts';
+import { createNodeUpgradeHandler, isNodeWebSocketUpgrade } from './upgrade.ts';
 import type {
   NodeAcceptedUpgrade,
   NodeBindingEndpoint,
@@ -61,6 +61,22 @@ function acceptedUpgrade(connection: NodeConnection): NodeAcceptedUpgrade {
     accept: vi.fn(() => connection),
   };
 }
+
+describe('isNodeWebSocketUpgrade', () => {
+  it.each([
+    ['Upgrade', 'websocket', true],
+    ['keep-alive, Upgrade', 'WebSocket', true],
+    ['keep-alive', 'websocket', false],
+    ['Upgrade', 'h2c', false],
+    [undefined, 'websocket', false],
+    ['Upgrade', undefined, false],
+  ])('connection %s with upgrade %s is %s', (connection, upgrade, expected) => {
+    const request = incomingRequest();
+    request.headers = { host: 'example.test', connection, upgrade };
+
+    expect(isNodeWebSocketUpgrade(request)).toBe(expected);
+  });
+});
 
 describe('createNodeUpgradeHandler', () => {
   it('prepares before the handshake, then attaches the accepted transport', async () => {

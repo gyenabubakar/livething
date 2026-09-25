@@ -435,7 +435,9 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
         isChannelDurable: () => false,
         persistMembership: () => {},
         deleteDurableMembership: () => {},
-        hasDurableMembership: () => true,
+        getDurableMembership: () => ({ meta: {}, kicked: false }),
+        markDurableMembershipKicked: () => {},
+        listDurableMembers: () => [],
       },
     };
   }

@@ -1,8 +1,8 @@
 import { LiveThingConfigError } from '@livething/core';
 
 /**
- * Channel family templates use a tiny, fixed syntax that livething compiles itself
- * — no raw regex from developers, so catastrophic backtracking is impossible by
+ * Channel family templates use a tiny, fixed syntax that LiveThing compiles itself
+ * — no raw regex from developers, so exponential backtracking is impossible by
  * construction. The grammar is just literals plus `{name}` captures:
  *
  * - `room:{id}`            matches `room:general` → `{ id: 'general' }`
@@ -17,8 +17,10 @@ export interface CompiledChannelTemplate {
   /** The original template string, kept for error messages and reconstruction. */
   readonly template: string;
   /** The compiled matcher. Anchored and built only from escaped literals and
-   * `(?<name>.+?)` groups, so it is always linear-to-quadratic — never
-   * exponential — regardless of the template. */
+   * `(?<name>.+?)` groups. Worst-case matching is polynomial in the name
+   * length with the param count as the power (linear for one param,
+   * quadratic for two, cubic for three) — never exponential. The 256-character
+   * wire limit on channel names bounds it. */
   readonly regex: RegExp;
   /** Capture names, in template order. */
   readonly paramNames: readonly string[];
@@ -40,7 +42,7 @@ function escapeLiteral(text: string): string {
  */
 export function compileChannelTemplate(
   template: string,
-  source = 'scope()',
+  source = 'base.channel()',
 ): CompiledChannelTemplate {
   if (typeof template !== 'string' || template.length === 0) {
     throw new LiveThingConfigError(
@@ -154,7 +156,7 @@ export function compileChannelTemplate(
 export function fillChannelTemplate(
   template: string,
   params: Record<string, string>,
-  source = 'scope()',
+  source = 'base.channel()',
 ): string {
   let result = '';
   let i = 0;

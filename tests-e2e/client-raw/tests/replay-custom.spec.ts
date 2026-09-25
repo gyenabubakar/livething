@@ -80,7 +80,7 @@ test.describe('custom replay handler', () => {
     expect(await page.getByTestId('replay-count').textContent()).toBe('0');
   });
 
-  test('onAfterSend marks messages as confirmed', async ({ page }) => {
+  test('afterBroadcast marks messages as confirmed', async ({ page }) => {
     await page.getByTestId('add-note-btn').click();
     await waitForText(page, 'notes', /custom replay note/);
 
@@ -93,7 +93,7 @@ test.describe('custom replay handler', () => {
     expect(Number(match![2])).toBeGreaterThan(0);
   });
 
-  test('channel onAfterSend marks room messages as confirmed', async ({ page }) => {
+  test('channel afterBroadcast marks room messages as confirmed', async ({ page }) => {
     await page.getByTestId('room-join-btn').click();
     await waitForText(page, 'room-subscribed', 'subscribed');
 

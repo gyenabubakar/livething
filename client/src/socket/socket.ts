@@ -1,6 +1,7 @@
 import { Block, CloseCodes, decodeMessage, encodeMessage } from '@livething/core';
 import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
 import { toLiveThingError } from '~/internal/error-frame.ts';
+import { NAMESPACE_DELIMITER } from '~/internal/namespace.ts';
 import { createStore } from '~/internal/store.ts';
 import { isThenable } from '~/internal/thenable.ts';
 import { isProtocolFrameEvent, isReservedEventName } from '~/internal/wire-validation.ts';
@@ -96,6 +97,7 @@ export class LiveThingSocket {
   // The send and receive loops run on every frame and only call onIncoming or
   // onOutgoing. Most primitives don't have those hooks, so we pick the ones that
   // do just once here and let the loops skip the rest.
+  private _incomingBeforeIntercepts: readonly PrimitiveRuntime[] = [];
   private _incoming: readonly PrimitiveRuntime[] = [];
   private _outgoing: readonly PrimitiveRuntime[] = [];
 
@@ -197,7 +199,8 @@ export class LiveThingSocket {
   /** @internal — attach the primitive runtimes after they're set up. */
   _setPrimitives(primitives: readonly PrimitiveRuntime[]): void {
     this._primitives = primitives;
-    this._incoming = primitives.filter((p) => p.onIncoming);
+    this._incomingBeforeIntercepts = primitives.filter((p) => p.onIncoming && p.beforeIntercepts);
+    this._incoming = primitives.filter((p) => p.onIncoming && !p.beforeIntercepts);
     this._outgoing = primitives.filter((p) => p.onOutgoing);
   }
 
@@ -690,8 +693,9 @@ export class LiveThingSocket {
         this._unexpectedCloseHandler(1006, 'connection failed');
       } else {
         this._setState('closed');
-        this._emitter.emit('close', { code: 1006, reason: 'connection failed', wasClean: false });
       }
+
+      this._emitter.emit('close', { code: 1006, reason: 'connection failed', wasClean: false });
     }
   }
 
@@ -737,17 +741,55 @@ export class LiveThingSocket {
    * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
    * can push a message through the same path without a live socket.
    */
-  _processIncoming(parsed: Message): void {
-    // Let add-on modules see it first; any of them can consume it by returning null.
-    // A throw is isolated (same as intercepts and lifecycle callbacks): we log it
-    // and skip that module so the rest of the pipeline still runs.
-    let message: Message = parsed;
-    for (const primitive of this._incoming) {
+  /**
+   * Run your intercepts on an app message. Returns the (maybe changed) message,
+   * or null when an intercept threw Block. Protocol frames, request replies and
+   * server-to-client requests (they belong to one pending call), and a plugin's
+   * own namespaced traffic skip intercepts.
+   */
+  private _runIntercepts(parsed: Message): Message | null {
+    if (this._intercepts.length === 0) return parsed;
+
+    if (parsed.event.startsWith('__')) return parsed;
+
+    if (parsed.metadata?.exchange !== undefined) return parsed;
+
+    const channelName = parsed.metadata?.channel?.name;
+    if (channelName?.startsWith('__') && channelName.includes(NAMESPACE_DELIMITER)) return parsed;
+
+    let message = parsed;
+    for (const intercept of this._intercepts) {
+      try {
+        const result = intercept(message);
+        if (result) message = result;
+      } catch (error) {
+        if (error === Block) {
+          if (this._debug) this._log(`intercept dropped '${message.event}'`);
+          return null;
+        }
+
+        // A real error is isolated: log it and skip this intercept, so a bug in
+        // one intercept does not silently swallow messages.
+        this._reportError(error);
+      }
+    }
+
+    return message;
+  }
+
+  /**
+   * Run a list of add-on module `onIncoming` hooks. Returns the (maybe changed)
+   * message, or null when a module consumed it. A throw is isolated: we log it
+   * and skip that module so the rest of the pipeline still runs.
+   */
+  private _runIncoming(primitives: readonly PrimitiveRuntime[], parsed: Message): Message | null {
+    let message = parsed;
+    for (const primitive of primitives) {
       try {
         const result = primitive.onIncoming!(message);
         if (result === null) {
           if (this._debug) this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
-          return;
+          return null;
         }
 
         message = result;
@@ -756,33 +798,28 @@ export class LiveThingSocket {
       }
     }
 
+    return message;
+  }
+
+  _processIncoming(parsed: Message): void {
+    // Modules that must drop a message before the app sees it (dedup) run first.
+    // Then your intercepts, before any module delivers the message to channel
+    // listeners or stream loops, so throwing Block drops any app message.
+    const early = this._runIncoming(this._incomingBeforeIntercepts, parsed);
+    if (early === null) return;
+
+    const intercepted = this._runIntercepts(early);
+    if (intercepted === null) return;
+
+    const message = this._runIncoming(this._incoming, intercepted);
+    if (message === null) return;
+
     // An `__error__` frame no module claimed becomes an onServerError call instead
     // of a normal event. It never falls into onError: those callbacks are for
     // local, transport, and hook failures.
     if (message.event === '__error__') {
       this._reportServerError(toLiveThingError(message.payload));
       return;
-    }
-
-    // Your intercepts run last and can change or drop the message (throw Block to drop).
-    if (this._intercepts.length) {
-      for (const intercept of this._intercepts) {
-        try {
-          const result = intercept(message);
-          if (result) message = result;
-        } catch (error) {
-          if (error === Block) {
-            // An intentional drop: stop the chain and drop the message.
-            if (this._debug) this._log(`intercept dropped '${message.event}'`);
-            return;
-          }
-
-          // A real error is isolated like an onIncoming throw above: log it and
-          // skip this intercept so the message and the remaining intercepts still
-          // run — a bug in one intercept must not silently swallow messages.
-          this._reportError(error);
-        }
-      }
     }
 
     // An unclaimed reserved protocol frame is protocol bookkeeping, not user traffic — drop it

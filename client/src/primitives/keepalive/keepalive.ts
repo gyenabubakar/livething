@@ -18,8 +18,9 @@ export interface QualityApi {
   /**
    * Connection quality as a reactive store — `quality.get()` reads the current
    * tier, `quality.subscribe(listener)` runs whenever the tier changes. It stays
-   * `'disconnected'` until the first pong measures a real value, and returns to
-   * `'disconnected'` when the socket closes or pings start going unanswered.
+   * `'disconnected'` until the first pong measures a real value. A missed pong sets
+   * it to `'poor'`, and it returns to `'disconnected'` when the socket closes
+   * (including the force-close after `maxMissedPongs` missed pongs).
    */
   quality: ReadableStore<ConnectionQuality>;
 

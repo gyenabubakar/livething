@@ -317,13 +317,14 @@ describe('membership and presence', () => {
     await p;
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
+      payload: { members: [{ memberId: 'c1', meta: { name: 'Ada' }, online: true }] },
       metadata: { channel: { name: 'general' } },
     });
 
-    expect(room.members.get().get('c1')).toEqual({ meta: { name: 'Ada' } });
-    expect(onJoin).toHaveBeenCalledWith('c1', { meta: { name: 'Ada' } });
-    expect(onOnline).toHaveBeenCalledWith('c1', { meta: { name: 'Ada' } });
+    const ada = { meta: { name: 'Ada' }, online: true };
+    expect(room.members.get().get('c1')).toEqual(ada);
+    expect(onJoin).toHaveBeenCalledWith('c1', ada);
+    expect(onOnline).toHaveBeenCalledWith('c1', ada);
   });
 
   it('tracks incremental join and leave', async () => {
@@ -341,13 +342,13 @@ describe('membership and presence', () => {
     await p;
     ws.emit({
       event: '__memberJoin__',
-      payload: { connectionId: 'c2' },
+      payload: { memberId: 'c2' },
       metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().has('c2')).toBe(true);
     ws.emit({
       event: '__memberLeave__',
-      payload: { connectionId: 'c2' },
+      payload: { memberId: 'c2' },
       metadata: { channel: { name: 'general' } },
     });
 

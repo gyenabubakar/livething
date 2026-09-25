@@ -85,7 +85,8 @@ export function inbox(config: InboxOptions): InboxPrimitive {
     __validate(view) {
       if (!view.sequencePersistent) {
         throw new Error(
-          '[livething] inbox requires `sequence: { persist: true }` for durable delivery.',
+          '[livething] inbox needs a persistent sequence for durable delivery. List ' +
+            'sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().',
         );
       }
 

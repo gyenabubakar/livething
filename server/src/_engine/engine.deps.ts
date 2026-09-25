@@ -15,7 +15,9 @@ import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import type { MembershipInsert } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
+import type { StopChannelStreamsOptions } from '~/stream/runtime.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 type ResolvedChannel = EngineRuntimeTypes.ResolvedChannel;
@@ -154,6 +156,8 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     sendThroughPipeline: (connection, opts) => {
       return OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts);
     },
+    broadcastToUser: (connections, opts) =>
+      OutgoingRuntime.broadcastToUser(outgoingRuntime(core), connections, opts),
     broadcastToChannel: (opts) => {
       OutgoingRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
@@ -167,6 +171,19 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
         channelFamily: opts.channelFamily,
         to: opts.to,
       });
+      // A user is addressed as one audience, so replay can hand the frame to
+      // that user's next connection. Connection, tag, and group recipients are
+      // per-socket sends that replay never records.
+      if (opts.to.__livething === 'user-ref') {
+        return OutgoingRuntime.broadcastToUser(outgoingRuntime(core), targets, {
+          userId: opts.to.id,
+          event: opts.event,
+          payload: opts.payload,
+          channelName: opts.channelName,
+          channelFamily: opts.channelFamily,
+        });
+      }
+
       let delivered = 0;
       for (const target of targets) {
         const sent = OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), target, {
@@ -245,6 +262,8 @@ function buildOutgoingRuntime(core: EngineCore) {
     livethingStampHooks: core.hooks.livethingStamp,
     beforeSendHooks: core.hooks.beforeSend,
     afterSendHooks: core.hooks.afterSend,
+    beforeBroadcastHooks: core.hooks.beforeBroadcast,
+    afterBroadcastHooks: core.hooks.afterBroadcast,
     trackBackgroundWork: (work: Promise<void>) => core.trackBackgroundWork(work),
     logger: core.logger,
     generateId: (prefix?: string) => core.generateId(prefix),
@@ -331,12 +350,8 @@ function buildChannelRuntime(core: EngineCore) {
 
     isChannelDurable: (channelKey: string) => core.isChannelDurable(channelKey),
 
-    persistMembership: (userId: string, channelName: string, channelFamily: string | null) =>
-      core.channelMembershipService?.persistMembership(core, {
-        userId,
-        channelName,
-        channelFamily,
-      }),
+    persistMembership: (row: MembershipInsert) =>
+      core.channelMembershipService?.persistMembership(core, row),
 
     deleteDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
       core.channelMembershipService?.deleteDurableMembership(core, {
@@ -345,12 +360,26 @@ function buildChannelRuntime(core: EngineCore) {
         channelFamily,
       }),
 
-    hasDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
-      core.channelMembershipService?.hasDurableMembership(core, {
+    getDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
+      core.channelMembershipService?.getDurableMembership(core, {
         userId,
         channelName,
         channelFamily,
-      }) ?? false,
+      }),
+
+    markDurableMembershipKicked: (
+      userId: string,
+      channelName: string,
+      channelFamily: string | null,
+    ) =>
+      core.channelMembershipService?.markDurableMembershipKicked(core, {
+        userId,
+        channelName,
+        channelFamily,
+      }),
+
+    listDurableMembers: (channelName: string, channelFamily: string | null) =>
+      core.channelMembershipService?.listDurableMembers(core, channelName, channelFamily) ?? [],
 
     clearInbox: (userId: string, channelName: string, channelFamily: string | null) =>
       core.inboxService?.clearChannel(core, { userId, channelName, channelFamily }),
@@ -360,6 +389,9 @@ function buildChannelRuntime(core: EngineCore) {
 
     isReadReceiptsChannel: (channelName: string, channelFamily: string | null) =>
       core.readReceiptsChannels.has(channelFamily ?? channelName),
+
+    stopChannelStreams: (connection: RuntimeConnection, opts: StopChannelStreamsOptions) =>
+      core.streamChannelLeave?.(dispatchRuntime(core), connection, opts) ?? Promise.resolve(),
 
     logger: core.logger,
   };

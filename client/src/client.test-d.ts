@@ -35,7 +35,7 @@ interface Full {
       kind: 'ephemeral';
       nudges: { stop: { now: boolean } };
     };
-    resumable: { payload: {}; chunk: { row: number }; kind: 'persistent'; cursor: { idx: number } };
+    resumable: { payload: {}; chunk: { row: number }; kind: 'persistent' };
     recorded: { payload: {}; chunk: { token: string }; kind: 'persistent' };
   };
   channels: {

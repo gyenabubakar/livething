@@ -1,3 +1,4 @@
+import { CloseCodes } from '@livething/server/errors';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as ServerAdapters from '@livething/server/adapters';
 import {
@@ -408,6 +409,24 @@ describe('hibernation wake callbacks', () => {
 
     expect(fake.calls.handleHibernationWake).toEqual([ws]);
     expect(fake.connectionHandle.handleMessage).toHaveBeenCalledWith('hello');
+  });
+
+  it.each([
+    ['ArrayBuffer', new ArrayBuffer(4)],
+    ['ArrayBufferView', new Uint8Array(4)],
+  ])('webSocketMessage closes with 1003 on a binary %s frame', async (_kind, frame) => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    const ws = { close: vi.fn() } as unknown as WebSocket;
+    await expect(instance.webSocketMessage(ws, frame)).resolves.toBeUndefined();
+
+    expect(ws.close).toHaveBeenCalledWith(
+      CloseCodes.UNSUPPORTED_DATA,
+      '[livething] binary frames are not supported yet',
+    );
+    expect(fake.connectionHandle.handleMessage).not.toHaveBeenCalled();
   });
 
   it('webSocketClose invokes connection.handleClose with code and reason', async () => {

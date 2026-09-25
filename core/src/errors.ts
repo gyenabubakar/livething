@@ -240,6 +240,10 @@ const RESERVED_ERROR_CODES = new Set([
   'rate-limited',
   'connection-busy',
   'stream-already-active',
+  'defer-exhausted',
+  'timeout',
+  'disconnected',
+  'dropped',
 ]);
 
 export function error<TCode extends string>(code: TCode): ErrorDefWithFactory<TCode, void>;
@@ -460,6 +464,51 @@ export const RejoinRejected = /* @__PURE__ */ buildErrorFactory(
  */
 export const InternalError = /* @__PURE__ */ buildErrorFactory('internal-error');
 
+/** A pending `request()` timed out. Raised on the client. */
+export const Timeout = /* @__PURE__ */ buildErrorFactory('timeout');
+
+/**
+ * The connection closed while a request was waiting for its response. On the
+ * client, every pending `request()` rejects with it on any close: `disconnect()`,
+ * a server close, a network drop, or a failed connect or reconnect attempt. On
+ * the server, `ctx.request` rejects with it when the target connection drops.
+ */
+export const Disconnected = /* @__PURE__ */ buildErrorFactory('disconnected');
+
+/**
+ * A buffered `request()` was dropped before it could be sent —
+ * the buffer overflowed (its frame was evicted to make room) or its time-to-live
+ * elapsed while offline. The owning Promise rejects with this instead of waiting
+ * out its timeout for a frame that will never reach the wire. Raised on the client.
+ */
+export const Dropped = /* @__PURE__ */ buildErrorFactory('dropped');
+
+/**
+ * Fired on your `onError` handler when a message deferred with `Defer(...)`
+ * has been retried the maximum number of times (3) and still hasn't
+ * succeeded. Use this to dead-letter the message — the detail gives you
+ * the original event, payload, and retry count.
+ *
+ * Never sent to the client; this is a server-side signal only.
+ *
+ * @example
+ * ```ts
+ * .onError((ctx, err, event) => {
+ *   if (DeferExhausted.matches(err)) {
+ *     deadLetter.push({ event: err.detail.event, payload: err.detail.payload });
+ *   }
+ * })
+ * ```
+ */
+export const DeferExhausted = /* @__PURE__ */ buildErrorFactory(
+  'defer-exhausted',
+  v.object({
+    event: v.string(),
+    payload: v.unknown(),
+    retries: v.pipe(v.number(), v.finite()),
+  }),
+);
+
 /**
  * Rejects a **server→client** request when the client produced no reply — it has
  * no handler registered for that request, or its handler settled without
@@ -539,11 +588,12 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  *   catch and decide; if uncaught it surfaces on the wire.
  * - `'expired'` — a suspended durable stream aged out of its retention window before the client returned.
  * - `'not-found'` — a `__resumeStream__` request named a stream id the server doesn't recognise.
- * - `'hibernation-wake'` — a non-durable stream was lost because the server
+ * - `'hibernation-wake'` — a running stream was lost because the server
  *   dropped in-memory state on a runtime with hibernation (e.g. a Cloudflare
  *   Durable Object waking from hibernation). Runtimes without hibernation never
  *   emit this reason. The wire-level connection is still alive; only the
- *   in-flight stream is gone.
+ *   in-flight stream is gone. The LiveThing client resumes a durable stream on
+ *   its own, so only a plain stream reports this reason to your code.
  * - `'unsubscribed'` — the client previously sent `__streamCancel__` on this
  *   broadcast stream's id, so the server has stopped fanning chunks to that
  *   identity. The stream itself stays running for everyone else.
@@ -667,9 +717,10 @@ export const DurableStreamRequiresUser = /* @__PURE__ */ buildErrorFactory(
  * landed in. The handler does not run; the validator does not run. The client
  * can read `detail.retryAfterMs` (milliseconds until the next slot opens) and back off.
  *
- * If a connection blows past the cap by a large factor the framework may close
- * the socket with `CloseCodes.RATE_LIMITED` (4005) instead — that is a separate
- * decision from this per-frame rejection.
+ * LiveThing never closes the socket for going over the limit. Each rejected
+ * frame also reaches the server's `onError` hook, so an app that wants to drop
+ * a client that keeps going over can count there and call
+ * `ctx.close(CloseCodes.RATE_LIMITED, reason)` itself.
  *
  * @example
  * ```ts

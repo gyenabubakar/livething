@@ -72,6 +72,24 @@ export interface WireOutgoingMessage {
 }
 
 /**
+ * One broadcast, seen once before (or after) it goes out to its recipients —
+ * even when no connection receives it live.
+ *
+ * A broadcast is a frame addressed to a whole audience, not to one socket: every
+ * connection (`ctx.broadcast`), every member of one channel
+ * (`ctx.channel.broadcast`), or every connection of one user
+ * (`ctx.users.get(id).broadcast`). `userId` is set only for that last kind.
+ * Frames sent to one connection never show up here.
+ */
+export interface WireBroadcastMessage {
+  event: string;
+  payload: Record<string, unknown>;
+  livething: Record<string, unknown>;
+  /** The user this broadcast was addressed to, or `undefined` when it went to everyone in its scope. */
+  userId?: string;
+}
+
+/**
  * One new-model plugin lifecycle handler, tagged with its plugin id and the
  * global registration index so the engine can order hooks deterministically.
  * The handler already receives a plugin-scoped context (sends are prefixed).
@@ -197,6 +215,12 @@ export interface RegisteredEngineHooks {
 
   /** Runs after a frame is sent — for best-effort side effects like replay storage. */
   afterSend: ((message: WireOutgoingMessage) => void | Promise<void>)[];
+
+  /** Runs once per broadcast, before any recipient is sent the frame. */
+  beforeBroadcast: ((message: WireBroadcastMessage) => void)[];
+
+  /** Runs once per broadcast, after every recipient was sent the frame. */
+  afterBroadcast: ((message: WireBroadcastMessage) => void | Promise<void>)[];
 
   /** Handlers for reserved client protocol events (subscribe, replay, etc.). */
   protocol: Map<
@@ -548,6 +572,12 @@ export interface ActiveStream {
    * doesn't leave their `onStream` runs open until timeout.
    */
   broadcast?: boolean;
+
+  /**
+   * True for a resumable or recorded stream. Leaving the stream's channel hands
+   * it to the durable runtime so its stored row is removed too.
+   */
+  durable?: boolean;
 }
 
 /**
