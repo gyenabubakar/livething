@@ -19,9 +19,11 @@ import type { EngineCore } from '~/_engine/core.ts';
  *    end.
  *
  * 2. Each snapshot-mode replay write is added to `pendingSnapshotFlushes`
- *    under the row key the snapshot maps to. When a later write in the same
- *    handler targets the same key, the new value replaces (or is merged
- *    with) the old one in memory. At the end, each key's `flush` runs once.
+ *    under the row key the snapshot maps to. When a later write targets the
+ *    same key, the new value replaces (or is merged with) the old one in
+ *    memory. This queue is shared by every open scope of the engine: messages
+ *    that arrive back to back open their scopes together, and a handler must
+ *    merge into the value an earlier handler queued, not the older row on disk.
  *
  * When the callback finishes, the two lists are walked and one SQL write
  * happens per dirty connection and per unique snapshot key. So a handler
@@ -44,10 +46,7 @@ export async function withInvocationScope<T>(
   const existing = getInvocationScope(core.asyncContext);
   if (existing) return await fn();
 
-  const scope: InvocationScopeState = {
-    dirtyConnections: new Set(),
-    pendingSnapshotFlushes: new Map(),
-  };
+  const scope = createScope(core);
 
   try {
     return await withAsyncInvocationScope(core.asyncContext, scope, fn);
@@ -68,10 +67,7 @@ export function withInvocationScopeSync<T>(core: EngineCore, fn: () => T): T {
     return assertSynchronousResult(fn(), 'withInvocationScopeSync callback');
   }
 
-  const scope: InvocationScopeState = {
-    dirtyConnections: new Set(),
-    pendingSnapshotFlushes: new Map(),
-  };
+  const scope = createScope(core);
 
   try {
     return assertSynchronousResult(
@@ -83,16 +79,25 @@ export function withInvocationScopeSync<T>(core: EngineCore, fn: () => T): T {
   }
 }
 
+function createScope(core: EngineCore): InvocationScopeState {
+  return {
+    dirtyConnections: new Set(),
+    pendingSnapshotFlushes: core.pendingSnapshotFlushes,
+  };
+}
+
 function flushInvocationScope(core: EngineCore, scope: InvocationScopeState): void {
   for (const connection of scope.dirtyConnections) {
     flushDirtyAttachment(core, connection);
   }
 
-  if (scope.pendingSnapshotFlushes.size > 0) {
-    const sql = core.storage.sql;
+  if (scope.pendingSnapshotFlushes.size === 0) return;
 
-    for (const entry of scope.pendingSnapshotFlushes.values()) {
-      entry.flush(sql);
-    }
+  // The queue is shared, so this also writes rows that other open scopes
+  // queued. Each entry already holds the latest merged value for its key.
+  const sql = core.storage.sql;
+  for (const [key, entry] of scope.pendingSnapshotFlushes) {
+    scope.pendingSnapshotFlushes.delete(key);
+    entry.flush(sql);
   }
 }

@@ -667,20 +667,4 @@ describe('H3 v1 binding', () => {
     await vi.waitFor(() => expect(disconnects).toBe(1));
     expect(transportErrors).toBeGreaterThan(0);
   });
-
-  it('works with the packaged LiveThing client', async () => {
-    const app = await createTestApp();
-    apps.push(app);
-    const socket = client<TestClient>()(connect(`ws://127.0.0.1:${app.port}/ws/lobby`));
-    sockets.push(socket);
-    const connected = new Promise<void>((resolve) => socket.on('connected', () => resolve()));
-
-    const echoed = new Promise<{ text: string }>((resolve) => socket.on('echoed', resolve));
-
-    socket.connect();
-
-    await connected;
-    expect(socket.send('echo', { text: 'packaged' })).toBe(true);
-    await expect(echoed).resolves.toEqual({ text: 'packaged' });
-  });
 });

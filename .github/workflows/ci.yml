@@ -225,6 +225,16 @@ jobs:
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
+          - name: h3-v1-raw
+            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:h3-v1
+            report-path: |
+              tests-e2e/client-raw/playwright-report/
+              tests-e2e/client-raw/test-results/
+          - name: h3-v1-packaged
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:h3-v1
+            report-path: |
+              tests-e2e/client/playwright-report/
+              tests-e2e/client/test-results/
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5

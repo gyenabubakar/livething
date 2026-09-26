@@ -19,7 +19,7 @@ import { createAsyncContext } from '~/_engine/async-context.ts';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
-import type { EngineAsyncContext } from '~/_engine/async-context.ts';
+import type { EngineAsyncContext, PendingScopeFlush } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
@@ -230,6 +230,8 @@ export class EngineCore {
    * dispatch is on the async call stack; read by a plugin's `getState()`.
    */
   asyncContext: EngineAsyncContext;
+  /** Snapshot writes queued by open invocation scopes, one entry per row key. */
+  readonly pendingSnapshotFlushes = new Map<string, PendingScopeFlush>();
 
   constructor(definition: ServerTypes.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
     if (options.storage === undefined) {

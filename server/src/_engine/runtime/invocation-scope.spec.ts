@@ -40,6 +40,7 @@ function createFakeCore(): {
       },
     },
     storage: { sql },
+    pendingSnapshotFlushes: new Map(),
   } as unknown as EngineCore;
 
   return { core, writes, attachments, sqlExec };

@@ -105,7 +105,7 @@ describe('clientRequests', () => {
   it('rejects a reserved event name locally with validation-failed and no send', async () => {
     const { socket, ws } = build();
     const request = socket.request as (e: string, p: unknown) => Promise<unknown>;
-    for (const name of ['ping', 'pong', '__error__']) {
+    for (const name of ['__subscribe__', '__custom', '__error__']) {
       await expect(request(name, { user: 'a' })).rejects.toMatchObject({
         code: 'validation-failed',
       });

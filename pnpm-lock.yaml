@@ -309,6 +309,9 @@ importers:
       crossws:
         specifier: ^0.4.12
         version: 0.4.12(srvx@1.0.4)
+      crossws-v1:
+        specifier: npm:crossws@0.3.5
+        version: crossws@0.3.5
       express:
         specifier: ^5.2.1
         version: 5.2.1(supports-color@10.2.2)
@@ -318,6 +321,9 @@ importers:
       h3:
         specifier: ^2.0.1-rc.31
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.4))
+      h3-v1:
+        specifier: npm:h3@1.15.11
+        version: h3@1.15.11
       hono:
         specifier: ^4.13.7
         version: 4.13.7

@@ -14,6 +14,7 @@ export interface PendingScopeFlush {
 
 export interface InvocationScopeState {
   dirtyConnections: Set<RuntimeConnection>;
+  /** Shared by every open scope of one engine, so a later handler merges into queued values. */
   pendingSnapshotFlushes: Map<string, PendingScopeFlush>;
 }
 

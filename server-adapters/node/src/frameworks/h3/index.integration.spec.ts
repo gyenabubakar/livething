@@ -1,5 +1,4 @@
 import { connect as connectTcp } from 'node:net';
-import { client, connect } from '@livething/client';
 import { server as createServerDefinition, emits, t } from '@livething/server';
 import { RejectUpgrade } from '@livething/server/errors';
 import { serve } from 'crossws/server/node';
@@ -49,11 +48,6 @@ base.onDisconnect(() => {
 });
 
 const assembled = base.assemble({ handlers: [echo] });
-
-interface TestClient {
-  incoming: { connected: unknown; echoed: unknown };
-  outgoing: { echo: { text: string } };
-}
 
 type WireFrame = readonly [event: string, payload: unknown, metadata: null];
 
@@ -427,20 +421,5 @@ describe('H3 binding', () => {
       code: 1011,
       reason: '[livething] connection setup failed',
     });
-  });
-
-  it('works with the packaged LiveThing client', async () => {
-    const app = await createApp();
-    apps.push(app);
-    const socket = client<TestClient>()(connect(`ws://127.0.0.1:${app.port}/ws/lobby`));
-    const connected = new Promise<void>((resolve) => socket.on('connected', () => resolve()));
-    const echoed = new Promise<void>((resolve) => socket.on('echoed', () => resolve()));
-
-    socket.connect();
-
-    await connected;
-    expect(socket.send('echo', { text: 'hello' })).toBe(true);
-    await echoed;
-    socket.disconnect();
   });
 });

@@ -45,7 +45,7 @@ describe('send rejects reserved event names', () => {
   it('drops a reserved event name locally (returns false, nothing on the wire)', () => {
     const { socket, ws } = openedSocket();
     const send = socket.send.bind(socket) as (e: string, p: unknown) => boolean;
-    for (const name of ['ping', 'pong', '__error__', '']) {
+    for (const name of ['__subscribe__', '__custom', '__error__', '']) {
       expect(send(name, { id: 1 })).toBe(false);
     }
 
@@ -66,7 +66,7 @@ describe('send rejects reserved event names', () => {
     });
     const before = ws.sentFrames().length;
 
-    expect(room.send('ping', { value: 'x' })).toBe(false);
+    expect(room.send('__custom', { value: 'x' })).toBe(false);
     expect(ws.sentFrames().length).toBe(before);
   });
 });

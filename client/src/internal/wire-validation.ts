@@ -50,8 +50,7 @@ export function wireIdError(
 
 /**
  * True when `name` is a reserved protocol name that can't be a user event:
- * the bare `ping`/`pong` control frames, or anything in the protocol's `__x__`
- * namespace (and an empty/non-string name).
+ * anything in the protocol's `__x__` namespace (and an empty/non-string name).
  *
  * Plugin-owned events are namespaced `__<id>::event`. The `__` prefix alone
  * would fail the user-identifier rule, but `::` is the plugin-namespace
@@ -59,8 +58,6 @@ export function wireIdError(
  * sendable plugin event, not a reserved protocol frame.
  */
 export function isReservedEventName(name: string): boolean {
-  if (name === 'ping' || name === 'pong') return true;
-
   if (typeof name === 'string' && name.startsWith('__') && name.includes('::')) return false;
 
   return !isValidLiveThingIdentifier(name);

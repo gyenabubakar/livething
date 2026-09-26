@@ -172,6 +172,17 @@ describe('incoming pipeline — server ping auto-pong', () => {
     expect(ws.sent).toContain('pong');
     expect(pingHandler).not.toHaveBeenCalled();
   });
+
+  it('delivers an app event named "ping", because only the bare text is a keepalive frame', () => {
+    const pingHandler = vi.fn();
+    const { socket, ws } = connected();
+    socket.on('ping', pingHandler);
+
+    ws.emitRaw(JSON.stringify(['ping', { at: 1 }, null]));
+
+    expect(pingHandler).toHaveBeenCalledWith({ at: 1 });
+    expect(ws.sent).not.toContain('pong');
+  });
 });
 
 describe('incoming pipeline — scoped frame top-level guard', () => {

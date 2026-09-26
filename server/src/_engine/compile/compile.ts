@@ -538,13 +538,6 @@ function validateNoReservedEventNames(
   declaredPluginEvents: ReadonlySet<string>,
 ): void {
   function check(event: string, scopeLabel: string): void {
-    if (event === 'ping' || event === 'pong') {
-      throw new Error(
-        `[livething] '${event}' is a reserved keepalive frame name (used by ${scopeLabel}). ` +
-          `Pick a different name for your event.`,
-      );
-    }
-
     // The double-underscore prefix is reserved for LiveThing protocol events
     // (__subscribe__, __error__, ...) and plugin-owned events. Allow only the
     // names installed plugins actually declared (by provenance, not by string

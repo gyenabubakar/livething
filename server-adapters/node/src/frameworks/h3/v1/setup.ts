@@ -202,6 +202,8 @@ function createWebRequest(request: H3V1UpgradeRequest): Request {
   });
 }
 
+// crossws 0.3 URL-encodes the headers of a refused upgrade (h3js/crossws#186,
+// fixed only in 0.4.5), so send none rather than broken ones.
 function toH3V1HttpRejection(response: Response): Response {
   return new Response(response.body, {
     status: response.status,

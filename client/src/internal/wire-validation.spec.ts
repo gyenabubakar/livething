@@ -19,24 +19,27 @@ describe('wireIdError', () => {
   });
 
   it('rejects reserved protocol names as event names', () => {
-    expect(wireIdError('e', 'ping', 'event')).toMatchObject({ code: 'validation-failed' });
-    expect(wireIdError('e', 'pong', 'event')).toMatchObject({ code: 'validation-failed' });
     expect(wireIdError('e', '__resumeStream__', 'event')).toMatchObject({
       code: 'validation-failed',
     });
     expect(wireIdError('e', '__custom', 'event')).toMatchObject({ code: 'validation-failed' });
   });
 
+  it('accepts ping and pong as event names, because keepalive frames are bare text', () => {
+    expect(wireIdError('e', 'ping', 'event')).toBeNull();
+    expect(wireIdError('e', 'pong', 'event')).toBeNull();
+  });
+
   it('does not apply the reserved-name rule to channel or streamId fields', () => {
-    expect(wireIdError('e', 'ping', 'channel')).toBeNull();
-    expect(wireIdError('e', 'ping', 'streamId')).toBeNull();
+    expect(wireIdError('e', '__custom', 'channel')).toBeNull();
+    expect(wireIdError('e', '__custom', 'streamId')).toBeNull();
   });
 });
 
 describe('isReservedEventName', () => {
-  it('flags ping, pong, and the __ namespace, but allows normal names', () => {
-    expect(isReservedEventName('ping')).toBe(true);
-    expect(isReservedEventName('pong')).toBe(true);
+  it('flags the __ namespace, but allows normal names', () => {
+    expect(isReservedEventName('ping')).toBe(false);
+    expect(isReservedEventName('pong')).toBe(false);
     expect(isReservedEventName('__error__')).toBe(true);
     expect(isReservedEventName('')).toBe(true);
     expect(isReservedEventName('chat')).toBe(false);

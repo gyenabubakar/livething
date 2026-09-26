@@ -426,13 +426,13 @@ describe('stream trigger and nudge reject reserved event names', () => {
   it('rejects a reserved trigger event name locally with validation-failed and no send', async () => {
     const { socket, ws } = buildStream();
     const trigger = socket.stream as (e: string, p: unknown) => Promise<unknown>;
-    for (const name of ['ping', 'pong', '__error__']) {
+    for (const name of ['__subscribe__', '__custom', '__error__']) {
       await expect(trigger(name, { prompt: 'hi' })).rejects.toMatchObject({
         code: 'validation-failed',
       });
     }
 
-    expect(ws.sentFrames().some((f) => f.event === 'ping')).toBe(false);
+    expect(ws.sentFrames().some((f) => f.event.startsWith('__'))).toBe(false);
   });
 
   it('rejects a reserved nudge event name locally with validation-failed and no send', async () => {
@@ -440,7 +440,7 @@ describe('stream trigger and nudge reject reserved event names', () => {
     const { handle } = await start(socket, ws, { streamDurability: 'persistent' });
     const before = ws.sentFrames().length;
     await expect(
-      (handle.nudge as (e: string, p: unknown) => Promise<void>)('ping', {}),
+      (handle.nudge as (e: string, p: unknown) => Promise<void>)('__custom', {}),
     ).rejects.toMatchObject({ code: 'validation-failed' });
     expect(ws.sentFrames().length).toBe(before);
 

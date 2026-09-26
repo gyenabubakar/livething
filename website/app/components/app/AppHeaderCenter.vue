@@ -36,12 +36,6 @@ const landingItems = [
         icon: 'i-ph-lightning-duotone',
         description: 'A tiny end-to-end app in minutes',
         to: '/start/quickstart'
-      },
-      {
-        label: 'Your First App',
-        icon: 'i-ph-blueprint-duotone',
-        description: 'Add auth and a channel',
-        to: '/start/your-first-app'
       }
     ]
   },

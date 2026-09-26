@@ -15,7 +15,8 @@
     "test:e2e:hono": "pnpm run build:client && LIVETHING_E2E_FRAMEWORK=hono LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:hono' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
     "test:e2e:fastify": "pnpm run build:client && LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:fastify' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
     "test:e2e:h3": "pnpm run build:client && LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:h3' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
-    "test:e2e:node": "pnpm run test:e2e:node:http && pnpm run test:e2e:express && pnpm run test:e2e:koa && pnpm run test:e2e:hono && pnpm run test:e2e:fastify && pnpm run test:e2e:h3",
+    "test:e2e:h3-v1": "pnpm run build:client && LIVETHING_E2E_SERVER_COMMAND='pnpm --filter @livething/tests-e2e-server-node run dev:h3-v1' LIVETHING_E2E_SERVER_PORT=${LIVETHING_E2E_SERVER_PORT:-8787} playwright test",
+    "test:e2e:node": "pnpm run test:e2e:node:http && pnpm run test:e2e:express && pnpm run test:e2e:koa && pnpm run test:e2e:hono && pnpm run test:e2e:fastify && pnpm run test:e2e:h3 && pnpm run test:e2e:h3-v1",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf node_modules test-results playwright-report"
   },

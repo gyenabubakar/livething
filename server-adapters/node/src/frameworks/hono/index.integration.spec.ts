@@ -1,6 +1,5 @@
 import { connect as connectTcp } from 'node:net';
 import { createAdaptorServer } from '@hono/node-server';
-import { client, connect } from '@livething/client';
 import { server as createServerDefinition, emits, t } from '@livething/server';
 import { RejectUpgrade } from '@livething/server/errors';
 import { Hono } from 'hono';
@@ -56,11 +55,6 @@ const assembled = base.assemble({ handlers: [echo] });
 interface RunningServer {
   port: number;
   close(): Promise<void>;
-}
-
-interface TestClient {
-  incoming: { connected: unknown; echoed: unknown };
-  outgoing: { echo: { text: string } };
 }
 
 type WireFrame = readonly [event: string, payload: unknown, metadata: null];
@@ -548,25 +542,5 @@ describe('Hono binding', () => {
       code: 1011,
       reason: '[livething] connection setup failed',
     });
-  });
-
-  it('works with the packaged LiveThing client', async () => {
-    const app = new Hono();
-    const livething = setup();
-    const endpoint = livething.bind(assembled, {});
-    app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, livething.websocket, () => livething.shutdown());
-
-    servers.push(server);
-
-    const socket = client<TestClient>()(connect(`ws://127.0.0.1:${server.port}/ws/lobby`));
-    const connected = new Promise<void>((resolve) => socket.on('connected', () => resolve()));
-    const echoed = new Promise<void>((resolve) => socket.on('echoed', () => resolve()));
-    socket.connect();
-
-    await connected;
-    expect(socket.send('echo', { text: 'hello' })).toBe(true);
-    await echoed;
-    socket.disconnect();
   });
 });
