@@ -67,12 +67,13 @@ async function checkConsumer(version, dependencies) {
         private: true,
         type: 'module',
         dependencies,
-        pnpm: { onlyBuiltDependencies: ['better-sqlite3'] },
       },
       null,
       2,
     )}\n`,
   );
+  await writeFile(join(directory, 'pnpm-workspace.yaml'), 'allowBuilds:\n  better-sqlite3: true\n');
+
   await writeFile(
     join(directory, 'tsconfig.json'),
     `${JSON.stringify(
