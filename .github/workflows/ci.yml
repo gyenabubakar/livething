@@ -5,11 +5,16 @@
 # are pinned to commit SHAs. Never interpolate untrusted input into `run:`.
 name: CI
 
+# Docs-only changes skip CI; the pre-commit hook already formats and lints them.
 on:
   pull_request:
     branches: [main]
+    # ready_for_review runs the e2e jobs that were skipped while the PR was a draft.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore: ['website/**', '**/*.md']
   push:
     branches: [main]
+    paths-ignore: ['website/**', '**/*.md']
 
 permissions:
   contents: read
@@ -135,7 +140,8 @@ jobs:
   e2e:
     name: e2e (Playwright) — ${{ matrix.name }}
     needs: [gate, checks, guards]
-    if: needs.gate.outputs.should_run == 'true'
+    # Draft PRs get checks and guards only; e2e waits until the PR is ready.
+    if: needs.gate.outputs.should_run == 'true' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The official Playwright image ships chromium + OS deps prebaked, so there
