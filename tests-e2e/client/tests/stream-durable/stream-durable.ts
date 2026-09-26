@@ -25,7 +25,9 @@ export function setup(): void {
   const socket = client<StreamDurableClient>()(
     connect(wsUrl('stream-durable'), { lazy }),
     reconnection(),
-    stream({ timeout: 1000 }),
+    // Chunks come every 400 ms. A tighter per-chunk timeout fails the stream
+    // on a slow machine before it ends.
+    stream({ timeout: 5000 }),
   );
 
   socket.state.subscribe(() => {
@@ -65,6 +67,8 @@ export function setup(): void {
   });
 
   button('resume-paginate', () => {
+    // Clear the first run's result, so the spec waits for the resume to end.
+    el('ended').textContent = '';
     const handle = socket.resumeStream('paginate', 'pages-1', {
       lastKnownSeq: rows.length,
     });

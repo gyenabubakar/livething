@@ -197,16 +197,32 @@ test.describe('group full surface', () => {
       match: (f) => f.event === 'welcome' && f.payload.username === 'alice',
     });
     await closeSocket(page, a);
-    await page.waitForTimeout(300);
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, b, { match: (f) => f.event === 'welcome' });
-    await send(page, b, {
-      event: 'check-disconnect-log',
-      payload: { identity: 'alice' },
-    });
-    const goodbye = await waitForFrame(page, b, { match: (f) => f.event === 'goodbye' });
-    expect(goodbye.payload.username).toMatch(/^seen:[1-9]\d*$/);
+
+    // onDisconnect's SQL write for the old connection races the new
+    // connection's query, so retry the query itself instead of trusting a
+    // fixed delay. Only frames after `before` are considered so a retry
+    // matches its own fresh reply, not a stale one from an earlier attempt.
+    let goodbye!: WireFrame;
+    await expect(async () => {
+      const before = (await frames(page, b)).length;
+      await send(page, b, {
+        event: 'check-disconnect-log',
+        payload: { identity: 'alice' },
+      });
+      const start = Date.now();
+      let hit: WireFrame | undefined;
+      while (Date.now() - start < 1_000 && !hit) {
+        hit = (await frames(page, b)).slice(before).find((f) => f.event === 'goodbye');
+        if (!hit) await page.waitForTimeout(50);
+      }
+
+      expect(hit).toBeDefined();
+      goodbye = hit!;
+      expect(goodbye.payload.username).toMatch(/^seen:[1-9]\d*$/);
+    }).toPass({ timeout: 10_000 });
   });
 
   test('group.onInit ran at boot — check-init replies with ran=1', async ({ page }, testInfo) => {

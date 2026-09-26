@@ -58,12 +58,17 @@ test.describe('lastSeen() (raw wire)', () => {
     expect(whileOnline.payload.online).toBe(true);
 
     await closeSocket(alice.page);
-    // Give the disconnect hook time to stamp before reading it back.
-    await bob.page.waitForTimeout(300);
 
-    const afterDisconnect = await askLastSeen(bob.page, 'alice');
+    // Alice's disconnect hook is on a separate connection from bob's query,
+    // with no ordering guarantee between them, so retry the query itself
+    // (askLastSeen is designed to be called repeatedly — see the file-level
+    // comment) instead of trusting a fixed delay for the stamp to land first.
+    let afterDisconnect!: Frame;
+    await expect(async () => {
+      afterDisconnect = await askLastSeen(bob.page, 'alice');
+      expect(afterDisconnect.payload.online).toBe(false);
+    }).toPass({ timeout: 10_000 });
     expect(typeof afterDisconnect.payload.at).toBe('number');
-    expect(afterDisconnect.payload.online).toBe(false);
 
     await bob.close();
   });

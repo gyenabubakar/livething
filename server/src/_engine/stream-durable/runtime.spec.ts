@@ -332,6 +332,58 @@ describe('durable stream runtime', () => {
     expect(Storage.readChunksSince(sql, { userId: 'u1', streamId: 's-1', since: 0 })).toEqual([]);
   });
 
+  it('a resume that arrives while a cancel is still running gets not-found', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const connection = createConnection();
+
+    Storage.insertStream(sql, {
+      userId: 'u1',
+      streamId: 's-1',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+
+    // The generator is parked in an await, so its cleanup finishes later.
+    let finishCleanup!: () => void;
+    const cleanup = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    runtime.activeStreams.set('s-1', {
+      id: 's-1',
+      closed: false,
+      generator: { return: () => cleanup.then(() => ({ value: undefined, done: true })) },
+    } as unknown as ActiveStream);
+
+    const generator = vi.fn(async function* (ctx: any) {
+      yield ctx.stream.withCursor({ idx: 1 }, { idx: 1 });
+    });
+
+    // The dispatcher records the running cancel on the connection.
+    const cancelling = cancelDurableStream(runtime as never, connection, {
+      streamId: 's-1',
+      cancelScope: {},
+    });
+    connection.cancellingStreams = new Map([['s-1', cancelling]]);
+    const resuming = resumeDurableStream(runtime as never, connection, {
+      resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'resumable', generator }) }),
+      row: Storage.readStream(sql, 'u1', 's-1'),
+      streamId: 's-1',
+      lastKnownSeq: 0,
+    });
+    finishCleanup();
+    await Promise.all([cancelling, resuming]);
+
+    const err = protocolMessages.find((m) => m.event === '__error__');
+    expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('not-found');
+    expect(protocolMessages.some((m) => m.event === '__streamOk__')).toBe(false);
+    expect(generator).not.toHaveBeenCalled();
+    expect(Storage.readStream(sql, 'u1', 's-1')).toBeNull();
+  });
+
   it('resumeDurableStream — unknown stream id surfaces stream-aborted not-found', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);

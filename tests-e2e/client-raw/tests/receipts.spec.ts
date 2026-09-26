@@ -144,31 +144,45 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
       payload: { readThrough: seq },
       metadata: { channel: { name: 'chat' } },
     });
-    await bob.page.waitForTimeout(300);
 
+    // Bob's acks are on a separate connection from alice's query, with no
+    // ordering guarantee between them, so retry the query itself instead of
+    // trusting a fixed delay for the acks to have landed first. A fresh
+    // exchange id per attempt means a retry matches its own reply, not a
+    // stale reply from an earlier attempt.
     // receiversOf(seq): the reply echoes `metadata.exchange.id` and lists bob.
-    await send(alice.page, {
-      event: '__receivedQuery__',
-      payload: { seq },
-      metadata: { exchange: { id: 'q-received-1' }, channel: { name: 'chat' } },
-    });
-    const receivedReply = await waitForFrame(
-      alice.page,
-      (f) => f.event === '__receivedQuery__' && f.metadata?.exchange?.id === 'q-received-1',
-    );
-    expect(receivedReply.payload.userIds).toContain('bob');
+    let receivedAttempt = 0;
+    let receivedReply!: Awaited<ReturnType<typeof waitForFrame>>;
+    await expect(async () => {
+      const exchangeId = `q-received-${receivedAttempt++}`;
+      await send(alice.page, {
+        event: '__receivedQuery__',
+        payload: { seq },
+        metadata: { exchange: { id: exchangeId }, channel: { name: 'chat' } },
+      });
+      receivedReply = await waitForFrame(
+        alice.page,
+        (f) => f.event === '__receivedQuery__' && f.metadata?.exchange?.id === exchangeId,
+      );
+      expect(receivedReply.payload.userIds).toContain('bob');
+    }).toPass({ timeout: 10_000 });
 
     // readersOf(seq): a separate exchange ID, likewise listing bob.
-    await send(alice.page, {
-      event: '__readQuery__',
-      payload: { seq },
-      metadata: { exchange: { id: 'q-read-1' }, channel: { name: 'chat' } },
-    });
-    const readReply = await waitForFrame(
-      alice.page,
-      (f) => f.event === '__readQuery__' && f.metadata?.exchange?.id === 'q-read-1',
-    );
-    expect(readReply.payload.userIds).toContain('bob');
+    let readAttempt = 0;
+    let readReply!: Awaited<ReturnType<typeof waitForFrame>>;
+    await expect(async () => {
+      const exchangeId = `q-read-${readAttempt++}`;
+      await send(alice.page, {
+        event: '__readQuery__',
+        payload: { seq },
+        metadata: { exchange: { id: exchangeId }, channel: { name: 'chat' } },
+      });
+      readReply = await waitForFrame(
+        alice.page,
+        (f) => f.event === '__readQuery__' && f.metadata?.exchange?.id === exchangeId,
+      );
+      expect(readReply.payload.userIds).toContain('bob');
+    }).toPass({ timeout: 10_000 });
 
     await alice.close();
     await bob.close();
@@ -201,20 +215,36 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
       payload: { receivedThrough: seq },
       metadata: { channel: { name: 'chat' } },
     });
-    await bob.page.waitForTimeout(300);
 
+    // Bob's ack is on a separate connection from alice's query, with no
+    // ordering guarantee between them, so retry the query itself instead of
+    // trusting a fixed delay. Only frames after `before` are considered so a
+    // retry matches its own fresh reply, not a stale one from an earlier
+    // attempt.
     // ask-cursor is a top-level app event; its answer comes back as cursor-answer.
-    await send(alice.page, {
-      event: 'ask-cursor',
-      payload: { kind: 'received', seq },
-      metadata: { channel: { name: 'chat' } },
-    });
-    const answer = await waitForFrame(
-      alice.page,
-      (f) => f.event === 'cursor-answer' && f.payload.kind === 'received',
-    );
+    let answer!: Awaited<ReturnType<typeof waitForFrame>>;
+    await expect(async () => {
+      const before = (await frames(alice.page)).length;
+      await send(alice.page, {
+        event: 'ask-cursor',
+        payload: { kind: 'received', seq },
+        metadata: { channel: { name: 'chat' } },
+      });
+      await expect
+        .poll(
+          async () =>
+            (await frames(alice.page))
+              .slice(before)
+              .some((f) => f.event === 'cursor-answer' && f.payload.kind === 'received'),
+          { timeout: 2_000 },
+        )
+        .toBe(true);
+      answer = (await frames(alice.page))
+        .slice(before)
+        .find((f) => f.event === 'cursor-answer' && f.payload.kind === 'received')!;
+      expect(answer.payload.identities).toContain('bob');
+    }).toPass({ timeout: 10_000 });
     expect(answer.payload.seq).toBe(seq);
-    expect(answer.payload.identities).toContain('bob');
 
     await alice.close();
     await bob.close();

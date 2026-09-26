@@ -86,10 +86,12 @@ test.describe('stream config options', () => {
     );
 
     await closeSocket(page, a);
-    // Generator yield cadence is 80ms. Stay offline past the Node fixture's
-    // former one-second idle-eviction window and past the generator's full
-    // run, proving socketless background work is not stopped by the harness.
-    await page.waitForTimeout(1_900);
+    // Generator yield cadence is 80ms, so 20 chunks take 1_600ms to produce.
+    // Wait ~2x that (plus past the Node fixture's former one-second
+    // idle-eviction window) so a slower CI runner's event-loop delays can't
+    // shrink the margin, proving socketless background work is not stopped
+    // by the harness.
+    await page.waitForTimeout(3_200);
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, b, {

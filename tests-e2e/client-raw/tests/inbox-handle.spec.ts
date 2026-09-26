@@ -88,12 +88,17 @@ test.describe('ctx.channels.get(name).inbox() (raw wire, handle-augmenter)', () 
       payload: { receivedThrough: seq },
       metadata: { channel: { name: 'chat' } },
     });
-    // Give the ack time to settle before reading it back through the handle.
-    await alice.page.waitForTimeout(300);
 
-    const answer = await askHandle(bob.page, 'chat', seq);
+    // Alice's ack is on a separate connection from bob's query, with no
+    // ordering guarantee between them, so retry the query itself (askHandle
+    // is designed to be called repeatedly — see the file-level comment)
+    // instead of trusting a fixed delay for the ack to have landed first.
+    let answer!: Awaited<ReturnType<typeof askHandle>>;
+    await expect(async () => {
+      answer = await askHandle(bob.page, 'chat', seq);
+      expect(answer.payload.receiversOf).toEqual(['alice']);
+    }).toPass({ timeout: 10_000 });
     expect(answer.payload.hasInbox).toBe(true);
-    expect(answer.payload.receiversOf).toEqual(['alice']);
 
     await alice.close();
     await bob.close();
@@ -139,11 +144,16 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
       payload: { receivedThrough: seq },
       metadata: { channel: { name: 'chat' } },
     });
-    await bob.page.waitForTimeout(300);
 
-    const after = await askBacklog(alice.page, 'chat');
-    const afterEntries = after.payload.entries as Array<Record<string, unknown>>;
-    expect(afterEntries.find((entry) => entry.userId === 'bob')).toBeUndefined();
+    // Bob's ack is on a separate connection from alice's query, with no
+    // ordering guarantee between them, so retry the query itself (askBacklog
+    // is designed to be called repeatedly — see the file-level comment)
+    // instead of trusting a fixed delay for the ack to have landed first.
+    await expect(async () => {
+      const after = await askBacklog(alice.page, 'chat');
+      const afterEntries = after.payload.entries as Array<Record<string, unknown>>;
+      expect(afterEntries.find((entry) => entry.userId === 'bob')).toBeUndefined();
+    }).toPass({ timeout: 10_000 });
 
     await alice.close();
     await bob.close();
@@ -164,13 +174,19 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
       payload: { text: 'while-bob-offline' },
       metadata: { channel: { name: 'chat' } },
     });
-    await alice.page.waitForTimeout(300);
 
-    const answer = await askBacklog(alice.page, 'chat');
-    const entries = answer.payload.entries as Array<Record<string, unknown>>;
-    const bobEntry = entries.find((entry) => entry.userId === 'bob');
-    expect(bobEntry).toBeDefined();
-    expect(bobEntry?.online).toBe(false);
+    // Bob's disconnect is on a separate connection from alice's broadcast and
+    // query, with no ordering guarantee between them, so retry the query
+    // itself (askBacklog is designed to be called repeatedly — see the
+    // file-level comment) instead of trusting a fixed delay.
+    let bobEntry: Record<string, unknown> | undefined;
+    await expect(async () => {
+      const answer = await askBacklog(alice.page, 'chat');
+      const entries = answer.payload.entries as Array<Record<string, unknown>>;
+      bobEntry = entries.find((entry) => entry.userId === 'bob');
+      expect(bobEntry).toBeDefined();
+      expect(bobEntry?.online).toBe(false);
+    }).toPass({ timeout: 10_000 });
 
     await alice.close();
   });

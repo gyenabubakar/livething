@@ -28,9 +28,13 @@ test.describe('channel-family-isolation', () => {
     await pub.getByTestId('sub-public').click();
     await priv.getByTestId('sub-private').click();
 
-    // Wait for both subscriptions to settle.
-    await pub.waitForTimeout(200);
-    await priv.waitForTimeout(200);
+    // Confirm each subscribe landed via a same-connection round trip
+    // (ordering guarantees this reflects the subscribe above) before asking
+    // a third connection for the member counts.
+    await pub.getByTestId('get-public-members').click();
+    await expect(pub.getByTestId('public-members')).toHaveText(/room:1:\d/);
+    await priv.getByTestId('get-private-members').click();
+    await expect(priv.getByTestId('private-members')).toHaveText(/room:1:\d/);
 
     await ask.getByTestId('get-public-members').click();
     await expect(ask.getByTestId('public-members')).toHaveText('room:1:1');
@@ -64,8 +68,16 @@ test.describe('channel-family-isolation', () => {
     // The other-family witness only sits in privateRooms room:1.
     await otherFamily.getByTestId('sub-private').click();
 
-    await target.waitForTimeout(200);
-    await otherFamily.waitForTimeout(200);
+    // Each connection confirms its own subscribe(s) landed via a
+    // same-connection round trip (guaranteed ordering) before the admin's
+    // kick, which depends on target's membership already being registered.
+    await target.getByTestId('get-public-members').click();
+    await expect(target.getByTestId('public-members')).toHaveText(/room:1:\d/);
+    await target.getByTestId('get-private-members').click();
+    await expect(target.getByTestId('private-members')).toHaveText(/room:1:\d/);
+    await otherFamily.getByTestId('get-private-members').click();
+
+    await expect(otherFamily.getByTestId('private-members')).toHaveText(/room:1:\d/);
 
     // Kick from publicRooms only.
     await admin.getByTestId('kick-public-target').click();
@@ -102,7 +114,12 @@ test.describe('channel-family-isolation', () => {
     await setupClient(admin, 'admin', room);
 
     await a.getByTestId('sub-public').click();
-    await a.waitForTimeout(200);
+    // Confirm the subscribe landed via a same-connection round trip
+    // (ordering guarantees this reflects the subscribe above) before the
+    // admin broadcasts — the broadcast only reaches subscribers current at
+    // the time it is sent.
+    await a.getByTestId('get-public-members').click();
+    await expect(a.getByTestId('public-members')).toHaveText(/room:1:\d/);
 
     // Admin broadcasts via the channel handler path (through send-in-public),
     // which routes to ctx.channel.broadcast — captured by replay.
@@ -112,12 +129,13 @@ test.describe('channel-family-isolation', () => {
     await expect(a.getByTestId('public-messages')).toContainText('publicRooms:room:1:pub-hello');
 
     // A late client subscribes and asks for replay since 0; they must see
-    // the broadcast even though they joined after the fact.
+    // the broadcast even though they joined after the fact. Both the
+    // subscribe and the replay request are on the same connection, so
+    // ordering is already guaranteed without an extra wait.
     const ctxLate = await browser.newContext();
     const late = await ctxLate.newPage();
     await setupClient(late, 'late', room);
     await late.getByTestId('sub-public').click();
-    await late.waitForTimeout(200);
 
     await late.getByTestId('replay-from-zero').click();
     await expect(late.getByTestId('public-messages')).toContainText('publicRooms:room:1:pub-hello');
@@ -159,7 +177,12 @@ test.describe('channel-family-isolation', () => {
     await setupClient(admin, 'admin', room);
 
     await target.getByTestId('sub-public').click();
-    await target.waitForTimeout(200);
+    // Confirm the subscribe landed via a same-connection round trip
+    // (ordering guarantees this reflects the subscribe above) before the
+    // admin's kick, which depends on target's membership already being
+    // registered.
+    await target.getByTestId('get-public-members').click();
+    await expect(target.getByTestId('public-members')).toHaveText(/room:1:\d/);
 
     await admin.getByTestId('kick-public-target').click();
     // The handler sends 'kick-acknowledged' AFTER the kick promise resolves.

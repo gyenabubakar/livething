@@ -260,7 +260,13 @@ test.describe('persistence', () => {
     const beforeLen = (await frames(page, bob)).length;
 
     await close(page, alice1);
-    await page.waitForTimeout(300);
+    // Wait for the offline broadcast to actually arrive instead of a fixed
+    // delay, then check the same snapshot for the leave that must be absent.
+    await waitForFrame(
+      page,
+      bob,
+      (f) => f.event === '__memberOffline__' && f.metadata?.channel?.name === 'archive-room',
+    );
 
     const after = (await frames(page, bob)).slice(beforeLen);
     const offline = after.find(
@@ -325,7 +331,14 @@ test.describe('persistence', () => {
 
     const beforeLen = (await frames(page, bob)).length;
     await close(page, alice);
-    await page.waitForTimeout(400);
+    // Wait for the session-ended broadcast to actually arrive instead of a
+    // fixed delay, then check the same snapshot for the true-leave that must
+    // be absent.
+    await waitForFrame(
+      page,
+      bob,
+      (f) => f.event === 'session-ended' && f.metadata?.channel?.name === 'archive-room',
+    );
 
     const after = (await frames(page, bob)).slice(beforeLen);
     const sessionEnded = after.find(

@@ -94,6 +94,37 @@ async function waitForFrame(
   throw new Error('frame not received in time');
 }
 
+// Waits for a frame that arrived after `beforeLen`, so a retried trigger sees
+// its own new response instead of a stale one from an earlier attempt.
+async function waitForFreshFrame(
+  page: Page,
+  opts: { id: string; beforeLen: number; match: (f: WireFrame) => boolean; timeoutMs?: number },
+): Promise<WireFrame> {
+  const { id, beforeLen, match, timeoutMs = 800 } = opts;
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const found = (await frames(page, id)).slice(beforeLen).find(match);
+    if (found) return found;
+
+    await page.waitForTimeout(50);
+  }
+
+  throw new Error('frame not received in time');
+}
+
+// Sends a request frame and waits for the freshest reply after it (not just
+// the first-ever match, so a retried query sees its own new response instead
+// of a stale one from an earlier attempt).
+async function queryFresh(
+  page: Page,
+  opts: { id: string; request: WireInput; match: (f: WireFrame) => boolean },
+): Promise<WireFrame> {
+  const { id, request, match } = opts;
+  const beforeLen = (await frames(page, id)).length;
+  await send(page, id, request);
+  return waitForFreshFrame(page, { id, beforeLen, match, timeoutMs: 2000 });
+}
+
 test.describe('typed tags', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
@@ -137,19 +168,23 @@ test.describe('typed tags', () => {
       event: 'add-tag',
       payload: { kind: 'persistent', group: 'favorite', key: 'room-42' },
     });
-    await page.waitForTimeout(150);
     await close(page, c1);
 
-    await page.waitForTimeout(200);
-
     const c2 = await connect(page, 'alice', room);
-    await send(page, c2, { event: 'list-my-tags', payload: {} });
-    const list = await waitForFrame(page, c2, (f) => f.event === 'tags-list');
-    expect(list.payload.tags).toContainEqual({
-      kind: 'persistent',
-      group: 'favorite',
-      key: 'room-42',
-    });
+    // The persistent write may not have landed the instant close() runs, so
+    // retry the list query instead of trusting a single fixed delay.
+    await expect(async () => {
+      const list = await queryFresh(page, {
+        id: c2,
+        request: { event: 'list-my-tags', payload: {} },
+        match: (f) => f.event === 'tags-list',
+      });
+      expect(list.payload.tags).toContainEqual({
+        kind: 'persistent',
+        group: 'favorite',
+        key: 'room-42',
+      });
+    }).toPass({ timeout: 10_000 });
   });
 
   test('tag fan-out reaches every connection with the matching ref', async ({ page }, testInfo) => {
@@ -165,19 +200,35 @@ test.describe('typed tags', () => {
       payload: { kind: 'ephemeral', group: 'role', key: 'admin' },
     });
 
-    await page.waitForTimeout(100);
-
     const carol = await connect(page, 'carol', room);
-    await send(page, carol, {
-      event: 'fan-out-to-tag',
-      payload: { group: 'role', key: 'admin', text: 'hi admins' },
-    });
 
-    const aliceEcho = await waitForFrame(page, alice, (f) => f.event === 'fan-out-echo');
-    const bobEcho = await waitForFrame(page, bob, (f) => f.event === 'fan-out-echo');
+    // Alice's and bob's add-tag are on separate connections with no
+    // ordering guarantee against carol's fan-out trigger, so retry the
+    // trigger itself until both have a fresh echo.
+    let aliceEcho!: WireFrame;
+    let bobEcho!: WireFrame;
+    await expect(async () => {
+      const aliceBefore = (await frames(page, alice)).length;
+      const bobBefore = (await frames(page, bob)).length;
+      await send(page, carol, {
+        event: 'fan-out-to-tag',
+        payload: { group: 'role', key: 'admin', text: 'hi admins' },
+      });
+      aliceEcho = await waitForFreshFrame(page, {
+        id: alice,
+        beforeLen: aliceBefore,
+        match: (f) => f.event === 'fan-out-echo',
+      });
+      bobEcho = await waitForFreshFrame(page, {
+        id: bob,
+        beforeLen: bobBefore,
+        match: (f) => f.event === 'fan-out-echo',
+      });
+    }).toPass({ timeout: 10_000 });
     expect(aliceEcho.payload.text).toBe('hi admins');
     expect(bobEcho.payload.text).toBe('hi admins');
 
+    // Negative check: give a wrong echo to carol time to arrive.
     await page.waitForTimeout(150);
     const carolFrames = await frames(page, carol);
     const carolEcho = carolFrames.find((f) => f.event === 'fan-out-echo');
@@ -208,7 +259,14 @@ test.describe('typed tags', () => {
       event: 'add-tag',
       payload: { kind: 'ephemeral', group: 'role', key: 'troll' },
     });
-    await page.waitForTimeout(80);
+    // Confirm the tag landed via alice's own connection (message order on a
+    // connection guarantees this reflects the add-tag above) before
+    // triggering the kick from a separate admin connection.
+    await queryFresh(page, {
+      id: alice,
+      request: { event: 'list-my-tags', payload: {} },
+      match: (f) => f.event === 'tags-list',
+    });
 
     const admin = await connect(page, 'admin', room);
     await send(page, admin, {
@@ -238,15 +296,19 @@ test.describe('typed tags', () => {
       payload: { kind: 'ephemeral', group: 'role', key: 'admin' },
     });
 
-    await page.waitForTimeout(100);
-
-    await send(page, alice, { event: 'count-by-tag', payload: { group: 'role', key: 'admin' } });
-    const two = await waitForFrame(
-      page,
-      alice,
-      (f) => f.event === 'count-result' && f.payload.count === 2,
-    );
-    expect(two.payload.count).toBe(2);
+    // Bob's add-tag is on a separate connection with no ordering guarantee
+    // against alice's query, so retry the query itself until the count
+    // reflects both connections (a single count-by-tag reply is a snapshot,
+    // it will not update on its own).
+    let two!: WireFrame;
+    await expect(async () => {
+      two = await queryFresh(page, {
+        id: alice,
+        request: { event: 'count-by-tag', payload: { group: 'role', key: 'admin' } },
+        match: (f) => f.event === 'count-result',
+      });
+      expect(two.payload.count).toBe(2);
+    }).toPass({ timeout: 10_000 });
 
     // A ref nobody holds counts zero.
     await send(page, alice, { event: 'count-by-tag', payload: { group: 'role', key: 'nobody' } });
@@ -273,15 +335,21 @@ test.describe('typed tags', () => {
       event: 'add-tag',
       payload: { kind: 'ephemeral', group: 'role', key: 'viewer' },
     });
-    await page.waitForTimeout(120);
-
     // alice holds 'admin': has('admin') true; two distinct connections in the
-    // group; both active keys listed.
-    await send(page, alice, { event: 'group-stats', payload: { key: 'admin' } });
-    const stats = await waitForFrame(page, alice, (f) => f.event === 'group-stats-result');
+    // group; both active keys listed. Bob's add-tag is on a separate
+    // connection with no ordering guarantee against alice's query, so retry
+    // the query itself until the group totals reflect both connections.
+    let stats!: WireFrame;
+    await expect(async () => {
+      stats = await queryFresh(page, {
+        id: alice,
+        request: { event: 'group-stats', payload: { key: 'admin' } },
+        match: (f) => f.event === 'group-stats-result',
+      });
+      expect(stats.payload.count).toBe(2);
+      expect(stats.payload.connections).toBe(2);
+    }).toPass({ timeout: 10_000 });
     expect(stats.payload.has).toBe(true);
-    expect(stats.payload.count).toBe(2);
-    expect(stats.payload.connections).toBe(2);
 
     expect((stats.payload.keys as string[]).sort()).toEqual(['admin', 'viewer']);
 
@@ -329,23 +397,27 @@ test.describe('typed tags', () => {
       event: 'add-tag',
       payload: { kind: 'persistent', group: 'favorite', key: 'room-99' },
     });
-    await page.waitForTimeout(120);
     await send(page, c1, {
       event: 'remove-tag',
       payload: { kind: 'persistent', group: 'favorite', key: 'room-99' },
     });
 
-    await page.waitForTimeout(120);
     await close(page, c1);
-    await page.waitForTimeout(200);
 
     const c2 = await connect(page, 'alice', room);
-    await send(page, c2, { event: 'list-my-tags', payload: {} });
-    const list = await waitForFrame(page, c2, (f) => f.event === 'tags-list');
-    expect(list.payload.tags).not.toContainEqual({
-      kind: 'persistent',
-      group: 'favorite',
-      key: 'room-99',
-    });
+    // The removal write may not have landed the instant close() runs, so
+    // retry the list query instead of trusting a single fixed delay.
+    await expect(async () => {
+      const list = await queryFresh(page, {
+        id: c2,
+        request: { event: 'list-my-tags', payload: {} },
+        match: (f) => f.event === 'tags-list',
+      });
+      expect(list.payload.tags).not.toContainEqual({
+        kind: 'persistent',
+        group: 'favorite',
+        key: 'room-99',
+      });
+    }).toPass({ timeout: 10_000 });
   });
 });

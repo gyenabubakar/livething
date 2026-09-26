@@ -645,6 +645,33 @@ async function handleResumeStream(
   await runtime.durableStream.resume(runtime, connection, { resumeScope, streamId, lastKnownSeq });
 }
 
+/** Cancel a stream for a client `__streamCancel__` frame: the live side, then the durable row. */
+async function handleStreamCancel(
+  runtime: DispatchRuntime,
+  connection: RuntimeConnection,
+  frame: Protocol.StreamCancelFrame,
+): Promise<void> {
+  await runtime.streamCancel?.(runtime, connection, frame.__livething.streamId);
+  if (!runtime.durableStream || !runtime.sql) return;
+
+  let cancelScope: EngineRuntimeTypes.ResolvedChannel;
+  try {
+    cancelScope = resolveChannel(runtime.compiled, frame.__livething);
+  } catch (error) {
+    await runtime.handleRuntimeError(connection, {
+      error,
+      event: frame.event,
+      routing: routingFromLiveThing(frame.__livething),
+    });
+    return;
+  }
+
+  await runtime.durableStream.cancel(runtime, connection, {
+    streamId: frame.__livething.streamId,
+    cancelScope,
+  });
+}
+
 /**
  * Parse and dispatch one protocol frame (`__x__` event name).
  */
@@ -683,24 +710,16 @@ async function dispatchProtocolFrame(
         return;
 
       case '__streamCancel__': {
-        await runtime.streamCancel?.(runtime, connection, frame.__livething.streamId);
-        if (runtime.durableStream && runtime.sql) {
-          let cancelScope: EngineRuntimeTypes.ResolvedChannel;
-          try {
-            cancelScope = resolveChannel(runtime.compiled, frame.__livething);
-          } catch (error) {
-            await runtime.handleRuntimeError(connection, {
-              error,
-              event: frame.event,
-              routing: routingFromLiveThing(frame.__livething),
-            });
-            return;
+        const { streamId } = frame.__livething;
+        const cancelling = handleStreamCancel(runtime, connection, frame);
+        connection.cancellingStreams ??= new Map();
+        connection.cancellingStreams.set(streamId, cancelling);
+        try {
+          await cancelling;
+        } finally {
+          if (connection.cancellingStreams.get(streamId) === cancelling) {
+            connection.cancellingStreams.delete(streamId);
           }
-
-          await runtime.durableStream.cancel(runtime, connection, {
-            streamId: frame.__livething.streamId,
-            cancelScope,
-          });
         }
 
         return;

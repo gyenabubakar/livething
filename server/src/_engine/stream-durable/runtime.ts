@@ -363,7 +363,16 @@ export async function resumeDurableStream(
   connection: RuntimeConnection,
   opts: ResumeDurableStreamOptions,
 ): Promise<void> {
-  const { resolveDef, row, streamId, lastKnownSeq } = opts;
+  const { resolveDef, streamId, lastKnownSeq } = opts;
+  let { row } = opts;
+  const cancelling = connection.cancellingStreams?.get(streamId);
+  if (cancelling) {
+    // A cancel sent before this resume is still stopping the generator. Wait
+    // for it, then read the row again: a finished cancel has deleted it.
+    await cancelling;
+    row = row && Storage.readStream(runtime.sql, row.userId, streamId);
+  }
+
   if (!row) {
     runtime.sendProtocolMessage(connection, {
       event: '__error__',

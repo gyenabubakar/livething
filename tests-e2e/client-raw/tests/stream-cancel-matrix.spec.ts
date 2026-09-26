@@ -98,8 +98,7 @@ test.describe('stream-cancel matrix', () => {
       payload: null,
       metadata: { stream: { id: streamId } },
     });
-    await page.waitForTimeout(500);
-
+    // No wait: the resume must see the cancel even when it arrives right after it.
     await send(page, a, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
@@ -147,8 +146,7 @@ test.describe('stream-cancel matrix', () => {
       payload: null,
       metadata: { stream: { id: streamId } },
     });
-    await page.waitForTimeout(500);
-
+    // No wait: the resume must see the cancel even when it arrives right after it.
     await send(page, a, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },

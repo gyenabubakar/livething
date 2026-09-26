@@ -39,7 +39,10 @@ test.describe('stream-durable scoped (channel)', () => {
     );
 
     await closeSocket(page, a);
-    await page.waitForTimeout(150);
+    // closeSocket() doesn't wait for the close handshake to finish server
+    // side, so give the disconnect real time to land before reconnecting
+    // with the same identity (auto-rejoin depends on it).
+    await page.waitForTimeout(300);
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
@@ -104,7 +107,10 @@ test.describe('stream-durable scoped (channel)', () => {
       [a],
     );
     await closeSocket(page, a);
-    await page.waitForTimeout(150);
+    // closeSocket() doesn't wait for the close handshake to finish server
+    // side, so give the disconnect real time to land before reconnecting
+    // with the same identity (auto-rejoin depends on it).
+    await page.waitForTimeout(300);
 
     // Reconnect and resume claiming seq 2 — the highest seq this client got.
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
@@ -169,7 +175,10 @@ test.describe('stream-durable scoped (channel)', () => {
     });
 
     await closeSocket(page, a);
-    await page.waitForTimeout(150);
+    // closeSocket() doesn't wait for the close handshake to finish server
+    // side, so give the disconnect real time to land before reconnecting
+    // with the same identity (auto-rejoin depends on it).
+    await page.waitForTimeout(300);
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, b, {
@@ -346,7 +355,10 @@ test.describe('stream-durable scoped (channel)', () => {
     const lastKnownSeq = Math.max(...rowSeqs);
 
     await closeSocket(page, a);
-    await page.waitForTimeout(150);
+    // closeSocket() doesn't wait for the close handshake to finish server
+    // side, so give the disconnect real time to land before reconnecting
+    // with the same identity (auto-rejoin depends on it).
+    await page.waitForTimeout(300);
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     const rejoin = await waitForFrame(page, b, {

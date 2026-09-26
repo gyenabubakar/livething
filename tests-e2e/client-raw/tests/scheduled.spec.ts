@@ -308,7 +308,9 @@ test.describe('scheduled', () => {
     await waitForFrame(page, a, { match: (f) => f.event === 'cleanup-scheduled' });
     await closeSocket(page, a);
 
-    await page.waitForTimeout(2200);
+    // The task is due 1500 ms after the close. Wait long enough that it has
+    // clearly run before the reconnect, even on a slow machine.
+    await page.waitForTimeout(3000);
     const reconnectStartedAt = Date.now();
     const b = await connect(page, { path: '/ws/scheduled', username: 'bob', room });
     await send(page, b, { event: 'query-cleanup-history', payload: {} });

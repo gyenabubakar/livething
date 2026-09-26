@@ -43,7 +43,11 @@ test.describe('inbox-gap (raw wire, overflow gap frame)', () => {
       payload: { text: 'm2' },
       metadata: { channel: { name: 'chat' } },
     });
-    await bob.page.waitForTimeout(400);
+    // Bob's two sends are on a separate connection from alice's reconnect,
+    // with no ordering guarantee, and the reconnect drain is a one-shot read
+    // of whatever queue state exists at that moment (not retryable the way a
+    // query is), so give it a generous margin for both writes to land.
+    await bob.page.waitForTimeout(800);
 
     // On reconnect the drain emits the gap for chat, then the surviving row (m2).
     // m1 is gone — that is the point of an overflow gap.

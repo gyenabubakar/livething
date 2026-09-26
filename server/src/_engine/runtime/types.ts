@@ -434,6 +434,12 @@ export interface RuntimeConnection {
   activeStreamIds?: Set<string>;
 
   /**
+   * `__streamCancel__` frames still running, by stream ID. A resume for the
+   * same stream waits for its cancel, so it cannot restart a cancelled stream.
+   */
+  cancellingStreams?: Map<string, Promise<void>>;
+
+  /**
    * While set and `active`, the engine is inside the connection-accept window
    * (initial row already inserted, `onConnect` running). Per-state-change row
    * writes are skipped so a single flush at the end of the hook commits the

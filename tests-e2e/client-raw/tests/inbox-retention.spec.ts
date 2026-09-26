@@ -29,6 +29,27 @@ async function probe(page: Parameters<typeof send>[0]): Promise<RetentionAnswer>
     .payload as unknown as RetentionAnswer;
 }
 
+// probe-retention is a snapshot read: what it reports depends on other
+// connections' acks/messages having already reached the durable object, and
+// on retention alarms having fired. Resend it inside a retry instead of
+// trusting a single fixed delay to have been enough.
+// Retention here is 1s. An expired row must be gone well before this, so a
+// deletion that runs far too late still fails the test.
+const EXPIRY_TIMEOUT_MS = 4_000;
+
+async function probeUntil(
+  page: Parameters<typeof send>[0],
+  check: (answer: RetentionAnswer) => void,
+  timeout = 10_000,
+): Promise<RetentionAnswer> {
+  let answer!: RetentionAnswer;
+  await expect(async () => {
+    answer = await probe(page);
+    check(answer);
+  }).toPass({ timeout });
+  return answer;
+}
+
 test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
   test('does not gap when count retention evicts only an acknowledged row', async ({
     browser,
@@ -73,10 +94,10 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
       });
     }
 
-    await bob.page.waitForTimeout(300);
-    const queued = await probe(bob.page);
-    expect(queued.rows).toBe(2);
-    expect(queued.watermarkRows).toBe(0);
+    await probeUntil(bob.page, (a) => {
+      expect(a.rows).toBe(2);
+      expect(a.watermarkRows).toBe(0);
+    });
 
     await reconnect(alice.page);
     const surviving = await waitForFrame(
@@ -135,10 +156,10 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
       });
     }
 
-    await bob.page.waitForTimeout(500);
-    const queued = await probe(bob.page);
-    expect(queued.rows).toBe(2);
-    expect(queued.watermarkRows).toBe(1);
+    const queued = await probeUntil(bob.page, (a) => {
+      expect(a.rows).toBe(2);
+      expect(a.watermarkRows).toBe(1);
+    });
 
     await reconnect(alice.page);
     const gap = await waitForFrame(
@@ -214,12 +235,16 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     // No channel traffic occurs while the held row ages. The top-level
     // recurring task is a separate alarm source and should still fire.
     await waitForFrame(bob.page, (frame) => frame.event === 'retention-heartbeat');
-    await bob.page.waitForTimeout(1_200);
 
-    const after = await probe(bob.page);
-    expect(after.rows).toBe(0);
-    expect(after.deliveredRows).toBe(0);
-    expect(after.watermarkRows).toBe(1);
+    const after = await probeUntil(
+      bob.page,
+      (a) => {
+        expect(a.rows).toBe(0);
+        expect(a.deliveredRows).toBe(0);
+        expect(a.watermarkRows).toBe(1);
+      },
+      EXPIRY_TIMEOUT_MS,
+    );
     expect(after.maxEvictedThrough).toBeGreaterThan(0);
 
     await reconnect(alice.page);
@@ -275,18 +300,27 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
       payload: { receivedThrough: seq },
       metadata: { channel: { name: 'chat' } },
     });
-    await alice.page.waitForTimeout(100);
+    // Bounded well under RETENTION_MS (1s) so this "not deleted early" check
+    // cannot accidentally retry past the row's actual expiry.
+    await probeUntil(
+      bob.page,
+      (a) => {
+        expect(a.rows).toBe(1);
+        expect(a.deliveredRows).toBe(1);
+        expect(a.watermarkRows).toBe(0);
+      },
+      800,
+    );
 
-    const before = await probe(bob.page);
-    expect(before.rows).toBe(1);
-    expect(before.deliveredRows).toBe(1);
-    expect(before.watermarkRows).toBe(0);
-
-    await bob.page.waitForTimeout(1_400);
-    const after = await probe(bob.page);
-    expect(after.rows).toBe(0);
-    expect(after.deliveredRows).toBe(0);
-    expect(after.watermarkRows).toBe(0);
+    await probeUntil(
+      bob.page,
+      (a) => {
+        expect(a.rows).toBe(0);
+        expect(a.deliveredRows).toBe(0);
+        expect(a.watermarkRows).toBe(0);
+      },
+      EXPIRY_TIMEOUT_MS,
+    );
 
     await alice.close();
     await bob.close();
@@ -319,10 +353,14 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await expect(bob.page.getByTestId('status')).toHaveText('disconnected');
 
     await reconnect(bob.page);
-    await bob.page.waitForTimeout(1_400);
-    const after = await probe(bob.page);
-    expect(after.rows).toBe(0);
-    expect(after.watermarkRows).toBe(1);
+    await probeUntil(
+      bob.page,
+      (a) => {
+        expect(a.rows).toBe(0);
+        expect(a.watermarkRows).toBe(1);
+      },
+      EXPIRY_TIMEOUT_MS,
+    );
 
     await alice.close();
     await bob.close();
