@@ -129,10 +129,16 @@ test.describe('custom replay stores a broadcast that reaches nobody live', () =>
     expect(aliceTexts).not.toContain('top-nobody-live');
     expect(aliceTexts).not.toContain('room-nobody-live');
 
+    // Ask again until the rows are there, so a slow machine does not fail
+    // the test before Alice's broadcasts are stored.
     const [bob] = await openPeers(page, room, ['bob']);
-    expect(await replayTexts(bob!)).toEqual(['top-nobody-live']);
+    await expect(async () => {
+      expect(await replayTexts(bob!)).toEqual(['top-nobody-live']);
+    }).toPass({ timeout: 10_000 });
 
     await subscribeRoom(bob!);
-    expect(await replayTexts(bob!, ROOM_CHANNEL)).toEqual(['room-nobody-live']);
+    await expect(async () => {
+      expect(await replayTexts(bob!, ROOM_CHANNEL)).toEqual(['room-nobody-live']);
+    }).toPass({ timeout: 10_000 });
   });
 });

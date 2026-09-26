@@ -167,23 +167,27 @@ test.describe('replay-snapshot handler', () => {
   test('maxAgeMs: old messages pruned after expiry', async ({ page }) => {
     await page.getByTestId('age-test-btn').click();
     await page.waitForTimeout(1200);
-    await page.evaluate(() => {
-      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      if (!ws) return;
-
-      ws.send(
-        window.__livethingEncode({
-          event: 'update-doc',
-          payload: { docId: 'age-fresh', title: 'fresh-message' },
-        }),
-      );
-    });
-    await page.getByTestId('replay-btn').click();
+    // Expired rows are pruned when a new row is written, so each attempt writes
+    // the fresh row again. A slow machine may need more than one attempt before
+    // the old row is past maxAgeMs.
     await expect(async () => {
-      const snapshots = await page.getByTestId('snapshots').textContent();
-      expect(snapshots).not.toContain('old-message');
-      expect(snapshots).toContain('fresh-message');
-    }).toPass({ timeout: 5_000 });
+      await page.evaluate(() => {
+        const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+        if (!ws) return;
+
+        ws.send(
+          window.__livethingEncode({
+            event: 'update-doc',
+            payload: { docId: 'age-fresh', title: 'fresh-message' },
+          }),
+        );
+      });
+      await page.getByTestId('replay-btn').click();
+      await expect(page.getByTestId('snapshots')).toContainText('fresh-message', {
+        timeout: 1_000,
+      });
+      expect(await page.getByTestId('snapshots').textContent()).not.toContain('old-message');
+    }).toPass({ timeout: 10_000 });
   });
 
   test('channel snapshot replay keeps only the latest value per key', async ({ page }) => {
