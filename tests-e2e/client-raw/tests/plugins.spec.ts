@@ -155,8 +155,14 @@ test.describe('plugins handler', () => {
     await page2.getByTestId('disconnect-btn').click();
     await waitForText(page2, 'status', 'disconnected');
 
-    await page1.getByTestId('disconnect-count-btn').click();
-    await waitForText(page1, 'disconnect-count', /disconnects: [1-9]/);
+    // The page shows "disconnected" before the server has run onDisconnect,
+    // so ask again until the count has changed.
+    await expect(async () => {
+      await page1.getByTestId('disconnect-count-btn').click();
+      await expect(page1.getByTestId('disconnect-count')).toHaveText(/disconnects: [1-9]/, {
+        timeout: 1_000,
+      });
+    }).toPass({ timeout: 10_000 });
 
     await page1.close();
     await page2.close();
