@@ -1,5 +1,6 @@
 import { connect as connectTcp } from 'node:net';
 import { createAdaptorServer } from '@hono/node-server';
+import { client, connect } from '@livething/client';
 import { server as createServerDefinition, emits, t } from '@livething/server';
 import { RejectUpgrade } from '@livething/server/errors';
 import { Hono } from 'hono';
@@ -9,6 +10,7 @@ import { setup } from './index.ts';
 
 let lastClientIp: string | null = null;
 let disconnects = 0;
+let lastDisconnect: { code: number; reason: string } | undefined;
 
 const base = createServerDefinition({
   upgrade(request) {
@@ -46,11 +48,20 @@ base.onConnect((ctx) => {
   });
 });
 
-base.onDisconnect(() => {
+base.onDisconnect((ctx) => {
   disconnects += 1;
+  lastDisconnect = { code: ctx.closeCode ?? 1000, reason: ctx.closeReason ?? '' };
 });
 
 const assembled = base.assemble({ handlers: [echo] });
+
+interface TestClient {
+  incoming: {
+    connected: { userId: string; clientIp: string | null };
+    echoed: { text: string };
+  };
+  outgoing: { echo: { text: string } };
+}
 
 interface RunningServer {
   port: number;
@@ -233,7 +244,31 @@ describe('Hono binding', () => {
     for (const socket of sockets.splice(0)) socket.terminate();
     await Promise.all(servers.splice(0).map((server) => server.close()));
     disconnects = 0;
+    lastDisconnect = undefined;
   });
+
+  async function startLobby() {
+    const app = new Hono();
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
+
+    servers.push(server);
+    await livething.ready();
+
+    return { livething, server };
+  }
+
+  async function openLobbySocket(port: number): Promise<WebSocket> {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/lobby`);
+    sockets.push(socket);
+    const connected = waitForMessage(socket);
+    await waitForOpen(socket);
+    await connected;
+
+    return socket;
+  }
 
   it('uses Hono route matching while LiveThing handles the accepted socket', async () => {
     const app = new Hono();
@@ -455,6 +490,9 @@ describe('Hono binding', () => {
 
     const response = await sendUpgrade(server.port, '/ws/http-reject');
     expect(response).toMatch(/^HTTP\/1\.1 401 /);
+    expect(response).toMatch(/^content-type: text\/plain/im);
+    // @hono/node-server sends the status and headers of a refused upgrade, not its body.
+    expect(response).not.toContain('No token');
   });
 
   it('passes a plain HTTP request to the next Hono handler without running upgrade', async () => {
@@ -542,5 +580,62 @@ describe('Hono binding', () => {
       code: 1011,
       reason: '[livething] connection setup failed',
     });
+  });
+
+  it('works with the LiveThing client', async () => {
+    const { server } = await startLobby();
+    const socket = client<TestClient>()(connect(`ws://127.0.0.1:${server.port}/ws/lobby`));
+    const connected = new Promise<{ userId: string }>((resolve) => socket.on('connected', resolve));
+    const echoed = new Promise<{ text: string }>((resolve) => socket.on('echoed', resolve));
+
+    try {
+      socket.connect();
+
+      await expect(connected).resolves.toEqual({ userId: 'lobby', clientIp: null });
+      expect(socket.send('echo', { text: 'hello' })).toBe(true);
+      await expect(echoed).resolves.toEqual({ text: 'hello' });
+    } finally {
+      socket.disconnect();
+    }
+  });
+
+  it('closes binary frames with code 1003 without rejecting text frames', async () => {
+    const { server } = await startLobby();
+    const socket = await openLobbySocket(server.port);
+
+    const echoed = waitForMessage(socket);
+    socket.send(JSON.stringify(['echo', { text: 'text' }, null]));
+    await expect(echoed).resolves.toEqual(['echoed', { text: 'text' }, null]);
+
+    const closed = waitForClose(socket);
+    socket.send(Buffer.from('binary'));
+
+    await expect(closed).resolves.toEqual({
+      code: 1003,
+      reason: '[livething] binary frames are not supported yet',
+    });
+    await vi.waitFor(() => expect(lastDisconnect?.code).toBe(1003));
+  });
+
+  it('passes the client close code and reason to onDisconnect', async () => {
+    const { server } = await startLobby();
+    const socket = await openLobbySocket(server.port);
+
+    socket.close(4000, 'client finished');
+
+    await vi.waitFor(() =>
+      expect(lastDisconnect).toEqual({ code: 4000, reason: 'client finished' }),
+    );
+  });
+
+  it('closes connected clients with going-away during shutdown', async () => {
+    const { livething, server } = await startLobby();
+    const socket = await openLobbySocket(server.port);
+    const closed = waitForClose(socket);
+
+    await livething.shutdown();
+
+    await expect(closed).resolves.toEqual({ code: 1001, reason: 'Server shutting down' });
+    expect(lastDisconnect).toEqual({ code: 1001, reason: 'Server shutting down' });
   });
 });

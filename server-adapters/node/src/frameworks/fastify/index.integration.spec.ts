@@ -1,5 +1,6 @@
 import { connect as connectTcp } from 'node:net';
 import websocket from '@fastify/websocket';
+import { client, connect } from '@livething/client';
 import { emits, server, t } from '@livething/server';
 import { RejectUpgrade } from '@livething/server/errors';
 import Fastify from 'fastify';
@@ -10,6 +11,9 @@ import { setup } from './index.ts';
 import type { NodeEndpointOptions } from '../../binding.ts';
 
 let lastClientIp: string | null = null;
+let disconnects = 0;
+let lastDisconnect: { code: number; reason: string } | undefined;
+let transportErrors = 0;
 
 const base = server({
   upgrade(request) {
@@ -42,7 +46,24 @@ base.onConnect((ctx) => {
   ctx.send('connected', { clientIp: lastClientIp });
 });
 
+base.onDisconnect((ctx) => {
+  disconnects += 1;
+  lastDisconnect = { code: ctx.closeCode ?? 1000, reason: ctx.closeReason ?? '' };
+});
+
+base.onError(() => {
+  transportErrors += 1;
+});
+
 const assembled = base.assemble({ handlers: [echo] });
+
+interface TestClient {
+  incoming: {
+    connected: { clientIp: string | null };
+    echoed: { text: string };
+  };
+  outgoing: { echo: { text: string } };
+}
 
 type WireFrame = readonly [event: string, payload: unknown, metadata: null];
 
@@ -120,6 +141,58 @@ function sendUpgrade(port: number, path: string, upgradeHeader = 'websocket'): P
   });
 }
 
+function getClientSocket(socket: WebSocket): { pause(): void; resume(): void } {
+  const clientSocket = (
+    socket as WebSocket & {
+      _socket?: { pause(): void; resume(): void };
+    }
+  )._socket;
+
+  if (!clientSocket) throw new Error('Expected the WebSocket client to have a TCP socket');
+
+  return clientSocket;
+}
+
+function sendInvalidClientFrame(port: number, path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = connectTcp(port, '127.0.0.1');
+    let upgraded = false;
+    socket.setTimeout(500, () => {
+      socket.destroy();
+      reject(new Error('Timed out waiting for the invalid WebSocket frame to close'));
+    });
+    socket.once('connect', () => {
+      socket.write(
+        [
+          `GET ${path} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (data) => {
+      if (upgraded) return;
+
+      if (!data.toString().startsWith('HTTP/1.1 101')) {
+        socket.destroy();
+        reject(new Error('Expected a WebSocket upgrade response'));
+        return;
+      }
+
+      upgraded = true;
+      socket.write(Buffer.from([0x81, 0x01, 0x61]));
+    });
+
+    socket.once('close', () => resolve());
+    socket.once('error', reject);
+  });
+}
+
 function sendOpenUpgrade(port: number, path: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = connectTcp(port, '127.0.0.1');
@@ -167,7 +240,20 @@ describe('Fastify binding', () => {
   afterEach(async () => {
     for (const socket of sockets.splice(0)) socket.terminate();
     await Promise.all(apps.splice(0).map((app) => app.shutdown()));
+    disconnects = 0;
+    lastDisconnect = undefined;
+    transportErrors = 0;
   });
+
+  async function openLobbySocket(port: number): Promise<WebSocket> {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/lobby`);
+    sockets.push(socket);
+    const connected = waitForMessage(socket);
+    await waitForOpen(socket);
+    await connected;
+
+    return socket;
+  }
 
   it('uses Fastify route parameters and forwards messages through LiveThing', async () => {
     const app = await createApp();
@@ -272,6 +358,7 @@ describe('Fastify binding', () => {
 
     const response = await sendUpgrade(app.port, '/ws/http-reject');
     expect(response).toContain('HTTP/1.1 401');
+    expect(response).toMatch(/^content-type: text\/plain/im);
     expect(response).toContain('No token');
   });
 
@@ -319,5 +406,121 @@ describe('Fastify binding', () => {
       code: 1011,
       reason: '[livething] connection setup failed',
     });
+  });
+
+  it('works with the LiveThing client', async () => {
+    const app = await createApp();
+    apps.push(app);
+    const socket = client<TestClient>()(connect(`ws://127.0.0.1:${app.port}/ws/lobby`));
+    const connected = new Promise<{ clientIp: string | null }>((resolve) =>
+      socket.on('connected', resolve),
+    );
+    const echoed = new Promise<{ text: string }>((resolve) => socket.on('echoed', resolve));
+
+    try {
+      socket.connect();
+
+      await expect(connected).resolves.toEqual({ clientIp: null });
+      expect(socket.send('echo', { text: 'hello' })).toBe(true);
+      await expect(echoed).resolves.toEqual({ text: 'hello' });
+    } finally {
+      socket.disconnect();
+    }
+  });
+
+  it('closes binary frames with code 1003 without rejecting text frames', async () => {
+    const app = await createApp();
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+
+    const echoed = waitForMessage(socket);
+    socket.send(JSON.stringify(['echo', { text: 'text' }, null]));
+    await expect(echoed).resolves.toEqual(['echoed', { text: 'text' }, null]);
+
+    const closed = waitForClose(socket);
+    socket.send(Buffer.from('binary'));
+
+    await expect(closed).resolves.toEqual({
+      code: 1003,
+      reason: '[livething] binary frames are not supported yet',
+    });
+    await vi.waitFor(() => expect(lastDisconnect?.code).toBe(1003));
+  });
+
+  it('passes the client close code and reason to onDisconnect', async () => {
+    const app = await createApp();
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+
+    socket.close(4000, 'client finished');
+
+    await vi.waitFor(() =>
+      expect(lastDisconnect).toEqual({ code: 4000, reason: 'client finished' }),
+    );
+  });
+
+  it('closes connected clients with going-away during shutdown', async () => {
+    const app = await createApp();
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+    const closed = waitForClose(socket);
+
+    await app.livething.shutdown();
+
+    await expect(closed).resolves.toEqual({ code: 1001, reason: 'Server shutting down' });
+    expect(lastDisconnect).toEqual({ code: 1001, reason: 'Server shutting down' });
+  });
+
+  it('reports the real outbound queue while a Fastify client is slow', async () => {
+    const queued = server({
+      upgrade() {
+        return { userId: 'slow-client' };
+      },
+      capabilities: [
+        emits({
+          chunk: t<{ data: string }>(),
+          queued: t<{ amount: number }>(),
+        }),
+      ],
+    });
+    const fillQueue = queued.on('fill-queue', {
+      run(ctx) {
+        const chunk = { data: 'x'.repeat(1024 * 1024) };
+        for (let index = 0; index < 16; index += 1) ctx.send('chunk', chunk);
+        ctx.send('queued', { amount: ctx.bufferedAmount });
+      },
+    });
+    const app = await createApp({}, queued.assemble({ handlers: [fillQueue] }));
+    apps.push(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/slow-client`);
+
+    sockets.push(socket);
+    await waitForOpen(socket);
+
+    const queuedAmount = new Promise<number>((resolve, reject) => {
+      socket.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as [string, unknown, unknown];
+        if (message[0] === 'queued') resolve((message[1] as { amount: number }).amount);
+      });
+      socket.once('error', reject);
+    });
+
+    const clientSocket = getClientSocket(socket);
+    clientSocket.pause();
+    socket.send(JSON.stringify(['fill-queue', {}, null]));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    clientSocket.resume();
+
+    await expect(queuedAmount).resolves.toBeGreaterThan(0);
+  });
+
+  it('keeps the connection until close after a transport error', async () => {
+    const app = await createApp();
+    apps.push(app);
+
+    await sendInvalidClientFrame(app.port, '/ws/lobby');
+
+    await vi.waitFor(() => expect(disconnects).toBe(1));
+    expect(transportErrors).toBeGreaterThan(0);
   });
 });

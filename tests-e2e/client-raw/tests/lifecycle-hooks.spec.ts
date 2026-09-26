@@ -142,15 +142,8 @@ test.describe('lifecycle-hooks', () => {
       },
     });
     expect(response.status()).toBe(403);
-    // crossws 0.3 URL-encodes the headers of a refused upgrade (h3js/crossws#186),
-    // so the H3 v1 binding sends no headers rather than broken ones.
-    if (process.env.LIVETHING_E2E_FRAMEWORK !== 'h3-v1') {
-      expect(response.headers()['content-type']).toContain('text/plain');
-    }
-
-    if (process.env.LIVETHING_E2E_FRAMEWORK !== 'hono') {
-      await expect(response.text()).resolves.toBe('Forbidden HTTP upgrade');
-    }
+    expect(response.headers()['content-type']).toContain('text/plain');
+    await expect(response.text()).resolves.toBe('Forbidden HTTP upgrade');
   });
 
   test('requireUsername rejects missing username with close code 4001 across multiple mounts', async ({

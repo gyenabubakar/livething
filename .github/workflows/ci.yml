@@ -154,6 +154,8 @@ jobs:
       fail-fast: false
       # One job per implemented adapter (cf/node; deno/bun to come), run
       # concurrently so calendar time is the slowest suite, not their sum.
+      # Node framework bindings (Hono, Fastify, H3) share the node:http engine
+      # path, so their integration specs cover them instead of a full e2e run.
       matrix:
         include:
           - name: client-puppet
@@ -178,66 +180,6 @@ jobs:
               tests-e2e/client-raw/test-results/
           - name: node-http-packaged
             command: pnpm --filter @livething/tests-e2e-client run test:e2e:node:http
-            report-path: |
-              tests-e2e/client/playwright-report/
-              tests-e2e/client/test-results/
-          - name: express-raw
-            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:express
-            report-path: |
-              tests-e2e/client-raw/playwright-report/
-              tests-e2e/client-raw/test-results/
-          - name: express-packaged
-            command: pnpm --filter @livething/tests-e2e-client run test:e2e:express
-            report-path: |
-              tests-e2e/client/playwright-report/
-              tests-e2e/client/test-results/
-          - name: koa-raw
-            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:koa
-            report-path: |
-              tests-e2e/client-raw/playwright-report/
-              tests-e2e/client-raw/test-results/
-          - name: koa-packaged
-            command: pnpm --filter @livething/tests-e2e-client run test:e2e:koa
-            report-path: |
-              tests-e2e/client/playwright-report/
-              tests-e2e/client/test-results/
-          - name: hono-raw
-            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:hono
-            report-path: |
-              tests-e2e/client-raw/playwright-report/
-              tests-e2e/client-raw/test-results/
-          - name: hono-packaged
-            command: pnpm --filter @livething/tests-e2e-client run test:e2e:hono
-            report-path: |
-              tests-e2e/client/playwright-report/
-              tests-e2e/client/test-results/
-          - name: fastify-raw
-            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:fastify
-            report-path: |
-              tests-e2e/client-raw/playwright-report/
-              tests-e2e/client-raw/test-results/
-          - name: fastify-packaged
-            command: pnpm --filter @livething/tests-e2e-client run test:e2e:fastify
-            report-path: |
-              tests-e2e/client/playwright-report/
-              tests-e2e/client/test-results/
-          - name: h3-raw
-            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:h3
-            report-path: |
-              tests-e2e/client-raw/playwright-report/
-              tests-e2e/client-raw/test-results/
-          - name: h3-packaged
-            command: pnpm --filter @livething/tests-e2e-client run test:e2e:h3
-            report-path: |
-              tests-e2e/client/playwright-report/
-              tests-e2e/client/test-results/
-          - name: h3-v1-raw
-            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:h3-v1
-            report-path: |
-              tests-e2e/client-raw/playwright-report/
-              tests-e2e/client-raw/test-results/
-          - name: h3-v1-packaged
-            command: pnpm --filter @livething/tests-e2e-client run test:e2e:h3-v1
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
