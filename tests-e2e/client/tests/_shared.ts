@@ -16,6 +16,11 @@ export function wsUrl(feature: string): string {
   return `${scheme}://${location.host}/ws/${feature}?${qs}`;
 }
 
+// maxDelay for pages whose specs act while the client is offline after a drop.
+// The first retry then waits 1.4 to 2.6 s, long enough to see 'reconnecting'
+// and to act before the socket is back, even on a slow machine.
+export const OFFLINE_WINDOW_MAX_DELAY = 2000;
+
 // Render the feature's markup into the shell's mount point.
 export function mount(html: string): void {
   const app = document.querySelector('#app');

@@ -1,6 +1,6 @@
 import { client, connect, dedup, reconnection, replay } from '@livething/client';
 import type { ReplaySnapshotClient } from '@livething/tests-e2e-handlers/replay-snapshot';
-import { button, el, mount, ready, wsUrl } from '../_shared.ts';
+import { button, el, mount, OFFLINE_WINDOW_MAX_DELAY, ready, wsUrl } from '../_shared.ts';
 
 // Drives @livething/client's replay() against the real `replay-snapshot` server definition.
 // replay() needs dedup() (it filters resent frames) and reconnection() (it only
@@ -26,7 +26,7 @@ export function setup(): void {
     // A short, fixed backoff: long enough for the spec to see 'reconnecting' and
     // let a witness send while we're down, short enough to replay before the
     // handler's maxAgeMs=1000 prunes the snapshot rows.
-    reconnection({ maxDelay: 400 }),
+    reconnection({ maxDelay: OFFLINE_WINDOW_MAX_DELAY }),
   );
 
   // Latest title per docId, in the order keys first appeared, rendered as

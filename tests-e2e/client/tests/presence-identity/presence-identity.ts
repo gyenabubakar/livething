@@ -1,6 +1,6 @@
 import { channels, client, connect, reconnection } from '@livething/client';
 import type { PersistenceClient } from '@livething/tests-e2e-handlers/persistence';
-import { button, el, mount, ready, wsUrl } from '../_shared.ts';
+import { button, el, mount, OFFLINE_WINDOW_MAX_DELAY, ready, wsUrl } from '../_shared.ts';
 
 // Watches the roster and presence events of the PERSISTENT archive-room. The
 // members list shows the roster keys, the online list shows the members whose
@@ -24,7 +24,7 @@ export function setup(): void {
   const socket = client<PersistenceClient>()(
     connect(wsUrl('persistence')),
     channels(),
-    reconnection({ maxDelay: 400 }),
+    reconnection({ maxDelay: OFFLINE_WINDOW_MAX_DELAY }),
   );
 
   const room = socket.channel('archive-room');

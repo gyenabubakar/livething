@@ -1,6 +1,6 @@
 import { channels, client, connect, dedup, reconnection, replay } from '@livething/client';
 import type { ReplayClient } from '@livething/tests-e2e-handlers/replay-history';
-import { button, el, mount, ready, wsUrl } from '../_shared.ts';
+import { button, el, mount, OFFLINE_WINDOW_MAX_DELAY, ready, wsUrl } from '../_shared.ts';
 
 // Drives @livething/client's replay() against the real `replay` server definition (log-mode
 // replay, plus a replay-enabled channel). Proves the client catches up on
@@ -38,7 +38,7 @@ export function setup(): void {
     // Short backoff: long enough for the spec to catch 'reconnecting' and let a
     // witness publish while we're down, short enough to replay before the
     // handler's maxAgeMs=1000 prunes the rows.
-    reconnection({ maxDelay: 400 }),
+    reconnection({ maxDelay: OFFLINE_WINDOW_MAX_DELAY }),
   );
 
   const room = socket.channel('replay-room');

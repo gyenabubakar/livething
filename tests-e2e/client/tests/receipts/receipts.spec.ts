@@ -101,8 +101,14 @@ test.describe('receipts (received + read cursors)', () => {
     await expect(bob.page.getByTestId('messages')).toHaveText('hello');
 
     // receiversOf(1) round-trips over `__receivedQuery__`; both recipients received.
-    await alice.page.getByTestId('query-received').click();
-    await expect(alice.page.getByTestId('query-received-result')).toHaveText('alice|bob');
+    // Bob's acknowledgement can reach the server after his page shows the
+    // message, so ask again until it has.
+    await expect(async () => {
+      await alice.page.getByTestId('query-received').click();
+      await expect(alice.page.getByTestId('query-received-result')).toHaveText('alice|bob', {
+        timeout: 1_000,
+      });
+    }).toPass({ timeout: 10_000 });
 
     // readersOf(1) before anyone marks read: empty.
     await alice.page.getByTestId('query-read').click();
