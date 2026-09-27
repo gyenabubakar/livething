@@ -57,14 +57,14 @@ function readSyncMember(
   return { ...member, online };
 }
 
-/** True when an `__error__` payload names the protocol frame it answers, and that frame is not a subscribe. */
+/**
+ * True when an `__error__` payload names the frame it answers, and that frame
+ * is not a subscribe: a channel message or another protocol frame such as
+ * `__replay__`.
+ */
 function answersAnotherEvent(payload: unknown): boolean {
   const detail = (payload as { detail?: { event?: unknown } } | null | undefined)?.detail;
-  return (
-    typeof detail?.event === 'string' &&
-    isProtocolFrameEvent(detail.event) &&
-    detail.event !== '__subscribe__'
-  );
+  return typeof detail?.event === 'string' && detail.event !== '__subscribe__';
 }
 
 /** The host `channel` method: a fixed/dynamic getter plus `.family`. */

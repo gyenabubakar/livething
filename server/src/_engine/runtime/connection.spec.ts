@@ -1121,6 +1121,54 @@ describe('connection runtime', () => {
     expect(events).toEqual([]);
   });
 
+  it('handleConnectionClose runs the disconnect lifecycle once when two closes overlap', async () => {
+    // Shutdown closes the socket and cleans up the connection itself; the
+    // adapter's own close event can arrive while stream cancellation is still
+    // awaiting, before the connection has left the live set.
+    const events: string[] = [];
+    const connection = {
+      id: 'c1',
+      wsKey: Symbol('ws'),
+      descriptor: { send() {}, close() {}, bufferedAmount: () => 0, userId: 'c1' },
+      userId: 'c1',
+      meta: {},
+      tags: { ephemeral: new Map(), persistent: new Map() },
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good' as const,
+    };
+
+    const runtime = {
+      compiled: { channels: new Map(), channelFamilies: new Map() } as never,
+      connections: new Map([['c1', connection]]) as never,
+      usersByKey: new Map() as never,
+      wsToConnectionId: new Map() as never,
+      async cancelActiveStreamsForConnection() {
+        events.push('cancel-streams');
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      },
+      buildConnectionContext: () => ({ id: connection.id }),
+      async runConnectionLifecycle() {
+        events.push('disconnect-hook');
+      },
+      async leaveChannel() {
+        events.push('leave-channel');
+      },
+    };
+
+    function close(): Promise<void> {
+      return handleConnectionClose(runtime as never, {
+        connection: connection as never,
+        code: 1001,
+        reason: 'Server shutting down',
+      });
+    }
+
+    await Promise.all([close(), close()]);
+
+    expect(events).toEqual(['cancel-streams', 'disconnect-hook']);
+  });
+
   it('handleConnectionClose continues channel-leave fan-out when a disconnect hook throws', async () => {
     // A throwing onDisconnect is contained so member-leave fan-out and
     // keepalive cleanup still run.

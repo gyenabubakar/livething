@@ -194,6 +194,42 @@ describe('nudge and cancel', () => {
     expect(await collect(handle)).toEqual([{ text: 'a' }]);
   });
 
+  it('settles a pending nudge when the stream is cancelled', async () => {
+    const { socket, ws } = buildStream(stream({ nudgeTimeout: 0 }));
+    const { handle } = await start(socket, ws);
+    const pending = handle.nudge('add-context', { context: 'ocean' });
+
+    handle.cancel();
+
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('settles a pending nudge when the stream ends', async () => {
+    const { socket, ws } = buildStream(stream({ nudgeTimeout: 0 }));
+    const { handle, sid } = await start(socket, ws);
+    const pending = handle.nudge('add-context', { context: 'ocean' });
+
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
+
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('rejects a pending nudge with the error that ends the stream', async () => {
+    const { socket, ws } = buildStream(stream({ nudgeTimeout: 0 }));
+    const { handle, sid } = await start(socket, ws);
+    const pending = handle.nudge('add-context', { context: 'ocean' });
+    const collected = collect(handle).catch(() => {});
+
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'internal-error' },
+      metadata: { stream: { id: sid } },
+    });
+
+    await expect(pending).rejects.toMatchObject({ code: 'internal-error' });
+    await collected;
+  });
+
   it('cancel() sends __streamCancel__ and ends the loop without throwing', async () => {
     const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);

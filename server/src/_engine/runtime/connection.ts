@@ -651,47 +651,65 @@ export interface HandleConnectionCloseOptions {
   reason: string;
 }
 
+type ConnectionCloseRuntime = Pick<
+  ConnectionRuntime,
+  | 'compiled'
+  | 'connections'
+  | 'usersByKey'
+  | 'tagMembers'
+  | 'wsToConnectionId'
+  | 'deleteConnectionState'
+> & {
+  cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
+  buildConnectionContext(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    scope?: EngineRuntimeTypes.ResolvedChannel,
+  ): Record<PropertyKey, unknown>;
+  runConnectionLifecycle(
+    kind: 'connect' | 'disconnect',
+    ctx: Record<PropertyKey, unknown>,
+  ): Promise<void>;
+  leaveChannel(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    opts: ChannelPrimitive.LeaveChannelOptions,
+  ): Promise<void>;
+  connectionCleanupHooks?: readonly ((connectionId: string) => void)[];
+  logger?: Pick<PublicApi.Logger, 'error'>;
+};
+
+const runningCloses = new WeakMap<EngineRuntimeTypes.RuntimeConnection, Promise<void>>();
+
 /**
  * Perform full close cleanup for a connection, including lifecycle hooks and
  * channel leaves.
+ *
+ * handleShutdown drives this directly so the cleanup completes before shutdown
+ * returns, and the adapter's own close event may call it again for the same
+ * connection, even while the first cleanup is still running. Every call after
+ * the first waits for that one cleanup, so onDisconnect and `__memberLeave__`
+ * run once.
  */
-export async function handleConnectionClose(
-  runtime: Pick<
-    ConnectionRuntime,
-    | 'compiled'
-    | 'connections'
-    | 'usersByKey'
-    | 'tagMembers'
-    | 'wsToConnectionId'
-    | 'deleteConnectionState'
-  > & {
-    cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
-    buildConnectionContext(
-      connection: EngineRuntimeTypes.RuntimeConnection,
-      scope?: EngineRuntimeTypes.ResolvedChannel,
-    ): Record<PropertyKey, unknown>;
-    runConnectionLifecycle(
-      kind: 'connect' | 'disconnect',
-      ctx: Record<PropertyKey, unknown>,
-    ): Promise<void>;
-    leaveChannel(
-      connection: EngineRuntimeTypes.RuntimeConnection,
-      opts: ChannelPrimitive.LeaveChannelOptions,
-    ): Promise<void>;
-    connectionCleanupHooks?: readonly ((connectionId: string) => void)[];
-    logger?: Pick<PublicApi.Logger, 'error'>;
-  },
+export function handleConnectionClose(
+  runtime: ConnectionCloseRuntime,
+  options: HandleConnectionCloseOptions,
+): Promise<void> {
+  const { connection } = options;
+  const running = runningCloses.get(connection);
+  if (running) return running;
+
+  if (!runtime.connections.has(connection.id)) return Promise.resolve();
+
+  const cleanup = closeConnection(runtime, options);
+  runningCloses.set(connection, cleanup);
+
+  return cleanup;
+}
+
+async function closeConnection(
+  runtime: ConnectionCloseRuntime,
   options: HandleConnectionCloseOptions,
 ): Promise<void> {
   const { connection, code, reason } = options;
-  // Idempotency guard. handleShutdown drives this directly so the close
-  // cleanup completes before shutdown returns; the adapter's natural
-  // webSocketClose callback may then fire a second time for the same
-  // connection. Re-running the lifecycle would double-fire onDisconnect
-  // and rebroadcast __memberLeave__ to peers. Bail when the connection has
-  // already been removed from the live set.
-  if (!runtime.connections.has(connection.id)) return;
-
   await runtime.cancelActiveStreamsForConnection(connection.id);
 
   connection.closing = true;

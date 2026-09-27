@@ -32,6 +32,7 @@ interface Trigger {
 }
 
 interface PendingNudge {
+  streamId: string;
   resolve: () => void;
   reject: (error: unknown) => void;
   timer: ReturnType<typeof setTimeout> | null;
@@ -164,8 +165,21 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         cancelOutbox.delete(state.streamId);
         releaseStreamHold(state);
 
+        settleStreamNudges(state.streamId, error);
+
         if (error) state.queue.abort(error);
         else state.queue.end();
+      }
+
+      // A nudge still waiting for its answer when the stream finishes gets the
+      // same result as a nudge sent after the end (success), or the error that
+      // ended the stream.
+      function settleStreamNudges(streamId: string, error?: unknown): void {
+        for (const [id, pending] of pendingNudges) {
+          if (pending.streamId !== streamId) continue;
+
+          settleNudge(id, (nudge) => (error ? nudge.reject(error) : nudge.resolve()));
+        }
       }
 
       // Idempotent per-stream lazy hold. A resumable stream releases its hold on a
@@ -279,7 +293,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
                     reject(Timeout());
                   }, timeoutMs)
                 : null;
-            pendingNudges.set(streamNudgeId, { resolve, reject, timer });
+            pendingNudges.set(streamNudgeId, { streamId: state.streamId, resolve, reject, timer });
           });
         },
         cancel(state) {

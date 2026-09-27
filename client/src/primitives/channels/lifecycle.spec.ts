@@ -228,6 +228,88 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       vi.useRealTimers();
     }
   });
+
+  it('passes a rejected channel message through during a rejoin instead of failing the channel', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      expect(room.status.get()).toBe('subscribing');
+
+      const onSubFailed = vi.fn();
+      const onServerError = vi.fn();
+      room.onSubscriptionFailed(onSubFailed);
+      socket.onServerError(onServerError);
+
+      second.emit({
+        event: '__error__',
+        payload: { code: 'validation-failed', detail: { event: 'react', issues: [] } },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      expect(onSubFailed).not.toHaveBeenCalled();
+      expect(onServerError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'validation-failed' }),
+      );
+      expect(room.status.get()).toBe('subscribing');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still fails the channel when the rejoin itself is rejected', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      const onSubFailed = vi.fn();
+      room.onSubscriptionFailed(onSubFailed);
+
+      second.emit({
+        event: '__error__',
+        payload: { code: 'validation-failed', detail: { event: '__subscribe__', issues: [] } },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      expect(onSubFailed).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'validation-failed' }),
+      );
+      expect(room.status.get()).toBe('failed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('channels-reconnect-skips-persistent', () => {
