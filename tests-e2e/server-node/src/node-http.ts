@@ -236,53 +236,6 @@ function runAdminOp(admin: AnyAdmin, op: string, args: AdminOpArgs): Promise<unk
   return operation ? operation(admin, args) : UNKNOWN_OP;
 }
 
-async function runAdminBuiltIn(admin: AnyAdmin, op: string, args: AdminOpArgs): Promise<unknown> {
-  const { text, userId, channel, url } = args;
-  switch (op) {
-    case 'connection-count':
-      return admin.connectionCount();
-
-    case 'list-connections':
-      return ((await admin.listConnections()) as Record<string, unknown>[]).map((info) => ({
-        id: info.id,
-        userId: info.userId,
-        hasRef: 'ref' in info,
-      }));
-
-    case 'send-to-connection':
-      return admin.sendToConnection(url.searchParams.get('connectionId') ?? '', 'poked', { text });
-
-    case 'send-to-user':
-      return admin.sendToUser(userId, 'notified', { text });
-
-    case 'close-user':
-      return admin.closeUser(userId, 4321, 'booted by admin') ?? null;
-
-    case 'broadcast':
-      return admin.broadcast('announced', { text }) ?? null;
-
-    case 'channel-broadcast':
-      return admin.channelBroadcast(channel, 'room-notice', { text }) ?? null;
-
-    case 'channel-members':
-      return ((await admin.channelMembers(channel)) as Record<string, unknown>[]).map(
-        (info) => info.userId,
-      );
-
-    case 'channel-kick':
-      return (
-        (await admin.channelKick(
-          channel,
-          { __livething: 'user-ref', id: userId, instance: undefined },
-          { reason: 'admin kick' },
-        )) ?? null
-      );
-
-    default:
-      return UNKNOWN_OP;
-  }
-}
-
 const UNKNOWN_OP = Symbol('unknown-op');
 
 function writeText(response: ServerResponse, status: number, body: string): void {
@@ -370,28 +323,6 @@ export async function handleRequest(
       );
       if (result === UNKNOWN_OP) {
         writeText(response, 404, `unknown admin op: ${url.pathname}`);
-      } else {
-        writeJson(response, 200, { result });
-      }
-
-      return;
-    }
-
-    if (url.pathname.startsWith('/ws/admin/builtin/')) {
-      const fixture = await getRequestFixture('/ws/admin');
-      await fixture.service.ready;
-      const result = await runAdminBuiltIn(
-        await adminOf(fixture),
-        url.pathname.slice('/ws/admin/builtin/'.length),
-        {
-          text: url.searchParams.get('text') ?? '',
-          userId: url.searchParams.get('userId') ?? '',
-          channel: url.searchParams.get('channel') ?? 'lobby',
-          url,
-        },
-      );
-      if (result === UNKNOWN_OP) {
-        writeText(response, 404, `unknown builtin op: ${url.pathname}`);
       } else {
         writeJson(response, 200, { result });
       }

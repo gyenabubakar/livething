@@ -4,19 +4,23 @@ import { server } from '~/_define/server.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
+import { sweepDurableStreams } from './runtime.ts';
 import { ensureDurableStreamSchema, insertStream, readStream } from './storage.ts';
 
-function buildEngine(definition: ServerDefinition): Engine {
+function buildEngine(
+  definition: ServerDefinition,
+  storage: ReturnType<typeof createTestStorage> = createTestStorage(),
+): Engine {
   let captured: Engine | undefined;
   const runAdapter = adapter({
     id: 'stream-durable-registrar-spec',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       captured = createEngine({
-        storage: createTestStorage(),
+        storage,
 
         platform: {},
         timers: createTestTimers(),
@@ -131,5 +135,38 @@ describe('durable-stream registrar — boot schema', () => {
       }),
     ).not.toThrow();
     expect(readStream(sql, 'u-1', 's-1')).not.toBeNull();
+  });
+});
+
+describe('durable-stream registrar — restart', () => {
+  it('pauses a stream the previous process left running, so the sweep can expire it', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      const storage = createTestStorage();
+      ensureDurableStreamSchema(storage.sql);
+      insertStream(storage.sql, {
+        userId: 'alice',
+        streamId: 'ask-scout-1',
+        event: 'answer',
+        payload: '{}',
+        kind: 'resumable',
+        now: 1_000,
+        maxAgeMs: 60_000,
+      });
+
+      vi.setSystemTime(5_000);
+      const base = server({ capabilities: [resumableStream()] });
+      const engine = buildEngine(base.assemble({ handlers: [] }), storage);
+      await engine.initialize();
+
+      expect(readStream(storage.sql, 'alice', 'ask-scout-1')?.status).toBe('suspended');
+
+      vi.setSystemTime(5_000 + 60_001);
+      expect(sweepDurableStreams({ sql: storage.sql })).toBe(1);
+      expect(readStream(storage.sql, 'alice', 'ask-scout-1')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

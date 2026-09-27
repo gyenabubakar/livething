@@ -311,18 +311,19 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //   1. sentinel SELECT (throws — no table yet)
     //   2-8. seven schema hooks: alarm retries, channel membership, connections
     //        (hibernation), sequence, replay, durable streams, scheduled
-    //   9. translator-state column check for hibernation migrations
-    //   10. mark sentinel (bundled CREATE meta + INSERT)
-    //   11. load any durable framework alarm retry
-    //   12. channel membership reconcile (cleanup SELECT)
-    //   13-15. scheduled bootstrap loads queued runs + dlq + stopped recurring tasks
-    //   16. scheduled persist-after-restore — one INSERT for the new recurring
+    //   9. suspend durable streams a stopped process left active
+    //   10. translator-state column check for hibernation migrations
+    //   11. mark sentinel (bundled CREATE meta + INSERT)
+    //   12. load any durable framework alarm retry
+    //   13. channel membership reconcile (cleanup SELECT)
+    //   14-16. scheduled bootstrap loads queued runs + dlq + stopped recurring tasks
+    //   17. scheduled persist-after-restore — one INSERT for the new recurring
     //       run added by ensureRecurringRuns. The diff-based persist only
     //       writes genuine new rows, so the empty-load case costs zero extra
     //       writes.
     //
     // The durable-stream schema hook is why a server declaring a durable stream
-    // pays one statement more here than the other capabilities alone would cost.
+    // pays two statements more here than the other capabilities alone would cost.
     // Creating those tables at boot rather than on first stream use is what lets
     // purgeUser delete stream rows on a server whose streams have never run —
     // the tables exist either way.
@@ -330,14 +331,14 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // The resumableStream()/recordedStream() capabilities install an internal
     // recurring '__livething:stream-durable-sweep' task whenever a server declares a
     // durable stream. That task boots the scheduled engine, which adds the schema
-    // hook (#8), the bootstrap loads (#13-15), and the one persist-after-restore
-    // INSERT (#16) — so a durable-stream server pays 16 round trips on a cold boot.
-    expect(execCount).toBe(16);
+    // hook (#8), the bootstrap loads (#14-16), and the one persist-after-restore
+    // INSERT (#17) — so a durable-stream server pays 17 round trips on a cold boot.
+    expect(execCount).toBe(17);
   });
 
   it('heavy: WARM boot re-runs every schema hook', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyDefinition, true);
-    if (execCount !== 14) {
+    if (execCount !== 15) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy warm] sql.exec calls:\n' +
@@ -349,10 +350,11 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //   1. marker SELECT (returns a row, so the marker write is skipped)
     //   2-8. every schema hook: alarm retries, connections, sequence, replay,
     //        foreign keys, channel membership, scheduled
-    //   9. translator-state column check for hibernation migrations
-    //   10. load any durable framework alarm retry
-    //   11. channel membership reconcile (cleanup SELECT)
-    //   12-14. scheduled bootstrap loads queued runs + dlq + stopped recurring tasks
+    //   9. suspend durable streams a stopped process left active
+    //   10. translator-state column check for hibernation migrations
+    //   11. load any durable framework alarm retry
+    //   12. channel membership reconcile (cleanup SELECT)
+    //   13-15. scheduled bootstrap loads queued runs + dlq + stopped recurring tasks
     //
     // The schema hooks run on every boot rather than being skipped by a
     // warm-boot gate, so a capability added after this storage was first
@@ -361,7 +363,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // declares a durable stream) was already persisted during the cold boot
     // that seeded this storage, so the bootstrap finds it in the loaded rows
     // and issues no extra persist write.
-    expect(execCount).toBe(14);
+    expect(execCount).toBe(15);
   });
 });
 

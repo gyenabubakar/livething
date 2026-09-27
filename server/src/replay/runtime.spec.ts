@@ -16,6 +16,7 @@ import {
   persistReplayMessage,
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
+  readReplayGapWatermark,
   readReplayScope,
   readReplayWatermark,
   replayScopeKey,
@@ -803,6 +804,33 @@ describe('replay/runtime', () => {
       // Dropping seq 1 would set watermark 1, but 100 already stands, so MAX wins.
       pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: null, channelFamily: null });
       expect(readReplayWatermark(sql, '')).toBe(100);
+    });
+
+    it('age prune of a row sent to one user raises only that user’s gap mark', () => {
+      const sql = replayDb();
+      storeReplayRow(sql, makeRow({ rowKey: 't1', seq: 1, createdAt: 10 }));
+      storeReplayRow(sql, makeRow({ rowKey: 't2', seq: 2, createdAt: 20, userId: 'alice' }));
+      storeReplayRow(sql, makeRow({ rowKey: 't3', seq: 3, createdAt: 90 }));
+
+      pruneExpiredReplayRows(sql, { retention: { maxAgeMs: 50 }, now: 100, owner: SERVER_OWNER });
+
+      const scope = { channel: null, channelFamily: null };
+      expect(readReplayGapWatermark(sql, scope, 'bob')).toBe(1);
+      expect(readReplayGapWatermark(sql, scope, 'alice')).toBe(2);
+    });
+
+    it('count prune of a row sent to one user raises only that user’s gap mark', () => {
+      const sql = replayDb();
+      const room = { channel: 'room-1', channelFamily: 'rooms' };
+      storeReplayRow(sql, makeRow({ rowKey: 'c1', seq: 1, ...room }));
+      storeReplayRow(sql, makeRow({ rowKey: 'c2', seq: 2, ...room, userId: 'alice' }));
+      storeReplayRow(sql, makeRow({ rowKey: 'c3', seq: 3, ...room }));
+
+      pruneReplayScopeRows(sql, { maxMessages: 1 }, room);
+
+      expect(readReplayGapWatermark(sql, room, 'bob')).toBe(1);
+      expect(readReplayGapWatermark(sql, room, 'alice')).toBe(2);
+      expect(readReplayGapWatermark(sql, room, null)).toBe(1);
     });
   });
 });

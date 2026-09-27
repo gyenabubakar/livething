@@ -7,7 +7,7 @@
     "build:deps": "pnpm --filter @livething/server-node... run build",
     "prepare:e2e:raw": "pnpm run build:deps && pnpm --filter @livething/tests-e2e-client-raw run prepare",
     "dev:node-http": "node --experimental-strip-types src/node-http.ts",
-    "test:e2e:node:http": "pnpm run prepare:e2e:raw && LIVETHING_E2E_SERVER_COMMAND='pnpm run dev:node-http' LIVETHING_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @livething/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|members over the stub|flat ops on the stub'",
+    "test:e2e:node:http": "pnpm run prepare:e2e:raw && LIVETHING_E2E_SERVER_COMMAND='pnpm run dev:node-http' LIVETHING_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @livething/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|flat ops on the stub'",
     "test:e2e:node": "pnpm run test:e2e:node:http",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf node_modules .node-e2e-state"

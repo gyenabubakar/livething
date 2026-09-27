@@ -660,6 +660,35 @@ export function readReplayWatermark(
   return row ? Number(row.evicted_through_seq) : null;
 }
 
+/** Watermark key for rows sent to one user, kept apart from the scope's shared rows. */
+function replayUserWatermarkKey(scopeKey: string, userId: string): string {
+  return JSON.stringify(['user', scopeKey, userId]);
+}
+
+function replayWatermarkKey(scope: ReplayStorageScope, userId: string | null): string {
+  const scopeKey = replayScopeKey(scope);
+  return userId === null ? scopeKey : replayUserWatermarkKey(scopeKey, userId);
+}
+
+/**
+ * The highest evicted `seq` a user could have received in one scope: the
+ * scope's shared rows plus the rows sent only to that user. Rows sent to other
+ * users never count, so their eviction cannot report a gap to this user.
+ */
+export function readReplayGapWatermark(
+  sql: Pick<SQLProvider, 'exec'>,
+  scope: ReplayStorageScope,
+  userId: string | null,
+): number | null {
+  const shared = readReplayWatermark(sql, replayScopeKey(scope));
+  if (userId === null) return shared;
+
+  const own = readReplayWatermark(sql, replayWatermarkKey(scope, userId));
+  if (shared === null) return own;
+
+  return own === null ? shared : Math.max(shared, own);
+}
+
 /**
  * The SQL condition (and its bound params) matching the rows one replay
  * instance owns. `COALESCE` keeps a NULL `channel`/`channelFamily` (a top-level
@@ -707,13 +736,18 @@ export function pruneExpiredReplayRows(
   const owned = ownedRowsFilter(owner);
 
   const evicted = sql
-    .exec<{ channel: string | null; channelFamily: string | null; m: number }>(
+    .exec<{
+      channel: string | null;
+      channelFamily: string | null;
+      userId: string | null;
+      m: number;
+    }>(
       `
-        SELECT channel, channelFamily, MAX(seq) AS m
+        SELECT channel, channelFamily, userId, MAX(seq) AS m
         FROM __livething_replay
         WHERE createdAt < ?
           AND ${owned.where}
-        GROUP BY channel, channelFamily
+        GROUP BY channel, channelFamily, userId
       `,
       cutoff,
       ...owned.params,
@@ -723,10 +757,13 @@ export function pruneExpiredReplayRows(
   for (const scope of evicted) {
     bumpReplayWatermark(
       sql,
-      replayScopeKey({
-        channel: (scope.channel as string | null) ?? null,
-        channelFamily: (scope.channelFamily as string | null) ?? null,
-      }),
+      replayWatermarkKey(
+        {
+          channel: (scope.channel as string | null) ?? null,
+          channelFamily: (scope.channelFamily as string | null) ?? null,
+        },
+        (scope.userId as string | null) ?? null,
+      ),
       Number(scope.m),
     );
   }
@@ -765,26 +802,31 @@ export function pruneReplayScopeRows(
   if (retention?.maxMessages === undefined) return;
 
   const dropped = sql
-    .exec<{ m: number | null }>(
+    .exec<{ userId: string | null; m: number }>(
       `
-        SELECT MAX(seq) AS m
+        SELECT userId, MAX(seq) AS m
         FROM (
-          SELECT seq
+          SELECT seq, userId
           FROM __livething_replay
           WHERE channel IS ?
             AND channelFamily IS ?
           ORDER BY seq DESC
           LIMIT -1 OFFSET ?
         )
+        GROUP BY userId
       `,
       scope.channel,
       scope.channelFamily,
       retention.maxMessages,
     )
-    .one();
+    .toArray();
 
-  if (dropped?.m != null) {
-    bumpReplayWatermark(sql, replayScopeKey(scope), Number(dropped.m));
+  for (const audience of dropped) {
+    bumpReplayWatermark(
+      sql,
+      replayWatermarkKey(scope, (audience.userId as string | null) ?? null),
+      Number(audience.m),
+    );
   }
 
   sql.exec(

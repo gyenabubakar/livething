@@ -588,7 +588,7 @@ export interface ScopeSendApi {
 /**
  * Extended scope send API that includes replay support.
  *
- * `sendReplay` is only available when `replay()` is registered in the same
+ * `sendReplay` is only available when a replay capability is registered in the same
  * scope. In the broad runtime type it is optional because not every channel
  * context has replay enabled. The precise generated/app-facing types narrow
  * it to required only when replay is actually registered for that scope.

@@ -339,6 +339,20 @@ export function markSuspended(sql: SqlExec, opts: StreamRef & { now: number }): 
   );
 }
 
+/**
+ * Suspend every row still marked active. Called when a new process starts: no
+ * generator can be running yet, so an active row was left by a process that
+ * stopped mid-stream. Once suspended, a client can still resume it and the
+ * sweep expires it after `maxAgeMs`.
+ */
+export function suspendOrphanedStreams(sql: SqlExec, now: number): void {
+  sql.exec(
+    `UPDATE __livething_streams SET status = 'suspended', last_activity_at = ?
+     WHERE status = 'active'`,
+    now,
+  );
+}
+
 /** Mark a row ended and stamp `ended_at` so the retention window starts ticking. */
 export function markEnded(sql: SqlExec, opts: StreamRef & { now: number }): void {
   const { userId, streamId, now } = opts;

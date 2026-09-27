@@ -808,8 +808,15 @@ function rollbackFailedSubscribe(
   runtime.persistAttachment(connection, { force: true });
   if (!isDurable || connection.userId === '') return;
 
-  // The user was already a stored member: keep the row as it was.
+  // The user was already a stored member: put the row back as it was. The
+  // subscribe already wrote this connection's meta over it.
   if (stored) {
+    runtime.persistMembership({
+      userId: connection.userId,
+      channelName: scope.channelName,
+      channelFamily: scope.channelFamily,
+      meta: stored.meta,
+    });
     if (stored.kicked) {
       runtime.markDurableMembershipKicked(
         connection.userId,

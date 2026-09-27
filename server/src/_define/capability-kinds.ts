@@ -66,10 +66,11 @@ const KIND_TO_NAME: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(CAPABILITY_KIND).map((entry) => [entry[1], entry[0]]),
 );
 const CAPABILITY_DISPLAY_NAMES: Readonly<Record<string, string>> = {
-  [CAPABILITY_KIND.replayCustom]: 'replay.custom',
+  [CAPABILITY_KIND.replay]: 'replay.history() / replay.snapshot()',
+  [CAPABILITY_KIND.replayCustom]: 'replay.custom()',
 };
 
 /** Render a kind token as the capability factory call to show in an error. @internal */
 export function capabilityDisplayName(kind: string): string {
-  return `${CAPABILITY_DISPLAY_NAMES[kind] ?? KIND_TO_NAME[kind] ?? kind}()`;
+  return CAPABILITY_DISPLAY_NAMES[kind] ?? `${KIND_TO_NAME[kind] ?? kind}()`;
 }

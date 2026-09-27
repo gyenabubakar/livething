@@ -533,6 +533,30 @@ describe('a stored member that subscribes again keeps its membership if the subs
     expect(t.rows.has('alice')).toBe(true);
     expect(t.deletedRows).toEqual([]);
   });
+
+  it('keeps the stored meta of an offline member when the new socket closes before it is confirmed', async () => {
+    const t = createRuntime(true);
+    const alice = createConnection('conn_a', 'alice');
+    await t.join(alice);
+    await t.disconnect(alice);
+
+    const closing = createConnection('conn_a2', 'alice');
+    Object.assign(closing, { closing: true });
+    await t.join(closing);
+
+    expect(t.rows.get('alice')).toEqual({ meta: { name: 'conn_a' }, kicked: false });
+  });
+
+  it('keeps the stored meta of a live member when a second tab fails to subscribe', async () => {
+    const t = createRuntime(true);
+    await t.join(createConnection('conn_a', 'alice'));
+
+    const closing = createConnection('conn_a2', 'alice');
+    Object.assign(closing, { closing: true });
+    await t.join(closing);
+
+    expect(t.rows.get('alice')).toEqual({ meta: { name: 'conn_a' }, kicked: false });
+  });
 });
 
 describe('presence on an ephemeral channel is keyed by connection id', () => {

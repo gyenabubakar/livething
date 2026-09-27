@@ -11,10 +11,9 @@ import {
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
   readReplayContextScope,
+  readReplayGapWatermark,
   readReplayScope,
-  readReplayWatermark,
   ReplayPruneGate,
-  replayScopeKey,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import { createSendReplayExtender, readConnectionId } from '~/replay/send-replay.ts';
@@ -27,7 +26,7 @@ import type { ReplaySnapshotEntry, ReplayStoreOwner } from '~/replay/runtime.ts'
 import type { ReplayOptions } from '~/replay/types.ts';
 import type { ReplayWire } from './wire.ts';
 
-/** The primitive type produced by `replay()`. */
+/** The primitive type produced by `replay.history()` and `replay.snapshot()`. */
 export interface ReplayPrimitive extends Primitive<'replay'> {
   /** The full resolved replay configuration. */
   readonly options: ReplayOptions;
@@ -327,11 +326,11 @@ class ReplayInstaller {
     // Snapshot resends current state, so only history mode can have a gap.
     // Detected against the eviction watermark, not MIN(seq): the global seq counter is sparse.
     if ((this.opts.type ?? 'history') === 'history' && since > 0) {
-      const scopeKey = replayScopeKey({
-        channel: scope.channelName ?? null,
-        channelFamily: scope.channelFamily ?? null,
-      });
-      const watermark = readReplayWatermark(sql, scopeKey);
+      const watermark = readReplayGapWatermark(
+        sql,
+        { channel: scope.channelName ?? null, channelFamily: scope.channelFamily ?? null },
+        connection?.userId || null,
+      );
       if (watermark !== null && since < watermark) {
         this.engine.sendGap(connectionId, {
           channelName: scope.channelName ?? null,
