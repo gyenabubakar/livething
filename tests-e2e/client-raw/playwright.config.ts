@@ -30,7 +30,9 @@ export default defineConfig({
             cwd: serverCwd,
             port: serverPort,
             reuseExistingServer: false,
-            timeout: 60_000,
+            // Two wrangler dev servers starting at once (pnpm test:e2e runs
+            // the raw and packaged lanes side by side) can take over a minute.
+            timeout: 180_000,
           },
         ]
       : []),
