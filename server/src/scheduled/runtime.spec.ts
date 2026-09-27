@@ -279,6 +279,32 @@ describe('scheduled/runtime', () => {
       expect(scheduledRuns.size).toBe(0);
     });
 
+    it('a stop that crashed before its queued run was deleted does not run the task again', async () => {
+      const handler = vi.fn(async () => {});
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 }, handler },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+
+      // The stop wrote its marker, then the process died before the write
+      // that deletes the queued recurring run.
+      runtime
+        .getStorage()
+        .sql.exec(
+          'INSERT INTO __livething_scheduled_stopped (taskId, stoppedAt) VALUES (?, ?)',
+          'tick',
+          0,
+        );
+
+      bootstrapScheduledRuntime(runtime);
+      const now = vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER - 1);
+      await handleScheduledAlarm(runtime);
+      now.mockRestore();
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(recurringRuns(scheduledRuns)).toHaveLength(0);
+    });
+
     it('ctx.schedule starts a stopped recurring task again, at `time` and then every interval', async () => {
       const handler = vi.fn(async () => {});
       const { runtime, scheduledRuns } = createScheduledRuntime([

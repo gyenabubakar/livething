@@ -602,6 +602,12 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
     stopped.delete(taskId);
   }
 
+  // Stopping writes the marker and deletes the queued run in two writes. A
+  // process that died between them leaves both, so drop the run here.
+  for (const [id, run] of scheduledRuns) {
+    if (run.recurring && stopped.has(run.taskId)) scheduledRuns.delete(id);
+  }
+
   ensureRecurringRuns(runtime, stopped);
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
