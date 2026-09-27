@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build:deps": "pnpm --filter @livething/server-node... run build",
+    "build:deps": "[ -n \"$LIVETHING_E2E_PREBUILT\" ] || pnpm --filter @livething/server-node... run build",
     "prepare:e2e:raw": "pnpm run build:deps && pnpm --filter @livething/tests-e2e-client-raw run prepare",
     "dev:node-http": "node --experimental-strip-types src/node-http.ts",
     "test:e2e:node:http": "pnpm run prepare:e2e:raw && LIVETHING_E2E_SERVER_COMMAND='pnpm run dev:node-http' LIVETHING_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @livething/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|flat ops on the stub'",
