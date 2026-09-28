@@ -1,25 +1,47 @@
-<template>
-  <section class="relative overflow-hidden bg-default">
-    <div class="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] rounded-full blur-3xl pointer-events-none" />
-    <div class="relative z-10 flex flex-col items-center text-center max-w-4xl mx-auto pt-28 lg:pt-32 pb-4 px-6">
-      <div class="relative">
-        <h1 class="section-title mb-5 leading-[1.1]">
-          <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
-        </h1>
-        <div aria-hidden="true" v-play-when-visible class="absolute inset-0 section-title mb-5 leading-[1.1] blur-xs animate-pulse pointer-events-none">
-          <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
-        </div>
-      </div>
+<script setup lang="ts">
+import { useIntersectionObserver } from '@vueuse/core'
 
-      <p class="mb-8 max-w-xl text-base/7 text-muted font-sans">
+const managers = [
+  { name: 'pnpm', command: 'pnpm add' },
+  { name: 'npm', command: 'npm install' },
+  { name: 'bun', command: 'bun add' },
+  { name: 'yarn', command: 'yarn add' },
+]
+const packages = '@livething/server @livething/server-node @livething/client @livething/core'
+const heroCta = ref<{ $el: HTMLElement }>()
+const heroCtaVisible = useState('hero-cta-visible', () => true)
+
+useIntersectionObserver(() => heroCta.value?.$el, ([entry]) => {
+  heroCtaVisible.value = entry?.isIntersecting ?? true
+})
+onBeforeUnmount(() => { heroCtaVisible.value = true })
+
+const active = ref(0)
+const copied = ref(false)
+
+async function copy() {
+  await navigator.clipboard.writeText(`${managers[active.value]!.command} ${packages}`)
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 1500)
+}
+</script>
+
+<template>
+  <section class="frame-row grid lg:grid-cols-2 pt-16">
+    <div class="flex flex-col justify-center px-6 sm:px-10 py-16 lg:py-24 lg:border-r border-default">
+      <h1 class="section-title mb-6 leading-[1.05]">
+        <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
+      </h1>
+      <p class="mb-8 max-w-lg text-base/7 text-muted">
         <slot name="description" mdc-unwrap="p" />
       </p>
 
-      <div class="flex flex-wrap justify-center items-center gap-4">
+      <div class="flex flex-wrap items-center gap-3">
         <UButton
+          ref="heroCta"
           to="/start/installation"
           size="lg"
-          class="bg-primary hover:bg-blue-600 text-zinc-950 font-medium"
+          class="glow-button font-medium"
           trailing-icon="i-ph-arrow-right-duotone"
           label="Start building"
         />
@@ -27,16 +49,37 @@
           to="https://github.com/workmatter/livething"
           target="_blank"
           size="lg"
-          variant="ghost"
-          class="text-muted hover:text-white"
-          label="GitHub"
+          color="neutral"
+          variant="outline"
+          label="View on GitHub"
           leading-icon="i-simple-icons-github"
         />
       </div>
+
+      <div class="mt-12 max-w-xl border border-default bg-elevated/30">
+        <div class="flex border-b border-default font-mono text-xs" role="tablist">
+          <button
+            v-for="(manager, index) in managers"
+            :key="manager.name"
+            role="tab"
+            :aria-selected="active === index"
+            class="px-4 py-2.5 transition-colors"
+            :class="active === index ? 'text-highlighted shadow-[inset_0_-1px_0_var(--ui-primary)]' : 'text-muted hover:text-toned'"
+            @click="active = index"
+          >
+            {{ manager.name }}
+          </button>
+          <button class="ml-auto px-4 text-muted hover:text-highlighted" :aria-label="copied ? 'Copied' : 'Copy install command'" @click="copy">
+            <UIcon :name="copied ? 'i-ph-check' : 'i-ph-copy'" class="size-4" />
+          </button>
+        </div>
+        <pre class="whitespace-pre-wrap px-4 py-3 font-mono text-xs leading-6 text-toned">{{ managers[active]!.command }} {{ packages }}</pre>
+      </div>
     </div>
 
-    <div class="relative z-10 mt-16 pb-24">
-      <HeroTerminalDemo />
+    <div class="relative flex items-center justify-center px-6 py-10 lg:py-16 overflow-hidden">
+      <div class="absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_45%,rgb(244_97_15/0.12),transparent)]" aria-hidden="true" />
+      <LandingHeroIllustration class="relative max-w-[640px] cursor-default select-none" />
     </div>
   </section>
 </template>

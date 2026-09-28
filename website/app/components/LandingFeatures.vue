@@ -1,5 +1,5 @@
 <template>
-  <UPageSection :ui="{ root: 'py-0', container: 'gap-0 lg:gap-0' }">
+  <section class="grid lg:grid-cols-2">
     <slot name="body" />
-  </UPageSection>
+  </section>
 </template>

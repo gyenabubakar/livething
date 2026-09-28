@@ -18,36 +18,12 @@ const props = defineProps<{
 const titleText = computed(() => props.title || 'Documentation')
 const titleLen = computed(() => titleText.value.length)
 
-const pixelTitleSize = computed(() => {
-  const n = titleLen.value
-  if (n <= 14) return '102px'
-  if (n <= 20) return '92px'
-  if (n <= 28) return '82px'
-  if (n <= 36) return '72px'
-  if (n <= 46) return '62px'
-  if (n <= 58) return '52px'
-  return ''
-})
-
-const usePixelTitle = computed(() => pixelTitleSize.value !== '')
-
 const titleShadowSoft =
   '0 0 6px rgba(255,255,255,0.2), 0 0 18px rgba(255,255,255,0.1), 0 0 40px rgba(255,255,255,0.04)'
 const titleShadowWrapped =
   '0 0 10px rgba(255,255,255,0.28), 0 0 28px rgba(255,255,255,0.12), 0 0 56px rgba(255,255,255,0.05)'
 
 const titleStyle = computed(() => {
-  if (usePixelTitle.value) {
-    return {
-      fontFamily: 'Geist Pixel Line',
-      fontWeight: 500,
-      fontSize: pixelTitleSize.value,
-      lineHeight: 1.06,
-      letterSpacing: '-0.02em',
-      color: '#fafafa',
-      textShadow: titleShadowSoft,
-    }
-  }
   const n = titleLen.value
   return {
     fontFamily: 'Geist',
@@ -83,10 +59,9 @@ const titleStyleNoDuplicate = computed(() => ({
 }))
 
 const periodStyle = computed(() => {
-  const key = usePixelTitle.value ? pixelTitleSize.value : titleStyle.value.fontSize
-  const px = Number.parseInt(String(key).replace('px', ''), 10) || 72
+  const px = Number.parseInt(String(titleStyle.value.fontSize).replace('px', ''), 10) || 72
   const periodPx = Math.max(28, Math.round(px * 0.4))
-  const padB = usePixelTitle.value ? Math.round(px * 0.1) : Math.round(px * 0.07)
+  const padB = Math.round(px * 0.07)
   return {
     fontFamily: 'Geist',
     fontWeight: 700,
@@ -133,13 +108,6 @@ function truncate(str: string, max: number) {
     />
 
     <div class="flex flex-col flex-1 min-w-0 min-h-0" :style="mainColumnStyle">
-      <div
-        aria-hidden="true"
-        class="flex font-pixel overflow-hidden font-medium"
-        style="width: 0; height: 0; font-size: 1px;"
-      >
-        og
-      </div>
       <div class="flex flex-row justify-between items-center px-14 pt-12 pb-3">
         <div class="flex flex-row items-end gap-2.5">
           <svg width="35" height="48" viewBox="0 0 191 264" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -154,8 +122,8 @@ function truncate(str: string, max: number) {
             </defs>
           </svg>
           <div
-            class="flex font-pixel font-medium text-[40px] leading-none tracking-tight text-[#f5f5f5]"
-            :style="wordmarkGlow"
+            class="flex font-semibold text-[40px] leading-none tracking-tight text-[#f5f5f5]"
+            :style="{ fontFamily: 'Geist', ...wordmarkGlow }"
           >
             LiveThing
           </div>

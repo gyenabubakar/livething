@@ -1,20 +1,10 @@
 <script setup lang="ts">
 definePageMeta({
-  colorMode: 'dark',
   layout: false,
 })
 
 useHead({
   titleTemplate: '',
-  link: [
-    {
-      rel: 'preload',
-      href: '/fonts/GeistPixel-Line.woff2',
-      as: 'font',
-      type: 'font/woff2',
-      crossorigin: '',
-    },
-  ],
 })
 
 const { data: page } = await useAsyncData('livething-docs-home', () => {
@@ -41,7 +31,7 @@ defineOgImage('Home', {
 </script>
 
 <template>
-  <main v-if="page">
+  <main v-if="page" class="landing-frame">
     <ContentRenderer :value="page" />
   </main>
 </template>
