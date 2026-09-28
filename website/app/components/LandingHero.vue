@@ -29,9 +29,6 @@ async function copy() {
 <template>
   <section class="frame-row grid lg:grid-cols-2 pt-16">
     <div class="flex flex-col justify-center px-6 sm:px-10 py-16 lg:py-24 lg:border-r border-default">
-      <p class="section-label">
-        WebSocket framework for TypeScript
-      </p>
       <h1 class="section-title mb-6 leading-[1.05]">
         <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
       </h1>
