@@ -21,6 +21,7 @@ export function namespacedName(id: string, name: string): string {
  */
 export function namespacePrefixOf(name: string): string {
   if (!name.startsWith('__')) return '';
+
   const delimAt = name.indexOf(NAMESPACE_DELIMITER);
   return delimAt < 0 ? '' : name.slice(0, delimAt + NAMESPACE_DELIMITER.length);
 }

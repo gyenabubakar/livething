@@ -18,13 +18,41 @@ import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import type * as ChannelRuntime from '~/channel/runtime.ts';
-import type { MembershipKey } from '~/channel/storage.ts';
+import type { MembershipInsert, MembershipKey, StoredMembership } from '~/channel/storage.ts';
 import type { ConnectionInfo, ConnectionRef, SQLProvider } from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RunInterceptsOptions } from '~/intercept/runtime.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
-import type { BufferStreamNudgeOptions, RunStreamOptions } from '~/stream/runtime.ts';
+import type {
+  BufferStreamNudgeOptions,
+  RunStreamOptions,
+  StopChannelStreamsOptions,
+} from '~/stream/runtime.ts';
 import type { TagsApi } from '~/tags/types.ts';
+
+type OptionsParameter = { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
+type OptionsParameter2 = { streamId: string; cancelScope: ResolvedChannel };
+type OptionsParameter3 = {
+  connection: RuntimeConnection;
+  ctx: Record<PropertyKey, unknown>;
+  scope: ResolvedChannel;
+  event: string;
+  request: any;
+  payload: unknown;
+  livething: Protocol.LiveThingProtocol | undefined;
+};
+type OptsParameter = { taskId: string; time: number; data: unknown };
+type OptsParameter2 = { taskId: string; filter?: Record<string, unknown> };
+type ScopeParameter = { channelName: string; channelFamily: string | null };
+type OptsParameter3 = {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+  deliverySeq: number;
+  messageId: string;
+};
+type KeyParameter = { userId: string; channelName: string; channelFamily: string | null };
 
 /**
  * Build the `ctx.tags` surface for one connection. Set by the `tags()`
@@ -58,6 +86,16 @@ export type StreamCancel = (
   streamId: string,
 ) => Promise<void>;
 
+/**
+ * Stop the streams a connection runs in a channel it just left. Shared by plain
+ * and durable streams, so it is set when either kind is listed.
+ */
+export type StreamChannelLeave = (
+  runtime: any,
+  connection: RuntimeConnection,
+  options: StopChannelStreamsOptions,
+) => Promise<void>;
+
 /** Options the durable trigger needs to start a resumable/recorded stream. */
 export interface DurableTriggerOptions {
   scope: ResolvedChannel;
@@ -65,7 +103,7 @@ export interface DurableTriggerOptions {
   durable: any;
   kind: 'resumable' | 'recorded';
   payload: unknown;
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 }
 
 /**
@@ -82,32 +120,25 @@ export interface DurableStreamService {
     options: DurableTriggerOptions,
   ): Promise<void>;
   /** Handle a client `__resumeStream__` frame. */
-  resume(
-    runtime: any,
-    connection: RuntimeConnection,
-    options: { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number },
-  ): Promise<void>;
+  resume(runtime: any, connection: RuntimeConnection, options: OptionsParameter): Promise<void>;
   /** Handle the durable side of a `__streamCancel__` frame. */
-  cancel(
+  cancel(runtime: any, connection: RuntimeConnection, options: OptionsParameter2): Promise<void>;
+  /**
+   * Delete the stored row of a durable stream whose creator left the stream's
+   * channel. The caller has already stopped the generator.
+   */
+  endOnLeave(
     runtime: any,
     connection: RuntimeConnection,
-    options: { streamId: string; cancelScope: ResolvedChannel },
-  ): Promise<void>;
+    options: { streamId: string; scope: ResolvedChannel },
+  ): void;
 }
 
-/** Execute a matched `.request(...)` handler. Set by the `requests()` capability. */
+/** Execute a matched `.request(...)` handler. Set by the `serverRequests()` capability. */
 export type RequestDispatch = (
   runtime: any,
   connection: RuntimeConnection,
-  options: {
-    connection: RuntimeConnection;
-    ctx: Record<PropertyKey, unknown>;
-    scope: ResolvedChannel;
-    event: string;
-    request: any;
-    payload: unknown;
-    wskit: Protocol.WSKitProtocol | undefined;
-  },
+  options: OptionsParameter3,
 ) => Promise<void>;
 
 /**
@@ -117,9 +148,15 @@ export type RequestDispatch = (
  * so an unset slot is the same as the opted-out path.
  */
 export interface ChannelMembershipService {
-  persistMembership(core: any, key: MembershipKey): void;
+  persistMembership(core: any, row: MembershipInsert): void;
   deleteDurableMembership(core: any, key: MembershipKey): void;
-  hasDurableMembership(core: any, key: MembershipKey): boolean;
+  getDurableMembership(core: any, key: MembershipKey): StoredMembership | undefined;
+  markDurableMembershipKicked(core: any, key: MembershipKey): void;
+  listDurableMembers(
+    core: any,
+    channelName: string,
+    channelFamily: string | null,
+  ): (StoredMembership & { userId: string })[];
   autoRejoinIdentity(
     core: any,
     subscribeFromServer: any,
@@ -145,16 +182,8 @@ export interface TagPersistenceService {
  */
 export interface ScheduledService {
   ensureRuntime(core: any, commonDeps: any): void;
-  scheduleTask(
-    core: any,
-    commonDeps: any,
-    opts: { taskId: string; time: number; data: unknown },
-  ): void;
-  cancelScheduled(
-    core: any,
-    commonDeps: any,
-    opts: { taskId: string; filter?: Record<string, unknown> },
-  ): ScheduledCancelResult;
+  scheduleTask(core: any, commonDeps: any, opts: OptsParameter): void;
+  cancelScheduled(core: any, commonDeps: any, opts: OptsParameter2): ScheduledCancelResult;
   rescheduleAlarm(core: any): void;
   createTaskContext(core: any, commonDeps: any): unknown;
 }
@@ -261,7 +290,7 @@ export interface LastSeenService {
  */
 export type ChannelHandleAugmenter = (
   handle: Record<PropertyKey, unknown>,
-  scope: { channelName: string; channelFamily: string | null },
+  scope: ScopeParameter,
 ) => void;
 
 /**
@@ -276,24 +305,11 @@ export interface InboxService {
    * the `seq`/`messageId` the broadcast already stamped so each row matches the
    * live frame the member also receives.
    */
-  fanOut(
-    core: any,
-    opts: {
-      channelName: string;
-      channelFamily: string | null;
-      event: string;
-      payload: Record<string, unknown>;
-      seq: number;
-      messageId: string;
-    },
-  ): void;
+  fanOut(core: any, opts: OptsParameter3): void;
   /** Re-deliver a user's owed rows after its socket reconnects. */
   drainOnReconnect(core: any, connection: RuntimeConnection): void;
   /** Drop a user's rows for a channel it has just left. */
-  clearChannel(
-    core: any,
-    key: { userId: string; channelName: string; channelFamily: string | null },
-  ): void;
+  clearChannel(core: any, key: KeyParameter): void;
 }
 
 /** The bag of optional feature slots the engine core carries. */
@@ -301,6 +317,7 @@ export interface FeatureDispatchSlots {
   streamTrigger?: StreamTrigger;
   streamNudgeBuffer?: StreamNudgeBuffer;
   streamCancel?: StreamCancel;
+  streamChannelLeave?: StreamChannelLeave;
   durableStream?: DurableStreamService;
   requestDispatch?: RequestDispatch;
   channelService?: ChannelService;

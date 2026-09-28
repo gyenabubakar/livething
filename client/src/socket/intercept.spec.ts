@@ -1,4 +1,4 @@
-import { Block } from '@wskit/core';
+import { Block } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { dedup } from '~/primitives/dedup.ts';
@@ -29,6 +29,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -58,6 +59,7 @@ describe('intercept — non-Block throw drops message', () => {
     );
     socket.on('message', handler);
     ws.emit({ event: 'message', payload: { text: 'hello' } });
+
     expect(laterIntercept).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledTimes(1);
   });
@@ -75,6 +77,7 @@ describe('intercept — first Block stops later intercepts', () => {
     );
     socket.on('message', handler);
     ws.emit({ event: 'message', payload: { text: 'hi' } });
+
     expect(secondIntercept).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
   });
@@ -105,6 +108,7 @@ describe('intercept — transform chains to next intercept', () => {
     expect(secondIntercept).toHaveBeenCalledWith(
       expect.objectContaining({ payload: { text: 'transformed' } }),
     );
+
     expect(secondIntercept).not.toHaveBeenCalledWith(
       expect.objectContaining({ payload: { text: 'original' } }),
     );
@@ -125,12 +129,12 @@ describe('intercept — transform chains to next intercept', () => {
     const interceptFn = vi.fn();
     const { socket, ws } = build(dedup(), intercept(interceptFn));
     socket.on('message', () => {});
-    ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { messageId: 'msg-1' } });
+    ws.emit({ event: 'message', payload: { text: 'hi' }, metadata: { delivery: { id: 'msg-1' } } });
     expect(interceptFn).toHaveBeenCalledTimes(1);
 
     interceptFn.mockClear();
 
-    ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { messageId: 'msg-1' } });
+    ws.emit({ event: 'message', payload: { text: 'hi' }, metadata: { delivery: { id: 'msg-1' } } });
     expect(interceptFn).not.toHaveBeenCalled();
   });
 });

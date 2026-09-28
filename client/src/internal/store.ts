@@ -3,8 +3,8 @@
  * watch for changes with `subscribe(...)`.
  *
  * This is the shape every UI framework already understands — React's
- * `useSyncExternalStore`, a Svelte store, a Vue `ref`, a Solid signal. WSKit is
- * framework-agnostic, so instead of shipping a `@wskit/react` package it exposes
+ * `useSyncExternalStore`, a Svelte store, a Vue `ref`, a Solid signal. LiveThing is
+ * framework-agnostic, so instead of shipping a `@livething/react` package it exposes
  * its live values (connection state, connection quality, a channel's members,
  * and so on) as stores you bind to your framework in a few lines.
  */
@@ -26,7 +26,7 @@ export interface ReadableStore<T> {
 
 /**
  * A {@link ReadableStore} paired with the `set` the library uses to drive it.
- * Only WSKit's internals hold the writable half; callers only ever see `store`.
+ * Only LiveThing's internals hold the writable half; callers only ever see `store`.
  */
 export interface WritableStore<T> {
   readonly store: ReadableStore<T>;
@@ -73,17 +73,20 @@ export function createStore<T>(
     store,
     set(next) {
       if (Object.is(next, value)) return;
+
       value = next;
 
       // Listeners are read before any of them runs, so subscribing from inside
       // one only takes effect on the next change. A single listener — the common
       // case for a framework binding — gets there without copying the set.
       if (listeners.size === 0) return;
+
       if (listeners.size === 1) {
         const only = listeners.values().next().value;
         if (only) notify(only, value, onListenerError);
         return;
       }
+
       for (const listener of [...listeners]) notify(listener, value, onListenerError);
     },
   };

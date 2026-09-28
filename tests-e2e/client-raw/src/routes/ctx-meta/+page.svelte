@@ -8,12 +8,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/ctx-meta?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -23,11 +25,13 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'who-am-i-result') echoed = data.payload?.username ?? '';
 			if (data.event === 'members-list-result') {
 				membersList = (data.payload?.members ?? []).join(', ');
 			}
+
 			if (data.event === 'broadcast-identity-received') {
 				broadcastReceived = data.payload?.from ?? '';
 			}
@@ -35,15 +39,15 @@
 	}
 
 	function askWhoAmI() {
-		ws?.send(JSON.stringify({ event: 'who-am-i', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'who-am-i', payload: {} }));
 	}
 
 	function listMembers() {
-		ws?.send(JSON.stringify({ event: 'list-members', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'list-members', payload: {} }));
 	}
 
 	function broadcastIdentity() {
-		ws?.send(JSON.stringify({ event: 'broadcast-identity', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'broadcast-identity', payload: {} }));
 	}
 </script>
 

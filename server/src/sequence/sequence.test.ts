@@ -6,7 +6,7 @@ const sequencePrimitive = sequence();
 const _sequenceType: SequencePrimitive = sequencePrimitive;
 void _sequenceType;
 
-const _tag: 'sequence' = sequencePrimitive.__wskit;
+const _tag: 'sequence' = sequencePrimitive.__livething;
 const _kind: PrimitiveKind = sequencePrimitive.__kind;
 void [_tag, _kind];
 

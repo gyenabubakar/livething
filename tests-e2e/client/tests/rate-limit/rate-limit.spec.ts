@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client against the real wskit `rate-limit` handler.
+// Conformance: @livething/client against the real LiveThing `rate-limit` server definition.
 // Adapter-oblivious — it talks to whatever server the run booted over the /ws
 // proxy.
 async function open(page: Page, room: string): Promise<void> {
@@ -12,7 +12,7 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('rate-limit (conformance)', () => {
-  test('spamming a capped event past its cap delivers rate-limited + retryAfter to onServerError', async ({
+  test('spamming a capped event past its cap delivers rate-limited + retryAfterMs to onServerError', async ({
     page,
   }, testInfo) => {
     await open(page, `rl-tick-${testInfo.testId}`);
@@ -24,7 +24,7 @@ test.describe('rate-limit (conformance)', () => {
     await page.getByTestId('tick').click();
 
     await expect(page.getByTestId('error-code')).toHaveText('rate-limited');
-    const retry = await page.getByTestId('retry-after').textContent();
+    const retry = await page.getByTestId('retry-after-ms').textContent();
     expect(Number(retry)).toBeGreaterThanOrEqual(1);
   });
 

@@ -17,16 +17,18 @@ async function askLastSeen(page: Page, identity: string): Promise<Frame> {
   function match(f: Frame): boolean {
     return f.event === 'last-seen-answer' && f.payload.identity === identity;
   }
+
   const already = (await frames(page)).filter(match).length;
-  await send(page, { event: 'ask-last-seen', payload: { identity }, __wskit: {} });
+  await send(page, { event: 'ask-last-seen', payload: { identity }, metadata: null });
   await expect
     .poll(async () => (await frames(page)).filter(match).length, { timeout: 15_000 })
     .toBeGreaterThan(already);
+
   return (await frames(page)).filter(match).at(-1)!;
 }
 
 async function askLastSeenMany(page: Page, identities: string[]): Promise<Frame> {
-  await send(page, { event: 'ask-last-seen-many', payload: { identities }, __wskit: {} });
+  await send(page, { event: 'ask-last-seen-many', payload: { identities }, metadata: null });
   return waitForFrame(page, (f) => f.event === 'last-seen-many-answer');
 }
 
@@ -56,12 +58,17 @@ test.describe('lastSeen() (raw wire)', () => {
     expect(whileOnline.payload.online).toBe(true);
 
     await closeSocket(alice.page);
-    // Give the disconnect hook time to stamp before reading it back.
-    await bob.page.waitForTimeout(300);
 
-    const afterDisconnect = await askLastSeen(bob.page, 'alice');
+    // Alice's disconnect hook is on a separate connection from bob's query,
+    // with no ordering guarantee between them, so retry the query itself
+    // (askLastSeen is designed to be called repeatedly — see the file-level
+    // comment) instead of trusting a fixed delay for the stamp to land first.
+    let afterDisconnect!: Frame;
+    await expect(async () => {
+      afterDisconnect = await askLastSeen(bob.page, 'alice');
+      expect(afterDisconnect.payload.online).toBe(false);
+    }).toPass({ timeout: 10_000 });
     expect(typeof afterDisconnect.payload.at).toBe('number');
-    expect(afterDisconnect.payload.online).toBe(false);
 
     await bob.close();
   });

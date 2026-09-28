@@ -10,20 +10,23 @@ import type { Page } from '@playwright/test';
 export type WireFrame = {
   event: string;
   payload: Record<string, unknown>;
-  __wskit?: Record<string, unknown>;
+  metadata?: Record<string, Record<string, unknown>> | null;
 };
 
+type WireInput = Omit<WireFrame, 'payload'> & { payload: Record<string, unknown> | null };
+type RawWireFrame = [string, unknown, Record<string, Record<string, unknown>> | null];
+
 interface RigWindow {
-  __wskitConnect?: (
+  __livethingConnect?: (
     path: string,
     username: string,
     room: string,
   ) => Promise<{ id: string; frames: WireFrame[] }>;
-  __wskitSend?: (id: string, frame: WireFrame) => void;
-  __wskitSendRaw?: (id: string, text: string) => void;
-  __wskitClose?: (id: string) => void;
-  __wskitFrames?: (id: string) => WireFrame[];
-  __wskitRawFrames?: (id: string) => string[];
+  __livethingSend?: (id: string, frame: WireInput) => void;
+  __livethingSendRaw?: (id: string, text: string) => void;
+  __livethingClose?: (id: string) => void;
+  __livethingFrames?: (id: string) => WireFrame[];
+  __livethingRawFrames?: (id: string) => string[];
 }
 
 declare global {
@@ -33,39 +36,64 @@ declare global {
 export async function installRig(page: Page) {
   await page.evaluate(() => {
     const sockets = new Map<string, WebSocket>();
-    const frames = new Map<string, WireFrame[]>();
-    const rawFrames = new Map<string, string[]>();
+    const socketFrames = new Map<string, WireFrame[]>();
+    const rawSocketFrames = new Map<string, string[]>();
     let nextId = 1;
 
-    window.__wskitConnect = (path, username, room) => {
+    function encode(frame: WireInput): RawWireFrame {
+      const metadata =
+        frame.metadata && Object.keys(frame.metadata).length > 0 ? frame.metadata : null;
+      return [frame.event, frame.payload ?? null, metadata];
+    }
+
+    function decode(value: unknown): WireFrame {
+      if (!Array.isArray(value) || value.length !== 3 || typeof value[0] !== 'string') {
+        throw new Error('invalid LiveThing wire frame');
+      }
+
+      if (value[2] !== null && (typeof value[2] !== 'object' || Array.isArray(value[2]))) {
+        throw new Error('invalid LiveThing metadata');
+      }
+
+      return {
+        event: value[0],
+        payload: (value[1] as Record<string, unknown> | null) ?? {},
+        metadata: (value[2] as Record<string, Record<string, unknown>> | null) ?? null,
+      };
+    }
+
+    window.__livethingConnect = (path, username, room) => {
       const id = `s${nextId++}`;
       const url = `${location.origin.replace(/^http/, 'ws')}${path}?room=${encodeURIComponent(
         room,
       )}&username=${encodeURIComponent(username)}`;
       const ws = new WebSocket(url);
       sockets.set(id, ws);
-      frames.set(id, []);
-      rawFrames.set(id, []);
+      socketFrames.set(id, []);
+
+      rawSocketFrames.set(id, []);
       ws.addEventListener('message', (ev) => {
         if (typeof ev.data === 'string') {
-          rawFrames.get(id)!.push(ev.data);
+          rawSocketFrames.get(id)!.push(ev.data);
           try {
-            frames.get(id)!.push(JSON.parse(ev.data));
+            socketFrames.get(id)!.push(decode(JSON.parse(ev.data)));
           } catch {
-            // A bare `ping` / `pong` is not JSON; it lives in rawFrames only.
+            // A bare `ping` / `pong` is not JSON; it lives in rawSocketFrames only.
           }
         }
       });
+
       return new Promise((resolve, reject) => {
-        ws.addEventListener('open', () => resolve({ id, frames: frames.get(id)! }));
+        ws.addEventListener('open', () => resolve({ id, frames: socketFrames.get(id)! }));
         ws.addEventListener('error', () => reject(new Error('ws error')));
       });
     };
-    window.__wskitSend = (id, frame) => sockets.get(id)?.send(JSON.stringify(frame));
-    window.__wskitSendRaw = (id, text) => sockets.get(id)?.send(text);
-    window.__wskitClose = (id) => sockets.get(id)?.close();
-    window.__wskitFrames = (id) => frames.get(id) ?? [];
-    window.__wskitRawFrames = (id) => rawFrames.get(id) ?? [];
+    window.__livethingSend = (id, frame) => sockets.get(id)?.send(JSON.stringify(encode(frame)));
+    window.__livethingSendRaw = (id, text) => sockets.get(id)?.send(text);
+    window.__livethingClose = (id) => sockets.get(id)?.close();
+    window.__livethingFrames = (id) => socketFrames.get(id) ?? [];
+
+    window.__livethingRawFrames = (id) => rawSocketFrames.get(id) ?? [];
   });
 }
 
@@ -76,33 +104,39 @@ export interface ConnectOptions {
 }
 
 export async function connect(page: Page, opts: ConnectOptions): Promise<string> {
-  return page.evaluate(([p, u, r]) => window.__wskitConnect!(p, u, r).then((res) => res.id), [
+  return page.evaluate(([p, u, r]) => window.__livethingConnect!(p, u, r).then((res) => res.id), [
     opts.path,
     opts.username,
     opts.room,
   ] as const);
 }
 
-export async function send(page: Page, id: string, frame: WireFrame) {
-  await page.evaluate(([sid, f]) => window.__wskitSend!(sid, f as WireFrame), [id, frame] as const);
+export async function send(page: Page, id: string, frame: WireInput) {
+  await page.evaluate(([sid, f]) => window.__livethingSend!(sid, f as WireInput), [
+    id,
+    frame,
+  ] as const);
 }
 
 /** Send one bare text frame, bypassing JSON — used for `ping` and `pong`. */
 export async function sendRaw(page: Page, id: string, text: string) {
-  await page.evaluate(([sid, value]) => window.__wskitSendRaw!(sid, value), [id, text] as const);
+  await page.evaluate(([sid, value]) => window.__livethingSendRaw!(sid, value), [
+    id,
+    text,
+  ] as const);
 }
 
 export async function closeSocket(page: Page, id: string) {
-  await page.evaluate((sid) => window.__wskitClose!(sid), id);
+  await page.evaluate((sid) => window.__livethingClose!(sid), id);
 }
 
 export async function frames(page: Page, id: string): Promise<WireFrame[]> {
-  return page.evaluate((sid) => window.__wskitFrames!(sid), id);
+  return page.evaluate((sid) => window.__livethingFrames!(sid), id);
 }
 
 /** Every text frame the socket received, including the non-JSON `ping` / `pong`. */
 export async function rawFrames(page: Page, id: string): Promise<string[]> {
-  return page.evaluate((sid) => window.__wskitRawFrames!(sid), id);
+  return page.evaluate((sid) => window.__livethingRawFrames!(sid), id);
 }
 
 export interface WaitForFrameOptions {
@@ -121,7 +155,9 @@ export async function waitForFrame(
     const all = await frames(page, id);
     const hit = all.find(match);
     if (hit) return hit;
+
     await page.waitForTimeout(50);
   }
+
   throw new Error('frame not received in time');
 }

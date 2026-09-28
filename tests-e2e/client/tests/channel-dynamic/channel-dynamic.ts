@@ -1,11 +1,11 @@
-import { channels, client, connect } from '@wskit/client';
-import type { ChannelDynamicClient } from '@wskit/tests-e2e-handlers/channel-dynamic';
+import { channels, client, connect } from '@livething/client';
+import type { ChannelDynamicClient } from '@livething/tests-e2e-handlers/channel-dynamic';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channels() against the real `channel-dynamic` handler,
+// Drives @livething/client's channels() against the real `channel-dynamic` server definition,
 // exercising the dynamic-family surface: socket.channel(scope, name) and the
 // socket.channel.scope(scope) handle, typed by the same contract the server
-// implements (ChannelDynamicClient = InferClient<handler>).
+// implements (ChannelDynamicClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
@@ -25,6 +25,7 @@ export function setup(): void {
     <span data-testid="user-msgs-vip"></span>
     <span data-testid="name-result"></span>
     <span data-testid="subscription-failed"></span>
+    <span data-testid="server-error"></span>
   `);
 
   const page = new URLSearchParams(location.search);
@@ -59,8 +60,13 @@ export function setup(): void {
       el('name-result').textContent = `${data.name}|${data.suffix}`;
     });
   }
+
   general.onSubscriptionFailed(() => {
     el('subscription-failed').textContent = 'yes';
+  });
+
+  socket.onServerError((error) => {
+    el('server-error').textContent = error.code;
   });
 
   button('connect', () => socket.connect());

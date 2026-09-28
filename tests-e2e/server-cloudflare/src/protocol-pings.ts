@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { protocolPingsHandler } from '@wskit/tests-e2e-handlers/protocol-pings';
+import { bind } from '@livething/server-cloudflare';
+import { protocolPingsDefinition } from '@livething/tests-e2e-handlers/protocol-pings';
 
-export class ProtocolPingsServer extends server(protocolPingsHandler) {}
+export class ProtocolPingsServer extends bind(protocolPingsDefinition) {}

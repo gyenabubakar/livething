@@ -129,7 +129,7 @@ describe('createSql', () => {
     const sql = createSql(state as unknown as DurableObjectState);
 
     expect(() => sql.transaction((tx) => tx.exec('INSERT ...').toArray().length)).toThrow(
-      /\[wskit\].*transactionSync/,
+      /\[livething\].*transactionSync/,
     );
   });
 
@@ -168,6 +168,7 @@ describe('createStorage', () => {
     (state.storage as unknown as Record<string, unknown>).delete = vi.fn(async (k: string) => {
       kvMap.delete(k);
     });
+
     (state.storage as unknown as Record<string, unknown>).list = vi.fn(async () => new Map());
 
     const storage = createStorage(state as unknown as DurableObjectState, noopLogger);

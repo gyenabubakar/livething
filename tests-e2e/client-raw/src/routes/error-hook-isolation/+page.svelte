@@ -5,12 +5,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${proto}//${location.host}/ws/error-hook-isolation?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;

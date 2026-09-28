@@ -1,12 +1,23 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
-import type { WSKitError } from '@wskit/core';
+import type { LiveThingError } from '@livething/core';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { ApplyChannelPrimitives, Primitive, TypeFn } from '~/primitives/types.ts';
 import type { IncomingOf, ScopedMessaging } from '~/types.ts';
 
-/** One member of a channel. `meta` is the connection's metadata set on the server. */
+/**
+ * One member of a channel. `meta` is the connection's metadata set on the
+ * server. When one user has several tabs in a persistent channel, it is the
+ * meta of one of those tabs. For a member that is offline, it is the meta the
+ * member had when it last joined.
+ */
 export interface ChannelMember {
   meta: Record<string, unknown>;
+  /**
+   * `true` while the member has a live connection in the channel. On a
+   * persistent channel a member stays in the roster while it is offline, with
+   * `online: false`, until it truly leaves.
+   */
+  online: boolean;
 }
 
 /** Who started a subscription: the client asked, or the server pushed it. */
@@ -28,8 +39,8 @@ export type ChannelStatus = 'subscribing' | 'subscribed' | 'unsubscribed' | 'fai
 export type ChannelMessaging<C> = ScopedMessaging<C> & {
   /**
    * Join the channel. Resolves once the server confirms; rejects on auth failure
-   * or disconnect. When the channel declares a `subscribePayload` (the server set
-   * a `check` validator) the payload is required and typed; otherwise it's an
+   * or disconnect. When the server declares the channel with a `subscribe`
+   * schema, the payload is required and typed by it; otherwise it's an
    * optional, untyped value.
    *
    * Pass a function instead of a value to regenerate the payload on every
@@ -57,10 +68,15 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
   resyncMembers(): void;
 
   /**
-   * Who's in the room, as a reactive store keyed by connection id.
-   * `members.get()` reads the roster now; `members.subscribe(listener)` runs on
-   * every join, leave, or roster sync with a fresh snapshot. Online/offline
-   * events don't change the roster — a member stays until it truly leaves.
+   * Who's in the room, as a reactive store keyed by member id. On a persistent
+   * channel the member id is the user's id, so one user is one entry across
+   * reconnects and tabs. On an ephemeral channel, or for an anonymous
+   * connection, it is the connection id.
+   * `members.get()` reads the roster now; `members.subscribe(listener)` runs
+   * with a fresh snapshot on every join, leave, roster sync, and change to a
+   * member's `online` flag. A member stays in the roster until it truly leaves
+   * (unsubscribe or removal, or a disconnect on an ephemeral channel or for an
+   * anonymous connection); going offline only sets `online: false`.
    */
   readonly members: ReadableStore<ReadonlyMap<string, ChannelMember>>;
 
@@ -71,14 +87,20 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
    */
   readonly status: ReadableStore<ChannelStatus>;
 
-  /** Someone joined the group. */
-  onMemberJoin(callback: (connectionId: string, member: ChannelMember) => void): () => void;
+  /** Someone joined the group. `memberId` is the key used in `members`. */
+  onMemberJoin(callback: (memberId: string, member: ChannelMember) => void): () => void;
   /** Someone left the group for good. */
-  onMemberLeave(callback: (connectionId: string) => void): () => void;
-  /** A connection became reachable (fires on reconnect too). */
-  onMemberOnline(callback: (connectionId: string, member: ChannelMember) => void): () => void;
-  /** A connection became unreachable (disconnect or true leave). */
-  onMemberOffline(callback: (connectionId: string) => void): () => void;
+  onMemberLeave(callback: (memberId: string) => void): () => void;
+  /**
+   * A member became reachable: its first live connection (fires on reconnect
+   * too). Sets its `online` flag in `members`; never adds a roster entry.
+   */
+  onMemberOnline(callback: (memberId: string, member: ChannelMember) => void): () => void;
+  /**
+   * A member became unreachable: its last live connection dropped or left.
+   * Clears its `online` flag in `members`; never removes a roster entry.
+   */
+  onMemberOffline(callback: (memberId: string) => void): () => void;
 
   /** This channel became active — `source` says who initiated it. */
   onSubscribed(callback: (source: SubscribeSource) => void): () => void;
@@ -87,7 +109,7 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
   /** The server kicked you out, with a reason. */
   onKicked(callback: (reason: string) => void): () => void;
   /** A re-subscribe after reconnect was rejected (e.g. permissions changed). */
-  onSubscriptionFailed(callback: (error: WSKitError) => void): () => void;
+  onSubscriptionFailed(callback: (error: LiveThingError) => void): () => void;
 };
 
 /**

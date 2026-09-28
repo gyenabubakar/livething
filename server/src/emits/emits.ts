@@ -14,23 +14,22 @@ type EmitPayload<T> = T extends TypeMarker<infer U> ? U : unknown;
 export type EmitDefs = Record<string, TypeMarker<any>>;
 
 /** The contract slot `emits(...)` declares — server→client events the client receives. */
-type EmitSlot<TDefs extends EmitDefs> = {
+export type EmitSlot<TDefs extends EmitDefs> = {
   outgoing: { [K in keyof TDefs & string]: EmitPayload<TDefs[K]> };
 };
 
 /**
  * Declare the server→client, fire-and-forget events this server emits. List the
- * result in `define({ capabilities: [...] })`. Each key is an event name; each
+ * result in `server({ capabilities: [...] })`. Each key is an event name; each
  * value is the payload type, given as a `t<Shape>()` marker. Outgoing payloads
  * are server-produced and not validated on the way out — the type just flows
  * into `ctx.send` / `ctx.broadcast` and the generated client.
  *
  * @example
  * ```ts
- * import { define, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@livething/server';
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [
  *     emits({
  *       message: t<{ text: string; from: string }>(),
@@ -40,9 +39,20 @@ type EmitSlot<TDefs extends EmitDefs> = {
  * });
  * ```
  */
+export type EmitsCapability<TDefs extends EmitDefs> = Capability<
+  EmitSlot<TDefs>,
+  never,
+  'emits'
+> & {
+  readonly __channelEmits: TDefs;
+};
+
 export const emits = withCapabilityKind(function emits<const TDefs extends EmitDefs>(
   defs: TDefs,
-): Capability<EmitSlot<TDefs>> {
+): EmitsCapability<TDefs> {
   const primitives = Object.keys(defs).map((name) => outgoingFactory(name));
-  return stampKind(capability<EmitSlot<TDefs>>(primitives), CAPABILITY_KIND.emits);
+  return stampKind(
+    capability<EmitSlot<TDefs>>(primitives, [], { __channelEmits: defs }),
+    CAPABILITY_KIND.emits,
+  ) as EmitsCapability<TDefs>;
 }, CAPABILITY_KIND.emits);

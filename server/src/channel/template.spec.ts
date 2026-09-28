@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { describe, expect, it } from 'vitest';
 import { compileChannelTemplate } from './template.ts';
 
@@ -15,6 +15,7 @@ describe('compileChannelTemplate — valid templates', () => {
     expect(match('room:{id}', 'room:general')).toEqual({ id: 'general' });
     expect(match('room:{id}', 'room:a:b:c')).toEqual({ id: 'a:b:c' });
     expect(match('room:{id}', 'room:')).toBeNull(); // needs >= 1 char
+
     expect(match('room:{id}', 'lobby:1')).toBeNull();
   });
 
@@ -48,7 +49,7 @@ describe('compileChannelTemplate — valid templates', () => {
 
 describe('compileChannelTemplate — rejections', () => {
   it('rejects an empty template', () => {
-    expect(() => compileChannelTemplate('')).toThrow(WSKitConfigError);
+    expect(() => compileChannelTemplate('')).toThrow(LiveThingConfigError);
   });
 
   it('rejects an unclosed {', () => {

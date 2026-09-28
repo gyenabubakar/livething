@@ -1,17 +1,16 @@
-import { define, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Note = v.object({ text: v.string() });
 const SendNote = v.object({ text: v.string() });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [dedup(), sequence({ persist: true }), channels(), replay.custom()],
 });
@@ -31,12 +30,12 @@ base.onInit((ctx) => {
 });
 
 base.replay({
-  beforeSend: (ctx, msg) => {
+  beforeBroadcast: (ctx, msg) => {
     ctx.sql.exec(
       'INSERT INTO _cascade_replay (event, payload, seq, message_id, channel, channel_family) VALUES (?, ?, ?, ?, ?, ?)',
       msg.event,
       JSON.stringify(msg.payload),
-      msg.wire.seq,
+      msg.wire.deliverySeq,
       msg.wire.messageId,
       msg.wire.channel,
       msg.wire.channelFamily,
@@ -72,7 +71,7 @@ base.replay({
 
     for (const row of rows) {
       ctx.sendReplay(row.event, JSON.parse(row.payload), {
-        seq: row.seq,
+        deliverySeq: row.seq,
         messageId: row.message_id,
         channel: row.channel ?? undefined,
         channelFamily: row.channel_family ?? null,
@@ -82,7 +81,7 @@ base.replay({
 });
 
 const lobby = base.channel('lobby', {
-  outgoing: { emits: { note: t<v.InferOutput<typeof Note>>() } },
+  capabilities: [emits({ note: t<v.InferOutput<typeof Note>>() })],
 });
 
 const handleLobbySendNote = lobby.on('send-note', {
@@ -94,7 +93,7 @@ const handleLobbySendNote = lobby.on('send-note', {
 });
 
 const room = base.channel(['rooms', 'room-{id}'], {
-  outgoing: { emits: { note: t<v.InferOutput<typeof Note>>() } },
+  capabilities: [emits({ note: t<v.InferOutput<typeof Note>>() })],
 });
 
 const handleRoomSendNote = room.on('send-note', {
@@ -105,8 +104,8 @@ const handleRoomSendNote = room.on('send-note', {
   },
 });
 
-export const replayCustomCascadeHandler = base.assemble({
+export const replayCustomCascadeDefinition = base.assemble({
   handlers: [handleLobbySendNote, handleRoomSendNote],
 });
 
-export type ReplayCustomCascadeClient = InferClient<typeof replayCustomCascadeHandler>;
+export type ReplayCustomCascadeClient = InferClient<typeof replayCustomCascadeDefinition>;

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's replay() against the real wskit `replay` handler,
+// Conformance: @livething/client's replay() against the real LiveThing `replay` server definition,
 // which uses LOG-mode replay (every missed message comes back, not just the
 // latest) and a replay-enabled channel. Catch-up is only observable for frames
 // missed while offline, so each test uses a witness that publishes while the

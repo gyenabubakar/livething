@@ -2,8 +2,16 @@ import { chunkForBind } from '~/_engine/sql-batch.ts';
 import { familyFromDb, familyToDb } from '~/inbox/db-keys.ts';
 import type { SQLProvider } from '~/context.ts';
 
+type PruneInboxRetentionAndBumpWatermarkParamsParameter = {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+  retention: InboxRetention;
+  now: number;
+};
+
 const CREATE_INBOX_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_inbox (
+  CREATE TABLE IF NOT EXISTS __livething_inbox (
     user_id        TEXT NOT NULL,
     channel_name   TEXT NOT NULL,
     channel_family TEXT NOT NULL DEFAULT '',
@@ -19,12 +27,12 @@ const CREATE_INBOX_TABLE_SQL = `
 `;
 
 const CREATE_INBOX_MEMBER_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_inbox_member
-  ON __wskit_inbox (user_id, seq)
+  CREATE INDEX IF NOT EXISTS __livething_idx_inbox_member
+  ON __livething_inbox (user_id, seq)
 `;
 
 const CREATE_INBOX_WATERMARK_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_inbox_watermark (
+  CREATE TABLE IF NOT EXISTS __livething_inbox_watermark (
     user_id             TEXT NOT NULL,
     channel_name        TEXT NOT NULL,
     channel_family      TEXT NOT NULL DEFAULT '',
@@ -69,12 +77,13 @@ export interface InboxRetentionTarget {
 }
 
 /**
- * The full outgoing frame captured at fan-out time. `seq` and `messageId` are
+ * The full outgoing frame captured at fan-out time. Storage `seq` becomes
+ * wire `deliverySeq`, alongside `messageId`; both are
  * the inbox message's own identity, shared by every member's copy so each
  * member's cumulative ack lines up and dedup filters a re-delivered frame.
  */
 export interface InboxFrame {
-  seq: number;
+  deliverySeq: number;
   messageId: string;
   event: string;
   payload: Record<string, unknown>;
@@ -82,12 +91,12 @@ export interface InboxFrame {
 
 /**
  * A full frame the developer hands `ctx.channel.inbox().backfill(...)`, one
- * per message being seeded. Shaped like a message on the wire — `seq` and
- * `messageId` nest under `__wskit` — but derived from {@link InboxFrame} so
+ * per message being seeded. Shaped like a message on the wire — `deliverySeq` and
+ * `messageId` nest under `__livething` — but derived from {@link InboxFrame} so
  * the payload type can never drift from what storage actually accepts.
  */
 export interface BackfillMessage extends Pick<InboxFrame, 'event' | 'payload'> {
-  __wskit: Pick<InboxFrame, 'seq' | 'messageId'>;
+  __livething: { deliverySeq: number; messageId: string };
 }
 
 /** One stored inbox row, read back for drain or re-delivery. */
@@ -100,6 +109,68 @@ export interface InboxRow {
   channelFamily: string | null;
 }
 
+interface InboxInsertParams {
+  userIds: readonly string[];
+  channelName: string;
+  channelFamily: string | null;
+  frame: InboxFrame;
+  now: number;
+}
+
+interface InboxBackfillParams {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+  frames: readonly InboxFrame[];
+  now: number;
+}
+
+interface InboxAckParams {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+  receivedThrough: number;
+  onDelivered: OnDelivered;
+  now: number;
+}
+
+interface InboxChannelScope {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+}
+
+interface InboxRetentionLookupParams {
+  channelKey: string;
+  maxAgeMs: number;
+}
+
+interface InboxExpiredRetentionParams extends InboxRetentionLookupParams {
+  now: number;
+}
+
+interface InboxPruneParams extends InboxChannelScope {
+  retention: InboxRetention;
+  now: number;
+}
+
+interface InboxEvictionParams {
+  userId: string;
+  channelName: string;
+  family: string;
+  where: string;
+  bind: unknown[];
+}
+
+interface InboxWatermarkParams extends InboxChannelScope {
+  evictedThroughSeq: number;
+}
+
+interface InboxScopeSet {
+  staticNames: readonly string[];
+  familyKeys: readonly string[];
+}
+
 /** Bound parameters one inbox row contributes to a batched `INSERT`. */
 const INBOX_ROW_PARAMS = 8;
 
@@ -107,7 +178,7 @@ const INBOX_ROW_PARAMS = 8;
  * Insert one inbox row per member, batched to stay under the adapter's bound-
  * parameter cap and wrapped in a transaction so a multi-batch insert is still
  * all-or-nothing — a message half-delivered to a channel's members is worse
- * than one that failed outright. The frame's `seq`/`messageId` are shared
+ * than one that failed outright. The frame's `deliverySeq`/`messageId` are shared
  * across every row so a member's cumulative ack and the client's dedup both
  * key off one stable identity.
  *
@@ -117,13 +188,7 @@ const INBOX_ROW_PARAMS = 8;
  */
 export function insertInboxRows(
   sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
-  params: {
-    userIds: readonly string[];
-    channelName: string;
-    channelFamily: string | null;
-    frame: InboxFrame;
-    now: number;
-  },
+  params: InboxInsertParams,
 ): void {
   const { userIds, channelName, channelFamily, frame, now } = params;
   if (userIds.length === 0) return;
@@ -134,7 +199,7 @@ export function insertInboxRows(
     userId,
     channelName,
     family,
-    frame.seq,
+    frame.deliverySeq,
     frame.messageId,
     frame.event,
     payloadJson,
@@ -147,7 +212,7 @@ export function insertInboxRows(
       const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
       tx.exec(
         `
-          INSERT OR IGNORE INTO __wskit_inbox
+          INSERT OR IGNORE INTO __livething_inbox
             (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
           VALUES ${placeholders}
         `,
@@ -159,7 +224,7 @@ export function insertInboxRows(
 
 /**
  * Insert inbox rows for one user from a set of full frames. Backs
- * `ctx.channel.inbox.backfill(...)`. Each frame keeps its own seq/messageId so
+ * `ctx.channel.inbox.backfill(...)`. Each frame keeps its own deliverySeq/messageId so
  * ordering and dedup stay consistent with live traffic. Batched under the
  * adapter's bound-parameter cap and wrapped in a transaction, same as
  * {@link insertInboxRows}.
@@ -170,13 +235,7 @@ export function insertInboxRows(
  */
 export function insertInboxRowsForUserId(
   sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    frames: readonly InboxFrame[];
-    now: number;
-  },
+  params: InboxBackfillParams,
 ): void {
   const { userId, channelName, channelFamily, frames, now } = params;
   if (frames.length === 0) return;
@@ -186,7 +245,7 @@ export function insertInboxRowsForUserId(
     userId,
     channelName,
     family,
-    frame.seq,
+    frame.deliverySeq,
     frame.messageId,
     frame.event,
     JSON.stringify(frame.payload),
@@ -199,7 +258,7 @@ export function insertInboxRowsForUserId(
       const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
       tx.exec(
         `
-          INSERT OR IGNORE INTO __wskit_inbox
+          INSERT OR IGNORE INTO __livething_inbox
             (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
           VALUES ${placeholders}
         `,
@@ -226,7 +285,7 @@ export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, userId: stri
     }>(
       `
         SELECT seq, message_id, event, payload, channel_name, channel_family
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE user_id = ? AND delivered_at IS NULL
         ORDER BY channel_name, channel_family, seq ASC
       `,
@@ -250,24 +309,14 @@ export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, userId: stri
  * them out later. Both are idempotent — a repeated or lower `receivedThrough`
  * changes nothing already settled.
  */
-export function ackInboxRows(
-  sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    receivedThrough: number;
-    onDelivered: OnDelivered;
-    now: number;
-  },
-): void {
+export function ackInboxRows(sql: Pick<SQLProvider, 'exec'>, params: InboxAckParams): void {
   const { userId, channelName, channelFamily, receivedThrough, onDelivered, now } = params;
   const family = familyToDb(channelFamily);
 
   if (onDelivered === 'delete') {
     sql.exec(
       `
-        DELETE FROM __wskit_inbox
+        DELETE FROM __livething_inbox
         WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND seq <= ?
       `,
       userId,
@@ -280,7 +329,7 @@ export function ackInboxRows(
 
   sql.exec(
     `
-      UPDATE __wskit_inbox
+      UPDATE __livething_inbox
       SET delivered_at = ?
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
         AND seq <= ? AND delivered_at IS NULL
@@ -296,11 +345,11 @@ export function ackInboxRows(
 /** Drop every inbox row a member has for one channel. Used when they leave it. */
 export function deleteInboxRowsForChannel(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { userId: string; channelName: string; channelFamily: string | null },
+  params: InboxChannelScope,
 ): void {
   sql.exec(
     `
-      DELETE FROM __wskit_inbox
+      DELETE FROM __livething_inbox
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
     params.userId,
@@ -310,15 +359,12 @@ export function deleteInboxRowsForChannel(
 }
 
 /** Count a member's inbox rows for one channel. */
-export function countInboxRows(
-  sql: Pick<SQLProvider, 'exec'>,
-  params: { userId: string; channelName: string; channelFamily: string | null },
-): number {
+export function countInboxRows(sql: Pick<SQLProvider, 'exec'>, params: InboxChannelScope): number {
   const row = sql
     .exec<{
       n: number;
     }>(
-      `SELECT COUNT(*) AS n FROM __wskit_inbox WHERE user_id = ? AND channel_name = ? AND channel_family = ?`,
+      `SELECT COUNT(*) AS n FROM __livething_inbox WHERE user_id = ? AND channel_name = ? AND channel_family = ?`,
       params.userId,
       params.channelName,
       familyToDb(params.channelFamily),
@@ -335,13 +381,13 @@ export function countInboxRows(
  */
 export function nextInboxRetentionAt(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelKey: string; maxAgeMs: number },
+  params: InboxRetentionLookupParams,
 ): number | null {
   const row = sql
     .exec<{ next_at: number | null }>(
       `
         SELECT MIN(created_at + ? + 1) AS next_at
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE (channel_name = ? AND channel_family = '') OR channel_family = ?
       `,
       params.maxAgeMs,
@@ -355,14 +401,14 @@ export function nextInboxRetentionAt(
 /** List concrete member/channel scopes with at least one expired inbox row. */
 export function listExpiredInboxRetentionTargets(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelKey: string; maxAgeMs: number; now: number },
+  params: InboxExpiredRetentionParams,
 ): InboxRetentionTarget[] {
   const cutoff = params.now - params.maxAgeMs;
   return sql
     .exec<{ user_id: string; channel_name: string; channel_family: string }>(
       `
         SELECT DISTINCT user_id, channel_name, channel_family
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE ((channel_name = ? AND channel_family = '') OR channel_family = ?)
           AND created_at < ?
       `,
@@ -381,13 +427,13 @@ export function listExpiredInboxRetentionTargets(
 /** List every concrete member/channel scope under one configured channel key. */
 export function listInboxRetentionTargets(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelKey: string },
+  params: Pick<InboxRetentionLookupParams, 'channelKey'>,
 ): InboxRetentionTarget[] {
   return sql
     .exec<{ user_id: string; channel_name: string; channel_family: string }>(
       `
         SELECT DISTINCT user_id, channel_name, channel_family
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE (channel_name = ? AND channel_family = '') OR channel_family = ?
       `,
       params.channelKey,
@@ -411,13 +457,7 @@ export function listInboxRetentionTargets(
  */
 export function pruneInboxRetention(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    retention: InboxRetention;
-    now: number;
-  },
+  params: InboxPruneParams,
 ): number | null {
   return pruneInboxRetentionDetailed(sql, params).evictedThrough;
 }
@@ -429,13 +469,7 @@ interface InboxRetentionEviction {
 
 function pruneInboxRetentionDetailed(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    retention: InboxRetention;
-    now: number;
-  },
+  params: InboxPruneParams,
 ): InboxRetentionEviction {
   const { userId, channelName, channelFamily, retention, now } = params;
   const family = familyToDb(channelFamily);
@@ -463,7 +497,7 @@ function pruneInboxRetentionDetailed(
       .exec<{ seq: number | null }>(
         `
           SELECT MAX(seq) AS seq FROM (
-            SELECT seq FROM __wskit_inbox
+            SELECT seq FROM __livething_inbox
             WHERE user_id = ? AND channel_name = ? AND channel_family = ?
             ORDER BY seq DESC
             LIMIT -1 OFFSET ?
@@ -501,13 +535,7 @@ function pruneInboxRetentionDetailed(
  */
 export function pruneInboxRetentionAndBumpWatermark(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    retention: InboxRetention;
-    now: number;
-  },
+  params: PruneInboxRetentionAndBumpWatermarkParamsParameter,
 ): number | null {
   return sql.transaction((tx) => {
     const eviction = pruneInboxRetentionDetailed(tx, params);
@@ -521,6 +549,7 @@ export function pruneInboxRetentionAndBumpWatermark(
         evictedThroughSeq: eviction.undeliveredEvictedThrough,
       });
     }
+
     return eviction.evictedThrough;
   });
 }
@@ -528,13 +557,7 @@ export function pruneInboxRetentionAndBumpWatermark(
 /** Delete the member's rows matching `where` and report delivered state. */
 function evictOldest(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    family: string;
-    where: string;
-    bind: unknown[];
-  },
+  params: InboxEvictionParams,
 ): InboxRetentionEviction {
   const { userId, channelName, family, where, bind } = params;
   const scope = [userId, channelName, family];
@@ -544,7 +567,7 @@ function evictOldest(
         SELECT
           MAX(seq) AS seq,
           MAX(CASE WHEN delivered_at IS NULL THEN seq END) AS undelivered_seq
-        FROM __wskit_inbox
+        FROM __livething_inbox
         WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND ${where}
       `,
       ...scope,
@@ -557,12 +580,13 @@ function evictOldest(
 
   sql.exec(
     `
-      DELETE FROM __wskit_inbox
+      DELETE FROM __livething_inbox
       WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND ${where}
     `,
     ...scope,
     ...bind,
   );
+
   return {
     evictedThrough: Number(highest.seq),
     undeliveredEvictedThrough:
@@ -585,7 +609,9 @@ function mergeRetentionEvictions(
 
 function maxNullable(first: number | null, second: number | null): number | null {
   if (first === null) return second;
+
   if (second === null) return first;
+
   return Math.max(first, second);
 }
 
@@ -596,19 +622,14 @@ function maxNullable(first: number | null, second: number | null): number | null
  */
 export function bumpInboxWatermark(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    evictedThroughSeq: number;
-  },
+  params: InboxWatermarkParams,
 ): void {
   const { userId, channelName, channelFamily, evictedThroughSeq } = params;
   const family = familyToDb(channelFamily);
   const existing = sql
     .exec<{ evicted_through_seq: number }>(
       `
-        SELECT evicted_through_seq FROM __wskit_inbox_watermark
+        SELECT evicted_through_seq FROM __livething_inbox_watermark
         WHERE user_id = ? AND channel_name = ? AND channel_family = ?
       `,
       userId,
@@ -621,7 +642,7 @@ export function bumpInboxWatermark(
 
   sql.exec(
     `
-      INSERT OR REPLACE INTO __wskit_inbox_watermark
+      INSERT OR REPLACE INTO __livething_inbox_watermark
         (user_id, channel_name, channel_family, evicted_through_seq)
       VALUES (?, ?, ?, ?)
     `,
@@ -641,7 +662,7 @@ export function loadInboxWatermarks(
     .exec<{ channel_name: string; channel_family: string; evicted_through_seq: number }>(
       `
         SELECT channel_name, channel_family, evicted_through_seq
-        FROM __wskit_inbox_watermark
+        FROM __livething_inbox_watermark
         WHERE user_id = ?
       `,
       userId,
@@ -656,22 +677,17 @@ export function loadInboxWatermarks(
 
 /** Drop a member's overflow watermarks. Used by a full user purge. */
 export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec(`DELETE FROM __wskit_inbox_watermark WHERE user_id = ?`, userId);
+  sql.exec(`DELETE FROM __livething_inbox_watermark WHERE user_id = ?`, userId);
 }
 
 /** Drop a member's channel watermark once an acknowledgement covers its gap. */
 export function clearInboxWatermarkThrough(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    receivedThrough: number;
-  },
+  params: Omit<InboxAckParams, 'onDelivered' | 'now'>,
 ): void {
   sql.exec(
     `
-      DELETE FROM __wskit_inbox_watermark
+      DELETE FROM __livething_inbox_watermark
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
         AND evicted_through_seq <= ?
     `,
@@ -690,7 +706,7 @@ export function clearInboxWatermarkThrough(
  */
 export function deleteInboxRowsOutsideScopes(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
-  scopes: { staticNames: readonly string[]; familyKeys: readonly string[] },
+  scopes: InboxScopeSet,
 ): void {
   const staticNames = new Set(scopes.staticNames);
   const familyKeys = new Set(scopes.familyKeys);
@@ -703,11 +719,11 @@ export function deleteInboxRowsOutsideScopes(
     const storedScopes = tx
       .exec<{ channel_name: string; channel_family: string }>(
         `
-        SELECT channel_name, channel_family FROM __wskit_inbox
+        SELECT channel_name, channel_family FROM __livething_inbox
         UNION
-        SELECT channel_name, channel_family FROM __wskit_inbox_watermark
+        SELECT channel_name, channel_family FROM __livething_inbox_watermark
         UNION
-        SELECT channel_name, channel_family FROM __wskit_inbox_receipts
+        SELECT channel_name, channel_family FROM __livething_inbox_receipts
       `,
       )
       .toArray();
@@ -720,17 +736,17 @@ export function deleteInboxRowsOutsideScopes(
       if (active) continue;
 
       tx.exec(
-        `DELETE FROM __wskit_inbox WHERE channel_name = ? AND channel_family = ?`,
+        `DELETE FROM __livething_inbox WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,
       );
       tx.exec(
-        `DELETE FROM __wskit_inbox_watermark WHERE channel_name = ? AND channel_family = ?`,
+        `DELETE FROM __livething_inbox_watermark WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,
       );
       tx.exec(
-        `DELETE FROM __wskit_inbox_receipts WHERE channel_name = ? AND channel_family = ?`,
+        `DELETE FROM __livething_inbox_receipts WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,
       );
@@ -744,11 +760,11 @@ export function deleteInboxRowsOutsideScopes(
  */
 export function deleteInboxWatermarkForChannel(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { userId: string; channelName: string; channelFamily: string | null },
+  params: InboxChannelScope,
 ): void {
   sql.exec(
     `
-      DELETE FROM __wskit_inbox_watermark
+      DELETE FROM __livething_inbox_watermark
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
     params.userId,

@@ -1,4 +1,4 @@
-// Tree-shaking guard for the published `@wskit/*` packages (server spec §24).
+// Tree-shaking guard for the published `@livething/*` packages (server spec §24).
 //
 // Each package ships lightweight subpath entries alongside its main one, and
 // promises that importing a light subpath does NOT drag heavy runtime code in.
@@ -16,10 +16,12 @@
 // is absent. A new accidental import that drags an engine into the wrong bundle
 // makes a forbidden marker appear — and the check fails.
 //
-// Two suites run:
-//   • @wskit/server — one bundle entry per feature; the split is fine-grained.
-//   • @wskit/client — one socket runtime plus a few light utility subpaths; the
+// Three suites run:
+//   • @livething/server — one bundle entry per feature; the split is fine-grained.
+//   • @livething/client — one socket runtime plus a few light utility subpaths; the
 //     guarantee is that those utilities never pull the connection runtime.
+//   • @livething/server-node — the public Node adapter entry; the check makes sure
+//     its runtime is present and no Cloudflare runtime is bundled into it.
 
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -31,10 +33,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
 
 // ---------------------------------------------------------------------------
-// @wskit/server — every feature is its own bundle entry.
+// @livething/server — every feature is its own bundle entry.
 //
 // Not every capability has a detectable engine here. `intercept` is deliberately
-// absent: the intercept primitive is core infrastructure (define, channels,
+// absent: the intercept primitive is core infrastructure (server, channels,
 // requests and rate-limit all use it internally), so it is present in every
 // server and is not a tree-shakeable per-feature engine. Plain (ephemeral)
 // streams likewise carry no durable marker — there is nothing to persist.
@@ -49,46 +51,51 @@ const SERVER_DIST = resolve(repoRoot, 'server/dist');
 
 const SERVER_ENGINES = {
   streamDurable: {
-    marker: '__wskit_stream_chunks',
+    marker: '__livething_stream_chunks',
     label: 'durable-stream engine (recorded chunk store)',
   },
   channel: { marker: '__subscribeOk__', label: 'channel runtime' },
   channelStorage: {
-    marker: '__wskit_channel_memberships',
+    marker: '__livething_channel_memberships',
     label: 'channel membership storage engine',
   },
-  scheduled: { marker: '__wskit_scheduled', label: 'scheduled-task engine' },
-  sequence: { marker: '__wskit_sequence', label: 'sequence engine' },
-  tags: { marker: '__wskit_tags', label: 'tags storage engine' },
-  replay: { marker: '__wskit_replay', label: 'replay engine' },
-  inbox: { marker: '__wskit_inbox', label: 'inbox engine' },
-  lastSeen: { marker: '__wskit_last_seen', label: 'last-seen engine' },
-  keepalive: { marker: '__wskit: "keepalive"', label: 'keepalive capability' },
-  dedup: { marker: '__wskit: "dedup"', label: 'dedup capability' },
-  request: { marker: '__wskit: "request"', label: 'request engine' },
+  scheduled: { marker: '__livething_scheduled', label: 'scheduled-task engine' },
+  sequence: { marker: '__livething_sequence', label: 'sequence engine' },
+  tags: { marker: '__livething_tags', label: 'tags storage engine' },
+  replay: { marker: '__livething_replay', label: 'replay engine' },
+  inbox: { marker: '__livething_inbox', label: 'inbox engine' },
+  lastSeen: { marker: '__livething_last_seen', label: 'last-seen engine' },
+  keepalive: { marker: '__livething: "keepalive"', label: 'keepalive capability' },
+  dedup: { marker: '__livething: "dedup"', label: 'dedup capability' },
+  request: { marker: '__livething: "request"', label: 'request engine' },
+  serverRequest: { marker: 'request-not-declared', label: 'server-request engine' },
   rateLimit: { marker: ' at scope ', label: 'rate-limit engine' },
-  // `plugin.ts` is a bundle entry, so a bundler keeps the module whole: one
+  // `plugins.ts` is a bundle entry, so a bundler keeps the module whole: one
   // value import of anything it exports drags the wire-namespacing pass and the
   // plugin-scoped context in with it. This marker is the canary for that edge.
-  plugin: { marker: '__wskit: "pluginSurface"', label: 'plugin runtime' },
+  plugin: { marker: '__livething: "pluginSurface"', label: 'plugin runtime' },
 };
 
 function serverScenarios(f) {
   return [
     {
-      name: 'minimal server (define + emits)',
-      source: importNamed(f('index.js'), 'define', 'emits'),
+      name: 'minimal server (server + emits)',
+      source: importNamed(f('index.js'), 'server', 'emits'),
       owns: null,
       alsoPulls: [],
     },
     { name: 'errors', source: importStar(f('errors.js')), owns: null, alsoPulls: [] },
-    // Requests can target a channel's members (server→client requests are
-    // channel-scoped), so the request engine pulls the channel runtime.
     {
-      name: 'requests',
-      source: importStar(f('requests.js')),
+      name: 'client requests only',
+      source: importStar(f('client-requests.js')),
       owns: 'request',
       alsoPulls: ['channel'],
+    },
+    {
+      name: 'server requests only',
+      source: importStar(f('server-requests.js')),
+      owns: 'serverRequest',
+      alsoPulls: [],
     },
     { name: 'scheduled', source: importStar(f('scheduled.js')), owns: 'scheduled', alsoPulls: [] },
     { name: 'dedup', source: importStar(f('dedup.js')), owns: 'dedup', alsoPulls: [] },
@@ -100,8 +107,9 @@ function serverScenarios(f) {
       owns: 'rateLimit',
       alsoPulls: [],
     },
-    // Replay can be channel-scoped, so it pulls the channel runtime.
-    { name: 'replay', source: importStar(f('replay.js')), owns: 'replay', alsoPulls: ['channel'] },
+    // Replay can be channel-scoped, but it only checks membership, so the
+    // channel runtime itself stays out.
+    { name: 'replay', source: importStar(f('replay.js')), owns: 'replay', alsoPulls: [] },
     // Durable streams schedule background sweeps to retire their stored state, so
     // the streams barrel pulls the scheduled-task engine. `streamDurable` covers
     // the recorded (chunk-storing) variant; that marker is the durable proof.
@@ -146,17 +154,17 @@ function serverScenarios(f) {
       alsoPulls: [],
     },
     { name: 'intercepts', source: importStar(f('intercepts.js')), owns: null, alsoPulls: [] },
-    { name: 'plugin', source: importStar(f('plugin.js')), owns: 'plugin', alsoPulls: [] },
+    { name: 'plugins', source: importStar(f('plugins.js')), owns: 'plugin', alsoPulls: [] },
   ];
 }
 
 // ---------------------------------------------------------------------------
-// @wskit/client — one connection runtime plus light utility subpaths.
+// @livething/client — one connection runtime plus light utility subpaths.
 //
 // There is no per-feature split on the client: the socket owns every wire
 // behavior. The single guarantee worth pinning is that the utility subpaths
 // (`errors`, `environment`, `platform`) and the test-helper entry (`testing`)
-// never pull the connection runtime — importing `@wskit/client/errors` must not
+// never pull the connection runtime — importing `@livething/client/errors` must not
 // ship a WebSocket engine.
 // ---------------------------------------------------------------------------
 const CLIENT_DIST = resolve(repoRoot, 'client/dist');
@@ -180,18 +188,22 @@ function clientScenarios(f) {
   ];
 }
 
+const NODE_ADAPTER_DIST = resolve(repoRoot, 'server-adapters/node/dist');
+const NODE_ADAPTER_MARKER = '[livething] Node binding is shutting down';
+
 // ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
 function importStar(path) {
   return `import * as m from ${JSON.stringify(path)};\nexport { m };`;
 }
+
 function importNamed(path, ...names) {
   return `import { ${names.join(', ')} } from ${JSON.stringify(path)};\nexport { ${names.join(', ')} };`;
 }
 
-async function bundle(source) {
-  const dir = await mkdtemp(join(tmpdir(), 'wskit-bundle-check-'));
+async function bundle(source, options = {}) {
+  const dir = await mkdtemp(join(tmpdir(), 'livething-bundle-check-'));
   const entry = join(dir, 'entry.mjs');
   await writeFile(entry, source);
   try {
@@ -200,11 +212,16 @@ async function bundle(source) {
       bundle: true,
       write: false,
       format: 'esm',
-      platform: 'neutral',
+      platform: options.platform ?? 'neutral',
       minify: false,
-      // @wskit/core is an external peer in the built packages; keep it external
+      // @livething/core is an external peer in the built packages; keep it external
       // here too so we only inspect each package's own code.
-      external: ['@wskit/core', '@wskit/core/*', '@standard-schema/*'],
+      external: [
+        '@livething/core',
+        '@livething/core/*',
+        '@standard-schema/*',
+        ...(options.external ?? []),
+      ],
       logLevel: 'silent',
     });
     return result.outputFiles.map((file) => file.text).join('\n');
@@ -213,7 +230,54 @@ async function bundle(source) {
   }
 }
 
-async function runSuite({ label, distDir, engines }, scenarios) {
+async function runNodeAdapterSuite() {
+  console.log('\n@livething/server-node');
+  const failures = [];
+
+  await assertMarkersResolve(
+    NODE_ADAPTER_DIST,
+    { runtime: { marker: NODE_ADAPTER_MARKER, label: 'Node adapter runtime' } },
+    failures,
+  );
+
+  try {
+    const code = await bundle(importStar(join(NODE_ADAPTER_DIST, 'index.js')), {
+      platform: 'node',
+      external: [
+        'node:*',
+        '@livething/server',
+        '@livething/server/*',
+        '@fastify/*',
+        'better-sqlite3',
+        'ws',
+      ],
+    });
+
+    if (!code.includes(NODE_ADAPTER_MARKER)) {
+      failures.push(
+        `  [@livething/server-node · index] expected Node adapter runtime marker ${JSON.stringify(NODE_ADAPTER_MARKER)} is absent`,
+      );
+    }
+
+    if (code.includes('cloudflare:workers')) {
+      failures.push(
+        '  [@livething/server-node · index] Cloudflare runtime code leaked into the Node adapter bundle',
+      );
+    }
+
+    console.log(`  ${failures.length ? '✗' : '✓'} index (runtime)`);
+  } catch (error) {
+    failures.push(
+      `  [@livething/server-node · index] could not bundle the public entry — ${error instanceof Error ? error.message : String(error)}`,
+    );
+    console.log('  ✗ index (runtime)');
+  }
+
+  return failures;
+}
+
+async function runSuite(suite, scenarios) {
+  const { label, distDir, engines } = suite;
   console.log(`\n${label}`);
   const failures = [];
 
@@ -238,6 +302,7 @@ async function runSuite({ label, distDir, engines }, scenarios) {
         );
       }
     }
+
     // 2. Drift: an engine we expect (own or documented dependency) is missing —
     //    either the marker was renamed or the dependency genuinely changed. Fix
     //    the marker, or update `owns`/`alsoPulls` for this scenario.
@@ -270,6 +335,7 @@ async function assertMarkersResolve(distDir, engines, failures) {
     failures.push(`  could not read ${distDir} — run the package build first (pnpm build)`);
     return;
   }
+
   const haystack = (await Promise.all(files.map((f) => readFile(f, 'utf8')))).join('\n');
   for (const [id, { marker }] of Object.entries(engines)) {
     if (!haystack.includes(marker)) {
@@ -289,6 +355,7 @@ async function collectJsFiles(dir) {
     if (entry.isDirectory()) out.push(...(await collectJsFiles(full)));
     else if (entry.name.endsWith('.js')) out.push(full);
   }
+
   return out;
 }
 
@@ -300,13 +367,14 @@ function withDir(dir) {
 async function main() {
   const failures = [
     ...(await runSuite(
-      { label: '@wskit/server', distDir: SERVER_DIST, engines: SERVER_ENGINES },
+      { label: '@livething/server', distDir: SERVER_DIST, engines: SERVER_ENGINES },
       serverScenarios(withDir(SERVER_DIST)),
     )),
     ...(await runSuite(
-      { label: '@wskit/client', distDir: CLIENT_DIST, engines: CLIENT_ENGINES },
+      { label: '@livething/client', distDir: CLIENT_DIST, engines: CLIENT_ENGINES },
       clientScenarios(withDir(CLIENT_DIST)),
     )),
+    ...(await runNodeAdapterSuite()),
   ];
 
   if (failures.length) {
@@ -319,7 +387,10 @@ async function main() {
     );
     process.exit(1);
   }
-  console.log('\nbundle-check: all entries clean — every engine is confined to its own bundle.');
+
+  console.log(
+    '\nbundle-check: all entries clean — optional feature code is only included where it is needed.',
+  );
 }
 
 main().catch((err) => {

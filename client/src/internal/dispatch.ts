@@ -1,5 +1,5 @@
-import { Block } from '@wskit/core';
-import type { PrimitiveLogger, WireMessage } from '~/internal/runtime.ts';
+import { Block } from '@livething/core';
+import type { Message, PrimitiveLogger } from '~/internal/runtime.ts';
 
 /**
  * Run one message hook (a primitive's `onIncoming` / `onOutgoing`, or a plugin
@@ -12,14 +12,15 @@ import type { PrimitiveLogger, WireMessage } from '~/internal/runtime.ts';
  *   unchanged, so a broken hook can never silently drop or cancel a message.
  */
 export function runMessageHook(
-  hook: (message: WireMessage) => WireMessage | null,
-  message: WireMessage,
+  hook: (message: Message) => Message | null,
+  message: Message,
   onError: (error: unknown) => void,
-): WireMessage | null {
+): Message | null {
   try {
     return hook(message);
   } catch (error) {
     if (error === Block) return null;
+
     onError(error);
     return message;
   }
@@ -37,6 +38,7 @@ export function dispatchToHandlers<A extends unknown[]>(
   ...args: A
 ): void {
   if (!handlers) return;
+
   const snapshot = [...handlers];
   for (const handler of snapshot) {
     try {

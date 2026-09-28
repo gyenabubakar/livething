@@ -1,8 +1,8 @@
-import { client, clientRequests, connect } from '@wskit/client';
-import type { RequestClient } from '@wskit/tests-e2e-handlers/request';
+import { client, clientRequests, connect } from '@livething/client';
+import type { RequestClient } from '@livething/tests-e2e-handlers/request';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives connection-lifecycle behaviours against the real `request` handler:
+// Drives connection-lifecycle behaviours against the real `request` server definition:
 // idempotent connect(), disconnect() rejecting an in-flight request, and the
 // socket.protocol / socket.ws properties.
 export function setup(): void {

@@ -3,16 +3,45 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
+import type { MembershipInsert, StoredMembership } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
 import { assertLocalRef } from './refs.ts';
 import type * as EngineRuntimeTypes from './types.ts';
+
+type OptsParameter = {
+  event: string;
+  validationError: unknown;
+  scope?: EngineRuntimeTypes.ResolvedChannel;
+};
+type OptsParameter2 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
+type SubscribeFromServerRefParameter = {
+  __livething: 'connection-ref';
+  id: string;
+  instance: string | undefined;
+  userId: string;
+};
 
 /**
  * Dependency bag for channel subscribe/unsubscribe helpers.
  */
 interface ChannelRuntime
   extends EngineRuntimeTypes.ConnectionMembersRuntime, EngineRuntimeTypes.ChannelHooks {
-  hasDurableMembership(userId: string, channelName: string, channelFamily: string | null): boolean;
+  getDurableMembership(
+    userId: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): StoredMembership | undefined;
+
+  markDurableMembershipKicked(
+    userId: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): void;
+
+  listDurableMembers(
+    channelName: string,
+    channelFamily: string | null,
+  ): (StoredMembership & { userId: string })[];
 
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -30,17 +59,17 @@ interface ChannelRuntime
 
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedChannel },
+    opts: OptsParameter,
   ): Promise<void>;
 
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
+    opts: OptsParameter2,
   ): Promise<void>;
 
   isChannelDurable(channelKey: string): boolean;
 
-  persistMembership(userId: string, channelName: string, channelFamily: string | null): void;
+  persistMembership(row: MembershipInsert): void;
   deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null): void;
 }
 
@@ -61,6 +90,7 @@ export function getChannelMembers(
     ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
   );
   if (!members) return [];
+
   return [...members].map((connection) => runtime.toConnectionInfo(connection));
 }
 
@@ -78,8 +108,7 @@ export function kickChannelMembers(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'waitUntil'
-      | 'wskitStampHooks'
+      | 'livethingStampHooks'
     > & {
       leaveChannel(
         connection: EngineRuntimeTypes.RuntimeConnection,
@@ -104,8 +133,7 @@ export async function handleSubscribe(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'waitUntil'
-      | 'wskitStampHooks'
+      | 'livethingStampHooks'
     >,
   connection: EngineRuntimeTypes.RuntimeConnection,
   frame: Protocol.SubscribeFrame,
@@ -118,8 +146,8 @@ export async function handleSubscribe(
     },
     connection,
     {
-      channelName: frame.__wskit.channel,
-      channelFamily: frame.__wskit.channelFamily,
+      channelName: frame.__livething.channel,
+      channelFamily: frame.__livething.channelFamily,
       data: frame.payload,
     },
   );
@@ -147,10 +175,9 @@ export async function subscribeFromServer(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'waitUntil'
-      | 'wskitStampHooks'
+      | 'livethingStampHooks'
     > & { instanceId: string | undefined },
-  ref: { __wskit: 'connection-ref'; id: string; instance: string | undefined; userId: string },
+  ref: SubscribeFromServerRefParameter,
   opts: SubscribeFromServerOptions,
 ): Promise<void> {
   const { channelName, channelFamily, payload, rejoining = false } = opts;
@@ -159,7 +186,7 @@ export async function subscribeFromServer(
   const target = runtime.connections.get(ref.id);
   if (!target) {
     throw new Error(
-      `[wskit] channelHandle.subscribe(ref) — no live connection with id "${ref.id}" on this instance.`,
+      `[livething] channelHandle.subscribe(ref) — no live connection with id "${ref.id}" on this instance.`,
     );
   }
 
@@ -180,13 +207,20 @@ export async function subscribeFromServer(
  * Fire-and-forget: a non-member or unknown channel is a silent no-op.
  */
 export function handleMemberSync(
-  runtime: Pick<ChannelRuntime, 'compiled' | 'channelMembers' | 'sendProtocolMessage'>,
+  runtime: Pick<
+    ChannelRuntime,
+    | 'compiled'
+    | 'channelMembers'
+    | 'sendProtocolMessage'
+    | 'isChannelDurable'
+    | 'listDurableMembers'
+  >,
   connection: EngineRuntimeTypes.RuntimeConnection,
   frame: Protocol.MemberSyncRequestFrame,
 ): void {
   ChannelPrimitive.resyncChannelMembers(runtime, connection, {
-    channelName: frame.__wskit.channel,
-    channelFamily: frame.__wskit.channelFamily,
+    channelName: frame.__livething.channel,
+    channelFamily: frame.__livething.channelFamily,
   });
 }
 
@@ -203,8 +237,7 @@ export async function handleUnsubscribe(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'waitUntil'
-      | 'wskitStampHooks'
+      | 'livethingStampHooks'
     > & {
       leaveChannel(
         connection: EngineRuntimeTypes.RuntimeConnection,
@@ -215,8 +248,8 @@ export async function handleUnsubscribe(
   frame: Protocol.UnsubscribeFrame,
 ): Promise<void> {
   await ChannelPrimitive.unsubscribeConnection(runtime, connection, {
-    channelName: frame.__wskit.channel,
-    channelFamily: frame.__wskit.channelFamily,
-    unsubscribeId: frame.__wskit.unsubscribeId,
+    channelName: frame.__livething.channel,
+    channelFamily: frame.__livething.channelFamily,
+    unsubscribeId: frame.__livething.unsubscribeId,
   });
 }

@@ -9,6 +9,15 @@ import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type { Translator } from '~/translation/translator.ts';
 import type * as ValidationTypes from '~/types.ts';
 
+type MessageParameter = { event: string; payload: unknown };
+type FrameParameter = {
+  event: string;
+  payload: unknown;
+  livething: Protocol.LiveThingProtocol | undefined;
+};
+type OptsParameter = { lastSeen?: number | null };
+type OptsParameter2 = { routing: RoutingTarget | undefined; event: string; payload: unknown };
+
 /**
  * One `check` hook plus its optional payload validator.
  *
@@ -51,15 +60,33 @@ export interface ChannelHooks {
  * One finalized outgoing wire message.
  *
  * At this point the outgoing hooks have run and the framework metadata —
- * routing markers, sequence number, dedup id — has been collected into
- * `wskit`, the frame's `__wskit` sibling. `payload` is pure user data.
+ * routing markers, delivery sequence number, dedup id — has been collected into
+ * `livething`, the frame's `__livething` sibling. `payload` is pure user data.
  */
 export interface WireOutgoingMessage {
   connectionId: string;
   event: string;
   payload: Record<string, unknown>;
-  wskit: Record<string, unknown>;
+  livething: Record<string, unknown>;
   meta: Record<string, unknown>;
+}
+
+/**
+ * One broadcast, seen once before (or after) it goes out to its recipients —
+ * even when no connection receives it live.
+ *
+ * A broadcast is a frame addressed to a whole audience, not to one socket: every
+ * connection (`ctx.broadcast`), every member of one channel
+ * (`ctx.channel.broadcast`), or every connection of one user
+ * (`ctx.users.get(id).broadcast`). `userId` is set only for that last kind.
+ * Frames sent to one connection never show up here.
+ */
+export interface WireBroadcastMessage {
+  event: string;
+  payload: Record<string, unknown>;
+  livething: Record<string, unknown>;
+  /** The user this broadcast was addressed to, or `undefined` when it went to everyone in its scope. */
+  userId?: string;
 }
 
 /**
@@ -100,13 +127,10 @@ export interface PluginUpgradeEntry {
     | Promise<{ userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
 }
 
-/**
- * One registered outgoing hook plus its owner, so the pipeline can scope it to
- * the frames its owner is allowed to see.
- */
+/** One registered outgoing hook and its owner. */
 export interface OutgoingHookEntry {
   handler: (frame: InterceptPrimitive.OutgoingFrame) => unknown | void;
-  owner: InterceptPrimitive.HookOwner;
+  owner: InterceptPrimitive.FrameOwner;
 }
 
 /**
@@ -160,41 +184,43 @@ export interface RegisteredEngineHooks {
   connectionCleanup: ((connectionId: string) => void)[];
 
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
-  incoming: ((message: { event: string; payload: unknown }) => unknown | void)[];
+  incoming: ((message: MessageParameter) => unknown | void)[];
 
   /**
    * Settle a server→client request answer. A user-event frame carrying a
    * `correlationId` is offered to each hook before normal routing; a hook
    * returns `true` when the id matches a pending server-initiated request it
    * owns (validating the answer and resolving/rejecting the server promise),
-   * which stops routing. Owned by the `requests()` capability so the core never
+   * which stops routing. Owned by the `serverRequests()` capability so the core never
    * imports the pending-request map.
    */
-  answerFrame: ((
-    connectionId: string,
-    frame: { event: string; payload: unknown; wskit: Protocol.WSKitProtocol | undefined },
-  ) => boolean)[];
+  answerFrame: ((connectionId: string, frame: FrameParameter) => boolean)[];
 
   /**
    * Runs before wire serialization — can observe or rewrite the payload (event
-   * is locked). Each entry carries its owner so the pipeline runs it only for
-   * the frames that owner is allowed to see (the app sees all; a plugin sees its
-   * own frames, plus the app's when granted host observation).
+   * is locked). Each entry carries its owner so its own event names can be
+   * presented in short form.
    */
   outgoing: OutgoingHookEntry[];
 
   /**
-   * Contributors of `__wskit` metadata on outgoing user frames — the sequence
-   * number and the dedup id. Each returns a partial `__wskit` object merged
+   * Contributors of `__livething` metadata on outgoing user frames — the delivery sequence
+   * number and the dedup id. Each returns a partial `__livething` object merged
    * into the frame. Skipped for protocol frames.
    */
-  wskitStamp: ((event: string) => Record<string, unknown>)[];
+  livethingStamp: ((event: string) => Record<string, unknown>)[];
 
   /** Runs after wire metadata is attached but before the frame is sent. */
   beforeSend: ((message: WireOutgoingMessage) => void)[];
 
   /** Runs after a frame is sent — for best-effort side effects like replay storage. */
   afterSend: ((message: WireOutgoingMessage) => void | Promise<void>)[];
+
+  /** Runs once per broadcast, before any recipient is sent the frame. */
+  beforeBroadcast: ((message: WireBroadcastMessage) => void)[];
+
+  /** Runs once per broadcast, after every recipient was sent the frame. */
+  afterBroadcast: ((message: WireBroadcastMessage) => void | Promise<void>)[];
 
   /** Handlers for reserved client protocol events (subscribe, replay, etc.). */
   protocol: Map<
@@ -386,6 +412,9 @@ export interface RuntimeConnection {
   /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
 
+  /** Ordered app work waiting for this connection. */
+  workQueue?: ConnectionWorkQueue;
+
   /** Handle for the idle timer armed by `refreshConnectionIdleTimeout`. */
   keepaliveTimer?: unknown;
 
@@ -403,6 +432,12 @@ export interface RuntimeConnection {
    * on wake. Lazy-initialized when the first stream starts.
    */
   activeStreamIds?: Set<string>;
+
+  /**
+   * `__streamCancel__` frames still running, by stream ID. A resume for the
+   * same stream waits for its cancel, so it cannot restart a cancelled stream.
+   */
+  cancellingStreams?: Map<string, Promise<void>>;
 
   /**
    * While set and `active`, the engine is inside the connection-accept window
@@ -441,6 +476,12 @@ export interface RuntimeConnection {
    * unbounded timers, and cleared on close so none outlive the connection.
    */
   deferTimers?: Set<ReturnType<typeof setTimeout>>;
+}
+
+/** Admitted but unfinished ordered app work for one connection. */
+export interface ConnectionWorkQueue {
+  tail: Promise<void>;
+  pending: number;
 }
 
 /**
@@ -537,6 +578,12 @@ export interface ActiveStream {
    * doesn't leave their `onStream` runs open until timeout.
    */
   broadcast?: boolean;
+
+  /**
+   * True for a resumable or recorded stream. Leaving the stream's channel hands
+   * it to the durable runtime so its stored row is removed too.
+   */
+  durable?: boolean;
 }
 
 /**
@@ -559,7 +606,7 @@ export interface RoutingTarget {
 
   /**
    * The side that originated the exchange this outgoing frame belongs to,
-   * stamped as `__wskit.source`. A server→client request sets `'server'`; the
+   * stamped as `__livething.source`. A server→client request sets `'server'`; the
    * server's reply to a client's request sets `'client'`. It lets the client
    * tell a server-initiated request apart from a reply to its own request, so it
    * can fast-fail (`__error__` `request-no-response`) when it has no handler for
@@ -570,25 +617,27 @@ export interface RoutingTarget {
   streamId?: string;
 
   /**
-   * Sequence number to stamp on the outgoing frame as `__wskit.seq`. Durable
-   * streams use it to give resume a stable cursor; every stream chunk (plain
-   * included) carries it directly via the chunk's routing.
+   * Delivery sequence number to stamp on normal outgoing frames as
+   * `__livething.deliverySeq`.
    */
-  seq?: number;
+  deliverySeq?: number;
+
+  /** Stream chunk/end sequence number used by resume and replay. */
+  streamSeq?: number;
 
   /**
-   * Stamped on a stream's outgoing frames as `__wskit.streamKind`: `ephemeral`
+   * Stamped on a stream's outgoing frames as `__livething.streamDurability`: `ephemeral`
    * for a plain stream, `persistent` for a durable one. Lets a subscriber know
    * whether the stream is resumable regardless of when it joined.
    */
-  streamKind?: 'ephemeral' | 'persistent';
+  streamDurability?: 'ephemeral' | 'persistent';
 }
 
 /**
  * The resolved channel for one incoming message.
  *
- * This is the engine's parsed view of `__wskit.channel` and
- * `__wskit.channelFamily` markers from the incoming frame.
+ * This is the engine's parsed view of `__livething.channel` and
+ * `__livething.channelFamily` markers from the incoming frame.
  */
 export interface ResolvedChannel {
   channel?: EngineCompileTypes.CompiledChannel;
@@ -616,11 +665,8 @@ export interface ConnectionMembersRuntime {
 
   toConnectionInfo(
     connection: RuntimeConnection,
-    opts?: { lastSeen?: number | null },
+    opts?: OptsParameter,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
-  sendThroughPipeline(
-    connection: RuntimeConnection,
-    opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
-  ): boolean;
+  sendThroughPipeline(connection: RuntimeConnection, opts: OptsParameter2): boolean;
 }

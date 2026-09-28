@@ -1,5 +1,5 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
 import {
   Block,
   CloseCodes,
@@ -7,17 +7,16 @@ import {
   DeferExhausted,
   Disconnect,
   ValidationFailed,
-} from '@wskit/server/errors';
-import { intercepts } from '@wskit/server/intercepts';
-import { stream } from '@wskit/server/streams';
+} from '@livething/server/errors';
+import { intercepts } from '@livething/server/intercepts';
+import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const StreamToken = t<{ index: number }>();
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -48,6 +47,7 @@ base.onValidationError((ctx, evt) => {
 
 base.intercept((_ctx, frame) => {
   if (frame.event === 'block-test') throw Block;
+
   if (frame.event === 'disconnect-intercept') throw Disconnect(4011, 'intercepted disconnect');
   // void return — pass payload through unchanged.
 });
@@ -73,7 +73,9 @@ const handleDeferTest = base.on('defer-test', {
     const attempts = ((await ctx.kv.get(key)) as number | undefined) ?? 0;
     await ctx.kv.set(key, attempts + 1);
     if (attempts < 1) throw Defer(50);
+
     await ctx.kv.delete(key);
+
     ctx.send('defer-result', { received: true });
   },
 });
@@ -120,7 +122,7 @@ const handleChatAlwaysDefer = chat.on('chat-always-defer', {
   },
 });
 
-export const errorsControlFlowHandler = base.assemble({
+export const errorsControlFlowDefinition = base.assemble({
   handlers: [
     handleDoEcho,
     handleBlockTest,
@@ -133,4 +135,4 @@ export const errorsControlFlowHandler = base.assemble({
   ],
 });
 
-export type ErrorsControlFlowClient = InferClient<typeof errorsControlFlowHandler>;
+export type ErrorsControlFlowClient = InferClient<typeof errorsControlFlowDefinition>;

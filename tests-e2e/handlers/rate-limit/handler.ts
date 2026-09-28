@@ -1,21 +1,20 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { rateLimit } from '@wskit/server/rate-limit';
-import { requests } from '@wskit/server/requests';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { rateLimit } from '@livething/server/rate-limit';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const RoomMsgPayload = v.object({ text: v.string() });
 const EchoReqPayload = v.object({ text: v.string() });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     rateLimit({ windowMs: 60_000, max: 3 }),
     channels(),
-    requests(),
+    clientRequests(),
     emits({
       tock: t<{ n: number }>(),
       'expensive-done': t<{}>(),
@@ -65,7 +64,7 @@ const handleEchoReq = base.request('echo-req', {
 
 // Channel with no rateLimit — inherits the top-level rule (shares bucket).
 const inheritRoom = base.channel('inherit-room', {
-  outgoing: { emits: { msg: t<{ text: string }>() } },
+  capabilities: [emits({ msg: t<{ text: string }>() })],
 });
 
 const handleInheritSend = inheritRoom.on('send', {
@@ -77,7 +76,7 @@ const handleInheritSend = inheritRoom.on('send', {
 
 // Channel exempt from the cap.
 const noLimit = base.channel('no-limit', {
-  outgoing: { emits: { msg: t<{ text: string }>() } },
+  capabilities: [emits({ msg: t<{ text: string }>() })],
   rateLimit: { enabled: false },
 });
 
@@ -90,7 +89,7 @@ const handleNoLimitSend = noLimit.on('send', {
 
 // Channel with its own scope rule plus an inner per-handler override.
 const rooms = base.channel('rooms', {
-  outgoing: { emits: { 'chatter-broadcast': t<{ text: string }>() } },
+  capabilities: [emits({ 'chatter-broadcast': t<{ text: string }>() })],
   rateLimit: { enabled: true, max: 50 },
 });
 
@@ -105,7 +104,7 @@ const handleChatter = rooms.on('chatter', {
 // Channel whose OWN scope rule caps the whole channel. Both events share the
 // channel-scope bucket.
 const tightRoom = base.channel('tight-room', {
-  outgoing: { emits: { 'tight-broadcast': t<{ text: string }>() } },
+  capabilities: [emits({ 'tight-broadcast': t<{ text: string }>() })],
   rateLimit: { enabled: true, max: 2 },
 });
 
@@ -123,7 +122,7 @@ const handleBeta = tightRoom.on('beta', {
   },
 });
 
-export const rateLimitHandler = base.assemble({
+export const rateLimitDefinition = base.assemble({
   handlers: [
     handleTick,
     handleExpensive,
@@ -137,4 +136,4 @@ export const rateLimitHandler = base.assemble({
   ],
 });
 
-export type RateLimitClient = InferClient<typeof rateLimitHandler>;
+export type RateLimitClient = InferClient<typeof rateLimitDefinition>;

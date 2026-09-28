@@ -8,6 +8,7 @@ describe('ErrorsControlFlowClient — no-any guard', () => {
     expectTypeOf<ErrorsControlFlowClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['channels']>().not.toBeAny();
+
     expectTypeOf<ErrorsControlFlowClient['errors']>().not.toBeAny();
   });
 });

@@ -1,6 +1,6 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { idGenerator } from '~/internal/id.ts';
-import type { PrimitiveHelpers, WireMessage } from '~/internal/runtime.ts';
+import type { Message, PrimitiveHelpers } from '~/internal/runtime.ts';
 import type { ScopeInfo } from '~/internal/scoped.ts';
 
 /** The two query events: inbox owns `__receivedQuery__`, read-receipts `__readQuery__`. */
@@ -13,6 +13,13 @@ export interface PendingQuery {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface ReceiptQueryArgs {
+  scope: ScopeInfo;
+  seq: number;
+  event: ReceiptQueryEvent;
+  timeout: number;
+}
+
 /**
  * Send a receipt query and resolve once the matching answer arrives. Each
  * primitive keeps its own `pending` map keyed on correlationId and its own event
@@ -22,22 +29,35 @@ export interface PendingQuery {
 export function runReceiptQuery(
   helpers: PrimitiveHelpers,
   pending: Map<string, PendingQuery>,
-  args: { scope: ScopeInfo; seq: number; event: ReceiptQueryEvent; timeout: number },
+  args: ReceiptQueryArgs,
 ): Promise<string[]> {
   const { scope, seq, event, timeout } = args;
   return new Promise<string[]>((resolve, reject) => {
     scope.assertReady?.();
+    const markers = scope.markers();
     const correlationId = idGenerator(helpers)('receipt');
     const timer = setTimeout(() => {
       pending.delete(correlationId);
       reject(Timeout());
     }, timeout);
     pending.set(correlationId, { resolve, reject, timer });
+
     const result = helpers.rawSend({
       event,
       payload: { seq },
-      __wskit: { ...scope.markers(), correlationId },
+      metadata: {
+        exchange: { id: correlationId, source: 'client' },
+        ...(markers.name
+          ? {
+              channel: {
+                name: markers.name,
+                ...(markers.family ? { family: markers.family } : {}),
+              },
+            }
+          : {}),
+      },
     });
+
     if (result !== 'sent') {
       clearTimeout(timer);
       pending.delete(correlationId);
@@ -53,15 +73,18 @@ export function runReceiptQuery(
  */
 export function resolveOwnQuery(
   pending: Map<string, PendingQuery>,
-  message: WireMessage,
-): WireMessage | null {
-  const correlationId = message.__wskit?.correlationId;
+  message: Message,
+): Message | null {
+  const correlationId = message.metadata?.exchange?.id;
   const waiter = correlationId ? pending.get(correlationId) : undefined;
   if (!waiter || correlationId === undefined) return message;
+
   pending.delete(correlationId);
   clearTimeout(waiter.timer);
+
   const userIds = (message.payload as { userIds?: unknown })?.userIds;
   waiter.resolve(Array.isArray(userIds) ? userIds.filter(isString) : []);
+
   return null;
 }
 

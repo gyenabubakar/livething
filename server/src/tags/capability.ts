@@ -47,7 +47,7 @@ type TagsSlots<TDefs extends readonly TagGroupDef[]> = {
 /** A `tags(...)` capability — declares tag groups and pulls in the tag engine. */
 export interface TagsCapability<
   TDefs extends readonly TagGroupDef[] = readonly TagGroupDef[],
-> extends Capability<TagsSlots<TDefs>, never> {}
+> extends Capability<TagsSlots<TDefs>, never, never, typeof CAPABILITY_KIND.tags> {}
 
 /** Collect one kind's groups into the registration shape the engine primitive expects. */
 function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroupRegistration[] {
@@ -69,12 +69,11 @@ function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroup
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { tags } from '@wskit/server/tags';
+ * import { server, t } from '@livething/server';
+ * import { tags } from '@livething/server/tags';
  * import * as v from 'valibot';
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [
  *     tags((ephemeral, persistent) => [
  *       ephemeral('role', t<string>()),
@@ -87,9 +86,11 @@ function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroup
  * export const handlePromote = base.on('promote', {
  *   run(ctx) {
  *     ctx.tags.ephemeral('role').add('admin');
- *     ctx.tags.ephemeral('role').ref('admin').send('announce', { text: 'hi admins' });
+ *     ctx.tags.ephemeral('role').ref('admin').broadcast('announce', { text: 'hi admins' });
  *   },
  * });
+ *
+ * export const server = base.assemble({ handlers: [handlePromote] });
  * ```
  */
 export const tags = withCapabilityKind(function tags<const TDefs extends readonly TagGroupDef[]>(
@@ -100,9 +101,13 @@ export const tags = withCapabilityKind(function tags<const TDefs extends readonl
   const ephemeral = registrationsFor(defs, 'ephemeral');
   const persistent = registrationsFor(defs, 'persistent');
   if (ephemeral.length > 0) primitives.push(tagGroups('ephemeral', ephemeral));
+
   if (persistent.length > 0) primitives.push(tagGroups('persistent', persistent));
+
   return stampKind(
-    capability<TagsSlots<TDefs>, never>(primitives) as TagsCapability<TDefs>,
+    capability<TagsSlots<TDefs>, never, never, typeof CAPABILITY_KIND.tags>(
+      primitives,
+    ) as TagsCapability<TDefs>,
     CAPABILITY_KIND.tags,
   );
 }, CAPABILITY_KIND.tags);

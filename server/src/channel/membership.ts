@@ -1,3 +1,4 @@
+import { channelRuntime } from '~/_engine/engine.deps.ts';
 import { sendProtocolMessage } from '~/_engine/runtime/wire.ts';
 import { autoRejoinIdentity as runAutoRejoin } from '~/channel/rejoin.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
@@ -7,18 +8,17 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { MembershipKey } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
 
+type OptsParameter = {
+  channelName: string;
+  channelFamily: string | null;
+  payload: unknown;
+  rejoining?: boolean;
+};
+
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
 /** Server-initiated channel subscribe. Used by the auto-rejoin path. */
-type SubscribeFromServerFn = (
-  ref: PublicApi.ConnectionRef,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    payload: unknown;
-    rejoining?: boolean;
-  },
-) => Promise<void>;
+type SubscribeFromServerFn = (ref: PublicApi.ConnectionRef, opts: OptsParameter) => Promise<void>;
 
 /**
  * Write a durable channel-membership row. The caller should check
@@ -32,9 +32,10 @@ type SubscribeFromServerFn = (
  * is never read and never cleaned. This mirrors the persistent-tag rule, which
  * also skips durable writes when there is no user id.
  */
-export function persistMembership(core: EngineCore, key: MembershipKey): void {
-  if (!key.userId) return;
-  ChannelStorage.insertMembership(core.storage.sql, key);
+export function persistMembership(core: EngineCore, row: ChannelStorage.MembershipInsert): void {
+  if (!row.userId) return;
+
+  ChannelStorage.insertMembership(core.storage.sql, row);
 }
 
 /**
@@ -44,16 +45,42 @@ export function persistMembership(core: EngineCore, key: MembershipKey): void {
  */
 export function deleteDurableMembership(core: EngineCore, key: MembershipKey): void {
   if (!key.userId) return;
+
   ChannelStorage.deleteMembership(core.storage.sql, key);
 }
 
 /**
- * True when a durable membership row exists for this user and channel.
- * Always false for an empty user id — anonymous connections never get a row.
+ * Read the durable membership row for this user and channel, or `undefined`
+ * when there is none. Always `undefined` for an empty user id — anonymous
+ * connections never get a row.
  */
-export function hasDurableMembership(core: EngineCore, key: MembershipKey): boolean {
-  if (!key.userId) return false;
-  return ChannelStorage.membershipExists(core.storage.sql, key);
+export function getDurableMembership(
+  core: EngineCore,
+  key: MembershipKey,
+): ChannelStorage.StoredMembership | undefined {
+  if (!key.userId) return undefined;
+
+  return ChannelStorage.readMembership(core.storage.sql, key);
+}
+
+/**
+ * Mark a durable membership row as kicked: the user stays set to rejoin on
+ * their next connection, but is no longer listed as a member. No-op for an
+ * empty user id.
+ */
+export function markDurableMembershipKicked(core: EngineCore, key: MembershipKey): void {
+  if (!key.userId) return;
+
+  ChannelStorage.markMembershipKicked(core.storage.sql, key);
+}
+
+/** Read every durable member of one channel, for the member roster. */
+export function listDurableMembers(
+  core: EngineCore,
+  channelName: string,
+  channelFamily: string | null,
+): (ChannelStorage.StoredMembership & { userId: string })[] {
+  return ChannelStorage.listMembersByChannel(core.storage.sql, channelName, channelFamily);
 }
 
 /**
@@ -70,6 +97,7 @@ export async function purgeChannelMembership(core: EngineCore, userId: string): 
 
   for (const connection of core.connections.values()) {
     if (connection.userId !== userId) continue;
+
     for (const membership of connection.channelMemberships.values()) {
       channels.set(
         ChannelPrimitive.createChannelMembershipKey(
@@ -90,21 +118,36 @@ export async function purgeChannelMembership(core: EngineCore, userId: string): 
   }
 
   const target: PublicApi.UserRef = {
-    __wskit: 'user-ref',
+    __livething: 'user-ref',
     id: userId,
     instance: core.engineInstanceId,
   };
+
+  // A leave hook that throws must not stop the purge: every channel is left and
+  // every row dropped before the failures are reported.
+  const failures: unknown[] = [];
   for (const { channelName, channelFamily } of channels.values()) {
-    await core.channelService?.kickChannelMembers(core, {
-      channelName,
-      channelFamily,
-      target,
-      reason: 'user purged',
-      revoke: true,
-    });
+    try {
+      await core.channelService?.kickChannelMembers(core, {
+        channelName,
+        channelFamily,
+        target,
+        reason: 'user purged',
+        revoke: true,
+      });
+    } catch (error) {
+      failures.push(error);
+    }
   }
 
   ChannelStorage.purgeMembershipsByUser(sql, userId);
+
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      `[livething] leaving ${failures.length} channel(s) failed while purging a user`,
+    );
+  }
 }
 
 /**
@@ -123,14 +166,22 @@ export async function autoRejoinIdentity(
       sql,
       subscribeConnectionAsServer: async (target, opts) => {
         const ref: PublicApi.ConnectionRef = {
-          __wskit: 'connection-ref',
+          __livething: 'connection-ref',
           id: target.id,
           instance: core.engineInstanceId,
           userId: target.userId,
         };
+
         return subscribeFromServer(ref, opts);
       },
       sendProtocolMessage: (target, opts) => sendProtocolMessage(core, target, opts),
+      removeStoredMember: (userId, channelName, channelFamily) =>
+        ChannelPrimitive.removeStoredMember(channelRuntime(core), {
+          userId,
+          channelName,
+          channelFamily,
+          revoke: true,
+        }),
       logger: core.logger,
     },
     connection,

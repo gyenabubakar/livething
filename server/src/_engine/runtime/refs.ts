@@ -1,7 +1,9 @@
-import { CrossInstanceRef } from '@wskit/core';
+import { CrossInstanceRef } from '@livething/core';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
+
+type AssertLocalRefRefParameter = { readonly instance: string | undefined };
 
 /** The slice of engine deps the connection handle needs to route a send. */
 type ConnectionHandleDeps = Pick<
@@ -26,23 +28,25 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
           assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).send');
           const target = deps.connections.get(ref.id);
           if (!target) {
-            deps.logger.error('[wskit] ctx.connections.get(ref).send target not found', {
+            deps.logger.error('[livething] ctx.connections.get(ref).send target not found', {
               connectionId: ref.id,
               event,
             });
             return false;
           }
+
           return deps.sendThroughPipeline(target, { routing: undefined, event, payload });
         },
         close: (code, reason) => {
           assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).close');
           const target = deps.connections.get(ref.id);
           if (!target) {
-            deps.logger.error('[wskit] ctx.connections.get(ref).close target not found', {
+            deps.logger.error('[livething] ctx.connections.get(ref).close target not found', {
               connectionId: ref.id,
             });
             return;
           }
+
           target.descriptor.close(code, reason);
         },
       };
@@ -66,7 +70,7 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
  * @param opLabel    The operation name stored in the error detail, e.g. `ctx.connections.get(ref).send`.
  */
 export function assertLocalRef(
-  ref: { readonly instance: string | undefined },
+  ref: AssertLocalRefRefParameter,
   instanceId: string | undefined,
   opLabel: string,
 ): void {

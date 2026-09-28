@@ -8,12 +8,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/incoming?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
@@ -24,7 +26,8 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'echo-pong') lastEchoed = data.payload?.text ?? '';
 			if (data.event === 'async-done') asyncResult = data.payload?.message ?? '';
 			if (data.event === 'validation-error-fired') validationError = data.payload?.event ?? '';
@@ -32,27 +35,27 @@
 	}
 
 	function sendPing(text: string) {
-		ws?.send(JSON.stringify({ event: 'echo-ping', payload: { text } }));
+		ws?.send(window.__livethingEncode({ event: 'echo-ping', payload: { text } }));
 	}
 
 	function sendReplayNoOp() {
-		ws?.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
+		ws?.send(window.__livethingEncode({ event: '__replay__', payload: { lastKnownSeq: 0 }, metadata: null }));
 	}
 
 	function sendBad() {
-		ws?.send(JSON.stringify({ event: 'echo-ping', payload: { text: 123 } }));
+		ws?.send(window.__livethingEncode({ event: 'echo-ping', payload: { text: 123 } }));
 	}
 
 	function sendAsync() {
-		ws?.send(JSON.stringify({ event: 'async-ping', payload: { delay: 50 } }));
+		ws?.send(window.__livethingEncode({ event: 'async-ping', payload: { delay: 50 } }));
 	}
 
 	function sendUnknown() {
-		ws?.send(JSON.stringify({ event: 'unknown-event', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'unknown-event', payload: {} }));
 	}
 
 	function sendNoEvent() {
-		ws?.send(JSON.stringify({ payload: { text: 'no event field' } }));
+		ws?.send(JSON.stringify([null, { text: 'no event field' }, null]));
 	}
 </script>
 

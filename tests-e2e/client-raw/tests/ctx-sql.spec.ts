@@ -95,9 +95,4 @@ test.describe('ctx-sql', () => {
     await expect(page.getByTestId('snapshot-shape-ok')).toHaveText('true');
     await expect(page.getByTestId('snapshot-count')).toHaveText(/[1-9]\d*/);
   });
-
-  test('ctx.env is readable inside a handler', async ({ page }) => {
-    await page.getByTestId('read-env').click();
-    await expect(page.getByTestId('env-key-count')).toHaveText(/[1-9]\d*/);
-  });
 });

@@ -1,11 +1,11 @@
-import { define, emits, error, errors, t } from '@wskit/server';
-import { intercepts } from '@wskit/server/intercepts';
-import { plugin } from '@wskit/server/plugin';
-import { scheduled } from '@wskit/server/scheduled';
+import { emits, error, errors, server, t } from '@livething/server';
+import { intercepts } from '@livething/server/intercepts';
+import { plugin } from '@livething/server/plugins';
+import { scheduled } from '@livething/server/scheduled';
 import { count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/durable-sqlite';
 import * as v from 'valibot';
-import type { Platform } from '@wskit/server-cloudflare';
+import type { Platform } from '@livething/server-cloudflare';
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 import * as schema from './schema.ts';
 import { pluginMeta, records } from './schema.ts';
@@ -24,7 +24,7 @@ const taskDataSchema = v.object({ value: v.string() });
 const REWRITE_PROBE = 'plugin-rewrite-probe';
 
 // A drizzle handle is bound to one Durable Object's storage and cannot be used
-// from another DO's execution context. The plugin handler is module-scoped, so
+// from another DO's execution context. The plugin server definition is module-scoped, so
 // keep one handle per DO keyed by its storage object (stable per instance) and
 // build it lazily.
 const dbByStorage = new WeakMap<DurableObjectStorage, DrizzleSqliteDODatabase<typeof schema>>();
@@ -36,6 +36,7 @@ function getDb(platform: Platform): DrizzleSqliteDODatabase<typeof schema> {
     db = drizzle(storage, { schema });
     dbByStorage.set(storage, db);
   }
+
   return db;
 }
 
@@ -54,6 +55,7 @@ interface DoState {
   everyTickCount: number;
   flakyAttempts: number;
 }
+
 const stateByStorage = new WeakMap<DurableObjectStorage, DoState>();
 
 function getState(platform: Platform): DoState {
@@ -71,10 +73,11 @@ function getState(platform: Platform): DoState {
     };
     stateByStorage.set(storage, state);
   }
+
   return state;
 }
 
-const h = define({
+const h = server({
   scope: 'plugin',
   capabilities: [
     emits({
@@ -134,6 +137,7 @@ h.onConnect((ctx) => {
     username: typeof meta.username === 'string' ? meta.username : null,
     tags: (self?.tags ?? []).map((tag) => ({ group: tag.group, key: tag.key })),
   };
+
   ctx.send('drizzle-ready', { tables: ['records'] });
 });
 
@@ -161,10 +165,10 @@ h.intercept((ctx, frame) => {
 });
 
 h.onOutgoing((ctx, frame) => {
-  // The outgoing-hook ctx is resolved per send: it is the sending connection's
-  // ctx for a direct ctx.send, but undefined for a broadcast (no one connection
-  // owns it). Only the connection-scoped sends carry a platform, so only those
-  // can reach this DO's state — guard before touching it.
+  // The outgoing-hook ctx is resolved per send: it is the ctx of the connection
+  // whose handler, intercept or onConnect hook is running (the sender, for a
+  // broadcast), and undefined when none is (a subscribe hook, onDisconnect, a
+  // scheduled task). Guard before touching this DO's state through it.
   if (ctx) getState(ctx.platform as Platform).outgoingCount++;
   if (
     frame.owner.kind === 'plugin' &&
@@ -240,13 +244,13 @@ const triggerTaskWithData = h.on('trigger-plugin-task-with-data', {
   },
 });
 
-const vacuum = h.scheduled('drizzle-vacuum', {
+h.scheduled('drizzle-vacuum', {
   run(ctx) {
     ctx.broadcast('drizzle-vacuum-done', { timestamp: Date.now() });
   },
 });
 
-const everyTick = h.scheduled('drizzle-every-tick', {
+h.scheduled('drizzle-every-tick', {
   run(ctx) {
     const state = getState(ctx.platform as Platform);
     state.everyTickCount++;
@@ -254,30 +258,33 @@ const everyTick = h.scheduled('drizzle-every-tick', {
   },
 });
 
-const flaky = h.scheduled('drizzle-flaky', {
+h.scheduled('drizzle-flaky', {
   run(ctx) {
     const state = getState(ctx.platform as Platform);
     state.flakyAttempts++;
     if (state.flakyAttempts < 3) throw new Error('module flaky failure');
+
     ctx.broadcast('plugin-flaky-result', { attempts: state.flakyAttempts });
     state.flakyAttempts = 0;
   },
 });
 
-const alwaysFail = h.scheduled('drizzle-module-always-fail', {
+h.scheduled('drizzle-module-always-fail', {
   run() {
     throw new Error('module permanent failure');
   },
 });
 
-const queryDlq = h.scheduled('drizzle-query-dlq', {
+h.scheduled('drizzle-query-dlq', {
   run(ctx) {
     const rows = ctx.sql
       .exec<{
         taskId: string;
         attempts: number;
         error: string;
-      }>('SELECT taskId, attempts, error FROM __wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1')
+      }>(
+        'SELECT taskId, attempts, error FROM __livething_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
+      )
       .toArray();
     const row = rows[0];
     if (row) {
@@ -291,7 +298,7 @@ const queryDlq = h.scheduled('drizzle-query-dlq', {
   },
 });
 
-const taskWithData = h.scheduled('drizzle-task-with-data', {
+h.scheduled('drizzle-task-with-data', {
   run(ctx, data) {
     ctx.broadcast('plugin-task-data-result', {
       result: `validated-data-received:${data.value}`,
@@ -300,7 +307,7 @@ const taskWithData = h.scheduled('drizzle-task-with-data', {
 });
 
 export const Drizzle = plugin('e2e:drizzle', {
-  handler: h.assemble({
+  definition: h.assemble({
     handlers: [
       triggerDenied,
       triggerError,
@@ -310,12 +317,6 @@ export const Drizzle = plugin('e2e:drizzle', {
       triggerAlwaysFail,
       triggerQueryDlq,
       triggerTaskWithData,
-      vacuum,
-      everyTick,
-      flaky,
-      alwaysFail,
-      queryDlq,
-      taskWithData,
     ],
     api: (ctx) => {
       const db = getDb(ctx.platform as Platform);
@@ -366,5 +367,4 @@ export const Drizzle = plugin('e2e:drizzle', {
       };
     },
   }),
-  observesHostTraffic: true,
 });

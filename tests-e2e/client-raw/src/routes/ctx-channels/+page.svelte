@@ -10,12 +10,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/ctx-channels?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -25,17 +27,21 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === '__subscribeOk__') subscribed = true;
 			if (data.event === 'members-result') {
 				membersResult = `${data.payload.channel}:${data.payload.count}`;
 			}
+
 			if (data.event === 'member-id-result') {
 				memberIdResult = data.payload?.id ?? '';
 			}
+
 			if (data.event === '__kicked__') {
-				kickedResult = `kicked:${data.__wskit?.channel}:${data.payload.reason ?? ''}`;
+				kickedResult = `kicked:${data.metadata?.channel?.name}:${data.payload.reason ?? ''}`;
 			}
+
 			if (data.event === 'room-message') {
 				roomMessages = [...roomMessages, `${data.payload.from}:${data.payload.text}`];
 			}
@@ -43,36 +49,43 @@
 	}
 
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
+		ws?.send(window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'room' } } }));
 	}
+
 	function getMembers() {
-		ws?.send(JSON.stringify({ event: 'get-members', payload: { channel: 'room' } }));
+		ws?.send(window.__livethingEncode({ event: 'get-members', payload: { channel: 'room' } }));
 	}
+
 	function getMemberId() {
-		ws?.send(JSON.stringify({ event: 'get-member-id', payload: { channel: 'room' } }));
+		ws?.send(window.__livethingEncode({ event: 'get-member-id', payload: { channel: 'room' } }));
 	}
+
 	function kick(tag: string, reason: string) {
 		ws?.send(
-			JSON.stringify({ event: 'kick-in-channel', payload: { channel: 'room', tag, reason } }),
+			window.__livethingEncode({ event: 'kick-in-channel', payload: { channel: 'room', tag, reason } }),
 		);
 	}
+
 	function kickNonmember() {
-		ws?.send(JSON.stringify({ event: 'kick-nonmember', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'kick-nonmember', payload: {} }));
 	}
+
 	function kickSelfByRef() {
-		ws?.send(JSON.stringify({ event: 'kick-self-by-ref', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'kick-self-by-ref', payload: {} }));
 	}
+
 	function sendRoom(text: string) {
 		ws?.send(
-			JSON.stringify({ event: 'send-room-message', payload: { text }, __wskit: { channel: 'room' } }),
+			window.__livethingEncode({ event: 'send-room-message', payload: { text }, metadata: { channel: { name: 'room' } } }),
 		);
 	}
+
 	function sendToTaggedMember(tag: string, text: string) {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'send-to-tagged-member',
 				payload: { tag, text },
-				__wskit: { channel: 'room' },
+				metadata: { channel: { name: 'room' } },
 			}),
 		);
 	}

@@ -25,5 +25,6 @@ export function adaptStreamContext(
   } else {
     ctx.stream = { nudges, signal, drain };
   }
+
   return ctx;
 }

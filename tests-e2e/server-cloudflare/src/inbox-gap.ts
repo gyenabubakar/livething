@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { inboxGapHandler } from '@wskit/tests-e2e-handlers/inbox-gap';
+import { bind } from '@livething/server-cloudflare';
+import { inboxGapDefinition } from '@livething/tests-e2e-handlers/inbox-gap';
 
-export class InboxGapServer extends server(inboxGapHandler) {}
+export class InboxGapServer extends bind(inboxGapDefinition) {}

@@ -1,5 +1,5 @@
 {
-  "name": "@wskit/client",
+  "name": "@livething/client",
   "version": "0.0.1",
   "type": "module",
   "sideEffects": false,
@@ -42,10 +42,10 @@
     "clean": "rm -rf dist node_modules"
   },
   "peerDependencies": {
-    "@wskit/core": "^1.0.0-beta.0"
+    "@livething/core": "^1.0.0-beta.0"
   },
   "devDependencies": {
-    "@wskit/core": "workspace:*",
+    "@livething/core": "workspace:*",
     "vite": "^8.0.1",
     "vite-plugin-dts": "^4.5.4"
   }

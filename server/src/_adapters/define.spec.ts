@@ -3,15 +3,15 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { AsyncContextFactory, Logger, TimerProvider } from '~/context.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
-import { adapter } from './define.ts';
-import type { EngineOptions } from './types.ts';
+import { adapter } from './adapter.ts';
+import type { EngineRuntimeOptions } from './types.ts';
 
 const noopHibernation = {
   persist: vi.fn(),
   restore: vi.fn(() => undefined),
 };
 
-type RuntimeOptions = Omit<EngineOptions, 'adapterId' | 'hibernation' | 'asyncContextFactory'>;
+type RuntimeOptions = EngineRuntimeOptions;
 
 function makeAsyncContextFactory(): AsyncContextFactory {
   return function createAsyncContext<TStore>() {
@@ -33,6 +33,7 @@ describe('adapter', () => {
       deleteAlarm: vi.fn(async () => {}),
       getAlarm: vi.fn(async () => null),
     };
+
     const logger: Logger = {
       info: vi.fn(),
       warn: vi.fn(),
@@ -41,25 +42,23 @@ describe('adapter', () => {
 
     return {
       storage: createTestStorage(),
-      env: { KEY: 'value' },
       platform: { kind: 'test' },
       timers,
-      waitUntil: vi.fn(),
       logger,
     };
   }
 
   it('passes runtime-aware engine factory and options to setup', () => {
     const setup = vi.fn(() => ({ ok: true }));
-    const server = adapter({
+    const runAdapter = adapter({
       id: 'test',
       hibernation: noopHibernation,
       asyncContextFactory: makeAsyncContextFactory(),
       setup,
     });
 
-    const handler = { __wskit: 'server', primitives: [] } as unknown as ServerDefinition;
-    const result = server(handler, { port: 3000 });
+    const definition = { __livething: 'server', primitives: [] } as unknown as ServerDefinition;
+    const result = runAdapter(definition, { port: 3000 });
     const [createEngine, options] = setup.mock.calls[0]! as unknown as [
       (runtimeOptions: RuntimeOptions) => Engine,
       { port: number },
@@ -74,7 +73,6 @@ describe('adapter', () => {
     expect(engine.core.options).toMatchObject({
       adapterId: 'test',
       hibernation: noopHibernation,
-      env: { KEY: 'value' },
       platform: { kind: 'test' },
     });
   });
@@ -82,7 +80,7 @@ describe('adapter', () => {
   it('passes the adapter hibernation API straight through to engine options', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
     const api = { persist: vi.fn(), restore: vi.fn(() => ({ id: 'restored' })) };
-    const server = adapter({
+    const runAdapter = adapter({
       id: 'cf',
       hibernation: api,
       asyncContextFactory: makeAsyncContextFactory(),
@@ -92,13 +90,16 @@ describe('adapter', () => {
       },
     });
 
-    server({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    runAdapter(
+      { __livething: 'server', primitives: [] } as unknown as ServerDefinition,
+      {} as never,
+    );
     expect(capturedFactory!(runtimeOptions()).core.options.hibernation).toBe(api);
   });
 
   it('omits hibernation in engine options when the adapter does not provide one', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
-    const server = adapter({
+    const runAdapter = adapter({
       id: 'no-hib',
       asyncContextFactory: makeAsyncContextFactory(),
       setup(createEngine) {
@@ -107,14 +108,17 @@ describe('adapter', () => {
       },
     });
 
-    server({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    runAdapter(
+      { __livething: 'server', primitives: [] } as unknown as ServerDefinition,
+      {} as never,
+    );
     const engine = capturedFactory!(runtimeOptions());
     expect(engine.core.options.hibernation).toBe(undefined);
   });
 
   it('factory creates independent engine instances', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
-    const server = adapter({
+    const runAdapter = adapter({
       id: 'multi',
       asyncContextFactory: makeAsyncContextFactory(),
       setup(createEngine) {
@@ -123,7 +127,10 @@ describe('adapter', () => {
       },
     });
 
-    server({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    runAdapter(
+      { __livething: 'server', primitives: [] } as unknown as ServerDefinition,
+      {} as never,
+    );
     const a = capturedFactory!(runtimeOptions());
     const b = capturedFactory!(runtimeOptions());
     expect(a).not.toBe(b);

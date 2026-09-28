@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { signalBus } from '~/internal/signals.ts';
 import { createStore } from '~/internal/store.ts';
@@ -55,7 +55,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
       // You asked for background disconnect but the environment can't see
       // visibility — surface the mistake now, not as a silent no-op.
       if (wantsBackground && !environment.onVisibilityChange) {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           'platform({ backgroundDisconnectMs }) needs an environment that implements onVisibilityChange.',
         );
       }
@@ -79,6 +79,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
 
       function bind(): void {
         if (bound) return;
+
         bound = true;
 
         if (environment.onNetworkChange) {
@@ -112,10 +113,12 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
             helpers.log.info('foreground — reconnecting');
             helpers.resume();
           }
+
           return;
         }
 
         if (!wantsBackground) return;
+
         if (reportingInitialVisibility) return;
 
         hiddenTimer = setTimeout(() => {
@@ -124,6 +127,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
           // nothing to drop. Don't mark it as our background drop — otherwise
           // foreground would reconnect a socket we never closed.
           if (helpers.getState() !== 'open') return;
+
           backgrounded = true;
           helpers.log.info(`hidden ${backgroundDisconnectMs}ms — disconnecting`);
           helpers.suspend();
@@ -138,17 +142,19 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
         bound = false;
       }
 
+      // Bind at the start of each connect attempt, before the socket exists, so
+      // a device that is offline at start is known offline before the first try
+      // fails.
+      helpers.state.subscribe((state) => {
+        if (state === 'connecting') bind();
+      });
+
       return {
         id: 'platform',
 
         install(socket) {
           // @ts-expect-error — install adds the online store to the socket dynamically
           socket.online = onlineStore.store;
-        },
-
-        onOpen() {
-          bind();
-          return null;
         },
 
         onClose(...args) {

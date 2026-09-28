@@ -1,4 +1,4 @@
-import { assertSynchronousResult, isWSKitConfigError } from '@wskit/core';
+import { assertSynchronousResult, CloseCodes, isLiveThingConfigError } from '@livething/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -27,7 +27,9 @@ export function persistAttachment(
   options: PersistAttachmentOptions = {},
 ): void {
   if (!options.force && connection.pendingWrites?.active) return;
+
   if (!core.hibernationEnabled) return;
+
   if (!options.force && connection.closing) return;
 
   const scope = getInvocationScope(core.asyncContext);
@@ -51,6 +53,7 @@ export function flushDirtyAttachment(
   options: PersistAttachmentOptions = {},
 ): void {
   if (!core.hibernationEnabled) return;
+
   if (!options.force && connection.closing) return;
 
   let state: ConnectionStore.SerializedTranslatorState;
@@ -58,9 +61,11 @@ export function flushDirtyAttachment(
     state = translatorState(connection);
   } catch (error) {
     if (options.force && connection.closing) return;
-    if (isWSKitConfigError(error)) {
+
+    if (isLiveThingConfigError(error)) {
       closeForTranslatorStateFailure(connection, error);
     }
+
     closeForConnectionStateFailure(core, connection, error);
     return;
   }
@@ -100,7 +105,10 @@ function flushConnectionState(
 function closeForTranslatorStateFailure(connection: RuntimeConnection, error: unknown): never {
   connection.preserveStateOnClose = true;
   connection.closing = true;
-  connection.descriptor.close(1011, '[wskit] translator configuration failed');
+  connection.descriptor.close(
+    CloseCodes.INTERNAL_ERROR,
+    '[livething] translator configuration failed',
+  );
   throw error;
 }
 
@@ -109,13 +117,16 @@ function closeForConnectionStateFailure(
   connection: RuntimeConnection,
   error: unknown,
 ): void {
-  core.logger?.error('[wskit] failed to persist connection state', {
+  core.logger?.error('[livething] failed to persist connection state', {
     connectionId: connection.id,
     error: error instanceof Error ? error.message : String(error),
   });
   connection.closing = true;
-  connection.descriptor.close(1011, '[wskit] connection state could not be persisted');
-  if (isWSKitConfigError(error)) throw error;
+  connection.descriptor.close(
+    CloseCodes.INTERNAL_ERROR,
+    '[livething] connection state could not be persisted',
+  );
+  if (isLiveThingConfigError(error)) throw error;
 }
 
 /**
@@ -127,8 +138,10 @@ export function readConnectionState(
   connectionId: string,
 ): ConnectionStore.StoredConnectionRow | null {
   if (!core.hibernationEnabled) return null;
+
   const preloaded = core.preloadedConnectionRows;
   if (preloaded) return preloaded.get(connectionId) ?? null;
+
   return ConnectionStore.readConnectionRow(core.storage.sql, connectionId);
 }
 
@@ -143,6 +156,7 @@ export function withPreloadedConnectionRows(core: EngineCore, run: () => void): 
     run();
     return;
   }
+
   core.preloadedConnectionRows = ConnectionStore.readAllConnectionRows(core.storage.sql);
   try {
     run();
@@ -157,6 +171,7 @@ export function withPreloadedConnectionRows(core: EngineCore, run: () => void): 
  */
 export function deleteConnectionState(core: EngineCore, connectionId: string): void {
   if (!core.hibernationEnabled) return;
+
   // Drop this connection's pending row write first — without it, the write that
   // runs when this engine call finishes would re-create the row we just deleted.
   const scope = getInvocationScope(core.asyncContext);
@@ -168,6 +183,7 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
       }
     }
   }
+
   ConnectionStore.deleteConnectionRow(core.storage.sql, connectionId);
 }
 
@@ -177,5 +193,6 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
  */
 export function reconcileConnections(core: EngineCore, surviving: ReadonlySet<string>): void {
   if (!core.hibernationEnabled) return;
+
   ConnectionStore.reconcileConnectionRows(core.storage.sql, surviving);
 }

@@ -1,23 +1,19 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { keepalive } from '~/keepalive/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { ConnectionRef } from '~/context.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 describe('capability-owned, TS-gated ctx extensions', () => {
   it('omits every capability-owned field on a bare server', () => {
-    const base = define({ env: t<Env>() });
+    const base = server({});
     base.on('x', {
       run(ctx) {
         // @ts-expect-error ctx.schedule needs the scheduled() capability
@@ -34,20 +30,19 @@ describe('capability-owned, TS-gated ctx extensions', () => {
         ctx.channels;
         // @ts-expect-error ctx.plugin needs a plugin listed
         ctx.plugin;
-        // @ts-expect-error ctx.request needs the requests() capability
+        // @ts-expect-error ctx.request needs the serverRequests() capability
         ctx.request;
-        // @ts-expect-error ctx.broadcastRequest needs the requests() capability
+        // @ts-expect-error ctx.broadcastRequest needs the serverRequests() capability
         ctx.broadcastRequest;
         expectTypeOf(ctx.connection.id).toEqualTypeOf<string>();
       },
     });
   });
 
-  it('adds ctx.request and the connection-handle request arm only with requests()', () => {
-    const base = define({
-      env: t<Env>(),
+  it('adds ctx.request and the connection-handle request arm only with serverRequests()', () => {
+    const base = server({
       capabilities: [
-        requests({
+        serverRequests({
           'ask-permission': {
             out: t<{ action: string }>(),
             in: v.object({ allowed: v.boolean() }),
@@ -75,10 +70,9 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds broadcastRequest on every fan-out surface for every declared request', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [
-        requests({
+        serverRequests({
           'ask-permission': {
             out: t<{ action: string }>(),
             in: v.object({ allowed: v.boolean() }),
@@ -118,24 +112,22 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
   });
 
-  it('omits broadcastRequest on channel/tag handles without requests()', () => {
-    const base = define({
-      env: t<Env>(),
+  it('omits broadcastRequest on channel/tag handles without serverRequests()', () => {
+    const base = server({
       capabilities: [channels(), tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     base.on('x', {
       run(ctx) {
-        // @ts-expect-error broadcastRequest needs the requests() capability
+        // @ts-expect-error broadcastRequest needs the serverRequests() capability
         ctx.channels.get('lobby').broadcastRequest;
-        // @ts-expect-error broadcastRequest needs the requests() capability
+        // @ts-expect-error broadcastRequest needs the serverRequests() capability
         ctx.tags.ephemeral('role').broadcastRequest;
       },
     });
   });
 
   it('always exposes ctx.connection(ref).send, typed to the emits catalog', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [emits({ ping: t<{ n: number }>() })],
     });
     base.on('x', {
@@ -153,7 +145,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('exposes ctx.connections.get on a bare server with no capabilities', () => {
-    const base = define({ env: t<Env>() });
+    const base = server({});
     base.on('x', {
       run(ctx) {
         expectTypeOf(ctx.connections.get).toBeFunction();
@@ -163,8 +155,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds ctx.schedule / ctx.cancelScheduled only with scheduled()', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [scheduled({ cleanup: null })],
     });
     base.on('x', {
@@ -176,8 +167,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds ctx.latency / ctx.quality only with keepalive()', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 })],
     });
     base.on('x', {
@@ -191,8 +181,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds ctx.tags only with tags()', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     base.on('x', {
@@ -202,8 +191,31 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
   });
 
+  it('uses broadcast on every handle that can reach multiple connections', () => {
+    const base = server({
+      capabilities: [
+        emits({ notice: t<{ text: string }>() }),
+        tags((ephemeral) => [ephemeral('role', t<string>())]),
+      ],
+    });
+    base.on('x', {
+      run(ctx) {
+        expectTypeOf(ctx.user.broadcast('notice', { text: 'hello' })).toEqualTypeOf<number>();
+        ctx.tags.ephemeral('role').broadcast('notice', { text: 'hello' });
+        ctx.tags.ephemeral('role').ref('admin').broadcast('notice', { text: 'hello' });
+
+        // @ts-expect-error UserHandle fans out, so it has no send method
+        ctx.user.send('notice', { text: 'hello' });
+        // @ts-expect-error TagGroupHandle fans out, so it has no send method
+        ctx.tags.ephemeral('role').send('notice', { text: 'hello' });
+        // @ts-expect-error TagRefHandle fans out, so it has no send method
+        ctx.tags.ephemeral('role').ref('admin').send('notice', { text: 'hello' });
+      },
+    });
+  });
+
   it('adds ctx.channels only with channels()', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     base.on('x', {
       run(ctx) {
         expectTypeOf(ctx.channels.get).toBeFunction();

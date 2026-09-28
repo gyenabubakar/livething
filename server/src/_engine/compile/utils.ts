@@ -1,31 +1,45 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertSynchronousResult, ValidationFailed, WSKitConfigError } from '@wskit/core';
+import { assertSynchronousResult, LiveThingConfigError, ValidationFailed } from '@livething/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
+
+type ValidateValueNormalizedValue = { message: string; path?: Array<string | number> };
+
+interface DeclarationLocation {
+  kind: string;
+  context: string;
+}
+
+interface UniqueEntry<V> {
+  value: V;
+  kind: string;
+}
 
 /**
  * Walk a list once and throw if any two items share the same key. Use this
  * before any `Map.set`/`Set.add`/object-key write loop — those collapse
  * duplicates silently and let the second declaration win without any signal.
- * The thrown `WSKitConfigError` names the kind and the duplicated key so the
+ * The thrown `LiveThingConfigError` names the kind and the duplicated key so the
  * misconfiguration is obvious at boot.
  */
 export function collectUnique<T>(
   items: readonly T[],
   keyFn: (item: T) => string,
-  where: { kind: string; context: string },
+  where: DeclarationLocation,
 ): readonly T[] {
   const seen = new Set<string>();
   for (const item of items) {
     const key = keyFn(item);
     if (seen.has(key)) {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `${where.context}: duplicate ${where.kind} "${key}". Each name can only be declared once per scope.`,
       );
     }
+
     seen.add(key);
   }
+
   return items;
 }
 
@@ -34,21 +48,18 @@ export function collectUnique<T>(
  * primitive kind (incoming, outgoing, request, stream variants, scheduled,
  * channel) owns its own slot on `CompiledServer`, and without this check a
  * duplicate declaration in the same slot would silently overwrite the first.
- * With this helper, a duplicate fails build with a clear `WSKitConfigError`
+ * With this helper, a duplicate fails build with a clear `LiveThingConfigError`
  * so the engine refuses to construct and the server doesn't start with a
  * half-broken contract.
  */
-export function setUniqueOrThrow<V>(
-  map: Map<string, V>,
-  key: string,
-  entry: { value: V; kind: string },
-): void {
+export function setUniqueOrThrow<V>(map: Map<string, V>, key: string, entry: UniqueEntry<V>): void {
   if (map.has(key)) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `Duplicate ${entry.kind} declaration for "${key}". ` +
         `Each name can only be declared once per scope.`,
     );
   }
+
   map.set(key, entry.value);
 }
 
@@ -61,9 +72,10 @@ export function setUniqueOrThrow<V>(
  */
 export function assertValidHighWaterMark(value: number | undefined, context: string): void {
   if (value === undefined) return;
+
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     throw new Error(
-      `[wskit] ${context}: highWaterMark must be a positive number of bytes (got ${value}). ` +
+      `[livething] ${context}: highWaterMark must be a positive number of bytes (got ${value}). ` +
         'A zero or negative limit makes ctx.stream.drain() never resolve; omit it for the default.',
     );
   }
@@ -75,7 +87,7 @@ export function assertValidHighWaterMark(value: number | undefined, context: str
 export function isChannelPrimitive(
   primitive: PrimitiveCore.Primitive,
 ): primitive is ChannelPrimitive.ChannelPrimitive {
-  return primitive.__wskit === 'channel';
+  return primitive.__livething === 'channel';
 }
 
 /**
@@ -116,20 +128,24 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
       throw ValidationFailed({
         event,
         issues: rawIssues.map((issue) => {
-          const normalized: { message: string; path?: Array<string | number> } = {
+          const normalized: ValidateValueNormalizedValue = {
             message: issue.message,
           };
+
           if (Array.isArray(issue.path)) {
             const pathKeys = issue.path.flatMap((p) => {
               if (typeof p === 'string' || typeof p === 'number') return [p];
+
               if (p && typeof p === 'object' && 'key' in (p as object)) {
                 const k = (p as { key: unknown }).key;
                 if (typeof k === 'string' || typeof k === 'number') return [k];
               }
+
               return [];
             });
             if (pathKeys.length > 0) normalized.path = pathKeys;
           }
+
           return normalized;
         }),
       });

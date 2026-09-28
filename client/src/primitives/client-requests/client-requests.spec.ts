@@ -1,4 +1,4 @@
-import { WIRE_LIMITS } from '@wskit/core';
+import { WIRE_LIMITS } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
@@ -18,6 +18,7 @@ function build(options?: Parameters<typeof clientRequests>[0]) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -40,6 +41,7 @@ describe('clientRequests — buffered frame ownership', () => {
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
+
     ws.serverClose(1006);
 
     const settled = vi.fn();
@@ -74,8 +76,8 @@ describe('clientRequests — buffered frame ownership', () => {
     ws.open();
 
     await expect(bad).rejects.toBeInstanceOf(TypeError);
-    const cid = ws.sentFrames().at(-1).__wskit.correlationId;
-    ws.emit({ event: 'get-balance', payload: { balance: 9 }, __wskit: { correlationId: cid } });
+    const cid = ws.sentFrames().at(-1).metadata.exchange?.id;
+    ws.emit({ event: 'get-balance', payload: { balance: 9 }, metadata: { exchange: { id: cid } } });
     await expect(good).resolves.toEqual({ balance: 9 });
   });
 });
@@ -93,20 +95,22 @@ describe('clientRequests', () => {
 
     vi.advanceTimersByTime(60_000);
     const promise = socket.request('get-balance', { user: 'b' });
-    const cid = ws.sentFrames().at(-1).__wskit.correlationId;
-    ws.emit({ event: 'get-balance', payload: { balance: 5 }, __wskit: { correlationId: cid } });
+    const cid = ws.sentFrames().at(-1).metadata.exchange?.id;
+    ws.emit({ event: 'get-balance', payload: { balance: 5 }, metadata: { exchange: { id: cid } } });
     await expect(promise).resolves.toEqual({ balance: 5 });
+
     vi.useRealTimers();
   });
 
   it('rejects a reserved event name locally with validation-failed and no send', async () => {
     const { socket, ws } = build();
     const request = socket.request as (e: string, p: unknown) => Promise<unknown>;
-    for (const name of ['ping', 'pong', '__error__']) {
+    for (const name of ['__subscribe__', '__custom', '__error__']) {
       await expect(request(name, { user: 'a' })).rejects.toMatchObject({
         code: 'validation-failed',
       });
     }
+
     expect(ws.sentFrames()).toHaveLength(0);
   });
 
@@ -122,10 +126,29 @@ describe('clientRequests', () => {
   it('resolves with the matching response', async () => {
     const { socket, ws } = build();
     const promise = socket.request('get-balance', { user: 'a' });
-    const cid = ws.sentFrames().at(-1).__wskit.correlationId;
+    const cid = ws.sentFrames().at(-1).metadata.exchange?.id;
     expect(typeof cid).toBe('string');
-    ws.emit({ event: 'get-balance', payload: { balance: 10 }, __wskit: { correlationId: cid } });
+    ws.emit({
+      event: 'get-balance',
+      payload: { balance: 10 },
+      metadata: { exchange: { id: cid } },
+    });
+
     await expect(promise).resolves.toEqual({ balance: 10 });
+  });
+
+  it('turns a null wire payload into an undefined void response', async () => {
+    const { socket, ws } = build();
+    const promise = socket.request('get-balance', { user: 'a' });
+    const cid = ws.sentFrames().at(-1).metadata.exchange?.id;
+
+    ws.emit({
+      event: 'get-balance',
+      payload: null,
+      metadata: { exchange: { id: cid } },
+    });
+
+    await expect(promise).resolves.toBeUndefined();
   });
 
   it('resolves two concurrent requests independently, matched by correlationId out of order', async () => {
@@ -134,14 +157,22 @@ describe('clientRequests', () => {
     const p2 = socket.request('get-balance', { user: 'b' });
 
     const frames = ws.sentFrames();
-    const cid1 = frames.at(-2).__wskit.correlationId;
-    const cid2 = frames.at(-1).__wskit.correlationId;
+    const cid1 = frames.at(-2).metadata.exchange?.id;
+    const cid2 = frames.at(-1).metadata.exchange?.id;
     expect(cid1).not.toBe(cid2);
 
     // Reply to the SECOND request first — arrival order must not matter; each
     // promise settles by its own correlationId.
-    ws.emit({ event: 'get-balance', payload: { balance: 2 }, __wskit: { correlationId: cid2 } });
-    ws.emit({ event: 'get-balance', payload: { balance: 1 }, __wskit: { correlationId: cid1 } });
+    ws.emit({
+      event: 'get-balance',
+      payload: { balance: 2 },
+      metadata: { exchange: { id: cid2 } },
+    });
+    ws.emit({
+      event: 'get-balance',
+      payload: { balance: 1 },
+      metadata: { exchange: { id: cid1 } },
+    });
 
     await expect(p1).resolves.toEqual({ balance: 1 });
     await expect(p2).resolves.toEqual({ balance: 2 });
@@ -150,11 +181,11 @@ describe('clientRequests', () => {
   it('rejects with a typed error frame', async () => {
     const { socket, ws } = build();
     const promise = socket.request('get-balance', { user: 'a' });
-    const cid = ws.sentFrames().at(-1).__wskit.correlationId;
+    const cid = ws.sentFrames().at(-1).metadata.exchange?.id;
     ws.emit({
       event: '__error__',
       payload: { code: 'forbidden', detail: { reason: 'no' } },
-      __wskit: { correlationId: cid },
+      metadata: { exchange: { id: cid } },
     });
     await expect(promise).rejects.toMatchObject({ code: 'forbidden', detail: { reason: 'no' } });
   });
@@ -175,10 +206,10 @@ describe('clientRequests', () => {
     expect(ws.sentFrames()).toHaveLength(0);
 
     ws.open();
-    const cid = ws.sentFrames().at(-1).__wskit.correlationId;
+    const cid = ws.sentFrames().at(-1).metadata.exchange?.id;
     expect(typeof cid).toBe('string');
 
-    ws.emit({ event: 'get-balance', payload: { balance: 7 }, __wskit: { correlationId: cid } });
+    ws.emit({ event: 'get-balance', payload: { balance: 7 }, metadata: { exchange: { id: cid } } });
     await expect(promise).resolves.toEqual({ balance: 7 });
   });
 
@@ -204,12 +235,16 @@ describe('clientRequests', () => {
       socket.request('get-balance', { user: 'u1' }).catch(() => undefined);
 
       const sent = ws.sentFrames().find((f) => f.event === 'get-balance');
-      const correlationId = sent?.__wskit?.correlationId as string;
+      const correlationId = sent?.metadata?.exchange?.id as string;
       expect(typeof correlationId).toBe('string');
 
       vi.advanceTimersByTime(1000);
 
-      ws.emit({ event: '__error__', payload: { code: 'forbidden' }, __wskit: { correlationId } });
+      ws.emit({
+        event: '__error__',
+        payload: { code: 'forbidden' },
+        metadata: { exchange: { id: correlationId } },
+      });
       expect(onError).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
@@ -233,6 +268,7 @@ describe('clientRequests — unmatched-correlationId passthrough', () => {
         };
       },
     };
+
     const socket = client<C>()(
       connect('wss://test'),
       clientRequests(),
@@ -240,7 +276,9 @@ describe('clientRequests — unmatched-correlationId passthrough', () => {
     );
     socket.connect();
     const ws = MockWebSocket.last();
+
     ws.open();
+
     return { socket, ws, seen };
   }
 
@@ -250,7 +288,7 @@ describe('clientRequests — unmatched-correlationId passthrough', () => {
     ws.emit({
       event: '__readQuery__',
       payload: { identities: ['alice'] },
-      __wskit: { correlationId: 'never-sent' },
+      metadata: { exchange: { id: 'never-sent' } },
     });
 
     expect(seen).toEqual(['__readQuery__']);
@@ -262,7 +300,7 @@ describe('clientRequests — unmatched-correlationId passthrough', () => {
     ws.emit({
       event: '__error__',
       payload: { code: 'forbidden' },
-      __wskit: { correlationId: 'stale' },
+      metadata: { exchange: { id: 'stale' } },
     });
 
     expect(seen).toEqual([]);
@@ -274,7 +312,7 @@ describe('clientRequests — unmatched-correlationId passthrough', () => {
     ws.emit({
       event: 'get-balance',
       payload: { balance: 1 },
-      __wskit: { correlationId: 'orphan' },
+      metadata: { exchange: { id: 'orphan' } },
     });
 
     expect(seen).toEqual([]);
@@ -286,7 +324,7 @@ describe('clientRequests — unmatched-correlationId passthrough', () => {
     ws.emit({
       event: 'server-ask',
       payload: {},
-      __wskit: { correlationId: 'srv-1', source: 'server' },
+      metadata: { exchange: { id: 'srv-1', source: 'server' } },
     });
 
     expect(seen).toEqual(['server-ask']);

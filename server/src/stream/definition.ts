@@ -16,6 +16,15 @@ export interface NudgeDef<TName extends string = string, TPayload = unknown> {
   readonly schema?: Validator<TPayload>;
 }
 
+interface StreamConfig<TPayload, TChunk, TNudges extends readonly NudgeDef<string, any>[]> {
+  payload?: Validator<TPayload>;
+  chunk?: TypeMarker<TChunk>;
+  nudges?: TNudges;
+  broadcast?: boolean;
+  allowConcurrent?: boolean;
+  highWaterMark?: number;
+}
+
 /**
  * Contract-side declaration of a server-pushed stream. Produced by `stream()`.
  * The matching generator is registered via
@@ -61,19 +70,13 @@ export function stream<
   const TNudges extends readonly NudgeDef<string, any>[] = readonly [],
 >(
   name: TName,
-  config?: {
-    payload?: Validator<TPayload>;
-    chunk?: TypeMarker<TChunk>;
-    nudges?: TNudges;
-    broadcast?: boolean;
-    allowConcurrent?: boolean;
-    highWaterMark?: number;
-  },
+  config?: StreamConfig<TPayload, TChunk, TNudges>,
 ): StreamDef<TName, TPayload, TChunk, TNudges> {
   assertNonReservedEventName(name, 'stream');
   assertValidHighWaterMark(config?.highWaterMark, `stream("${name}")`);
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context: `stream("${name}")` });
+
   return {
     _: 'stream',
     name,

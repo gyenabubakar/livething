@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client driving the real `plugins` handler through a CLIENT
+// Conformance: @livething/client driving the real `plugins` server definition through a CLIENT
 // PLUGIN (the scoped model). Proves the scoped socket round-trips every verb over
 // the real wire under the plugin's namespace, and that the plugin owns that
 // namespace — a raw top-level listener for a plugin frame never fires.

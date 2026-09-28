@@ -1,5 +1,12 @@
 import type { EngineAccess } from '~/_engine/access.ts';
 
+type BroadcastReceiptOptsParameter = {
+  channelName: string;
+  channelFamily: string | null;
+  event: '__received__' | '__read__';
+  payload: Record<string, unknown>;
+};
+
 /**
  * Broadcast one receipt fan-out frame to the channel's live members, but only
  * while the member count is within `maxReceiptAudience`. Above the threshold the
@@ -12,12 +19,7 @@ import type { EngineAccess } from '~/_engine/access.ts';
 export function broadcastReceipt(
   engine: EngineAccess,
   maxReceiptAudience: number,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    event: '__received__' | '__read__';
-    payload: Record<string, unknown>;
-  },
+  opts: BroadcastReceiptOptsParameter,
 ): void {
   if (engine.channelMemberCount(opts.channelName, opts.channelFamily) > maxReceiptAudience) return;
 

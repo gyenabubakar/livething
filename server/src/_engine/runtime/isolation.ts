@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { rethrowIfConfigError } from '@wskit/core';
+import { rethrowIfConfigError } from '@livething/core';
 import { isTranslatorConfigError } from '~/translation/error.ts';
 import type { Logger } from '~/context.ts';
 
@@ -15,11 +15,12 @@ interface IsolationOptions {
 }
 
 function reportIsolated(error: unknown, options: IsolationOptions): void {
-  const message = `[wskit] ${options.context} threw: ${error instanceof Error ? error.message : String(error)}`;
+  const message = `[livething] ${options.context} threw: ${error instanceof Error ? error.message : String(error)}`;
   if (options.logger) {
     options.logger.error(message, { error });
     return;
   }
+
   // eslint-disable-next-line no-console
   console.error(message, error);
 }

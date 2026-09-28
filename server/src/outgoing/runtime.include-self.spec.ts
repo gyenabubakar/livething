@@ -36,10 +36,9 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
       channelFamilies: new Map(),
     } as unknown as OutgoingRuntime['compiled'],
     outgoingHooks: [],
-    wskitStampHooks: [],
+    livethingStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
-    waitUntil() {},
     logger: { warn() {}, error() {} },
     generateId: () => 'id_1',
     ...overrides,
@@ -115,12 +114,14 @@ describe('broadcastToChannel — includeSelf (replaces excludeSelf, default flip
       }),
       channelMembers,
     };
+
     const sender = createConnection('sender');
     const other = createConnection('other');
     addChannelMembership(runtime.channelMembers, sender, {
       channelName: 'room',
       channelFamily: null,
     });
+
     addChannelMembership(runtime.channelMembers, other, {
       channelName: 'room',
       channelFamily: null,
@@ -153,12 +154,14 @@ describe('broadcastToChannel — includeSelf (replaces excludeSelf, default flip
       }),
       channelMembers,
     };
+
     const sender = createConnection('sender');
     const other = createConnection('other');
     addChannelMembership(runtime.channelMembers, sender, {
       channelName: 'room',
       channelFamily: null,
     });
+
     addChannelMembership(runtime.channelMembers, other, {
       channelName: 'room',
       channelFamily: null,

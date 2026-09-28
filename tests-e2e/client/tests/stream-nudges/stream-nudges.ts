@@ -1,10 +1,10 @@
-import { client, connect, stream } from '@wskit/client';
-import type { StreamNudgesClient } from '@wskit/tests-e2e-handlers/stream-nudges';
+import { client, connect, stream } from '@livething/client';
+import type { StreamNudgesClient } from '@livething/tests-e2e-handlers/stream-nudges';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's stream().nudge() against the real `stream-nudges`
-// handler, typed by the same contract the server implements
-// (StreamNudgesClient = InferClient<handler>).
+// Drives @livething/client's stream().nudge() against the real `stream-nudges`
+// server definition, typed by the same contract the server implements
+// (StreamNudgesClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
@@ -14,6 +14,8 @@ export function setup(): void {
     <button data-testid="pause">pause</button>
     <button data-testid="malformed-pause">malformed-pause</button>
     <button data-testid="cancel">cancel</button>
+    <button data-testid="start-held">start held stream</button>
+    <button data-testid="cancel-held">cancel held stream</button>
     <button data-testid="start-break">start-break</button>
     <span data-testid="status"></span>
     <span data-testid="stream-id"></span>
@@ -23,15 +25,22 @@ export function setup(): void {
     <span data-testid="nudge-ok"></span>
     <span data-testid="nudge-error"></span>
     <span data-testid="break-end"></span>
+    <span data-testid="held-stream-id"></span>
+    <span data-testid="held-end"></span>
+    <span data-testid="held-server-released"></span>
   `);
 
   const socket = client<StreamNudgesClient>()(connect(wsUrl('stream-nudges')), stream());
 
   type Handle = Awaited<ReturnType<typeof socket.stream<'start-nudge-stream'>>>;
   let handle: Handle | null = null;
+  let heldHandle: Handle | null = null;
 
   socket.state.subscribe(() => {
     el('status').textContent = socket.state.get();
+  });
+  socket.on('held-stream-released', () => {
+    el('held-server-released').textContent = 'yes';
   });
 
   button('connect', () => socket.connect());
@@ -47,6 +56,7 @@ export function setup(): void {
       for await (const chunk of started) {
         el('tokens').textContent = (el('tokens').textContent ?? '') + chunk.token;
       }
+
       el('active').textContent = String(started.active);
       el('stream-end').textContent = 'yes';
     })();
@@ -54,6 +64,7 @@ export function setup(): void {
 
   button('speed-up', async () => {
     if (!handle) return;
+
     try {
       await handle.nudge('speed-up', { factor: 4 });
       el('nudge-ok').textContent = 'yes';
@@ -66,6 +77,7 @@ export function setup(): void {
   // nudge() Promise must reject with that code while the stream keeps running.
   button('reject-nudge', async () => {
     if (!handle) return;
+
     try {
       await handle.nudge('speed-up', { factor: 0 });
       el('nudge-ok').textContent = 'yes';
@@ -76,12 +88,14 @@ export function setup(): void {
 
   button('pause', async () => {
     if (!handle) return;
+
     await handle.nudge('pause', {});
     el('nudge-ok').textContent = 'yes';
   });
 
   button('malformed-pause', async () => {
     if (!handle) return;
+
     try {
       await handle.nudge('pause', { leak: 'extra' });
       el('nudge-ok').textContent = 'yes';
@@ -94,6 +108,23 @@ export function setup(): void {
     handle?.cancel();
   });
 
+  button('start-held', async () => {
+    const started = await socket.stream('start-nudge-stream', { prompt: '__hold-overflow__' });
+    heldHandle = started;
+    el('held-stream-id').textContent = started.streamId;
+    void (async () => {
+      for await (const _chunk of started) {
+        void _chunk;
+      }
+
+      el('held-end').textContent = 'yes';
+    })();
+  });
+
+  button('cancel-held', () => {
+    heldHandle?.cancel();
+  });
+
   button('start-break', async () => {
     const breakHandle = await socket.stream('start-nudge-stream', {
       prompt: 'one two three four five six seven eight nine ten',
@@ -101,6 +132,7 @@ export function setup(): void {
     for await (const _chunk of breakHandle) {
       break;
     }
+
     el('break-end').textContent = String(breakHandle.active);
   });
 

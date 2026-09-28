@@ -12,19 +12,16 @@ const emit = defineEmits<{ toggle: [] }>()
 const route = useRoute()
 
 const hasChildren = computed(() => Array.isArray(props.item.children) && props.item.children.length > 0)
-/**
- * Only leaf items light up. Section parents (with children) keep their neutral
- * style even when one of their descendants is active — the visual signal lives
- * on the matching leaf, not on the breadcrumb chain.
- */
-const isActive = computed(() => !hasChildren.value && route.path === props.item.path)
+const canNavigate = computed(() => props.item.page !== false)
+const isActive = computed(() => route.path === props.item.path)
 
 const { isOpen: isChildOpen, toggle: toggleChild } = useSidebarGroupToggle(computed(() => props.item.children ?? []))
 
 const itemClasses = 'flex w-full items-center gap-1.5 px-2.5 py-1.5 pr-2 text-sm transition-colors'
 const inactiveClasses = 'text-muted hover:text-default'
 const activeClasses = 'text-primary font-medium'
-const headerClasses = 'text-default font-medium hover:text-primary'
+const parentLabelClasses = 'flex min-w-0 flex-1 items-center gap-1.5 text-default font-medium hover:text-primary'
+const toggleClasses = 'group flex size-6 shrink-0 items-center justify-center rounded hover:text-primary'
 </script>
 
 <template>
@@ -41,22 +38,49 @@ const headerClasses = 'text-default font-medium hover:text-primary'
       />
       <span class="truncate">{{ item.title }}</span>
     </ULink>
-    <button
+    <div
       v-else
-      type="button"
-      :class="[itemClasses, headerClasses, 'group']"
-      :aria-label="isOpen ? `Collapse ${item.title}` : `Expand ${item.title}`"
-      :aria-expanded="isOpen"
-      @click="emit('toggle')"
+      :class="itemClasses"
     >
-      <UIcon
-        v-if="typeof item.icon === 'string'"
-        :name="item.icon"
-        class="size-4 shrink-0"
-      />
-      <span class="min-w-0 flex-1 truncate text-left">{{ item.title }}</span>
-      <UIcon :name="isOpen ? 'i-ph-minus' : 'i-ph-plus'" class="size-3.5 shrink-0 text-dimmed transition-colors group-hover:text-primary" />
-    </button>
+      <ULink
+        v-if="canNavigate"
+        :to="item.path"
+        :class="[parentLabelClasses, isActive && activeClasses]"
+      >
+        <UIcon
+          v-if="typeof item.icon === 'string'"
+          :name="item.icon"
+          class="size-4 shrink-0"
+        />
+        <span class="truncate">{{ item.title }}</span>
+      </ULink>
+      <button
+        v-else
+        type="button"
+        :class="[parentLabelClasses, 'group']"
+        :aria-label="isOpen ? `Collapse ${item.title}` : `Expand ${item.title}`"
+        :aria-expanded="isOpen"
+        @click="emit('toggle')"
+      >
+        <UIcon
+          v-if="typeof item.icon === 'string'"
+          :name="item.icon"
+          class="size-4 shrink-0"
+        />
+        <span class="flex-1 truncate text-left">{{ item.title }}</span>
+        <UIcon :name="isOpen ? 'i-ph-minus' : 'i-ph-plus'" class="size-3.5 shrink-0 text-dimmed transition-colors group-hover:text-primary" />
+      </button>
+      <button
+        v-if="canNavigate"
+        type="button"
+        :class="toggleClasses"
+        :aria-label="isOpen ? `Collapse ${item.title}` : `Expand ${item.title}`"
+        :aria-expanded="isOpen"
+        @click="emit('toggle')"
+      >
+        <UIcon :name="isOpen ? 'i-ph-minus' : 'i-ph-plus'" class="size-3.5 text-dimmed transition-colors group-hover:text-primary" />
+      </button>
+    </div>
     <div
       v-if="hasChildren"
       class="grid transition-[grid-template-rows] duration-200 ease-out"

@@ -29,20 +29,36 @@ function createConnection(id: string, userId: string): RuntimeConnection {
 }
 
 describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
-  it('a ConnectionRef targets exactly that one socket, member or not', () => {
+  it('a ConnectionRef targets exactly one member and excludes a non-member', () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const alice = createConnection('alice-tab1', 'alice');
     addChannelMembership(channelMembers, alice, { channelName: 'room', channelFamily: null });
 
     const to: ChannelRecipient = {
-      __wskit: 'connection-ref',
+      __livething: 'connection-ref',
       id: 'alice-tab1',
       instance: undefined,
       userId: 'alice',
     };
+
     expect(
       resolveChannelRecipients(channelMembers, { channelName: 'room', channelFamily: null, to }),
     ).toEqual([alice]);
+
+    const nonMember: ChannelRecipient = {
+      __livething: 'connection-ref',
+      id: 'bob-tab1',
+      instance: undefined,
+      userId: 'bob',
+    };
+
+    expect(
+      resolveChannelRecipients(channelMembers, {
+        channelName: 'room',
+        channelFamily: null,
+        to: nonMember,
+      }),
+    ).toEqual([]);
   });
 
   it("a UserRef fans to only that user's sockets that are members — non-member tabs excluded", () => {
@@ -53,7 +69,7 @@ describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
     addChannelMembership(channelMembers, aliceTab1, { channelName: 'room', channelFamily: null });
     addChannelMembership(channelMembers, bob, { channelName: 'room', channelFamily: null });
 
-    const to: ChannelRecipient = { __wskit: 'user-ref', id: 'alice', instance: undefined };
+    const to: ChannelRecipient = { __livething: 'user-ref', id: 'alice', instance: undefined };
     const resolved = resolveChannelRecipients(channelMembers, {
       channelName: 'room',
       channelFamily: null,
@@ -68,7 +84,7 @@ describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
     const bob = createConnection('bob-tab1', 'bob');
     addChannelMembership(channelMembers, bob, { channelName: 'room', channelFamily: null });
 
-    const to: ChannelRecipient = { __wskit: 'user-ref', id: 'carol', instance: undefined };
+    const to: ChannelRecipient = { __livething: 'user-ref', id: 'carol', instance: undefined };
     expect(
       resolveChannelRecipients(channelMembers, { channelName: 'room', channelFamily: null, to }),
     ).toEqual([]);
@@ -94,11 +110,12 @@ describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
     // taggedNonMember deliberately never joins the channel.
 
     const to: ChannelRecipient = {
-      __wskit: 'tag-ref',
+      __livething: 'tag-ref',
       kind: 'ephemeral',
       group: 'role',
       key: 'mod',
     };
+
     const resolved = resolveChannelRecipients(channelMembers, {
       channelName: 'room',
       channelFamily: null,
@@ -123,7 +140,7 @@ describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
       channelFamily: null,
     });
 
-    const to: ChannelRecipient = { __wskit: 'group-handle', kind: 'persistent', group: 'team' };
+    const to: ChannelRecipient = { __livething: 'group-handle', kind: 'persistent', group: 'team' };
     const resolved = resolveChannelRecipients(channelMembers, {
       channelName: 'room',
       channelFamily: null,
@@ -135,7 +152,7 @@ describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
 
   it('a recipient with no channel members at all resolves to an empty list', () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
-    const to: ChannelRecipient = { __wskit: 'user-ref', id: 'alice', instance: undefined };
+    const to: ChannelRecipient = { __livething: 'user-ref', id: 'alice', instance: undefined };
     expect(
       resolveChannelRecipients(channelMembers, {
         channelName: 'empty-room',
@@ -151,7 +168,7 @@ describe('matchesRecipient', () => {
     const conn = createConnection('c1', 'u1');
     expect(
       matchesRecipient(conn, {
-        __wskit: 'connection-ref',
+        __livething: 'connection-ref',
         id: 'c1',
         instance: undefined,
         userId: 'someone-else',
@@ -161,10 +178,10 @@ describe('matchesRecipient', () => {
 
   it('UserRef matches by userKeyOf(connection), not connection id', () => {
     const conn = createConnection('c1', 'u1');
-    expect(matchesRecipient(conn, { __wskit: 'user-ref', id: 'u1', instance: undefined })).toBe(
+    expect(matchesRecipient(conn, { __livething: 'user-ref', id: 'u1', instance: undefined })).toBe(
       true,
     );
-    expect(matchesRecipient(conn, { __wskit: 'user-ref', id: 'c1', instance: undefined })).toBe(
+    expect(matchesRecipient(conn, { __livething: 'user-ref', id: 'c1', instance: undefined })).toBe(
       false,
     );
   });

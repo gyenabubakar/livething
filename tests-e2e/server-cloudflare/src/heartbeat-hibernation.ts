@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { heartbeatHibernationHandler } from './heartbeat-hibernation/handler.ts';
+import { bind } from '@livething/server-cloudflare';
+import { heartbeatHibernationDefinition } from './heartbeat-hibernation/handler.ts';
 
-export class HeartbeatHibernationServer extends server(heartbeatHibernationHandler) {}
+export class HeartbeatHibernationServer extends bind(heartbeatHibernationDefinition) {}

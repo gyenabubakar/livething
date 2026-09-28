@@ -1,14 +1,14 @@
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { createStore } from '~/internal/store.ts';
 import { channelEventPrefix } from '~/primitives/channels/messaging.ts';
-import type { WSKitError } from '@wskit/core';
-import type { PrimitiveLogger, WireMessage } from '~/internal/runtime.ts';
+import type { LiveThingError } from '@livething/core';
+import type { Message, PrimitiveLogger } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { ChannelMember, ChannelStatus, SubscribeSource } from '~/primitives/channels/types.ts';
 
 type Handler = (data: unknown) => void;
-type MemberCallback = (connectionId: string, member: ChannelMember) => void;
-type LeaveCallback = (connectionId: string) => void;
+type MemberCallback = (memberId: string, member: ChannelMember) => void;
+type LeaveCallback = (memberId: string) => void;
 
 /**
  * Manages a set of callbacks. `add` registers one and returns an unsubscribe
@@ -72,7 +72,7 @@ export class ChannelState {
   /** The in-flight `subscribe()` promise, reused so overlapping calls don't orphan the first. */
   pendingPromise: Promise<void> | null = null;
   /** A subscribe frame waiting for a connecting socket to open. */
-  pendingSubscribeFrame: WireMessage | null = null;
+  pendingSubscribeFrame: Message | null = null;
   /**
    * An outstanding leave waiting for the server's `__unsubscribeOk__`. Carries
    * the `unsubscribeId` the confirmation must echo. While set it is resent on
@@ -97,7 +97,7 @@ export class ChannelState {
   /** Handle for the persistent-rejoin fallback re-subscribe timer, so it can be cancelled. */
   rejoinTimer: ReturnType<typeof setTimeout> | null = null;
   /** Roster captured at a network drop, so the next `__memberSync__` can fire only real deltas. */
-  private priorMembers: Set<string> | null = null;
+  private priorMembers: ReadonlyMap<string, ChannelMember> | null = null;
 
   private readonly roster = new Map<string, ChannelMember>();
   readonly handlers = new Map<string, Set<Handler>>();
@@ -121,16 +121,16 @@ export class ChannelState {
   private readonly subscribed = listeners<(source: SubscribeSource) => void>(() => this.log);
   private readonly unsubscribed = listeners<() => void>(() => this.log);
   private readonly kicked = listeners<(reason: string) => void>(() => this.log);
-  private readonly subFailed = listeners<(error: WSKitError) => void>(() => this.log);
+  private readonly subFailed = listeners<(error: LiveThingError) => void>(() => this.log);
   private readonly memberJoin = listeners<MemberCallback>(() => this.log);
   private readonly memberLeave = listeners<LeaveCallback>(() => this.log);
   private readonly memberOnline = listeners<MemberCallback>(() => this.log);
   private readonly memberOffline = listeners<LeaveCallback>(() => this.log);
 
   constructor(
-    /** The `__wskit.channel` value. */
+    /** The channel metadata name value. */
     readonly name: string,
-    /** The `__wskit.channelFamily` value, for a channel inside a dynamic family. */
+    /** The channel metadata family value, for a channel inside a dynamic family. */
     readonly familyKey: string | undefined,
     /** Debug-gated logger, used to report a throwing event handler. */
     private readonly log: PrimitiveLogger,
@@ -161,6 +161,7 @@ export class ChannelState {
       set = new Set();
       this.handlers.set(event, set);
     }
+
     set.add(handler);
     return () => {
       set.delete(handler);
@@ -176,6 +177,7 @@ export class ChannelState {
   /** Prevent the socket from going idle for this subscription's lifetime. Only takes effect once. */
   holdLazy(acquire: () => void, release: () => void): void {
     if (this.lazyRelease) return;
+
     acquire();
     this.lazyRelease = release;
   }
@@ -216,6 +218,7 @@ export class ChannelState {
     // server-source ack racing the client's own) must not re-fire onSubscribed.
     // A reconnect rejoin is let through so it can re-confirm.
     if (this.active && !this.rejoining) return;
+
     this.active = true;
     this.rejoining = false;
     this.pendingSubscribeFrame = null;
@@ -227,6 +230,7 @@ export class ChannelState {
       this.pending = null;
       this.pendingPromise = null;
     }
+
     this.setStatus('subscribed');
     this.subscribed.each((callback) => callback(source));
   }
@@ -243,10 +247,12 @@ export class ChannelState {
    */
   failPendingSubscribe(error: unknown): void {
     if (!this.pending) return;
+
     this.pending.reject(error);
     this.pending = null;
     this.pendingPromise = null;
     this.pendingSubscribeFrame = null;
+
     this.releaseLazy();
     this.setStatus('failed');
   }
@@ -257,6 +263,7 @@ export class ChannelState {
    */
   beginLeave(unsubscribeId: string): Promise<void> {
     if (this.pendingLeavePromise) return this.pendingLeavePromise;
+
     const promise = new Promise<void>((resolve, reject) => {
       this.pendingLeave = { unsubscribeId, resolve, reject };
     });
@@ -264,6 +271,7 @@ export class ChannelState {
     // Pre-attach a no-op catch so an unobserved rejection (caller ignored the
     // returned promise) never surfaces as an unhandled rejection.
     void promise.catch(() => undefined);
+
     return promise;
   }
 
@@ -276,13 +284,16 @@ export class ChannelState {
   confirmLeave(unsubscribeId: string): { rejoinPending: boolean } | null {
     const leave = this.pendingLeave;
     if (!leave || leave.unsubscribeId !== unsubscribeId) return null;
+
     this.pendingLeave = null;
     this.pendingLeavePromise = null;
     leave.resolve();
+
     const deferred = this.deferredSubscribe;
     this.deferredSubscribe = null;
     const rejoinPending = deferred !== null;
     deferred?.();
+
     return { rejoinPending };
   }
 
@@ -308,16 +319,18 @@ export class ChannelState {
     this.pendingSubscribeFrame = null;
     this.clearRejoinTimer();
     this.roster.clear();
+
     this.publishMembers();
     this.priorMembers = null;
     // The subscription ended (unsubscribed or kicked) — release the idle-prevention
     // hold and clear any in-flight subscribe(), so a later subscribe() starts fresh
     // rather than reusing the stale pending state.
     this.releaseLazy();
-    this.pending?.reject(new Error('[wskit] unsubscribed before the subscribe was confirmed'));
+    this.pending?.reject(new Error('[livething] unsubscribed before the subscribe was confirmed'));
     this.pending = null;
     this.pendingPromise = null;
     this.setStatus('unsubscribed');
+
     this.unsubscribed.each((callback) => callback());
   }
 
@@ -325,24 +338,28 @@ export class ChannelState {
     this.kicked.each((callback) => callback(reason));
   }
 
-  fireSubscriptionFailed(error: WSKitError): void {
-    const subscriptionFailed = this.pending !== null || this.rejoining;
-    if (subscriptionFailed) this.releaseLazy();
+  /**
+   * True while a live `subscribe()` call or a reconnect rejoin waits for its
+   * answer. Only a channel `__error__` in this window is a subscription failure.
+   */
+  get hasSubscribeInFlight(): boolean {
+    return this.pending !== null || this.rejoining;
+  }
+
+  /** Fail the in-flight subscribe or rejoin. Call only while `hasSubscribeInFlight`. */
+  fireSubscriptionFailed(error: LiveThingError): void {
+    this.releaseLazy();
     this.pendingSubscribeFrame = null;
     this.clearRejoinTimer();
-    // Only deactivate the channel if a subscribe was actually in flight: either a
-    // live subscribe() call (pending !== null) or a reconnect rejoin (rejoining).
-    // A channel __error__ outside that window is a message error — leave the channel
-    // active so one bad send doesn't drop the subscription.
-    if (subscriptionFailed) {
-      this.active = false;
-      this.persistent = false;
-      this.rejoining = false;
-      this.roster.clear();
-      this.publishMembers();
-      this.priorMembers = null;
-      this.setStatus('failed');
-    }
+    this.active = false;
+    this.persistent = false;
+
+    this.rejoining = false;
+    this.roster.clear();
+    this.publishMembers();
+    this.priorMembers = null;
+    this.setStatus('failed');
+
     if (this.pending) {
       this.pending.reject(error);
       this.pending = null;
@@ -353,50 +370,86 @@ export class ChannelState {
   }
 
   /**
-   * Replace the whole member list (from `__memberSync__`). `onMemberJoin` fires
-   * only for connections not already in the roster, `onMemberLeave` for ones that
-   * dropped out, and `onMemberOnline` for everyone in the snapshot. On a reconnect
-   * (where the prior roster was stashed by `clearMembersForReconnect`) this means
-   * an unchanged peer is reported online again but not re-joined.
+   * Replace the whole member list (from `__memberSync__`) and fire only what
+   * changed against the prior roster (the one stashed by
+   * `clearMembersForReconnect` on a reconnect): `onMemberJoin` for a new
+   * member, then `onMemberOnline` if it is online; `onMemberOnline` or
+   * `onMemberOffline` for a known member whose online state flipped; and
+   * `onMemberLeave` for a member no longer listed, then `onMemberOffline` if it
+   * was online (the server's live order).
    */
-  syncMembers(members: { connectionId: string; meta?: Record<string, unknown> }[]): void {
-    const prev = this.priorMembers ?? new Set(this.roster.keys());
+  syncMembers(
+    members: { memberId: string; meta?: Record<string, unknown>; online: boolean }[],
+  ): void {
+    const prev = this.priorMembers ?? new Map(this.roster);
     this.priorMembers = null;
-    const next = new Set<string>();
+    const next = new Map<string, ChannelMember>();
+    for (const { memberId, meta, online } of members) {
+      next.set(memberId, { meta: meta ?? {}, online });
+    }
+
     this.roster.clear();
-    for (const { connectionId, meta } of members) {
-      next.add(connectionId);
-      const member: ChannelMember = { meta: meta ?? {} };
-      this.roster.set(connectionId, member);
-      if (!prev.has(connectionId))
-        this.memberJoin.each((callback) => callback(connectionId, member));
-      this.memberOnline.each((callback) => callback(connectionId, member));
+    for (const [memberId, member] of next) this.roster.set(memberId, member);
+    this.publishMembers();
+
+    for (const [memberId, member] of next) {
+      const before = prev.get(memberId);
+      if (!before) this.memberJoin.each((callback) => callback(memberId, member));
+
+      if (member.online && !before?.online) {
+        this.memberOnline.each((callback) => callback(memberId, member));
+      } else if (!member.online && before?.online) {
+        this.memberOffline.each((callback) => callback(memberId));
+      }
     }
-    for (const connectionId of prev) {
-      if (!next.has(connectionId)) this.memberLeave.each((callback) => callback(connectionId));
+
+    for (const [memberId, before] of prev) {
+      if (next.has(memberId)) continue;
+
+      this.memberLeave.each((callback) => callback(memberId));
+      if (before.online) this.memberOffline.each((callback) => callback(memberId));
     }
+  }
+
+  /** A member joined. It counts as offline until its `__memberOnline__` arrives. */
+  addMember(memberId: string, meta?: Record<string, unknown>): void {
+    const member: ChannelMember = {
+      meta: meta ?? {},
+      online: this.roster.get(memberId)?.online ?? false,
+    };
+
+    this.roster.set(memberId, member);
     this.publishMembers();
+    this.memberJoin.each((callback) => callback(memberId, member));
   }
 
-  addMember(connectionId: string, meta?: Record<string, unknown>): void {
-    const member: ChannelMember = { meta: meta ?? {} };
-    this.roster.set(connectionId, member);
+  removeMember(memberId: string): void {
+    this.roster.delete(memberId);
     this.publishMembers();
-    this.memberJoin.each((callback) => callback(connectionId, member));
+    this.memberLeave.each((callback) => callback(memberId));
   }
 
-  removeMember(connectionId: string): void {
-    this.roster.delete(connectionId);
-    this.publishMembers();
-    this.memberLeave.each((callback) => callback(connectionId));
+  /** Mark a roster member online. A member id missing from the roster is not added. */
+  memberWentOnline(memberId: string, meta?: Record<string, unknown>): void {
+    const known = this.roster.get(memberId);
+    const member: ChannelMember = { meta: meta ?? known?.meta ?? {}, online: true };
+    if (known) {
+      this.roster.set(memberId, member);
+      this.publishMembers();
+    }
+
+    this.memberOnline.each((callback) => callback(memberId, member));
   }
 
-  memberWentOnline(connectionId: string, meta?: Record<string, unknown>): void {
-    this.memberOnline.each((callback) => callback(connectionId, { meta: meta ?? {} }));
-  }
+  /** Mark a roster member offline. It stays in the roster until it leaves. */
+  memberWentOffline(memberId: string): void {
+    const known = this.roster.get(memberId);
+    if (known?.online) {
+      this.roster.set(memberId, { ...known, online: false });
+      this.publishMembers();
+    }
 
-  memberWentOffline(connectionId: string): void {
-    this.memberOffline.each((callback) => callback(connectionId));
+    this.memberOffline.each((callback) => callback(memberId));
   }
 
   /** Clear members but keep the subscription (used on a network drop). The prior
@@ -404,10 +457,10 @@ export class ChannelState {
   clearMembersForReconnect(): void {
     // Only stash on the first drop. A second drop before the post-reconnect
     // __memberSync__ refills members would otherwise overwrite the real roster
-    // with an empty set, making the next sync re-fire onMemberJoin for unchanged
+    // with an empty map, making the next sync re-fire onMemberJoin for unchanged
     // peers. The reset paths (markUnsubscribed, fireSubscriptionFailed, syncMembers)
     // null priorMembers, so this re-arms on a genuine resubscribe.
-    this.priorMembers ??= new Set(this.roster.keys());
+    this.priorMembers ??= new Map(this.roster);
     this.roster.clear();
     this.publishMembers();
   }
@@ -440,6 +493,7 @@ export class FamilyState {
       set = new Set();
       this.familyHandlers.set(event, set);
     }
+
     set.add(handler);
     return () => {
       set.delete(handler);

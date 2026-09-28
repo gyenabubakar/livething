@@ -1,7 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidWSKitIdentifier } from '@wskit/core';
+import { assertValidLiveThingIdentifier } from '@livething/core';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
+
+interface RequestOptions<TPayload, TResponse> {
+  validator?: Validator<TPayload>;
+  responseSchema?: Validator<TResponse>;
+  allowInterleaving?: boolean;
+}
 
 /**
  * The `respond` callback injected into the handler context for `.request()`
@@ -13,7 +19,8 @@ export interface RespondMethod<TResponse = unknown> {
 
 /**
  * Handler function for a request/response pair. Receives `ctx.respond(value)`
- * to send the reply.
+ * to send the reply. The builder creates this primitive while assembling a
+ * selected `base.request(...)` value.
  */
 export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> = (
   ctx: TCtx & RespondMethod<TResponse>,
@@ -35,6 +42,8 @@ export interface RequestPrimitive<
   readonly event: TEvent;
   /** The function that handles the request and calls `ctx.respond()`. */
   readonly handler: RequestHandler<TCtx, TPayload, TResponse>;
+  /** Whether this handler may start without waiting for prior app work. */
+  readonly allowInterleaving: boolean;
   /**
    * Optional schema validator. When present, the engine validates the raw
    * payload before calling `handler`. If validation fails, `onValidationError`
@@ -56,24 +65,23 @@ export interface RequestPrimitive<
 const REQUEST_KEY = Symbol('request');
 
 /**
- * Internal primitive factory. The user-facing `request()` for declaring a
- * request/response pair in a contract lives at `~/request/definition.ts`.
- * This factory is called by the implementer's compile step to bind a
- * registered handler to a `RequestDef`.
+ * Internal primitive factory. The user-facing builder is `base.request(...)`.
+ * The definition compiler calls this while assembling a selected handler value.
  */
 export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
   event: TEvent,
   handler: RequestHandler<TCtx, TPayload, TResponse>,
-  options?: { validator?: Validator<TPayload>; responseSchema?: Validator<TResponse> },
+  options?: RequestOptions<TPayload, TResponse>,
 ): RequestPrimitive<TEvent, TPayload, TResponse, TCtx> {
-  assertValidWSKitIdentifier(event, 'request() event name');
+  assertValidLiveThingIdentifier(event, 'request() event name');
   return {
-    __wskit: 'request',
+    __livething: 'request',
     __kind: 'handler',
     __identity: [REQUEST_KEY, event],
     __requires: {},
     event,
     handler,
+    allowInterleaving: options?.allowInterleaving ?? true,
     validator: options?.validator,
     responseSchema: options?.responseSchema,
   };

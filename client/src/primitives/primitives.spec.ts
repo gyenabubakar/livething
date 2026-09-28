@@ -1,4 +1,4 @@
-import { Block, WSKitError } from '@wskit/core';
+import { Block, LiveThingError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
@@ -36,6 +36,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -50,6 +51,7 @@ describe('intercept', () => {
     socket.on('ad', handler);
     socket.on('message', handler);
     ws.emit({ event: 'ad', payload: { id: '1' } });
+
     ws.emit({ event: 'message', payload: { text: 'hi' } });
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith({ text: 'hi' });
@@ -82,14 +84,15 @@ describe('intercept', () => {
 });
 
 describe('error routing', () => {
-  it('fires onServerError with a WSKitError for an unclaimed __error__ frame', () => {
+  it('fires onServerError with a LiveThingError for an unclaimed __error__ frame', () => {
     const onErr = vi.fn();
     const { socket, ws } = build();
     socket.onServerError(onErr);
     ws.emit({ event: '__error__', payload: { code: 'forbidden', detail: { reason: 'no' } } });
     expect(onErr).toHaveBeenCalledTimes(1);
-    const err = onErr.mock.calls[0]![0] as WSKitError;
-    expect(err).toBeInstanceOf(WSKitError);
+
+    const err = onErr.mock.calls[0]![0] as LiveThingError;
+    expect(err).toBeInstanceOf(LiveThingError);
     expect(err.code).toBe('forbidden');
     expect(err.detail).toEqual({ reason: 'no' });
   });
@@ -100,6 +103,7 @@ describe('error routing', () => {
     socket.on('message', handler);
     socket.onServerError(() => {});
     ws.emit({ event: '__error__', payload: { code: 'oops' } });
+
     expect(handler).not.toHaveBeenCalled();
   });
 });
@@ -111,7 +115,12 @@ describe('buffering', () => {
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
-    expect(ws.sentFrames()).toContainEqual({ event: 'typing', payload: { channelId: 'a' } });
+
+    expect(ws.sentFrames()).toContainEqual({
+      event: 'typing',
+      payload: { channelId: 'a' },
+      metadata: null,
+    });
   });
 });
 
@@ -125,6 +134,7 @@ describe('query params', () => {
     await Promise.resolve();
     const ws = MockWebSocket.last();
     expect(ws.url).toContain('token=abc');
+
     expect(ws.url).toContain('client=web');
   });
 
@@ -134,6 +144,7 @@ describe('query params', () => {
         return Promise.resolve(onFulfilled({ token: 'xrealm' }));
       },
     };
+
     expect(foreign instanceof Promise).toBe(false);
 
     const socket = client<TestContract>()(
@@ -156,6 +167,7 @@ describe('reconnection config', () => {
     const ws = MockWebSocket.last();
     ws.open();
     ws.serverClose(4009, 'banned');
+
     expect(socket.state.get()).toBe('closed');
   });
 
@@ -185,6 +197,7 @@ describe('keepalive (opt-in)', () => {
       const ws = MockWebSocket.last();
       ws.open();
       vi.advanceTimersByTime(1000);
+
       expect(ws.sent).toContain('ping');
       ws.emit('pong');
       expect(socket.latency.get()).not.toBeNull();
@@ -201,6 +214,7 @@ describe('keepalive (opt-in)', () => {
       const ws = MockWebSocket.last();
       ws.open();
       vi.advanceTimersByTime(60_000);
+
       expect(ws.sentFrames().some((f) => f.event === 'ping')).toBe(false);
     } finally {
       vi.useRealTimers();
@@ -221,11 +235,13 @@ describe('serialization (binary)', () => {
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
+
     expect(ws.binaryType).toBe('arraybuffer');
     socket.on('message', handler);
     const onError = vi.fn();
     socket.onError(onError);
     expect(() => ws.emitRaw(new ArrayBuffer(4))).not.toThrow();
+
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
     expect(handler).not.toHaveBeenCalled();
   });
@@ -257,6 +273,7 @@ describe('kernel lifecycle-hook isolation', () => {
         },
       }),
     };
+
     const sibling = {
       _tag: `sibling-${hook}`,
       setup: () => ({
@@ -267,6 +284,7 @@ describe('kernel lifecycle-hook isolation', () => {
         },
       }),
     };
+
     return { ran: () => siblingRan, specs: [thrower, sibling] };
   }
 
@@ -298,6 +316,7 @@ describe('kernel lifecycle-hook isolation', () => {
     const { ws } = build(...p.specs, reconnection());
     ws.serverClose(1006);
     vi.advanceTimersByTime(2000);
+
     MockWebSocket.last().open();
     expect(p.ran()).toBe(true);
     vi.useRealTimers();

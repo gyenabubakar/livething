@@ -4,8 +4,8 @@ import type { ErrorDef } from '~/errors/errors.ts';
 import type { SlotOr, UnionToIntersection } from './capability.ts';
 
 /**
- * The contract built from a server's capabilities and handlers. It is the value
- * carried on the `ServerDefinition` for `InferClient<typeof handler>` to read.
+ * The contract built from a server's capabilities and assembled handler values. It is the value
+ * carried on the `ServerDefinition` for `InferClient<typeof definition>` to read.
  *
  * Field names follow the **server's** point of view, NOT the client-facing
  * direction of `ServerContract`:
@@ -14,16 +14,16 @@ import type { SlotOr, UnionToIntersection } from './capability.ts';
  * (its `incoming` is this `outgoing`, and so on), so the generated client types
  * come out correct. Reading these fields directly gives the server direction.
  *
- * Slots not declared by any capability or handler collapse to `{}`.
+ * Slots not declared by a capability or an assembled handler value collapse to `{}`.
  */
 export type BuildContract<TSlots> = {
-  /** Client→server events — declared by each `base.on(...)` handler. */
+  /** Client→server events — declared by assembled `base.on(...)` handler values. */
   readonly incoming: AsRecord<SlotOr<TSlots, 'incoming'>>;
   /** Server→client events — declared by the `emits(...)` capability. */
   readonly outgoing: AsRecord<SlotOr<TSlots, 'outgoing'>>;
-  /** Client→server request/response pairs — declared by each `base.request(...)`. */
+  /** Client→server request/response pairs — declared by assembled `base.request(...)` values. */
   readonly clientRequests: AsRecord<SlotOr<TSlots, 'clientRequests'>>;
-  /** Server→client request/response pairs — declared by `requests({...})`. */
+  /** Server→client request/response pairs — declared by `serverRequests({...})`. */
   readonly serverRequests: AsRecord<SlotOr<TSlots, 'serverRequests'>>;
   /** Server-pushed plain streams. */
   readonly streams: AsRecord<SlotOr<TSlots, 'streams'>>;

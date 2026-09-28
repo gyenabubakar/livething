@@ -36,6 +36,7 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
       // so normal sends go straight to the wire.
       helpers.registerOutgoingFallback((message, options) => {
         if (helpers.getState() === 'open' && !buffer.isFlushing) return false;
+
         const buffered = buffer.enqueue(message, options?.ttl, options?.owner);
         if (buffered) helpers.log.info(`buffered '${message.event}'`);
         return buffered;

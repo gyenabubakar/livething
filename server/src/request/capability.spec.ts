@@ -1,41 +1,48 @@
+import { WIRE_LIMITS } from '@livething/core';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { server } from '~/_define/server.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
-import { requests } from './capability.ts';
+import { clientRequests } from './client-requests.ts';
+import { serverRequests } from './server-requests.ts';
 import type { RequestPrimitive } from './request.ts';
 
-interface Env {
-  SECRET: string;
-}
-
-function requestPrimitive(primitives: readonly { __wskit: string }[]): RequestPrimitive {
-  const found = primitives.find((p) => p.__wskit === 'request');
+function requestPrimitive(primitives: readonly { __livething: string }[]): RequestPrimitive {
+  const found = primitives.find((p) => p.__livething === 'request');
   if (!found) throw new Error('no request primitive');
+
   return found as unknown as RequestPrimitive;
 }
 
-describe('requests() capability — client to server', () => {
+describe('clientRequests() capability', () => {
+  it('registers client-to-server handlers with clientRequests()', () => {
+    const base = server({ capabilities: [clientRequests()] });
+    const handler = base.request('save', { run: () => ({ ok: true }) });
+    expect(
+      compileServerDefinition(base.assemble({ handlers: [handler] })).requests.has('save'),
+    ).toBe(true);
+  });
+
   it('registers a request handler that boots and responds with the return value', async () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const handleGetTime = base.request('get-time', {
       input: v.object({}),
       run() {
         return { now: 'noon' };
       },
     });
-    const handler = base.assemble({ handlers: [handleGetTime] });
-    const compiled = compileHandlerDefinition(handler);
+    const definition = base.assemble({ handlers: [handleGetTime] });
+    const compiled = compileServerDefinition(definition);
     expect(compiled.requests.has('get-time')).toBe(true);
 
     const respond = vi.fn();
-    await requestPrimitive(handler.primitives).handler({ respond } as never, {});
+    await requestPrimitive(definition.primitives).handler({ respond } as never, {});
     expect(respond).toHaveBeenCalledWith({ now: 'noon' });
   });
 
   it('does not respond when the handler returns nothing', async () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const handleNoReply = base.request('no-reply', {
       run() {},
     });
@@ -48,7 +55,7 @@ describe('requests() capability — client to server', () => {
   });
 
   it('responds with falsy non-null values', async () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const handleCount = base.request('count', {
       run() {
         return 0;
@@ -63,7 +70,7 @@ describe('requests() capability — client to server', () => {
   });
 
   it('treats an explicit null as a void ack, not a response value', async () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const handleFind = base.request('find', {
       run() {
         return null;
@@ -79,13 +86,23 @@ describe('requests() capability — client to server', () => {
     expect(respond).not.toHaveBeenCalled();
   });
 
-  it('throws when base.request is used without the requests() capability', () => {
-    const base = define({ env: t<Env>() });
+  it('throws when base.request is used without the clientRequests() capability', () => {
+    const base = server({});
     const escapeHatch = base as unknown as {
       request(event: string, config: { run: () => unknown }): unknown;
     };
     expect(() => escapeHatch.request('get-time', { run: () => ({}) })).toThrow(
-      /base\.request\(\) needs the requests\(\) capability/,
+      /base\.request\(\) needs clientRequests\(\)/,
+    );
+  });
+});
+
+describe('serverRequests() capability', () => {
+  it('rejects a request name that cannot travel on the wire', () => {
+    const tooLong = 'e'.repeat(WIRE_LIMITS.event + 1);
+
+    expect(() => serverRequests({ [tooLong]: { out: t<{}>() } })).toThrow(
+      /the wire protocol limit is 128/,
     );
   });
 });

@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { streamSignalHandler } from '@wskit/tests-e2e-handlers/stream-signal';
+import { bind } from '@livething/server-cloudflare';
+import { streamSignalDefinition } from '@livething/tests-e2e-handlers/stream-signal';
 
-export class StreamSignalServer extends server(streamSignalHandler) {}
+export class StreamSignalServer extends bind(streamSignalDefinition) {}

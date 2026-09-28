@@ -1,8 +1,8 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { requests } from '@wskit/server/requests';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { serverRequests } from '@livething/server/server-requests';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 /**
@@ -12,12 +12,11 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * connection answered first over the real wire. A `trigger-timeout` exercises
  * the "nobody volunteered" path.
  */
-export const broadcastRequestContract = define({
-  env: t<Env>(),
+export const broadcastRequestContract = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
-    requests(),
+    serverRequests(),
     emits({
       outcome: t<{ from: string; ready: boolean }>(),
       'error-outcome': t<{ code: string }>(),
@@ -32,12 +31,12 @@ function describeError(error: unknown): string {
 }
 
 const lobby = broadcastRequestContract.channel('lobby', {
-  outgoing: {
-    emits: {},
-    requests: {
+  capabilities: [
+    emits({}),
+    serverRequests({
       volunteer: { out: t<{ turn: number }>(), in: v.object({ ready: v.boolean() }) },
-    },
-  },
+    }),
+  ],
 });
 
 const handleTrigger = broadcastRequestContract.on('trigger', {
@@ -68,8 +67,8 @@ const handleTriggerTimeout = broadcastRequestContract.on('trigger-timeout', {
   },
 });
 
-export const broadcastRequestHandler = broadcastRequestContract.assemble({
+export const broadcastRequestDefinition = broadcastRequestContract.assemble({
   handlers: [lobby, handleTrigger, handleTriggerTimeout],
 });
 
-export type BroadcastRequestClient = InferClient<typeof broadcastRequestHandler>;
+export type BroadcastRequestClient = InferClient<typeof broadcastRequestDefinition>;

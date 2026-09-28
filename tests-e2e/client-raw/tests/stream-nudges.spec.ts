@@ -84,7 +84,7 @@ test.describe('stream-nudges', () => {
     const wordCount = tokens.trim().split(/\s+/).filter(Boolean).length;
     // The buffered pause stops the stream well before its natural end of 20.
     // How many tokens arrive first depends on the generator's own loop, not on
-    // wskit, so we only check that it stopped early.
+    // LiveThing, so we only check that it stopped early.
     expect(wordCount).toBeLessThan(20);
   });
 
@@ -112,12 +112,9 @@ test.describe('stream-nudges', () => {
   test('malformed nudges do not fall through to a same-named top-level handler', async ({
     page,
   }, testInfo) => {
-    // The fixture registers BOTH a stream `pause` nudge (strict, rejects
-    // extra keys) AND a top-level .incoming(Pause, ...) that would fire
-    // `pause-top-level-fired`. Pre-fix bufferStreamNudge returned false
-    // on validation failure, so processTextMessage fell through to
-    // dispatchIncoming and ran the top-level handler with the malformed
-    // payload.
+    // The fixture registers both a strict stream `pause` nudge and a top-level
+    // handler with the same event name. Invalid nudge payloads must not fall
+    // through to the top-level handler.
     await openPage(page, `test-${testInfo.testId}`);
 
     await page.getByTestId('start-long').click();
@@ -139,26 +136,21 @@ test.describe('stream-nudges', () => {
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
 
-  test('frame with unknown _streamId does not fall through to a same-named top-level handler', async ({
+  test('frame with unknown metadata.stream.id does not fall through to a top-level handler', async ({
     page,
   }, testInfo) => {
-    // The fixture registers BOTH a stream `pause` nudge AND a top-level
-    // .incoming(Pause, ...). Pre-fix bufferStreamNudge returned false for
-    // any frame whose `_streamId` did not match an active owned stream,
-    // and processTextMessage then fell through to dispatchIncoming and
-    // ran the top-level handler with the malformed payload. The contract
-    // is now: any frame carrying `_streamId` is claiming to belong to a
-    // stream — if that claim does not hold, the engine surfaces `_error`
-    // and refuses to fall through.
+    // Any frame carrying `metadata.stream.id` claims to belong to a stream. If
+    // that claim does not match an active owned stream, the engine returns an
+    // error and does not run a same-named top-level handler.
     await openPage(page, `test-${testInfo.testId}`);
 
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'pause',
           payload: { leak: 'should-not-reach-handler' },
-          __wskit: { streamId: 'fake-stream-id' },
+          metadata: { stream: { id: 'fake-stream-id' } },
         }),
       );
     });
@@ -169,17 +161,11 @@ test.describe('stream-nudges', () => {
     expect(await page.getByTestId('pause-top-level-leak').textContent()).toBe('');
   });
 
-  test('frame with active _streamId but unregistered nudge event does not fall through', async ({
+  test('frame with an active metadata.stream.id but unknown nudge does not fall through', async ({
     page,
   }, testInfo) => {
-    // Same fixture: the active stream's nudges are `pause` and `speed-up`.
-    // We craft a frame with the active `_streamId` but `event: 'submit-form'`
-    // (not a registered nudge). Pre-fix this fell through to dispatchIncoming
-    // — there is no top-level submit-form handler in this fixture, so the
-    // attack surface there is "any same-named non-nudge top-level handler
-    // can be hit while the frame claims to be for a stream." Post-fix the
-    // engine refuses the frame as malformed regardless of whether a top-
-    // level handler matches.
+    // The active stream accepts `pause` and `speed-up`. A different event with
+    // the same stream ID is malformed and must not reach top-level dispatch.
     await openPage(page, `test-${testInfo.testId}`);
 
     await page.getByTestId('start-long').click();
@@ -193,10 +179,10 @@ test.describe('stream-nudges', () => {
     await page.evaluate((id) => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'submit-form',
           payload: { data: 'private' },
-          __wskit: { streamId: id },
+          metadata: { stream: { id: id } },
         }),
       );
     }, streamId);
@@ -209,15 +195,12 @@ test.describe('stream-nudges', () => {
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
 
-  test('malformed nudge surfaces _error with code "validation-failed" and _streamId', async ({
+  test('malformed nudge returns validation-failed with metadata.stream.id', async ({
     page,
   }, testInfo) => {
-    // The fixture uses a strict schema for the `pause` nudge, so any extra
-    // field in the payload fails validation. Pre-fix the engine swallowed
-    // the failure: hooks fired but the wire `_error` was never sent, so a
-    // client could not correlate the rejection to the right stream. The
-    // wire frame now reaches the client with `code: 'validation-failed'`
-    // and the original `_streamId` so the client routes it correctly.
+    // The fixture uses a strict schema for the `pause` nudge, so an extra field
+    // fails validation. The error keeps `metadata.stream.id` so the client can
+    // route it to the right stream.
     await openPage(page, `test-${testInfo.testId}`);
 
     await page.getByTestId('start-long').click();
@@ -238,16 +221,11 @@ test.describe('stream-nudges', () => {
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
 
-  test('duplicate-_messageId nudge frames are coalesced before the active stream buffer', async ({
+  test('nudges with the same metadata.delivery.id are deduplicated before buffering', async ({
     page,
   }, testInfo) => {
-    // Pre-fix the dedup ring lived inside dispatchIncoming, so stream
-    // nudge frames (handled by bufferStreamNudge upstream) bypassed the
-    // check entirely. A flaky client that re-sent the same nudge frame
-    // pushed two entries onto activeStream.nudges and the generator saw
-    // the same nudge twice. The fix moves dedup to the top of
-    // processTextMessage so all frames with `_messageId` share one
-    // budget — incoming events, requests, and stream nudges.
+    // The gateway deduplicates all incoming frames, including stream nudges,
+    // before they enter the active stream's nudge buffer.
     await openPage(page, `test-${testInfo.testId}`);
 
     await page.getByTestId('start-long').click();
@@ -258,24 +236,25 @@ test.describe('stream-nudges', () => {
 
     const streamId = (await page.getByTestId('stream-id').textContent()) ?? '';
 
-    // Send two speed-up frames with the SAME _messageId, then end the
+    // Send two speed-up frames with the same delivery ID, then end the
     // stream with pause so the test has a deterministic stop signal.
     await page.evaluate(
       ({ streamId }) => {
         const ws = (window as unknown as { __ws?: WebSocket }).__ws;
         if (!ws) throw new Error('no __ws on window');
+
         ws.send(
-          JSON.stringify({
+          window.__livethingEncode({
             event: 'speed-up',
             payload: { factor: 2 },
-            __wskit: { streamId, messageId: 'dup-id' },
+            metadata: { delivery: { id: 'dup-id' }, stream: { id: streamId } },
           }),
         );
         ws.send(
-          JSON.stringify({
+          window.__livethingEncode({
             event: 'speed-up',
             payload: { factor: 2 },
-            __wskit: { streamId, messageId: 'dup-id' },
+            metadata: { delivery: { id: 'dup-id' }, stream: { id: streamId } },
           }),
         );
       },
@@ -289,7 +268,7 @@ test.describe('stream-nudges', () => {
     // joined with '|' across iterations. Across the whole run the
     // 'speed-up' event must appear at most once — the duplicate frame
     // must have been dropped by the gateway dedup before reaching the
-    // active stream buffer. Pre-fix this would be 'speed-up,speed-up'.
+    // active stream buffer.
     const drained = (await page.getByTestId('nudge-saw-events').textContent()) ?? '';
     const speedUpCount = drained.split(/[|,]/).filter((e) => e === 'speed-up').length;
     expect(speedUpCount).toBe(1);

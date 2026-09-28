@@ -28,7 +28,8 @@ test.describe('channel-key-collision', () => {
             const messages: { event: string; payload: Record<string, unknown> }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
-              messages.push(JSON.parse(ev.data));
+
+              messages.push(window.__livethingDecode(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
             ws.onerror = (e) => reject(e);
@@ -38,6 +39,7 @@ test.describe('channel-key-collision', () => {
         const memberA = await open('memberA');
         const memberB = await open('memberB');
         const broadcaster = await open('broadcaster');
+
         return { memberA, memberB, broadcaster };
       },
       { room },
@@ -46,7 +48,9 @@ test.describe('channel-key-collision', () => {
     async function send(name: 'memberA' | 'memberB' | 'broadcaster', frame: unknown) {
       await page.evaluate(
         ({ h, name, frame }) =>
-          (h as unknown as Record<string, { ws: WebSocket }>)[name]!.ws.send(JSON.stringify(frame)),
+          (h as unknown as Record<string, { ws: WebSocket }>)[name]!.ws.send(
+            window.__livethingEncode(frame),
+          ),
         { h: handle, name, frame },
       );
     }
@@ -69,14 +73,14 @@ test.describe('channel-key-collision', () => {
     // memberA subscribes to family 'rooms' on name 'private-lobby'.
     await send('memberA', {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'private-lobby', channelFamily: 'rooms' },
+      payload: null,
+      metadata: { channel: { name: 'private-lobby', family: 'rooms' } },
     });
     // memberB subscribes to family 'rooms-private' on name 'lobby'.
     await send('memberB', {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'lobby', channelFamily: 'rooms-private' },
+      payload: null,
+      metadata: { channel: { name: 'lobby', family: 'rooms-private' } },
     });
 
     await expect

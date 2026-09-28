@@ -1,4 +1,4 @@
-import { RejoinRejected, WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError, RejoinRejected } from '@livething/core';
 import { scope } from '~/channel/channel.ts';
 import {
   addChannelMembership,
@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { BroadcastToChannelOptions, LeaveChannelOptions } from '~/channel/runtime.ts';
+import type { StoredMembership } from '~/channel/storage.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
 function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}, userId: string = id) {
@@ -45,7 +46,7 @@ function createRuntime(
     connectionId: string;
     event: string;
     payload: Record<string, unknown>;
-    wskit: Record<string, unknown>;
+    livething: Record<string, unknown>;
   }[] = [];
   const broadcasts: {
     channelName: string;
@@ -99,7 +100,7 @@ function createRuntime(
           quality: connection.quality,
           bufferedAmount: 0,
           ref: () => ({
-            __wskit: 'connection-ref' as const,
+            __livething: 'connection-ref' as const,
             id: connection.id,
             instance: undefined,
             userId: connection.userId,
@@ -116,11 +117,11 @@ function createRuntime(
       persistAttachment: vi.fn(),
       sendProtocolMessage(
         connection: ReturnType<typeof createConnection>,
-        { event, payload, wskit }: SendProtocolMessageOptions,
+        { event, payload, livething }: SendProtocolMessageOptions,
       ) {
-        protocol.push({ connectionId: connection.id, event, payload, wskit });
+        protocol.push({ connectionId: connection.id, event, payload, livething });
       },
-      wskitStampHooks: [],
+      livethingStampHooks: [],
       broadcastToChannel({
         channelName,
         event,
@@ -141,7 +142,9 @@ function createRuntime(
       isChannelDurable: () => false,
       persistMembership: () => {},
       deleteDurableMembership: () => {},
-      hasDurableMembership: () => true,
+      getDurableMembership: (): StoredMembership | undefined => ({ meta: {}, kicked: false }),
+      markDurableMembershipKicked: () => {},
+      listDurableMembers: (): (StoredMembership & { userId: string })[] => [],
     },
   };
 }
@@ -188,7 +191,7 @@ describe('channel runtime', () => {
         connectionId: 'conn_2',
         event: '__subscribeOk__',
         payload: {},
-        wskit: {
+        livething: {
           channel: 'room:general',
           channelFamily: 'rooms',
           source: 'client',
@@ -198,8 +201,8 @@ describe('channel runtime', () => {
       {
         connectionId: 'conn_2',
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
-        wskit: { channel: 'room:general', channelFamily: 'rooms', source: 'client' },
+        payload: { members: [{ memberId: 'conn_1', meta: { userId: 'a' }, online: true }] },
+        livething: { channel: 'room:general', channelFamily: 'rooms', source: 'client' },
       },
     ]);
     expect(broadcasts).toEqual([
@@ -207,7 +210,7 @@ describe('channel runtime', () => {
         channelName: 'room:general',
         event: '__memberJoin__',
         payload: {
-          connectionId: 'conn_2',
+          memberId: 'conn_2',
           meta: { userId: 'b' },
         },
         excludeConnectionId: 'conn_2',
@@ -217,7 +220,7 @@ describe('channel runtime', () => {
         channelName: 'room:general',
         event: '__memberOnline__',
         payload: {
-          connectionId: 'conn_2',
+          memberId: 'conn_2',
           meta: { userId: 'b' },
         },
         excludeConnectionId: 'conn_2',
@@ -254,14 +257,14 @@ describe('channel runtime', () => {
       {
         channelName: 'room:general',
         event: '__memberLeave__',
-        payload: { connectionId: 'conn_1', meta: { userId: 'a' } },
+        payload: { memberId: 'conn_1', meta: { userId: 'a' } },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOffline__',
-        payload: { connectionId: 'conn_1' },
+        payload: { memberId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
@@ -293,7 +296,7 @@ describe('channel runtime', () => {
       connectionId: 'conn_1',
       event: '__unsubscribeOk__',
       payload: {},
-      wskit: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
+      livething: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
     });
   });
 
@@ -320,7 +323,7 @@ describe('channel runtime', () => {
         connectionId: 'conn_1',
         event: '__unsubscribeOk__',
         payload: {},
-        wskit: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
+        livething: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
       },
     ]);
   });
@@ -369,7 +372,7 @@ describe('channel runtime', () => {
       connectionId: 'conn_1',
       event: '__unsubscribeOk__',
       payload: {},
-      wskit: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
+      livething: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
     });
   });
 
@@ -433,6 +436,7 @@ describe('channel runtime', () => {
     connections.set(tabB.id, tabB);
     runtime.isChannelDurable = () => true;
     const deleteDurableMembership = vi.fn();
+
     const clearInbox = vi.fn();
     runtime.deleteDurableMembership = deleteDurableMembership;
     (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
@@ -463,7 +467,7 @@ describe('channel runtime', () => {
     expect(clearInbox).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
   });
 
-  it('a single connection leaving a durable channel still drops the durable row and inbox immediately, as before', async () => {
+  it('a single connection leaving a durable channel drops the durable row and inbox immediately', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1', {}, 'alice');
     addChannelMembership(channelMembers, connection, {
@@ -476,6 +480,7 @@ describe('channel runtime', () => {
     runtime.isChannelDurable = () => true;
     const deleteDurableMembership = vi.fn();
     const clearInbox = vi.fn();
+
     runtime.deleteDurableMembership = deleteDurableMembership;
     (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
     const channel = runtime.compiled.channelFamilies.get('rooms')!;
@@ -490,7 +495,7 @@ describe('channel runtime', () => {
     expect(clearInbox).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
   });
 
-  it('an anonymous connection leaving a durable channel behaves sensibly (no user id to share, cleans up exactly as before)', async () => {
+  it('an anonymous connection leaving a durable channel cleans up without a shared user id', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1', {}, '');
     addChannelMembership(channelMembers, connection, {
@@ -503,6 +508,7 @@ describe('channel runtime', () => {
     runtime.isChannelDurable = () => true;
     const deleteDurableMembership = vi.fn();
     const clearInbox = vi.fn();
+
     runtime.deleteDurableMembership = deleteDurableMembership;
     (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
     const channel = runtime.compiled.channelFamilies.get('rooms')!;
@@ -560,14 +566,14 @@ describe('channel runtime', () => {
       {
         channelName: 'room:general',
         event: '__memberLeave__',
-        payload: { connectionId: 'conn_1', meta: {} },
+        payload: { memberId: 'conn_1', meta: {} },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOffline__',
-        payload: { connectionId: 'conn_1' },
+        payload: { memberId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
@@ -599,6 +605,7 @@ describe('channel runtime', () => {
     });
     connections.set(roomsMember.id, roomsMember);
     connections.set(lobbiesMember.id, lobbiesMember);
+
     connections.set(newSubscriber.id, newSubscriber);
 
     await subscribeConnection(runtime, newSubscriber, {
@@ -610,11 +617,11 @@ describe('channel runtime', () => {
     // __memberSync__ to the new subscriber must include only the 'rooms'
     // family member, not the 'lobbies' family member.
     const sync = protocol.find((m) => m.connectionId === 'new-sub' && m.event === '__memberSync__');
-    const members = (sync?.payload.members ?? []) as { connectionId: string }[];
-    expect(members.map((m) => m.connectionId)).toEqual(['rooms-member']);
+    const members = (sync?.payload.members ?? []) as { memberId: string }[];
+    expect(members.map((m) => m.memberId)).toEqual(['rooms-member']);
   });
 
-  it('check with an async validator throws WSKitConfigError without routing through handleValidationError', async () => {
+  it('check with an async validator throws LiveThingConfigError without routing through handleValidationError', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -722,7 +729,7 @@ describe('channel runtime', () => {
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
-  it('native-Promise commit throws a synchronous-commit WSKitConfigError before membership is written', async () => {
+  it('native-Promise commit throws a synchronous-commit LiveThingConfigError before membership is written', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -741,12 +748,12 @@ describe('channel runtime', () => {
       { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
     );
 
-    await expect(rejection).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(rejection).rejects.toBeInstanceOf(LiveThingConfigError);
     await expect(rejection).rejects.toThrow(/commit\(\) must be synchronous/);
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
-  it('cross-realm Promise commit throws WSKitConfigError before membership is written', async () => {
+  it('cross-realm Promise commit throws LiveThingConfigError before membership is written', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -767,12 +774,12 @@ describe('channel runtime', () => {
         connection,
         { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
-    ).rejects.toBeInstanceOf(WSKitConfigError);
+    ).rejects.toBeInstanceOf(LiveThingConfigError);
 
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
-  it('custom thenable commit throws WSKitConfigError before membership is written', async () => {
+  it('custom thenable commit throws LiveThingConfigError before membership is written', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -788,7 +795,7 @@ describe('channel runtime', () => {
         connection,
         { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
-    ).rejects.toBeInstanceOf(WSKitConfigError);
+    ).rejects.toBeInstanceOf(LiveThingConfigError);
 
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
@@ -888,15 +895,15 @@ describe('channel runtime', () => {
 
     // Initial sync to A: empty (A committed first, no peers yet).
     const aSync = protocol.find((m) => m.connectionId === 'conn_A' && m.event === '__memberSync__');
-    const aSyncIds = ((aSync?.payload.members ?? []) as { connectionId: string }[]).map(
-      (m) => m.connectionId,
+    const aSyncIds = ((aSync?.payload.members ?? []) as { memberId: string }[]).map(
+      (m) => m.memberId,
     );
     expect(aSyncIds).toEqual([]);
 
     // Initial sync to B: includes A (committed before B snapshotted).
     const bSync = protocol.find((m) => m.connectionId === 'conn_B' && m.event === '__memberSync__');
-    const bSyncIds = ((bSync?.payload.members ?? []) as { connectionId: string }[]).map(
-      (m) => m.connectionId,
+    const bSyncIds = ((bSync?.payload.members ?? []) as { memberId: string }[]).map(
+      (m) => m.memberId,
     );
     expect(bSyncIds).toEqual(['conn_A']);
 
@@ -904,11 +911,67 @@ describe('channel runtime', () => {
     // B broadcast __memberJoin__{B} (A receives via the broadcast path).
     const broadcastJoiners = broadcasts
       .filter((b) => b.event === '__memberJoin__')
-      .map((b) => (b.payload as { connectionId: string }).connectionId);
+      .map((b) => (b.payload as { memberId: string }).memberId);
     expect(broadcastJoiners).toEqual(['conn_A', 'conn_B']);
 
     expect(aSyncIds).not.toContain('conn_A');
     expect(bSyncIds).not.toContain('conn_B');
+  });
+
+  it('commit and the membership write run in one tick, so two concurrent subscribes cannot both pass a cap of 1', async () => {
+    const connA = createConnection('conn_A');
+    const connB = createConnection('conn_B');
+    const { runtime, connections, channelMembers } = createRuntime();
+    connections.set(connA.id, connA);
+    connections.set(connB.id, connB);
+
+    let releaseChecks!: () => void;
+    const checksReleased = new Promise<void>((resolve) => (releaseChecks = resolve));
+    const membersSeenInCommit: number[] = [];
+
+    const gatedRuntime = {
+      ...runtime,
+      checkHooks: new Map([
+        [
+          'rooms',
+          [
+            {
+              handler: async () => {
+                await checksReleased;
+              },
+              validator: undefined,
+            },
+          ],
+        ],
+      ]),
+      commitHooks: new Map([
+        [
+          'rooms',
+          [
+            {
+              handler: () => {
+                const key = createChannelMembershipKey('room:general', 'rooms');
+                const count = channelMembers.get(key)?.size ?? 0;
+                membersSeenInCommit.push(count);
+                if (count >= 1) throw new Error('room is full');
+              },
+            },
+          ],
+        ],
+      ]),
+    };
+
+    const target = { channelName: 'room:general', channelFamily: 'rooms', data: undefined };
+    const subA = subscribeConnection(gatedRuntime, connA, target);
+    const subB = subscribeConnection(gatedRuntime, connB, target);
+    releaseChecks();
+
+    const results = await Promise.allSettled([subA, subB]);
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+    expect(membersSeenInCommit).toEqual([0, 1]);
+    expect(channelMembers.get(createChannelMembershipKey('room:general', 'rooms'))?.size).toBe(1);
   });
 
   it('sends _subscribeOk before running onSubscribe side effects', async () => {
@@ -980,11 +1043,9 @@ describe('channel runtime', () => {
   });
 
   it('leaveChannel runs membership removal, persistAttachment, and _memberLeave broadcast even when an onUnsubscribe hook throws, then re-throws', async () => {
-    // Pre-fix a throwing onUnsubscribe rejected leaveChannel before the
-    // tail ran — peers never saw `_memberLeave`, the attachment stayed
-    // stale. The hook throw is now contained, the tail runs
-    // unconditionally, and the original error is re-thrown so kick
-    // callers still observe it.
+    // A throwing onUnsubscribe is contained until membership removal,
+    // persistence, and peer notification finish. The original error is then
+    // rethrown so callers still observe it.
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
     addChannelMembership(channelMembers, connection, {
@@ -1029,14 +1090,14 @@ describe('channel runtime', () => {
       {
         channelName: 'room:general',
         event: '__memberLeave__',
-        payload: { connectionId: 'conn_1', meta: {} },
+        payload: { memberId: 'conn_1', meta: {} },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOffline__',
-        payload: { connectionId: 'conn_1' },
+        payload: { memberId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
       },
@@ -1046,7 +1107,7 @@ describe('channel runtime', () => {
 });
 
 describe('__subscribeOk__ inbox flag', () => {
-  function subscribeOkFrame(protocol: { event: string; wskit: Record<string, unknown> }[]) {
+  function subscribeOkFrame(protocol: { event: string; livething: Record<string, unknown> }[]) {
     return protocol.find((frame) => frame.event === '__subscribeOk__');
   }
 
@@ -1061,7 +1122,7 @@ describe('__subscribeOk__ inbox flag', () => {
       data: undefined,
     });
 
-    expect(subscribeOkFrame(protocol)?.wskit).toMatchObject({ inbox: true });
+    expect(subscribeOkFrame(protocol)?.livething).toMatchObject({ inbox: true });
   });
 
   it('stamps inbox:true on the server-rejoin confirmation for an inbox channel', async () => {
@@ -1075,7 +1136,7 @@ describe('__subscribeOk__ inbox flag', () => {
       payload: {},
     });
 
-    expect(subscribeOkFrame(protocol)?.wskit).toMatchObject({ inbox: true });
+    expect(subscribeOkFrame(protocol)?.livething).toMatchObject({ inbox: true });
   });
 
   it('omits the inbox flag for a non-inbox channel', async () => {
@@ -1089,7 +1150,7 @@ describe('__subscribeOk__ inbox flag', () => {
       data: undefined,
     });
 
-    expect(subscribeOkFrame(protocol)?.wskit).not.toHaveProperty('inbox');
+    expect(subscribeOkFrame(protocol)?.livething).not.toHaveProperty('inbox');
   });
 });
 
@@ -1113,7 +1174,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: {},
-        wskit: {
+        livething: {
           channel: 'room:general',
           channelFamily: 'rooms',
           source: 'server',
@@ -1124,21 +1185,21 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__memberSync__',
         payload: { members: [] },
-        wskit: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
+        livething: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
       },
     ]);
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',
         event: '__memberJoin__',
-        payload: { connectionId: 'target', meta: { userId: 't' } },
+        payload: { memberId: 'target', meta: { userId: 't' } },
         excludeConnectionId: 'target',
         channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOnline__',
-        payload: { connectionId: 'target', meta: { userId: 't' } },
+        payload: { memberId: 'target', meta: { userId: 't' } },
         excludeConnectionId: 'target',
         channelFamily: 'rooms',
       },
@@ -1154,7 +1215,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => false,
+      getDurableMembership: () => undefined,
     };
 
     await subscribeConnectionAsServer(rejoinRuntime, target, {
@@ -1184,7 +1245,7 @@ describe('subscribeConnectionAsServer', () => {
     });
 
     const ok = protocol.find((p) => p.event === '__subscribeOk__');
-    expect(ok?.wskit).toEqual({
+    expect(ok?.livething).toEqual({
       channel: 'room:general',
       channelFamily: 'rooms',
       source: 'server',
@@ -1202,7 +1263,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       checkHooks: new Map([['rooms', [{ handler: checkHook, validator: undefined }]]]),
       revalidateHooks: new Map([['rooms', [revalidateHook]]]),
     };
@@ -1231,7 +1292,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       commitHooks: new Map([['rooms', [{ handler: commitHook }]]]),
       subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
     };
@@ -1253,10 +1314,11 @@ describe('subscribeConnectionAsServer', () => {
     const deleteDurableMembership = vi.fn();
     const clearInbox = vi.fn();
     connections.set(target.id, target);
+
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       deleteDurableMembership,
       clearInbox,
       sendProtocolMessage: () => {
@@ -1286,7 +1348,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       revalidateHooks: new Map([
         [
           'rooms',
@@ -1326,13 +1388,13 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => ({ meta: {}, kicked: false }),
       revalidateHooks: new Map([
         [
           'rooms',
           [
             () => {
-              throw new WSKitConfigError('bad gate config');
+              throw new LiveThingConfigError('bad gate config');
             },
           ],
         ],
@@ -1351,7 +1413,7 @@ describe('subscribeConnectionAsServer', () => {
       thrown = error;
     }
 
-    expect(thrown).toBeInstanceOf(WSKitConfigError);
+    expect(thrown).toBeInstanceOf(LiveThingConfigError);
     expect(RejoinRejected.matches(thrown)).toBe(false);
   });
 
@@ -1479,13 +1541,13 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: {},
-        wskit: { channel: 'lobby', source: 'server', channelMembership: 'ephemeral' },
+        livething: { channel: 'lobby', source: 'server', channelMembership: 'ephemeral' },
       },
       {
         connectionId: 'target',
         event: '__memberSync__',
         payload: { members: [] },
-        wskit: { channel: 'lobby', source: 'server' },
+        livething: { channel: 'lobby', source: 'server' },
       },
     ]);
   });
@@ -1523,6 +1585,7 @@ describe('subscribeConnectionAsServer', () => {
       channelFamily: 'rooms',
     });
     connections.set(existingA.id, existingA);
+
     connections.set(existingB.id, existingB);
 
     const target = createConnection('target', {});
@@ -1535,8 +1598,8 @@ describe('subscribeConnectionAsServer', () => {
     });
 
     const sync = protocol.find((p) => p.connectionId === 'target' && p.event === '__memberSync__');
-    const members = (sync?.payload.members ?? []) as { connectionId: string }[];
-    expect(members.map((m) => m.connectionId).sort()).toEqual(['existing-a', 'existing-b']);
+    const members = (sync?.payload.members ?? []) as { memberId: string }[];
+    expect(members.map((m) => m.memberId).sort()).toEqual(['existing-a', 'existing-b']);
   });
 
   it('runs onSubscribe after the subscribe is committed and the wire events have been sent', async () => {
@@ -1571,7 +1634,7 @@ describe('subscribeConnectionAsServer', () => {
     expect(order[0]).toBe('wire:__subscribeOk__');
     expect(order[order.length - 1]).toBe('onSubscribe');
     expect(
-      protocol.some((p) => p.event === '__subscribeOk__' && p.wskit?.source === 'server'),
+      protocol.some((p) => p.event === '__subscribeOk__' && p.livething?.source === 'server'),
     ).toBe(true);
   });
 
@@ -1581,6 +1644,7 @@ describe('subscribeConnectionAsServer', () => {
     connections.set(target.id, target);
     const onSubscribe = vi.fn();
     runtime.subscribeHooks = new Map([['rooms', [onSubscribe]]]);
+
     runtime.sendProtocolMessage = (_connection, options) => {
       if (options.event === '__subscribeOk__') (target as RuntimeConnection).closing = true;
     };
@@ -1623,7 +1687,7 @@ describe('subscribeConnectionAsServer', () => {
     const target = createConnection('target');
     connections.set(target.id, target);
     runtime.sendProtocolMessage = () => {
-      throw new WSKitConfigError('translator outbound is invalid');
+      throw new LiveThingConfigError('translator outbound is invalid');
     };
 
     await expect(
@@ -1632,7 +1696,7 @@ describe('subscribeConnectionAsServer', () => {
         channelFamily: 'rooms',
         payload: undefined,
       }),
-    ).rejects.toThrow(WSKitConfigError);
+    ).rejects.toThrow(LiveThingConfigError);
 
     expect(target.channelMemberships.size).toBe(0);
     expect(channelMembers.size).toBe(0);
@@ -1829,6 +1893,7 @@ describe('resyncChannelMembers (client __memberSync__ request, bug #16)', () => 
       channelName: 'room:general',
       channelFamily: 'rooms',
     });
+
     const { runtime, connections, protocol } = createRuntime(channelMembers);
     connections.set(first.id, first);
     connections.set(second.id, second);
@@ -1842,8 +1907,8 @@ describe('resyncChannelMembers (client __memberSync__ request, bug #16)', () => 
       {
         connectionId: 'conn_2',
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
-        wskit: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
+        payload: { members: [{ memberId: 'conn_1', meta: { userId: 'a' }, online: true }] },
+        livething: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
       },
     ]);
   });

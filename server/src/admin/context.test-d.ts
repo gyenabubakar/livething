@@ -1,13 +1,12 @@
 import { channels } from '~/channel/capability.ts';
-import { define, emits, t } from '~/index.ts';
+import { emits, server, t } from '~/index.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { expectTypeOf } from 'vitest';
 import type { UnlistedAdminContextMember } from './context.ts';
 
 // A top-level (app) assemble types its api ctx as the connectionless admin ctx:
 // engine-wide ops are present, per-connection members are not.
-const app = define({
-  env: t<{ SECRET: string }>(),
+const app = server({
   capabilities: [emits({ ping: t<{ n: number }>() })],
 });
 const go = app.on('go', { run() {} });
@@ -20,6 +19,7 @@ app.assemble({
     expectTypeOf(ctx).toHaveProperty('closeConnections');
     expectTypeOf(ctx).toHaveProperty('sql');
     expectTypeOf(ctx).toHaveProperty('connections');
+
     expectTypeOf(ctx).toHaveProperty('users');
     expectTypeOf(ctx.connectionCount).toEqualTypeOf<number>();
 
@@ -29,7 +29,6 @@ app.assemble({
     ctx.id;
     // @ts-expect-error — no current connection on the admin ctx
     ctx.meta;
-
     // @ts-expect-error — `channels` is owned by the channels() capability
     ctx.channels;
     // @ts-expect-error — `schedule` is owned by the scheduled() capability
@@ -49,8 +48,7 @@ app.assemble({
 });
 
 // Listing the owning capability puts the gated members back, typed.
-const full = define({
-  env: t<{ SECRET: string }>(),
+const full = server({
   capabilities: [
     emits({ ping: t<{ n: number }>() }),
     channels(),

@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { adminHandler } from '@wskit/tests-e2e-handlers/admin';
+import { bind } from '@livething/server-cloudflare';
+import { adminDefinition } from '@livething/tests-e2e-handlers/admin';
 
-export class AdminServer extends server(adminHandler) {}
+export class AdminServer extends bind(adminDefinition) {}

@@ -1,12 +1,12 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { Disconnect } from '@wskit/server/errors';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { Disconnect } from '@livething/server/errors';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
-import type { ReplaySnapshotValue } from '@wskit/server/replay';
+import type { InferClient } from '@livething/server';
+import type { ReplaySnapshotValue } from '@livething/server/replay';
 import { requireUsername } from '../_shared/upgrade.ts';
 import { BurstCounter, DeleteDoc, IncrementCounter, RoomUpdateDoc, UpdateDoc } from './events.ts';
 import type {
@@ -22,6 +22,7 @@ function reduceSnapshot(
   next: ReplaySnapshotValue,
 ): ReplaySnapshotValue | null {
   if (next.event === 'doc-deleted') return null;
+
   if (next.event !== 'counter-snapshot') return next;
 
   const previousTotal = previous?.event === 'counter-snapshot' ? Number(previous.payload.total) : 0;
@@ -34,8 +35,7 @@ function reduceSnapshot(
   };
 }
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -63,39 +63,42 @@ base.onError((_ctx, error, event) => {
 export const handleUpdateDoc = base.on('update-doc', {
   input: UpdateDoc,
   run(ctx, payload) {
-    ctx.send('doc-snapshot', { docId: payload.docId, title: payload.title });
-    ctx.broadcast('doc-snapshot', { docId: payload.docId, title: payload.title });
+    ctx.broadcast(
+      'doc-snapshot',
+      { docId: payload.docId, title: payload.title },
+      { includeSelf: true },
+    );
   },
 });
 
 export const handleDeleteDoc = base.on('delete-doc', {
   input: DeleteDoc,
   run(ctx, payload) {
-    ctx.send('doc-deleted', { docId: payload.docId });
-    ctx.broadcast('doc-deleted', { docId: payload.docId });
+    ctx.broadcast('doc-deleted', { docId: payload.docId }, { includeSelf: true });
   },
 });
 
 export const handleIncrementCounter = base.on('increment-counter', {
   input: IncrementCounter,
   run(ctx, payload) {
-    ctx.send('counter-snapshot', { key: payload.key, total: payload.amount });
+    ctx.broadcast(
+      'counter-snapshot',
+      { key: payload.key, total: payload.amount },
+      { includeSelf: true },
+    );
   },
 });
 
-// Burst handler used for the snapshot-coalescing benchmark. It sends a
-// pile of counter-snapshot messages in one go, all targeting the same
-// snapshot key. Before the snapshot-batching change, each send hit SQL
-// and wrote a row that the next send overwrote anyway — `count` writes
-// for one final row. After the change, all the sends fold together in
-// memory inside the open handler scope and one row gets written when
-// the handler finishes.
+// Burst handler used for the snapshot-coalescing benchmark. It sends many
+// counter snapshots for one key in a single handler run; they fold in memory
+// and produce one SQL write when the handler finishes.
 export const handleBurstCounter = base.on('burst-counter', {
   input: BurstCounter,
   run(ctx, payload) {
     for (let i = 0; i < payload.count; i += 1) {
-      ctx.send('counter-snapshot', { key: payload.key, total: 1 });
+      ctx.broadcast('counter-snapshot', { key: payload.key, total: 1 }, { includeSelf: true });
     }
+
     ctx.send('burst-done', { key: payload.key, sent: payload.count });
   },
 });
@@ -110,25 +113,25 @@ export const handleServerDrop = base.on('server-drop', {
 });
 
 const snapshotRoom = base.channel('snapshot-room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-doc-snapshot': t<v.InferOutput<typeof RoomDocSnapshot>>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleUpdateRoomDoc = snapshotRoom.on('update-room-doc', {
   input: RoomUpdateDoc,
   run(ctx, payload) {
-    ctx.channel.send('room-doc-snapshot', { docId: payload.docId, title: payload.title });
-    ctx.channel.broadcast('room-doc-snapshot', {
-      docId: payload.docId,
-      title: payload.title,
-    });
+    ctx.channel.broadcast(
+      'room-doc-snapshot',
+      { docId: payload.docId, title: payload.title },
+      { includeSelf: true },
+    );
   },
 });
 
-export const replaySnapshotHandler = base.assemble({
+export const replaySnapshotDefinition = base.assemble({
   handlers: [
     handleUpdateDoc,
     handleDeleteDoc,
@@ -139,4 +142,4 @@ export const replaySnapshotHandler = base.assemble({
   ],
 });
 
-export type ReplaySnapshotClient = InferClient<typeof replaySnapshotHandler>;
+export type ReplaySnapshotClient = InferClient<typeof replaySnapshotDefinition>;

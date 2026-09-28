@@ -8,6 +8,15 @@ import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type { Validator } from '~/types.ts';
 
+type OptsParameter = {
+  channelName: string;
+  channelFamily: string | null;
+  to: ChannelRuntime.ChannelRecipient;
+  event: string;
+  payload: unknown;
+};
+type OptsParameter2 = { lastSeen?: number | null };
+
 /**
  * Hidden channel markers attached to live connection contexts for engine-owned
  * helpers and primitive context extenders.
@@ -38,13 +47,9 @@ export interface EngineChannelMeta {
  * contexts from the engine state.
  */
 export interface ContextCommonDeps {
-  env: Record<string, unknown>;
-
   logger: PublicApi.Logger;
 
   platform: unknown;
-
-  waitUntilImpl: (promise: Promise<unknown>) => void;
 
   /**
    * The engine's instance id, or `undefined` when running single-instance.
@@ -73,20 +78,24 @@ export interface ContextCommonDeps {
     opts: OutgoingRuntime.SendThroughPipelineOptions,
   ): boolean;
 
+  /**
+   * Send one event to the given connections of one user, stamped once and
+   * recorded once for that user. Backs `ctx.user.broadcast` and
+   * `ctx.users.get(id).broadcast`. Returns the number of sockets reached.
+   */
+  broadcastToUser(
+    connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+    opts: OutgoingRuntime.BroadcastToUserOptions,
+  ): number;
+
   broadcastToChannel(opts: OutgoingRuntime.BroadcastToChannelOptions): void;
 
   /**
    * Deliver a channel-scoped frame to the members a `to` recipient addresses,
-   * returning the number of sockets reached. Backs `ctx.channel.send(..., { to })`
+   * returning the number of sockets reached. Backs `ctx.channel.broadcastTo(...)`
    * and the equivalent on any `ChannelHandle`.
    */
-  sendToChannelRecipient(opts: {
-    channelName: string;
-    channelFamily: string | null;
-    to: ChannelRuntime.ChannelRecipient;
-    event: string;
-    payload: unknown;
-  }): number;
+  broadcastToChannelRecipient(opts: OptsParameter): number;
 
   getChannelMembers(
     channelName: string,
@@ -124,7 +133,7 @@ export interface ContextCommonDeps {
 
   toConnectionInfo(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts?: { lastSeen?: number | null },
+    opts?: OptsParameter2,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];

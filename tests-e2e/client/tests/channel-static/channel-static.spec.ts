@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's channels() against the real wskit
-// `channel-static` handler. Adapter-oblivious — it talks to whatever server the
+// Conformance: @livething/client's channels() against the real LiveThing
+// `channel-static` server definition. Adapter-oblivious — it talks to whatever server the
 // run booted over the /ws proxy.
 async function open(page: Page, room: string, username: string): Promise<void> {
   await page.goto(`/tests/channel-static/index.html?room=${room}&username=${username}`);
@@ -54,6 +54,7 @@ test.describe('channel-static (conformance)', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await expect(page.getByTestId('status-log')).toHaveText('subscribing,subscribed');
     await page.getByTestId('unsub-room').click();
+
     await expect(page.getByTestId('status-log')).toHaveText('subscribing,subscribed,unsubscribed');
   });
 
@@ -63,6 +64,7 @@ test.describe('channel-static (conformance)', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await page.getByTestId('start-stream').click();
     await expect(page.getByTestId('stream-chunks')).toHaveText('0,1,2');
+
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
 
@@ -96,6 +98,7 @@ test.describe('channel-static (conformance)', () => {
     await expect(alice.page.getByTestId('subscribed-count')).toHaveText('1');
     await alice.page.getByTestId('disconnect').click();
     await expect(alice.page.getByTestId('status')).toHaveText('closed');
+
     await alice.page.getByTestId('connect').click();
     await expect(alice.page.getByTestId('status')).toHaveText('open');
     await expect(alice.page.getByTestId('subscribed-count')).toHaveText('1');
@@ -122,6 +125,7 @@ test.describe('channel-static (conformance)', () => {
     await expect(alice.page.getByTestId('subscribed-count')).toHaveText('1');
     await alice.page.getByTestId('hide').click();
     await expect(alice.page.getByTestId('status')).toHaveText('closed');
+
     await alice.page.getByTestId('show').click();
     await expect(alice.page.getByTestId('status')).toHaveText('open');
     await expect(alice.page.getByTestId('subscribed-count')).toHaveText('2');

@@ -1,7 +1,7 @@
-import { define, emits, t } from '@wskit/server';
-import { requests } from '@wskit/server/requests';
+import { emits, server, t } from '@livething/server';
+import { serverRequests } from '@livething/server/server-requests';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 /**
@@ -11,11 +11,10 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * round-trip, an invalid-response rejection, and a timeout — all over the real
  * wire.
  */
-export const serverRequestContract = define({
-  env: t<Env>(),
+export const serverRequestContract = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
-    requests({
+    serverRequests({
       'ask-permission': { out: t<{ action: string }>(), in: v.object({ allowed: v.boolean() }) },
       'ping-ack': { out: t<{ note: string }>() },
     }),
@@ -93,8 +92,8 @@ const handleTriggerUndeclared = serverRequestContract.on('trigger-undeclared', {
   },
 });
 
-export const serverRequestHandler = serverRequestContract.assemble({
+export const serverRequestDefinition = serverRequestContract.assemble({
   handlers: [handleTrigger, handleTriggerTimeout, handleTriggerAck, handleTriggerUndeclared],
 });
 
-export type ServerRequestClient = InferClient<typeof serverRequestHandler>;
+export type ServerRequestClient = InferClient<typeof serverRequestDefinition>;

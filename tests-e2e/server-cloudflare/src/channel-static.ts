@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { channelStaticHandler } from '@wskit/tests-e2e-handlers/channel-static';
+import { bind } from '@livething/server-cloudflare';
+import { channelStaticDefinition } from '@livething/tests-e2e-handlers/channel-static';
 
-export class ChannelStaticServer extends server(channelStaticHandler) {}
+export class ChannelStaticServer extends bind(channelStaticDefinition) {}

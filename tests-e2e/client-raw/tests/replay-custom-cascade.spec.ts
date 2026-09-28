@@ -16,7 +16,7 @@ test.describe('replay-custom-cascade', () => {
           messages: {
             event: string;
             payload: Record<string, unknown>;
-            __wskit?: Record<string, unknown>;
+            metadata?: Record<string, Record<string, unknown>> | null;
           }[];
         }> {
           return new Promise((resolve, reject) => {
@@ -26,11 +26,12 @@ test.describe('replay-custom-cascade', () => {
             const messages: {
               event: string;
               payload: Record<string, unknown>;
-              __wskit?: Record<string, unknown>;
+              metadata?: Record<string, Record<string, unknown>> | null;
             }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
-              messages.push(JSON.parse(ev.data));
+
+              messages.push(window.__livethingDecode(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
             ws.onerror = (e) => reject(e);
@@ -46,15 +47,19 @@ test.describe('replay-custom-cascade', () => {
     async function send(name: 'first' | 'second', frame: unknown) {
       await page.evaluate(
         ({ h, name, frame }) =>
-          (h as unknown as Record<string, { ws: WebSocket }>)[name]!.ws.send(JSON.stringify(frame)),
+          (h as unknown as Record<string, { ws: WebSocket }>)[name]!.ws.send(
+            window.__livethingEncode(frame),
+          ),
         { h: handle, name, frame },
       );
     }
 
-    async function messagesOf(
-      name: 'first' | 'second',
-    ): Promise<
-      { event: string; payload: Record<string, unknown>; __wskit?: Record<string, unknown> }[]
+    async function messagesOf(name: 'first' | 'second'): Promise<
+      {
+        event: string;
+        payload: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
+      }[]
     > {
       return page.evaluate(
         ({ h, name }) =>
@@ -65,7 +70,7 @@ test.describe('replay-custom-cascade', () => {
                 messages: {
                   event: string;
                   payload: Record<string, unknown>;
-                  __wskit?: Record<string, unknown>;
+                  metadata?: Record<string, Record<string, unknown>> | null;
                 }[];
               }
             >
@@ -75,14 +80,23 @@ test.describe('replay-custom-cascade', () => {
     }
 
     // Subscribe and broadcast a few channel-scoped notes.
-    await send('first', { event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } });
+    await send('first', {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'lobby' } },
+    });
     await expect
       .poll(async () => (await messagesOf('first')).some((m) => m.event === '__subscribeOk__'))
       .toBe(true);
 
     for (const text of ['one', 'two', 'three']) {
-      await send('first', { event: 'send-note', payload: { text }, __wskit: { channel: 'lobby' } });
+      await send('first', {
+        event: 'send-note',
+        payload: { text },
+        metadata: { channel: { name: 'lobby' } },
+      });
     }
+
     await expect
       .poll(async () => (await messagesOf('first')).filter((m) => m.event === 'note').length >= 3)
       .toBe(true);
@@ -108,11 +122,12 @@ test.describe('replay-custom-cascade', () => {
         const messages: {
           event: string;
           payload: Record<string, unknown>;
-          __wskit?: Record<string, unknown>;
+          metadata?: Record<string, Record<string, unknown>> | null;
         }[] = [];
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
-          messages.push(JSON.parse(ev.data));
+
+          messages.push(window.__livethingDecode(ev.data));
         };
         (h as unknown as Record<string, unknown>).second = { ws, messages };
       },
@@ -121,19 +136,23 @@ test.describe('replay-custom-cascade', () => {
 
     // The replay-membership gate requires the requester to be a current
     // member of the channel they're asking about, so subscribe first.
-    await send('second', { event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } });
+    await send('second', {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'lobby' } },
+    });
     await expect
       .poll(async () => (await messagesOf('second')).some((m) => m.event === '__subscribeOk__'))
       .toBe(true);
 
     // Ask the top-level replay handler to replay channel `lobby` from seq 0.
-    // This works only because the cascade carried channel info to onBeforeSend
+    // This works only because the cascade carried channel info to beforeBroadcast
     // earlier so rows were stored with channel='lobby'; and because the top-
     // level onReplay context now exposes the requested channel on `request`.
     await send('second', {
       event: '__replay__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'lobby' },
+      metadata: { channel: { name: 'lobby' } },
     });
 
     await expect
@@ -147,17 +166,13 @@ test.describe('replay-custom-cascade', () => {
     expect(notes.map((n) => n.payload.text)).toEqual(['one', 'two', 'three']);
     // Wire fields preserved on each replay frame.
     for (const n of notes) {
-      expect(n.__wskit?.channel).toBe('lobby');
+      expect(n.metadata?.channel?.name).toBe('lobby');
     }
   });
 
-  test('top-level custom replay forwards _channelFamily on family-channel replay frames', async ({
-    page,
-  }, testInfo) => {
-    // Pre-fix the top-level onReplay context's sendReplay hardcoded
-    // channelFamily=null. Replay frames went out with channel='room-7' but
-    // no channelFamily='rooms', so the client's family-channel router could
-    // not route them.
+  test('top-level custom replay forwards metadata.channel.family', async ({ page }, testInfo) => {
+    // Replay frames keep the family key so the client can route them to the
+    // correct dynamic channel handle.
     const room = `cascade-fam-${testInfo.testId}-${Date.now()}`;
     await page.goto(`/replay-custom-cascade?room=${room}`);
 
@@ -170,7 +185,7 @@ test.describe('replay-custom-cascade', () => {
           messages: {
             event: string;
             payload: Record<string, unknown>;
-            __wskit?: Record<string, unknown>;
+            metadata?: Record<string, Record<string, unknown>> | null;
           }[];
         }> {
           return new Promise((resolve, reject) => {
@@ -180,11 +195,12 @@ test.describe('replay-custom-cascade', () => {
             const messages: {
               event: string;
               payload: Record<string, unknown>;
-              __wskit?: Record<string, unknown>;
+              metadata?: Record<string, Record<string, unknown>> | null;
             }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
-              messages.push(JSON.parse(ev.data));
+
+              messages.push(window.__livethingDecode(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
             ws.onerror = (e) => reject(e);
@@ -200,15 +216,19 @@ test.describe('replay-custom-cascade', () => {
     async function send(name: 'first' | 'second', frame: unknown) {
       await page.evaluate(
         ({ h, name, frame }) =>
-          (h as unknown as Record<string, { ws: WebSocket }>)[name]!.ws.send(JSON.stringify(frame)),
+          (h as unknown as Record<string, { ws: WebSocket }>)[name]!.ws.send(
+            window.__livethingEncode(frame),
+          ),
         { h: handle, name, frame },
       );
     }
 
-    async function messagesOf(
-      name: 'first' | 'second',
-    ): Promise<
-      { event: string; payload: Record<string, unknown>; __wskit?: Record<string, unknown> }[]
+    async function messagesOf(name: 'first' | 'second'): Promise<
+      {
+        event: string;
+        payload: Record<string, unknown>;
+        metadata?: Record<string, Record<string, unknown>> | null;
+      }[]
     > {
       return page.evaluate(
         ({ h, name }) =>
@@ -219,7 +239,7 @@ test.describe('replay-custom-cascade', () => {
                 messages: {
                   event: string;
                   payload: Record<string, unknown>;
-                  __wskit?: Record<string, unknown>;
+                  metadata?: Record<string, Record<string, unknown>> | null;
                 }[];
               }
             >
@@ -231,8 +251,8 @@ test.describe('replay-custom-cascade', () => {
     // Subscribe to family channel `room-7` and broadcast notes there.
     await send('first', {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'room-7', channelFamily: 'rooms' },
+      payload: null,
+      metadata: { channel: { name: 'room-7', family: 'rooms' } },
     });
     await expect
       .poll(async () => (await messagesOf('first')).some((m) => m.event === '__subscribeOk__'))
@@ -242,9 +262,10 @@ test.describe('replay-custom-cascade', () => {
       await send('first', {
         event: 'send-note',
         payload: { text },
-        __wskit: { channel: 'room-7', channelFamily: 'rooms' },
+        metadata: { channel: { name: 'room-7', family: 'rooms' } },
       });
     }
+
     await expect
       .poll(async () => (await messagesOf('first')).filter((m) => m.event === 'note').length >= 2)
       .toBe(true);
@@ -269,11 +290,12 @@ test.describe('replay-custom-cascade', () => {
         const messages: {
           event: string;
           payload: Record<string, unknown>;
-          __wskit?: Record<string, unknown>;
+          metadata?: Record<string, Record<string, unknown>> | null;
         }[] = [];
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
-          messages.push(JSON.parse(ev.data));
+
+          messages.push(window.__livethingDecode(ev.data));
         };
         (h as unknown as Record<string, unknown>).second = { ws, messages };
       },
@@ -281,8 +303,8 @@ test.describe('replay-custom-cascade', () => {
     );
     await send('second', {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'room-7', channelFamily: 'rooms' },
+      payload: null,
+      metadata: { channel: { name: 'room-7', family: 'rooms' } },
     });
     await expect
       .poll(async () => (await messagesOf('second')).some((m) => m.event === '__subscribeOk__'))
@@ -290,7 +312,7 @@ test.describe('replay-custom-cascade', () => {
     await send('second', {
       event: '__replay__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'room-7', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'room-7', family: 'rooms' } },
     });
 
     await expect
@@ -301,8 +323,8 @@ test.describe('replay-custom-cascade', () => {
     expect(notes.map((n) => n.payload.text)).toEqual(['fam-one', 'fam-two']);
     // Every replayed note frame carries BOTH the channel and the family.
     for (const n of notes) {
-      expect(n.__wskit?.channel).toBe('room-7');
-      expect(n.__wskit?.channelFamily).toBe('rooms');
+      expect(n.metadata?.channel?.name).toBe('room-7');
+      expect(n.metadata?.channel?.family).toBe('rooms');
     }
   });
 });

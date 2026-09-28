@@ -15,12 +15,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/hibernation?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -31,24 +33,30 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === '__subscribeOk__') subscribed = true;
 			if (data.event === 'room-message') roomMessages = [...roomMessages, data.payload.text];
 			if (data.event === 'notes-list') savedNotes = data.payload.notes;
+
 			if (data.event === 'tag-result') tags = data.payload.tags;
 			if (data.event === 'tagged-message') {
 				taggedMessages = [...taggedMessages, `${data.payload.from}:${data.payload.text}`];
 			}
-			if (data.event === '__streamOk__' && data.__wskit?.streamId) {
-				slowStreamId = data.__wskit.streamId;
+
+			if (data.event === '__streamOk__' && data.metadata?.stream?.id) {
+				slowStreamId = data.metadata.stream?.id;
 				slowStreamOk = true;
 			}
+
 			if (data.event === 'start-slow-stream' && typeof data.payload?.index === 'number') {
 				slowStreamChunks = [...slowStreamChunks, data.payload.index];
 			}
-			if (data.event === '__error__' && data.__wskit?.streamId) {
-				slowStreamError = `${data.payload.code}:${data.__wskit.streamId}`;
+
+			if (data.event === '__error__' && data.metadata?.stream?.id) {
+				slowStreamError = `${data.payload.code}:${data.metadata.stream?.id}`;
 			}
+
 			if (data.event === 'room-members-count') {
 				roomMembersCount = data.payload.count;
 			}
@@ -56,29 +64,29 @@
 	}
 
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
+		ws?.send(window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'room' } } }));
 	}
 
 	function broadcastRoom(text: string) {
 		ws?.send(
-			JSON.stringify({ event: 'broadcast-to-room', payload: { text }, __wskit: { channel: 'room' } }),
+			window.__livethingEncode({ event: 'broadcast-to-room', payload: { text }, metadata: { channel: { name: 'room' } } }),
 		);
 	}
 
 	function saveNote(title: string, body: string) {
-		ws?.send(JSON.stringify({ event: 'save-note', payload: { title, body } }));
+		ws?.send(window.__livethingEncode({ event: 'save-note', payload: { title, body } }));
 	}
 
 	function getNotes() {
-		ws?.send(JSON.stringify({ event: 'get-notes', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'get-notes', payload: {} }));
 	}
 
 	function tagSelf(tag: string) {
-		ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag } }));
+		ws?.send(window.__livethingEncode({ event: 'tag-self', payload: { tag } }));
 	}
 
 	function sendToTag(tag: string, text: string) {
-		ws?.send(JSON.stringify({ event: 'send-to-tag', payload: { tag, text } }));
+		ws?.send(window.__livethingEncode({ event: 'send-to-tag', payload: { tag, text } }));
 	}
 
 	function startSlowStream() {
@@ -86,15 +94,15 @@
 		slowStreamOk = false;
 		slowStreamError = '';
 		slowStreamChunks = [];
-		ws?.send(JSON.stringify({ event: 'start-slow-stream', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'start-slow-stream', payload: {} }));
 	}
 
 	function wakeWithPing() {
-		ws?.send(JSON.stringify({ event: 'get-notes', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'get-notes', payload: {} }));
 	}
 
 	function getRoomMembers() {
-		ws?.send(JSON.stringify({ event: 'get-room-members', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'get-room-members', payload: {} }));
 	}
 </script>
 

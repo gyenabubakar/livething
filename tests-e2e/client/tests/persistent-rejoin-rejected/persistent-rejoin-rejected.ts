@@ -1,6 +1,14 @@
-import { channels, client, connect, reconnection } from '@wskit/client';
-import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
-import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
+import { channels, client, connect, reconnection } from '@livething/client';
+import type { PersistenceClient } from '@livething/tests-e2e-handlers/persistence';
+import {
+  button,
+  el,
+  errorCode,
+  mount,
+  OFFLINE_WINDOW_MAX_DELAY,
+  ready,
+  wsUrl,
+} from '../_shared.ts';
 
 // Drives a PERSISTENT channel (archive-room) whose auto-rejoin the server
 // REJECTS on reconnect: the user is banned mid-session, so the channel's
@@ -31,7 +39,7 @@ export function setup(): void {
   const socket = client<PersistenceClient>()(
     connect(wsUrl('persistence')),
     channels(),
-    reconnection({ maxDelay: 400 }),
+    reconnection({ maxDelay: OFFLINE_WINDOW_MAX_DELAY }),
   );
 
   const room = socket.channel('archive-room');

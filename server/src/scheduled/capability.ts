@@ -1,8 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidWSKitIdentifier } from '@wskit/core';
+import { assertValidLiveThingIdentifier, LiveThingConfigError } from '@livething/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
+import { assertNoNameSeparator } from '~/event-name.ts';
 import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import { scheduleSurfacePrimitive } from '~/scheduled/surface.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
@@ -21,9 +22,9 @@ type Retry = boolean | readonly number[];
  */
 export type ScheduledDef =
   | null
-  | { readonly every: number; readonly retry?: Retry }
-  | { readonly data: TypeMarker<any> | Validator; readonly retry?: Retry }
-  | { readonly retry: Retry };
+  | { readonly every: number; readonly data?: never; readonly retry?: Retry }
+  | { readonly data: TypeMarker<any> | Validator; readonly every?: never; readonly retry?: Retry }
+  | { readonly retry: Retry; readonly every?: never; readonly data?: never };
 
 /** The map of task id → declaration passed to `scheduled(...)`. */
 export type ScheduledDefs = Record<string, ScheduledDef>;
@@ -66,7 +67,9 @@ export interface ScheduledCapability<
 /** A `t<T>()` marker carries a type only — there is no runtime validator on it. */
 function isTypeMarker(value: unknown): value is TypeMarker<unknown> {
   return (
-    !!value && typeof value === 'object' && (value as { __wskit_t?: unknown }).__wskit_t === 't'
+    !!value &&
+    typeof value === 'object' &&
+    (value as { __livething_t?: unknown }).__livething_t === 't'
   );
 }
 
@@ -81,11 +84,18 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
 
   if ('every' in def && def.every !== undefined) {
     assertPositiveInteger(def.every, '.every', context);
+    if (dataValue !== undefined) {
+      throw new LiveThingConfigError(
+        `${context}: a task with 'every' cannot declare 'data'. A recurring run has no caller to supply the payload.`,
+      );
+    }
   }
+
   if ('retry' in def && def.retry !== undefined && Array.isArray(def.retry)) {
     if (def.retry.length === 0) {
-      throw new Error(`[wskit] ${context}: 'retry' requires at least one entry.`);
+      throw new Error(`[livething] ${context}: 'retry' requires at least one entry.`);
     }
+
     for (const entry of def.retry) {
       assertPositiveInteger(entry, '.retry', context);
     }
@@ -111,13 +121,16 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  * Task payloads are typed with `t<...>()` and trusted, not validated — they
  * originate on the server when you call `ctx.schedule(...)`.
  *
+ * A task with `every` runs on that interval by itself, so it cannot declare
+ * `data`. `ctx.cancelScheduled(taskId)` stops it, and it stays stopped across
+ * restarts until `ctx.schedule(taskId, { time })` starts it again.
+ *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { scheduled } from '@wskit/server/scheduled';
+ * import { server, t } from '@livething/server';
+ * import { scheduled } from '@livething/server/scheduled';
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [
  *     scheduled({
  *       cleanup: null,
@@ -127,7 +140,7 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  *   ],
  * });
  *
- * export const handleReport = base.scheduled('report', {
+ * base.scheduled('report', {
  *   run(ctx, data) {
  *     // data: { userId: string }
  *   },
@@ -139,9 +152,11 @@ export const scheduled = withCapabilityKind(function scheduled<const TDefs exten
 ): ScheduledCapability<TDefs> {
   const declarations = new Map<string, ScheduledDeclaration>();
   for (const [taskId, def] of Object.entries(defs)) {
-    assertValidWSKitIdentifier(taskId, 'scheduled() task id');
+    assertValidLiveThingIdentifier(taskId, 'scheduled() task id');
+    assertNoNameSeparator(taskId, 'scheduled() task id');
     declarations.set(taskId, resolveDeclaration(taskId, def));
   }
+
   const cap = capability<ScheduledSlot<TDefs>, never, 'scheduled'>([
     scheduleSurfacePrimitive(),
   ]) as ScheduledCapability<TDefs>;
@@ -150,7 +165,9 @@ export const scheduled = withCapabilityKind(function scheduled<const TDefs exten
     __buildScheduled: ScheduledCapability['__buildScheduled'];
   };
   writable.__scheduled = declarations;
+
   writable.__buildScheduled = (taskId, declaration, body) =>
     makeScheduledPrimitive(taskId, declaration, body);
+
   return stampKind(cap, CAPABILITY_KIND.scheduled);
 }, CAPABILITY_KIND.scheduled);

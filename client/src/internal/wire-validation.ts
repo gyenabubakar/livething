@@ -1,5 +1,5 @@
-import { isValidWSKitIdentifier, ValidationFailed, WIRE_LIMITS } from '@wskit/core';
-import type { WSKitError } from '@wskit/core';
+import { isValidLiveThingIdentifier, ValidationFailed, WIRE_LIMITS } from '@livething/core';
+import type { LiveThingError } from '@livething/core';
 
 type WireFieldKind = 'event' | 'channel' | 'streamId';
 
@@ -16,7 +16,11 @@ const FIELD_META: Record<WireFieldKind, { label: string; limit: number }> = {
  * to its timeout. `event` routes the returned `ValidationFailed`; returns `null`
  * when the value is ok.
  */
-export function wireIdError(event: string, value: string, kind: WireFieldKind): WSKitError | null {
+export function wireIdError(
+  event: string,
+  value: string,
+  kind: WireFieldKind,
+): LiveThingError | null {
   const { label, limit } = FIELD_META[kind];
   if (typeof value !== 'string' || value.length === 0) {
     return ValidationFailed({
@@ -24,6 +28,7 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
       issues: [{ message: `${label} must be a non-empty string.` }],
     });
   }
+
   if (kind === 'event' && isReservedEventName(value)) {
     return ValidationFailed({
       event,
@@ -32,19 +37,20 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
       ],
     });
   }
+
   if (value.length > limit) {
     return ValidationFailed({
       event,
       issues: [{ message: `${label} is ${value.length} characters; the limit is ${limit}.` }],
     });
   }
+
   return null;
 }
 
 /**
  * True when `name` is a reserved protocol name that can't be a user event:
- * the bare `ping`/`pong` control frames, or anything in the protocol's `__x__`
- * namespace (and an empty/non-string name).
+ * anything in the protocol's `__x__` namespace (and an empty/non-string name).
  *
  * Plugin-owned events are namespaced `__<id>::event`. The `__` prefix alone
  * would fail the user-identifier rule, but `::` is the plugin-namespace
@@ -52,13 +58,13 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
  * sendable plugin event, not a reserved protocol frame.
  */
 export function isReservedEventName(name: string): boolean {
-  if (name === 'ping' || name === 'pong') return true;
   if (typeof name === 'string' && name.startsWith('__') && name.includes('::')) return false;
-  return !isValidWSKitIdentifier(name);
+
+  return !isValidLiveThingIdentifier(name);
 }
 
 /**
- * True when an incoming frame's event names a wskit protocol control frame
+ * True when an incoming frame's event names a LiveThing protocol control frame
  * (`__streamOk__`, `__streamEnd__`, `__error__`, …) rather than user traffic.
  *
  * A protocol frame is `__`-prefixed and never contains the plugin-namespace
@@ -77,14 +83,19 @@ export function isProtocolFrameEvent(event: string): boolean {
  * limit: an empty key would drop the `channelFamily` marker and turn the frame
  * into a static-channel subscribe that hangs.
  */
-export function familyKeyError(event: string, familyKey: string | undefined): WSKitError | null {
+export function familyKeyError(
+  event: string,
+  familyKey: string | undefined,
+): LiveThingError | null {
   if (familyKey === undefined) return null;
+
   if (familyKey.length === 0) {
     return ValidationFailed({
       event,
       issues: [{ message: 'channel family must be a non-empty string when given.' }],
     });
   }
+
   if (familyKey.length > WIRE_LIMITS.channelFamily) {
     return ValidationFailed({
       event,
@@ -93,5 +104,6 @@ export function familyKeyError(event: string, familyKey: string | undefined): WS
       ],
     });
   }
+
   return null;
 }

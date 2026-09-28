@@ -1,9 +1,12 @@
-import { ChannelNotFound } from '@wskit/core';
+import { ChannelNotFound } from '@livething/core';
 import * as ChannelRuntime from '~/channel/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
+
+type BuildChannelHandleOptionsParameter2 = { includeSelf?: boolean };
+type BuildChannelsApiOptionsParameter = { isSubscribeGate?: boolean };
 
 type ChannelHandleDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
@@ -12,7 +15,7 @@ type ChannelHandleDeps = Pick<
   | 'getChannelMembers'
   | 'kickChannelMembers'
   | 'sendThroughPipeline'
-  | 'sendToChannelRecipient'
+  | 'broadcastToChannelRecipient'
   | 'subscribeConnectionAsServer'
 >;
 
@@ -41,16 +44,7 @@ export function buildChannelHandle(
     name: scope.channelName,
     family: scope.channelFamily,
     params: scope.params ?? {},
-    send: (event: string, payload: unknown, options?: { to?: PublicApi.ChannelRecipient }) => {
-      if (options?.to) {
-        return deps.sendToChannelRecipient({
-          channelName: scope.channelName,
-          channelFamily: scope.channelFamily,
-          to: options.to,
-          event,
-          payload,
-        });
-      }
+    send: (event: string, payload: unknown) => {
       return deps.sendThroughPipeline(connection, {
         routing: { channel: scope.channelName, channelFamily: scope.channelFamily },
         event,
@@ -59,7 +53,15 @@ export function buildChannelHandle(
         ? 1
         : 0;
     },
-    broadcast: (event: string, payload: unknown, options?: { includeSelf?: boolean }) => {
+    broadcastTo: (to: PublicApi.ChannelRecipient, event: string, payload: unknown) =>
+      deps.broadcastToChannelRecipient({
+        channelName: scope.channelName,
+        channelFamily: scope.channelFamily,
+        to,
+        event,
+        payload,
+      }),
+    broadcast: (event: string, payload: unknown, options?: BuildChannelHandleOptionsParameter2) => {
       deps.broadcastToChannel({
         channelName: scope.channelName,
         event,
@@ -111,14 +113,17 @@ type ChannelsApiDeps = ChannelHandleDeps &
  */
 function toChannelTarget(args: unknown[]): string | { family: string; name: string } {
   if (args.length >= 2) return { family: args[0] as string, name: args[1] as string };
+
   const arg = args[0];
   if (arg && typeof arg === 'object') {
-    if ('__wskitChannelRef' in arg) {
+    if ('__livethingChannelRef' in arg) {
       const ref = arg as unknown as { family: string; name: string };
       return { family: ref.family, name: ref.name };
     }
-    if ('__wskitChannel' in arg) return (arg as unknown as { __key: string }).__key;
+
+    if ('__livethingChannel' in arg) return (arg as unknown as { __key: string }).__key;
   }
+
   return arg as string;
 }
 
@@ -126,12 +131,13 @@ function toChannelTarget(args: unknown[]): string | { family: string; name: stri
 export function buildChannelsApi(
   connection: EngineRuntimeTypes.RuntimeConnection,
   deps: ChannelsApiDeps,
-  options?: { isSubscribeGate?: boolean },
+  options?: BuildChannelsApiOptionsParameter,
 ): { get(...args: unknown[]): PublicApi.ChannelHandle } {
   return {
     get(...args: unknown[]) {
       const resolved = deps.resolveChannel(toChannelTarget(args));
       if (!resolved) throw ChannelNotFound();
+
       return buildChannelHandle(connection, { ...resolved, ...options }, deps);
     },
   };
@@ -150,11 +156,13 @@ export function buildChannelFamilyExtra(
   deps: ChannelHandleDeps,
 ): { channel?: PublicApi.ChannelHandle } {
   if (!scope?.channel) return {};
+
   const channel = scope.channel;
   const channelName =
     scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
   const channelFamily = scope.channelFamily ?? null;
   const params = ChannelRuntime.matchScopeParams(channel.pattern, channelName);
+
   return {
     channel: buildChannelHandle(
       connection,

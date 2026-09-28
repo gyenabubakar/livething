@@ -8,7 +8,7 @@
     <div class="p-3 sm:p-5">
       <svg viewBox="0 0 820 350" role="img" aria-labelledby="pipeline-title pipeline-description" class="block w-full">
         <title id="pipeline-title">Inbound and outbound frame translation</title>
-        <desc id="pipeline-description">Inbound frames pass from a foreign client through the translator into the WSKit pipeline. Outbound frames pass from WSKit through the translator back to the foreign client.</desc>
+        <desc id="pipeline-description">Inbound frames pass from a foreign client through the translator into the LiveThing pipeline. Outbound frames pass from LiveThing through the translator back to the foreign client.</desc>
 
         <defs>
           <marker id="translation-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
@@ -32,9 +32,9 @@
           <text x="42" y="125" fill="#a1a1aa" font-size="12">raw WebSocket string</text>
 
           <text x="327" y="96" fill="#ffb27e" font-size="11">translator.inbound(raw)</text>
-          <text x="327" y="125" fill="#a1a1aa" font-size="12">foreign → WSKit</text>
+          <text x="327" y="125" fill="#a1a1aa" font-size="12">foreign → LiveThing</text>
 
-          <text x="612" y="96" fill="#a7f3d0" font-size="13">WSKit pipeline</text>
+          <text x="612" y="96" fill="#a7f3d0" font-size="13">LiveThing pipeline</text>
           <text x="612" y="125" fill="#a1a1aa" font-size="12">ping/pong · parse · handlers</text>
 
           <line x1="20" y1="207" x2="800" y2="207" stroke="#3f3f46" stroke-width="1" />
@@ -53,7 +53,7 @@
           <text x="42" y="307" fill="#bae6fd" font-size="13">foreign client frame</text>
           <text x="327" y="297" fill="#ffb27e" font-size="11">translator.outbound(</text>
           <text x="327" y="316" fill="#ffb27e" font-size="11">outgoing)</text>
-          <text x="612" y="307" fill="#a7f3d0" font-size="13">WSKit final string</text>
+          <text x="612" y="307" fill="#a7f3d0" font-size="13">LiveThing final string</text>
         </g>
       </svg>
     </div>

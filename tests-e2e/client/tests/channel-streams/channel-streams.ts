@@ -1,10 +1,10 @@
-import { channels, client, connect, stream } from '@wskit/client';
-import type { StreamDurableScopedClient } from '@wskit/tests-e2e-handlers/stream-durable-scoped';
+import { channels, client, connect, stream } from '@livething/client';
+import type { StreamDurableScopedClient } from '@livething/tests-e2e-handlers/stream-durable-scoped';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channel-scoped stream() / resumeStream() against the
-// real `stream-durable-scoped` handler, typed by the same contract the server
-// implements (StreamDurableScopedClient = InferClient<handler>). The `rooms`
+// Drives @livething/client's channel-scoped stream() / resumeStream() against the
+// real `stream-durable-scoped` server definition, typed by the same contract the server
+// implements (StreamDurableScopedClient = InferClient<definition>). The `rooms`
 // channel exposes a resumable cursor stream (`paginate`) and a recorded stream
 // (`history`); this proves both flow through the channel handle and that a
 // resumable stream resumes from its cursor over the real wire.
@@ -47,6 +47,7 @@ export function setup(): void {
         rows.push(chunk.row);
         renderRows();
       }
+
       el('rows-ended').textContent = 'yes';
     } catch (err) {
       el('error-code').textContent = errorCode(err);
@@ -80,6 +81,7 @@ export function setup(): void {
       idx.push(chunk.idx);
       el('history').textContent = idx.join(',');
     }
+
     el('history-ended').textContent = 'yes';
   });
 

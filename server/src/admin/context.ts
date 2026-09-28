@@ -1,4 +1,4 @@
-import { ChannelNotFound } from '@wskit/core';
+import { ChannelNotFound } from '@livething/core';
 import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -22,13 +22,14 @@ function toTarget(name: string, instance?: string): string | { family: string; n
  */
 export function createAdminContext(
   deps: CreateAdminContextDeps,
-): PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+): PublicApi.AdminContext<Record<string, unknown>, unknown> {
   const { sql, kv } = deps.getStorageView();
 
   const channels: PublicApi.AdminChannels = {
     get(name: string, instance?: string): PublicApi.AdminChannelHandle {
       const resolved = deps.resolveChannel(toTarget(name, instance));
       if (!resolved) throw ChannelNotFound();
+
       const { channelName, channelFamily } = resolved;
       return {
         broadcast: (event, payload) =>
@@ -55,7 +56,7 @@ export function createAdminContext(
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {
-      deps.logger.error('[wskit] cancelScheduled matched no runs', {
+      deps.logger.error('[livething] cancelScheduled matched no runs', {
         taskId,
         filter,
         taskExists: result.taskExists,
@@ -73,6 +74,7 @@ export function createAdminContext(
     closeConnections: (filter, code, reason) => {
       for (const connection of deps.connections.values()) {
         if (filter?.userId !== undefined && connection.userId !== filter.userId) continue;
+
         connection.descriptor.close(code, reason);
       }
     },
@@ -87,9 +89,7 @@ export function createAdminContext(
       deps.scheduleTask(taskId, options.time, options.data);
     },
     cancelScheduled,
-    env: deps.env,
     log: deps.logger,
-    waitUntil: deps.waitUntilImpl,
     platform: deps.platform,
   };
 }
@@ -116,18 +116,12 @@ export const ADMIN_CONTEXT_MEMBER_NAMES = [
   'kv',
   'schedule',
   'cancelScheduled',
-  'env',
   'log',
-  'waitUntil',
   'platform',
 ] as const satisfies readonly AdminContextMember[];
 
 /** A member name of the admin context. */
-export type AdminContextMember = keyof PublicApi.AdminContext<
-  Record<string, unknown>,
-  Record<string, unknown>,
-  unknown
->;
+export type AdminContextMember = keyof PublicApi.AdminContext<Record<string, unknown>, unknown>;
 
 /** Any admin-context member {@link ADMIN_CONTEXT_MEMBER_NAMES} forgot to list. */
 export type UnlistedAdminContextMember = Exclude<
@@ -139,7 +133,7 @@ export type UnlistedAdminContextMember = Exclude<
 export const ADMIN_CONTEXT_MEMBERS: ReadonlySet<string> = new Set(ADMIN_CONTEXT_MEMBER_NAMES);
 
 /**
- * Names an app's `api` factory may not use. These are not WSKit's to give away:
+ * Names an app's `api` factory may not use. These are not LiveThing's to give away:
  * JavaScript itself assigns them a meaning that an ordinary method would break.
  *
  * - `then` makes any object a thenable, so `await` on the admin surface calls it

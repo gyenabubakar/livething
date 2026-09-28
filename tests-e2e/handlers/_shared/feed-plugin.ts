@@ -1,10 +1,10 @@
-import { define, emits, errors, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { error } from '@wskit/server/errors';
-import { inbox } from '@wskit/server/inbox';
-import { plugin } from '@wskit/server/plugin';
-import { requests } from '@wskit/server/requests';
-import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
+import { emits, errors, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { error } from '@livething/server/errors';
+import { inbox } from '@livething/server/inbox';
+import { plugin } from '@livething/server/plugins';
+import { recordedStream, resumableStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 
 // A plugin-declared error. It leaves the server namespaced as `__e2e:feed::room-full`;
@@ -12,7 +12,7 @@ import * as v from 'valibot';
 const RoomFull = error('room-full', v.object({ limit: v.number() }));
 const PluginFailure = error('plugin-failure', v.object({ reason: v.string() }));
 
-// A pure-wskit plugin (no DO adapter) that OWNS every client-facing wire
+// A pure-LiveThing plugin (no DO adapter) that OWNS every client-facing wire
 // surface a plugin can: an incoming handler, a client→server request, and all
 // three stream kinds. Every one travels under the plugin's `__e2e:feed::`
 // namespace, so this fixture exercises that the typed client can drive each
@@ -22,13 +22,13 @@ const PluginFailure = error('plugin-failure', v.object({ reason: v.string() }));
 // the `room` channel's `inbox()` capability requires `sequence({ persist: true })`
 // and `dedup()`, which the host must list; that requirement is auto-derived from
 // the plugin's own capabilities, so it needs no dependsOn entry here.
-const h = define({
+const h = server({
   scope: 'plugin',
   capabilities: [
     resumableStream(),
     recordedStream(),
     stream(),
-    requests(),
+    clientRequests(),
     channels(),
     errors([RoomFull, PluginFailure]),
     emits({ welcome: t<{ name: string }>() }),
@@ -46,15 +46,15 @@ const h = define({
 // write side (broadcast fan-out) and the read side (`__received__` acks) — a
 // mismatch there would silently drop delivery.
 const room = h.channel('room', {
-  capabilities: [inbox()],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox(),
+    emits({
       joined: t<{ who: string }>(),
       said: t<{ text: string }>(),
       ping: t<{}>(),
       pong: t<{}>(),
-    },
-  },
+    }),
+  ],
   // A declared error thrown from a channel lifecycle handler leaves the server
   // namespaced (`__e2e:feed::room-full`); the client plugin must reject the
   // subscribe with the plain `room-full`.
@@ -97,13 +97,13 @@ const roomPong = room.on('pong', {
 // the case where the namespace prefix and the `{id}` interpolation could disagree.
 const thread = h.channel(['thread', 'thread:{id}'], {
   membership: 'persistent',
-  capabilities: [inbox()],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox(),
+    emits({
       posted: t<{ thread: string }>(),
       'thread-msg': t<{ thread: string; text: string }>(),
-    },
-  },
+    }),
+  ],
 });
 
 thread.subscribe((ctx) => {
@@ -132,6 +132,7 @@ const echo = h.request('echo', {
   input: v.object({ text: v.string() }),
   run(_ctx, payload) {
     if (payload.text === 'boom') throw RoomFull({ limit: 5 });
+
     return { echoed: payload.text };
   },
 });
@@ -208,7 +209,7 @@ const feedRecorded = h.recordedStream('feed-recorded', {
 });
 
 export const Feed = plugin('e2e:feed', {
-  handler: h.assemble({
+  definition: h.assemble({
     handlers: [
       hello,
       echo,

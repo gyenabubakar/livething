@@ -6,8 +6,11 @@ import {
   deleteMembershipsByChannel,
   ensureMembershipSchema,
   insertMembership,
+  listMembersByChannel,
   listMembershipsByUser,
+  markMembershipKicked,
   purgeMembershipsByUser,
+  readMembership,
 } from './storage.ts';
 
 describe('channel membership storage', () => {
@@ -54,6 +57,7 @@ describe('channel membership storage', () => {
     insertMembership(sql, { userId: 'u-2', channelName: 'admin', channelFamily: null }, 3000);
     expect(listMembershipsByUser(sql, 'u-1')).toHaveLength(1);
     expect(listMembershipsByUser(sql, 'u-2')).toHaveLength(2);
+
     expect(listMembershipsByUser(sql, 'unknown')).toHaveLength(0);
   });
 
@@ -63,6 +67,7 @@ describe('channel membership storage', () => {
     insertMembership(sql, { userId: 'u-2', channelName: 'lobby', channelFamily: null }, 3000);
     purgeMembershipsByUser(sql, 'u-1');
     expect(listMembershipsByUser(sql, 'u-1')).toHaveLength(0);
+
     expect(listMembershipsByUser(sql, 'u-2')).toHaveLength(1);
   });
 
@@ -72,9 +77,49 @@ describe('channel membership storage', () => {
     insertMembership(sql, { userId: 'u-3', channelName: 'lobby', channelFamily: null }, 3000);
     insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 4000);
     deleteMembershipsByChannel(sql, 'lobby', null);
+
     expect(listMembershipsByUser(sql, 'u-1').map((r) => r.channelName)).toEqual(['room']);
     expect(listMembershipsByUser(sql, 'u-2')).toHaveLength(0);
     expect(listMembershipsByUser(sql, 'u-3')).toHaveLength(0);
+  });
+
+  it('stores the member meta and reads it back with the kicked state', () => {
+    const key = { userId: 'u-1', channelName: 'room', channelFamily: 'rooms' };
+    insertMembership(sql, { ...key, meta: { name: 'Ada' } });
+
+    expect(readMembership(sql, key)).toEqual({ meta: { name: 'Ada' }, kicked: false });
+    expect(readMembership(sql, { ...key, userId: 'u-2' })).toBeUndefined();
+  });
+
+  it('marks a row kicked, and a later write clears it', () => {
+    const key = { userId: 'u-1', channelName: 'room', channelFamily: null };
+    insertMembership(sql, { ...key, meta: { name: 'Ada' } });
+
+    markMembershipKicked(sql, key);
+    expect(readMembership(sql, key)).toEqual({ meta: { name: 'Ada' }, kicked: true });
+
+    insertMembership(sql, { ...key, meta: { name: 'Ada 2' } });
+    expect(readMembership(sql, key)).toEqual({ meta: { name: 'Ada 2' }, kicked: false });
+  });
+
+  it('lists the members of one exact channel with their meta and kicked state', () => {
+    insertMembership(sql, {
+      userId: 'u-1',
+      channelName: 'room',
+      channelFamily: 'a',
+      meta: { n: 1 },
+    });
+    insertMembership(sql, { userId: 'u-2', channelName: 'room', channelFamily: 'a' });
+    insertMembership(sql, { userId: 'u-3', channelName: 'room', channelFamily: 'b' });
+    markMembershipKicked(sql, { userId: 'u-2', channelName: 'room', channelFamily: 'a' });
+
+    const members = listMembersByChannel(sql, 'room', 'a').sort((x, y) =>
+      x.userId.localeCompare(y.userId),
+    );
+    expect(members).toEqual([
+      { userId: 'u-1', meta: { n: 1 }, kicked: false },
+      { userId: 'u-2', meta: {}, kicked: true },
+    ]);
   });
 
   it('creates the table and both indexes', () => {
@@ -82,8 +127,8 @@ describe('channel membership storage', () => {
       .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
       .toArray()
       .map((row) => row.name);
-    expect(created).toContain('__wskit_channel_memberships');
-    expect(created).toContain('__wskit_idx_channel_memberships_user');
-    expect(created).toContain('__wskit_idx_channel_memberships_channel');
+    expect(created).toContain('__livething_channel_memberships');
+    expect(created).toContain('__livething_idx_channel_memberships_user');
+    expect(created).toContain('__livething_idx_channel_memberships_channel');
   });
 });

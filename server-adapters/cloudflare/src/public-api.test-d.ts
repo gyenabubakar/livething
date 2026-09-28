@@ -1,17 +1,17 @@
 /* oxlint-disable no-unused-vars */
 /**
- * Compile-time fixture: @wskit/server-cloudflare public API surface.
+ * Compile-time fixture: @livething/server-cloudflare public API surface.
  *
  * Value export boundaries are checked via namespace property access so
  * Prettier cannot merge the @ts-expect-error comments away. Type-only
- * boundaries (CloudflareDurableObjectClass, WSKitDurableObjectInstance)
+ * boundaries (CloudflareDurableObjectClass, LiveThingDurableObjectInstance)
  * are enforced by the explicit export list in index.ts.
  */
 
 import * as Adapter from './index.ts';
 import type { Platform } from './index.ts';
 
-void Adapter.server;
+void Adapter.bind;
 
 declare const _platform: Platform;
 void _platform;

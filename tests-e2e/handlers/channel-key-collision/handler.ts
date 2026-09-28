@@ -1,7 +1,7 @@
-import { define, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 // Two families whose qualified names could be confused if the engine ever
@@ -12,18 +12,17 @@ import { requireUsername } from '../_shared/upgrade.ts';
 // This fixture proves that.
 const BroadcastPayload = v.object({ name: v.string(), text: v.string() });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels()],
 });
 
 const rooms = base.channel(['rooms', 'private-{id}'], {
-  outgoing: { emits: { hello: t<{ family: string; text: string }>() } },
+  capabilities: [emits({ hello: t<{ family: string; text: string }>() })],
 });
 
 const roomsPrivate = base.channel(['rooms-private', '{id}'], {
-  outgoing: { emits: { hello: t<{ family: string; text: string }>() } },
+  capabilities: [emits({ hello: t<{ family: string; text: string }>() })],
 });
 
 const handleBroadcastA = base.on('broadcast-a', {
@@ -46,8 +45,8 @@ const handleBroadcastB = base.on('broadcast-b', {
   },
 });
 
-export const channelKeyCollisionHandler = base.assemble({
+export const channelKeyCollisionDefinition = base.assemble({
   handlers: [handleBroadcastA, handleBroadcastB, rooms, roomsPrivate],
 });
 
-export type ChannelKeyCollisionClient = InferClient<typeof channelKeyCollisionHandler>;
+export type ChannelKeyCollisionClient = InferClient<typeof channelKeyCollisionDefinition>;

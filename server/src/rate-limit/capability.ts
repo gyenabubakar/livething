@@ -41,14 +41,20 @@ export interface RateLimitGlobalConfig {
   /**
    * Pick the budget key from the connection. Defaults to one budget per
    * connection; return `ctx.user.id` to share one budget across a user's
-   * sockets.
+   * sockets. An empty key falls back to the connection's own budget, so
+   * anonymous connections never share one bucket.
    */
   readonly per?: (ctx: any) => string;
 }
 
 /** A `rateLimit(...)` capability, carrying its global rule and intercept builder for assembly. */
-export interface RateLimitCapability extends Capability<{}, never, 'rateLimit'> {
-  /** Host-owned: rejected inside a plugin's `define({ scope: 'plugin' })`. @internal */
+export interface RateLimitCapability extends Capability<
+  {},
+  never,
+  'rateLimit',
+  typeof CAPABILITY_KIND.rateLimit
+> {
+  /** Host-owned: rejected inside a plugin's `server({ scope: 'plugin' })`. @internal */
   readonly __hostOnly: true;
   /** The global rule, or `undefined` when only per-handler limits apply. @internal */
   readonly __rateLimit: RateLimitConfig | undefined;
@@ -74,11 +80,10 @@ export interface RateLimitCapability extends Capability<{}, never, 'rateLimit'> 
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { rateLimit } from '@wskit/server/rate-limit';
+ * import { server, t } from '@livething/server';
+ * import { rateLimit } from '@livething/server/rate-limit';
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [rateLimit({ windowMs: 60_000, max: 100 })],
  * });
  * ```
@@ -87,7 +92,9 @@ export const rateLimit = withCapabilityKind(function rateLimit(
   config?: RateLimitGlobalConfig,
 ): RateLimitCapability {
   const rule: RateLimitConfig | undefined = config ? { enabled: true, ...config } : undefined;
-  const cap = capability<{}, never, 'rateLimit'>([]) as RateLimitCapability;
+  const cap = capability<{}, never, 'rateLimit', typeof CAPABILITY_KIND.rateLimit>(
+    [],
+  ) as RateLimitCapability;
   const writable = cap as {
     __hostOnly: true;
     __rateLimit: RateLimitConfig | undefined;
@@ -95,7 +102,9 @@ export const rateLimit = withCapabilityKind(function rateLimit(
   };
   writable.__hostOnly = true;
   writable.__rateLimit = rule;
-  writable.__buildRateLimit = ({ overrides, channelRules, channelKeys }) => {
+
+  writable.__buildRateLimit = (input) => {
+    const { overrides, channelRules, channelKeys } = input;
     // Each channel becomes a synthetic top-level channel definition so the
     // cascade resolver produces a `channel:<key>` scope rule for it. Channels
     // with no own rule still get a definition (with no rateLimit) so the
@@ -110,8 +119,11 @@ export const rateLimit = withCapabilityKind(function rateLimit(
         definitions: [],
       });
     }
+
     const plan = resolvePlan({ contractRateLimit: rule, definitions, overrides });
+
     return plan ? rateLimitFactory(plan) : null;
   };
+
   return stampKind(cap, CAPABILITY_KIND.rateLimit);
 }, CAPABILITY_KIND.rateLimit);

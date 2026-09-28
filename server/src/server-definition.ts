@@ -3,38 +3,38 @@ import type { Primitive } from '~/primitive.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
 
 /**
- * The client-facing contract for a server — described from the **client's**
- * point of view.
+ * The contract of a server, described from the **server's** point of view.
  *
  * Each field is a record mapping event names to payload types (or richer
- * shapes for requests and streams). `InferClient<typeof myHandler>` reads this
- * to produce the typed client SDK. Adapters (server-cloudflare, server-bun,
- * etc.) also consume it so the handler and its adapter agree on one contract.
+ * shapes for requests and streams). `InferClient<typeof myDefinition>` reads this
+ * and flips `incoming` and `outgoing` to produce the typed client contract.
+ * Adapters (server-cloudflare, server-bun, etc.) also consume it so the server
+ * definition and its adapter agree on one contract.
  *
- * **The naming is client-oriented, which flips against how you author the server.**
- * The table below is the one thing most readers get wrong:
- *
- * | Server authoring            | ServerContract field | Meaning for the client    |
+ * | Server authoring            | ServerContract field | Client contract field     |
  * | --------------------------- | -------------------- | ------------------------- |
- * | `emits({ 'msg': … })`       | `incoming`           | events the client receives|
- * | `base.on('msg', …)`         | `outgoing`           | events the client sends   |
- * | `base.request('r', …)`      | `clientRequests`     | req/response pairs        |
- * | `base.stream('s', …)`       | `streams`            | server-sent streams       |
- * | `base.resumableStream('s', …)` | `streams`         | server-sent streams       |
- * | `base.recordedStream('s', …)`  | `streams`         | server-sent streams       |
- * | `errors([...])`             | `errors`             | typed server errors       |
- * | `base.channel('x', …)`      | `channels`           | per-channel sub-contracts |
+ * | `emits({ 'msg': … })`       | `outgoing`           | `incoming`                |
+ * | `base.on('msg', …)`         | `incoming`           | `outgoing`                |
+ * | `base.request('r', …)`      | `clientRequests`     | `clientRequests`          |
+ * | `serverRequests({...})`     | `serverRequests`     | `serverRequests`          |
+ * | `base.stream('s', …)`       | `streams`            | `streams`                 |
+ * | `base.resumableStream('s', …)` | `streams`         | `streams`                 |
+ * | `base.recordedStream('s', …)`  | `streams`         | `streams`                 |
+ * | `errors([...])`             | `errors`             | `errors`                  |
+ * | `base.channel('x', …)`      | `channels`           | `channels` (each flipped) |
  *
  * `resumableStream` and `recordedStream` collapse into the same client
  * `streams` slot as plain `stream` — the durability mechanism is a server
  * concern and does not change the client's wire surface.
  *
+ * For routed handlers, a row exists only when the value returned by the
+ * matching `base.*(...)` call is included in `base.assemble({ handlers: [...] })`.
+ *
  * @example
  * ```ts
- * import { define, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@livething/server';
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [emits({ message: Message })],
  * });
  * const handleSend = base.on('send', { input: Send, run() {} });
@@ -46,10 +46,10 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
  * ```
  */
 export interface ServerContract {
-  /** Events the **client** receives — declared on the server with `emits({...})`. */
+  /** Events the server receives — declared with `base.on(...)`. The client sends these. */
   readonly incoming: Record<string, any>;
 
-  /** Events the **client** sends — declared on the server with `base.on(...)`. */
+  /** Events the server sends — declared with `emits({...})`. The client receives these. */
   readonly outgoing: Record<string, any>;
 
   /** Request/response pairs the client can invoke (declared with `base.request(...)`). */
@@ -57,7 +57,7 @@ export interface ServerContract {
 
   /**
    * Server→client request/response pairs the client answers (declared with
-   * `requests({...})`). From the client's perspective these are the requests the
+   * `serverRequests({...})`). From the client's perspective these are the requests the
    * server asks it, answered via `socket.onRequest(...)`.
    */
   readonly serverRequests?: Record<string, any>;
@@ -87,10 +87,10 @@ export interface ServerContract {
 }
 
 /**
- * The finalized blueprint for a WSKit server.
+ * The finalized blueprint for a LiveThing server.
  *
  * You get a `ServerDefinition` by calling `base.assemble(...)` with your
- * handlers. It is an immutable, frozen object that holds all registered
+ * handlers. It is an immutable, frozen object that holds all assembled
  * primitives plus the contract type that `InferClient` uses to generate the
  * client-side API.
  *
@@ -98,16 +98,16 @@ export interface ServerContract {
  *
  * ```typescript
  * // Cloudflare
- * export const ChatRoom = server(chat)
+ * export class ChatRoom extends bind(chat) {}
  *
  * // Bun
  * server(chat, { port: 3000 })
  * ```
  *
- * @template TPrimitives - The frozen tuple of all registered primitives.
+ * @template TPrimitives - The frozen tuple of all assembled primitives.
  * @template TContract - The client contract carried along with the built server.
- * @template TScopedCtx - The `ctx` type a scoped handler's own handlers receive.
- * @template TApi - The return type of the handler's `api` factory (the per-connection
+ * @template TScopedCtx - The `ctx` type a scoped server definition's own handlers receive.
+ * @template TApi - The return type of the server definition's `api` factory (the per-connection
  *   surface a plugin exposes via `ctx.plugin(id)`). `unknown` when no `api` is given.
  */
 export interface ServerDefinition<
@@ -116,28 +116,29 @@ export interface ServerDefinition<
   TScopedCtx = unknown,
   TApi = unknown,
 > {
-  readonly __wskit: 'server';
+  readonly __livething: 'server';
   readonly primitives: TPrimitives;
   /**
    * Type-only field — never set at runtime.
    *
-   * A scoped handler (`define({ scope: 'plugin' })`) brands its assembled
+   * A scoped server definition (`server({ scope: 'plugin' })`) brands its assembled
    * definition with the `ctx` type its own handlers receive. `plugin(...)`
    * reads this to type the `api` callback's `ctx` to the plugin's own scoped
-   * surface. Absent (`unknown`) on app servers.
+   * surface. Absent
+   * (`unknown`) on app servers.
    */
   readonly __scopedCtx?: TScopedCtx;
   /**
    * Type-only field — never set at runtime.
    *
-   * A handler assembled with an `api` factory brands its definition with that
+   * A server definition assembled with an `api` factory brands itself with that
    * factory's return type. `plugin(...)` reads this to type `ctx.plugin(id)`.
    * Absent (`unknown`) when no `api` was given.
    */
   readonly __api?: TApi;
   /** Runtime feature flags copied from the contract config for compile-time validation. */
   readonly __features?: ReadonlySet<string>;
-  /** The per-user connection cap from `define({ users: {...} })`, enforced on accept. */
+  /** The per-user connection cap from `server({ users: {...} })`, enforced on accept. */
   readonly __usersPolicy?: {
     readonly maxConnections?: number;
     readonly onExceed: 'replace' | 'reject';
@@ -155,22 +156,22 @@ export interface ServerDefinition<
 }
 
 /**
- * The `api` type a handler was assembled with, or `unknown` when it had none.
+ * The `api` type a server definition was assembled with, or `unknown` when it had none.
  *
- * Adapters read this off the handler they are given so the service they return
- * carries the app's own admin methods — `server(handler)` on Cloudflare uses it
+ * Adapters read this off the server definition they are given so the service they return
+ * carries the app's own admin methods — `bind(definition)` on Cloudflare uses it
  * to type what `stub.admin()` resolves to.
  */
 export type ApiOf<TDefinition> =
   TDefinition extends ServerDefinition<any, any, any, infer TApi> ? TApi : unknown;
 
 /**
- * The per-connection metadata type a handler's `upgrade(...)` returns, read off
+ * The per-connection metadata type a server definition's `upgrade(...)` returns, read off
  * the ctx the definition is branded with.
  *
  * Adapters that carry connection snapshots across a serializing boundary need
  * the concrete type: a `Record<string, unknown>` fallback is not something
- * Cloudflare's RPC types accept as sendable. A handler with no `upgrade` hook
+ * Cloudflare's RPC types accept as sendable. A server definition with no `upgrade` hook
  * has no metadata type to read, so it lands on the empty fallback rather than
  * `unknown` — which would fail the same sendability check.
  */

@@ -8,13 +8,14 @@ const handler = intercept(async (ctx: { userId: string }, frame) => {
   const _kind: 'incoming' | 'request' | 'stream' | 'nudge' | 'unknown' = frame.kind;
   const _channel: string | undefined = frame.routing.channel;
   void [_user, _event, _kind, _channel];
+
   return frame.payload;
 });
 
 const _handlerType: InterceptPrimitive = handler;
 void _handlerType;
 
-const _tag: 'intercept' = handler.__wskit;
+const _tag: 'intercept' = handler.__livething;
 const _kind: PrimitiveKind = handler.__kind;
 void [_tag, _kind];
 

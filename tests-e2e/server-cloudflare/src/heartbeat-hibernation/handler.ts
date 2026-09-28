@@ -1,6 +1,6 @@
-import { define, emits, t } from '@wskit/server';
-import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
-import type { InferClient } from '@wskit/server';
+import { emits, server, t } from '@livething/server';
+import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
+import type { InferClient } from '@livething/server';
 
 /**
  * A hibernation-enabled server that reports every heartbeat hook it sees.
@@ -10,8 +10,7 @@ import type { InferClient } from '@wskit/server';
  * never fire. Only `ping` is auto-answered, so `onPong` must still fire — this
  * handler lets a test prove both over the real wire.
  */
-const base = define({
-  env: t<Env>(),
+const base = server({
   hibernation: { enabled: true },
   upgrade: (request) => requireUsername(request),
   capabilities: [
@@ -30,6 +29,6 @@ base.onPong((ctx) => {
   ctx.send('pong-seen', { connectionId: ctx.connection.id });
 });
 
-export const heartbeatHibernationHandler = base.assemble({ handlers: [] });
+export const heartbeatHibernationDefinition = base.assemble({ handlers: [] });
 
-export type HeartbeatHibernationClient = InferClient<typeof heartbeatHibernationHandler>;
+export type HeartbeatHibernationClient = InferClient<typeof heartbeatHibernationDefinition>;

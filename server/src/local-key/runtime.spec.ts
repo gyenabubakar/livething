@@ -34,10 +34,9 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
     compiled: {},
     connections: new Map<string, RuntimeConnection>(),
     tagMembers: new Map(),
-    env: {},
+
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
-    waitUntilImpl: vi.fn(),
     getStorage: () => ({
       sql: { exec: vi.fn(), transaction: vi.fn() },
       kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
@@ -70,7 +69,7 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
       quality: c.quality,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref',
+        __livething: 'connection-ref',
         id: c.id,
         instance: undefined,
         userId: c.userId,

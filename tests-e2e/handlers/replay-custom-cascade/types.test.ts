@@ -8,6 +8,7 @@ describe('ReplayCustomCascadeClient — no-any guard', () => {
     expectTypeOf<ReplayCustomCascadeClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplayCustomCascadeClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayCustomCascadeClient['channels']>().not.toBeAny();
+
     expectTypeOf<ReplayCustomCascadeClient['errors']>().not.toBeAny();
   });
 });

@@ -64,7 +64,7 @@ const withCtx = request<'ping', unknown, unknown, RequestCtx>('ping', async (ctx
 const _ctxType: RequestPrimitive<'ping', unknown, unknown, RequestCtx> = withCtx;
 void _ctxType;
 
-const _tag: 'request' = getHistory.__wskit;
+const _tag: 'request' = getHistory.__livething;
 const _kind: PrimitiveKind = getHistory.__kind;
 void [_tag, _kind];
 

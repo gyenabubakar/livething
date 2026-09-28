@@ -43,7 +43,7 @@ const PAGE_HELPERS = `
     const frames = [];
     const closes = [];
     ws.addEventListener('message', (e) => {
-      if (typeof e.data === 'string') frames.push(JSON.parse(e.data));
+      if (typeof e.data === 'string') frames.push(window.__livethingDecode(e.data));
     });
     ws.addEventListener('close', (e) => closes.push(e.code + ':' + e.reason));
     await new Promise((resolve, reject) => {
@@ -60,6 +60,7 @@ async function callRoute(page: Page, path: string): Promise<unknown> {
   return page.evaluate(async (url) => {
     const res = await fetch(url, { method: 'POST' });
     if (!res.ok) throw new Error(`${url} -> ${res.status} ${await res.text()}`);
+
     return ((await res.json()) as { result: unknown }).result;
   }, path);
 }
@@ -174,6 +175,7 @@ test.describe('api(ctx) members over the stub', () => {
     );
     expect(aliceClosed).toHaveLength(1);
     expect(state.a1.length + state.a2.length).toBe(1);
+
     expect(state.bob).toEqual([]);
   });
 
@@ -215,7 +217,11 @@ test.describe('api(ctx) members over the stub', () => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');
       window.__a.ws.send(
-        JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }),
+        window.__livethingEncode({
+          event: '__subscribe__',
+          payload: null,
+          metadata: { channel: { name: 'lobby' } },
+        }),
       );
       await window.__settle();
     }, room);
@@ -237,7 +243,11 @@ test.describe('api(ctx) members over the stub', () => {
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__a.ws.send(
-        JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }),
+        window.__livethingEncode({
+          event: '__subscribe__',
+          payload: null,
+          metadata: { channel: { name: 'lobby' } },
+        }),
       );
       await window.__settle();
     }, room);
@@ -277,7 +287,7 @@ test.describe('api(ctx) members over the stub', () => {
     expect(after).not.toContain('cancelled-task');
   });
 
-  test('sql round-trips a row, and waitUntil work lands too', async ({ page }, testInfo) => {
+  test('sql round-trips a row', async ({ page }, testInfo) => {
     const room = `admin-ctx-sql-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
@@ -285,12 +295,6 @@ test.describe('api(ctx) members over the stub', () => {
 
     await callApi(page, 'write-note', { room, text: 'note-one' });
     expect(await callApi(page, 'read-notes', { room })).toEqual(['note-one']);
-
-    await callApi(page, 'defer-note', { room, text: 'deferred' });
-    await page.evaluate(() => window.__settle(600));
-    expect(await callApi(page, 'read-notes', { room })).toEqual(
-      expect.arrayContaining(['note-one', 'deferred']),
-    );
   });
 
   test('kv round-trips a value', async ({ page }, testInfo) => {
@@ -304,15 +308,12 @@ test.describe('api(ctx) members over the stub', () => {
     expect(await callApi(page, 'get-flag', { room, key: 'mode' })).toBe('maintenance');
   });
 
-  test('env, log, and platform are usable from an api method', async ({ page }, testInfo) => {
+  test('log and platform are usable from an api method', async ({ page }, testInfo) => {
     const room = `admin-ctx-plumbing-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
     }, room);
 
-    expect(await callApi(page, 'env-keys', { room })).toEqual(
-      expect.arrayContaining(['ADMIN_SERVER']),
-    );
     expect(await callApi(page, 'has-platform', { room })).toBe(true);
     // Nothing to assert on the log itself; it must simply not throw over RPC.
     await callApi(page, 'log-something', { room, text: 'hello' });
@@ -403,7 +404,11 @@ test.describe('built-in flat ops on the stub', () => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');
       window.__a.ws.send(
-        JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }),
+        window.__livethingEncode({
+          event: '__subscribe__',
+          payload: null,
+          metadata: { channel: { name: 'lobby' } },
+        }),
       );
       await window.__settle();
     }, room);

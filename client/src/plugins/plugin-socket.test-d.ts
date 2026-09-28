@@ -1,6 +1,6 @@
 // Type-only checks for the plugin socket. tsc checks these; vitest never runs them.
 import { expectTypeOf } from 'vitest';
-import type { WSKitError } from '@wskit/core';
+import type { LiveThingError } from '@livething/core';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 
 interface ChatContract {
@@ -63,11 +63,11 @@ expectTypeOf<ChatSocket['onRequest']>().toBeFunction();
 expectTypeOf<Parameters<ChatSocket['onRequest']>[0]>().toEqualTypeOf<'ping'>();
 
 chat.onServerError((error) => {
-  expectTypeOf(error).toEqualTypeOf<WSKitError<string, unknown>>();
+  expectTypeOf(error).toEqualTypeOf<LiveThingError<string, unknown>>();
 });
 
 chat.onServerError('room-full', (error) => {
-  expectTypeOf(error).toEqualTypeOf<WSKitError<'room-full', { limit: number }>>();
+  expectTypeOf(error).toEqualTypeOf<LiveThingError<'room-full', { limit: number }>>();
 });
 
 // @ts-expect-error — code-specific subscriptions only accept declared plugin error codes
@@ -84,7 +84,7 @@ expectTypeOf<ChatSocket['hasPrimitive']>().toBeFunction();
 expectTypeOf<ChatSocket['state']['get']>().toBeFunction();
 expectTypeOf<ChatSocket['state']['subscribe']>().toBeFunction();
 
-// A plugin with no contract (observe-only) has the message handlers and tools but none of the
+// A plugin with no contract (hook-only) has the message handlers and tools but none of the
 // typed verbs.
 type PlainSocket = PluginSocket;
 expectTypeOf<PlainSocket['onIncoming']>().toBeFunction();
@@ -105,10 +105,8 @@ expectTypeOf<ReceiveOnly>().not.toHaveProperty('channel');
 expectTypeOf<ReceiveOnly>().not.toHaveProperty('stream');
 expectTypeOf<ReceiveOnly>().not.toHaveProperty('onRequest');
 
-// BUG 4 regression: a plugin's channel handle must carry the same
-// channel-scoped primitive surface (e.g. inbox()'s `receivers`) the top-level
-// socket gets — at runtime, a plugin's channels go through the same channel
-// machinery, so the types must match.
+// A plugin's channel handle must carry the same channel-scoped primitive
+// surface (such as inbox()'s `receivers`) as the top-level socket.
 interface InboxPluginContract {
   channels: {
     room: {
@@ -121,6 +119,7 @@ interface InboxPluginContract {
     };
   };
 }
+
 type InboxPluginSocket = PluginSocket<InboxPluginContract>;
 declare const inboxPlugin: InboxPluginSocket;
 expectTypeOf(inboxPlugin.channel('room').receivers.get()).toEqualTypeOf<

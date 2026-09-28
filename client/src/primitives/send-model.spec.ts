@@ -34,6 +34,7 @@ describe('send-and-await frames respect the buffering flush order', () => {
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
+
     ws.serverClose(1006);
 
     socket.send('typing', { id: 'a' });
@@ -63,6 +64,7 @@ describe('send-and-await frames respect the buffering flush order', () => {
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
+
     ws.serverClose(1006);
 
     socket.send('typing', { id: 'a' });
@@ -96,8 +98,12 @@ describe('send-and-await frames are held (not dropped) before open without buffe
     const sent = ws.sentFrames().find((f: { event: string }) => f.event === 'echo');
     expect(sent).toBeDefined();
 
-    const correlationId = sent.__wskit.correlationId as string;
-    ws.emit({ event: 'echo', payload: { ok: true }, __wskit: { correlationId } });
+    const correlationId = sent.metadata.exchange?.id as string;
+    ws.emit({
+      event: 'echo',
+      payload: { ok: true },
+      metadata: { exchange: { id: correlationId } },
+    });
     await expect(pending).resolves.toEqual({ ok: true });
   });
 });
@@ -117,6 +123,7 @@ describe('send-and-await frames fail fast on a closed socket (no buffering)', ()
       );
       await Promise.resolve();
       await Promise.resolve();
+
       expect(settled).toHaveBeenCalledWith('disconnected');
     } finally {
       vi.useRealTimers();
@@ -134,6 +141,7 @@ describe('send-and-await frames fail fast on a closed socket (no buffering)', ()
       );
       await Promise.resolve();
       await Promise.resolve();
+
       expect(settled).toHaveBeenCalledWith('disconnected');
     } finally {
       vi.useRealTimers();

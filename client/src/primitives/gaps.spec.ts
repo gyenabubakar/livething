@@ -31,11 +31,12 @@ describe('gaps()', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const seen: GapInfo[] = [];
+
     const message = vi.fn();
     socket.onGap((info) => seen.push(info));
     (socket as unknown as { on(event: string, callback: () => void): void }).on('__gap__', message);
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: {} });
+    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, metadata: null });
 
     expect(seen).toEqual([{ missedThrough: 12 }]);
     expect(message).not.toHaveBeenCalled();
@@ -47,14 +48,20 @@ describe('gaps()', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const socketGaps: GapInfo[] = [];
+
     const roomGaps: GapInfo[] = [];
     const message = vi.fn();
     socket.onGap((info) => socketGaps.push(info));
     const room = socket.channel('room');
     room.onGap((info) => roomGaps.push(info));
+
     room.on('__gap__' as 'message', message);
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 7 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 7 },
+      metadata: { channel: { name: 'room' } },
+    });
 
     expect(roomGaps).toEqual([{ missedThrough: 7, channel: 'room' }]);
     expect(socketGaps).toEqual([]);
@@ -68,10 +75,12 @@ describe('gaps()', () => {
         topics: { addressing: 'dynamic'; incoming: {}; outgoing: {} };
       };
     }
+
     const socket = client<FamilyContract>()(connect('wss://test'), channels(), gaps());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
+
     const roomGaps: GapInfo[] = [];
     const topicGaps: GapInfo[] = [];
     socket.channel('rooms', 'general').onGap((info) => roomGaps.push(info));
@@ -80,7 +89,7 @@ describe('gaps()', () => {
     ws.emit({
       event: '__gap__',
       payload: { missedThrough: 4 },
-      __wskit: { channel: 'general', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'general', family: 'rooms' } },
     });
 
     expect(roomGaps).toEqual([{ missedThrough: 4, channel: 'general', channelFamily: 'rooms' }]);
@@ -93,10 +102,11 @@ describe('gaps()', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const listener = vi.fn();
+
     const off = socket.onGap(listener);
     off();
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: {} });
+    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, metadata: null });
 
     expect(listener).not.toHaveBeenCalled();
   });
@@ -107,13 +117,14 @@ describe('gaps()', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const oldListener = vi.fn();
+
     const newListener = vi.fn();
     const offOld = socket.onGap(oldListener);
     offOld();
     socket.onGap(newListener);
     offOld();
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: {} });
+    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, metadata: null });
 
     expect(oldListener).not.toHaveBeenCalled();
     expect(newListener).toHaveBeenCalledOnce();
@@ -125,10 +136,15 @@ describe('gaps()', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const listener = vi.fn();
+
     const off = socket.channel('room').onGap(listener);
     off();
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 3 },
+      metadata: { channel: { name: 'room' } },
+    });
 
     expect(listener).not.toHaveBeenCalled();
   });
@@ -139,14 +155,20 @@ describe('gaps()', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const oldListener = vi.fn();
+
     const newListener = vi.fn();
     const room = socket.channel('room');
     const offOld = room.onGap(oldListener);
     offOld();
     room.onGap(newListener);
+
     offOld();
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: { channel: 'room' } });
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 3 },
+      metadata: { channel: { name: 'room' } },
+    });
 
     expect(oldListener).not.toHaveBeenCalled();
     expect(newListener).toHaveBeenCalledOnce();
@@ -158,22 +180,25 @@ describe('gaps()', () => {
         rooms: { addressing: 'dynamic'; incoming: {}; outgoing: {} };
       };
     }
+
     const socket = client<FamilyContract>()(connect('wss://test'), channels(), gaps());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
+
     const room = socket.channel('rooms', 'general');
     const oldListener = vi.fn();
     const newListener = vi.fn();
     const offOld = room.onGap(oldListener);
     offOld();
+
     room.onGap(newListener);
     offOld();
 
     ws.emit({
       event: '__gap__',
       payload: { missedThrough: 3 },
-      __wskit: { channel: 'general', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'general', family: 'rooms' } },
     });
 
     expect(oldListener).not.toHaveBeenCalled();
@@ -186,6 +211,7 @@ describe('gaps()', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const gapListener = vi.fn();
+
     const messageListener = vi.fn();
     socket.onGap(gapListener);
     (socket as unknown as { on(event: string, callback: () => void): void }).on(
@@ -193,7 +219,7 @@ describe('gaps()', () => {
       messageListener,
     );
 
-    ws.emit({ event: '__gap__', payload: { missedThrough: 'bad' }, __wskit: {} });
+    ws.emit({ event: '__gap__', payload: { missedThrough: 'bad' }, metadata: null });
 
     expect(gapListener).not.toHaveBeenCalled();
     expect(messageListener).not.toHaveBeenCalled();

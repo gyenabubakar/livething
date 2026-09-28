@@ -1,18 +1,17 @@
-import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { describe, expect, it } from 'vitest';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import { EngineCore } from './core.ts';
 
-const handler = define({ env: t<Record<string, never>>() }).assemble({ handlers: [] });
+const definition = server({}).assemble({ handlers: [] });
 
 function validOptions(): EngineAdapterTypes.EngineOptions {
   return {
     adapterId: 'test-adapter',
     storage: { sql: createTestSql(), kv: createTestKV() },
-    env: {},
+
     platform: {},
     timers: createTestTimers(),
     asyncContextFactory: <TStore>() => {
@@ -30,29 +29,28 @@ function validOptions(): EngineAdapterTypes.EngineOptions {
         getStore: () => current,
       };
     },
-    waitUntil: () => {},
     logger: { info() {}, warn() {}, error() {} },
   };
 }
 
 describe('EngineCore constructor — adapter option guards', () => {
   it('builds cleanly when every required option is provided', () => {
-    expect(() => new EngineCore(handler, validOptions())).not.toThrow();
+    expect(() => new EngineCore(definition, validOptions())).not.toThrow();
   });
 
   it('throws naming the adapter when storage is missing', () => {
     const options = validOptions();
     options.storage = undefined as never;
-    expect(() => new EngineCore(handler, options)).toThrow(
-      '[wskit] Adapter "test-adapter" did not provide storage.',
+    expect(() => new EngineCore(definition, options)).toThrow(
+      '[livething] Adapter "test-adapter" did not provide storage.',
     );
   });
 
   it('throws naming the adapter when timers is missing', () => {
     const options = validOptions();
     options.timers = undefined as never;
-    expect(() => new EngineCore(handler, options)).toThrow(
-      '[wskit] Adapter "test-adapter" did not provide timers.',
+    expect(() => new EngineCore(definition, options)).toThrow(
+      '[livething] Adapter "test-adapter" did not provide timers.',
     );
   });
 });

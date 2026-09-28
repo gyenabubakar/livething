@@ -8,6 +8,7 @@ describe('LifecycleHooksClient — no-any guard', () => {
     expectTypeOf<LifecycleHooksClient['clientRequests']>().not.toBeAny();
     expectTypeOf<LifecycleHooksClient['streams']>().not.toBeAny();
     expectTypeOf<LifecycleHooksClient['channels']>().not.toBeAny();
+
     expectTypeOf<LifecycleHooksClient['errors']>().not.toBeAny();
   });
 });

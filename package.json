@@ -1,32 +1,37 @@
 {
-  "name": "@wskit/monorepo",
+  "name": "@livething/monorepo",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.32.1",
+  "packageManager": "pnpm@11.25.0",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
     "postinstall": "pnpm run build",
     "prepare": "husky",
-    "build": "pnpm -r --workspace-concurrency=1 --filter='!@wskit/website' run build",
-    "site": "pnpm --filter @wskit/website run dev",
+    "build": "pnpm -r --workspace-concurrency=1 --filter='!@livething/website' run build",
+    "site": "pnpm --filter @livething/website run dev",
+    "lighthouse": "pnpm --filter @livething/website run audit:docs",
     "test": "pnpm -r --parallel run test",
-    "test:e2e": "pnpm run test:e2e:client-puppet && pnpm run test:e2e:cloudflare",
-    "test:e2e:client-puppet": "pnpm --filter @wskit/tests-e2e-client run test:e2e",
+    "test:e2e": "pnpm --filter @livething/server-cloudflare... --filter @livething/server-node... --filter @livething/client run build && LIVETHING_E2E_PREBUILT=1 pnpm run \"/^e2e-lane:/\"",
+    "e2e-lane:raw": "pnpm --filter @livething/tests-e2e-server-cloudflare run test:e2e:cloudflare && pnpm --filter @livething/tests-e2e-server-node run test:e2e:node:http",
+    "e2e-lane:client": "export LIVETHING_E2E_SERVER_PORT=8789 && pnpm run test:e2e:client-puppet && pnpm --filter @livething/tests-e2e-client run test:e2e:cloudflare && pnpm --filter @livething/tests-e2e-client run test:e2e:node:http",
+    "test:e2e:client-puppet": "pnpm --filter @livething/tests-e2e-client run test:e2e",
     "test:e2e:cloudflare": "pnpm -r run test:e2e:cloudflare",
+    "test:e2e:node": "pnpm -r run test:e2e:node",
     "bench": "pnpm -r run bench",
-    "typecheck": "pnpm run build && pnpm -r --parallel --filter='!@wskit/website' run typecheck",
+    "typecheck": "pnpm run build && pnpm -r --parallel --filter='!@livething/website' run typecheck",
     "dup": "jscpd",
-    "depcruise": "depcruise server/src core/src client/src server-adapters/cloudflare/src --config .dependency-cruiser.cjs",
+    "depcruise": "depcruise server/src core/src client/src server-adapters/cloudflare/src server-adapters/node/src --config .dependency-cruiser.cjs",
     "bundle-check": "node scripts/bundle-check.mjs",
     "commitlint": "commitlint --edit",
     "commitlint:last": "commitlint --from HEAD~1 --to HEAD --verbose",
     "lint": "oxlint --fix .",
     "lint:check": "oxlint .",
+    "lint:server": "oxlint server/src",
     "format": "prettier --cache --log-level=error --write .",
     "format:check": "prettier --cache --log-level=error --check .",
-    "clean": "pnpm -r --parallel run clean",
+    "clean": "pnpm -r --parallel run clean && rm -rf node_modules && rm -rf tests-e2e/node_modules && rm -rf .playwright-mcp",
     "check": "pnpm format && pnpm typecheck && pnpm lint && pnpm test && pnpm test:e2e",
     "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test && pnpm depcruise && pnpm bundle-check"
   },
@@ -41,16 +46,10 @@
     "husky": "^9.1.7",
     "jscpd": "^4.2.3",
     "lint-staged": "^15.4.3",
-    "oxlint": "^0.16.10",
+    "oxlint": "^1.81.0",
+    "oxlint-plugin-eslint": "^1.81.0",
     "prettier": "^3.5.3",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild",
-      "workerd"
-    ]
   }
 }

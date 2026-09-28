@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertSynchronousResult, WSKitConfigError } from './sync-guard.ts';
+import { assertSynchronousResult, LiveThingConfigError } from './sync-guard.ts';
 
 describe('assertSynchronousResult', () => {
   it('returns a synchronous result for validator and callback uses', () => {
@@ -11,7 +11,7 @@ describe('assertSynchronousResult', () => {
     expect(() =>
       assertSynchronousResult(Promise.resolve(true), 'user schema', 'validator'),
     ).toThrow(
-      new WSKitConfigError(
+      new LiveThingConfigError(
         'async validators are not supported (user schema). Use a sync schema or parse function.',
       ),
     );
@@ -21,7 +21,7 @@ describe('assertSynchronousResult', () => {
     expect(() =>
       assertSynchronousResult(Promise.resolve(true), 'adapter callback', 'callback'),
     ).toThrow(
-      new WSKitConfigError(
+      new LiveThingConfigError(
         'async callbacks are not supported (adapter callback). Use a synchronous callback.',
       ),
     );

@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's intercept() against the real wskit `intercept`
-// handler. Adapter-oblivious — it talks to whatever server the run booted over
+// Conformance: @livething/client's intercept() against the real LiveThing `intercept`
+// server definition. Adapter-oblivious — it talks to whatever server the run booted over
 // the /ws proxy. The client sends `echo`; the server's `echoed` reply is the
 // incoming frame the client-side intercepts transform before on() sees it.
 async function open(page: Page, room: string): Promise<void> {

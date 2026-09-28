@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { emits } from '~/emits/emits.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { localKey } from '~/local-key/local-key.ts';
@@ -8,13 +8,9 @@ import { replay } from '~/replay/capability.ts';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 describe('ctx.sendReplay gating', () => {
   it('omits ctx.sendReplay without a replay capability', () => {
-    const base = define({ env: t<Env>(), capabilities: [emits({ msg: t<{ text: string }>() })] });
+    const base = server({ capabilities: [emits({ msg: t<{ text: string }>() })] });
     base.on('x', {
       run(ctx) {
         // @ts-expect-error ctx.sendReplay needs a replay capability
@@ -24,22 +20,21 @@ describe('ctx.sendReplay gating', () => {
   });
 
   it('adds ctx.sendReplay with replay.history()', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [emits({ msg: t<{ text: string }>() }), replay.history()],
     });
     base.on('x', {
       run(ctx) {
         expectTypeOf(ctx.sendReplay).toBeFunction();
-        expectTypeOf(ctx.sendReplay).parameter(0).toEqualTypeOf<'msg'>();
-        expectTypeOf(ctx.sendReplay).parameter(0).not.toBeAny();
+        ctx.sendReplay('msg', { text: 'hi' }, { deliverySeq: 1, messageId: 'm1' });
+        // @ts-expect-error — only declared emits can be replayed.
+        ctx.sendReplay('other', { text: 'hi' }, { deliverySeq: 1, messageId: 'm1' });
       },
     });
   });
 
   it('adds ctx.sendReplay with replay.custom()', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [emits({ msg: t<{ text: string }>() }), replay.custom()],
     });
     base.on('x', {
@@ -50,8 +45,7 @@ describe('ctx.sendReplay gating', () => {
   });
 
   it('adds ctx.sendReplay with replay.snapshot(), typed to the emits catalog', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [
         emits({ msg: t<{ text: string }>() }),
         replay.snapshot({ snapshotKey: () => 'k' }),
@@ -60,8 +54,9 @@ describe('ctx.sendReplay gating', () => {
     base.on('x', {
       run(ctx) {
         expectTypeOf(ctx.sendReplay).toBeFunction();
-        expectTypeOf(ctx.sendReplay).parameter(0).toEqualTypeOf<'msg'>();
-        expectTypeOf(ctx.sendReplay).parameter(0).not.toBeAny();
+        ctx.sendReplay('msg', { text: 'hi' }, { deliverySeq: 1, messageId: 'm1' });
+        // @ts-expect-error — the payload must match the declared `msg` payload.
+        ctx.sendReplay('msg', { body: 'hi' }, { deliverySeq: 1, messageId: 'm1' });
       },
     });
   });
@@ -69,8 +64,7 @@ describe('ctx.sendReplay gating', () => {
 
 describe('ctx.matches / ctx.unsafeCast typing', () => {
   it('narrows a frame payload to a declared event input (not any)', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [emits({ msg: t<{ text: string }>() }), intercepts()],
     });
     base.intercept((ctx, frame: InterceptFrame) => {
@@ -83,8 +77,7 @@ describe('ctx.matches / ctx.unsafeCast typing', () => {
   });
 
   it('are typed on ctx without intercepts() — they are core', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [emits({ msg: t<{ text: string }>() })],
     });
     base.on('x', {

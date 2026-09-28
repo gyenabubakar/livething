@@ -1,11 +1,10 @@
-import { define, emits, t } from '@wskit/server';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),
@@ -37,7 +36,7 @@ const handleDoSendTo = base.on('do-send-to', {
     ctx.tags
       .ephemeral('user')
       .ref(input.tag)
-      .send('message', { text: input.text, from: ctx.meta.username });
+      .broadcast('message', { text: input.text, from: ctx.meta.username });
   },
 });
 
@@ -47,7 +46,7 @@ const handleDoSendToEmpty = base.on('do-send-to-empty', {
     ctx.tags
       .ephemeral('user')
       .ref('')
-      .send('message', { text: input.text, from: ctx.meta.username });
+      .broadcast('message', { text: input.text, from: ctx.meta.username });
   },
 });
 
@@ -79,7 +78,7 @@ const handleDoServerClose = base.on('do-server-close', {
   },
 });
 
-export const ctxSendHandler = base.assemble({
+export const ctxSendDefinition = base.assemble({
   handlers: [
     handleDoBroadcast,
     handleDoBroadcastExcludeSelf,
@@ -91,4 +90,4 @@ export const ctxSendHandler = base.assemble({
   ],
 });
 
-export type CtxSendClient = InferClient<typeof ctxSendHandler>;
+export type CtxSendClient = InferClient<typeof ctxSendDefinition>;

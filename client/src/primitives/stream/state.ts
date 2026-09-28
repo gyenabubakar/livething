@@ -14,7 +14,7 @@ export class StreamState {
   /** A bounded deadline armed while a reconnect resume is in flight, cleared on the
    * first resumed chunk — so a server that never resumes can't hang the iterator. */
   resumeTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Set from `__streamOk__`'s `streamKind`: persistent streams resume on reconnect. */
+  /** Set from `__streamOk__`'s stream durability: persistent streams resume on reconnect. */
   resumable = false;
   /**
    * Whether this stream currently holds a lazy-consumer hold. Used to make

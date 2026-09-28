@@ -26,41 +26,44 @@ export function exceedsWireLimit(value: unknown, limit: number): value is string
  * and must be a non-empty string. Keeping this in one place means the same rule
  * is enforced everywhere instead of each call site inventing its own check.
  */
-export function isValidWSKitIdentifier(name: unknown): name is string {
+export function isValidLiveThingIdentifier(name: unknown): name is string {
   return (
     typeof name === 'string' && name.length > 0 && !name.startsWith('__') && !name.endsWith('__')
   );
 }
 
 /**
- * Throw a clear build-time error when `name` is not a valid WSKit identifier.
+ * Throw a clear build-time error when `name` is not a valid LiveThing identifier.
  * `kind` names the thing being checked, e.g. `"event name"` or `"error code"`,
  * so the message points the developer at the right place. Pass `maxLength`
  * (from {@link WIRE_LIMITS}) to also reject names too long for the wire.
  */
-export function assertValidWSKitIdentifier(
+export function assertValidLiveThingIdentifier(
   name: unknown,
   kind: string,
   maxLength?: number,
 ): asserts name is string {
   if (typeof name !== 'string' || name.length === 0) {
-    throw new Error(`[wskit] ${kind} must be a non-empty string.`);
+    throw new Error(`[livething] ${kind} must be a non-empty string.`);
   }
+
   if (name.startsWith('__')) {
     throw new Error(
-      `[wskit] ${kind} '${name}' starts with the reserved '__' prefix. ` +
-        `That prefix is reserved for wskit protocol and plugin identifiers — pick a different name.`,
+      `[livething] ${kind} '${name}' starts with the reserved '__' prefix. ` +
+        `That prefix is reserved for livething protocol and plugin identifiers — pick a different name.`,
     );
   }
+
   if (name.endsWith('__')) {
     throw new Error(
-      `[wskit] ${kind} '${name}' ends with the reserved '__' suffix. ` +
-        `That suffix is reserved for wskit protocol identifiers — pick a different name.`,
+      `[livething] ${kind} '${name}' ends with the reserved '__' suffix. ` +
+        `That suffix is reserved for livething protocol identifiers — pick a different name.`,
     );
   }
+
   if (maxLength !== undefined && name.length > maxLength) {
     throw new Error(
-      `[wskit] ${kind} is ${name.length} characters; the wire protocol limit is ${maxLength}. ` +
+      `[livething] ${kind} is ${name.length} characters; the wire protocol limit is ${maxLength}. ` +
         `A longer name can't travel over the wire, so the client could never reach it.`,
     );
   }

@@ -15,7 +15,12 @@ export type { InboxOptions, ReadReceiptsOptions } from '~/inbox/types.ts';
 export type InboxCapability = ChannelOnlyCapability<{}, never, 'inbox'>;
 
 /** The capability `readReceipts(...)` returns — channel-only, like `InboxCapability`. */
-export type ReadReceiptsCapability = ChannelOnlyCapability<{}, never, 'readReceipts'>;
+export type ReadReceiptsCapability = ChannelOnlyCapability<
+  {},
+  never,
+  'readReceipts',
+  typeof CAPABILITY_KIND.readReceipts
+>;
 
 /**
  * Enable guaranteed per-member delivery on a channel. Unlike `replay`
@@ -29,14 +34,13 @@ export type ReadReceiptsCapability = ChannelOnlyCapability<{}, never, 'readRecei
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { channels } from '@wskit/server/channels';
- * import { sequence } from '@wskit/server/sequence';
- * import { dedup } from '@wskit/server/dedup';
- * import { inbox } from '@wskit/server/inbox';
+ * import { server, t } from '@livething/server';
+ * import { channels } from '@livething/server/channels';
+ * import { sequence } from '@livething/server/sequence';
+ * import { dedup } from '@livething/server/dedup';
+ * import { inbox } from '@livething/server/inbox';
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [channels(), sequence({ persist: true }), dedup()],
  * });
  *
@@ -67,7 +71,9 @@ export const inbox = withCapabilityKind(function inbox(config: InboxOptions = {}
 export const readReceipts = withCapabilityKind(function readReceipts(
   config: ReadReceiptsOptions = {},
 ): ReadReceiptsCapability {
-  const cap = channelOnlyCapability<{}, never, 'readReceipts'>([]);
+  const cap = channelOnlyCapability<{}, never, 'readReceipts', typeof CAPABILITY_KIND.readReceipts>(
+    [],
+  );
   attachReadReceiptsBuilder(cap, config);
   return stampKind(cap, CAPABILITY_KIND.readReceipts);
 }, CAPABILITY_KIND.readReceipts);

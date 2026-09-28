@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import {
   acceptConnection,
   handleConnectionClose,
@@ -40,10 +40,9 @@ function runtime(overrides: Record<string, unknown> = {}) {
     handleConnectionClose: async () => {},
     handleRuntimeError: async () => {},
     outgoingHooks: [],
-    wskitStampHooks: [],
+    livethingStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
-    waitUntil() {},
     logger: { warn: vi.fn(), error: vi.fn() },
     ...overrides,
   };
@@ -150,7 +149,7 @@ describe('translation runtime', () => {
     ).toBe(false);
     expect(afterSend).not.toHaveBeenCalled();
     expect(socket.send).not.toHaveBeenCalled();
-    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
+    expect(socket.close).toHaveBeenCalledWith(1011, '[livething] translator failed');
     expect(connection.closing).toBe(true);
   });
 
@@ -220,7 +219,7 @@ describe('translation runtime', () => {
     await handle.handleMessage('foreign frame');
 
     expect(socket.send).not.toHaveBeenCalled();
-    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
+    expect(socket.close).toHaveBeenCalledWith(1011, '[livething] translator failed');
   });
 
   it('keeps class-based adapter descriptor methods when translating outbound frames', () => {
@@ -278,6 +277,7 @@ describe('translation runtime', () => {
     });
     engine.compiled.outgoing.set('message', { event: 'message' });
     const socket = descriptor(vi.fn(() => false));
+
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
     const beforeOutbound = persistAttachment.mock.calls.length;
@@ -308,6 +308,7 @@ describe('translation runtime', () => {
     });
     engine.compiled.outgoing.set('message', { event: 'message' });
     const socket = descriptor();
+
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
     const connection = [...engine.connections.values()][0]!;
@@ -337,6 +338,7 @@ describe('translation runtime', () => {
     });
     engine.compiled.outgoing.set('message', { event: 'message' });
     const socket = descriptor();
+
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
     failPersistence = true;
@@ -352,7 +354,7 @@ describe('translation runtime', () => {
 
     expect(socket.send).not.toHaveBeenCalled();
     expect(afterSend).not.toHaveBeenCalled();
-    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
+    expect(socket.close).toHaveBeenCalledWith(1011, '[livething] translator failed');
   });
 
   it('does not write a frame before surfacing a translator persistence configuration error', async () => {
@@ -361,7 +363,7 @@ describe('translation runtime', () => {
     const engine = runtime({
       persistAttachment() {
         if (failPersistence) {
-          throw new WSKitConfigError(
+          throw new LiveThingConfigError(
             'async callbacks are not supported (translator.hibernation.serialize).',
           );
         }
@@ -374,6 +376,7 @@ describe('translation runtime', () => {
     });
     engine.compiled.outgoing.set('message', { event: 'message' });
     const socket = descriptor();
+
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
     failPersistence = true;
@@ -385,13 +388,14 @@ describe('translation runtime', () => {
         event: 'message',
         payload: {},
       }),
-    ).toThrow(WSKitConfigError);
+    ).toThrow(LiveThingConfigError);
 
     expect(socket.send).not.toHaveBeenCalled();
     expect(afterSend).not.toHaveBeenCalled();
-    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(socket.close).toHaveBeenCalledWith(1011, '[livething] translator configuration failed');
     expect(connection.closing).toBe(true);
     expect(connection.descriptor.send('another frame')).toBe(false);
+
     expect(socket.close).toHaveBeenCalledTimes(1);
   });
 
@@ -401,8 +405,8 @@ describe('translation runtime', () => {
       flushAttachment(connection: { closing?: boolean; preserveStateOnClose?: boolean }) {
         connection.closing = true;
         connection.preserveStateOnClose = true;
-        socket.close(1011, '[wskit] translator configuration failed');
-        throw new WSKitConfigError('translator state is invalid');
+        socket.close(1011, '[livething] translator configuration failed');
+        throw new LiveThingConfigError('translator state is invalid');
       },
       translatorFactory: translator(() => ({
         inbound: (raw) => raw,
@@ -412,6 +416,7 @@ describe('translation runtime', () => {
     engine.compiled.outgoing.set('message', { event: 'message' });
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
+
     const connection = [...engine.connections.values()][0]!;
 
     expect(() =>
@@ -420,12 +425,12 @@ describe('translation runtime', () => {
         event: 'message',
         payload: {},
       }),
-    ).toThrow(WSKitConfigError);
+    ).toThrow(LiveThingConfigError);
 
     expect(socket.close).toHaveBeenCalledTimes(1);
   });
 
-  it('closes invalid validator input before the WSKit message pipeline', async () => {
+  it('closes invalid validator input before the LiveThing message pipeline', async () => {
     const engine = runtime({
       translatorFactory: translator(() => ({
         input: v.object({ event: v.string() }),
@@ -439,7 +444,7 @@ describe('translation runtime', () => {
 
     await handle.handleMessage('{"event":1}');
 
-    expect(socket.close).toHaveBeenCalledWith(1002, '[wskit] translator failed');
+    expect(socket.close).toHaveBeenCalledWith(1002, '[livething] translator failed');
     expect(engine.processTextMessage).not.toHaveBeenCalled();
   });
 
@@ -450,7 +455,7 @@ describe('translation runtime', () => {
     const factorySocket = descriptor();
     expect(() =>
       acceptConnection(factoryEngine as never, Symbol('factory'), factorySocket),
-    ).toThrow(WSKitConfigError);
+    ).toThrow(LiveThingConfigError);
 
     const inboundEngine = runtime({
       translatorFactory: translator(() => ({ inbound: () => 42 }) as never),
@@ -461,7 +466,9 @@ describe('translation runtime', () => {
       Symbol('inbound'),
       inboundSocket,
     );
-    await expect(inboundHandle.handleMessage('foreign frame')).rejects.toThrow(WSKitConfigError);
+    await expect(inboundHandle.handleMessage('foreign frame')).rejects.toThrow(
+      LiveThingConfigError,
+    );
 
     const outboundEngine = runtime({
       translatorFactory: translator(
@@ -471,19 +478,19 @@ describe('translation runtime', () => {
     const outboundSocket = descriptor();
     acceptConnection(outboundEngine as never, Symbol('outbound'), outboundSocket);
     const outboundConnection = [...outboundEngine.connections.values()][0]!;
-    expect(() => outboundConnection.descriptor.send('frame')).toThrow(WSKitConfigError);
+    expect(() => outboundConnection.descriptor.send('frame')).toThrow(LiveThingConfigError);
 
     expect(inboundSocket.close).toHaveBeenCalledWith(
       1011,
-      '[wskit] translator configuration failed',
+      '[livething] translator configuration failed',
     );
     expect(outboundSocket.close).toHaveBeenCalledWith(
       1011,
-      '[wskit] translator configuration failed',
+      '[livething] translator configuration failed',
     );
     expect(factorySocket.close).toHaveBeenCalledWith(
       1011,
-      '[wskit] translator configuration failed',
+      '[livething] translator configuration failed',
     );
   });
 
@@ -494,9 +501,9 @@ describe('translation runtime', () => {
     const socket = descriptor();
 
     expect(() => acceptConnection(engine as never, Symbol('malformed'), socket)).toThrow(
-      WSKitConfigError,
+      LiveThingConfigError,
     );
-    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(socket.close).toHaveBeenCalledWith(1011, '[livething] translator configuration failed');
   });
 
   it('keeps hibernation state when a live config-error close is cleaned up', async () => {
@@ -512,11 +519,11 @@ describe('translation runtime', () => {
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     const connection = [...engine.connections.values()][0]!;
 
-    await expect(handle.handleMessage('foreign frame')).rejects.toThrow(WSKitConfigError);
+    await expect(handle.handleMessage('foreign frame')).rejects.toThrow(LiveThingConfigError);
     await handleConnectionClose(engine as never, {
       connection,
       code: 1011,
-      reason: '[wskit] translator configuration failed',
+      reason: '[livething] translator configuration failed',
     });
 
     expect(engine.connections.has(connection.id)).toBe(false);
@@ -554,9 +561,9 @@ describe('translation runtime', () => {
     const socket = descriptor();
 
     expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
-      WSKitConfigError,
+      LiveThingConfigError,
     );
-    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(socket.close).toHaveBeenCalledWith(1011, '[livething] translator configuration failed');
     expect(deleteConnectionState).not.toHaveBeenCalled();
   });
 
@@ -568,9 +575,9 @@ describe('translation runtime', () => {
     const socket = descriptor();
 
     expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
-      WSKitConfigError,
+      LiveThingConfigError,
     );
-    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(socket.close).toHaveBeenCalledWith(1011, '[livething] translator configuration failed');
   });
 
   it('closes a waking socket when adapter hibernation restore is asynchronous', () => {
@@ -581,9 +588,9 @@ describe('translation runtime', () => {
     const socket = descriptor();
 
     expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
-      WSKitConfigError,
+      LiveThingConfigError,
     );
-    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] hibernation restore failed');
+    expect(socket.close).toHaveBeenCalledWith(1011, '[livething] hibernation restore failed');
   });
 
   it('closes a waking socket when its restored connection ID is already live', () => {
@@ -606,7 +613,10 @@ describe('translation runtime', () => {
     expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
       /duplicate connection id/,
     );
-    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] duplicate hibernation connection id');
+    expect(socket.close).toHaveBeenCalledWith(
+      1011,
+      '[livething] duplicate hibernation connection id',
+    );
   });
 
   it('restores translator state before translating a wake-time stream error', () => {
@@ -649,6 +659,7 @@ describe('translation runtime', () => {
     expect(order).toEqual(['flush', 'send', 'flush']);
     const flushedConnection = flushAttachment.mock.calls[0]?.[0];
     expect(flushedConnection?.tags.ephemeral).toEqual(new Map([['role', new Set(['member'])]]));
+
     expect(flushedConnection?.channelMemberships).toEqual(
       new Map([
         ['["rooms","room:general"]', { channelName: 'room:general', channelFamily: 'rooms' }],
@@ -699,8 +710,8 @@ describe('translation runtime', () => {
       flushAttachment(connection: RuntimeConnection) {
         connection.closing = true;
         connection.preserveStateOnClose = true;
-        socket.close(1011, '[wskit] translator configuration failed');
-        throw new WSKitConfigError('translator state is invalid');
+        socket.close(1011, '[livething] translator configuration failed');
+        throw new LiveThingConfigError('translator state is invalid');
       },
       translatorFactory: translator(() => ({
         inbound: (raw) => raw,
@@ -725,7 +736,7 @@ describe('translation runtime', () => {
     });
 
     expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
-      WSKitConfigError,
+      LiveThingConfigError,
     );
 
     expect(engine.connections).toHaveLength(0);
@@ -733,6 +744,7 @@ describe('translation runtime', () => {
     expect(engine.wsToConnectionId).toHaveLength(0);
     expect(engine.channelMembers).toHaveLength(0);
     expect(engine.tagMembers).toHaveLength(0);
+
     expect(deleteConnectionState).not.toHaveBeenCalled();
     expect(socket.close).toHaveBeenCalledOnce();
   });

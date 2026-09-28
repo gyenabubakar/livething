@@ -8,7 +8,7 @@
 
 import type { InitContext, KVProvider, Logger, SqlLimits, SQLProvider } from '~/context.ts';
 
-declare const initCtx: InitContext<{ SECRET: string }, { doId: string }>;
+declare const initCtx: InitContext<{ doId: string }>;
 
 const _sql: SQLProvider = initCtx.sql;
 void _sql;
@@ -50,12 +50,6 @@ const _kvSet: Promise<void> = initCtx.kv.set('key', 'value', { ttl: 5000 });
 const _kvDel: Promise<void> = initCtx.kv.delete('key');
 const _kvList: Promise<string[]> = initCtx.kv.list('prefix:');
 void [_kvGet, _kvSet, _kvDel, _kvList];
-
-const _secret: string = initCtx.env.SECRET;
-void _secret;
-
-// @ts-expect-error — unknown env keys are not present
-initCtx.env.UNKNOWN_KEY;
 
 const _log: Logger = initCtx.log;
 void _log;

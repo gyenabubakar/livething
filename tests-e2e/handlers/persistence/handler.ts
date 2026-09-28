@@ -1,10 +1,10 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { Disconnect } from '@wskit/server/errors';
-import { requests } from '@wskit/server/requests';
-import { resumableStream } from '@wskit/server/streams';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { Disconnect } from '@livething/server/errors';
+import { resumableStream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { allowAnonymous, requireUsername } from '../_shared/upgrade.ts';
 
 const RoomMessagePayload = v.object({ text: v.string(), from: v.string() });
@@ -13,8 +13,7 @@ const SessionEndedPayload = v.object({ channel: v.string(), username: v.string()
 const TrueLeavePayload = v.object({ channel: v.string(), username: v.string() });
 const RemoveMemberPayload = v.object({ identity: v.string() });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   // Default path requires a username (existing tests). Connecting with `?anon`
   // takes the anonymous path (empty identity) so anonymous-skips-membership and
   // anonymous-replay-gate behavior can be exercised.
@@ -24,7 +23,7 @@ const base = define({
       : requireUsername(request),
   capabilities: [
     channels(),
-    requests(),
+    clientRequests(),
     resumableStream(),
     emits({
       'true-leave': t<v.InferOutput<typeof TrueLeavePayload>>(),
@@ -42,6 +41,17 @@ const handleRemoveMember = base.on('remove-member', {
     await ctx.channels
       .get('archive-room')
       .kick(ctx.users.get(input.identity).ref(), { reason: 'removed', revoke: true });
+  },
+});
+
+// A kick that keeps the membership: the user is removed now and rejoins on
+// their next connection.
+const handleKickMember = base.on('kick-member', {
+  input: RemoveMemberPayload,
+  async run(ctx, input) {
+    await ctx.channels
+      .get('archive-room')
+      .kick(ctx.users.get(input.identity).ref(), { reason: 'kicked' });
   },
 });
 
@@ -94,12 +104,12 @@ const handleAnonStream = base.resumableStream('anon-stream', {
 });
 
 const archiveRoom = base.channel('archive-room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-message': t<v.InferOutput<typeof RoomMessagePayload>>(),
       'session-ended': t<v.InferOutput<typeof SessionEndedPayload>>(),
-    },
-  },
+    }),
+  ],
   // First-subscribe gate.
   async check(ctx) {
     if (await ctx.kv.get(`ban:${ctx.meta.username}`)) {
@@ -152,18 +162,14 @@ archiveRoom.sessionEnd((ctx) => {
 
 const typingIndicator = base.channel('typing-indicator', {
   membership: 'ephemeral',
-  outgoing: {
-    emits: { 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() },
-  },
+  capabilities: [emits({ 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() })],
 });
 
 // Persistent channel with a capacity commit gate (one live member). Proves
 // commit is NOT re-run on auto-rejoin: a returning member keeps its seat even
 // when another live member now fills the cap.
 const capacityRoom = base.channel('capacity-room', {
-  outgoing: {
-    emits: { 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() },
-  },
+  capabilities: [emits({ 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() })],
   commit(ctx) {
     // Excludes self (membership is not written yet), so the first member sees 0.
     if (ctx.channel.members().length >= 1) {
@@ -172,9 +178,10 @@ const capacityRoom = base.channel('capacity-room', {
   },
 });
 
-export const persistenceHandler = base.assemble({
+export const persistenceDefinition = base.assemble({
   handlers: [
     handleRemoveMember,
+    handleKickMember,
     handleBan,
     handleServerDrop,
     handleRecordExec,
@@ -186,4 +193,4 @@ export const persistenceHandler = base.assemble({
   ],
 });
 
-export type PersistenceClient = InferClient<typeof persistenceHandler>;
+export type PersistenceClient = InferClient<typeof persistenceDefinition>;

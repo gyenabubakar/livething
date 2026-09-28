@@ -9,12 +9,24 @@ import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import type * as EngineContextTypes from './types.ts';
 
+type BuildConnectionContextScopeParameter = {
+  channel?: EngineCompileTypes.CompiledChannel;
+  channelName?: string;
+  channelFamily?: string | null;
+  isSubscribeGate?: boolean;
+};
+type ToConnectionInfoOptsParameter = {
+  hibernationEnabled?: boolean;
+  lastSeenAt?: (userId: string) => number | null;
+  lastSeen?: number | null;
+};
+
 /**
  * Symbol key used to attach channel metadata (channel name) to a handler context.
  *
  * @internal
  */
-export const ENGINE_CHANNEL_META = Symbol('wskit-engine-scope-meta');
+export const ENGINE_CHANNEL_META = Symbol('livething-engine-scope-meta');
 
 /**
  * Symbol key under which engine internals stash the runtime connection on a
@@ -25,11 +37,12 @@ export const ENGINE_CHANNEL_META = Symbol('wskit-engine-scope-meta');
  *
  * @internal
  */
-export const ENGINE_INTERNAL_CONNECTION = Symbol('wskit-engine-internal-connection');
+export const ENGINE_INTERNAL_CONNECTION = Symbol('livething-engine-internal-connection');
 
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
   | 'broadcastToConnections'
+  | 'broadcastToUser'
   | 'connections'
   | 'usersByKey'
   | 'instanceId'
@@ -59,7 +72,7 @@ export function buildUsersManager(
 
 /** Build a `UserRef` for one user id. */
 function buildUserRef(userId: string, instanceId: string | undefined): PublicApi.UserRef {
-  return { __wskit: 'user-ref', id: userId, instance: instanceId };
+  return { __livething: 'user-ref', id: userId, instance: instanceId };
 }
 
 /** Snapshot of one user's currently-live connections, via the `usersByKey` fan-out index. */
@@ -122,15 +135,8 @@ function buildUserHandle(
 
     ref: () => buildUserRef(userId, deps.instanceId),
 
-    send: (event, payload) => {
-      let delivered = 0;
-      for (const connection of userConnections(userId, deps)) {
-        if (deps.sendThroughPipeline(connection, { routing: undefined, event, payload })) {
-          delivered += 1;
-        }
-      }
-      return delivered;
-    },
+    broadcast: (event, payload) =>
+      deps.broadcastToUser(userConnections(userId, deps), { userId, event, payload }),
 
     setMeta: (patch) => {
       for (const connection of userConnections(userId, deps)) {
@@ -197,8 +203,8 @@ function assignMessagingApi(
  * memoize into. Symbol-keyed so they stay invisible to the public ctx type and
  * to any enumeration of the context.
  */
-const CHANNELS_API = Symbol('wskit-ctx-channels');
-const TAGS_API = Symbol('wskit-ctx-tags');
+const CHANNELS_API = Symbol('livething-ctx-channels');
+const TAGS_API = Symbol('livething-ctx-tags');
 
 /**
  * The shared prototype every context built from one dep bag inherits.
@@ -268,6 +274,7 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
       persistAttachment: deps.persistAttachment,
       getStorage: deps.getStorage,
     };
+
     Object.defineProperty(proto, 'tags', {
       configurable: true,
       enumerable: true,
@@ -278,6 +285,7 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
   }
 
   contextPrototypes.set(deps, proto);
+
   return proto;
 }
 
@@ -290,14 +298,8 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
 export function buildConnectionContext(
   deps: EngineContextTypes.BuildConnectionContextDeps,
   connection: EngineRuntimeTypes.RuntimeConnection,
-  scope?: {
-    channel?: EngineCompileTypes.CompiledChannel;
-    channelName?: string;
-    channelFamily?: string | null;
-    isSubscribeGate?: boolean;
-  },
-): PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
-  Record<PropertyKey, unknown> {
+  scope?: BuildConnectionContextScopeParameter,
+): PublicApi.ConnectionContext<Record<string, unknown>, unknown> & Record<PropertyKey, unknown> {
   const { sql, kv } = deps.getStorageView();
 
   // Allocated on the first `provide()` — most handlers never touch locals.
@@ -322,9 +324,7 @@ export function buildConnectionContext(
 
   base.sql = sql;
   base.kv = kv;
-  base.env = deps.env;
   base.log = deps.logger;
-  base.waitUntil = deps.waitUntilImpl;
   base.platform = deps.platform;
 
   base.provide = <T>(key: LocalKey<T>, value: T): void => {
@@ -342,11 +342,7 @@ export function buildConnectionContext(
     Object.defineProperties(base, Object.getOwnPropertyDescriptors(extend(base)));
   }
 
-  return base as PublicApi.ConnectionContext<
-    Record<string, unknown>,
-    Record<string, unknown>,
-    unknown
-  > &
+  return base as PublicApi.ConnectionContext<Record<string, unknown>, unknown> &
     Record<PropertyKey, unknown>;
 }
 
@@ -356,11 +352,7 @@ export function buildConnectionContext(
 export function toConnectionInfo(
   connection: EngineRuntimeTypes.RuntimeConnection,
   instanceId: string | undefined,
-  opts?: {
-    hibernationEnabled?: boolean;
-    lastSeenAt?: (userId: string) => number | null;
-    lastSeen?: number | null;
-  },
+  opts?: ToConnectionInfoOptsParameter,
 ): PublicApi.ConnectionInfo<Record<string, unknown>> {
   const hibernationEnabled = opts?.hibernationEnabled;
   const info: PublicApi.ConnectionInfo<Record<string, unknown>> = {
@@ -374,12 +366,15 @@ export function toConnectionInfo(
     bufferedAmount: connection.descriptor.bufferedAmount(),
     ref: () => buildConnectionRef(connection.id, connection.userId, instanceId),
   };
+
   if ('lastSeen' in (opts ?? {})) {
     return { ...info, lastSeen: opts!.lastSeen ?? null };
   }
+
   if (opts?.lastSeenAt) {
     return { ...info, lastSeen: opts.lastSeenAt(connection.userId) };
   }
+
   return info;
 }
 
@@ -395,7 +390,7 @@ export function buildConnectionRef(
   instanceId: string | undefined,
 ): PublicApi.ConnectionRef {
   return {
-    __wskit: 'connection-ref',
+    __livething: 'connection-ref',
     id: connectionId,
     instance: instanceId,
     userId,

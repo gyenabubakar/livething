@@ -8,6 +8,7 @@ describe('StreamNudgesClient — no-any guard', () => {
     expectTypeOf<StreamNudgesClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['streams']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['channels']>().not.toBeAny();
+
     expectTypeOf<StreamNudgesClient['errors']>().not.toBeAny();
   });
 });
@@ -25,9 +26,13 @@ describe('StreamNudgesClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('exactly two events in incoming', () => {
+  it('has held-stream-released', () => {
+    expectTypeOf<StreamNudgesClient['incoming']['held-stream-released']>().toEqualTypeOf<{}>();
+  });
+
+  it('has exactly the declared incoming events', () => {
     expectTypeOf<keyof StreamNudgesClient['incoming']>().toEqualTypeOf<
-      'pause-top-level-fired' | 'nudge-saw'
+      'held-stream-released' | 'pause-top-level-fired' | 'nudge-saw'
     >();
   });
 });
@@ -40,7 +45,9 @@ describe('StreamNudgesClient — outgoing (server incoming)', () => {
   });
 
   it('only pause in outgoing', () => {
-    expectTypeOf<keyof StreamNudgesClient['outgoing']>().toEqualTypeOf<'pause'>();
+    expectTypeOf<keyof StreamNudgesClient['outgoing']>().toEqualTypeOf<
+      'pause' | 'release-overflow'
+    >();
   });
 });
 

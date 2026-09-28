@@ -3,6 +3,22 @@ import type { BackfillMessage } from './inbox/storage.ts';
 import type { InterceptFrame } from './intercept/intercept.ts';
 import type { LocalKey } from './local-key/local-key.ts';
 
+type OptionsParameter = { ttl?: number };
+type OptsParameter = { timeout?: number };
+type WireParameter = {
+  deliverySeq: number;
+  messageId: string;
+  channel?: string;
+  channelFamily?: string | null;
+};
+type OptsParameter2 = { reason: string; revoke?: boolean };
+type OptionsParameter3 = { time: number; data?: unknown };
+type OptionsParameter4 = { time: number; data?: unknown };
+type OptionsParameter5 = { time: number; data?: unknown };
+type OptsParameter3 = { reason: string; revoke?: boolean };
+type FilterParameter = { userId?: string };
+type OptionsParameter6 = { time: number; data?: unknown };
+
 /**
  * The result of running one SQL query through `ctx.sql.exec(...)`.
  *
@@ -42,7 +58,7 @@ export interface SqlResult<T = unknown> {
  * many bytes the statement text may be, and how many bytes a single bound
  * value (or returned column) may be. The caps differ wildly by engine — a
  * Cloudflare Durable Object allows 100 bound parameters per statement, while
- * `node:sqlite` allows 32,766. WSKit does not pick a number for you: each
+ * `node:sqlite` allows 32,766. LiveThing does not pick a number for you: each
  * adapter states its engine's real numbers here, and code that builds
  * variable-length SQL (batched inserts, `WHERE id IN (...)`, and similar)
  * reads `limits` to stay under them instead of assuming one shared ceiling.
@@ -93,15 +109,16 @@ export interface SQLProvider {
    * Run one SQL statement. Bind values with positional `?` placeholders.
    *
    * Pass a generic row type when you know the query's result shape. The generic
-   * is a TypeScript hint only; WSKit does not validate SQL rows at runtime.
+   * is a TypeScript hint only; LiveThing does not validate SQL rows at runtime.
    */
   exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
 
   /**
    * Run multiple queries inside a single atomic transaction.
    *
-   * If the callback throws, the transaction is rolled back and the error
-   * propagates to the caller.
+   * The callback must be synchronous. If it throws, the transaction is rolled
+   * back and the error propagates to the caller. Run async work before or after
+   * this callback, never inside it.
    */
   transaction<T>(
     fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
@@ -127,7 +144,7 @@ export interface KVProvider {
   get(key: string): Promise<unknown>;
 
   /** Write one value. Optionally set a TTL in milliseconds after which the key expires. */
-  set(key: string, value: unknown, options?: { ttl?: number }): Promise<void>;
+  set(key: string, value: unknown, options?: OptionsParameter): Promise<void>;
 
   /** Remove one key. */
   delete(key: string): Promise<void>;
@@ -248,7 +265,7 @@ export interface Logger {
  */
 export interface ConnectionRef {
   /** Brand tag so the type cannot be confused with a plain object. */
-  readonly __wskit: 'connection-ref';
+  readonly __livething: 'connection-ref';
 
   /** Engine-generated id of the target connection. */
   readonly id: string;
@@ -275,7 +292,7 @@ export interface ConnectionRef {
  */
 export interface UserRef {
   /** Brand tag so the type cannot be confused with a plain object. */
-  readonly __wskit: 'user-ref';
+  readonly __livething: 'user-ref';
 
   /** The user id — same value as `ConnectionRef.userId` / `ctx.user.id`. */
   readonly id: string;
@@ -298,7 +315,7 @@ export interface UserRef {
  */
 export interface TagRef {
   /** Brand tag so the type cannot be confused with a plain object. */
-  readonly __wskit: 'tag-ref';
+  readonly __livething: 'tag-ref';
 
   /** Which kind of group the tag belongs to. */
   readonly kind: 'ephemeral' | 'persistent';
@@ -355,9 +372,10 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   readonly bufferedAmount: number;
 
   /**
-   * This connection's last-seen timestamp (ms), present only when the
-   * `lastSeen()` capability is installed; `null` when it has never been
-   * stamped, and absent from the type entirely without the capability.
+   * This connection's last-seen timestamp (ms), filled only when the
+   * `lastSeen()` capability is listed; `null` when it has never been stamped.
+   * The field is optional on every server: without `lastSeen()` it is always
+   * `undefined`.
    */
   readonly lastSeen?: number | null;
 
@@ -435,9 +453,9 @@ export interface UserInfo<Meta = Record<string, unknown>> {
   readonly tags: readonly TagRef[];
 
   /**
-   * This user's last-seen timestamp (ms), present only when the
-   * `lastSeen()` capability is installed; `null` when it has never been
-   * stamped, and absent from the type entirely without the capability.
+   * This user's last-seen timestamp (ms), filled only when the `lastSeen()`
+   * capability is listed; `null` when it has never been stamped. The field is
+   * optional on every server: without `lastSeen()` it is always `undefined`.
    */
   readonly lastSeen?: number | null;
 
@@ -461,20 +479,20 @@ export interface UserHandle<Meta = Record<string, unknown>> {
   ref(): UserRef;
 
   /**
-   * Send an event to every live connection this user holds (fan-out).
+   * Broadcast an event to every live connection this user holds.
    * Returns the number of sockets the event was delivered to.
    */
-  send(event: string, payload: unknown): number;
+  broadcast(event: string, payload: unknown): number;
 
   /**
    * Ask this user a question and await the first valid answer from any of
    * their live connections. Present only when the contract declares
-   * `requests({...})`.
+   * `serverRequests({...})`.
    */
   request?(
     event: string,
     payload: unknown,
-    opts?: { timeout?: number },
+    opts?: OptsParameter,
   ): Promise<{ response: unknown; from: ConnectionRef }>;
 
   /** Merge `patch` into every live connection's `meta` (fans the same patch out to all of the user's tabs/devices). */
@@ -495,7 +513,7 @@ export interface UserHandle<Meta = Record<string, unknown>> {
  *
  * @example
  * ```ts
- * ctx.users.get(targetId).send('notice', { text: 'hello' });
+ * ctx.users.get(targetId).broadcast('notice', { text: 'hello' });
  * ```
  */
 export interface UsersManager<Meta = Record<string, unknown>> {
@@ -522,8 +540,8 @@ export interface BroadcastOptions {
 }
 
 /**
- * Who a channel-scoped `send`/`request` targets. Defaults to the calling
- * connection when omitted. Any recipient other than a `ConnectionRef` is
+ * Who a targeted channel broadcast or `request` targets. Any recipient other
+ * than a `ConnectionRef` is
  * intersected with the channel's membership — a `UserRef` reaches only that
  * user's sockets that are members, and a `TagRef`/`TagGroupHandle` reaches only
  * members that also hold the tag. Non-members are never delivered to.
@@ -533,7 +551,7 @@ export type ChannelRecipient =
   | UserRef
   | TagRef
   | {
-      readonly __wskit: 'group-handle';
+      readonly __livething: 'group-handle';
       readonly kind: 'ephemeral' | 'persistent';
       readonly group: string;
     };
@@ -541,24 +559,27 @@ export type ChannelRecipient =
 /**
  * Send and broadcast helpers scoped to one channel.
  *
- * Available as `ctx.channel` inside channel handlers. Both `send` and
- * `broadcast` automatically scope the outgoing event to the current channel
- * name.
+ * Available as `ctx.channel` inside channel handlers. `send`, `broadcastTo`,
+ * and `broadcast` automatically scope the outgoing event to the current
+ * channel name.
  */
 export interface ScopeSendApi {
   /** The resolved name of this channel instance. */
   readonly name: string;
 
   /**
-   * Send a channel-scoped event. By default it targets the current connection —
-   * the one whose event you are handling — and the frame arrives on the client's
-   * handle for this channel, not the top-level socket. Pass `{ to }` to target a
-   * specific member instead: a `ConnectionRef`, a `UserRef` (all that user's
-   * member sockets), or a `TagRef`/`TagGroupHandle` (members that also hold the
-   * tag). Returns the number of sockets the frame was delivered to. To reach
-   * every member instead, use `broadcast`.
+   * Send a channel-scoped event to the current connection — the one whose event
+   * you are handling. The frame arrives on the client's handle for this channel,
+   * not the top-level socket. Returns `1` when delivered and `0` otherwise.
    */
-  send(event: string, payload: unknown, options?: { to?: ChannelRecipient }): number;
+  send(event: string, payload: unknown): number;
+
+  /**
+   * Broadcast a channel-scoped event to a selected member audience. A
+   * `ConnectionRef` reaches one member; a `UserRef`, `TagRef`, or
+   * `TagGroupHandle` can reach many members. Returns the delivered socket count.
+   */
+  broadcastTo(to: ChannelRecipient, event: string, payload: unknown): number;
 
   /** Broadcast an event to every connection in this channel. */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
@@ -567,7 +588,7 @@ export interface ScopeSendApi {
 /**
  * Extended scope send API that includes replay support.
  *
- * `sendReplay` is only available when `replay()` is registered in the same
+ * `sendReplay` is only available when a replay capability is registered in the same
  * scope. In the broad runtime type it is optional because not every channel
  * context has replay enabled. The precise generated/app-facing types narrow
  * it to required only when replay is actually registered for that scope.
@@ -579,11 +600,7 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
    * Provide replay wire metadata so reconnecting clients can request missed
    * messages and deduplicate anything they already received.
    */
-  sendReplay?(
-    event: string,
-    payload: unknown,
-    wire: { seq: number; messageId: string; channel?: string; channelFamily?: string | null },
-  ): void;
+  sendReplay?(event: string, payload: unknown, wire: WireParameter): void;
 }
 
 /**
@@ -651,7 +668,7 @@ export interface ChannelReadReceipts {
  * channel family.
  *
  * `TOutgoing` is typed to the events declared inside the channel's
- * sub-builder, so `send` and `broadcast` only accept those events. `Meta` matches
+ * sub-builder, so `send`, `broadcastTo`, and `broadcast` only accept those events. `Meta` matches
  * the per-connection metadata shape returned by your `upgrade(...)` hook.
  */
 export interface ChannelHandle<
@@ -678,15 +695,16 @@ export interface ChannelHandle<
   readonly params: TParams;
 
   /**
-   * Send a channel-scoped event. Targets the current connection by default;
-   * pass `{ to }` to target a specific member — a `ConnectionRef`, a `UserRef`
-   * (all that user's member sockets), or a `TagRef`/`TagGroupHandle` (members
-   * that also hold the tag). Returns the number of sockets delivered to.
+   * Send a channel-scoped event to the current connection. Returns `1` when
+   * delivered and `0` otherwise.
    */
-  send<E extends keyof TOutgoing & string>(
+  send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): number;
+
+  /** Broadcast a channel-scoped event to a selected member audience. */
+  broadcastTo<E extends keyof TOutgoing & string>(
+    to: ChannelRecipient,
     event: E,
     payload: TOutgoing[E],
-    options?: { to?: ChannelRecipient },
   ): number;
 
   /**
@@ -730,27 +748,34 @@ export interface ChannelHandle<
    * connections, use `ctx.connections.get(ref).close()` instead.
    *
    * Sends `__kicked__` to each removed socket, fires `onUnsubscribe`, and
-   * broadcasts `__memberLeave__` / `__memberOffline__` to remaining members.
-   * Awaits every hook completion; rejections propagate to the caller.
+   * broadcasts `__memberLeave__` / `__memberOffline__` to remaining members
+   * once the member has no live connection left in the channel.
+   * Every targeted connection is kicked even when a leave hook throws. After
+   * all of them finished, the returned promise rejects with an
+   * `AggregateError` whose `errors` hold every hook failure.
+   *
+   * On a persistent channel, a `UserRef` also reaches a user who is a member
+   * but has no live connection in the channel: peers get `__memberLeave__`,
+   * and no hooks run because there is no socket.
    *
    * Pass `revoke: true` to also drop the durable membership row for each
    * kicked connection's user, so they are NOT auto-rejoined on their next
    * reconnect (use this to revoke a user's group membership in response to
    * an external event — an auth provider webhook, an admin action, etc.).
-   * Defaults to `false`: the user is booted now but auto-rejoins later. A
-   * no-op per connection when the channel is ephemeral — there is no durable
-   * row to drop either way.
+   * Defaults to `false`: the user is booted now but auto-rejoins later, and
+   * peers see `__memberJoin__` when they do. A no-op per connection when the
+   * channel is ephemeral — there is no durable row to drop either way.
    */
   kick(
     target:
       | UserRef
       | TagRef
       | {
-          readonly __wskit: 'group-handle';
+          readonly __livething: 'group-handle';
           readonly kind: 'ephemeral' | 'persistent';
           readonly group: string;
         },
-    opts: { reason: string; revoke?: boolean },
+    opts: OptsParameter2,
   ): Promise<void>;
 
   /**
@@ -773,8 +798,8 @@ export interface ChannelHandle<
  * families declared with `scope(key, pattern)`. The returned handle is bound to
  * the resolved channel so members and kicks never cross into a different family.
  *
- * Available as `ctx.channels` when at least one `channel()` is registered at
- * the top level. Inside a channel handler, prefer `ctx.channel` instead.
+ * Available as `ctx.channels` when the `channels()` capability is listed.
+ * Inside a channel handler, prefer `ctx.channel` instead.
  */
 export interface ChannelsManager<
   TStaticNames extends string = string,
@@ -802,37 +827,33 @@ export interface ChannelsManager<
  * interface lists **everything the engine might provide**; your handler type
  * trims it down.
  *
- * `ConnectionContext` is passed to handlers registered with: `base.on`,
+ * `ConnectionContext` is passed to handlers created with: `base.on`,
  * `base.request`, `base.stream`, `base.onConnect`, `base.onDisconnect`,
  * `base.onError`, and `base.onValidationError`.
  *
- * @template Env      Environment variables exposed by the adapter.
  * @template Meta     Per-connection metadata set in the upgrade step.
  * @template Platform The raw platform object (e.g. a Cloudflare DO stub).
  *
  * @example
  * ```ts
- * base.on('send', {
+ * const handleSend = base.on('send', {
  *   input: v.object({ text: v.string() }),
  *   run(ctx, input) {
  *     ctx.send('message', { text: input.text });
  *     ctx.broadcast('message', { text: input.text });
  *   },
  * });
+ * base.assemble({ handlers: [handleSend] });
  * ```
  *
  * Mental model, grouped by purpose:
  * - **identity** — `connection`, `user`, `meta`, `tags` (when the `tags()` capability is listed)
- * - **messaging** — `send`, `broadcast`, `connections.get(ref).send`, `users.get(id).send`
+ * - **messaging** — `send`, `broadcast`, `connections.get(ref).send`, `users.get(id).broadcast`
  * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
- *   `env`, `log`, `platform`, `waitUntil`
+ *   `log`, `platform`
  */
-export interface ConnectionContext<
-  Env = Record<string, unknown>,
-  Meta = Record<string, unknown>,
-  Platform = unknown,
-> {
+export interface ConnectionContext<Meta = Record<string, unknown>, Platform = unknown> {
   /**
    * A `ConnectionRef` for the current connection — the self socket address.
    * Pass it to engine methods that act on a specific socket. Equivalent to
@@ -846,7 +867,7 @@ export interface ConnectionContext<
    * belongs to. Present on every connection, but on an anonymous one (upgrade
    * returned no user id) its `id` is an empty string and it reaches nobody.
    * Use `ctx.user.id` for the bare id
-   * string; the handle itself carries the user-level actions (`send`,
+   * string; the handle itself carries the user-level actions (`broadcast`,
    * `request`, `setMeta`, `connections`, `close`, `info`) that fan out to
    * every live connection this user holds.
    */
@@ -856,12 +877,14 @@ export interface ConnectionContext<
   meta: Meta;
 
   /**
-   * Send an event to the current connection only. Returns nothing — it either
-   * dispatches the frame or throws (an undeclared event, or a non-object
-   * payload). To target a different socket and learn whether it is still live,
-   * use `ctx.connections.get(ref).send(...)`, which returns a boolean.
+   * Send an event to the current connection only. Returns `true` when the frame
+   * was handed to the socket. Returns `false` when it was not sent: on a server
+   * with a `translator`, the connection is closing or the `outbound` translation
+   * failed (LiveThing then closes the connection). It also returns `false` when
+   * the platform adapter refuses the frame. Throws for an undeclared event or a
+   * non-object payload.
    */
-  send(event: string, payload: unknown): void;
+  send(event: string, payload: unknown): boolean;
 
   /**
    * Send an event to all live connections except the caller. Pass
@@ -919,14 +942,14 @@ export interface ConnectionContext<
    */
   closeReason?: string;
 
-  /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
+  /** Scoped send/broadcastTo/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
 
-  /** Resolve a channel handle from any handler. Only present when channels are registered. */
+  /** Resolve a channel handle from any handler. Only present when `channels()` is listed. */
   channels: ChannelsManager<string, string, Record<string, Record<string, unknown>>, Meta>;
 
   /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */
-  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  schedule(taskId: string, options: OptionsParameter3): void;
 
   /** Cancel queued runs for a scheduled task. Pass a `filter` to cancel only matching runs. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
@@ -937,14 +960,8 @@ export interface ConnectionContext<
   /** Key-value storage access. */
   kv: KVProvider;
 
-  /** Environment variables provided by the adapter (e.g. secrets, feature flags). */
-  env: Env;
-
   /** Structured logger. */
   log: Logger;
-
-  /** Keep the platform runtime alive until the promise resolves, even after the handler returns. */
-  waitUntil(promise: Promise<unknown>): void;
 
   /** Raw platform object from the adapter (Durable Object stub, etc.). */
   platform: Platform;
@@ -997,15 +1014,12 @@ export interface ConnectionContext<
  * This context has no connection-level APIs (`send`, `broadcast`, etc.)
  * because no clients are connected yet.
  */
-export interface InitContext<Env = Record<string, unknown>, Platform = unknown> {
+export interface InitContext<Platform = unknown> {
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
   /** Key-value storage for simple get/set/delete operations. */
   kv: KVProvider;
-
-  /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
-  env: Env;
 
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
@@ -1039,7 +1053,6 @@ type ShutdownOutgoing<TSlots> = 'outgoing' extends keyof TSlots
  * live connections, broadcast, and queue durable work.
  */
 export interface ShutdownContext<
-  Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
   TSlots = unknown,
@@ -1066,7 +1079,7 @@ export interface ShutdownContext<
   kv: KVProvider;
 
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
-  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  schedule(taskId: string, options: OptionsParameter4): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
@@ -1080,14 +1093,8 @@ export interface ShutdownContext<
   /** Reach any user by id with `get(id)` to fan out to every socket they hold. */
   users: UsersManager<Meta>;
 
-  /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
-  env: Env;
-
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
-
-  /** Keep the platform runtime alive until the promise resolves, even after the handler returns. */
-  waitUntil(promise: Promise<unknown>): void;
 
   /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
   platform: Platform;
@@ -1103,11 +1110,7 @@ export interface ShutdownContext<
  * Mental model: this looks like `ShutdownContext`, but it runs for one queued
  * job instance and receives its payload separately as the handler argument.
  */
-export interface TaskContext<
-  Env = Record<string, unknown>,
-  Meta = Record<string, unknown>,
-  Platform = unknown,
-> {
+export interface TaskContext<Meta = Record<string, unknown>, Platform = unknown> {
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
@@ -1131,19 +1134,13 @@ export interface TaskContext<
   connectionCount: number;
 
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
-  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  schedule(taskId: string, options: OptionsParameter5): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
-  /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
-  env: Env;
-
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
-
-  /** Keep the platform runtime alive until the promise resolves, even after the handler returns. */
-  waitUntil(promise: Promise<unknown>): void;
 
   /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
   platform: Platform;
@@ -1171,7 +1168,7 @@ export interface AdminChannelHandle<Meta = Record<string, unknown>> {
    * `revoke: true` to also drop the durable membership row so the user does
    * not auto-rejoin on reconnect.
    */
-  kick(target: UserRef | TagRef, opts: { reason: string; revoke?: boolean }): Promise<void>;
+  kick(target: UserRef | TagRef, opts: OptsParameter3): Promise<void>;
 }
 
 /** Reach a channel by name from admin — the connectionless subset of `ctx.channels`. */
@@ -1194,7 +1191,6 @@ export interface AdminChannels<Meta = Record<string, unknown>> {
  * `tags` admin operations are not part of this context yet.
  */
 export interface AdminContext<
-  Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
   TSlots = unknown,
@@ -1242,7 +1238,7 @@ export interface AdminContext<
    * Close live connections. With no filter, closes every connection; with
    * `{ userId }`, closes only that user's sockets.
    */
-  closeConnections(filter?: { userId?: string }, code?: number, reason?: string): void;
+  closeConnections(filter?: FilterParameter, code?: number, reason?: string): void;
 
   /** Reach any specific connection by ref with `get(ref)`, or snapshot every live connection with `all()`. */
   connections: ConnectionsManager<Meta>;
@@ -1260,19 +1256,13 @@ export interface AdminContext<
   kv: KVProvider;
 
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
-  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  schedule(taskId: string, options: OptionsParameter6): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
-  /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
-  env: Env;
-
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
-
-  /** Keep the platform runtime alive until the promise resolves. */
-  waitUntil(promise: Promise<unknown>): void;
 
   /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
   platform: Platform;

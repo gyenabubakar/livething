@@ -19,6 +19,7 @@ function getOrCreateSet(bag: Map<string, Set<string>>, group: string): Set<strin
     set = new Set<string>();
     bag.set(group, set);
   }
+
   return set;
 }
 
@@ -40,6 +41,7 @@ function addToTagIndex(
     members = new Set();
     tagMembers.set(indexKey, members);
   }
+
   members.add(connection);
 }
 
@@ -50,6 +52,7 @@ function removeFromTagIndex(
 ): void {
   const members = tagMembers.get(indexKey);
   if (!members) return;
+
   members.delete(connection);
   if (members.size === 0) tagMembers.delete(indexKey);
 }
@@ -73,11 +76,15 @@ export function addConnectionTag(
 ): boolean {
   const { kind, group, key } = tag;
   if (key.length === 0) return false;
+
   const set = getOrCreateSet(connection.tags[kind], group);
   if (set.has(key)) return false;
+
   set.add(key);
+
   addToTagIndex(tagMembers, tagRefIndexKey(kind, group, key), connection);
   addToTagIndex(tagMembers, tagGroupIndexKey(kind, group), connection);
+
   return true;
 }
 
@@ -94,11 +101,14 @@ export function removeConnectionTag(
   const bag = connection.tags[kind];
   const set = bag.get(group);
   if (!set || !set.delete(key)) return false;
+
   removeFromTagIndex(tagMembers, tagRefIndexKey(kind, group, key), connection);
+
   if (set.size === 0) {
     bag.delete(group);
     removeFromTagIndex(tagMembers, tagGroupIndexKey(kind, group), connection);
   }
+
   return true;
 }
 
@@ -118,7 +128,7 @@ export function removeConnectionFromTagIndex(
 }
 
 export function makeTagRef(kind: TagKind, group: string, key: string): TagRef {
-  return { __wskit: 'tag-ref', kind, group, key };
+  return { __livething: 'tag-ref', kind, group, key };
 }
 
 /** The public-facing `TagRef` list for one connection, used by `ConnectionInfo.tags`. */
@@ -127,8 +137,10 @@ export function connectionTagRefs(connection: RuntimeConnection): readonly TagRe
   for (const [group, keys] of connection.tags.ephemeral) {
     for (const key of keys) refs.push(makeTagRef('ephemeral', group, key));
   }
+
   for (const [group, keys] of connection.tags.persistent) {
     for (const key of keys) refs.push(makeTagRef('persistent', group, key));
   }
+
   return refs;
 }

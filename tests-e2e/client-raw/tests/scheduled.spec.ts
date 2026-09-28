@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
+import { closeSocket, connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('scheduled', () => {
   async function openPage(page: Page, room: string, username = 'testuser') {
@@ -84,9 +84,7 @@ test.describe('scheduled', () => {
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('trigger-invalid-cleanup-data').click();
-    await expect(page.getByTestId('schedule-guard-error')).toContainText(
-      'does not declare .data(...)',
-    );
+    await expect(page.getByTestId('schedule-guard-error')).toContainText('declares no data');
     await page.getByTestId('schedule-cleanup-soon').click();
     await expect(page.getByTestId('cleanup-fired')).toHaveText('yes');
   });
@@ -108,6 +106,7 @@ test.describe('scheduled', () => {
     await expect(page.getByTestId('connection-id')).not.toHaveText('');
     await page.getByTestId('schedule-send-to-self').click();
     await expect(page.getByTestId('send-to-conn-delivery')).toHaveText('from-task');
+
     await expect(page.getByTestId('send-to-conn-status')).toContainText('delivered:true');
   });
 
@@ -147,10 +146,8 @@ test.describe('scheduled', () => {
   test('scheduled task that throws a non-Error (BigInt) still lands in the DLQ', async ({
     page,
   }, testInfo) => {
-    // Pre-fix the alarm handler crashed inside JSON.stringify(error) when
-    // the rejected value was a BigInt (or any other non-serializable value),
-    // and the failed run vanished without a dead-letter row. The error
-    // serializer now falls back to String(error), so the row writes.
+    // The error serializer falls back to String(error) for non-serializable
+    // thrown values, so the failed run can still be written to the dead letter queue.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('trigger-bigint-throw').click();
     await expect(async () => {
@@ -205,10 +202,7 @@ test.describe('scheduled', () => {
   test('ctx.schedule on an unregistered task id throws synchronously', async ({
     page,
   }, testInfo) => {
-    // Pre-fix: scheduleTaskRun silently queued unknown task ids when no
-    // data was supplied. The runner later found no handler and dropped
-    // the run without surfacing anything to the developer. The handler
-    // now throws at schedule time so typos are caught immediately.
+    // Unknown task IDs throw at schedule time so typos are reported immediately.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('schedule-unknown-task').click();
     await expect(page.getByTestId('schedule-unknown-task-result')).toContainText('rejected:');
@@ -242,6 +236,40 @@ test.describe('scheduled', () => {
     expect(countAfter).toBe(countAtCancel);
   });
 
+  test('a cancelled recurring task stays stopped after a restart until it is scheduled again', async ({
+    page,
+    request,
+  }, testInfo) => {
+    const room = `sched-x-${testInfo.testId}`;
+    await page.goto('/scheduled');
+    await installRig(page);
+    const a = await connect(page, { path: '/ws/scheduled', username: 'alice', room });
+
+    // The recurring task is seeded at boot; wait for it to tick.
+    await expect(async () => {
+      const ticks = (await frames(page, a)).filter((f) => f.event === 'heartbeat-tick');
+      expect(ticks.length).toBeGreaterThanOrEqual(1);
+    }).toPass({ timeout: 10_000 });
+
+    await send(page, a, { event: 'cancel-heartbeat', payload: {} });
+    await waitForFrame(page, a, { match: (f) => f.event === 'cleanup-cancelled' });
+
+    const res = await request.get(`/ws/scheduled/restart?room=${room}`);
+    expect(res.status()).toBe(204);
+
+    // A fresh boot must not re-seed the cancelled task.
+    const b = await connect(page, { path: '/ws/scheduled', username: 'bob', room });
+    await page.waitForTimeout(1200);
+    expect((await frames(page, b)).filter((f) => f.event === 'heartbeat-tick')).toHaveLength(0);
+
+    // Scheduling it again restarts the recurring cycle, not just one run.
+    await send(page, b, { event: 'start-heartbeat', payload: {} });
+    await expect(async () => {
+      const ticks = (await frames(page, b)).filter((f) => f.event === 'heartbeat-tick');
+      expect(ticks.length).toBeGreaterThanOrEqual(3);
+    }).toPass({ timeout: 10_000 });
+  });
+
   test('scheduled queue survives a restart and the task still fires', async ({
     page,
     request,
@@ -266,5 +294,32 @@ test.describe('scheduled', () => {
       match: (f) => f.event === 'cleanup-done',
       timeoutMs: 8000,
     });
+  });
+
+  test('socketless fixture stays alive while a scheduled task is pending', async ({
+    page,
+  }, testInfo) => {
+    const room = `sched-idle-${testInfo.testId}`;
+    await page.goto('/scheduled');
+    await installRig(page);
+    const a = await connect(page, { path: '/ws/scheduled', username: 'alice', room });
+
+    await send(page, a, { event: 'schedule-cleanup', payload: { delayMs: 1500 } });
+    await waitForFrame(page, a, { match: (f) => f.event === 'cleanup-scheduled' });
+    await closeSocket(page, a);
+
+    // The task is due 1500 ms after the close. Wait long enough that it has
+    // clearly run before the reconnect, even on a slow machine.
+    await page.waitForTimeout(3000);
+    const reconnectStartedAt = Date.now();
+    const b = await connect(page, { path: '/ws/scheduled', username: 'bob', room });
+    await send(page, b, { event: 'query-cleanup-history', payload: {} });
+    const result = await waitForFrame(page, b, {
+      match: (f) => f.event === 'cleanup-history-result',
+    });
+
+    const ranAt = result.payload.ranAt;
+    expect(typeof ranAt).toBe('number');
+    expect(ranAt as number).toBeLessThan(reconnectStartedAt - 250);
   });
 });

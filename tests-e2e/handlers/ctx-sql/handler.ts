@@ -1,6 +1,6 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@livething/server';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 function selectNotes(ctx: {
@@ -15,8 +15,7 @@ function selectNotes(ctx: {
     .toArray();
 }
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -26,7 +25,6 @@ const base = define({
       'sql-raw-result': t<{ rows: unknown[][] }>(),
       'sql-reuse-result': t<{ error: string }>(),
       'snapshot-result': t<{ count: number; shapeOk: boolean }>(),
-      'env-result': t<{ keyCount: number }>(),
     }),
   ],
 });
@@ -119,6 +117,7 @@ const handleSqlTxRollbackProbe = base.on('sql-tx-rollback-probe', {
     } catch {
       // expected — the transaction rethrows after rolling back.
     }
+
     ctx.send('notes-list', { notes: selectNotes(ctx) });
   },
 });
@@ -161,14 +160,7 @@ const handleConnectionsSnapshotProbe = base.on('connections-snapshot-probe', {
   },
 });
 
-const handleReadEnvProbe = base.on('read-env-probe', {
-  input: v.object({}),
-  run(ctx) {
-    ctx.send('env-result', { keyCount: Object.keys(ctx.env as object).length });
-  },
-});
-
-export const ctxSqlHandler = base.assemble({
+export const ctxSqlDefinition = base.assemble({
   handlers: [
     handleSaveNote,
     handleGetNotes,
@@ -180,8 +172,7 @@ export const ctxSqlHandler = base.assemble({
     handleSqlTxRollbackProbe,
     handleSqlOneMultiProbe,
     handleConnectionsSnapshotProbe,
-    handleReadEnvProbe,
   ],
 });
 
-export type CtxSqlClient = InferClient<typeof ctxSqlHandler>;
+export type CtxSqlClient = InferClient<typeof ctxSqlDefinition>;

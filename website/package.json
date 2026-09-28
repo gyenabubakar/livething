@@ -1,22 +1,26 @@
 {
-  "name": "@wskit/website",
+  "name": "@livething/website",
   "type": "module",
   "private": true,
   "scripts": {
     "dev": "nuxt dev",
     "dev:prepare": "nuxt prepare",
     "build": "nuxt build",
-    "generate": "nuxt generate",
-    "preview": "nuxt generate && wrangler dev",
-    "deploy": "nuxt generate && wrangler deploy",
+    "generate": "NODE_OPTIONS=--max-old-space-size=6144 NITRO_PRESET=static nuxt generate",
+    "audit:docs": "node ./scripts/run-lighthouse.mjs",
+    "preview": "pnpm run generate && wrangler dev",
+    "deploy": "pnpm run generate && wrangler deploy",
+    "deploy:preview": "pnpm run generate && wrangler versions upload",
     "typecheck": "vue-tsc --noEmit",
-    "clean": "rm -rf .nuxt .data .output node_modules"
+    "clean": "rm -rf .nuxt .data .output node_modules .wrangler .lighthouseci .lighthouse-results"
   },
   "dependencies": {
     "@nuxt/content": "^3.14.0",
     "@nuxt/fonts": "0.14.0",
     "@nuxt/ui": "^4.7.1",
+    "@pierre/diffs": "^1.2.12",
     "@resvg/resvg-js": "^2.6.2",
+    "@vueuse/core": "14.3.0",
     "better-sqlite3": "^12.9.0",
     "docus": "^5.10.1",
     "motion-v": "^2.2.1",
@@ -30,6 +34,8 @@
     "@iconify-json/ph": "^1.2.2",
     "@iconify-json/simple-icons": "^1.2.86",
     "@iconify-json/vscode-icons": "^1.2.59",
+    "@lhci/cli": "^0.15.1",
+    "h3": "^1.15.11",
     "vue-tsc": "^2.2.0",
     "wrangler": "^4.0.0"
   }

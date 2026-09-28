@@ -1,20 +1,19 @@
-import { define, errors, t } from '@wskit/server';
-import { error, WSKitError } from '@wskit/server/errors';
+import { errors, server } from '@livething/server';
+import { error, LiveThingError } from '@livething/server/errors';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { Forbidden, NotFound } from '../_shared/errors.ts';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const SimpleError = error('simple-error');
 const Unregistered = error('unregistered', v.object({ msg: v.string() }));
-// A WSKitError whose detail carries a value JSON.stringify cannot
+// A LiveThingError whose detail carries a value JSON.stringify cannot
 // serialize. Used by the e2e that pins the dispatcher fallback path:
 // the client must still receive an __error__ frame instead of having the
 // connection silently lose the response.
 const BigIntDetail = error('bigint-detail');
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [errors([NotFound, Forbidden, SimpleError, BigIntDetail])],
 });
@@ -37,8 +36,8 @@ const handleTriggerSimple = base.on('trigger-simple', {
   input: v.object({}),
   run() {
     // Code-only error: error('simple-error') returns a factory; call it to get
-    // the WSKitError. (Throwing the bare factory would normalize to
-    // internal-error since a function is not a WSKitError.)
+    // the LiveThingError. (Throwing the bare factory would normalize to
+    // internal-error since a function is not a LiveThingError.)
     throw SimpleError();
   },
 });
@@ -53,13 +52,13 @@ const handleTriggerUnregistered = base.on('trigger-unregistered', {
 const handleTriggerBigint = base.on('trigger-bigint', {
   input: v.object({}),
   run() {
-    // Build a WSKitError whose detail is non-serializable. The engine
+    // Build a LiveThingError whose detail is non-serializable. The engine
     // must not let JSON.stringify crash the dispatcher.
-    throw new WSKitError('bigint-detail', { amount: 1n });
+    throw new LiveThingError('bigint-detail', { amount: 1n });
   },
 });
 
-export const errorsFactoryHandler = base.assemble({
+export const errorsFactoryDefinition = base.assemble({
   handlers: [
     handleTriggerNotFound,
     handleTriggerForbidden,
@@ -69,4 +68,4 @@ export const errorsFactoryHandler = base.assemble({
   ],
 });
 
-export type ErrorsFactoryClient = InferClient<typeof errorsFactoryHandler>;
+export type ErrorsFactoryClient = InferClient<typeof errorsFactoryDefinition>;

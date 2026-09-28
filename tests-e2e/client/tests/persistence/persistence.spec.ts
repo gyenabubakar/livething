@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's channels() + reconnection() against the real
-// `persistence` handler. Adapter-oblivious — it talks to whatever server the run
+// Conformance: @livething/client's channels() + reconnection() against the real
+// `persistence` server definition. Adapter-oblivious — it talks to whatever server the run
 // booted over the /ws proxy.
 async function open(page: Page, room: string, username: string): Promise<void> {
   await page.goto(`/tests/persistence/index.html?room=${room}&username=${username}`);
@@ -70,6 +70,7 @@ test.describe('persistence (conformance)', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('open');
     await page.waitForTimeout(500);
+
     await expect(page.getByTestId('typing-server-rejoins')).toHaveText('0');
   });
 });

@@ -1,7 +1,6 @@
-import { WSKitConfigError } from '@wskit/core';
-import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { LiveThingConfigError } from '@livething/core';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it } from 'vitest';
 import type { AsyncContextFactory } from '~/context.ts';
@@ -25,15 +24,14 @@ function passthroughAsyncContext(): AsyncContextFactory {
 }
 
 function engineWithApi(makeApi: (ctx: unknown) => object) {
-  const base = define({ env: t<Record<string, never>>(), capabilities: [] });
-  const handler = base.assemble({ handlers: [], api: makeApi as never });
+  const base = server({ capabilities: [] });
+  const definition = base.assemble({ handlers: [], api: makeApi as never });
   let created: unknown;
   const build = adapter<Record<string, never>, unknown>({
     id: 'probe',
     asyncContextFactory: passthroughAsyncContext(),
     setup(createEngine) {
       created = createEngine({
-        env: {},
         platform: {},
         storage: { sql: createTestSql(), kv: createTestKV() },
         timers: {
@@ -41,13 +39,13 @@ function engineWithApi(makeApi: (ctx: unknown) => object) {
           deleteAlarm: async () => {},
           getAlarm: async () => null,
         },
-        waitUntil: () => {},
         logger: { info: () => {}, warn: () => {}, error: () => {} },
       });
       return created;
     },
   });
-  build(handler as never, {});
+  build(definition as never, {});
+
   return created as { initialize(): Promise<void>; admin(): unknown };
 }
 
@@ -72,13 +70,14 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
   it("rejects an app-owned 'constructor' instead of silently dropping it", async () => {
     const engine = engineWithApi(() => ({ constructor: () => 'not-a-class-marker' }));
     const initialization = engine.initialize();
-    await expect(initialization).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(initialization).rejects.toBeInstanceOf(LiveThingConfigError);
     await expect(initialization).rejects.toThrow(/constructor/);
   });
 
   it('rejects an own constructor that spoofs a prototype marker during boot', async () => {
     const api = Object.create(null) as Record<string, unknown>;
     function AppConstructor() {}
+
     AppConstructor.prototype = api;
     Object.defineProperty(api, 'constructor', {
       value: AppConstructor,
@@ -88,7 +87,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
     });
     const engine = engineWithApi(() => api);
 
-    await expect(engine.initialize()).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(engine.initialize()).rejects.toBeInstanceOf(LiveThingConfigError);
     await expect(engine.initialize()).rejects.toThrow(/constructor/);
   });
 
@@ -101,7 +100,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
     const engine = engineWithApi(() => Object.create(prototype));
 
     const initialization = engine.initialize();
-    await expect(initialization).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(initialization).rejects.toBeInstanceOf(LiveThingConfigError);
     await expect(initialization).rejects.toThrow(/constructor/);
   });
 
@@ -111,6 +110,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
         return 'pong';
       }
     }
+
     const engine = engineWithApi(() => new AdminApi());
     await expect(engine.initialize()).resolves.toBeUndefined();
     expect((engine.admin() as { ping(): string }).ping()).toBe('pong');
@@ -126,6 +126,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
         return 'pong';
       }
     }
+
     const engine = engineWithApi(() => new NullPrototypeApi());
 
     await expect(engine.initialize()).resolves.toBeUndefined();

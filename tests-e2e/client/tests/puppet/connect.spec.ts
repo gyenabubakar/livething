@@ -18,6 +18,26 @@ test('opens a real socket, round-trips a sent event, and disconnects', async ({
   await expect(page.getByTestId('state')).toHaveText('closed');
 });
 
+test('reports an invalid client close code without the browser throwing', async ({
+  page,
+}, testInfo) => {
+  await page.goto(`/tests/puppet/index.html?path=echo&room=${testInfo.testId}`);
+  await expect(page.getByTestId('app-ready')).toHaveText('yes');
+
+  await page.getByTestId('connect').click();
+  await expect(page.getByTestId('state')).toHaveText('open');
+
+  await page.evaluate(() =>
+    (window as unknown as { __disconnect(code: number, reason: string): void }).__disconnect(
+      4000.5,
+      'do not send this',
+    ),
+  );
+
+  await expect(page.getByTestId('state')).toHaveText('closed');
+  await expect(page.getByTestId('local-error')).toHaveText('called');
+});
+
 test('broad onServerError receives an unsolicited code from a newer server', async ({
   page,
 }, testInfo) => {

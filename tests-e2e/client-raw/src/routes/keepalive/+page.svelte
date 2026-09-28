@@ -6,10 +6,12 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		closeCode = null;
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const url = new URL(location.href);
+
 		const room = url.searchParams.get('room') ?? 'default';
 		// With ?autopong=1 the page answers the server's keepalive "ping" text
 		// frame with "pong" — a live-but-app-silent client. Without it, the raw
@@ -33,7 +35,7 @@
 
 	function sendEcho() {
 		if (ws && ws.readyState === WebSocket.OPEN) {
-			ws.send(JSON.stringify({ type: 'echo', timestamp: Date.now() }));
+			ws.send(window.__livethingEncode({ event: 'echo', payload: { timestamp: Date.now() } }));
 		}
 	}
 </script>

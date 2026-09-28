@@ -6,15 +6,32 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 interface SendMessageOptions {
   event: string;
   payload?: unknown;
-  wskit?: Record<string, unknown>;
+  livething?: Record<string, unknown>;
 }
 
 async function send(
   runtime: ReturnType<typeof makeRuntime>,
   connection: RuntimeConnection,
-  { event, payload, wskit }: SendMessageOptions,
+  { event, payload, livething }: SendMessageOptions,
 ) {
-  await processTextMessage(runtime, connection, JSON.stringify({ event, payload, __wskit: wskit }));
+  const metadata: Record<string, unknown> = {};
+  if (typeof livething?.channel === 'string') {
+    metadata.channel = { name: livething.channel };
+  }
+
+  if (typeof livething?.messageId === 'string') {
+    metadata.delivery = { id: livething.messageId };
+  }
+
+  if (typeof livething?.streamId === 'string') {
+    metadata.stream = { id: livething.streamId };
+  }
+
+  await processTextMessage(
+    runtime,
+    connection,
+    JSON.stringify([event, payload, Object.keys(metadata).length > 0 ? metadata : null]),
+  );
 }
 
 function makeConnection(id = 'c1'): RuntimeConnection {
@@ -72,12 +89,20 @@ function makeRuntime(cap: number) {
 }
 
 describe('incoming dedup', () => {
-  it('drops a second frame with the same __wskit.messageId', async () => {
+  it('drops a second frame with the same __livething.messageId', async () => {
     const connection = makeConnection();
     const runtime = makeRuntime(16);
 
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'abc' } });
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'abc' } });
+    await send(runtime, connection, {
+      event: 'echo',
+      payload: {},
+      livething: { messageId: 'abc' },
+    });
+    await send(runtime, connection, {
+      event: 'echo',
+      payload: {},
+      livething: { messageId: 'abc' },
+    });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(1);
   });
@@ -96,10 +121,10 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(2);
 
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'a' } });
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'b' } });
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'c' } });
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'a' } });
+    await send(runtime, connection, { event: 'echo', payload: {}, livething: { messageId: 'a' } });
+    await send(runtime, connection, { event: 'echo', payload: {}, livething: { messageId: 'b' } });
+    await send(runtime, connection, { event: 'echo', payload: {}, livething: { messageId: 'c' } });
+    await send(runtime, connection, { event: 'echo', payload: {}, livething: { messageId: 'a' } });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(4);
   });
@@ -108,9 +133,9 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(2);
 
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'a' } });
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'b' } });
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'b' } });
+    await send(runtime, connection, { event: 'echo', payload: {}, livething: { messageId: 'a' } });
+    await send(runtime, connection, { event: 'echo', payload: {}, livething: { messageId: 'b' } });
+    await send(runtime, connection, { event: 'echo', payload: {}, livething: { messageId: 'b' } });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
   });
@@ -120,8 +145,8 @@ describe('incoming dedup', () => {
     const c2 = makeConnection('c2');
     const runtime = makeRuntime(16);
 
-    await send(runtime, c1, { event: 'echo', payload: {}, wskit: { messageId: 'shared' } });
-    await send(runtime, c2, { event: 'echo', payload: {}, wskit: { messageId: 'shared' } });
+    await send(runtime, c1, { event: 'echo', payload: {}, livething: { messageId: 'shared' } });
+    await send(runtime, c2, { event: 'echo', payload: {}, livething: { messageId: 'shared' } });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
   });
@@ -130,8 +155,16 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(0);
 
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'abc' } });
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'abc' } });
+    await send(runtime, connection, {
+      event: 'echo',
+      payload: {},
+      livething: { messageId: 'abc' },
+    });
+    await send(runtime, connection, {
+      event: 'echo',
+      payload: {},
+      livething: { messageId: 'abc' },
+    });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
     expect(connection.seenIncomingIds).toBeUndefined();
@@ -154,12 +187,12 @@ describe('incoming dedup', () => {
     await send(runtime, connection, {
       event: 'speed-up',
       payload: { factor: 2 },
-      wskit: { streamId: 's-1', messageId: 'n-1' },
+      livething: { streamId: 's-1', messageId: 'n-1' },
     });
     await send(runtime, connection, {
       event: 'speed-up',
       payload: { factor: 2 },
-      wskit: { streamId: 's-1', messageId: 'n-1' },
+      livething: { streamId: 's-1', messageId: 'n-1' },
     });
 
     expect(nudges).toHaveLength(1);
@@ -177,12 +210,12 @@ describe('incoming dedup', () => {
     await send(runtime, connection, {
       event: '__subscribe__',
       payload: undefined,
-      wskit: { channel: 'room' },
+      livething: { channel: 'room' },
     });
     await send(runtime, connection, {
       event: '__subscribe__',
       payload: undefined,
-      wskit: { channel: 'room' },
+      livething: { channel: 'room' },
     });
 
     expect(handleSubscribe).toHaveBeenCalledTimes(2);
@@ -197,13 +230,13 @@ describe('incoming dedup', () => {
 
     await send(runtime, connection, {
       event: '__unsubscribe__',
-      payload: {},
-      wskit: { channel: 'room' },
+      payload: null,
+      livething: { channel: 'room' },
     });
     await send(runtime, connection, {
       event: '__unsubscribe__',
-      payload: {},
-      wskit: { channel: 'room' },
+      payload: null,
+      livething: { channel: 'room' },
     });
 
     expect(handleUnsubscribe).toHaveBeenCalledTimes(2);

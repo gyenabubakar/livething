@@ -4,7 +4,7 @@ import { sweepDurableStreams } from './runtime.ts';
 import * as Storage from './storage.ts';
 
 function countStreams(sql: ReturnType<typeof createTestSql>): number {
-  return Number(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM __wskit_streams').one()!.n);
+  return Number(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM __livething_streams').one()!.n);
 }
 
 describe('sweepDurableStreams', () => {
@@ -22,6 +22,7 @@ describe('sweepDurableStreams', () => {
     });
     Storage.markSuspended(sql, { userId: 'u', streamId: 's1', now: Date.now() });
     const deleted = sweepDurableStreams({ sql });
+
     expect(deleted).toBe(0);
     expect(countStreams(sql)).toBe(1);
   });
@@ -43,6 +44,7 @@ describe('sweepDurableStreams', () => {
     Storage.markSuspended(sql, { userId: 'u', streamId: 's1', now: longAgo });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(1);
+
     expect(countStreams(sql)).toBe(0);
   });
 
@@ -60,6 +62,7 @@ describe('sweepDurableStreams', () => {
       retentionAfterEndMs: 1,
     });
     Storage.markEnded(sql, { userId: 'u', streamId: 's2', now: longAgo });
+
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(1);
     expect(countStreams(sql)).toBe(0);

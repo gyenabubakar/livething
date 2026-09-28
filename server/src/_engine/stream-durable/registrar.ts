@@ -4,7 +4,11 @@ import { registerActiveStreamOps } from '~/stream/active-ops.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { PurgeUserOptions } from '~/_engine/runtime/purge-user.ts';
 import { durableStreamService } from './dispatch.ts';
-import { ensureDurableStreamSchema, purgeStreamsByUser } from './storage.ts';
+import {
+  ensureDurableStreamSchema,
+  purgeStreamsByUser,
+  suspendOrphanedStreams,
+} from './storage.ts';
 
 /**
  * Both `resumableStream()` and `recordedStream()` share one durable-stream
@@ -12,7 +16,7 @@ import { ensureDurableStreamSchema, purgeStreamsByUser } from './storage.ts';
  * time even when both capabilities are listed. Each capability still gets its own
  * registrar primitive (distinct keys) so listing both never collides.
  */
-const DURABLE_STREAM_SERVICE_KEY = Symbol('wskit.durableStreamService');
+const DURABLE_STREAM_SERVICE_KEY = Symbol('livething.durableStreamService');
 
 function makeDurableRegistrar(tag: string, key: symbol) {
   return definePrimitive({
@@ -26,6 +30,7 @@ function makeDurableRegistrar(tag: string, key: symbol) {
 
         engine.onBootSchema(() => {
           ensureDurableStreamSchema(engine.storage.sql);
+          suspendOrphanedStreams(engine.storage.sql, Date.now());
         });
 
         engine.onPurgeUser((core, userId, options?: PurgeUserOptions) => {

@@ -10,9 +10,10 @@ export function compileRequestDef(
   const handler = handlers.get(def.name);
   if (!handler) {
     throw new Error(
-      `[wskit] No handler registered for request('${def.name}'). Call implement(c).request('${def.name}', ...).`,
+      `[livething] No handler assembled for request('${def.name}'). Include the value returned by base.request(...) in base.assemble({ handlers: [...] }).`,
     );
   }
+
   return requestFactory(def.name, handler as any, {
     validator: def.payload,
     responseSchema: def.response,

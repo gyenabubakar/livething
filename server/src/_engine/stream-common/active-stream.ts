@@ -5,7 +5,7 @@
  * `ctx.nudges()` helper, and resolve the same broadcast target list.
  */
 
-import { StreamAlreadyActive } from '@wskit/core';
+import { StreamAlreadyActive } from '@livething/core';
 import { assertValidHighWaterMark } from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type {
@@ -14,6 +14,11 @@ import type {
   ResolvedChannel,
   RuntimeConnection,
 } from '~/_engine/runtime/types.ts';
+
+type AbortActiveStreamActiveParameter = { abortController?: AbortController };
+type AssertNoConcurrentStreamRuntimeParameter = {
+  activeStreams: ReadonlyMap<string, ActiveStream>;
+};
 
 /** Validator handle used to type-narrow a registered nudge. */
 export interface NudgeBinding {
@@ -52,6 +57,9 @@ export interface BuildActiveStreamInput {
 
   /** True for a broadcast stream — recorded so cancel can notify fan-out peers. */
   broadcast?: boolean;
+
+  /** True for a resumable or recorded stream. */
+  durable?: boolean;
 }
 
 /** Return value from `buildActiveStream`. */
@@ -67,7 +75,7 @@ export interface ActiveStreamHandle {
  * `iterator.next(value)` call.
  */
 export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHandle {
-  // Backstop for any authoring path the define-time factory checks don't cover
+  // Backstop for any authoring path the server-time factory checks don't cover
   // (e.g. a lower-level builder): a non-positive highWaterMark would make drain()
   // poll to its cap before resolving, so refuse it loudly at stream start.
   assertValidHighWaterMark(input.highWaterMark, `stream("${input.event}")`);
@@ -76,6 +84,7 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
   for (const nudge of input.nudges) {
     nudgeValidators.set(nudge.event, nudge.validator);
   }
+
   const active: ActiveStream = {
     id: input.streamId,
     connectionId: input.connection.id,
@@ -90,7 +99,9 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
     abortController: input.abortController ?? new AbortController(),
     highWaterMark: input.highWaterMark ?? DEFAULT_HIGH_WATER_MARK,
     broadcast: input.broadcast ?? false,
+    durable: input.durable ?? false,
   };
+
   return { active, nudgeBuffer };
 }
 
@@ -166,9 +177,11 @@ export function buildDrain(input: BuildDrainInput): () => Promise<void> {
     let best: number | null = null;
     for (const target of input.targets()) {
       if (!targetSupportsBackpressure(target)) continue;
+
       const buffered = target.descriptor.bufferedAmount();
       if (best === null || buffered < best) best = buffered;
     }
+
     return best;
   }
 
@@ -176,10 +189,13 @@ export function buildDrain(input: BuildDrainInput): () => Promise<void> {
     for (let poll = 0; poll < DRAIN_MAX_POLLS; poll += 1) {
       // The stream is being torn down — never hang a draining generator.
       if (input.isClosed()) return;
+
       const best = healthiestBuffered();
       // No target reports real backpressure (Cloudflare, or no live targets): no-op.
       if (best === null) return;
+
       if (best < input.highWaterMark) return;
+
       await delay(DRAIN_POLL_INTERVAL_MS);
     }
   };
@@ -208,11 +224,12 @@ export type StreamAbortReason = 'cancelled' | 'aborted' | 'unsubscribed' | 'shut
  * racing disconnect) is a no-op because the controller is already aborted.
  */
 export function abortActiveStream(
-  active: { abortController?: AbortController },
+  active: AbortActiveStreamActiveParameter,
   reason: StreamAbortReason,
 ): void {
   const controller = active.abortController;
   if (!controller || controller.signal.aborted) return;
+
   controller.abort(reason);
 }
 
@@ -248,14 +265,16 @@ export interface AssertNoConcurrentStreamOptions {
  * unless `allowConcurrent` is true. Mirrors plain stream's pre-flight check.
  */
 export function assertNoConcurrentStream(
-  runtime: { activeStreams: ReadonlyMap<string, ActiveStream> },
+  runtime: AssertNoConcurrentStreamRuntimeParameter,
   connection: RuntimeConnection,
   options: AssertNoConcurrentStreamOptions,
 ): void {
   const { event, allowConcurrent } = options;
   if (allowConcurrent) return;
+
   const ids = connection.activeStreamIds;
   if (!ids) return;
+
   for (const id of ids) {
     const existing = runtime.activeStreams.get(id);
     if (existing && !existing.closed && existing.event === event) {
@@ -283,6 +302,7 @@ export function resolveBroadcastTargets(input: BroadcastTargetInput): RuntimeCon
   const targets: RuntimeConnection[] = [];
   for (const candidate of input.runtime.connections.values()) {
     if (candidate.id === input.excludeConnectionId) continue;
+
     if (input.scope.channelName) {
       if (
         !ChannelPrimitive.hasChannelMembership(
@@ -294,8 +314,11 @@ export function resolveBroadcastTargets(input: BroadcastTargetInput): RuntimeCon
         continue;
       }
     }
+
     if (input.extraFilter && !input.extraFilter(candidate)) continue;
+
     targets.push(candidate);
   }
+
   return targets;
 }

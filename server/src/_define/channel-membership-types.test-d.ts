@@ -6,9 +6,9 @@
  * `base.channel(...)`, so each error pins to the `membership` property
  * instead of failing the whole call.
  */
-import type { ChannelConfig } from '~/_define/define.ts';
+import type { ChannelConfig } from '~/_define/server.ts';
 
-type Config = ChannelConfig<Record<string, never>, Record<string, never>, Record<string, never>>;
+type Config = ChannelConfig<Record<string, never>, Record<string, never>, readonly []>;
 
 ({
   membership: 'persistent',

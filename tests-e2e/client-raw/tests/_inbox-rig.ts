@@ -10,8 +10,10 @@ import type { Browser, Page } from '@playwright/test';
 export type Frame = {
   event: string;
   payload: Record<string, unknown>;
-  __wskit?: Record<string, unknown>;
+  metadata?: Record<string, Record<string, unknown>> | null;
 };
+
+type FrameInput = Omit<Frame, 'payload'> & { payload: Record<string, unknown> | null };
 
 // Each route page owns its own frame buffer on window.__frames, filled from the
 // socket's onmessage before onopen can race the drain. It is reset to [] on every
@@ -34,7 +36,9 @@ export async function openMember(browser: Browser, opts: OpenOptions): Promise<M
   await page.goto(`${opts.path}?room=${opts.room}`);
   await page.getByTestId('username').fill(opts.username);
   await page.getByTestId('connect').click();
+
   await expect(page.getByTestId('status')).toHaveText('connected');
+
   return { page, close: () => ctx.close() };
 }
 
@@ -47,15 +51,28 @@ export async function waitForFrame(page: Page, match: (f: Frame) => boolean): Pr
   return (await frames(page)).find(match)!;
 }
 
-export async function send(page: Page, frame: Frame): Promise<void> {
+export async function send(page: Page, frame: FrameInput): Promise<void> {
   await page.evaluate((f) => {
-    (window as unknown as { __ws?: WebSocket }).__ws?.send(JSON.stringify(f));
+    (window as unknown as { __ws?: WebSocket }).__ws?.send(
+      JSON.stringify([
+        f.event,
+        f.payload ?? null,
+        f.metadata && Object.keys(f.metadata).length > 0 ? f.metadata : null,
+      ]),
+    );
   }, frame);
 }
 
 export async function subscribe(page: Page, channel = 'chat'): Promise<Frame> {
-  await send(page, { event: '__subscribe__', payload: {}, __wskit: { channel } });
-  return waitForFrame(page, (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === channel);
+  await send(page, {
+    event: '__subscribe__',
+    payload: null,
+    metadata: { channel: { name: channel } },
+  });
+  return waitForFrame(
+    page,
+    (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === channel,
+  );
 }
 
 export async function closeSocket(page: Page): Promise<void> {

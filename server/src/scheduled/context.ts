@@ -7,9 +7,9 @@ import type * as PublicApi from '~/context.ts';
  */
 export function createTaskContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
-): PublicApi.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+): PublicApi.TaskContext<Record<string, unknown>, unknown> {
   const { sql, kv } = deps.getStorageView();
-  const ctx: PublicApi.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> = {
+  const ctx: PublicApi.TaskContext<Record<string, unknown>, unknown> = {
     sql,
     kv,
     broadcast: (event, payload) => {
@@ -26,16 +26,14 @@ export function createTaskContext(
     cancelScheduled: (taskId, filter) => {
       const result = deps.cancelScheduled(taskId, filter);
       if (result.removed === 0) {
-        deps.logger.error('[wskit] cancelScheduled matched no runs', {
+        deps.logger.error('[livething] cancelScheduled matched no runs', {
           taskId,
           filter,
           taskExists: result.taskExists,
         });
       }
     },
-    env: deps.env,
     log: deps.logger,
-    waitUntil: deps.waitUntilImpl,
     platform: deps.platform,
   };
 

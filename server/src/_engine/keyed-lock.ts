@@ -13,6 +13,7 @@ export class KeyedLock {
     void tail.then(() => {
       if (this.tails.get(key) === tail) this.tails.delete(key);
     });
+
     return result;
   }
 }

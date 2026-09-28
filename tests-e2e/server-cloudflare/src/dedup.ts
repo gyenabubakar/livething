@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { dedupHandler } from '@wskit/tests-e2e-handlers/dedup';
+import { bind } from '@livething/server-cloudflare';
+import { dedupDefinition } from '@livething/tests-e2e-handlers/dedup';
 
-export class DedupServer extends server(dedupHandler) {}
+export class DedupServer extends bind(dedupDefinition) {}

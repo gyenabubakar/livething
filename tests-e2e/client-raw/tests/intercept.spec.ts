@@ -49,6 +49,7 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await page.getByTestId('send-ch-pre-block').click();
     await page.waitForTimeout(200);
+
     await expect(page.getByTestId('echoed')).toHaveText('');
     // Positive signal: a normal ch rewrite still works after a block.
     await page.getByTestId('send-ch-pre').click();
@@ -63,6 +64,7 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('dynamic-subscribed')).toHaveText('yes');
     await page.getByTestId('send-dyn-pre-block').click();
     await page.waitForTimeout(200);
+
     await expect(page.getByTestId('echoed')).toHaveText('');
     await page.getByTestId('send-dyn-pre').click();
     await expect(page.getByTestId('echoed')).toContainText('dyn:dyn-pre-rewritten');
@@ -105,6 +107,7 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await page.getByTestId('start-ch-nudge-stream').click();
     await expect(page.getByTestId('ch-nudge-chunks')).toContainText('hello-ch-intercepted');
+
     await expect(page.getByTestId('ch-nudge-stream-end')).toHaveText('yes');
   });
 
@@ -116,6 +119,7 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await page.getByTestId('start-ch-nudge-stream-block').click();
     await expect(page.getByTestId('ch-nudge-stream-end')).toHaveText('yes');
+
     await expect(page.getByTestId('ch-nudge-chunks')).toContainText('no-hint');
     await expect(page.getByTestId('ch-nudge-chunks')).not.toContainText('ch-hint-block');
   });
@@ -126,10 +130,10 @@ test.describe('intercept', () => {
     page,
   }, testInfo) => {
     // Drive the wire directly with the shared rig: send a request frame
-    // (kind === 'request') carrying a correlationId. The top-level intercept
+    // carrying `metadata.exchange.id`. The top-level intercept
     // matches 'intercept-req' and rewrites 'req-pre' → 'req-pre-rewritten'. The
     // handler echoes whatever payload it received, and the response comes back
-    // as the same event name with the same correlationId — so the rewritten
+    // as the same event name with the same exchange ID — so the rewritten
     // text in the reply proves the intercept ran on the request frame.
     const room = `intercept-req-${testInfo.testId}`;
     await page.goto('/intercept');
@@ -138,10 +142,11 @@ test.describe('intercept', () => {
     await send(page, sock, {
       event: 'intercept-req',
       payload: { text: 'req-pre' },
-      __wskit: { correlationId: 'req-1' },
+      metadata: { exchange: { id: 'req-1' } },
     });
+
     const reply = await waitForFrame(page, sock, {
-      match: (f) => f.event === 'intercept-req' && f.__wskit?.correlationId === 'req-1',
+      match: (f) => f.event === 'intercept-req' && f.metadata?.exchange?.id === 'req-1',
     });
     expect(reply.payload.text).toBe('req-pre-rewritten');
   });

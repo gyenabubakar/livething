@@ -1,6 +1,6 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { Disconnected, Dropped } from '~/errors.ts';
-import type { FrameOwner, WireMessage } from '~/internal/runtime.ts';
+import type { FrameOwner, Message } from '~/internal/runtime.ts';
 
 /** Settings for the buffer. */
 export interface MessageBufferOptions {
@@ -11,7 +11,7 @@ export interface MessageBufferOptions {
 }
 
 interface BufferedMessage {
-  message: WireMessage;
+  message: Message;
   ttl: number | null;
   queuedAt: number;
   owner?: FrameOwner;
@@ -40,12 +40,14 @@ export class MessageBuffer {
     this.enabled = options.enabled ?? false;
     this.maxSize = options.maxSize ?? 50;
     if (!Number.isInteger(this.maxSize) || this.maxSize < 1) {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `buffering maxSize must be a positive integer, got ${this.maxSize}.`,
       );
     }
+
     this.ttlConfig = options.ttl;
     this.flushInterval = options.flushInterval ?? 0;
+
     this.ring = new Array(this.maxSize).fill(null);
   }
 
@@ -53,7 +55,7 @@ export class MessageBuffer {
    * Add a message. Returns `true` if it was taken, `false` if buffering is off.
    * If the buffer is full the oldest message is dropped to make room.
    */
-  enqueue(message: WireMessage, perCallTtl?: number, owner?: FrameOwner): boolean {
+  enqueue(message: Message, perCallTtl?: number, owner?: FrameOwner): boolean {
     if (!this.enabled) return false;
 
     const ttl = this.resolveTTL(message.event, perCallTtl);
@@ -84,7 +86,7 @@ export class MessageBuffer {
    * not-yet-sent messages in the buffer and they go out on the next flush.
    */
   flush(
-    send: (message: WireMessage) => void,
+    send: (message: Message) => void,
     onComplete?: () => void,
     onError?: (error: unknown) => void,
   ): void {
@@ -97,6 +99,7 @@ export class MessageBuffer {
     // rejects the owner so the op fails instead of hanging, and is also reported.
     function sendOne(buffered: BufferedMessage): void {
       if (buffered.owner && !buffered.owner.isPending()) return;
+
       try {
         send(buffered.message);
       } catch (error) {
@@ -116,6 +119,7 @@ export class MessageBuffer {
         sendOne(buffered);
         buffered = this.dequeue();
       }
+
       onComplete?.();
       return;
     }
@@ -127,6 +131,7 @@ export class MessageBuffer {
         onComplete?.();
         return;
       }
+
       sendOne(buffered);
       this.flushTimer = setTimeout(tick, this.flushInterval);
     };
@@ -146,6 +151,7 @@ export class MessageBuffer {
       if (buffered?.owner?.isPending()) buffered.owner.reject(Disconnected());
       this.ring[index] = null;
     }
+
     this.head = 0;
     this.count = 0;
     this.stopFlush();
@@ -175,10 +181,12 @@ export class MessageBuffer {
   /** Remove and return the oldest message, or `null` when the buffer is empty. */
   private dequeue(): BufferedMessage | null {
     if (this.count === 0) return null;
+
     const buffered = this.ring[this.head]!;
     this.ring[this.head] = null;
     this.head = (this.head + 1) % this.maxSize;
     this.count--;
+
     return buffered;
   }
 
@@ -207,16 +215,21 @@ export class MessageBuffer {
       result.push(this.ring[index]!);
       this.ring[index] = null;
     }
+
     this.head = 0;
     this.count = 0;
+
     return result;
   }
 
   /** Pick the TTL: a per-call value wins, then per-event, then a global number, else none. */
   private resolveTTL(event: string, perCallTtl?: number): number | null {
     if (perCallTtl !== undefined) return perCallTtl;
+
     if (typeof this.ttlConfig === 'number') return this.ttlConfig;
+
     if (typeof this.ttlConfig === 'object') return this.ttlConfig[event] ?? null;
+
     return null;
   }
 }

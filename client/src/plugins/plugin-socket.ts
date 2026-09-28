@@ -1,5 +1,5 @@
-import type { WSKitError } from '@wskit/core';
-import type { WireMessage } from '~/internal/runtime.ts';
+import type { LiveThingError } from '@livething/core';
+import type { Message } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { AugmentedChannelMethod } from '~/primitives/channels/types.ts';
@@ -48,29 +48,27 @@ type PluginChannels<P extends SocketContract> =
 
 /**
  * The parts of the plugin socket that are always there, whatever the plugin's
- * contract. Two groups: raw message handlers that see every frame (for
- * cross-cutting work), and small tools that read state or ask the socket to act now.
+ * contract. Two groups: raw message handlers and small tools that read state or
+ * ask the socket to act now.
  */
 export interface PluginBase {
   /**
-   * See incoming frames in this plugin's namespace. Return one (maybe changed) to
-   * pass it on; throw `Block` to drop it. Wrap the plugin in `observeHost(...)` to
-   * see the whole app's frames instead of only its own.
+   * See incoming frames. Return one (maybe changed) to pass it on; throw `Block`
+   * to drop it.
    */
-  onIncoming(handler: (message: WireMessage) => WireMessage | void): void;
+  onIncoming(handler: (message: Message) => Message | void): void;
 
   /**
-   * See outgoing frames in this plugin's namespace. Return one (maybe changed) to
-   * send it; throw `Block` to cancel it. Wrap the plugin in `observeHost(...)` to
-   * see the whole app's frames instead of only its own.
+   * See outgoing frames. Return one (maybe changed) to send it; throw `Block`
+   * to cancel it.
    */
-  onOutgoing(handler: (message: WireMessage) => WireMessage | void): void;
+  onOutgoing(handler: (message: Message) => Message | void): void;
 
   /** Runs on every open (first connect and reconnects). Return frames to send right away. */
-  onOpen(handler: () => WireMessage[] | void): void;
+  onOpen(handler: () => Message[] | void): void;
 
   /** Runs only on reconnects. Return frames to send right away. */
-  onReconnect(handler: () => WireMessage[] | void): void;
+  onReconnect(handler: () => Message[] | void): void;
 
   /**
    * Runs on every close, with the close code and reason. `suspended` is `true`
@@ -105,16 +103,16 @@ type PluginErrorCode<P extends SocketContract> = keyof ErrorsOf<P> & string;
 /**
  * A plugin with declared errors gets `onServerError`, which sees the server-pushed
  * errors in its namespace that no request or stream claimed. Present only when the
- * plugin declares an `errors` section. Local setup and handler throws still reach
- * the host's `onError`.
+ * plugin declares an `errors` section. A handler throw still reaches the host's
+ * `onError`; a throw in `setup` is not caught and propagates out of `client()`.
  */
 type PluginErrorHandling<P extends SocketContract> = WhenPresent<
   ErrorsOf<P>,
   {
-    onServerError(handler: (error: WSKitError<string, unknown>) => void): () => void;
+    onServerError(handler: (error: LiveThingError<string, unknown>) => void): () => void;
     onServerError<K extends PluginErrorCode<P>>(
       code: K,
-      handler: (error: WSKitError<K, ErrorsOf<P>[K]>) => void,
+      handler: (error: LiveThingError<K, ErrorsOf<P>[K]>) => void,
     ): () => void;
   }
 >;

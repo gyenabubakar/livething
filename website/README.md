@@ -57,15 +57,27 @@ This starter comes pre-configured with:
 
 For detailed documentation on customizing your Docus project, visit the [Docus Documentation](https://docus.dev)
 
-## 🚀 Deployment
+## Cloudflare deployment
 
-Build for production:
+The site is a static Nuxt build deployed with Cloudflare Workers Static Assets at `https://livething.dev`.
+
+From the repository root, run the local Worker preview with:
 
 ```bash
-npm run build
+pnpm --filter @livething/website run preview
 ```
 
-The built files will be in the `.output` directory, ready for deployment to any hosting provider that supports Node.js.
+For Cloudflare Workers Builds, configure the `livething` Worker with:
+
+- Root directory: `website`
+- Build command: `pnpm install && pnpm run generate`
+- Deploy command: `pnpm exec wrangler deploy`
+- Non-production deploy command: `pnpm exec wrangler versions upload`
+- Build variables: `NODE_VERSION=24` and `PNPM_VERSION=11.25.0`
+
+`wrangler.jsonc` uploads `.output/public` as static assets. Once the `livething.dev` zone is active in Cloudflare, attach the apex domain to the Worker.
+
+Use Cloudflare Web Analytics automatic setup for the proxied zone. Do not set `NUXT_PUBLIC_CF_BEACON_TOKEN`, which is only for a manual beacon installation.
 
 ## 📄 License
 

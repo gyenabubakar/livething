@@ -13,12 +13,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/broadcast-request?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -28,8 +30,9 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
-			const correlationId = data.__wskit?.correlationId;
+
+			const data = window.__livethingDecode(ev.data);
+			const correlationId = data.metadata?.exchange?.id;
 
 			if (data.event === '__subscribeOk__') {
 				subscribed = true;
@@ -39,12 +42,13 @@
 			if (data.event === 'volunteer' && correlationId) {
 				lastTurn = data.payload?.turn ?? null;
 				if (answerMode === 'drop') return;
+
 				const payload = answerMode === 'good' ? { ready: true } : { ready: 'not-a-boolean' };
 				ws?.send(
-					JSON.stringify({
+					window.__livethingEncode({
 						event: 'volunteer',
 						payload,
-						__wskit: { correlationId, channel: data.__wskit?.channel },
+						metadata: { channel: { name: data.metadata?.channel?.name }, exchange: { id: correlationId } },
 					}),
 				);
 				return;
@@ -54,26 +58,27 @@
 				outcomeFrom = String(data.payload?.from ?? '');
 				outcomeReady = String(data.payload?.ready ?? '');
 			}
+
 			if (data.event === 'error-outcome') errorOutcome = String(data.payload?.code);
 		};
 	}
 
 	function subscribe() {
-		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }));
+		ws?.send(window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'lobby' } } }));
 	}
 
 	function trigger() {
 		outcomeFrom = '';
 		outcomeReady = '';
 		errorOutcome = '';
-		ws?.send(JSON.stringify({ event: 'trigger', payload: { turn: 5 } }));
+		ws?.send(window.__livethingEncode({ event: 'trigger', payload: { turn: 5 } }));
 	}
 
 	function triggerTimeout() {
 		outcomeFrom = '';
 		outcomeReady = '';
 		errorOutcome = '';
-		ws?.send(JSON.stringify({ event: 'trigger-timeout', payload: { turn: 9 } }));
+		ws?.send(window.__livethingEncode({ event: 'trigger-timeout', payload: { turn: 9 } }));
 	}
 </script>
 

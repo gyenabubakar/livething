@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching is intentionally loose */
-import type { WSKitError } from '@wskit/core';
+import type { LiveThingError } from '@livething/core';
 import type { Messaging } from '~/messaging.ts';
 
 /**
@@ -126,6 +126,12 @@ export type StaticApi<Api> = {
   readonly _api: Api;
 };
 
+/** Options for one `nudge()` call. */
+export interface NudgeOptions {
+  /** How long to wait for the server to confirm the nudge, in ms. */
+  timeout?: number;
+}
+
 /**
  * The handle `stream()` returns: an async iterable of chunks you can also nudge
  * or cancel. Breaking out of a `for await` loop cancels it for you.
@@ -135,12 +141,14 @@ export interface StreamHandle<TChunks, TNudges = {}> extends AsyncIterable<TChun
    * Send a mid-stream message to the running server generator. The Promise
    * resolves when the server confirms the nudge (`__nudgeOk__`) and rejects if
    * it's refused or `nudgeTimeout` elapses — a rejected nudge does not end the
-   * stream. After the stream ends, a nudge resolves to a no-op.
+   * stream. After the stream ends, a nudge resolves to a no-op. A nudge
+   * declared with no payload is sent with just its name: `nudge('pause')`.
    */
   nudge<K extends keyof TNudges & string>(
     event: K,
-    payload: TNudges[K],
-    options?: { timeout?: number },
+    ...args: undefined extends TNudges[K]
+      ? [payload?: TNudges[K], options?: NudgeOptions]
+      : [payload: TNudges[K], options?: NudgeOptions]
   ): Promise<void>;
   /** Ask the server to stop. The loop exits without throwing. */
   cancel(): void;
@@ -157,7 +165,7 @@ export interface StreamHandlers<TChunk> {
   /** The stream finished. `finalSeq` is the last `seq`, to detect missed chunks. */
   onEnd?(streamId: string, finalSeq?: number): void;
   /** The stream errored. Every subscriber on a broadcast stream is notified. */
-  onError?(error: WSKitError, streamId: string): void;
+  onError?(error: LiveThingError, streamId: string): void;
   /** No chunk arrived within the per-chunk timeout. */
   onTimeout?(streamId: string): void;
 }

@@ -7,7 +7,7 @@
  * or storage (column gets bound as JS `undefined`, which either fails the
  * SQL or writes garbage).
  *
- * Throws a clear `[wskit]` error naming the field and context so a missing
+ * Throws a clear `[livething]` error naming the field and context so a missing
  * `toJSON` return value points the dev at their own code instead of a
  * downstream parse failure.
  */
@@ -15,16 +15,18 @@ export function serializeJsonOrThrow(value: unknown, context: string): string {
   const json = JSON.stringify(value);
   if (typeof json !== 'string') {
     throw new Error(
-      `[wskit] ${context} did not serialize to JSON. ` +
+      `[livething] ${context} did not serialize to JSON. ` +
         `A toJSON() method that returns undefined is the usual cause.`,
     );
   }
+
   return json;
 }
 
 /** Parse a nullable JSON storage value, recovering to undefined when it is invalid. */
 export function parseJsonOrUndefined(value: string | null): unknown {
   if (value === null) return undefined;
+
   try {
     return JSON.parse(value) as unknown;
   } catch {

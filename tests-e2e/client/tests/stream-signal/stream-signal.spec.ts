@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's stream().cancel() fires the server's
-// ctx.stream.signal against the real `stream-signal` handler. If the signal did
+// Conformance: @livething/client's stream().cancel() fires the server's
+// ctx.stream.signal against the real `stream-signal` server definition. If the signal did
 // not work the parked 60s await would never resolve and these assertions would
 // time out. Adapter-oblivious — it talks to whatever server the run booted over
 // the /ws proxy.

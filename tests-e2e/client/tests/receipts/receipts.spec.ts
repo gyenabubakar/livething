@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
 // Conformance: received (inbox) and read (readReceipts) surfaces against the
-// real handler. Received cursors advance from each member's `__received__` ack
+// real server definition. Received cursors advance from each member's `__received__` ack
 // and fan out as `__received__` frames into the `receivers` store; read cursors
 // from markAsRead() fan out as `__read__` frames into the `readers` store.
 // `receiversOf`/`readersOf` round-trip to the server, whose authoritative view
@@ -41,6 +41,7 @@ test.describe('receipts (received + read cursors)', () => {
     await carol.page.getByTestId('sub').click();
     await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
     await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(carol.page.getByTestId('subscribed')).toHaveText('yes');
 
     // Carol broadcasts; the channel excludes the sender, so alice and bob receive
@@ -92,6 +93,7 @@ test.describe('receipts (received + read cursors)', () => {
     await carol.page.getByTestId('sub').click();
     await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
     await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(carol.page.getByTestId('subscribed')).toHaveText('yes');
 
     await carol.page.getByTestId('send').click();
@@ -99,8 +101,14 @@ test.describe('receipts (received + read cursors)', () => {
     await expect(bob.page.getByTestId('messages')).toHaveText('hello');
 
     // receiversOf(1) round-trips over `__receivedQuery__`; both recipients received.
-    await alice.page.getByTestId('query-received').click();
-    await expect(alice.page.getByTestId('query-received-result')).toHaveText('alice|bob');
+    // Bob's acknowledgement can reach the server after his page shows the
+    // message, so ask again until it has.
+    await expect(async () => {
+      await alice.page.getByTestId('query-received').click();
+      await expect(alice.page.getByTestId('query-received-result')).toHaveText('alice|bob', {
+        timeout: 1_000,
+      });
+    }).toPass({ timeout: 10_000 });
 
     // readersOf(1) before anyone marks read: empty.
     await alice.page.getByTestId('query-read').click();

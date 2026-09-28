@@ -20,12 +20,12 @@ function roomName(id: string): string {
 async function subscribeRoom(page: Page, id: string): Promise<Frame> {
   await send(page, {
     event: '__subscribe__',
-    payload: {},
-    __wskit: { channel: roomName(id), channelFamily: FAMILY },
+    payload: null,
+    metadata: { channel: { name: roomName(id), family: FAMILY } },
   });
   return waitForFrame(
     page,
-    (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === roomName(id),
+    (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === roomName(id),
   );
 }
 
@@ -37,9 +37,9 @@ test.describe('inbox() + readReceipts() on a dynamic channel family (raw wire)',
     const alice = await openMember(browser, { path: '/inbox-dynamic', room, username: 'alice' });
 
     const ackA = await subscribeRoom(alice.page, 'a');
-    expect(ackA.__wskit?.inbox).toBe(true);
-    expect(ackA.__wskit?.readReceipts).toBe(true);
-    expect(ackA.__wskit?.channelFamily).toBe(FAMILY);
+    expect(ackA.metadata?.channel?.inbox).toBe(true);
+    expect(ackA.metadata?.channel?.readReceipts).toBe(true);
+    expect(ackA.metadata?.channel?.family).toBe(FAMILY);
 
     await alice.close();
   });
@@ -62,7 +62,7 @@ test.describe('inbox() + readReceipts() on a dynamic channel family (raw wire)',
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'while-offline' },
-      __wskit: { channel: roomName('1'), channelFamily: FAMILY },
+      metadata: { channel: { name: roomName('1'), family: FAMILY } },
     });
     await bob.page.waitForTimeout(300);
 
@@ -71,20 +71,20 @@ test.describe('inbox() + readReceipts() on a dynamic channel family (raw wire)',
       alice.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'while-offline',
     );
-    expect(drained.__wskit?.channel).toBe(roomName('1'));
-    expect(drained.__wskit?.channelFamily).toBe(FAMILY);
-    const seq = drained.__wskit?.seq as number;
+    expect(drained.metadata?.channel?.name).toBe(roomName('1'));
+    expect(drained.metadata?.channel?.family).toBe(FAMILY);
+    const seq = drained.metadata?.delivery?.seq as number;
 
     // The drain must not have touched room:2 — no room-msg was ever sent there.
     const room2Leak = (await frames(alice.page)).filter(
-      (f) => f.event === 'room-msg' && f.__wskit?.channel === roomName('2'),
+      (f) => f.event === 'room-msg' && f.metadata?.channel?.name === roomName('2'),
     );
     expect(room2Leak).toHaveLength(0);
 
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: roomName('1'), channelFamily: FAMILY },
+      metadata: { channel: { name: roomName('1'), family: FAMILY } },
     });
     await alice.page.waitForTimeout(300);
 
@@ -113,23 +113,23 @@ test.describe('inbox() + readReceipts() on a dynamic channel family (raw wire)',
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'read-me' },
-      __wskit: { channel: roomName('1'), channelFamily: FAMILY },
+      metadata: { channel: { name: roomName('1'), family: FAMILY } },
     });
     const msg = await waitForFrame(
       alice.page,
       (f) => f.event === 'room-msg' && f.payload.text === 'read-me',
     );
-    const seq = msg.__wskit?.seq as number;
+    const seq = msg.metadata?.delivery?.seq as number;
 
     await send(alice.page, {
       event: '__read__',
       payload: { readThrough: seq },
-      __wskit: { channel: roomName('1'), channelFamily: FAMILY },
+      metadata: { channel: { name: roomName('1'), family: FAMILY } },
     });
 
     const readFrame = await waitForFrame(bob.page, (f) => f.event === '__read__');
-    expect(readFrame.__wskit?.channel).toBe(roomName('1'));
-    expect(readFrame.__wskit?.channelFamily).toBe(FAMILY);
+    expect(readFrame.metadata?.channel?.name).toBe(roomName('1'));
+    expect(readFrame.metadata?.channel?.family).toBe(FAMILY);
 
     await alice.close();
     await bob.close();
@@ -146,11 +146,11 @@ test.describe('inbox() + readReceipts() on a dynamic channel family (raw wire)',
     await subscribeRoom(bob.page, '1');
 
     // Drive the host's persistent tag, unrelated to any channel.
-    await send(alice.page, { event: 'add-favorite', payload: { key: 'blue' }, __wskit: {} });
+    await send(alice.page, { event: 'add-favorite', payload: { key: 'blue' }, metadata: null });
 
     // Drive the host's top-level replay-tracked event a few times.
-    await send(alice.page, { event: 'send-top-msg', payload: { text: 'top-1' }, __wskit: {} });
-    await send(alice.page, { event: 'send-top-msg', payload: { text: 'top-2' }, __wskit: {} });
+    await send(alice.page, { event: 'send-top-msg', payload: { text: 'top-1' }, metadata: null });
+    await send(alice.page, { event: 'send-top-msg', payload: { text: 'top-2' }, metadata: null });
     const top2 = await waitForFrame(
       bob.page,
       (f) => f.event === 'top-msg' && f.payload.text === 'top-2',
@@ -160,7 +160,7 @@ test.describe('inbox() + readReceipts() on a dynamic channel family (raw wire)',
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'room-1' },
-      __wskit: { channel: roomName('1'), channelFamily: FAMILY },
+      metadata: { channel: { name: roomName('1'), family: FAMILY } },
     });
     const roomMsg = await waitForFrame(
       alice.page,
@@ -171,10 +171,10 @@ test.describe('inbox() + readReceipts() on a dynamic channel family (raw wire)',
     // other — replay's top-level seq and the room's inbox seq are independent
     // counters, so nothing here asserts they differ by any particular amount,
     // only that both exist and the room delivery landed with the right scope.
-    expect(typeof top2.__wskit?.seq).toBe('number');
-    expect(typeof roomMsg.__wskit?.seq).toBe('number');
-    expect(roomMsg.__wskit?.channel).toBe(roomName('1'));
-    expect(roomMsg.__wskit?.channelFamily).toBe(FAMILY);
+    expect(typeof top2.metadata?.delivery?.seq).toBe('number');
+    expect(typeof roomMsg.metadata?.delivery?.seq).toBe('number');
+    expect(roomMsg.metadata?.channel?.name).toBe(roomName('1'));
+    expect(roomMsg.metadata?.channel?.family).toBe(FAMILY);
 
     await alice.close();
     await bob.close();

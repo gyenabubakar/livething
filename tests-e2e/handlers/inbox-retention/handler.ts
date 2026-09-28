@@ -1,23 +1,22 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { inbox } from '@wskit/server/inbox';
-import { scheduled } from '@wskit/server/scheduled';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { inbox } from '@livething/server/inbox';
+import { scheduled } from '@livething/server/scheduled';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 import { SendRoomMsg } from '../inbox/events.ts';
 import type { RoomMsg } from '../inbox/events.ts';
 
-// This handler deliberately keeps delivered rows (`onDelivered: 'retain'`) so
+// This server definition deliberately keeps delivered rows (`onDelivered: 'retain'`) so
 // the raw-wire probe can observe both kinds of row disappearing on the shared
 // durable alarm. The top-level recurring task proves that the inbox alarm does
 // not replace another capability's scheduled work.
 const RETENTION_MS = 1_000;
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -43,22 +42,20 @@ const chat = base.channel('chat', {
       onDelivered: 'retain',
       retention: { maxAgeMs: RETENTION_MS },
     }),
-  ],
-  outgoing: {
-    emits: {
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 const countChat = base.channel('count', {
   membership: 'persistent',
-  capabilities: [inbox({ onDelivered: 'retain', retention: { maxMessages: 2 } })],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox({ onDelivered: 'retain', retention: { maxMessages: 2 } }),
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleSendRoomMsg = chat.on('send-room-msg', {
@@ -75,7 +72,7 @@ export const handleSendCountMsg = countChat.on('send-room-msg', {
   },
 });
 
-const handleRetentionHeartbeat = base.scheduled('retention-heartbeat', {
+base.scheduled('retention-heartbeat', {
   run(ctx) {
     ctx.broadcast('retention-heartbeat', { at: Date.now() });
   },
@@ -90,7 +87,7 @@ export const handleRetentionProbe = base.on('probe-retention', {
           SELECT
             COUNT(*) AS count,
             SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) AS delivered
-          FROM __wskit_inbox
+          FROM __livething_inbox
         `,
       )
       .one();
@@ -98,7 +95,7 @@ export const handleRetentionProbe = base.on('probe-retention', {
       .exec<{ count: number; max_evicted_through: number | null }>(
         `
           SELECT COUNT(*) AS count, MAX(evicted_through_seq) AS max_evicted_through
-          FROM __wskit_inbox_watermark
+          FROM __livething_inbox_watermark
         `,
       )
       .one();
@@ -112,15 +109,8 @@ export const handleRetentionProbe = base.on('probe-retention', {
   },
 });
 
-export const inboxRetentionHandler = base.assemble({
-  handlers: [
-    handleSendRoomMsg,
-    handleSendCountMsg,
-    handleRetentionHeartbeat,
-    handleRetentionProbe,
-    chat,
-    countChat,
-  ],
+export const inboxRetentionDefinition = base.assemble({
+  handlers: [handleSendRoomMsg, handleSendCountMsg, handleRetentionProbe, chat, countChat],
 });
 
-export type InboxRetentionClient = InferClient<typeof inboxRetentionHandler>;
+export type InboxRetentionClient = InferClient<typeof inboxRetentionDefinition>;

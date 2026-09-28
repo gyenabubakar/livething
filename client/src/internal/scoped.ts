@@ -1,8 +1,10 @@
-import type { WSKitEnvelope } from '~/internal/runtime.ts';
-import type { WSKitSocket } from '~/socket/socket.ts';
+import type { LiveThingChannelMetadata } from '@livething/core';
+import type { LiveThingSocket } from '~/socket/socket.ts';
 
-/** The `__wskit` fields that identify which scope a frame belongs to. */
-export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelFamily'>;
+type OptionsParameter = { ttl?: number };
+
+/** The metadata fields that identify which scope a frame belongs to. */
+export type ScopeMarkers = Partial<Pick<LiveThingChannelMetadata, 'name' | 'family'>>;
 
 /**
  * The runtime shape of a scoped messaging (what `socket.channel('x')` returns).
@@ -13,13 +15,13 @@ export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelFamily'>;
  */
 export interface MessagingObject {
   on(event: string, handler: (data: unknown) => void): () => void;
-  send(event: string, payload: unknown, options?: { ttl?: number }): boolean;
+  send(event: string, payload: unknown, options?: OptionsParameter): boolean;
   [key: string]: unknown;
 }
 
 /** Tells an augmenter about the scope it's decorating. */
 export interface ScopeInfo {
-  /** The `__wskit` markers that identify this scope. Never throws. */
+  /** The metadata markers that identify this scope. Never throws. */
   markers(): ScopeMarkers;
 
   /**
@@ -51,14 +53,14 @@ export type Augmenter = (messaging: MessagingObject, scope: ScopeInfo) => void;
  * Get the shared list of augmenters stored on the socket. This function owns
  * the `_augmenters` field, so it's the only place that accesses it directly.
  */
-export function getAugmenters(socket: WSKitSocket): Augmenter[] {
+export function getAugmenters(socket: LiveThingSocket): Augmenter[] {
   // @ts-expect-error — `_augmenters` is this mechanism's own stash on the socket
   return (socket._augmenters ??= []) as Augmenter[];
 }
 
 /** Run every registered augmenter over an messaging. */
 export function applyAugmenters(
-  socket: WSKitSocket,
+  socket: LiveThingSocket,
   messaging: MessagingObject,
   scope: ScopeInfo,
 ): void {

@@ -9,12 +9,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/request?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
@@ -25,9 +27,10 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === '__subscribeOk__') subscribed = true;
-			const id = data.__wskit?.correlationId as string | undefined;
+			const id = data.metadata?.exchange?.id as string | undefined;
 			if (id) {
 				responses = { ...responses, [id]: JSON.stringify(data.payload ?? {}) };
 			}
@@ -36,35 +39,42 @@
 
 	function request(
 		event: string,
-		payload: Record<string, unknown> = {},
-		wskit: Record<string, unknown> = {},
+		payload: Record<string, unknown> | null = {},
+		metadata: Record<string, unknown> = {},
 	) {
 		const id = `req-${++correlationCounter}`;
-		ws?.send(JSON.stringify({ event, payload, __wskit: { ...wskit, correlationId: id } }));
+		ws?.send(window.__livethingEncode({ event, payload, metadata: { ...metadata, exchange: { id: id } } }));
 		return id;
 	}
 
 	function getTime() {
 		return request('get-time');
 	}
+
 	function getChannelInfo() {
-		return request('get-channel-info', {}, { channel: 'room' });
+		return request('get-channel-info', {}, { channel: { name: 'room' } });
 	}
+
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
+		ws?.send(window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'room' } } }));
 	}
+
 	function noResponse() {
 		return request('no-response');
 	}
+
 	function doubleResponse() {
 		return request('double-response');
 	}
+
 	function strictEcho() {
 		return request('strict-echo', { id: 'value-42' });
 	}
+
 	function throwingRequest() {
 		return request('throwing-request');
 	}
+
 	function malformedStrictEcho() {
 		// Wrong type for the strict-echo schema (`id` must be a string). The
 		// server emits a validation `__error__`; the test asserts it carries

@@ -50,15 +50,14 @@ function baseStorage() {
 }
 
 function baseDeps(overrides: Record<string, unknown> = {}) {
-  return {
+  const deps = {
     compiled: {} as any,
     connections: new Map<string, RuntimeConnection>(),
     usersByKey: new Map<string, Set<RuntimeConnection>>(),
     tagMembers: new Map<string, Set<RuntimeConnection>>(),
-    env: {},
+
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
-    waitUntilImpl: vi.fn(),
     getStorage: () => baseStorage(),
     getStorageView: () => baseStorage(),
     getTimers: () => createTestTimers(),
@@ -88,7 +87,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
       quality: c.quality,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref' as const,
+        __livething: 'connection-ref' as const,
         id: c.id,
         instance: undefined,
         userId: c.userId,
@@ -98,10 +97,31 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     contextExtenders: [],
     ...overrides,
   } as any;
+  deps.broadcastToUser ??= userFanOut(deps);
+  return deps;
+}
+
+/** Stand-in for the real user fan-out: one pipeline send per tab, nobody for an empty id. */
+function userFanOut(deps: { sendThroughPipeline: (...args: any[]) => boolean }) {
+  return vi.fn(
+    (
+      connections: RuntimeConnection[],
+      opts: { userId: string; event: string; payload: unknown },
+    ) =>
+      opts.userId
+        ? connections.filter((c) =>
+            deps.sendThroughPipeline(c, {
+              routing: undefined,
+              event: opts.event,
+              payload: opts.payload,
+            }),
+          ).length
+        : 0,
+  );
 }
 
 function localRef(id: string) {
-  return { __wskit: 'connection-ref' as const, id, instance: undefined, userId: id };
+  return { __livething: 'connection-ref' as const, id, instance: undefined, userId: id };
 }
 
 describe('ctx.user / ctx.users — anonymous connections', () => {
@@ -135,7 +155,7 @@ describe('ctx.user / ctx.users — anonymous connections', () => {
 
     const ctx = buildConnectionContext(deps, anon);
 
-    expect((ctx as any).user.send('ping', {})).toBe(0);
+    expect((ctx as any).user.broadcast('ping', {})).toBe(0);
     expect((ctx as any).user.connections()).toEqual([]);
     expect((ctx as any).user.info()).toBeNull();
     expect(sendThroughPipeline).not.toHaveBeenCalled();
@@ -151,9 +171,9 @@ describe('ctx.user / ctx.users — anonymous connections', () => {
     });
 
     const ctx = buildConnectionContext(deps, anon);
-    // Mirrors `for (const c of ctx.connections.all()) ctx.users.get(c.userId).send(...)`.
+    // Mirrors `for (const c of ctx.connections.all()) ctx.users.get(c.userId).broadcast(...)`.
     const info = ctx.connections.all()[0]!;
-    const delivered = (ctx as any).users.get(info.userId).send('ping', {});
+    const delivered = (ctx as any).users.get(info.userId).broadcast('ping', {});
 
     expect(delivered).toBe(0);
     expect(sendThroughPipeline).not.toHaveBeenCalled();
@@ -173,12 +193,12 @@ describe('ctx.user / ctx.users — anonymous connections', () => {
     });
 
     const ctxA = buildConnectionContext(deps, anonA);
-    expect((ctxA as any).user.send('ping', {})).toBe(0);
-    expect((ctxA as any).users.get('').send('ping', {})).toBe(0);
+    expect((ctxA as any).user.broadcast('ping', {})).toBe(0);
+    expect((ctxA as any).users.get('').broadcast('ping', {})).toBe(0);
     expect(sendThroughPipeline).not.toHaveBeenCalled();
   });
 
-  it('an identified connection is reachable via ctx.user and ctx.users exactly as before', () => {
+  it('an identified connection is reachable through ctx.user and ctx.users', () => {
     const alice1 = createConnection('conn_1', 'alice');
     const sendThroughPipeline = vi.fn(() => true);
     const deps = baseDeps({
@@ -190,8 +210,8 @@ describe('ctx.user / ctx.users — anonymous connections', () => {
     const ctx = buildConnectionContext(deps, alice1);
 
     expect((ctx as any).user.id).toBe('alice');
-    expect((ctx as any).user.send('ping', {})).toBe(1);
-    expect((ctx as any).users.get('alice').send('ping', {})).toBe(1);
+    expect((ctx as any).user.broadcast('ping', {})).toBe(1);
+    expect((ctx as any).users.get('alice').broadcast('ping', {})).toBe(1);
     expect(sendThroughPipeline).toHaveBeenCalledTimes(2);
   });
 });
@@ -306,7 +326,7 @@ describe('ctx.connections.get(ref).send', () => {
     expect(result).toBe(false);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
     expect(deps.logger.error).toHaveBeenCalledWith(
-      '[wskit] ctx.connections.get(ref).send target not found',
+      '[livething] ctx.connections.get(ref).send target not found',
       {
         connectionId: 'nonexistent-id',
         event: 'evt',
@@ -320,7 +340,7 @@ describe('ctx.connections.get(ref).send', () => {
 
     expect(task.connections.get(localRef('missing')).send('evt', {})).toBe(false);
     expect(deps.logger.error).toHaveBeenCalledWith(
-      '[wskit] ctx.connections.get(ref).send target not found',
+      '[livething] ctx.connections.get(ref).send target not found',
       {
         connectionId: 'missing',
         event: 'evt',
@@ -356,11 +376,12 @@ describe('ctx.connections.get(ref).send', () => {
 
     const ctx = buildConnectionContext(deps, self);
     const foreign = {
-      __wskit: 'connection-ref' as const,
+      __livething: 'connection-ref' as const,
       id: 'peer',
       instance: 'engine-b',
       userId: 'peer',
     };
+
     try {
       ctx.connections.get(foreign).send('evt', {});
       throw new Error('expected a cross-instance ref error');
@@ -375,23 +396,6 @@ describe('ctx.connections.get(ref).send', () => {
   });
 });
 
-describe('ctx.waitUntil', () => {
-  it('delegates to the adapter-provided waitUntil implementation', () => {
-    const waitUntilImpl = vi.fn();
-    const connection = createConnection('c1');
-    const deps = baseDeps({
-      connections: new Map([[connection.id, connection]]),
-      waitUntilImpl,
-    });
-
-    const ctx = buildConnectionContext(deps, connection);
-    const task = Promise.resolve('done');
-    ctx.waitUntil(task);
-
-    expect(waitUntilImpl).toHaveBeenCalledWith(task);
-  });
-});
-
 describe('ctx.cancelScheduled', () => {
   it('logs an error when a task context cancellation matches no runs', () => {
     const deps = baseDeps({
@@ -402,7 +406,7 @@ describe('ctx.cancelScheduled', () => {
     task.cancelScheduled('cleanup', { label: 'drop' });
 
     expect(deps.cancelScheduled).toHaveBeenCalledWith('cleanup', { label: 'drop' });
-    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] cancelScheduled matched no runs', {
+    expect(deps.logger.error).toHaveBeenCalledWith('[livething] cancelScheduled matched no runs', {
       taskId: 'cleanup',
       filter: { label: 'drop' },
       taskExists: true,
@@ -551,12 +555,13 @@ describe('ctx.channels.get(name).members()', () => {
       quality: 'good' as const,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref' as const,
+        __livething: 'connection-ref' as const,
         id: 'c2',
         instance: undefined,
         userId: 'c2',
       }),
     };
+
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
       getChannelMembers: vi.fn(() => [memberInfo]),
@@ -592,12 +597,13 @@ describe('ctx.channels.get(name).members()', () => {
       quality: 'good' as const,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref' as const,
+        __livething: 'connection-ref' as const,
         id: 'c2',
         instance: undefined,
         userId: 'c2',
       }),
     };
+
     const resolveChannel = vi.fn((target: any) =>
       typeof target === 'string'
         ? undefined
@@ -629,7 +635,7 @@ describe('ctx.channels.get(name).members()', () => {
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    (ctx as any).channels.get({ __wskitChannel: true, __key: 'lobby' }).members();
+    (ctx as any).channels.get({ __livethingChannel: true, __key: 'lobby' }).members();
 
     expect(resolveChannel).toHaveBeenCalledWith('lobby');
     expect(deps.getChannelMembers).toHaveBeenCalledWith('lobby', null);
@@ -650,7 +656,7 @@ describe('ctx.channels.get(name).members()', () => {
 
     const ctx = buildConnectionContext(deps, connection);
     (ctx as any).channels
-      .get({ __wskitChannelRef: true, family: 'rooms', name: 'room:general' })
+      .get({ __livethingChannelRef: true, family: 'rooms', name: 'room:general' })
       .members();
 
     expect(resolveChannel).toHaveBeenCalledWith({ family: 'rooms', name: 'room:general' });
@@ -731,6 +737,7 @@ describe('persistAttachment', () => {
     const connection = createConnection('c1');
     connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
     connection.meta = { username: 'user1' };
+
     connection.tags.ephemeral.set('role', new Set(['vip']));
     connection.channelMemberships.set('rooms::room:general', {
       channelName: 'room:general',
@@ -779,10 +786,8 @@ describe('persistAttachment', () => {
 describe('storage view in init/shutdown/task contexts', () => {
   function makeShutdownDeps(getStorage: () => any) {
     return {
-      env: {},
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       platform: {},
-      waitUntilImpl: vi.fn(),
       getStorage,
       getStorageView: getStorage,
       getTimers: () => createTestTimers(),

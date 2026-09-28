@@ -1,15 +1,14 @@
-import { define, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { stream } from '@wskit/server/streams';
+import { server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const BroadcastChunkSchema = t<{ index: number }>();
 const RoomBroadcastChunkSchema = t<{ index: number }>();
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [stream(), channels()],
 });
@@ -25,6 +24,7 @@ const handleStartBroadcast = base.stream('start-broadcast', {
       yield { index: 0 };
       throw new Error('broadcast boom');
     }
+
     for (let i = 0; i < input.count; i++) {
       yield { index: i };
       await new Promise((r) => setTimeout(r, 10));
@@ -57,8 +57,8 @@ const handleStartRoomStream = room.stream('start-room-stream', {
   },
 });
 
-export const streamBroadcastHandler = base.assemble({
+export const streamBroadcastDefinition = base.assemble({
   handlers: [handleStartBroadcast, handleStartRoomBroadcast, handleStartRoomStream],
 });
 
-export type StreamBroadcastClient = InferClient<typeof streamBroadcastHandler>;
+export type StreamBroadcastClient = InferClient<typeof streamBroadcastDefinition>;

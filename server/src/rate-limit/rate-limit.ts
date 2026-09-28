@@ -1,9 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RateLimited } from '@wskit/core';
+import { RateLimited } from '@livething/core';
 import { registerInterceptRuntime } from '~/intercept/capability.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import type { Primitive } from '~/primitive.ts';
-import { RateLimitRuntime } from './runtime.ts';
+import { connectionBudgetKey, RateLimitRuntime } from './runtime.ts';
 import type { ResolvedRateLimitPlan } from './runtime.ts';
 
 /**
@@ -23,7 +23,8 @@ export interface RateLimitConfig {
   /**
    * Pick the bucket key from the connection context. Default: `ctx.connection.id`
    * (per-connection). Use `(ctx) => ctx.user.id` to share a single budget
-   * across every socket the user has open.
+   * across every socket the user has open. An empty key falls back to the
+   * connection's own budget, so anonymous connections never share one bucket.
    */
   readonly per?: (ctx: any) => string;
 }
@@ -31,7 +32,7 @@ export interface RateLimitConfig {
 export const RATE_LIMIT_DEFAULTS = Object.freeze({
   windowMs: 60_000,
   max: 60,
-  per: (ctx: any) => String(ctx?.connection?.id ?? ''),
+  per: connectionBudgetKey,
 });
 
 export interface RateLimitPrimitive extends Primitive<'intercept'> {}
@@ -44,9 +45,9 @@ const RATE_LIMIT_KEY = Symbol('rate-limit');
  * runs as an intercept: it fires before validation and before the handler,
  * so a rejected frame never reaches user code.
  *
- * On rejection it throws `RateLimited({ retryAfter })` which the engine
- * routes to an `__error__` frame, preserving `__wskit.correlationId` if the
- * original frame carried it.
+ * On rejection it throws `RateLimited({ retryAfterMs })`, which the engine
+ * routes to an `__error__` frame while preserving the request's
+ * `metadata.exchange.id` when present.
  *
  * Use the `rateLimit({...})` capability for the server-wide rule, plus the
  * optional `rateLimit` field on a `base.on(...)` / `base.request(...)` config or
@@ -58,7 +59,7 @@ export function rateLimit(plan: ResolvedRateLimitPlan): RateLimitPrimitive {
   const runtime = new RateLimitRuntime(plan);
   const primitive = intercept((ctx, message) => {
     const verdict = runtime.check(ctx, message.event);
-    if (verdict) throw RateLimited({ retryAfter: verdict.retryAfter });
+    if (verdict) throw RateLimited({ retryAfterMs: verdict.retryAfterMs });
   });
   return { ...primitive, __setup: registerInterceptRuntime } as unknown as RateLimitPrimitive;
 }

@@ -66,6 +66,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
           helpers.log.report(error);
           fromCallback = undefined;
         }
+
         if (fromCallback === true || fromCallback === false) return fromCallback;
 
         if (nonRetryable.has(code)) return false;
@@ -104,6 +105,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
           helpers.giveUp();
           return;
         }
+
         // Offline: don't waste attempts on a doomed retry. Sit in `reconnecting`
         // and let the `online` signal kick off a fresh attempt when it returns.
         if (networkAware && !online) {
@@ -112,6 +114,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
           helpers.enterReconnecting();
           return;
         }
+
         scheduleRetry();
       });
 
@@ -122,6 +125,8 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
           online = value;
           if (!value) {
             clearTimer();
+            const current = store.get();
+            if (current.nextRetryAt !== null) set({ ...current, nextRetryAt: null });
             return;
           }
 

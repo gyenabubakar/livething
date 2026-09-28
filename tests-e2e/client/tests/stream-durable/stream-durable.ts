@@ -1,9 +1,9 @@
-import { client, connect, reconnection, stream } from '@wskit/client';
-import type { StreamDurableClient } from '@wskit/tests-e2e-handlers/stream-durable';
+import { client, connect, reconnection, stream } from '@livething/client';
+import type { StreamDurableClient } from '@livething/tests-e2e-handlers/stream-durable';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's stream() + resumeStream() against the real
-// `stream-durable` handler. Proves durable streams auto-resume across an
+// Drives @livething/client's stream() + resumeStream() against the real
+// `stream-durable` server definition. Proves durable streams auto-resume across an
 // unexpected drop (close 4900) and that manual resume of an unknown id aborts
 // with reason not-found.
 export function setup(): void {
@@ -25,7 +25,9 @@ export function setup(): void {
   const socket = client<StreamDurableClient>()(
     connect(wsUrl('stream-durable'), { lazy }),
     reconnection(),
-    stream({ timeout: 1000 }),
+    // Chunks come every 400 ms. A tighter per-chunk timeout fails the stream
+    // on a slow machine before it ends.
+    stream({ timeout: 5000 }),
   );
 
   socket.state.subscribe(() => {
@@ -44,6 +46,7 @@ export function setup(): void {
         rows.push(chunk.row);
         render();
       }
+
       el('ended').textContent = 'yes';
     } catch (err) {
       el('error-code').textContent = errorCode(err);
@@ -64,6 +67,8 @@ export function setup(): void {
   });
 
   button('resume-paginate', () => {
+    // Clear the first run's result, so the spec waits for the resume to end.
+    el('ended').textContent = '';
     const handle = socket.resumeStream('paginate', 'pages-1', {
       lastKnownSeq: rows.length,
     });

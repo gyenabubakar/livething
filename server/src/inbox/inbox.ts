@@ -27,6 +27,13 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { InboxOptions } from '~/inbox/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
+type BuildReceivedHandlerDepsParameter = {
+  engine: EngineAccess;
+  channelKey: string;
+  options: ResolvedInboxOptions;
+};
+type BuildReceivedQueryHandlerDepsParameter = { engine: EngineAccess; channelKey: string };
+
 /** The primitive type produced by the `inbox()` capability for one channel. */
 export interface InboxPrimitive extends Primitive<'inbox'> {
   readonly options: ResolvedInboxOptions;
@@ -39,15 +46,18 @@ function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
   const onDelivered = config.onDelivered ?? 'delete';
   if (onDelivered === 'retain' && !config.retention) {
     throw new Error(
-      "[wskit] inbox `onDelivered: 'retain'` requires `retention` so kept rows can age out.",
+      "[livething] inbox `onDelivered: 'retain'` requires `retention` so kept rows can age out.",
     );
   }
+
   if (config.retention) {
     assertOptionalPositiveInteger(config.retention.maxAgeMs, 'retention.maxAgeMs', 'inbox()');
     assertOptionalPositiveInteger(config.retention.maxMessages, 'retention.maxMessages', 'inbox()');
   }
+
   const broadcastReceipts = config.broadcastReceipts ?? false;
   const maxReceiptAudience = config.maxReceiptAudience ?? DEFAULT_MAX_RECEIPT_AUDIENCE;
+
   return config.retention
     ? { onDelivered, retention: config.retention, broadcastReceipts, maxReceiptAudience }
     : { onDelivered, broadcastReceipts, maxReceiptAudience };
@@ -63,7 +73,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
   const options = resolveInboxOptions(config);
 
   return {
-    __wskit: 'inbox',
+    __livething: 'inbox',
     __kind: 'infrastructure',
     __identity: [INBOX_KEY],
     __requires: {},
@@ -75,12 +85,14 @@ export function inbox(config: InboxOptions): InboxPrimitive {
     __validate(view) {
       if (!view.sequencePersistent) {
         throw new Error(
-          '[wskit] inbox requires `sequence: { persist: true }` for durable delivery.',
+          '[livething] inbox needs a persistent sequence for durable delivery. List ' +
+            'sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().',
         );
       }
+
       if (view.channelKey && !view.isChannelDurable(view.channelKey)) {
         throw new Error(
-          `[wskit] Channel "${view.channelKey}" has inbox() but is not persistent, so guaranteed ` +
+          `[livething] Channel "${view.channelKey}" has inbox() but is not persistent, so guaranteed ` +
             `delivery silently degrades to live-only — inbox fans out to the durable membership roster, ` +
             `which stays empty on an ephemeral channel. Remove \`membership: 'ephemeral'\` from this ` +
             `channel, or remove inbox().`,
@@ -92,7 +104,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
       const { channelKey } = engine.getScopeInfo();
       if (!channelKey) {
         throw new Error(
-          '[wskit] inbox is channel-scoped; set `inbox` inside a channel definition.',
+          '[livething] inbox is channel-scoped; set `inbox` inside a channel definition.',
         );
       }
 
@@ -114,6 +126,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
           });
         });
       }
+
       if (options.retention) {
         // Run every configured retention bound at boot. This matters when a
         // deployment changes maxMessages while the object is quiet: count-only
@@ -168,18 +181,16 @@ function buildInboxContext(engine: EngineAccess, channelKey: string) {
       channelName: scope?.channelName ?? channelKey,
       channelFamily: scope?.channelFamily ?? null,
     });
+
     return {};
   };
 }
 
-function buildReceivedHandler(deps: {
-  engine: EngineAccess;
-  channelKey: string;
-  options: ResolvedInboxOptions;
-}) {
+function buildReceivedHandler(deps: BuildReceivedHandlerDepsParameter) {
   const { engine, channelKey, options } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__received__') return false;
+
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
@@ -187,8 +198,8 @@ function buildReceivedHandler(deps: {
       ENGINE_INTERNAL_CONNECTION
     ];
     const userId = connection?.userId ?? '';
-    const channelName = frame.__wskit.channel;
-    const channelFamily = frame.__wskit.channelFamily ?? null;
+    const channelName = frame.__livething.channel;
+    const channelFamily = frame.__livething.channelFamily ?? null;
     if (userId && isMember(connection, channelName, channelFamily)) {
       applyInboxAck(engine.storage.sql, {
         userId,
@@ -232,15 +243,16 @@ function buildReceivedHandler(deps: {
  * `__receivedQuery__` event name and echoes the query's correlationId. Owned by
  * `inbox()`, so it works with or without `readReceipts()` present.
  */
-function buildReceivedQueryHandler(deps: { engine: EngineAccess; channelKey: string }) {
+function buildReceivedQueryHandler(deps: BuildReceivedQueryHandlerDepsParameter) {
   const { engine, channelKey } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__receivedQuery__') return false;
+
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
-    const channelName = frame.__wskit.channel;
-    const channelFamily = frame.__wskit.channelFamily ?? null;
+    const channelName = frame.__livething.channel;
+    const channelFamily = frame.__livething.channelFamily ?? null;
     const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
       ENGINE_INTERNAL_CONNECTION
     ];
@@ -252,16 +264,18 @@ function buildReceivedQueryHandler(deps: { engine: EngineAccess; channelKey: str
       seq: frame.payload.seq,
     });
 
-    const wskit: Record<string, unknown> = {
+    const livething: Record<string, unknown> = {
       channel: channelName,
-      correlationId: frame.__wskit.correlationId,
+      correlationId: frame.__livething.correlationId,
     };
-    if (channelFamily !== null) wskit.channelFamily = channelFamily;
+
+    if (channelFamily !== null) livething.channelFamily = channelFamily;
     engine.sendProtocolFrame(connection.id, {
       event: '__receivedQuery__',
       payload: { userIds },
-      wskit,
+      livething,
     });
+
     return true;
   };
 }

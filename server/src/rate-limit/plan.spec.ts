@@ -155,6 +155,7 @@ describe('resolvePlan — cascade', () => {
     function perByUserId(ctx: any) {
       return ctx.user.id;
     }
+
     const plan = resolvePlan({
       contractRateLimit: { enabled: true, max: 60, per: perByUserId },
       definitions: [channel('ai', { rateLimit: { enabled: true, max: 100 }, definitions: [] })],

@@ -14,15 +14,17 @@ test.describe('surface-area gaps', () => {
     for (let i = 0; i < 3; i += 1) {
       await send(page, a, { event: 'tick', payload: {} });
     }
+
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter((f) => f.event === 'tock').length >= 3,
+        (window.__livethingFrames!(sid as string) ?? []).filter((f) => f.event === 'tock').length >=
+        3,
       [a],
     );
     await send(page, a, { event: 'tick', payload: {} });
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
+        (window.__livethingFrames!(sid as string) ?? []).filter(
           (f) => f.event === '__error__' && f.payload?.code === 'rate-limited',
         ).length >= 1,
       [a],
@@ -30,6 +32,7 @@ test.describe('surface-area gaps', () => {
     const topErrors = (await frames(page, a)).filter(
       (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
     );
+
     expect(topErrors.length).toBeGreaterThanOrEqual(1);
 
     // Layer 2 — channel cap (rooms channel max=50, looser than contract).
@@ -39,19 +42,19 @@ test.describe('surface-area gaps', () => {
     // 'chatter' is rejected at layer 3.
     await send(page, a, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'rooms' },
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
     });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
     await send(page, a, {
       event: 'chatter',
       payload: { text: 'hi' },
-      __wskit: { channel: 'rooms' },
+      metadata: { channel: { name: 'rooms' } },
     });
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'chatter-broadcast' && f.__wskit?.channel === 'rooms',
+        (window.__livethingFrames!(sid as string) ?? []).filter(
+          (f) => f.event === 'chatter-broadcast' && f.metadata?.channel?.name === 'rooms',
         ).length >= 1,
       [a],
     );
@@ -60,11 +63,11 @@ test.describe('surface-area gaps', () => {
     await send(page, a, {
       event: 'chatter',
       payload: { text: 'hi2' },
-      __wskit: { channel: 'rooms' },
+      metadata: { channel: { name: 'rooms' } },
     });
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
+        (window.__livethingFrames!(sid as string) ?? []).filter(
           (f) => f.event === '__error__' && f.payload?.code === 'rate-limited',
         ).length >= 2,
       [a],
@@ -85,8 +88,8 @@ test.describe('surface-area gaps', () => {
 
     await send(page, a, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'custom-room' },
+      payload: null,
+      metadata: { channel: { name: 'custom-room' } },
     });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
@@ -95,10 +98,10 @@ test.describe('surface-area gaps', () => {
     await send(page, a, {
       event: 'add-room-note',
       payload: { text: 'before-stream' },
-      __wskit: { channel: 'custom-room' },
+      metadata: { channel: { name: 'custom-room' } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === 'room-note' && f.__wskit?.channel === 'custom-room',
+      match: (f) => f.event === 'room-note' && f.metadata?.channel?.name === 'custom-room',
     });
 
     // Trigger the channel-scoped stream — it emits chunks via the outgoing
@@ -107,17 +110,17 @@ test.describe('surface-area gaps', () => {
     await send(page, a, {
       event: 'room-stream',
       payload: { count: 3 },
-      __wskit: { channel: 'custom-room' },
+      metadata: { channel: { name: 'custom-room' } },
     });
     await waitForFrame(page, a, { match: (f) => f.event === '__streamEnd__' });
 
     await send(page, a, {
       event: 'query-room-replay-events',
       payload: {},
-      __wskit: { channel: 'custom-room' },
+      metadata: { channel: { name: 'custom-room' } },
     });
     const logged = await waitForFrame(page, a, {
-      match: (f) => f.event === 'room-replay-events' && f.__wskit?.channel === 'custom-room',
+      match: (f) => f.event === 'room-replay-events' && f.metadata?.channel?.name === 'custom-room',
     });
     const events = logged.payload.events as string[];
     expect(events).toContain('room-note');

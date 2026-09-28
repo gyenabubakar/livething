@@ -20,6 +20,7 @@ export function query(getParams: QueryFn): Primitive<EmptyTypeFn> {
       function append(baseUrl: string, params: Record<string, string>): string {
         const search = new URLSearchParams(params).toString();
         if (!search) return baseUrl;
+
         const separator = baseUrl.includes('?') ? '&' : '?';
         return `${baseUrl}${separator}${search}`;
       }

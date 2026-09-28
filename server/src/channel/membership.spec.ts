@@ -1,11 +1,10 @@
-import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
 import {
   deleteDurableMembership,
-  hasDurableMembership,
+  getDurableMembership,
   persistMembership,
 } from '~/channel/membership.ts';
 import {
@@ -47,14 +46,15 @@ describe('durable membership user gate', () => {
       userId: 'user-1',
       channelName: 'room',
       channelFamily: null,
+      meta: { name: 'Ada' },
     });
     expect(
-      hasDurableMembership(makeCore(sql), {
+      getDurableMembership(makeCore(sql), {
         userId: 'user-1',
         channelName: 'room',
         channelFamily: null,
       }),
-    ).toBe(true);
+    ).toEqual({ meta: { name: 'Ada' }, kicked: false });
   });
 
   it('skips the durable delete for an empty user id', () => {
@@ -77,19 +77,23 @@ describe('durable membership user gate', () => {
     ensureMembershipSchema(sql);
     statements = 0;
 
-    const result = hasDurableMembership(makeCore(sql), {
+    const result = getDurableMembership(makeCore(sql), {
       userId: '',
       channelName: 'room',
       channelFamily: null,
     });
-    expect(result).toBe(false);
+    expect(result).toBeUndefined();
     expect(statements).toBe(0);
   });
 });
 
 describe('kick(userRef, { revoke: true })', () => {
-  function userRef(id: string): { __wskit: 'user-ref'; id: string; instance: string | undefined } {
-    return { __wskit: 'user-ref', id, instance: undefined };
+  function userRef(id: string): {
+    __livething: 'user-ref';
+    id: string;
+    instance: string | undefined;
+  } {
+    return { __livething: 'user-ref', id, instance: undefined };
   }
 
   function makeConnection(id: string, userId: string): RuntimeConnection {
@@ -144,7 +148,9 @@ describe('kick(userRef, { revoke: true })', () => {
       isChannelDurable: () => true,
       persistMembership() {},
       deleteDurableMembership,
-      hasDurableMembership: () => true,
+      getDurableMembership: () => undefined,
+      markDurableMembershipKicked() {},
+      listDurableMembers: () => [],
     };
   }
 
@@ -194,8 +200,8 @@ describe('kick(userRef, { revoke: true })', () => {
     expect(calls).toEqual([{ userId: 'user-1', channelName: 'room', channelFamily: null }]);
     expect(connection.channelMemberships.size).toBe(0);
     expect(
-      hasDurableMembership(core, { userId: 'user-1', channelName: 'room', channelFamily: null }),
-    ).toBe(false);
+      getDurableMembership(core, { userId: 'user-1', channelName: 'room', channelFamily: null }),
+    ).toBeUndefined();
   });
 
   it('leaves a non-member connection of the same user id untouched', async () => {
@@ -249,16 +255,15 @@ describe('durable membership is the channel default', () => {
 
   /** Build and initialize a real engine, exposing its core's real SQLite storage. */
   async function buildEngine(
-    handler: ServerDefinition,
+    definition: ServerDefinition,
   ): Promise<{ engine: Engine; sql: SQLProvider }> {
     const sql = createTestSql();
     let engine!: Engine;
-    const server = adapter({
+    const runAdapter = adapter({
       id: 'test',
       asyncContextFactory: passthroughAsyncContext(),
       setup(createEngine) {
         engine = createEngine({
-          env: {},
           platform: { kind: 'test' },
           storage: { sql, kv: createTestKV() },
           timers: {
@@ -266,21 +271,21 @@ describe('durable membership is the channel default', () => {
             deleteAlarm: vi.fn(async () => {}),
             getAlarm: vi.fn(async () => null),
           },
-          waitUntil: () => {},
           logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         });
         return {};
       },
     });
-    server(handler, {} as never);
+    runAdapter(definition, {} as never);
     await engine.initialize();
+
     return { engine, sql };
   }
 
   function makeHandler(
     channelConfig: { membership?: 'persistent' | 'ephemeral' } = {},
   ): ServerDefinition {
-    const base = define({ env: t<Record<string, never>>(), capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     const room = base.channel('room', channelConfig);
     const noop = room.on('noop', { run() {} });
     return base.assemble({ handlers: [noop] });
@@ -297,16 +302,13 @@ describe('durable membership is the channel default', () => {
     });
     const connection = [...engine.core.connections.values()].find((c) => !before.has(c.id))!;
     await connection.lifecycleReady;
+
     return { handle, connection };
   }
 
   async function subscribeToRoom(handle: ReturnType<Engine['accept']>): Promise<void> {
     await handle.handleMessage(
-      JSON.stringify({
-        event: '__subscribe__',
-        payload: {},
-        __wskit: { channel: 'room', channelFamily: null },
-      }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'room' } }]),
     );
   }
 

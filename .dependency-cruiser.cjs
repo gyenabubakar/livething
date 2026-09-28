@@ -1,7 +1,7 @@
 /**
- * Mechanical guard for wskit's tree-shaking architecture (server spec §24).
+ * Mechanical guard for LiveThing's tree-shaking architecture (server spec §24).
  *
- * The `@wskit/server` package splits into one bundle entry per feature. Each
+ * The `@livething/server` package splits into one bundle entry per feature. Each
  * `<feature>/capability.ts` is that entry; whatever it statically value-imports
  * lands in the bundle when a user imports the feature. Two import directions
  * would defeat the split, so both are forbidden here:
@@ -35,6 +35,19 @@
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
+    {
+      name: 'server-core-no-adapter-import',
+      comment:
+        'The portable server package must depend on adapter interfaces, never an adapter implementation. ' +
+        'Put runtime-specific behavior in server-adapters instead.',
+      severity: 'error',
+      from: {
+        path: '^server/src/',
+      },
+      to: {
+        path: '^server-adapters/',
+      },
+    },
     {
       name: 'core-no-feature-capability',
       comment:
@@ -90,7 +103,7 @@ module.exports = {
       comment:
         'A client utility subpath (`errors`, `environment`, `platform`) must not value-import the ' +
         'connection runtime (socket, connect, client, messaging, or the plugin system). Importing ' +
-        '`@wskit/client/errors` should ship error classes, not a WebSocket engine. Keep the edge ' +
+        '`@livething/client/errors` should ship error classes, not a WebSocket engine. Keep the edge ' +
         '`import type` only, or move the shared piece to a leaf module the runtime also uses.',
       severity: 'error',
       from: {
@@ -106,7 +119,7 @@ module.exports = {
       comment:
         'Production client code must not value-import the test-only entries (`testing.ts`, the ' +
         "public test-utility subpath, or the internal `test-helpers.ts`). They exist for consumers' " +
-        "and wskit's own tests; pulling them into the runtime graph ships mock/injection code to " +
+        "and LiveThing's own tests; pulling them into the runtime graph ships mock/injection code to " +
         'every app. Keep such imports inside spec files.',
       severity: 'error',
       from: {

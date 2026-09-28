@@ -17,16 +17,19 @@
 		streamEnd = false;
 		pauseTopLevelLeak = '';
 		lastError = '';
+
 		lastErrorStreamId = '';
 		nudgeSawEvents = '';
 	}
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		reset();
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/stream-nudges?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -40,39 +43,46 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			switch (data.event) {
 				case '__streamOk__':
-					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
-					if (autoPauseOnStreamOk && data.__wskit?.streamId) {
+					if (data.metadata?.stream?.id) lastStreamId = data.metadata.stream?.id;
+					if (autoPauseOnStreamOk && data.metadata?.stream?.id) {
 						autoPauseOnStreamOk = false;
 						ws?.send(
-							JSON.stringify({
+							window.__livethingEncode({
 								event: 'pause',
 								payload: {},
-								__wskit: { streamId: data.__wskit.streamId },
+								metadata: { stream: { id: data.metadata.stream?.id } },
 							}),
 						);
 					}
+
 					break;
+
 				case '__streamEnd__':
 					streamEnd = true;
 					break;
+
 				case 'start-nudge-stream':
 					if (typeof data.payload?.token === 'string') tokens += data.payload.token;
 					break;
+
 				case 'pause-top-level-fired':
 					pauseTopLevelLeak = String(data.payload?.leak ?? '');
 					break;
+
 				case 'nudge-saw': {
 					const events = Array.isArray(data.payload?.events) ? data.payload.events : [];
 					// Append per iteration so the test can assert across multiple drains.
 					nudgeSawEvents += (nudgeSawEvents ? '|' : '') + events.join(',');
 					break;
 				}
+
 				case '__error__':
 					lastError = String(data.payload?.code ?? '');
-					lastErrorStreamId = String(data.__wskit?.streamId ?? '');
+					lastErrorStreamId = String(data.metadata?.stream?.id ?? '');
 					break;
 			}
 		};
@@ -80,39 +90,44 @@
 
 	function start(prompt: string) {
 		reset();
-		ws?.send(JSON.stringify({ event: 'start-nudge-stream', payload: { prompt } }));
+		ws?.send(window.__livethingEncode({ event: 'start-nudge-stream', payload: { prompt } }));
 	}
+
 	function pause() {
-		ws?.send(JSON.stringify({ event: 'pause', payload: {}, __wskit: { streamId: lastStreamId } }));
+		ws?.send(window.__livethingEncode({ event: 'pause', payload: {}, metadata: { stream: { id: lastStreamId } } }));
 	}
+
 	function startThenPause() {
 		reset();
 		autoPauseOnStreamOk = true;
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'start-nudge-stream',
 				payload: { prompt: 'a b c d e f g h i j k l m n o p' },
 			}),
 		);
 	}
+
 	function pauseMultiple(count: number) {
 		for (let i = 0; i < count; i++) {
 			ws?.send(
-				JSON.stringify({ event: 'pause', payload: {}, __wskit: { streamId: lastStreamId } }),
+				window.__livethingEncode({ event: 'pause', payload: {}, metadata: { stream: { id: lastStreamId } } }),
 			);
 		}
 	}
+
 	function speedUp(factor: number) {
 		ws?.send(
-			JSON.stringify({ event: 'speed-up', payload: { factor }, __wskit: { streamId: lastStreamId } }),
+			window.__livethingEncode({ event: 'speed-up', payload: { factor }, metadata: { stream: { id: lastStreamId } } }),
 		);
 	}
+
 	function malformedPause() {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'pause',
 				payload: { leak: 'should-not-reach-handler' },
-				__wskit: { streamId: lastStreamId },
+				metadata: { stream: { id: lastStreamId } },
 			}),
 		);
 	}

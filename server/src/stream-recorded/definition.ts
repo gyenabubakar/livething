@@ -55,20 +55,20 @@ interface RecordedStreamConfig<
  * `reason: 'buffer-full'` into the generator's `yield`. Wrap the yield in
  * `try/catch` if you want to handle it gracefully.
  *
- * Nudges declared here behave exactly like nudges on a plain `stream(...)`
- * and survive a resume.
+ * Nudges declared here behave exactly like nudges on a plain `stream(...)`.
+ * The generator never re-runs, so with `onDisconnect: 'keep-running'` it
+ * keeps the nudges it already received when the client reconnects.
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { StreamAborted } from '@wskit/server/errors';
- * import { recordedStream } from '@wskit/server/streams';
+ * import { server, t } from '@livething/server';
+ * import { StreamAborted } from '@livething/server/errors';
+ * import { recordedStream } from '@livething/server/streams';
  * import * as v from 'valibot';
  *
  * const TokenChunk = t<{ idx: number }>();
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [recordedStream()],
  * });
  *

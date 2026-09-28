@@ -14,6 +14,7 @@ async function goConnect(page: Page, opts: GoConnectOptions) {
   await page.getByTestId('username').fill(username);
   await page.getByTestId('stream-id').fill(opts.streamId);
   await page.getByTestId('connect').click();
+
   await expect(page.getByTestId('status')).toHaveText('connected');
 }
 
@@ -30,11 +31,11 @@ test.describe('stream-durable', () => {
     await send(page, socket, {
       event: 'primitive-recorded',
       payload: {},
-      __wskit: { streamId },
+      metadata: { stream: { id: streamId } },
     });
     await waitForFrame(page, socket, { match: (f) => f.event === '__streamOk__' });
     await waitForFrame(page, socket, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
     });
 
     const liveChunks = (await frames(page, socket)).filter(
@@ -45,13 +46,14 @@ test.describe('stream-durable', () => {
     await send(page, socket, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { streamId },
+      metadata: { stream: { id: streamId } },
     });
 
     await page.waitForFunction(
       ([sid]) =>
-        window.__wskitFrames!(sid as string).filter((frame) => frame.event === 'primitive-recorded')
-          .length >= 4,
+        window.__livethingFrames!(sid as string).filter(
+          (frame) => frame.event === 'primitive-recorded',
+        ).length >= 4,
       [socket],
     );
 
@@ -119,8 +121,12 @@ test.describe('stream-durable', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
     await page.getByTestId('send-resume').click();
 
-    await expect.poll(() => page.getByTestId('paginate-row-count').textContent()).toBe('10');
-    await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('1');
+    await expect
+      .poll(() => page.getByTestId('paginate-row-count').textContent(), { timeout: 10_000 })
+      .toBe('10');
+    await expect
+      .poll(() => page.getByTestId('stream-end-count').textContent(), { timeout: 10_000 })
+      .toBe('1');
 
     const order = (await page.getByTestId('paginate-rows').textContent())!.split(',').map(Number);
     expect(order).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
@@ -174,7 +180,9 @@ test.describe('stream-durable', () => {
       .toBe('does-not-exist');
   });
 
-  test('ctx.stream.attempt — 1 on first run, 2 after resume', async ({ page }, testInfo) => {
+  test('ctx.stream.attempt — 1 on first run, then one higher on every resume', async ({
+    page,
+  }, testInfo) => {
     const room = `sdb-${testInfo.testId}-${Date.now()}`;
     const streamId = 'attempt-1';
     await goConnect(page, { room: room, streamId: streamId });
@@ -183,14 +191,17 @@ test.describe('stream-durable', () => {
     await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe('1');
 
     // Generator is parked in an await on the server. Drop the socket so the
-    // stream goes `suspended`, then reconnect and resume — attempt becomes 2.
-    await page.getByTestId('drop-socket').click();
-    await expect(page.getByTestId('status')).toHaveText('disconnected');
-    await page.getByTestId('connect').click();
-    await expect(page.getByTestId('status')).toHaveText('connected');
-    await page.getByTestId('send-resume').click();
+    // stream goes `suspended`, then reconnect and resume — each resume re-runs
+    // the generator with the next attempt number.
+    for (const expected of ['2', '3', '4']) {
+      await page.getByTestId('drop-socket').click();
+      await expect(page.getByTestId('status')).toHaveText('disconnected');
+      await page.getByTestId('connect').click();
+      await expect(page.getByTestId('status')).toHaveText('connected');
+      await page.getByTestId('send-resume').click();
 
-    await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe('2');
+      await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe(expected);
+    }
   });
 
   test('buffer-full path — handler catches StreamAborted and the stream ends cleanly', async ({
@@ -216,7 +227,7 @@ test.describe('stream-durable', () => {
 
     // Both contexts use the SAME username, so they share identity and both
     // land on the same durable-object room. Fire 'count-tokens' with the
-    // same _streamId from each socket as close together as possible. One
+    // same `metadata.stream.id` from each socket as close together as possible. One
     // succeeds; the other gets a stream-id-collision _error.
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();

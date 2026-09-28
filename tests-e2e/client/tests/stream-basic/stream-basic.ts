@@ -1,9 +1,9 @@
-import { client, connect, stream } from '@wskit/client';
-import type { StreamBasicClient } from '@wskit/tests-e2e-handlers/stream-basic';
+import { client, connect, stream } from '@livething/client';
+import type { StreamBasicClient } from '@livething/tests-e2e-handlers/stream-basic';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's stream() against the real `stream-basic` handler, typed
-// by the same contract the server implements (StreamBasicClient = InferClient<handler>).
+// Drives @livething/client's stream() against the real `stream-basic` server definition, typed
+// by the same contract the server implements (StreamBasicClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
@@ -45,11 +45,13 @@ export function setup(): void {
     const handle = await socket.stream('start-tokens', { count: 3 });
     el('stream-ok').textContent = 'yes';
     el('stream-id').textContent = handle.streamId;
+
     const indices: number[] = [];
     for await (const chunk of handle) {
       indices.push(chunk.index);
       el('chunk-indices').textContent = indices.join(',');
     }
+
     el('stream-end').textContent = 'yes';
   });
 
@@ -81,9 +83,11 @@ export function setup(): void {
     const handle = await socket.stream('start-empty', {});
     el('stream-ok').textContent = 'yes';
     const indices: number[] = [];
+
     for await (const chunk of handle) {
       indices.push(chunk.index);
     }
+
     el('chunk-indices').textContent = indices.join(',');
     el('stream-end').textContent = 'yes';
   });
@@ -98,6 +102,7 @@ export function setup(): void {
       count += 1;
       break;
     }
+
     el('break-count').textContent = String(count);
   });
 
@@ -118,6 +123,7 @@ export function setup(): void {
     for await (const chunk of one) void chunk;
     const two = await socket.stream('start-tokens', { count: 1 });
     el('stream-id-2').textContent = two.streamId;
+
     for await (const chunk of two) void chunk;
     el('ids-distinct').textContent = one.streamId !== two.streamId ? 'yes' : 'no';
   });

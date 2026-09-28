@@ -16,6 +16,7 @@ test.describe('ctx-quality', () => {
       if (latencyText && /\d+/.test(latencyText)) {
         break;
       }
+
       await page.waitForTimeout(400);
     }
 
@@ -61,6 +62,7 @@ test.describe('ctx-quality', () => {
       await page.getByTestId('get-quality').click();
       const latencyText = await page.getByTestId('latency').textContent();
       if (latencyText && /\d+/.test(latencyText)) break;
+
       await page.waitForTimeout(400);
     }
 

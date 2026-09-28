@@ -63,20 +63,20 @@ export type PrimitiveIdentity =
 
 /**
  * Base type for every primitive. Every primitive factory (a capability like
- * `requests()`, or an internal builder behind `base.on(...)` / `base.channel(...)`)
+ * `clientRequests()` / `serverRequests()`, or an internal builder behind `base.on(...)` / `base.channel(...)`)
  * returns an object that extends `Primitive`.
  *
  * You rarely need to reference this type directly — use it to annotate a
- * variable or function parameter that must accept any WSKit primitive.
+ * variable or function parameter that must accept any LiveThing primitive.
  */
 export interface Primitive<Tag extends string = string> {
-  readonly __wskit: Tag;
+  readonly __livething: Tag;
   readonly __kind: PrimitiveKind;
   readonly __identity: PrimitiveIdentity;
   readonly __requires: RequiresManifest;
   /**
    * Capability identity tokens (see `CAPABILITY_KIND`) this primitive needs
-   * listed in the same `define({ capabilities })`. Resolved at `assemble()`:
+   * listed in the same `server({ capabilities })`. Resolved at `assemble()`:
    * a missing one is a build error on an app, and on a plugin a host-owned
    * requirement is auto-recorded as a host dependency. Empty by default.
    * @internal
@@ -169,9 +169,9 @@ export interface PrimitiveFactory<
 /**
  * Create a built-in primitive factory.
  *
- * This is an internal WSKit API — product developers use `plugin()` to ship
+ * This is an internal LiveThing API — product developers use `plugin()` to ship
  * custom behavior. `definePrimitive` is for the primitives that ship with
- * WSKit itself (incoming, channel, etc.).
+ * LiveThing itself (incoming, channel, etc.).
  *
  * The returned factory function:
  * 1. When **called** — produces a `Primitive` instance with base fields
@@ -215,7 +215,7 @@ export function definePrimitive<
         : (config.requiresCapabilities ?? []);
 
     return {
-      __wskit: config.tag,
+      __livething: config.tag,
       __kind: config.kind,
       __identity: identity,
       __requires: requires,

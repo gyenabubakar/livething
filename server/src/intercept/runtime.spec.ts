@@ -39,11 +39,10 @@ function makeFrame(event: string, payload: unknown): InterceptFrame {
   return { event, payload, kind: 'incoming', routing: {}, owner: { kind: 'app' } };
 }
 
-function ownedIntercept(id: string, observesHost: boolean, handler: InterceptHandler) {
+function ownedIntercept(id: string, handler: InterceptHandler) {
   return {
     ...intercept(handler),
     __owner: { kind: 'plugin' as const, id },
-    __observesHost: observesHost,
   };
 }
 
@@ -176,7 +175,7 @@ describe('intercept/runtime', () => {
   });
 
   it('Block in an intercept still propagates as an error', async () => {
-    const { Block } = await import('@wskit/core');
+    const { Block } = await import('@livething/core');
     const connection = createConnection();
 
     const blocker = intercept(async () => {
@@ -212,6 +211,7 @@ describe('intercept/runtime', () => {
       routing: { correlationId: 'abc-123' },
       owner: { kind: 'app' },
     };
+
     const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [recorder, second],
       frame: start,
@@ -223,6 +223,7 @@ describe('intercept/runtime', () => {
     expect(seen[1]?.payload).toEqual({ stamped: true });
     expect(seen[1]?.kind).toBe('request');
     expect(seen[1]?.routing.correlationId).toBe('abc-123');
+
     expect(next.kind).toBe('request');
     expect(next.routing.correlationId).toBe('abc-123');
   });
@@ -246,6 +247,7 @@ describe('intercept/runtime', () => {
       routing: {},
       owner: { kind: 'app' },
     };
+
     const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [recorder, second],
       frame: start,
@@ -281,10 +283,10 @@ describe('intercept/runtime', () => {
     expect(seen).toEqual(['chat', '__a:p::beat']);
   });
 
-  it('runs a plugin intercept for its own frame (short name) but NOT for an app frame', async () => {
+  it('runs a plugin intercept for every frame and shortens its own event name', async () => {
     const connection = createConnection();
     const seen: string[] = [];
-    const hook = ownedIntercept('a:p', false, (_ctx, frame) => {
+    const hook = ownedIntercept('a:p', (_ctx, frame) => {
       seen.push(frame.event);
     });
 
@@ -299,32 +301,20 @@ describe('intercept/runtime', () => {
       getCtx,
     });
 
-    // Only its own frame fired, presented with the SHORT declared name.
-    expect(seen).toEqual(['beat']);
-  });
-
-  it('does NOT run a plugin intercept for a sibling plugin frame', async () => {
-    const connection = createConnection();
-    let fired = false;
-    const hook = ownedIntercept('a:p', true, () => {
-      fired = true;
-    });
-
     await runIntercepts(makeRuntime(), connection, {
       intercepts: [hook],
       frame: { ...makeFrame('__b:q::beat', {}), owner: { kind: 'plugin', id: 'b:q' } },
       getCtx,
     });
 
-    // Sibling isolation holds even with host observation granted.
-    expect(fired).toBe(false);
+    expect(seen).toEqual(['beat', 'chat', '__b:q::beat']);
   });
 
-  it('runs a host-observing plugin intercept for an app frame, with frame.owner = app', async () => {
+  it('keeps the owner for app and plugin frames', async () => {
     const connection = createConnection();
     const owners: FrameOwner[] = [];
     const events: string[] = [];
-    const hook = ownedIntercept('a:p', true, (_ctx, frame) => {
+    const hook = ownedIntercept('a:p', (_ctx, frame) => {
       owners.push(frame.owner);
       events.push(frame.event);
     });

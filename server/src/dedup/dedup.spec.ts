@@ -4,10 +4,10 @@ import type { EngineAccess } from '~/_engine/access.ts';
 
 function makeEngine(): {
   engine: EngineAccess;
-  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>>;
+  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>>;
   enableCaps: number[];
 } {
-  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>> = [];
+  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>> = [];
   const enableCaps: number[] = [];
   const installs = new Set<symbol>();
   let nextId = 1;
@@ -19,7 +19,7 @@ function makeEngine(): {
       installs.add(key);
       install();
     },
-    onWSKitStamp(handler) {
+    onLiveThingStamp(handler) {
       stampHandlers.push(handler);
     },
     generateId(prefix = 'id') {
@@ -30,14 +30,14 @@ function makeEngine(): {
     },
   } as Pick<
     EngineAccess,
-    'generateId' | 'installOnce' | 'onWSKitStamp' | 'enableIncomingDedup'
+    'generateId' | 'installOnce' | 'onLiveThingStamp' | 'enableIncomingDedup'
   > as EngineAccess;
 
   return { engine, stampHandlers, enableCaps };
 }
 
 function installDedup(): {
-  hook: NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>;
+  hook: NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>;
 } {
   const { engine, stampHandlers } = makeEngine();
   dedup().__setup?.(engine);
@@ -51,7 +51,7 @@ function installDedup(): {
 describe('dedup', () => {
   it('produces correct tag and kind', () => {
     const p = dedup();
-    expect(p.__wskit).toBe('dedup');
+    expect(p.__livething).toBe('dedup');
     expect(p.__kind).toBe('infrastructure');
   });
 
@@ -87,7 +87,7 @@ describe('dedup', () => {
     expect(enableCaps).toEqual([10]);
   });
 
-  it('stamps a unique messageId into __wskit for outgoing messages', () => {
+  it('stamps a unique messageId into __livething for outgoing messages', () => {
     const { hook } = installDedup();
     const first = hook('message');
     const second = hook('alert');

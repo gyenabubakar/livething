@@ -1,3 +1,4 @@
+import { CloseCodes } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
@@ -14,6 +15,7 @@ function connected(opts?: { lazy?: boolean }) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -47,6 +49,7 @@ describe('connection lifecycle', () => {
     socket.connect();
     expect(socket.state.get()).toBe('connecting');
     MockWebSocket.last().open();
+
     expect(socket.state.get()).toBe('open');
   });
 
@@ -56,6 +59,7 @@ describe('connection lifecycle', () => {
     socket.state.subscribe(() => seen.push(socket.state.get()));
     socket.connect();
     MockWebSocket.last().open();
+
     expect(seen).toEqual(['connecting', 'open']);
   });
 
@@ -66,6 +70,49 @@ describe('connection lifecycle', () => {
     expect(socket.state.get()).toBe('closed');
   });
 
+  it('closes safely and reports an invalid disconnect code', () => {
+    const { socket, ws } = connected();
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    socket.disconnect(4000.5, 'do not send this');
+
+    expect(ws.readyState).toBe(3);
+    expect(ws.closeCall).toEqual({ code: 1000, reason: '' });
+    expect(socket.state.get()).toBe('closed');
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[livething] invalid client close code: 4000.5' }),
+    );
+  });
+
+  it('safely closes when a server-only close code is passed to disconnect', () => {
+    const { socket, ws } = connected();
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    socket.disconnect(CloseCodes.INTERNAL_ERROR, 'do not send this');
+
+    expect(ws.closeCall).toEqual({ code: 1000, reason: '' });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[livething] invalid client close code: 1011' }),
+    );
+  });
+
+  it('safely closes when the close reason is too large for the browser', () => {
+    const { socket, ws } = connected();
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    socket.disconnect(CloseCodes.AUTH_EXPIRED, '🫠'.repeat(31));
+
+    expect(ws.closeCall).toEqual({ code: 1000, reason: '' });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '[livething] invalid client close reason: exceeds 123 UTF-8 bytes',
+      }),
+    );
+  });
+
   it('connect() is idempotent while open', () => {
     const { socket } = connected();
     socket.connect();
@@ -73,7 +120,7 @@ describe('connection lifecycle', () => {
   });
 });
 
-describe('messaging (__wskit wire format)', () => {
+describe('messaging (metadata wire format)', () => {
   it('dispatches incoming events to on() handlers', () => {
     const { socket, ws } = connected();
     const handler = vi.fn();
@@ -82,13 +129,14 @@ describe('messaging (__wskit wire format)', () => {
     expect(handler).toHaveBeenCalledWith({ text: 'hi' });
   });
 
-  it('serializes send() as { event, payload }', () => {
+  it('serializes send() as a three-item tuple with null metadata', () => {
     const { socket, ws } = connected();
     const ok = socket.send('mark-read', { notificationId: '7' });
     expect(ok).toBe(true);
     expect(ws.sentFrames()).toContainEqual({
       event: 'mark-read',
       payload: { notificationId: '7' },
+      metadata: null,
     });
   });
 

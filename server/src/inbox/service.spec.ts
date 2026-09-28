@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { purgeUser } from '~/_engine/runtime/purge-user.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -21,46 +20,44 @@ import {
   loadUndeliveredRows,
 } from './storage.ts';
 
-function buildEngine(handler: ServerDefinition, storage = createTestStorage()): Engine {
+function buildEngine(definition: ServerDefinition, storage = createTestStorage()): Engine {
   let captured: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'inbox-service-spec',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       captured = createEngine({
         storage,
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};
     },
   });
-  server(handler, undefined as never);
+  runAdapter(definition, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return captured;
 }
 
 function buildInboxEngine(storage = createTestStorage()): Engine {
-  const base = define({
-    env: t<Record<string, never>>(),
+  const base = server({
     capabilities: [channels(), sequence({ persist: true }), dedup()],
   });
   const chat = base.channel('chat', { capabilities: [inbox()] });
-  const handler = base.assemble({ handlers: [chat] });
-  return buildEngine(handler, storage);
+  const definition = base.assemble({ handlers: [chat] });
+  return buildEngine(definition, storage);
 }
 
 function buildChannelsOnlyEngine(): Engine {
-  const base = define({
-    env: t<Record<string, never>>(),
+  const base = server({
     capabilities: [channels(), sequence({ persist: true }), dedup()],
   });
   const chat = base.channel('chat', {});
-  const handler = base.assemble({ handlers: [chat] });
-  return buildEngine(handler);
+  const definition = base.assemble({ handlers: [chat] });
+  return buildEngine(definition);
 }
 
 describe('inbox runtime install', () => {
@@ -84,7 +81,7 @@ describe('inbox runtime install', () => {
       userIds: ['alice', 'bob'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { event: 'room-msg', payload: { text: 'hi' }, seq: 1, messageId: 'm1' },
+      frame: { event: 'room-msg', payload: { text: 'hi' }, deliverySeq: 1, messageId: 'm1' },
       now: 1000,
     });
 
@@ -100,12 +97,13 @@ describe('inbox runtime install', () => {
     const deleteTransactions: number[] = [];
     const storage = createTestStorage({
       onExec(query) {
-        if (/DELETE FROM __wskit_inbox(?:_watermark|_receipts)? WHERE user_id/.test(query)) {
+        if (/DELETE FROM __livething_inbox(?:_watermark|_receipts)? WHERE user_id/.test(query)) {
           deleteTransactions.push(activeTransaction ?? -1);
         }
       },
     });
     const runTransaction = storage.sql.transaction.bind(storage.sql);
+
     storage.sql.transaction = <T>(fn: (tx: Pick<SQLProvider, 'exec'>) => T): T => {
       const transactionId = ++transactionCalls;
       return runTransaction((tx) => {
@@ -129,9 +127,9 @@ describe('inbox runtime install', () => {
   });
 
   it.each([
-    ['inbox rows', '__wskit_inbox WHERE user_id'],
-    ['watermarks', '__wskit_inbox_watermark WHERE user_id'],
-    ['receipts', '__wskit_inbox_receipts WHERE user_id'],
+    ['inbox rows', '__livething_inbox WHERE user_id'],
+    ['watermarks', '__livething_inbox_watermark WHERE user_id'],
+    ['receipts', '__livething_inbox_receipts WHERE user_id'],
   ])('attempts all durable deletes when %s fails', async (_name, needle) => {
     let injected = false;
     const storage = createTestStorage({
@@ -144,8 +142,7 @@ describe('inbox runtime install', () => {
     });
     const engine = buildEngine(
       (() => {
-        const base = define({
-          env: t<Record<string, never>>(),
+        const base = server({
           capabilities: [channels(), sequence({ persist: true }), dedup()],
         });
         return base.assemble({ handlers: [base.channel('chat', { capabilities: [inbox()] })] });
@@ -154,6 +151,7 @@ describe('inbox runtime install', () => {
     );
     await engine.initialize();
     const core = engine.core;
+
     const setAlarm = vi.fn(async () => {});
     const deleteAlarm = vi.fn(async () => {});
     core.timers.setAlarm = setAlarm;
@@ -162,9 +160,10 @@ describe('inbox runtime install', () => {
       userIds: ['alice'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { event: 'room-msg', payload: {}, seq: 1, messageId: 'm1' },
+      frame: { event: 'room-msg', payload: {}, deliverySeq: 1, messageId: 'm1' },
       now: 1,
     });
+
     bumpInboxWatermark(core.storage.sql, {
       userId: 'alice',
       channelName: 'chat',
@@ -186,6 +185,7 @@ describe('inbox runtime install', () => {
     expect(loadUndeliveredRows(core.storage.sql, 'alice')).toHaveLength(
       _name === 'inbox rows' ? 1 : 0,
     );
+
     expect(loadInboxWatermarks(core.storage.sql, 'alice')).toHaveLength(
       _name === 'watermarks' ? 1 : 0,
     );
@@ -198,17 +198,16 @@ describe('inbox runtime install', () => {
     const storage = createTestStorage({
       onExec(query) {
         if (
-          query.includes('DELETE FROM __wskit_inbox WHERE user_id') ||
-          query.includes('DELETE FROM __wskit_inbox_receipts WHERE user_id')
+          query.includes('DELETE FROM __livething_inbox WHERE user_id') ||
+          query.includes('DELETE FROM __livething_inbox_receipts WHERE user_id')
         ) {
           throw new Error(
-            query.includes('__wskit_inbox_receipts') ? 'receipts failed' : 'inbox failed',
+            query.includes('__livething_inbox_receipts') ? 'receipts failed' : 'inbox failed',
           );
         }
       },
     });
-    const base = define({
-      env: t<Record<string, never>>(),
+    const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const engine = buildEngine(
@@ -217,6 +216,7 @@ describe('inbox runtime install', () => {
     );
     await engine.initialize();
     const core = engine.core;
+
     core.inboxReceiptCursors.set(JSON.stringify(['chat', null, 'alice']), {
       receivedThrough: 1,
       readThrough: 1,
@@ -225,6 +225,7 @@ describe('inbox runtime install', () => {
     const setAlarm = vi.fn(async () => {});
     const deleteAlarm = vi.fn(async () => {});
     core.timers.setAlarm = setAlarm;
+
     core.timers.deleteAlarm = deleteAlarm;
 
     let caught: unknown;
@@ -233,9 +234,11 @@ describe('inbox runtime install', () => {
     } catch (error) {
       caught = error;
     }
+
     expect(caught).toBeInstanceOf(AggregateError);
     const errors = (caught as AggregateError).errors;
     expect(errors).toHaveLength(1);
+
     const inboxErrors = (errors[0] as AggregateError).errors;
     expect(inboxErrors).toHaveLength(2);
     expect(inboxErrors.map((error) => (error as Error).message)).toEqual(
@@ -243,6 +246,7 @@ describe('inbox runtime install', () => {
     );
     expect(core.inboxReceiptCursors.size).toBe(0);
     expect(core.inboxMemberCounts.size).toBe(0);
+
     expect(setAlarm.mock.calls.length + deleteAlarm.mock.calls.length).toBeGreaterThan(0);
   });
 
@@ -260,11 +264,12 @@ describe('inbox runtime install', () => {
         readThrough: 1,
       });
       core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'alice']), 1);
+
       insertInboxRows(core.storage.sql, {
         userIds: ['alice'],
         channelName: 'chat',
         channelFamily: null,
-        frame: { event: 'room-msg', payload: {}, seq: 1, messageId: 'm1' },
+        frame: { event: 'room-msg', payload: {}, deliverySeq: 1, messageId: 'm1' },
         now: 1,
       });
 
@@ -292,6 +297,7 @@ describe('inbox runtime install', () => {
         }),
       ]);
       expect(loadUndeliveredRows(core.storage.sql, 'alice')).toEqual([]);
+
       expect(core.inboxReceiptCursors.size).toBe(0);
       expect(core.inboxMemberCounts.size).toBe(0);
     },

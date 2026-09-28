@@ -17,6 +17,7 @@ function ownedKey(owner: FrameOwner, name: string): string {
 /** A parsed key with its event (and channel name) namespaced for a plugin-owned frame. */
 function namespaceParsed(parsed: ParsedKey, owner: FrameOwner): ParsedKey {
   if (owner.kind !== 'plugin') return parsed;
+
   return parsed.scope === 'top'
     ? { scope: 'top', event: ownedKey(owner, parsed.event) }
     : {
@@ -34,7 +35,7 @@ type ParsedKey =
 /** Parse a frame-match key. Throws on a syntactically invalid key. */
 function parseKey(key: string): ParsedKey {
   if (typeof key !== 'string' || key.length === 0) {
-    throw new Error('[wskit] ctx.matches/unsafeCast key must be a non-empty string');
+    throw new Error('[livething] ctx.matches/unsafeCast key must be a non-empty string');
   }
 
   if (key.startsWith('@')) {
@@ -42,21 +43,26 @@ function parseKey(key: string): ParsedKey {
     const sepIdx = rest.indexOf('::');
     if (sepIdx === -1) {
       throw new Error(
-        `[wskit] ctx.matches/unsafeCast key '${key}' starts with '@' but is missing the ` +
+        `[livething] ctx.matches/unsafeCast key '${key}' starts with '@' but is missing the ` +
           `'::' separator. Use '@<family>::<event>'.`,
       );
     }
+
     const name = rest.slice(0, sepIdx);
     const event = rest.slice(sepIdx + 2);
+
     if (name.length === 0 || event.length === 0) {
-      throw new Error(`[wskit] ctx.matches/unsafeCast key '${key}' has an empty name or event.`);
+      throw new Error(
+        `[livething] ctx.matches/unsafeCast key '${key}' has an empty name or event.`,
+      );
     }
+
     return { scope: 'channel', name, event };
   }
 
   if (key.includes('::')) {
     throw new Error(
-      `[wskit] ctx.matches/unsafeCast key '${key}' contains '::' but no scope prefix. ` +
+      `[livething] ctx.matches/unsafeCast key '${key}' contains '::' but no scope prefix. ` +
         `Use '@<family>::<event>', or drop the '::' for a top-level event.`,
     );
   }
@@ -79,6 +85,7 @@ function lookupValidator(
     source.resumableStreams.get(event) ??
     source.recordedStreams.get(event);
   if (!primitive) return { found: false, validator: undefined };
+
   const validator =
     'stream' in primitive
       ? primitive.stream.validator
@@ -96,27 +103,30 @@ function resolveKey(
     const lookup = lookupValidator(compiled, parsed.event);
     if (!lookup.found) {
       throw new Error(
-        `[wskit] ctx.matches/unsafeCast: key '${key}' references an event the server does not ` +
+        `[livething] ctx.matches/unsafeCast: key '${key}' references an event the server does not ` +
           `declare. Check the event name.`,
       );
     }
+
     return { validator: lookup.validator };
   }
 
   const channel = compiled.channels.get(parsed.name) ?? compiled.channelFamilies.get(parsed.name);
   if (!channel) {
     throw new Error(
-      `[wskit] ctx.matches/unsafeCast: key '${key}' references channel '${parsed.name}' which the ` +
+      `[livething] ctx.matches/unsafeCast: key '${key}' references channel '${parsed.name}' which the ` +
         `server does not declare.`,
     );
   }
+
   const lookup = lookupValidator(channel, parsed.event);
   if (!lookup.found) {
     throw new Error(
-      `[wskit] ctx.matches/unsafeCast: key '${key}' references an event channel '${parsed.name}' ` +
+      `[livething] ctx.matches/unsafeCast: key '${key}' references an event channel '${parsed.name}' ` +
         `does not declare.`,
     );
   }
+
   return { validator: lookup.validator, channel };
 }
 
@@ -127,13 +137,18 @@ function routingMatches(
   frame: InterceptFrame,
 ): boolean {
   if (parsed.scope === 'top') return frame.routing.channel === undefined;
+
   if (!channel) return false;
+
   // The wire routing carries the namespaced channel for a plugin-owned frame.
   if (typeof channel.pattern === 'string') {
     return frame.routing.channel === ownedKey(frame.owner, parsed.name);
   }
+
   if (frame.routing.channelFamily !== ownedKey(frame.owner, parsed.name)) return false;
+
   if (typeof frame.routing.channel !== 'string') return false;
+
   return ChannelPrimitive.matchesFamilyPattern(channel.pattern, frame.routing.channel);
 }
 
@@ -150,7 +165,9 @@ export function frameMatches(
   const parsed = parseKey(key);
   const { validator, channel } = resolveKey(compiled, key, namespaceParsed(parsed, frame.owner));
   if (frame.event !== parsed.event) return false;
+
   if (!routingMatches(parsed, channel, frame)) return false;
+
   try {
     validateValue(validator, frame.payload, parsed.event);
     return true;

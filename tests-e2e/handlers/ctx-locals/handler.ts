@@ -1,9 +1,9 @@
-import { define, emits, localKey, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { intercepts } from '@wskit/server/intercepts';
-import { requests } from '@wskit/server/requests';
+import { emits, localKey, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { intercepts } from '@livething/server/intercepts';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const EchoPayload = v.object({ text: v.string() });
@@ -12,10 +12,14 @@ export const TopKey = localKey<{ tag: string }>('top');
 export const NsKey = localKey<{ tag: string }>('ns');
 export const ChannelKey = localKey<{ tag: string }>('channel');
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
-  capabilities: [emits({ echoed: t<{ text: string }>() }), requests(), channels(), intercepts()],
+  capabilities: [
+    emits({ echoed: t<{ text: string }>() }),
+    clientRequests(),
+    channels(),
+    intercepts(),
+  ],
 });
 
 base.intercept((ctx) => {
@@ -41,9 +45,7 @@ const handleLookup = base.request('lookup', {
 });
 
 const room = base.channel('room', {
-  outgoing: {
-    emits: { echoed: t<{ text: string }>() },
-  },
+  capabilities: [emits({ echoed: t<{ text: string }>() })],
 });
 
 room.intercept((ctx) => {
@@ -70,8 +72,8 @@ const handleRoomLookup = room.request('lookup', {
   },
 });
 
-export const ctxLocalsHandler = base.assemble({
+export const ctxLocalsDefinition = base.assemble({
   handlers: [handleEcho, handleLookup, handleRoomEcho, handleRoomLookup],
 });
 
-export type CtxLocalsClient = InferClient<typeof ctxLocalsHandler>;
+export type CtxLocalsClient = InferClient<typeof ctxLocalsDefinition>;

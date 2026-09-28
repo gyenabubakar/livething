@@ -1,4 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import {
+  beginAlarmDelivery,
+  endAlarmDelivery,
+  ensureAlarmCoordinatorSchema,
+  rescheduleAlarm,
+  restoreAlarmCoordinator,
+} from '~/_engine/alarm.ts';
 import { commonDeps } from '~/_engine/engine.deps.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
@@ -7,12 +14,14 @@ import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type { Primitive, ValidationView } from '~/primitive.ts';
 
-/** Throw if the adapter is missing something the handler said it needs. */
+const ALARM_RETRY_DELAY_MS = 1_000;
+
+/** Throw if the adapter is missing something the server definition said it needs. */
 function validateRequires(core: EngineCore): void {
   const requires = core.compiled.requires;
   if (requires.hibernation && !core.options.hibernation) {
     throw new Error(
-      `[wskit] Handler requires hibernation, but adapter "${core.options.adapterId}" does not support it.`,
+      `[livething] Server definition requires hibernation, but adapter "${core.options.adapterId}" does not support it.`,
     );
   }
 }
@@ -33,9 +42,10 @@ function validatePrimitives(core: EngineCore): void {
         return core.isChannelDurable(key);
       },
     };
+
     for (const primitive of primitives) {
       primitive.__validate?.(view);
-      if (primitive.__wskit === 'channel') {
+      if (primitive.__livething === 'channel') {
         const channelPrimitive = primitive as Primitive & {
           pattern: string | { key: string };
           primitives: readonly Primitive[];
@@ -86,7 +96,13 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   if (core.compiled.scheduled.size > 0) {
     accessDeps.ensureScheduledRuntime();
   }
+
   validatePrimitives(core);
+
+  if (core.hooks.alarm.length > 0 || core.alarmSources.size > 0) {
+    core.hooks.bootSchema.unshift(() => ensureAlarmCoordinatorSchema(core));
+    core.hooks.boot.unshift(() => restoreAlarmCoordinator(core));
+  }
 
   // Schema-init hooks (CREATE TABLE IF NOT EXISTS) run on every boot: a
   // capability added after storage was already initialized still needs its
@@ -98,9 +114,11 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
     for (const hook of core.hooks.bootSchema) {
       await hook();
     }
+
     if (storageForSchema && schemaState.fresh) {
       markSchemaInitialized(storageForSchema.sql);
     }
+
     // A storage that has booted before may already hold membership rows, so
     // the first auto-rejoin must not be skipped.
     if (storageForSchema) core.freshBoot = schemaState.fresh;
@@ -111,7 +129,6 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   }
 
   const initCtx = createInitContext({
-    env: core.env,
     logger: core.logger,
     platform: core.platform,
     getStorageView: commonDeps(core).getStorageView,
@@ -121,6 +138,7 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   for (const entry of core.hooks.pluginLifecycle.init) {
     await entry.handler(initCtx);
   }
+
   for (const hook of core.hooks.init) {
     await hook(initCtx);
   }
@@ -133,34 +151,47 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
 /** Adapter scheduled-callback entry. Runs `initialize` first, then walks scheduled hooks. */
 export async function handleAlarm(core: EngineCore, accessDeps: EngineAccessDeps): Promise<void> {
   await initialize(core, accessDeps);
-  const failures: unknown[] = [];
+  beginAlarmDelivery(core);
   try {
+    const failures: unknown[] = [];
     for (const hook of core.hooks.alarm) {
       try {
         await hook();
       } catch (error) {
         // One capability's durable cleanup must not starve another capability
         // that shares the adapter's single alarm. Keep running every hook so
-        // successful sources can make progress; the failure is rethrown below
-        // so the adapter can apply its normal alarm retry policy.
+        // successful sources can make progress; the engine schedules retries.
         failures.push(error);
       }
     }
-  } finally {
-    // A source may have removed its due work, while another source may still
-    // have a future deadline. Always rebuild the shared alarm, even when one
-    // hook fails and the adapter retries the alarm invocation.
-    try {
-      accessDeps.rescheduleAlarm();
-    } catch (error) {
-      failures.push(error);
-    }
-  }
 
-  if (failures.length === 1) {
-    throw failures[0];
-  }
-  if (failures.length > 1) {
-    throw new AggregateError(failures, '[wskit] one or more durable alarm hooks failed');
+    let retryAt: number | null = null;
+    if (failures.length > 0) {
+      const error =
+        failures.length === 1
+          ? failures[0]
+          : new AggregateError(failures, '[livething] one or more durable alarm hooks failed');
+      core.logger.error('[livething] durable alarm hook failed; retrying', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      retryAt = Date.now() + ALARM_RETRY_DELAY_MS;
+    }
+
+    // A source may have removed its due work, while another source may still
+    // have a future deadline. Include the framework retry in the same shared
+    // calculation so a later retry cannot replace another source's earlier work.
+    try {
+      await rescheduleAlarm(core, { retryAt });
+    } catch (retryError) {
+      if (retryAt !== null) {
+        core.logger.error('[livething] durable alarm retry could not be scheduled', {
+          error: retryError instanceof Error ? retryError.message : String(retryError),
+        });
+      }
+
+      throw retryError;
+    }
+  } finally {
+    endAlarmDelivery(core);
   }
 }

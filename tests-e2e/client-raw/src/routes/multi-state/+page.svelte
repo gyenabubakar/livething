@@ -6,12 +6,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/multi-state?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -21,17 +23,18 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'tag-batch-done') batchAcks += 1;
 		};
 	}
 
 	function sendAdd() {
-		ws?.send(JSON.stringify({ event: 'add-five-tags', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'add-five-tags', payload: {} }));
 	}
 
 	function sendRemove() {
-		ws?.send(JSON.stringify({ event: 'remove-five-tags', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'remove-five-tags', payload: {} }));
 	}
 </script>
 

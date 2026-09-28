@@ -20,22 +20,22 @@ test.describe('stream edge cases', () => {
     });
 
     const streamId = 'boom-mid-1';
-    await send(page, a, { event: 'boom-mid', payload: {}, __wskit: { streamId } });
+    await send(page, a, { event: 'boom-mid', payload: {}, metadata: { stream: { id: streamId } } });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamOk__' && f.metadata?.stream?.id === streamId,
     });
 
     // Two pre-throw chunks arrive, then the generator throws and the engine
-    // sends an __error__ frame correlated by streamId.
+    // sends an __error__ frame with the same `metadata.stream.id`.
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.id === streamId,
     });
 
     const all = await frames(page, a);
     const chunks = all.filter((f) => f.event === 'boom-mid' && typeof f.payload?.idx === 'number');
     expect(chunks.map((c) => c.payload.idx)).toEqual([1, 2]);
 
-    const err = all.find((f) => f.event === '__error__' && f.__wskit?.streamId === streamId)!;
+    const err = all.find((f) => f.event === '__error__' && f.metadata?.stream?.id === streamId)!;
     // The throw is a plain Error — the framework wraps it as internal-error
     // to avoid leaking server internals to the client.
     expect(err.payload.code).toBe('internal-error');
@@ -51,7 +51,11 @@ test.describe('stream edge cases', () => {
       username: 'alice',
       room: room,
     });
-    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     // Unique per run: this stream sleeps 60s and never ends, so a fixed id
@@ -60,7 +64,7 @@ test.describe('stream edge cases', () => {
     await send(page, a, {
       event: 'attempt-broadcast',
       payload: {},
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
     const firstChunk = await waitForFrame(page, a, {
       match: (f) => f.event === 'attempt-broadcast' && typeof f.payload?.attempt === 'number',
@@ -75,13 +79,17 @@ test.describe('stream edge cases', () => {
       username: 'alice',
       room: room,
     });
-    await send(page, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, b, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
     await waitForFrame(page, b, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, b, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 1 },
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
 
     // Resumable is live (no replay): the creator-resume re-runs the generator
@@ -90,13 +98,13 @@ test.describe('stream edge cases', () => {
       match: (f) =>
         f.event === 'attempt-broadcast' &&
         typeof f.payload?.attempt === 'number' &&
-        f.__wskit?.seq !== 1,
+        f.metadata?.stream?.seq !== 1,
       timeoutMs: 10_000,
     });
     expect(next.payload.attempt).toBe(2);
   });
 
-  test('dev-supplied _streamId on a channel-scoped durable stream pins the resume key', async ({
+  test('a supplied metadata.stream.id pins a channel-scoped durable stream resume key', async ({
     page,
   }, testInfo) => {
     const room = `sec-${testInfo.testId}-${Date.now()}`;
@@ -106,25 +114,29 @@ test.describe('stream edge cases', () => {
       username: 'alice',
       room: room,
     });
-    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     const streamId = 'pinned-channel-id';
     await send(page, a, {
       event: 'history',
       payload: {},
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
     const ok = await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
-    expect(ok.__wskit?.streamId).toBe(streamId);
-    expect(ok.__wskit?.channel).toBe('rooms');
+    expect(ok.metadata?.stream?.id).toBe(streamId);
+    expect(ok.metadata?.channel?.name).toBe('rooms');
 
     await waitForFrame(page, a, {
       match: (f) =>
         f.event === 'history' &&
         typeof f.payload?.idx === 'number' &&
-        f.__wskit?.streamId === streamId &&
-        f.__wskit?.channel === 'rooms',
+        f.metadata?.stream?.id === streamId &&
+        f.metadata?.channel?.name === 'rooms',
     });
 
     await closeSocket(page, a);
@@ -134,16 +146,20 @@ test.describe('stream edge cases', () => {
       username: 'alice',
       room: room,
     });
-    await send(page, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, b, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
     await waitForFrame(page, b, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, b, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
     await waitForFrame(page, b, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
     });
   });
 
@@ -162,22 +178,22 @@ test.describe('stream edge cases', () => {
     await send(page, a, {
       event: 'start-tokens',
       payload: { count: 10 },
-      __wskit: { streamId: 'first' },
+      metadata: { stream: { id: 'first' } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === 'first',
+      match: (f) => f.event === '__streamOk__' && f.metadata?.stream?.id === 'first',
     });
     // Wait for at least one chunk so the generator is definitely running.
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).some((f) => f.event === 'start-tokens'),
+        (window.__livethingFrames!(sid as string) ?? []).some((f) => f.event === 'start-tokens'),
       [a],
     );
 
     await send(page, a, {
       event: 'start-tokens',
       payload: { count: 10 },
-      __wskit: { streamId: 'second' },
+      metadata: { stream: { id: 'second' } },
     });
     const err = await waitForFrame(page, a, {
       match: (f) => f.event === '__error__' && f.payload.code === 'stream-already-active',
@@ -185,6 +201,10 @@ test.describe('stream edge cases', () => {
     expect(err.payload.code).toBe('stream-already-active');
 
     // Connection is alive — cancel the first stream.
-    await send(page, a, { event: '__streamCancel__', payload: {}, __wskit: { streamId: 'first' } });
+    await send(page, a, {
+      event: '__streamCancel__',
+      payload: null,
+      metadata: { stream: { id: 'first' } },
+    });
   });
 });

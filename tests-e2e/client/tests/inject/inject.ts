@@ -1,10 +1,10 @@
-import { channels, client, connect } from '@wskit/client';
-import { inject, injectChannel } from '@wskit/client/testing';
-import type { Socket } from '@wskit/client';
-import type { GroupFullSurfaceClient } from '@wskit/tests-e2e-handlers/group-full-surface';
+import { channels, client, connect } from '@livething/client';
+import { inject, injectChannel } from '@livething/client/testing';
+import type { Socket } from '@livething/client';
+import type { GroupFullSurfaceClient } from '@livething/tests-e2e-handlers/group-full-surface';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives the @wskit/client/testing helpers — inject / injectChannel — typed
+// Drives the @livething/client/testing helpers — inject / injectChannel — typed
 // against a real contract (GroupFullSurfaceClient). The socket is never
 // connected: inject runs the local pipeline and dispatches to on() handlers as
 // if the server had sent the frame.

@@ -39,6 +39,7 @@ function augmenterEngine(opts: { inboxChannels: Set<string>; readReceiptsChannel
 
   registerInboxHandleAugmenter(engine);
   registerReadReceiptsHandleAugmenter(engine);
+
   return { augmenters, sql };
 }
 
@@ -72,6 +73,7 @@ describe('inbox handle-augmenter', () => {
     expect(typeof surface!.backfill).toBe('function');
     expect(typeof surface!.receiversOf).toBe('function');
     expect(typeof surface!.backlog).toBe('function');
+
     expect(surface!.backlog()).toEqual([]);
   });
 

@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { errorHookIsolationHandler } from '@wskit/tests-e2e-handlers/error-hook-isolation';
+import { bind } from '@livething/server-cloudflare';
+import { errorHookIsolationDefinition } from '@livething/tests-e2e-handlers/error-hook-isolation';
 
-export class ErrorHookIsolationServer extends server(errorHookIsolationHandler) {}
+export class ErrorHookIsolationServer extends bind(errorHookIsolationDefinition) {}

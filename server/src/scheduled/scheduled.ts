@@ -17,6 +17,12 @@ export interface ScheduledOptions {
   readonly retry?: boolean | readonly number[];
 }
 
+interface ScheduledDeclaration {
+  hasData: boolean;
+  dataSchema?: Validator;
+  options?: ScheduledOptions;
+}
+
 /**
  * An opaque handle returned when a task is enqueued.
  *
@@ -116,9 +122,10 @@ export class ScheduledBuilder<
   ): ScheduledBuilder<TTaskId, TCtx, TNextData, true, THasRun> {
     if (this._options.every !== undefined) {
       throw new Error(
-        `[wskit] scheduled("${this._taskId}") cannot combine .data(...) with .every(...). Recurring tasks have no caller to supply the payload.`,
+        `[livething] scheduled("${this._taskId}") cannot combine .data(...) with .every(...). Recurring tasks have no caller to supply the payload.`,
       );
     }
+
     this._dataSchema = dataSchema as unknown as Validator<TData>;
     return this as unknown as ScheduledBuilder<TTaskId, TCtx, TNextData, true, THasRun>;
   }
@@ -141,9 +148,10 @@ export class ScheduledBuilder<
     assertPositiveInteger(everyMs, '.every(ms)', `scheduled("${this._taskId}")`);
     if (this._dataSchema !== undefined) {
       throw new Error(
-        `[wskit] scheduled("${this._taskId}") cannot combine .every(...) with .data(...). Recurring tasks have no caller to supply the payload.`,
+        `[livething] scheduled("${this._taskId}") cannot combine .every(...) with .data(...). Recurring tasks have no caller to supply the payload.`,
       );
     }
+
     this._options = { ...this._options, every: everyMs };
     return this as unknown as this;
   }
@@ -163,12 +171,14 @@ export class ScheduledBuilder<
   ): ScheduledBuilder<TTaskId, TCtx, TData, THasData, THasRun> {
     if (Array.isArray(retry)) {
       if (retry.length === 0) {
-        throw new Error('[wskit] .retry([...]) requires at least one entry.');
+        throw new Error('[livething] .retry([...]) requires at least one entry.');
       }
+
       for (const entry of retry) {
         assertPositiveInteger(entry, '.retry([ms])', `scheduled("${this._taskId}")`);
       }
     }
+
     this._options = { ...this._options, retry };
     return this;
   }
@@ -194,11 +204,12 @@ export class ScheduledBuilder<
     // engine. The recurring seed has no caller to supply a payload.
     if (this._dataSchema !== undefined && this._options.every !== undefined) {
       throw new Error(
-        `[wskit] scheduled("${this._taskId}") cannot combine .data(...) with .every(...). Recurring tasks have no caller to supply the payload.`,
+        `[livething] scheduled("${this._taskId}") cannot combine .data(...) with .every(...). Recurring tasks have no caller to supply the payload.`,
       );
     }
+
     return {
-      __wskit: 'scheduled',
+      __livething: 'scheduled',
       __kind: 'infrastructure',
       __identity: [SCHEDULED_KEY, this._taskId],
       __requires: {},
@@ -220,10 +231,9 @@ export class ScheduledBuilder<
 }
 
 /**
- * Internal factory that builds the scheduled-task primitive from a fluent
- * builder callback. Called by `assemble(...)` when compiling a `ScheduledDef`.
- * Most apps interact with scheduled tasks through the `scheduled({...})`
- * capability and `base.scheduled(id, { run })`.
+ * Internal factory that builds a scheduled-task primitive from a fluent
+ * builder callback. Durable stream capabilities use it for their internal
+ * recurring work.
  */
 export function scheduled<
   TTaskId extends string,
@@ -242,7 +252,7 @@ export function scheduled<
     (builder as unknown as ScheduledBuilder<TTaskId, TCtx, TData, THasData, true>);
 
   if (!finalized._handler) {
-    throw new Error(`[wskit] scheduled("${taskId}") must call .run(...) before returning.`);
+    throw new Error(`[livething] scheduled("${taskId}") must call .run(...) before returning.`);
   }
 
   return finalized._build();
@@ -264,16 +274,17 @@ scheduled.__key = SCHEDULED_KEY;
  */
 export function makeScheduledPrimitive<TCtx = TaskContext>(
   taskId: string,
-  declaration: { hasData: boolean; dataSchema?: Validator; options?: ScheduledOptions },
+  declaration: ScheduledDeclaration,
   handler: (ctx: TCtx, data?: unknown) => void | Promise<void>,
 ): ScheduledPrimitive<string, unknown, boolean, TCtx> {
   if (declaration.dataSchema !== undefined && declaration.options?.every !== undefined) {
     throw new Error(
-      `[wskit] scheduled("${taskId}") cannot combine data with every. Recurring tasks have no caller to supply the payload.`,
+      `[livething] scheduled("${taskId}") cannot combine data with every. Recurring tasks have no caller to supply the payload.`,
     );
   }
+
   return {
-    __wskit: 'scheduled',
+    __livething: 'scheduled',
     __kind: 'infrastructure',
     __identity: [SCHEDULED_KEY, taskId],
     __requires: {},

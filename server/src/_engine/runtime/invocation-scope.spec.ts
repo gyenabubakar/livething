@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineAsyncContextStore } from '~/_engine/async-context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -40,6 +40,7 @@ function createFakeCore(): {
       },
     },
     storage: { sql },
+    pendingSnapshotFlushes: new Map(),
   } as unknown as EngineCore;
 
   return { core, writes, attachments, sqlExec };
@@ -117,6 +118,7 @@ describe('withInvocationScope', () => {
         connection.meta = { step };
         persistAttachment(core, connection);
       }
+
       expect(writes).toEqual([]);
     });
 
@@ -135,6 +137,7 @@ describe('withInvocationScope', () => {
       b.meta = { x: 1 };
       persistAttachment(core, b);
       a.meta = { x: 2 };
+
       persistAttachment(core, a);
       c.meta = { x: 1 };
       persistAttachment(core, c);
@@ -253,12 +256,13 @@ describe('withInvocationScope', () => {
     const close = vi.fn();
     connection.descriptor = { close } as never;
     const failure = new Error('async persist failed');
+
     (core.options as unknown as { hibernation: { persist: () => unknown } }).hibernation.persist =
       () => Promise.reject(failure);
 
     expect(() => persistAttachment(core, connection)).toThrow(/async callbacks are not supported/);
     expect(connection.lastPersistedFingerprint).toBeUndefined();
-    expect(close).toHaveBeenCalledWith(1011, '[wskit] connection state could not be persisted');
+    expect(close).toHaveBeenCalledWith(1011, '[livething] connection state could not be persisted');
     expect(connection.preserveStateOnClose).not.toBe(true);
   });
 
@@ -275,8 +279,8 @@ describe('withInvocationScope', () => {
       },
     };
 
-    expect(() => persistAttachment(core, connection)).toThrow(WSKitConfigError);
-    expect(close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(() => persistAttachment(core, connection)).toThrow(LiveThingConfigError);
+    expect(close).toHaveBeenCalledWith(1011, '[livething] translator configuration failed');
     expect(connection.preserveStateOnClose).toBe(true);
   });
 
@@ -286,6 +290,7 @@ describe('withInvocationScope', () => {
     const close = vi.fn();
     connection.descriptor = { close } as never;
     connection.closing = true;
+
     connection.translator = {
       inbound: (raw) => raw,
       hibernation: {

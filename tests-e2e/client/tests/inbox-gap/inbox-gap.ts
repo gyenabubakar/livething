@@ -1,8 +1,8 @@
-import { channels, client, connect, dedup, gaps, inbox, reconnection } from '@wskit/client';
-import type { InboxGapClient } from '@wskit/tests-e2e-handlers/inbox-gap';
+import { channels, client, connect, dedup, gaps, inbox, reconnection } from '@livething/client';
+import type { InboxGapClient } from '@livething/tests-e2e-handlers/inbox-gap';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives inbox OVERFLOW against the real inbox-gap handler (retention keeps one
+// Drives inbox OVERFLOW against the real inbox-gap server definition (retention keeps one
 // undelivered row per member). While a member is offline, a second broadcast
 // evicts the first held row and lifts its overflow watermark; on reconnect the
 // drain emits `__gap__` before the surviving row. The `?gaps=1` variant runs
@@ -66,12 +66,15 @@ export function setup(): void {
   WebSocket.prototype.send = function (data) {
     if (typeof data === 'string') {
       try {
-        const frame = JSON.parse(data) as { event?: unknown };
-        if (frame.event === '__unsubscribe__') unsubscribeFrames.push(data);
+        const frame = JSON.parse(data);
+        if (Array.isArray(frame) && frame.length === 3 && frame[0] === '__unsubscribe__') {
+          unsubscribeFrames.push(data);
+        }
       } catch {
         // The socket still sends the original frame; only the test capture is skipped.
       }
     }
+
     return nativeSend.call(this, data);
   };
 
@@ -100,6 +103,7 @@ export function setup(): void {
       .map(([userId, receivedThrough]) => `${userId}=${receivedThrough}`)
       .join(',');
   }
+
   chat.receivers.subscribe(renderReceivers);
   renderReceivers();
 
@@ -127,6 +131,7 @@ export function setup(): void {
   button('send-m2', () => {
     chat.send('send-room-msg', { text: 'm2' });
   });
+
   button('leave-rejoin', async () => {
     await chat.unsubscribe();
     await chat.subscribe();
@@ -144,6 +149,7 @@ export function setup(): void {
     // confirmation with the same id while the original reply remains delayed.
     const firstFrame = unsubscribeFrames.at(-1);
     if (!firstFrame) throw new Error('missing first unsubscribe frame');
+
     socket.ws?.send(firstFrame);
 
     await leave;
@@ -156,6 +162,7 @@ export function setup(): void {
       newerLeaveSettled = true;
     });
     el('race-newer-leave-started').textContent = 'yes';
+
     await secondHook;
 
     // Release the original leave only after leave two is waiting. Its old id
@@ -165,6 +172,7 @@ export function setup(): void {
     await new Promise((resolve) => setTimeout(resolve, 25));
     el('race-stale-delivered').textContent = newerLeaveSettled ? 'no' : 'yes';
     el('race-receipts-preserved').textContent = chat.receivers.get().size > 0 ? 'yes' : 'no';
+
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     releaseRaceLeave(2);
@@ -182,6 +190,7 @@ export function setup(): void {
   el('race-leave-started').textContent = '';
   el('race-newer-leave-started').textContent = '';
   el('race-stale-delivered').textContent = '';
+
   el('race-receipts-preserved').textContent = '';
   el('race-newer-leave-settled').textContent = '';
   el('race-rejoined').textContent = '';

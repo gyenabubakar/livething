@@ -1,10 +1,10 @@
-import { client, connect, stream } from '@wskit/client';
-import type { StreamSignalClient } from '@wskit/tests-e2e-handlers/stream-signal';
+import { client, connect, stream } from '@livething/client';
+import type { StreamSignalClient } from '@livething/tests-e2e-handlers/stream-signal';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's stream().cancel() against the real `stream-signal`
-// handler, typed by the same contract the server implements (StreamSignalClient
-// = InferClient<handler>). The generator yields one chunk then parks on a 60s
+// Drives @livething/client's stream().cancel() against the real `stream-signal`
+// server definition, typed by the same contract the server implements (StreamSignalClient
+// = InferClient<definition>). The generator yields one chunk then parks on a 60s
 // timer wired to ctx.stream.signal; a client cancel must fire the signal and
 // interrupt the parked work, proven by the `signal-fired` event.
 export function setup(): void {

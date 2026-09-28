@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { dispatchRuntime } from '~/_engine/engine.deps.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -18,26 +18,26 @@ type AnyServerDefinition = ServerDefinition<readonly Primitive[], ServerContract
 
 const TickInput = v.object({ n: v.number() });
 
-async function makeEngine(handler: AnyServerDefinition): Promise<Engine> {
+async function makeEngine(definition: AnyServerDefinition): Promise<Engine> {
   let engine: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'bench',
     hibernation: { persist() {}, restore: () => undefined },
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       engine = createEngine({
         storage: { sql: createTestSql(), kv: createTestKV() },
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
   await engine!.initialize();
+
   return engine!;
 }
 
@@ -63,8 +63,8 @@ function createConnection(): RuntimeConnection {
 }
 
 /** A handler with nothing listed — the smallest context the engine ever builds. */
-function bareHandler(): AnyServerDefinition {
-  const base = define({ env: t<Record<string, never>>() });
+function bareDefinition(): AnyServerDefinition {
+  const base = server({});
   return base.assemble({
     handlers: [base.on('tick', { input: TickInput, run() {} })],
   }) as AnyServerDefinition;
@@ -75,9 +75,8 @@ function bareHandler(): AnyServerDefinition {
  * accessor the engine can attach (`connectionCount`, `bufferedAmount`,
  * `channels`, `tags`). This is the shape a real app builds on every frame.
  */
-function fullHandler(): AnyServerDefinition {
-  const base = define({
-    env: t<Record<string, never>>(),
+function fullDefinition(): AnyServerDefinition {
+  const base = server({
     capabilities: [channels(), tags((ephemeral) => [ephemeral('team', t<string>())])],
   });
   const room = base.channel('room', { membership: 'ephemeral' });
@@ -89,8 +88,8 @@ function fullHandler(): AnyServerDefinition {
   }) as AnyServerDefinition;
 }
 
-const bareCore = (await makeEngine(bareHandler())).core;
-const fullCore = (await makeEngine(fullHandler())).core;
+const bareCore = (await makeEngine(bareDefinition())).core;
+const fullCore = (await makeEngine(fullDefinition())).core;
 
 const buildBare = dispatchRuntime(bareCore).buildConnectionContext;
 const buildFull = dispatchRuntime(fullCore).buildConnectionContext;

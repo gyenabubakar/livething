@@ -6,6 +6,8 @@ import {
 import type { AnyCapability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 
+type ResolveCapabilityRequirementsOptionsParameter = { scoped: boolean };
+
 /** A channel primitive nests its own primitives; a durable stream can live there. */
 function nestedPrimitives(primitive: Primitive): readonly Primitive[] {
   return (primitive as { primitives?: readonly Primitive[] }).primitives ?? [];
@@ -20,7 +22,7 @@ function walkPrimitives(primitives: readonly Primitive[], visit: (p: Primitive) 
 }
 
 /**
- * The `__wskit` tags of the primitives that declared a requirement on `kind`.
+ * The `__livething` tags of the primitives that declared a requirement on `kind`.
  * Uses each primitive's own self-declared identity — no capability-specific
  * mapping — so the resolver names the requiring features without knowing what
  * any of them are.
@@ -28,7 +30,7 @@ function walkPrimitives(primitives: readonly Primitive[], visit: (p: Primitive) 
 function neededBy(primitives: readonly Primitive[], kind: string): string {
   const tags = new Set<string>();
   walkPrimitives(primitives, (p) => {
-    if ((p.__requiresCapabilities ?? []).includes(kind)) tags.add(p.__wskit);
+    if ((p.__requiresCapabilities ?? []).includes(kind)) tags.add(p.__livething);
   });
   return [...tags].join(', ');
 }
@@ -44,7 +46,7 @@ function neededBy(primitives: readonly Primitive[], kind: string): string {
  * top-level primitive only has the top-level list.
  *
  * On an app a required capability that is not listed anywhere reachable is a
- * build error. On a plugin's scoped handler (`define({ scope: 'plugin' })`) a
+ * build error. On a plugin's scoped server definition (`server({ scope: 'plugin' })`) a
  * required capability that the plugin cannot own (a host-owned engine) is not
  * an error — it is returned as a host dependency, so the plugin can declare it
  * implicitly and the host must provide it. A plugin missing a capability it
@@ -53,7 +55,7 @@ function neededBy(primitives: readonly Primitive[], kind: string): string {
 export function resolveCapabilityRequirements(
   primitives: readonly Primitive[],
   capabilities: readonly AnyCapability[],
-  options: { scoped: boolean },
+  options: ResolveCapabilityRequirementsOptionsParameter,
 ): { hostDependencies: readonly string[] } {
   const present = new Set<string>();
   for (const cap of capabilities) {
@@ -82,10 +84,12 @@ export function resolveCapabilityRequirements(
       if (!inPlugin) {
         for (const kind of primitive.__requiresCapabilities ?? []) {
           if (present.has(kind) || channelLocal?.has(kind)) continue;
+
           if (options.scoped && HOST_ONLY_CAPABILITY_KINDS.has(kind)) {
             hostDependencies.add(kind);
             continue;
           }
+
           const name = capabilityDisplayName(kind);
           // A channel-only capability (inbox, readReceipts) can only ever be
           // listed inside a channel's own `capabilities`; a host-only one
@@ -96,28 +100,32 @@ export function resolveCapabilityRequirements(
           if (CHANNEL_ONLY_CAPABILITY_KINDS.has(kind)) {
             where = "this channel's capabilities";
           } else if (HOST_ONLY_CAPABILITY_KINDS.has(kind)) {
-            where = 'define({ capabilities: [...] })';
+            where = 'server({ capabilities: [...] })';
           } else {
             where = channelLocal
-              ? `this channel's capabilities, or to define({ capabilities: [...] })`
+              ? `this channel's capabilities, or to server({ capabilities: [...] })`
               : 'capabilities';
           }
+
           throw new Error(
-            `[wskit] The ${name} capability is required by ${neededBy(primitives, kind)} but is not listed. Add ${name} to ${where}.`,
+            `[livething] The ${name} capability is required by ${neededBy(primitives, kind)} but is not listed. Add ${name} to ${where}.`,
           );
         }
       }
+
       const nested = nestedPrimitives(primitive);
       if (nested.length === 0) continue;
+
       walk(
         nested,
-        primitive.__wskit === 'channel' ? channelCapabilityKinds(primitive) : channelLocal,
+        primitive.__livething === 'channel' ? channelCapabilityKinds(primitive) : channelLocal,
         inPlugin,
       );
     }
   }
 
   walk(primitives, undefined, false);
+
   return { hostDependencies: [...hostDependencies] };
 }
 
@@ -126,7 +134,7 @@ export function resolveCapabilityRequirements(
  * stamped on it by `ChannelBuilder` from the `__capabilityKind` of each
  * capability in that channel's own `capabilities` list (e.g. `inbox()`,
  * `readReceipts()`). This is the requirement-matching namespace
- * (`CAPABILITY_KIND.*`); it is never inferred from a primitive's `__wskit` tag,
+ * (`CAPABILITY_KIND.*`); it is never inferred from a primitive's `__livething` tag,
  * which is a display identity and is not guaranteed to equal its capability's
  * kind.
  */

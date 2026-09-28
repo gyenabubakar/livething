@@ -1,13 +1,12 @@
-import { define, t } from '@wskit/server';
-import { requests } from '@wskit/server/requests';
+import { server } from '@livething/server';
+import { clientRequests } from '@livething/server/client-requests';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
-  capabilities: [requests()],
+  capabilities: [clientRequests()],
 });
 
 // Hook intentionally throws — the engine must still send `__error__` to the
@@ -26,6 +25,6 @@ const handleDoRequest = base.request('do-request', {
   },
 });
 
-export const errorHookIsolationHandler = base.assemble({ handlers: [handleDoRequest] });
+export const errorHookIsolationDefinition = base.assemble({ handlers: [handleDoRequest] });
 
-export type ErrorHookIsolationClient = InferClient<typeof errorHookIsolationHandler>;
+export type ErrorHookIsolationClient = InferClient<typeof errorHookIsolationDefinition>;

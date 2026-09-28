@@ -1,8 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server as createServerDefinition } from '~/_define/server.ts';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -11,7 +10,7 @@ import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
-import { plugin } from './plugin.ts';
+import { plugin } from './plugins.ts';
 
 function makeStorage() {
   const sql = {
@@ -22,29 +21,30 @@ function makeStorage() {
       return fn(sql);
     },
   };
+
   return { sql, kv: { get() {}, put() {}, delete() {}, list: () => [] } } as any;
 }
 
-function buildEngine(handler: ServerDefinition): Engine {
+function buildEngine(definition: ServerDefinition): Engine {
   let captured: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'ctx-gating-runtime',
     hibernation: { persist() {}, restore: () => undefined },
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       captured = createEngine({
         storage: makeStorage(),
-        env: {},
+
         platform: {},
         timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};
     },
   });
-  server(handler, undefined as never);
+  runAdapter(definition, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return captured;
 }
 
@@ -79,18 +79,21 @@ async function captureCtx(server: ProbeServer): Promise<any> {
   server.slot.fn = (ctx: any) => {
     captured = ctx;
   };
-  await conn.handleMessage(JSON.stringify({ event: 'probe', payload: {} }));
+
+  await conn.handleMessage(JSON.stringify(['probe', {}, null]));
   if (!captured) throw new Error('probe handler did not run');
+
   return captured;
 }
 
 describe('capability-owned ctx surfaces — runtime gating', () => {
   it('a bare server exposes none of the gated surfaces', async () => {
-    const ctx = await captureCtx(probeServer(define({ env: t<{}>() })));
+    const ctx = await captureCtx(probeServer(createServerDefinition({})));
     expect('schedule' in ctx).toBe(false);
     expect('cancelScheduled' in ctx).toBe(false);
     expect('latency' in ctx).toBe(false);
     expect('quality' in ctx).toBe(false);
+
     expect('plugin' in ctx).toBe(false);
     // matches / unsafeCast are core, not gated — they ride on every ctx.
     expect('matches' in ctx).toBe(true);
@@ -98,7 +101,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('ctx.matches / ctx.unsafeCast work on a server without intercepts()', async () => {
-    const ctx = await captureCtx(probeServer(define({ env: t<{}>() })));
+    const ctx = await captureCtx(probeServer(createServerDefinition({})));
 
     const frame = {
       event: 'probe',
@@ -114,9 +117,9 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('scheduled() adds ctx.schedule / ctx.cancelScheduled that call through', async () => {
-    const base = define({ env: t<{}>(), capabilities: [scheduled({ cleanup: null })] });
-    const cleanup = base.scheduled('cleanup', { run() {} });
-    const ctx = await captureCtx(probeServer(base, cleanup));
+    const base = createServerDefinition({ capabilities: [scheduled({ cleanup: null })] });
+    base.scheduled('cleanup', { run() {} });
+    const ctx = await captureCtx(probeServer(base));
 
     expect('schedule' in ctx).toBe(true);
     expect('cancelScheduled' in ctx).toBe(true);
@@ -126,8 +129,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('keepalive() adds live ctx.latency / ctx.quality', async () => {
-    const base = define({
-      env: t<{}>(),
+    const base = createServerDefinition({
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 })],
     });
     const ctx = await captureCtx(probeServer(base));
@@ -145,13 +147,13 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('listing a plugin adds ctx.plugin; it resolves the api and throws for unknown ids', async () => {
-    const ph = define({ scope: 'plugin', capabilities: [] });
+    const ph = createServerDefinition({ scope: 'plugin', capabilities: [] });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Presence = plugin('acme:presence', {
-      handler: ph.assemble({ handlers: [beat], api: () => ({ tag: 'presence-api' }) }),
+      definition: ph.assemble({ handlers: [beat], api: () => ({ tag: 'presence-api' }) }),
     });
 
-    const base = define({ env: t<{}>(), capabilities: [Presence()] });
+    const base = createServerDefinition({ capabilities: [Presence()] });
     const ctx = await captureCtx(probeServer(base));
 
     expect('plugin' in ctx).toBe(true);
@@ -161,8 +163,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('a stream-sweep-only server (recordedStream, no scheduled()) has no ctx.schedule', async () => {
-    const base = define({
-      env: t<{}>(),
+    const base = createServerDefinition({
       capabilities: [recordedStream()],
     });
     const ctx = await captureCtx(probeServer(base));

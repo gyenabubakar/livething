@@ -13,18 +13,17 @@ type ErrorsSlot<TDefs extends readonly ErrorDef<string, any>[]> = { errors: Erro
 /**
  * Declare the typed errors this server can throw, so they appear in the
  * generated client and can be matched there. List the result in
- * `define({ capabilities: [...] })`. Build each error with the `error(...)`
+ * `server({ capabilities: [...] })`. Build each error with the `error(...)`
  * factory.
  *
  * @example
  * ```ts
- * import { define, errors, error, t } from '@wskit/server';
+ * import { server, errors, error, t } from '@livething/server';
  * import * as v from 'valibot';
  *
  * const NotFound = error('not-found', v.object({ id: v.string() }));
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [errors([NotFound])],
  * });
  *
@@ -33,10 +32,12 @@ type ErrorsSlot<TDefs extends readonly ErrorDef<string, any>[]> = { errors: Erro
  */
 export const errors = withCapabilityKind(function errors<
   const TDefs extends readonly [ErrorDef<string, any>, ...ErrorDef<string, any>[]],
->(defs: TDefs): Capability<ErrorsSlot<TDefs>> {
+>(defs: TDefs): Capability<ErrorsSlot<TDefs>, never, never, typeof CAPABILITY_KIND.errors> {
   collectUnique(defs, (def) => def.code, { kind: 'error code', context: 'errors([...])' });
   return stampKind(
-    capability<ErrorsSlot<TDefs>>([errorsPrimitive(...defs)]),
+    capability<ErrorsSlot<TDefs>, never, never, typeof CAPABILITY_KIND.errors>([
+      errorsPrimitive(...defs),
+    ]),
     CAPABILITY_KIND.errors,
   );
 }, CAPABILITY_KIND.errors);

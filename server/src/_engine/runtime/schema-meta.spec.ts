@@ -11,7 +11,9 @@ function sqlThatThrows(message: string) {
 
 describe('readSchemaState (#4)', () => {
   it('reports a fresh database when the meta table is missing', () => {
-    expect(readSchemaState(sqlThatThrows('no such table: __wskit_meta'))).toEqual({ fresh: true });
+    expect(readSchemaState(sqlThatThrows('no such table: __livething_meta'))).toEqual({
+      fresh: true,
+    });
   });
 
   it('propagates any other storage error instead of masquerading as fresh', () => {

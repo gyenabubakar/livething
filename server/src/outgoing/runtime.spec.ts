@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { addChannelMembership } from '~/channel/runtime.ts';
 import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 import {
@@ -45,10 +45,9 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
       channelFamilies: new Map(),
     } as unknown as OutgoingRuntime['compiled'],
     outgoingHooks: [],
-    wskitStampHooks: [],
+    livethingStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
-    waitUntil() {},
     logger: {
       warn() {},
       error() {},
@@ -72,24 +71,24 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).toThrow(/plain object/);
   });
 
-  it("keeps a stream chunk's own seq even when a global seq stamper is active", () => {
-    // The global sequence stamper would set seq=999, but a durable stream
-    // chunk carries its own per-stream seq in routing. The chunk's seq must
+  it("keeps a stream chunk's own sequence even when a global sequence stamper is active", () => {
+    // The global sequence stamper would set deliverySeq=999, but a durable stream
+    // chunk carries its own per-stream sequence in routing. The chunk's sequence must
     // win, or interleaved global traffic would make chunk seqs look gappy and
     // break the client's missed-chunk detection.
-    const runtime = createRuntime({ wskitStampHooks: [() => ({ seq: 999 })] });
+    const runtime = createRuntime({ livethingStampHooks: [() => ({ deliverySeq: 999 })] });
     const connection = createConnection();
     const send = connection.descriptor.send as ReturnType<typeof vi.fn>;
 
     sendThroughPipeline(runtime, connection, {
-      routing: { streamId: 's1', seq: 3 },
+      routing: { streamId: 's1', streamSeq: 3 },
       event: 'foo',
       payload: { n: 1 },
     });
 
     const sent = JSON.parse(send.mock.calls[0]![0] as string);
-    expect(sent.__wskit.seq).toBe(3);
-    expect(sent.__wskit.streamId).toBe('s1');
+    expect(sent[2].stream).toMatchObject({ seq: 3, id: 's1' });
+    expect(sent[2].delivery).toBeUndefined();
 
     // A regular message (no seq in routing) still gets the stamped global seq.
     send.mockClear();
@@ -98,7 +97,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       event: 'foo',
       payload: { n: 2 },
     });
-    expect(JSON.parse(send.mock.calls[0]![0] as string).__wskit.seq).toBe(999);
+    expect(JSON.parse(send.mock.calls[0]![0] as string)[2].delivery.seq).toBe(999);
   });
 
   it('throws when payload is a primitive number', () => {
@@ -165,7 +164,31 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const sent = JSON.parse(
       (connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string,
     );
-    expect(sent).toEqual({ event: 'foo', payload: { a: 1 }, __wskit: {} });
+    expect(sent).toEqual(['foo', { a: 1 }, null]);
+  });
+
+  it('registers asynchronous after-send work for engine shutdown', () => {
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const trackBackgroundWork = vi.fn();
+    const runtime = createRuntime({ afterSendHooks: [() => pending] }) as OutgoingRuntime & {
+      trackBackgroundWork?: (work: Promise<void>) => void;
+    };
+    runtime.trackBackgroundWork = trackBackgroundWork;
+
+    try {
+      sendThroughPipeline(runtime, createConnection(), {
+        routing: undefined,
+        event: 'foo',
+        payload: {},
+      });
+
+      expect(trackBackgroundWork).toHaveBeenCalledWith(pending);
+    } finally {
+      finish();
+    }
   });
 
   it('sends a void request-response acknowledgement with no payload key at all', () => {
@@ -182,11 +205,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).not.toThrow();
 
     const sent = JSON.parse(send.mock.calls[0]![0] as string);
-    expect('payload' in sent).toBe(false);
-    expect(sent).toEqual({
-      event: 'ping',
-      __wskit: { correlationId: 'req123', source: 'client' },
-    });
+    expect(sent).toEqual(['ping', null, { exchange: { id: 'req123', source: 'client' } }]);
   });
 
   it('still runs the outgoing hooks for a void acknowledgement', () => {
@@ -226,7 +245,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       payload: undefined,
     });
 
-    expect(JSON.parse(send.mock.calls[0]![0] as string).payload).toEqual({ stamped: true });
+    expect(JSON.parse(send.mock.calls[0]![0] as string)[1]).toEqual({ stamped: true });
   });
 
   it('still rejects an undefined payload when it is not a request-response', () => {
@@ -252,10 +271,8 @@ describe('outgoing/runtime sendThroughPipeline', () => {
   });
 
   it('rejects single-underscore names that are not engine protocol events', () => {
-    // Pre-fix any `_*` name short-circuited as "protocol traffic" and went
-    // out without declaration, sequence, dedup, or replay. Now only the
-    // engine's known outgoing protocol names are accepted; any other
-    // single-underscore name fails the declaration check.
+    // Only known protocol names bypass application-event declaration checks.
+    // Any other single-underscore name is rejected.
     const runtime = createRuntime();
     const connection = createConnection();
 
@@ -366,7 +383,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     // assertPayloadRecord only checks the in-memory shape, so an object whose
     // toJSON returns undefined passes that gate. Without the serialize-time
     // guard the unicast wire frame silently drops its payload key — the
-    // client receives `{"event":"foo","__wskit":{...}}` and has no signal
+    // client receives `{"event":"foo","__livething":{...}}` and has no signal
     // that the payload was lost. The guard turns it into a loud server-side
     // error pointing at the offending event name.
     const runtime = createRuntime();
@@ -424,6 +441,7 @@ describe('broadcastToConnections — fanout resilience', () => {
     const b = peer('B', () => {
       throw new Error('InvalidStateError: socket is CLOSING');
     });
+
     const c = peer('C', (frame) => delivered.push(`C:${frame}`));
 
     expect(() =>
@@ -441,22 +459,25 @@ describe('broadcastToConnections — fanout resilience', () => {
     const runtime = createRuntime();
     const a = peer('A', () => {});
     const b = peer('B', () => {
-      throw new WSKitConfigError('bad translator config');
+      throw new LiveThingConfigError('bad translator config');
     });
 
     expect(() =>
       broadcastToConnections(runtime, [a, b], { event: 'foo', payload: { text: 'hi' } }),
-    ).toThrow(WSKitConfigError);
+    ).toThrow(LiveThingConfigError);
   });
 
   it('continues when one translated peer has a configuration error', () => {
     const runtime = createRuntime();
     const delivered: string[] = [];
-    const translatedConfigError = new WSKitConfigError('translator outbound must return a string');
+    const translatedConfigError = new LiveThingConfigError(
+      'translator outbound must return a string',
+    );
     markTranslatorConfigError(translatedConfigError);
     const a = peer('A', () => {
       throw translatedConfigError;
     });
+
     const b = peer('B', (frame) => delivered.push(frame));
 
     expect(() =>
@@ -493,10 +514,8 @@ describe('broadcastToConnections — fanout resilience', () => {
   });
 
   it('drops the broadcast and logs once when the payload serializes to undefined (toJSON returns undefined)', () => {
-    // Pre-fix the splice path produced `"payload":undefined` on the wire —
-    // invalid JSON that broke every recipient's parser. The serialize-time
-    // guard fails preparation, the existing catch logs one error, and no
-    // peer receives the frame.
+    // The serialization guard rejects an undefined JSON result, logs one
+    // error, and sends no frame to any peer.
     const errorLogs: Array<{ message: string; data?: unknown }> = [];
     const runtime = createRuntime({
       logger: {
@@ -509,6 +528,7 @@ describe('broadcastToConnections — fanout resilience', () => {
     const sent: string[] = [];
     const a = peer('A', (frame) => sent.push(frame));
     const b = peer('B', (frame) => sent.push(frame));
+
     const bad = { toJSON: () => undefined } as unknown as Record<string, unknown>;
 
     expect(() =>
@@ -520,9 +540,9 @@ describe('broadcastToConnections — fanout resilience', () => {
     expect((errorLogs[0]!.data as { error: string }).error).toMatch(/did not serialize to JSON/);
   });
 
-  it('produces a wire frame that parses to event, payload, and __wskit', () => {
+  it('produces a wire frame that parses to event, payload, and __livething', () => {
     const sent: string[] = [];
-    const runtime = createRuntime({ wskitStampHooks: [() => ({ seq: 7 })] });
+    const runtime = createRuntime({ livethingStampHooks: [() => ({ deliverySeq: 7 })] });
     const a = peer('A', (frame) => sent.push(frame));
     const b = peer('B', (frame) => sent.push(frame));
 
@@ -530,15 +550,11 @@ describe('broadcastToConnections — fanout resilience', () => {
 
     expect(sent).toHaveLength(2);
     for (const frame of sent) {
-      expect(JSON.parse(frame)).toEqual({
-        event: 'foo',
-        payload: { text: 'hi', n: 42 },
-        __wskit: { seq: 7 },
-      });
+      expect(JSON.parse(frame)).toEqual(['foo', { text: 'hi', n: 42 }, { delivery: { seq: 7 } }]);
     }
   });
 
-  it('reuses one frame string across recipients when no stamper varies __wskit', () => {
+  it('reuses one frame string across recipients when no stamper varies __livething', () => {
     const sent: string[] = [];
     const runtime = createRuntime();
     const a = peer('A', (frame) => sent.push(frame));
@@ -548,7 +564,7 @@ describe('broadcastToConnections — fanout resilience', () => {
 
     expect(sent).toHaveLength(2);
     expect(sent[0]).toBe(sent[1]);
-    expect(JSON.parse(sent[0]!)).toEqual({ event: 'foo', payload: { text: 'hi' }, __wskit: {} });
+    expect(JSON.parse(sent[0]!)).toEqual(['foo', { text: 'hi' }, null]);
   });
 });
 
@@ -579,6 +595,7 @@ describe('broadcastToChannel — fanout resilience', () => {
       latency: null,
       quality: 'good',
     };
+
     addChannelMembership(channelMembers, conn, { channelName: 'general', channelFamily: null });
     return conn;
   }
@@ -591,6 +608,7 @@ describe('broadcastToChannel — fanout resilience', () => {
       throw new Error('InvalidStateError: socket is CLOSING');
     });
     const c = peer(channelMembers, 'C', () => {});
+
     const connections = new Map<string, RuntimeConnection>([
       [a.id, a],
       [b.id, b],
@@ -664,6 +682,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
       latency: null,
       quality: 'good',
     };
+
     addChannelMembership(channelMembers, conn, { channelName: 'general', channelFamily: null });
     return conn;
   }
@@ -673,7 +692,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     channelFamily: string | null;
     event: string;
     payload: Record<string, unknown>;
-    seq: number;
+    deliverySeq: number;
     messageId: string;
   };
 
@@ -720,10 +739,10 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     const fanOutSeen: FanOutOpts[] = [];
     const runtime = inboxRuntime(
       {
-        wskitStampHooks: [
+        livethingStampHooks: [
           () => {
             stamperCalls += 1;
-            return { seq: 42, messageId: 'msg_1' };
+            return { deliverySeq: 42, messageId: 'msg_1' };
           },
         ],
         inboxFanOut: (opts) => void fanOutSeen.push(opts),
@@ -736,12 +755,15 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     // The stamper fires exactly once for the whole broadcast, not once per member.
     expect(stamperCalls).toBe(1);
     expect(fanOutSeen).toHaveLength(1);
-    expect(fanOutSeen[0]).toMatchObject({ seq: 42, messageId: 'msg_1', event: 'msg' });
+    expect(fanOutSeen[0]).toMatchObject({ deliverySeq: 42, messageId: 'msg_1', event: 'msg' });
 
     expect(sent).toHaveLength(2);
     expect(sent[0]).toBe(sent[1]);
     const frame = JSON.parse(sent[0]!);
-    expect(frame.__wskit).toMatchObject({ seq: 42, messageId: 'msg_1', channel: 'general' });
+    expect(frame[2]).toMatchObject({
+      delivery: { seq: 42, id: 'msg_1' },
+      channel: { name: 'general' },
+    });
   });
 
   it('keeps the shared seq/messageId on every recipient even when a beforeSend hook forces the per-recipient path', () => {
@@ -753,10 +775,10 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     let stamperCalls = 0;
     const runtime = inboxRuntime(
       {
-        wskitStampHooks: [
+        livethingStampHooks: [
           () => {
             stamperCalls += 1;
-            return { seq: 42, messageId: 'msg_1' };
+            return { deliverySeq: 42, messageId: 'msg_1' };
           },
         ],
         beforeSendHooks: [() => {}],
@@ -773,7 +795,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     expect(stamperCalls).toBe(1);
     expect(sent).toHaveLength(2);
     for (const raw of sent) {
-      expect(JSON.parse(raw).__wskit).toMatchObject({ seq: 42, messageId: 'msg_1' });
+      expect(JSON.parse(raw)[2]).toMatchObject({ delivery: { seq: 42, id: 'msg_1' } });
     }
   });
 
@@ -784,7 +806,9 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
       inboxPeer(channelMembers, 'A', (f) => sent.push(f));
       inboxPeer(channelMembers, 'B', (f) => sent.push(f));
       const runtime = inboxRuntime(withFanOut ? { inboxFanOut: () => {} } : {}, channelMembers);
+
       broadcastOnce(runtime);
+
       return sent;
     }
 
@@ -800,7 +824,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     const fanOutSeen: FanOutOpts[] = [];
     const runtime = inboxRuntime(
       {
-        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        livethingStampHooks: [() => ({ deliverySeq: 1, messageId: 'm1' })],
         inboxFanOut: (opts) => void fanOutSeen.push(opts),
       },
       channelMembers,
@@ -841,6 +865,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
       latency: null,
       quality: 'good',
     };
+
     inboxPeer(channelMembers, 'A', (f) => sent.push(f));
     addChannelMembership(channelMembers, secondTab, {
       channelName: 'general',
@@ -851,7 +876,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     const fanOutSeen: FanOutOpts[] = [];
     const runtime = inboxRuntime(
       {
-        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        livethingStampHooks: [() => ({ deliverySeq: 1, messageId: 'm1' })],
         inboxFanOut: (opts) => void fanOutSeen.push(opts),
       },
       channelMembers,
@@ -880,7 +905,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     const fanOutSeen: FanOutOpts[] = [];
     const runtime = inboxRuntime(
       {
-        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        livethingStampHooks: [() => ({ deliverySeq: 1, messageId: 'm1' })],
         inboxFanOut: (opts) => void fanOutSeen.push(opts),
       },
       channelMembers,
@@ -907,7 +932,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     inboxPeer(channelMembers, 'A', (f) => sent.push(f));
     const runtime = inboxRuntime(
       {
-        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        livethingStampHooks: [() => ({ deliverySeq: 1, messageId: 'm1' })],
         inboxFanOut: () => {
           throw new Error('storage down');
         },
@@ -917,6 +942,142 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
 
     expect(() => broadcastOnce(runtime)).not.toThrow();
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe('broadcast hooks — one call per broadcast', () => {
+  function member(channelMembers: Map<string, Set<RuntimeConnection>>, id: string) {
+    const conn = createConnection(id);
+    addChannelMembership(channelMembers, conn, { channelName: 'general', channelFamily: null });
+    return conn;
+  }
+
+  function channelRuntime(overrides: Partial<OutgoingRuntime>) {
+    return {
+      ...createRuntime({
+        compiled: {
+          outgoing: new Map(),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          channels: new Map([
+            [
+              'general',
+              {
+                outgoing: new Map([['foo', { event: 'foo' }]]),
+                streams: new Map(),
+                resumableStreams: new Map(),
+                recordedStreams: new Map(),
+              },
+            ],
+          ]),
+          channelFamilies: new Map(),
+        } as unknown as OutgoingRuntime['compiled'],
+        ...overrides,
+      }),
+      connections: new Map<string, RuntimeConnection>(),
+      channelMembers: new Map<string, Set<RuntimeConnection>>(),
+      toConnectionInfo: () => {
+        throw new Error('not used by broadcastToChannel');
+      },
+      sendThroughPipeline: () => {
+        throw new Error('not used by broadcastToChannel');
+      },
+    };
+  }
+
+  it('runs the before and after hooks once for a top-level broadcast that reaches nobody', () => {
+    const before = vi.fn();
+    const after = vi.fn();
+    const runtime = createRuntime({
+      livethingStampHooks: [() => ({ deliverySeq: 5, messageId: 'm5' })],
+      beforeBroadcastHooks: [before],
+      afterBroadcastHooks: [after],
+    });
+    const sender = createConnection('sender');
+
+    broadcastToConnections(runtime, [sender], {
+      event: 'foo',
+      payload: { a: 1 },
+      excludeConnectionId: 'sender',
+    });
+
+    expect(sender.descriptor.send).not.toHaveBeenCalled();
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledTimes(1);
+    expect(before.mock.calls[0]![0]).toEqual({
+      event: 'foo',
+      payload: { a: 1 },
+      livething: { deliverySeq: 5, messageId: 'm5' },
+    });
+  });
+
+  it('runs the hooks once for a channel broadcast with no live member', () => {
+    const before = vi.fn();
+    const runtime = channelRuntime({ beforeBroadcastHooks: [before] });
+
+    broadcastToChannel(runtime, {
+      channelName: 'general',
+      channelFamily: null,
+      event: 'foo',
+      payload: {},
+      excludeConnectionId: undefined,
+    });
+
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(before.mock.calls[0]![0].livething).toMatchObject({ channel: 'general' });
+  });
+
+  it('runs the hooks once, not per member, when many members receive it', () => {
+    const before = vi.fn();
+    const runtime = channelRuntime({ beforeBroadcastHooks: [before] });
+    const a = member(runtime.channelMembers, 'a');
+    const b = member(runtime.channelMembers, 'b');
+
+    broadcastToChannel(runtime, {
+      channelName: 'general',
+      channelFamily: null,
+      event: 'foo',
+      payload: {},
+      excludeConnectionId: undefined,
+    });
+
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(a.descriptor.send).toHaveBeenCalledTimes(1);
+    expect(b.descriptor.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends to nobody and logs once when a before-broadcast hook throws', () => {
+    const errors: string[] = [];
+    const runtime = channelRuntime({
+      beforeBroadcastHooks: [
+        () => {
+          throw new Error('disk full');
+        },
+      ],
+      logger: { warn() {}, error: (message: string) => errors.push(message) },
+    });
+    const a = member(runtime.channelMembers, 'a');
+
+    broadcastToChannel(runtime, {
+      channelName: 'general',
+      channelFamily: null,
+      event: 'foo',
+      payload: {},
+      excludeConnectionId: undefined,
+    });
+
+    expect(a.descriptor.send).not.toHaveBeenCalled();
+    expect(errors).toEqual(['[livething] before-broadcast hook failed; no recipient received it']);
+  });
+
+  it('skips preparing a broadcast that reaches nobody when no broadcast hook is registered', () => {
+    const stamp = vi.fn(() => ({}));
+    const runtime = createRuntime({ livethingStampHooks: [stamp] });
+
+    broadcastToConnections(runtime, [], { event: 'foo', payload: {} });
+
+    expect(stamp).not.toHaveBeenCalled();
   });
 });
 
@@ -949,8 +1110,8 @@ describe('outgoing authoring hook (outgoingHooks)', () => {
     expect(seen[0]!.payload).toEqual({ a: 1 });
 
     const sent = JSON.parse(send.mock.calls[0]![0] as string);
-    expect(sent.event).toBe('foo');
-    expect(sent.payload).toEqual({ a: 1, stamped: true, event: 'nope' });
+    expect(sent[0]).toBe('foo');
+    expect(sent[1]).toEqual({ a: 1, stamped: true, event: 'nope' });
   });
 
   it('sees frame.owner = { kind: "app" } for an app-declared event', () => {
@@ -976,19 +1137,21 @@ describe('outgoing authoring hook (outgoingHooks)', () => {
   });
 });
 
-describe('outgoing hook scoping by owner', () => {
-  function pluginOwner(id: string, observesHost: boolean) {
-    return { owner: { kind: 'plugin' as const, id }, observesHost };
+describe('outgoing hooks from plugins', () => {
+  function pluginOwner(id: string) {
+    return { kind: 'plugin' as const, id };
   }
 
   // A correlationId bypasses the declaration check, so a hook's firing — not the
   // declaration — is what these tests observe.
   const requestRouting = { correlationId: 'corr-1' };
 
-  it('does NOT run a plugin hook for an app frame by default', () => {
-    let fired = false;
+  it('runs a plugin hook for app and sibling plugin frames', () => {
+    const seen: string[] = [];
     const runtime = createRuntime({
-      outgoingHooks: [{ handler: () => void (fired = true), owner: pluginOwner('a:p', false) }],
+      outgoingHooks: [
+        { handler: (frame) => void seen.push(frame.event), owner: pluginOwner('a:p') },
+      ],
     });
 
     sendThroughPipeline(runtime, createConnection(), {
@@ -997,29 +1160,20 @@ describe('outgoing hook scoping by owner', () => {
       payload: { a: 1 },
     });
 
-    expect(fired).toBe(false);
-  });
-
-  it('does NOT run a plugin hook for a sibling plugin frame', () => {
-    let fired = false;
-    const runtime = createRuntime({
-      outgoingHooks: [{ handler: () => void (fired = true), owner: pluginOwner('a:p', true) }],
-    });
-
     sendThroughPipeline(runtime, createConnection(), {
       routing: requestRouting,
       event: '__b:q::beat',
       payload: { a: 1 },
     });
 
-    expect(fired).toBe(false);
+    expect(seen).toEqual(['foo', '__b:q::beat']);
   });
 
   it('runs a plugin hook for its own frame with the SHORT declared name', () => {
     const seen: string[] = [];
     const runtime = createRuntime({
       outgoingHooks: [
-        { handler: (frame) => void seen.push(frame.event), owner: pluginOwner('a:p', false) },
+        { handler: (frame) => void seen.push(frame.event), owner: pluginOwner('a:p') },
       ],
     });
 
@@ -1032,7 +1186,7 @@ describe('outgoing hook scoping by owner', () => {
     expect(seen).toEqual(['beat']);
   });
 
-  it('runs a host-observing plugin hook for an app frame, owner = app', () => {
+  it('keeps the owner for app and plugin frames', () => {
     const owners: OutgoingFrame['owner'][] = [];
     const events: string[] = [];
     const runtime = createRuntime({
@@ -1042,7 +1196,7 @@ describe('outgoing hook scoping by owner', () => {
             owners.push(frame.owner);
             events.push(frame.event);
           },
-          owner: pluginOwner('a:p', true),
+          owner: pluginOwner('a:p'),
         },
       ],
     });

@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { createTestSql } from '~/_test/sql.ts';
 import { restorePersistentTags } from '~/tags/rejoin.ts';
 import { ensureTagsSchema, insertTag, listTagsByUser } from '~/tags/storage.ts';
@@ -60,7 +60,7 @@ describe('restorePersistentTags', () => {
         getSchema: () => asyncSchema,
         logger: { error: () => {} },
       }),
-    ).toThrow(WSKitConfigError);
+    ).toThrow(LiveThingConfigError);
 
     // The valid row must survive a config error, not be silently deleted.
     expect(listTagsByUser(sql, 'u-1').map((t) => t.key)).toEqual(['admin']);
@@ -105,7 +105,7 @@ describe('restorePersistentTags', () => {
   it('drops and deletes a stored tag whose group is no longer declared', () => {
     const sql = createTestSql();
     ensureTagsSchema(sql);
-    insertTag(sql, { userId: 'u-1', group: 'legacy-plan', key: 'gold' });
+    insertTag(sql, { userId: 'u-1', group: 'removed-plan', key: 'gold' });
     const connection = tagConnection('u-1');
     const errors: unknown[] = [];
 
@@ -119,7 +119,7 @@ describe('restorePersistentTags', () => {
     });
 
     expect(listTagsByUser(sql, 'u-1')).toEqual([]);
-    expect(connection.tags.persistent.get('legacy-plan')).toBeUndefined();
+    expect(connection.tags.persistent.get('removed-plan')).toBeUndefined();
     expect(errors).toHaveLength(1);
   });
 

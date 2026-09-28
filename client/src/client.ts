@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- merging primitive types needs `any` */
-import { WSKitConfigError } from '@wskit/core';
-import { WSKitSocket } from '~/socket/socket.ts';
+import { LiveThingConfigError } from '@livething/core';
+import { LiveThingSocket } from '~/socket/socket.ts';
 import type { ConnectDescriptor } from '~/connect.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveRuntime } from '~/internal/runtime.ts';
@@ -34,17 +34,6 @@ type ClaimedIds<TPrimitives extends readonly unknown[]> = {
     ? TId
     : never;
 }[number];
-
-/**
- * Reject a plugin that declared `observesHostTraffic: true` but wasn't wrapped in
- * `observeHost(...)`: its `__requiresHostGrant` brand is a string, not assignable
- * to the `never` this demands, so the bare argument is a type error.
- * `observeHost(...)` strips the brand. Every other primitive has no such brand and
- * passes untouched.
- */
-type GrantGate<TPrimitives extends readonly unknown[]> = {
-  [I in keyof TPrimitives]: { readonly __requiresHostGrant?: never };
-};
 
 type AppSocketFor<
   C,
@@ -91,9 +80,7 @@ export type AppSocket<
 export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
     connectDescriptor: ConnectDescriptor,
-    ...primitives: [...TPrimitives] &
-      ValidatePrimitives<TContract, TPrimitives> &
-      GrantGate<TPrimitives>
+    ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
   ): AppSocket<TContract, TPrimitives> {
     return buildSocket(
       connectDescriptor,
@@ -106,7 +93,7 @@ export function client<TContract extends SocketContract = SocketContract>() {
 function buildSocket(
   connectDescriptor: ConnectDescriptor,
   primitives: readonly Primitive[],
-): WSKitSocket {
+): LiveThingSocket {
   const pluginSpecs = primitives.filter((spec) => spec._plugin !== undefined);
   const primitiveSpecs = [
     connectDescriptor,
@@ -115,7 +102,6 @@ function buildSocket(
 
   assertNoDuplicateTags(primitiveSpecs);
   assertUniquePluginIds(pluginSpecs);
-  assertHostObservationGranted(pluginSpecs);
   assertDependenciesPresent([...primitiveSpecs, ...pluginSpecs]);
 
   // Primitives run first, in dependency order; plugins run after, in
@@ -126,10 +112,10 @@ function buildSocket(
   const config = {} as SocketConfig;
   for (const spec of sorted) spec.applyConfig?.(config);
   if (config.url === undefined) {
-    throw new WSKitConfigError('client() requires a connect() capability.');
+    throw new LiveThingConfigError('client() requires a connect() capability.');
   }
 
-  const socket = new WSKitSocket(config);
+  const socket = new LiveThingSocket(config);
   socket._setKnownTags(new Set(sorted.map((spec) => spec._tag).filter(Boolean)));
   const helpers = socket._helpers();
 
@@ -151,11 +137,13 @@ function assertNoDuplicateTags(specs: readonly Primitive[]): void {
   const seen = new Set<string>();
   for (const spec of specs) {
     if (REPEATABLE_TAGS.has(spec._tag)) continue;
+
     if (seen.has(spec._tag)) {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `duplicate ${spec._tag}() — register each primitive at most once.`,
       );
     }
+
     seen.add(spec._tag);
   }
 }
@@ -170,10 +158,11 @@ function assertUniquePluginIds(pluginSpecs: readonly Primitive[]): void {
   for (const spec of pluginSpecs) {
     const { id } = spec._plugin!;
     if (seen.has(id)) {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `plugin '${id}' is registered more than once. Each plugin id owns a namespace and must be unique.`,
       );
     }
+
     seen.add(id);
   }
 }
@@ -183,38 +172,11 @@ function assertDependenciesPresent(specs: readonly Primitive[]): void {
   for (const spec of specs) {
     for (const dependency of spec.dependencies ?? []) {
       if (!tags.has(dependency)) {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           `${spec._tag} requires ${dependency}. Register ${dependency}() in client.`,
         );
       }
     }
-  }
-}
-
-/**
- * Backstop the compile gate: a plugin that opted into host observation but was
- * registered without `observeHost(...)` throws a clear build error. Covers the
- * case where `observesHostTraffic` is a non-literal boolean (the type widens, so
- * the brand never fires). When a grant is present, warn once that the plugin can
- * see the app's frames.
- */
-function assertHostObservationGranted(pluginSpecs: readonly Primitive[]): void {
-  for (const spec of pluginSpecs) {
-    const grant = spec as Primitive & {
-      __observesHostTraffic?: boolean;
-      __hostObservationGranted?: boolean;
-    };
-    if (!grant.__observesHostTraffic) continue;
-    const { id } = spec._plugin!;
-    if (!grant.__hostObservationGranted) {
-      throw new WSKitConfigError(
-        `plugin '${id}' observes host traffic but was registered without observeHost(...). ` +
-          `Wrap it as observeHost(${id}()) in client() to grant the privilege.`,
-      );
-    }
-    console.warn(
-      `[wskit] plugin "${id}" is granted host-traffic observation (its onIncoming/onOutgoing see the app's frames)`,
-    );
   }
 }
 
@@ -231,23 +193,28 @@ function topoSort(specs: readonly Primitive[]): Primitive[] {
     if (group) group.push(spec);
     else byTag.set(spec._tag, [spec]);
   }
+
   const sorted: Primitive[] = [];
   const state = new Map<Primitive, 'visiting' | 'done'>();
 
   function visit(spec: Primitive): void {
     const status = state.get(spec);
     if (status === 'done') return;
+
     if (status === 'visiting') {
-      throw new WSKitConfigError(`circular primitive dependency detected at ${spec._tag}.`);
+      throw new LiveThingConfigError(`circular primitive dependency detected at ${spec._tag}.`);
     }
+
     state.set(spec, 'visiting');
     for (const dependency of [...(spec.dependencies ?? []), ...(spec.optionalAfter ?? [])]) {
       for (const dependencySpec of byTag.get(dependency) ?? []) visit(dependencySpec);
     }
+
     state.set(spec, 'done');
     sorted.push(spec);
   }
 
   for (const spec of specs) visit(spec);
+
   return sorted;
 }

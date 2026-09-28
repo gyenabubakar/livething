@@ -1,49 +1,49 @@
-import { WSKitError } from '@wskit/core';
+import { LiveThingError } from '@livething/core';
 import { describe, expect, it } from 'vitest';
 import { normalizeRuntimeError, notifyValidationError, sendRuntimeError } from './runtime.ts';
 
 describe('errors runtime', () => {
-  it('normalizes WSKitError values into __error__ payload and wskit halves', () => {
+  it('normalizes LiveThingError values into __error__ payload and livething halves', () => {
     expect(
-      normalizeRuntimeError(new WSKitError('forbidden', { reason: 'nope' }), {
+      normalizeRuntimeError(new LiveThingError('forbidden', { reason: 'nope' }), {
         streamId: 's1',
       }),
     ).toEqual({
       payload: { code: 'forbidden', detail: { reason: 'nope' } },
-      wskit: { streamId: 's1' },
+      livething: { streamId: 's1' },
     });
   });
 
   it('normalizes unknown values into internal-error payloads', () => {
     expect(normalizeRuntimeError(new Error('boom'))).toEqual({
       payload: { code: 'internal-error' },
-      wskit: {},
+      livething: {},
     });
   });
 
-  it('collapses an undeclared WSKitError code into internal-error', () => {
+  it('collapses an undeclared LiveThingError code into internal-error', () => {
     expect(
       normalizeRuntimeError(
-        new WSKitError('quota-exceeded', { limit: 1 }),
+        new LiveThingError('quota-exceeded', { limit: 1 }),
         { correlationId: 'r1' },
         new Set(['forbidden']),
       ),
     ).toEqual({
       payload: { code: 'internal-error' },
-      wskit: { correlationId: 'r1' },
+      livething: { correlationId: 'r1' },
     });
   });
 
-  it('keeps a declared WSKitError code and detail', () => {
+  it('keeps a declared LiveThingError code and detail', () => {
     expect(
       normalizeRuntimeError(
-        new WSKitError('forbidden', { reason: 'nope' }),
+        new LiveThingError('forbidden', { reason: 'nope' }),
         undefined,
         new Set(['forbidden']),
       ),
     ).toEqual({
       payload: { code: 'forbidden', detail: { reason: 'nope' } },
-      wskit: {},
+      livething: {},
     });
   });
 
@@ -78,7 +78,7 @@ describe('errors runtime', () => {
     expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
-  it('runs error hooks for WSKitError values too', async () => {
+  it('runs error hooks for LiveThingError values too', async () => {
     const observed: string[] = [];
 
     await sendRuntimeError(
@@ -99,7 +99,7 @@ describe('errors runtime', () => {
         sendProtocolMessage() {},
       },
       { id: 'c1' } as never,
-      { error: new WSKitError('forbidden', {}), event: 'echo' },
+      { error: new LiveThingError('forbidden', {}), event: 'echo' },
     );
 
     expect(observed).toEqual(['hook']);
@@ -166,11 +166,11 @@ describe('errors runtime', () => {
     );
 
     expect(observed).toEqual(['second']);
-    expect(errors).toEqual(['[wskit] onError hook threw; sending __error__ to client anyway']);
+    expect(errors).toEqual(['[livething] onError hook threw; sending __error__ to client anyway']);
     expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
-  it('warns and sends internal-error when a thrown WSKitError was never declared', async () => {
+  it('warns and sends internal-error when a thrown LiveThingError was never declared', async () => {
     const warnings: string[] = [];
     const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
 
@@ -192,11 +192,11 @@ describe('errors runtime', () => {
         },
       },
       { id: 'c1' } as never,
-      { error: new WSKitError('quota-exceeded', { limit: 1 }), event: 'charge-card' },
+      { error: new LiveThingError('quota-exceeded', { limit: 1 }), event: 'charge-card' },
     );
 
     expect(warnings).toEqual([
-      '[wskit] Thrown WSKitError was not declared in the contract errors: [...] list',
+      '[livething] Thrown LiveThingError was not declared in the contract errors: [...] list',
     ]);
     // An undeclared code can't be inferred by InferClient, so the client gets
     // internal-error rather than a code it can't type.
@@ -221,6 +221,7 @@ describe('errors runtime', () => {
               channelFamily: routing.channelFamily,
             };
           }
+
           return undefined;
         },
         declaredErrorCodes: new Set(),

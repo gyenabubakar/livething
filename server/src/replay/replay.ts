@@ -11,22 +11,22 @@ import {
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
   readReplayContextScope,
+  readReplayGapWatermark,
   readReplayScope,
-  readReplayWatermark,
   ReplayPruneGate,
-  replayScopeKey,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
+import { createSendReplayExtender, readConnectionId } from '~/replay/send-replay.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
-import type { RuntimeConnection, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
+import type { RuntimeConnection, WireBroadcastMessage } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { ReplaySnapshotEntry } from '~/replay/runtime.ts';
+import type { ReplaySnapshotEntry, ReplayStoreOwner } from '~/replay/runtime.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
 import type { ReplayWire } from './wire.ts';
 
-/** The primitive type produced by `replay()`. */
+/** The primitive type produced by `replay.history()` and `replay.snapshot()`. */
 export interface ReplayPrimitive extends Primitive<'replay'> {
   /** The full resolved replay configuration. */
   readonly options: ReplayOptions;
@@ -49,10 +49,26 @@ export type ReplaySend = (event: string, payload: unknown, wire: ReplayWire) => 
 const REPLAY_KEY = Symbol('replay');
 
 /**
- * Enables built-in message replay. The server records every outgoing message
- * so reconnecting clients can catch up on what they missed — WSKit's client
+ * Enables built-in message replay. The server records every broadcast so
+ * reconnecting clients can catch up on what they missed — LiveThing's client
  * asks for replay automatically on reconnect, and no extra work is needed
  * from your handlers.
+ *
+ * **What is recorded.** A client only ever replays frames addressed to it:
+ *
+ * - A broadcast to everyone in a scope (`ctx.broadcast`, `ctx.channel.broadcast`)
+ *   is recorded once — even when no connection receives it live — and replays
+ *   to anyone who may read that scope (for a channel, its current members).
+ * - A broadcast to one user (`ctx.user.broadcast`, `ctx.users.get(id).broadcast`,
+ *   `ctx.channel.broadcastTo(userRef, ...)`) is recorded once for that user and
+ *   replays only to a connection of that same user. An anonymous connection
+ *   never receives it.
+ * - A send to one connection (`ctx.send`, `ctx.connections.get(ref).send`,
+ *   `ctx.channel.send`, `ctx.channel.broadcastTo(connectionRef, ...)`) and a tag
+ *   or group broadcast are not recorded. A reconnect opens a new connection
+ *   with a new id, so no later connection could prove it was the one addressed.
+ *   To send the caller a copy it can replay, broadcast with
+ *   `{ includeSelf: true }` instead.
  *
  * **Cascade behavior.** A server-level `replay: true` captures every outgoing
  * message, including channel-scoped traffic. To use a different replay
@@ -75,13 +91,12 @@ const REPLAY_KEY = Symbol('replay');
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { dedup } from '@wskit/server/dedup';
- * import { sequence } from '@wskit/server/sequence';
- * import { replay } from '@wskit/server/replay';
+ * import { server, t } from '@livething/server';
+ * import { dedup } from '@livething/server/dedup';
+ * import { sequence } from '@livething/server/sequence';
+ * import { replay } from '@livething/server/replay';
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [
  *     dedup(),
  *     sequence({ persist: true }),
@@ -93,7 +108,7 @@ const REPLAY_KEY = Symbol('replay');
 export function replay(options?: ReplayOptions | false): ReplayPrimitive {
   if (options === false) {
     return {
-      __wskit: 'replay',
+      __livething: 'replay',
       __kind: 'infrastructure',
       __identity: [REPLAY_KEY],
       __requires: {},
@@ -107,12 +122,14 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
     assertOptionalPositiveInteger(opts.retention.maxAgeMs, 'retention.maxAgeMs', 'replay()');
     assertOptionalPositiveInteger(opts.retention.maxMessages, 'retention.maxMessages', 'replay()');
   }
+
   if (opts.durability !== undefined) {
     assertOneOf(opts.durability, ['strict', 'best-effort'] as const, {
       field: 'durability',
       context: 'replay()',
     });
   }
+
   if (opts.type !== undefined) {
     assertOneOf(opts.type, ['history', 'snapshot'] as const, {
       field: 'type',
@@ -121,18 +138,11 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
   }
 
   return {
-    __wskit: 'replay',
+    __livething: 'replay',
     __kind: 'infrastructure',
     __identity: [REPLAY_KEY],
     __requires: {},
     __requiresCapabilities: [CAPABILITY_KIND.dedup, CAPABILITY_KIND.sequence],
-    __validate(view) {
-      if (!view.sequencePersistent) {
-        throw new Error(
-          '[wskit] replay requires `sequence: { persist: true }` for durable replay.',
-        );
-      }
-    },
     options: opts,
     __setup(engine) {
       engine.setReplayEnabled(true);
@@ -140,23 +150,32 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
       const { channelKey } = engine.getScopeInfo();
       const exclude = new Set(opts.exclude ?? []);
 
+      const installer = new ReplayInstaller({ engine, channelKey, exclude, opts });
+
       engine.onBootSchema(() => {
         ensureReplaySchema(engine.storage.sql);
       });
       engine.onBoot(() => {
-        pruneExpiredReplayRows(engine.storage.sql, opts.retention, Date.now());
+        pruneExpiredReplayRows(engine.storage.sql, {
+          retention: opts.retention,
+          now: Date.now(),
+          owner: installer.owner(),
+        });
       });
 
-      const installer = new ReplayInstaller({ engine, channelKey, exclude, opts });
-
-      engine.extendContext(installer.contextExtender);
+      engine.extendContext(
+        createSendReplayExtender(engine, {
+          channelKey,
+          claimedChannelKeys: () => engine.getReplayClaimedChannelKeys(),
+        }),
+      );
 
       if ((opts.durability ?? 'strict') === 'strict') {
-        engine.onBeforeSend(installer.persist);
+        engine.onBeforeBroadcast(installer.persist);
       } else {
-        engine.onAfterSend((wireMessage) => {
+        engine.onAfterBroadcast((message) => {
           return Promise.resolve().then(() => {
-            installer.persist(wireMessage);
+            installer.persist(message);
           });
         });
       }
@@ -177,21 +196,10 @@ interface ReplayInstallerOptions {
 }
 
 /**
- * Resolve the current connection's id from a handler ctx. Reads the engine's
- * stashed runtime connection first — it is always present on a built ctx — so
- * the id is available regardless of how the public `ctx.connection` ref is
- * surfaced on a given dispatch.
- */
-function readConnectionId(ctx: Record<PropertyKey, unknown>): string {
-  const runtime = ctx[ENGINE_INTERNAL_CONNECTION] as { id?: string } | undefined;
-  return runtime?.id ?? (ctx as { connection?: { id?: string } }).connection?.id ?? '';
-}
-
-/**
- * Bundles the context extender, persist callback, and `__replay__` protocol
- * handler used during replay setup. Using a class lets the three callbacks
- * share the same engine reference, channel key, exclude set, and options
- * without repeating the constructor arguments.
+ * Bundles the persist callback and `__replay__` protocol handler used during
+ * replay setup. Using a class lets the callbacks share the same engine
+ * reference, channel key, exclude set, and options without repeating the
+ * constructor arguments.
  *
  * @internal
  */
@@ -202,100 +210,26 @@ class ReplayInstaller {
   private readonly opts: ReplayOptions;
   private readonly pruneGate = new ReplayPruneGate();
 
-  constructor({ engine, channelKey, exclude, opts }: ReplayInstallerOptions) {
+  constructor(options: ReplayInstallerOptions) {
+    const { engine, channelKey, exclude, opts } = options;
     this.engine = engine;
     this.channelKey = channelKey;
     this.exclude = exclude;
     this.opts = opts;
   }
 
-  /** Attach `sendReplay` to the relevant scope on every live connection context. */
-  contextExtender = (ctx: unknown): Record<string, unknown> => {
-    const base = ctx as Record<PropertyKey, unknown> & {
-      connection?: { id?: string };
-      channel?: Record<PropertyKey, unknown>;
-      sendReplay?: (event: string, payload: unknown, wire: ReplayWire) => void;
-    };
-    const scope = readReplayContextScope(base);
-    const connectionId = readConnectionId(base);
+  /** The rows this instance owns, for its retention prune. */
+  owner = (): ReplayStoreOwner => ({
+    channelKey: this.channelKey,
+    claimedChannelKeys: this.engine.getReplayClaimedChannelKeys(),
+  });
 
-    if (this.channelKey) {
-      // Channel-level replay. For families, channelKey is the family key and
-      // matches scope.channelFamily. For static channels, channelKey is the
-      // channel name and matches scope.channelName (scope.channelFamily is null).
-      const matches =
-        scope.channelFamily === this.channelKey || scope.channelName === this.channelKey;
-      if (!matches || !connectionId || !base.channel) return {};
-
-      base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
-        this.engine.assertReplaySendContract(event, payload, {
-          channel: scope.channelName ?? undefined,
-          channelFamily: scope.channelFamily ?? null,
-        });
-        this.engine.sendReplay(connectionId, {
-          channelName: scope.channelName ?? null,
-          channelFamily: scope.channelFamily ?? null,
-          event,
-          payload,
-          wire,
-        });
-      };
-
-      return {};
-    }
-
-    if (!connectionId) return {};
-
-    // Top-level replay cascades into every channel it has not ceded to a
-    // channel-scoped instance. When the live ctx is in such a channel scope,
-    // attach `ctx.channel.sendReplay` so handlers can replay channel frames
-    // through the cascading store, mirroring the storage cascade.
-    if (scope.channelName || scope.channelFamily) {
-      if (
-        !base.channel ||
-        !matchesReplayScope(undefined, scope, this.engine.getReplayClaimedChannelKeys())
-      ) {
-        return {};
-      }
-      base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
-        this.engine.assertReplaySendContract(event, payload, {
-          channel: scope.channelName ?? undefined,
-          channelFamily: scope.channelFamily ?? null,
-        });
-        this.engine.sendReplay(connectionId, {
-          channelName: scope.channelName ?? null,
-          channelFamily: scope.channelFamily ?? null,
-          event,
-          payload,
-          wire,
-        });
-      };
-      return {};
-    }
-
-    base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
-      this.engine.assertReplaySendContract(event, payload, {
-        channel: wire.channel,
-        channelFamily: wire.channelFamily,
-      });
-      this.engine.sendReplay(connectionId, {
-        channelName: wire.channel ?? null,
-        channelFamily: wire.channelFamily ?? null,
-        event,
-        payload,
-        wire,
-      });
-    };
-
-    return {};
-  };
-
-  /** Persist one outgoing wire message to the replay table. */
-  persist = (wireMessage: WireOutgoingMessage): void => {
+  /** Persist one broadcast to the replay table. */
+  persist = (wireMessage: WireBroadcastMessage): void => {
     if (
       !shouldStoreReplayMessage(wireMessage.event, {
         channelKey: this.channelKey,
-        wskit: wireMessage.wskit,
+        livething: wireMessage.livething,
         exclude: this.exclude,
         claimedChannelKeys: this.engine.getReplayClaimedChannelKeys(),
       })
@@ -310,11 +244,12 @@ class ReplayInstaller {
     // limit, `channel`/`channelFamily` pick the store: there are two replay
     // stores (top-level and per-channel). `pruneReplayScopeRows` keys on
     // channel only.
-    const replayScope = readReplayScope(wireMessage.wskit);
+    const replayScope = readReplayScope(wireMessage.livething);
     const retention = this.opts.retention;
+    const owner = this.owner();
 
     function runPrune(sqlForPrune: Pick<SQLProvider, 'exec'>): void {
-      pruneExpiredReplayRows(sqlForPrune, retention, Date.now());
+      pruneExpiredReplayRows(sqlForPrune, { retention, now: Date.now(), owner });
       pruneReplayScopeRows(sqlForPrune, retention, replayScope);
     }
 
@@ -322,7 +257,8 @@ class ReplayInstaller {
       options: this.opts,
       event: wireMessage.event,
       payload: wireMessage.payload,
-      wskit: wireMessage.wskit,
+      livething: wireMessage.livething,
+      userId: wireMessage.userId,
       now: Date.now(),
       scope,
       postFlush: runPrune,
@@ -353,9 +289,9 @@ class ReplayInstaller {
       if (isHistory) {
         // History stores one new row per message, so the gate can count exactly
         // and skip the prune whenever the store is under its caps.
-        this.pruneGate.prune(sql, { retention, scope: replayScope, stamp });
+        this.pruneGate.prune(sql, { retention, scope: replayScope, owner, stamp });
       } else {
-        pruneExpiredReplayRows(sql, retention, stamp);
+        pruneExpiredReplayRows(sql, { retention, now: stamp, owner });
         pruneReplayScopeRows(sql, retention, replayScope);
       }
     }
@@ -376,7 +312,7 @@ class ReplayInstaller {
     const connection = (ctx as Record<PropertyKey, unknown>)[ENGINE_INTERNAL_CONNECTION] as
       | RuntimeConnection
       | undefined;
-    if (!isChannelReplayAuthorized(connection, scope, frame.__wskit)) {
+    if (!isChannelReplayAuthorized(connection, scope, frame.__livething)) {
       // No rows and no error — don't reveal the channel to a non-member.
       return true;
     }
@@ -390,11 +326,11 @@ class ReplayInstaller {
     // Snapshot resends current state, so only history mode can have a gap.
     // Detected against the eviction watermark, not MIN(seq): the global seq counter is sparse.
     if ((this.opts.type ?? 'history') === 'history' && since > 0) {
-      const scopeKey = replayScopeKey({
-        channel: scope.channelName ?? null,
-        channelFamily: scope.channelFamily ?? null,
-      });
-      const watermark = readReplayWatermark(sql, scopeKey);
+      const watermark = readReplayGapWatermark(
+        sql,
+        { channel: scope.channelName ?? null, channelFamily: scope.channelFamily ?? null },
+        connection?.userId || null,
+      );
       if (watermark !== null && since < watermark) {
         this.engine.sendGap(connectionId, {
           channelName: scope.channelName ?? null,
@@ -408,6 +344,7 @@ class ReplayInstaller {
     const rows = loadReplayRows(sql, since, {
       channelName: scope.channelName,
       channelFamily: scope.channelFamily ?? null,
+      userId: connection?.userId || null,
     });
 
     for (const row of rows) {
@@ -418,7 +355,7 @@ class ReplayInstaller {
         event: row.event,
         payload: rowPayload,
         wire: {
-          seq: row.seq,
+          deliverySeq: row.seq,
           messageId: row.messageId,
           channel: row.channel ?? undefined,
         },

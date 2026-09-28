@@ -17,6 +17,14 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AdvancedReadCursors } from '~/inbox/receipts-storage.ts';
 import type { Primitive } from '~/primitive.ts';
 
+type BuildReadQueryHandlerDepsParameter = { engine: EngineAccess; channelKey: string };
+type SettleInboxOnReadOptsParameter = {
+  channelName: string;
+  channelFamily: string | null;
+  userId: string;
+  cursors: AdvancedReadCursors;
+};
+
 /** The primitive type produced by the `readReceipts()` capability for one channel. */
 export interface ReadReceiptsPrimitive extends Primitive<'read-receipts'> {
   readonly options: ResolvedReadReceiptsOptions;
@@ -34,7 +42,7 @@ const READ_RECEIPTS_KEY = Symbol('read-receipts');
  */
 export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceiptsPrimitive {
   return {
-    __wskit: 'read-receipts',
+    __livething: 'read-receipts',
     __kind: 'infrastructure',
     __identity: [READ_RECEIPTS_KEY],
     __requires: {},
@@ -44,7 +52,7 @@ export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceipts
       const { channelKey } = engine.getScopeInfo();
       if (!channelKey) {
         throw new Error(
-          '[wskit] readReceipts is channel-scoped; set `readReceipts` inside a channel definition.',
+          '[livething] readReceipts is channel-scoped; set `readReceipts` inside a channel definition.',
         );
       }
 
@@ -80,6 +88,7 @@ function buildReadReceiptsContext(engine: EngineAccess, channelKey: string) {
       channelName: scope?.channelName ?? channelKey,
       channelFamily: scope?.channelFamily ?? null,
     });
+
     return {};
   };
 }
@@ -94,6 +103,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
   const { engine, channelKey, options } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__read__') return false;
+
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
@@ -103,8 +113,8 @@ function buildReadHandler(deps: ReadHandlerDeps) {
     const userId = connection?.userId ?? '';
     if (!userId) return true;
 
-    const channelName = frame.__wskit.channel;
-    const channelFamily = frame.__wskit.channelFamily ?? null;
+    const channelName = frame.__livething.channel;
+    const channelFamily = frame.__livething.channelFamily ?? null;
     if (!isMember(ctx, channelName, channelFamily)) return true;
 
     const cursors = advanceReadThrough(
@@ -145,6 +155,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
         });
       }
     }
+
     return true;
   };
 }
@@ -155,15 +166,16 @@ function buildReadHandler(deps: ReadHandlerDeps) {
  * silently, the same as an unauthorized ack. The reply reuses the `__readQuery__`
  * event name and echoes the query's correlationId.
  */
-function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string }) {
+function buildReadQueryHandler(deps: BuildReadQueryHandlerDepsParameter) {
   const { engine, channelKey } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__readQuery__') return false;
+
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
-    const channelName = frame.__wskit.channel;
-    const channelFamily = frame.__wskit.channelFamily ?? null;
+    const channelName = frame.__livething.channel;
+    const channelFamily = frame.__livething.channelFamily ?? null;
     const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
       ENGINE_INTERNAL_CONNECTION
     ];
@@ -175,16 +187,18 @@ function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string 
       seq: frame.payload.seq,
     });
 
-    const wskit: Record<string, unknown> = {
+    const livething: Record<string, unknown> = {
       channel: channelName,
-      correlationId: frame.__wskit.correlationId,
+      correlationId: frame.__livething.correlationId,
     };
-    if (channelFamily !== null) wskit.channelFamily = channelFamily;
+
+    if (channelFamily !== null) livething.channelFamily = channelFamily;
     engine.sendProtocolFrame(connection.id, {
       event: '__readQuery__',
       payload: { userIds },
-      wskit,
+      livething,
     });
+
     return true;
   };
 }
@@ -198,15 +212,11 @@ function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string 
 function settleInboxOnRead(
   engine: EngineAccess,
   channelKey: string,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    userId: string;
-    cursors: AdvancedReadCursors;
-  },
+  opts: SettleInboxOnReadOptsParameter,
 ): ResolvedInboxOptions | undefined {
   const inboxConfig = engine.getInboxChannel(channelKey);
   if (!inboxConfig) return undefined;
+
   applyInboxAck(engine.storage.sql, {
     userId: opts.userId,
     channelName: opts.channelName,
@@ -215,6 +225,7 @@ function settleInboxOnRead(
     onDelivered: inboxConfig.onDelivered,
   });
   engine.invalidateInboxMemberCount?.(opts.channelName, opts.channelFamily, opts.userId);
+
   return inboxConfig;
 }
 

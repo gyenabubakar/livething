@@ -34,27 +34,31 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
 
   const scopeLabel = `channel "${key}"`;
   for (const child of primitive.primitives) {
-    switch (child.__wskit) {
+    switch (child.__livething) {
       case 'outgoing': {
         const p = child as AnyOutgoing;
         setUniqueOrThrow(scope.outgoing, p.event, { value: p, kind: `outgoing in ${scopeLabel}` });
         break;
       }
+
       case 'incoming': {
         const p = child as AnyIncoming;
         setUniqueOrThrow(scope.incoming, p.event, { value: p, kind: `incoming in ${scopeLabel}` });
         break;
       }
+
       case 'request': {
         const p = child as AnyRequest;
         setUniqueOrThrow(scope.requests, p.event, { value: p, kind: `request in ${scopeLabel}` });
         break;
       }
+
       case 'stream-generate': {
         const p = child as AnyGenerate;
         setUniqueOrThrow(scope.streams, p.event, { value: p, kind: `stream in ${scopeLabel}` });
         break;
       }
+
       case 'resumable-stream-generate': {
         const p = child as AnyResumableStream;
         setUniqueOrThrow(scope.resumableStreams, p.event, {
@@ -63,6 +67,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
         });
         break;
       }
+
       case 'recorded-stream-generate': {
         const p = child as AnyRecordedStream;
         setUniqueOrThrow(scope.recordedStreams, p.event, {
@@ -71,6 +76,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
         });
         break;
       }
+
       case 'intercept':
         scope.intercepts.push(child as AnyIntercept);
         break;
@@ -82,7 +88,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
 
 /**
  * Refuse to boot when a channel family pattern matches a static channel name.
- * The two would route the same wire `__wskit.channel` value to different compiled
+ * The two would route the same wire `__livething.channel` value to different compiled
  * definitions depending on which side the lookup hit first. Surface the
  * conflict at boot time to keep runtime behaviour unambiguous.
  */
@@ -93,7 +99,7 @@ export function validateChannelFamilyPatternsDisjointFromStaticNames(
     for (const staticName of compiled.channels.keys()) {
       if (matchesFamilyPattern(family.pattern, staticName)) {
         throw new Error(
-          `[wskit] Channel family '${familyKey}' has a pattern that matches the static ` +
+          `[livething] Channel family '${familyKey}' has a pattern that matches the static ` +
             `channel name '${staticName}'. Static channel names and family patterns must be ` +
             `disjoint — narrow the family pattern or rename the static channel.`,
         );

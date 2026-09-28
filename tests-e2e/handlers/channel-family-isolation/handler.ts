@@ -1,11 +1,11 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const SendInPublicPayload = v.object({ name: v.string(), text: v.string() });
@@ -29,8 +29,7 @@ const PublicBroadcastFromTopPayload = v.object({ name: v.string(), text: v.strin
 const PublicSendDirectPayload = v.object({ name: v.string(), text: v.string() });
 const PrivateSendDirectPayload = v.object({ name: v.string(), text: v.string() });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({
@@ -47,15 +46,11 @@ const base = define({
 });
 
 const publicRooms = base.channel(['publicRooms', 'room:{id}'], {
-  outgoing: {
-    emits: { 'room-message': t<{ family: string; name: string; text: string }>() },
-  },
+  capabilities: [emits({ 'room-message': t<{ family: string; name: string; text: string }>() })],
 });
 
 const privateRooms = base.channel(['privateRooms', 'room:{id}'], {
-  outgoing: {
-    emits: { 'private-message': t<{ family: string; name: string; text: string }>() },
-  },
+  capabilities: [emits({ 'private-message': t<{ family: string; name: string; text: string }>() })],
 });
 
 const handlePublicMembers = base.on('public-members', {
@@ -151,7 +146,7 @@ const handleSendInPrivate = privateRooms.on('send-in-private', {
   },
 });
 
-export const channelFamilyIsolationHandler = base.assemble({
+export const channelFamilyIsolationDefinition = base.assemble({
   handlers: [
     handlePublicMembers,
     handlePrivateMembers,
@@ -165,4 +160,4 @@ export const channelFamilyIsolationHandler = base.assemble({
   ],
 });
 
-export type ChannelFamilyIsolationClient = InferClient<typeof channelFamilyIsolationHandler>;
+export type ChannelFamilyIsolationClient = InferClient<typeof channelFamilyIsolationDefinition>;

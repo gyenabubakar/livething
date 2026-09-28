@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RequestInvalidResponse } from '@wskit/core';
+import { RequestInvalidResponse } from '@livething/core';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { CrossInstanceRef } from '~/errors/errors.ts';
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
@@ -38,6 +38,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
   let extender!: (ctx: any) => Record<string, unknown>;
   let idCounter = 0;
   const sent: Array<{ connectionId: string; opts: any }> = [];
+
   const live = new Set<string>(['c1', 'peer']);
 
   const engine = {
@@ -58,7 +59,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     return {
       id,
       userId: id,
-      ref: () => ({ __wskit: 'connection-ref', id, instance: undefined, userId: id }),
+      ref: () => ({ __livething: 'connection-ref', id, instance: undefined, userId: id }),
     };
   }
 
@@ -74,21 +75,29 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     },
   ): any {
     const ctx: any = {
-      connection: { __wskit: 'connection-ref', id: connectionId, instance: undefined, userId: 'i' },
+      connection: {
+        __livething: 'connection-ref',
+        id: connectionId,
+        instance: undefined,
+        userId: 'i',
+      },
       [ENGINE_CHANNEL_META]: scope ?? {},
       connections: {
         get: (ref: ConnectionRef) => ({ send: () => true, __ref: ref }),
         all: () => (opts?.connections ?? []).map(member),
       },
     };
+
     if (opts?.user) {
       for (const id of opts.user) live.add(id);
       function userHandle(ids: string[]) {
         return { id: ids[0], connections: () => ids.map(member) };
       }
+
       ctx.user = userHandle(opts.user);
       ctx.users = { get: (_id: string) => userHandle(opts!.user!) };
     }
+
     for (const id of [
       ...(opts?.connections ?? []),
       ...Object.values(opts?.channels ?? {}).flat(),
@@ -97,6 +106,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     ]) {
       live.add(id);
     }
+
     if (opts?.channels) {
       ctx.channels = {
         get: (name: string) => ({
@@ -106,6 +116,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
         }),
       };
     }
+
     if (opts?.tags) {
       function makeGroup() {
         return {
@@ -115,11 +126,14 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
           }),
         };
       }
+
       ctx.tags = { ephemeral: makeGroup, persistent: makeGroup };
     }
+
     // The core attaches ctx.channel before contextExtenders run, so mirror that.
     if (opts?.channel) ctx.channel = opts.channel;
     Object.assign(ctx, extender(ctx));
+
     return ctx;
   }
 
@@ -143,7 +157,7 @@ describe('server→client request — outgoing runtime', () => {
     const handled = env.answerHook('c1', {
       event: 'ask',
       payload: { allowed: true },
-      wskit: { correlationId },
+      livething: { correlationId },
     });
     expect(handled).toBe(true);
     await expect(promise).resolves.toEqual({ allowed: true });
@@ -158,7 +172,7 @@ describe('server→client request — outgoing runtime', () => {
     const handled = env.answerHook('c1', {
       event: 'ping',
       payload: { sneaky: true },
-      wskit: { correlationId },
+      livething: { correlationId },
     });
     expect(handled).toBe(true);
     await expect(promise).resolves.toBeUndefined();
@@ -184,7 +198,7 @@ describe('server→client request — outgoing runtime', () => {
     const handled = env.answerHook('c1', {
       event: '__error__',
       payload: { code: 'request-no-response' },
-      wskit: { correlationId },
+      livething: { correlationId },
     });
     expect(handled).toBe(true);
     await expect(promise).rejects.toMatchObject({ code: 'request-no-response' });
@@ -196,7 +210,11 @@ describe('server→client request — outgoing runtime', () => {
     const promise = ctx.request('ask', { action: 'x' });
     const { correlationId } = env.sent[0]!.opts;
 
-    env.answerHook('c1', { event: 'ask', payload: { allowed: 'nope' }, wskit: { correlationId } });
+    env.answerHook('c1', {
+      event: 'ask',
+      payload: { allowed: 'nope' },
+      livething: { correlationId },
+    });
     await expect(promise).rejects.toSatisfy((e: unknown) => RequestInvalidResponse.matches(e));
   });
 
@@ -206,6 +224,7 @@ describe('server→client request — outgoing runtime', () => {
     const ctx = env.buildCtx('c1');
     const promise = ctx.request('ask', { action: 'x' }, { timeout: 1000 });
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
+
     await vi.advanceTimersByTimeAsync(1001);
     await rejection;
     vi.useRealTimers();
@@ -232,15 +251,21 @@ describe('server→client request — outgoing runtime', () => {
     const env = install(topDeclarations(PERMISSION));
     const ctx = env.buildCtx('c1');
     const ref: ConnectionRef = {
-      __wskit: 'connection-ref',
+      __livething: 'connection-ref',
       id: 'peer',
       instance: undefined,
       userId: 'p',
     };
+
     const promise = ctx.connections.get(ref).request('ask', { action: 'x' });
     expect(env.sent[0]!.connectionId).toBe('peer');
+
     const { correlationId } = env.sent[0]!.opts;
-    env.answerHook('peer', { event: 'ask', payload: { allowed: false }, wskit: { correlationId } });
+    env.answerHook('peer', {
+      event: 'ask',
+      payload: { allowed: false },
+      livething: { correlationId },
+    });
     await expect(promise).resolves.toEqual({ allowed: false });
   });
 
@@ -248,11 +273,12 @@ describe('server→client request — outgoing runtime', () => {
     const env = install(topDeclarations(PERMISSION));
     const ctx = env.buildCtx('c1');
     const ref: ConnectionRef = {
-      __wskit: 'connection-ref',
+      __livething: 'connection-ref',
       id: 'peer',
       instance: 'other',
       userId: 'p',
     };
+
     expect(() => ctx.connections.get(ref).request('ask', { action: 'x' })).toThrow(
       /cross-instance-ref/,
     );
@@ -273,8 +299,13 @@ describe('server→client request — outgoing runtime', () => {
     const promise = ctx.channel.request('ask', { action: 'x' });
     expect(env.sent[0]!.opts.channel).toBe('room-1');
     expect(env.sent[0]!.opts.channelFamily).toBe('rooms');
+
     const { correlationId } = env.sent[0]!.opts;
-    env.answerHook('c1', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
+    env.answerHook('c1', {
+      event: 'ask',
+      payload: { allowed: true },
+      livething: { correlationId },
+    });
     await expect(promise).resolves.toEqual({ allowed: true });
   });
 
@@ -312,7 +343,7 @@ describe('server→client request — outgoing runtime', () => {
       'ask',
       { action: 'x' },
       {
-        to: { __wskit: 'connection-ref', id: 'peer', instance: undefined, userId: 'peer' },
+        to: { __livething: 'connection-ref', id: 'peer', instance: undefined, userId: 'peer' },
       },
     );
 
@@ -321,7 +352,11 @@ describe('server→client request — outgoing runtime', () => {
     expect(env.sent[0]!.connectionId).toBe('peer');
     expect(env.sent[0]!.opts.channel).toBe('room-1');
     const { correlationId } = env.sent[0]!.opts;
-    env.answerHook('peer', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
+    env.answerHook('peer', {
+      event: 'ask',
+      payload: { allowed: true },
+      livething: { correlationId },
+    });
 
     // The targeted form resolves the bare response — no `{ response, from }`.
     await expect(promise).resolves.toEqual({ allowed: true });
@@ -347,7 +382,7 @@ describe('server→client request — outgoing runtime', () => {
         'ask',
         { action: 'x' },
         {
-          to: { __wskit: 'connection-ref', id: 'peer', instance: 'other', userId: 'peer' },
+          to: { __livething: 'connection-ref', id: 'peer', instance: 'other', userId: 'peer' },
         },
       ),
     ).toThrow(/cross-instance-ref/);
@@ -373,7 +408,7 @@ describe('server→client request — outgoing runtime', () => {
       ctx.channel.request(
         'ask',
         { action: 'x' },
-        { to: { __wskit: 'user-ref', id: 'peer', instance: 'other' } },
+        { to: { __livething: 'user-ref', id: 'peer', instance: 'other' } },
       ),
     ).toThrow(/cross-instance-ref/);
     expect(env.sent).toHaveLength(0);
@@ -397,12 +432,16 @@ describe('server→client request — outgoing runtime', () => {
     const promise = ctx.channel.request(
       'ask',
       { action: 'x' },
-      { to: { __wskit: 'user-ref', id: 'peer', instance: undefined } },
+      { to: { __livething: 'user-ref', id: 'peer', instance: undefined } },
     );
 
     expect(env.sent.map((entry) => entry.connectionId)).toEqual(['peer']);
     const { correlationId } = env.sent[0]!.opts;
-    env.answerHook('peer', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
+    env.answerHook('peer', {
+      event: 'ask',
+      payload: { allowed: true },
+      livething: { correlationId },
+    });
     await expect(promise).resolves.toEqual({ allowed: true });
   });
 
@@ -415,6 +454,7 @@ describe('server→client request — outgoing runtime', () => {
       tags: [],
       ref: env.member('conn_abc123').ref,
     };
+
     const ctx = env.buildCtx(
       'c1',
       { channelName: 'room-1', channelFamily: 'rooms' },
@@ -432,7 +472,7 @@ describe('server→client request — outgoing runtime', () => {
       'ask',
       { action: 'x' },
       {
-        to: { __wskit: 'user-ref', id: 'conn_abc123' },
+        to: { __livething: 'user-ref', id: 'conn_abc123' },
         timeout: 1000,
       },
     );
@@ -461,7 +501,7 @@ describe('server→client broadcast request — first answer wins', () => {
     env.answerHook('b', {
       event: 'volunteer',
       payload: { ready: true },
-      wskit: { correlationId: legB.opts.correlationId },
+      livething: { correlationId: legB.opts.correlationId },
     });
 
     await expect(promise).resolves.toEqual({
@@ -481,7 +521,7 @@ describe('server→client broadcast request — first answer wins', () => {
     env.answerHook('u2', {
       event: 'volunteer',
       payload: { ready: true },
-      wskit: { correlationId: legU2.opts.correlationId },
+      livething: { correlationId: legU2.opts.correlationId },
     });
 
     await expect(promise).resolves.toEqual({
@@ -500,7 +540,7 @@ describe('server→client broadcast request — first answer wins', () => {
     env.answerHook('u3', {
       event: 'volunteer',
       payload: { ready: true },
-      wskit: { correlationId: legU3.opts.correlationId },
+      livething: { correlationId: legU3.opts.correlationId },
     });
 
     await expect(promise).resolves.toEqual({
@@ -518,7 +558,7 @@ describe('server→client broadcast request — first answer wins', () => {
     env.answerHook('b', {
       event: 'ping',
       payload: { sneaky: true },
-      wskit: { correlationId: legB.opts.correlationId },
+      livething: { correlationId: legB.opts.correlationId },
     });
 
     await expect(promise).resolves.toEqual({
@@ -549,14 +589,14 @@ describe('server→client broadcast request — first answer wins', () => {
     const handledA = env.answerHook('a', {
       event: 'volunteer',
       payload: { ready: 'maybe' },
-      wskit: { correlationId: legA.opts.correlationId },
+      livething: { correlationId: legA.opts.correlationId },
     });
     expect(handledA).toBe(true);
 
     env.answerHook('b', {
       event: 'volunteer',
       payload: { ready: false },
-      wskit: { correlationId: legB.opts.correlationId },
+      livething: { correlationId: legB.opts.correlationId },
     });
     await expect(promise).resolves.toEqual({
       response: { ready: false },
@@ -574,7 +614,7 @@ describe('server→client broadcast request — first answer wins', () => {
     env.answerHook('a', {
       event: 'volunteer',
       payload: { ready: true },
-      wskit: { correlationId: legA.opts.correlationId },
+      livething: { correlationId: legA.opts.correlationId },
     });
     await expect(promise).resolves.toEqual({
       response: { ready: true },
@@ -584,7 +624,7 @@ describe('server→client broadcast request — first answer wins', () => {
     const handledLate = env.answerHook('b', {
       event: 'volunteer',
       payload: { ready: false },
-      wskit: { correlationId: legB.opts.correlationId },
+      livething: { correlationId: legB.opts.correlationId },
     });
     expect(handledLate).toBe(false);
   });
@@ -595,6 +635,7 @@ describe('server→client broadcast request — first answer wins', () => {
     const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 }, { timeout: 1000 });
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
+
     await vi.advanceTimersByTimeAsync(1001);
     await rejection;
     vi.useRealTimers();
@@ -606,6 +647,7 @@ describe('server→client broadcast request — first answer wins', () => {
     const ctx = env.buildCtx('c1', undefined, { connections: ['c1'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 }, { timeout: 1000 });
     expect(env.sent).toHaveLength(0);
+
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
     await vi.advanceTimersByTimeAsync(1001);
     await rejection;
@@ -623,7 +665,7 @@ describe('server→client broadcast request — first answer wins', () => {
     env.answerHook('b', {
       event: 'volunteer',
       payload: { ready: true },
-      wskit: { correlationId: legB.opts.correlationId },
+      livething: { correlationId: legB.opts.correlationId },
     });
     await expect(promise).resolves.toEqual({
       response: { ready: true },
@@ -644,13 +686,14 @@ describe('server→client broadcast request — first answer wins', () => {
           family: 'rooms',
           send: () => true,
           members: () => [
-            { id: 'a', ref: () => ({ __wskit: 'connection-ref', id: 'a' }) },
-            { id: 'b', ref: () => ({ __wskit: 'connection-ref', id: 'b' }) },
+            { id: 'a', ref: () => ({ __livething: 'connection-ref', id: 'a' }) },
+            { id: 'b', ref: () => ({ __livething: 'connection-ref', id: 'b' }) },
           ],
         },
       },
     );
     const promise = ctx.channel.broadcastRequest('volunteer', { turn: 1 });
+
     expect(env.sent).toHaveLength(2);
     expect(env.sent[0]!.opts.channel).toBe('room-1');
     expect(env.sent[0]!.opts.channelFamily).toBe('rooms');
@@ -658,8 +701,9 @@ describe('server→client broadcast request — first answer wins', () => {
     env.answerHook('a', {
       event: 'volunteer',
       payload: { ready: true },
-      wskit: { correlationId: legA.opts.correlationId },
+      livething: { correlationId: legA.opts.correlationId },
     });
+
     await expect(promise).resolves.toEqual({
       response: { ready: true },
       from: expect.objectContaining({ id: 'a' }),
@@ -674,10 +718,11 @@ describe('server→client broadcast request — first answer wins', () => {
     const promise = ctx.channels.get('lobby').broadcastRequest('volunteer', { turn: 1 });
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
     const legB = env.sent.find((s) => s.connectionId === 'b')!;
+
     env.answerHook('b', {
       event: 'volunteer',
       payload: { ready: false },
-      wskit: { correlationId: legB.opts.correlationId },
+      livething: { correlationId: legB.opts.correlationId },
     });
     await expect(promise).resolves.toEqual({
       response: { ready: false },
@@ -708,7 +753,7 @@ describe('server→client broadcast request — first answer wins', () => {
     env.answerHook('a', {
       event: 'volunteer',
       payload: { ready: true },
-      wskit: { correlationId: legA.opts.correlationId },
+      livething: { correlationId: legA.opts.correlationId },
     });
     await expect(groupPromise).resolves.toEqual({
       response: { ready: true },
@@ -725,8 +770,9 @@ describe('server→client broadcast request — first answer wins', () => {
     env.answerHook('b', {
       event: 'volunteer',
       payload: { ready: false },
-      wskit: { correlationId: legB.opts.correlationId },
+      livething: { correlationId: legB.opts.correlationId },
     });
+
     await expect(refPromise).resolves.toEqual({
       response: { ready: false },
       from: expect.objectContaining({ id: 'b' }),
@@ -738,6 +784,7 @@ describe('server→client request — per-channel declaration isolation (Major 2
   const askAllowed: ResolvedServerRequest = {
     responseValidator: v.object({ allowed: v.boolean() }),
   };
+
   const askCount: ResolvedServerRequest = {
     responseValidator: v.object({ count: v.number() }),
   };
@@ -761,7 +808,7 @@ describe('server→client request — per-channel declaration isolation (Major 2
     const ctx = roomsCtx(env);
     const promise = ctx.channel.request('ask', {});
     const { correlationId } = env.sent[0]!.opts;
-    env.answerHook('c1', { event: 'ask', payload: { count: 5 }, wskit: { correlationId } });
+    env.answerHook('c1', { event: 'ask', payload: { count: 5 }, livething: { correlationId } });
     await expect(promise).rejects.toMatchObject({ code: 'request-invalid-response' });
   });
 
@@ -779,7 +826,7 @@ describe('server→client request — per-channel declaration isolation (Major 2
     env.answerHook('c1', {
       event: 'ask',
       payload: { allowed: true },
-      wskit: { correlationId: topId },
+      livething: { correlationId: topId },
     });
     await expect(topPromise).resolves.toEqual({ allowed: true });
 
@@ -788,7 +835,12 @@ describe('server→client request — per-channel declaration isolation (Major 2
     const chanCtx = roomsCtx(env);
     const chanPromise = chanCtx.channel.request('ask', {});
     const chanId = env.sent[0]!.opts.correlationId;
-    env.answerHook('c1', { event: 'ask', payload: { count: 9 }, wskit: { correlationId: chanId } });
+    env.answerHook('c1', {
+      event: 'ask',
+      payload: { count: 9 },
+      livething: { correlationId: chanId },
+    });
+
     await expect(chanPromise).resolves.toEqual({ count: 9 });
   });
 });
@@ -807,14 +859,18 @@ describe('server→client request — only the asked connection may answer (Mino
     const handled = env.answerHook('attacker', {
       event: 'ask',
       payload: { allowed: true },
-      wskit: { correlationId },
+      livething: { correlationId },
     });
     expect(handled).toBe(true);
     await new Promise((r) => setTimeout(r, 0));
     expect(resolved).toBe(false);
 
     // The real target can still answer.
-    env.answerHook('c1', { event: 'ask', payload: { allowed: false }, wskit: { correlationId } });
+    env.answerHook('c1', {
+      event: 'ask',
+      payload: { allowed: false },
+      livething: { correlationId },
+    });
     await expect(promise).resolves.toEqual({ allowed: false });
   });
 
@@ -828,7 +884,7 @@ describe('server→client request — only the asked connection may answer (Mino
     const handled = env.answerHook('b', {
       event: 'volunteer',
       payload: { ready: true },
-      wskit: { correlationId: legA.opts.correlationId },
+      livething: { correlationId: legA.opts.correlationId },
     });
     expect(handled).toBe(true);
 
@@ -836,7 +892,7 @@ describe('server→client request — only the asked connection may answer (Mino
     env.answerHook('b', {
       event: 'volunteer',
       payload: { ready: false },
-      wskit: { correlationId: legB.opts.correlationId },
+      livething: { correlationId: legB.opts.correlationId },
     });
     await expect(promise).resolves.toEqual({
       response: { ready: false },
@@ -858,7 +914,10 @@ describe('server→client broadcast request — self-exclusion (Major 6)', () =>
           family: 'rooms',
           send: () => true,
           members: () =>
-            ['c1', 'a', 'b'].map((id) => ({ id, ref: () => ({ __wskit: 'connection-ref', id }) })),
+            ['c1', 'a', 'b'].map((id) => ({
+              id,
+              ref: () => ({ __livething: 'connection-ref', id }),
+            })),
         },
       },
     );

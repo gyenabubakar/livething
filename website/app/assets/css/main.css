@@ -23,6 +23,9 @@
 
 :root {
   --ui-radius: 0;
+}
+
+.dark {
   --ui-bg: var(--color-zinc-950);
   --ui-text-dimmed: var(--color-zinc-400);
 }

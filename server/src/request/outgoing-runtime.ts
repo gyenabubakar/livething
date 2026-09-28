@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { error, RequestInvalidResponse, WSKitError } from '@wskit/core';
+import { Disconnected, LiveThingError, RequestInvalidResponse, Timeout } from '@livething/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
@@ -10,22 +10,45 @@ import type { Primitive } from '~/primitive.ts';
 import type { ResolvedServerRequest } from '~/request/capability.ts';
 import type { Validator } from '~/types.ts';
 
-/**
- * Thrown into a `ctx.request(...)` promise when no answer arrives before the
- * timeout. Shares the `'timeout'` code family with the client-side `Timeout` so
- * a server author matches it the same way.
- */
-const Timeout = /* @__PURE__ */ error('timeout');
+type ValueParameter = { response: unknown; from: PublicApi.ConnectionRef };
+type ChannelDeclarationKeyHandleParameter = { name?: string; family?: unknown };
+type SettleFrameParameter = {
+  event: string;
+  payload: unknown;
+  livething: Protocol.LiveThingProtocol | undefined;
+};
+type SettleBroadcastLegArgsParameter = {
+  connectionId: string;
+  correlationId: string;
+  entry: Extract<PendingServerRequest, { kind: 'broadcast' }>;
+  frame: { event: string; payload: unknown };
+};
+type SendRequestArgsParameter = {
+  target: {
+    connectionId: string;
+    channel?: string;
+    channelFamily?: string | null;
+    /** The channel definition key whose declarations to resolve, or null for top-level. */
+    declarationChannelKey?: string | null;
+  };
+  event: string;
+  payload: unknown;
+  options: RequestOptions | undefined;
+};
+type SendBroadcastRequestArgsParameter = {
+  targets: ReadonlyArray<{ connectionId: string; from: PublicApi.ConnectionRef }>;
+  event: string;
+  payload: unknown;
+  options: RequestOptions | undefined;
+  routing?: { channel?: string; channelFamily?: string | null };
+  /** The channel definition key whose declarations to resolve, or null for top-level. */
+  declarationChannelKey?: string | null;
+};
 
-/**
- * Thrown into a `ctx.request(...)` promise when the target connection drops
- * before it answers. Shares the `'disconnected'` code family with the
- * client-side `Disconnected`.
- */
-const Disconnected = /* @__PURE__ */ error('disconnected');
-
-function RequestNotDeclared(event: string): WSKitError<'request-not-declared', { event: string }> {
-  return new WSKitError('request-not-declared', { event });
+function RequestNotDeclared(
+  event: string,
+): LiveThingError<'request-not-declared', { event: string }> {
+  return new LiveThingError('request-not-declared', { event });
 }
 
 /** The built-in wait for a server→client request answer, in ms. */
@@ -60,7 +83,7 @@ type PendingServerRequest =
 
 /** The shared race state for one `broadcastRequest` fan-out. */
 interface BroadcastGroup {
-  resolve: (value: { response: unknown; from: PublicApi.ConnectionRef }) => void;
+  resolve: (value: ValueParameter) => void;
   reject: (reason: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
   /** The event name, for the (unused-on-broadcast) invalid path symmetry. */
@@ -86,8 +109,8 @@ interface BroadcastRequestOptions extends RequestOptions {
 
 /**
  * Compose the lookup key for one server→client request declaration. Keyed by
- * `[channelKey, event]` (channelKey is `null` for a top-level `requests({...})`
- * declaration, or the channel's family key / static name for an `outgoing.requests`
+ * `[channelKey, event]` (channelKey is `null` for a top-level `serverRequests({...})`
+ * declaration, or the channel's family key / static name for a channel `serverRequests(...)`
  * declaration), JSON-encoded so two channels can declare the same event name — and a
  * channel can reuse a top-level name — without clobbering each other. JSON keeps
  * the key unambiguous for any name without relying on a reserved separator.
@@ -98,10 +121,10 @@ export function serverRequestKey(channelKey: string | null, event: string): stri
 
 /**
  * The channel-definition key for a runtime channel handle: its family key for a
- * dynamic channel, its static name otherwise — matching how `requests()` keys
- * the channel's own `outgoing.requests` declarations. Top-level surfaces pass `null`.
+ * dynamic channel, its static name otherwise — matching how `serverRequests()` keys
+ * the channel's own `serverRequests(...)` declarations. Top-level surfaces pass `null`.
  */
-function channelDeclarationKey(handle: { name?: string; family?: unknown }): string {
+function channelDeclarationKey(handle: ChannelDeclarationKeyHandleParameter): string {
   return typeof handle.family === 'string' ? handle.family : (handle.name ?? '');
 }
 
@@ -129,8 +152,10 @@ function membersToTargets(
   const targets: Array<{ connectionId: string; from: PublicApi.ConnectionRef }> = [];
   for (const member of members) {
     if (excludeId !== undefined && member.id === excludeId) continue;
+
     targets.push({ connectionId: member.id, from: member.ref() });
   }
+
   return targets;
 }
 
@@ -146,13 +171,16 @@ function infoMatchesRecipient(
   to: PublicApi.ChannelRecipient,
 ): boolean {
   const ref = info.ref();
-  switch (to.__wskit) {
+  switch (to.__livething) {
     case 'connection-ref':
       return ref.instance === to.instance && info.id === to.id;
+
     case 'user-ref':
       return ref.instance === to.instance && info.userId !== '' && info.userId === to.id;
+
     case 'tag-ref':
       return info.tags.some((t) => t.kind === to.kind && t.group === to.group && t.key === to.key);
+
     case 'group-handle':
       return info.tags.some((t) => t.kind === to.kind && t.group === to.group);
   }
@@ -181,16 +209,10 @@ function createOutgoingRequestRuntime(
 ) {
   const pending = new Map<string, PendingServerRequest>();
 
-  function settle(
-    connectionId: string,
-    frame: {
-      event: string;
-      payload: unknown;
-      wskit: Protocol.WSKitProtocol | undefined;
-    },
-  ): boolean {
-    const correlationId = frame.wskit?.correlationId;
+  function settle(connectionId: string, frame: SettleFrameParameter): boolean {
+    const correlationId = frame.livething?.correlationId;
     if (correlationId === undefined) return false;
+
     const entry = pending.get(correlationId);
     if (!entry) return false;
 
@@ -220,10 +242,12 @@ function createOutgoingRequestRuntime(
       } catch {
         entry.reject(RequestInvalidResponse({ event: entry.event, issues: [] }));
       }
+
       return true;
     }
 
     entry.resolve(undefined);
+
     return true;
   }
 
@@ -234,12 +258,7 @@ function createOutgoingRequestRuntime(
    * correlationId matched a leg we own — even an invalid answer must not fall
    * through to normal routing.
    */
-  function settleBroadcastLeg(args: {
-    connectionId: string;
-    correlationId: string;
-    entry: Extract<PendingServerRequest, { kind: 'broadcast' }>;
-    frame: { event: string; payload: unknown };
-  }): boolean {
+  function settleBroadcastLeg(args: SettleBroadcastLegArgsParameter): boolean {
     const { connectionId, correlationId, entry, frame } = args;
     // Only the leg's own target may answer it; a mismatched connection echoing
     // the leg's correlationId is claimed but ignored, leaving the leg live.
@@ -264,6 +283,7 @@ function createOutgoingRequestRuntime(
       } else {
         response = undefined;
       }
+
       if (valid) {
         finishBroadcast(group, () => group.resolve({ response, from: entry.from }));
         return true;
@@ -278,16 +298,19 @@ function createOutgoingRequestRuntime(
   /** Resolve/reject a broadcast once, cancelling its timer and every live leg. */
   function finishBroadcast(group: BroadcastGroup, settle: () => void): void {
     if (group.settled) return;
+
     group.settled = true;
     clearTimeout(group.timer);
     for (const legId of group.legs) pending.delete(legId);
     group.legs.clear();
+
     settle();
   }
 
   function rejectForConnection(connectionId: string): void {
     for (const [correlationId, entry] of pending) {
       if (entry.connectionId !== connectionId) continue;
+
       if (entry.kind === 'broadcast') {
         // One target dropping does NOT fail the broadcast — others may still
         // answer. Just retire this leg; the timer rejects only if all go quiet.
@@ -295,32 +318,24 @@ function createOutgoingRequestRuntime(
         entry.group.legs.delete(correlationId);
         continue;
       }
+
       pending.delete(correlationId);
       clearTimeout(entry.timer);
       entry.reject(Disconnected());
     }
   }
 
-  function sendRequest(args: {
-    target: {
-      connectionId: string;
-      channel?: string;
-      channelFamily?: string | null;
-      /** The channel definition key whose declarations to resolve, or null for top-level. */
-      declarationChannelKey?: string | null;
-    };
-    event: string;
-    payload: unknown;
-    options: RequestOptions | undefined;
-  }): Promise<unknown> {
+  function sendRequest(args: SendRequestArgsParameter): Promise<unknown> {
     const { target, event, payload, options } = args;
     const declarationKey = serverRequestKey(target.declarationChannelKey ?? null, event);
     if (!serverRequests.has(declarationKey)) {
       return Promise.reject(RequestNotDeclared(event));
     }
+
     const declaration = serverRequests.get(declarationKey)!;
 
     const correlationId = engine.generateId('sreq');
+
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(correlationId);
@@ -359,22 +374,17 @@ function createOutgoingRequestRuntime(
    * Resolves with `{ response, from }` on the first VALID answer; rejects with
    * `Timeout` when no valid answer arrives in time — including the zero-target
    * case (nobody to ask = nobody volunteered). The caller resolves the targets
-   * with the same enumeration the matching `broadcast`/tag-send uses.
+   * with the same enumeration the matching `broadcast`/tag broadcast uses.
    */
-  function sendBroadcastRequest(args: {
-    targets: ReadonlyArray<{ connectionId: string; from: PublicApi.ConnectionRef }>;
-    event: string;
-    payload: unknown;
-    options: RequestOptions | undefined;
-    routing?: { channel?: string; channelFamily?: string | null };
-    /** The channel definition key whose declarations to resolve, or null for top-level. */
-    declarationChannelKey?: string | null;
-  }): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
+  function sendBroadcastRequest(
+    args: SendBroadcastRequestArgsParameter,
+  ): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
     const { targets, event, payload, options, routing } = args;
     const declarationKey = serverRequestKey(args.declarationChannelKey ?? null, event);
     if (!serverRequests.has(declarationKey)) {
       return Promise.reject(RequestNotDeclared(event));
     }
+
     const declaration = serverRequests.get(declarationKey)!;
 
     return new Promise((resolve, reject) => {
@@ -387,6 +397,7 @@ function createOutgoingRequestRuntime(
         settled: false,
         timer: undefined as unknown as ReturnType<typeof setTimeout>,
       };
+
       group.timer = setTimeout(() => {
         finishBroadcast(group, () => group.reject(Timeout()));
       }, options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS);
@@ -432,28 +443,31 @@ function toRejection(payload: unknown): unknown {
   // factory: a client legitimately declines with a framework-reserved code
   // (e.g. `request-no-response`), which `error()` refuses — and that throw would
   // otherwise escape settle and leave the pending request to hang.
-  return new WSKitError(code as string, detail);
+  return new LiveThingError(code as string, detail);
 }
 
 /**
- * The runtime primitive the `requests({...})` capability contributes. Its
+ * The runtime primitive the `serverRequests({...})` capability contributes. Its
  * `__setup` installs the server→client request surfaces (`ctx.request`,
  * `ctx.connections.get(ref).request`, `ctx.channel.request`) and the inbound
  * answer-frame + disconnect seams. Channel-owned request verbs stay off
  * subscribe-gate contexts because those callbacks cannot infer the channel's
  * own request declaration map. The pending-request map lives in this module,
  * so the engine core never imports any of it (tree-shaking: a server without
- * `requests()` pulls none of this).
+ * `serverRequests()` pulls none of this).
  */
 export function makeServerRequestsPrimitive(
   serverRequests: ReadonlyMap<string, ResolvedServerRequest>,
 ): Primitive {
   return {
-    __wskit: 'server-requests',
+    __livething: 'server-requests',
     __kind: 'infrastructure',
     __identity: [SERVER_REQUESTS_KEY],
     __requires: {},
     __serverRequests: serverRequests,
+    __withServerRequests(next: ReadonlyMap<string, ResolvedServerRequest>): Primitive {
+      return makeServerRequestsPrimitive(next);
+    },
     __setup(engine: EngineAccess): void {
       const runtime = createOutgoingRequestRuntime(engine, serverRequests);
 
@@ -523,6 +537,7 @@ export function makeServerRequestsPrimitive(
               declarationChannelKey: null,
             });
         }
+
         if (ctx.user) attachUserRequest(ctx.user);
         const users = ctx.users;
         if (users && typeof users.get === 'function') {
@@ -556,6 +571,7 @@ export function makeServerRequestsPrimitive(
               channel: channelHandle.name,
               channelFamily: channelHandle.family ?? null,
             };
+
             const declarationChannelKey = channelDeclarationKey(channelHandle);
 
             // A `to` recipient asks matching members instead of the caller. When
@@ -563,9 +579,10 @@ export function makeServerRequestsPrimitive(
             // `from` is dropped so the resolved type stays the bare response.
             const to = options?.to;
             if (to) {
-              if (to.__wskit === 'connection-ref' || to.__wskit === 'user-ref') {
+              if (to.__livething === 'connection-ref' || to.__livething === 'user-ref') {
                 assertLocalRef(to, ctx.connection?.instance, 'ctx.channel.request({ to })');
               }
+
               return runtime
                 .sendBroadcastRequest({
                   targets: membersToTargets(
@@ -588,6 +605,7 @@ export function makeServerRequestsPrimitive(
             });
           };
         }
+
         if (channelHandle && !channelScope?.isSubscribeGate) {
           channelHandle.broadcastRequest = (
             event: string,

@@ -1,4 +1,4 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
@@ -52,11 +52,11 @@ describe('Plugin.use — not registered', () => {
 
     const socket = buildSocket(); // Chat intentionally omitted
 
-    expect(() => Chat.use(socket)).toThrow(WSKitConfigError);
+    expect(() => Chat.use(socket)).toThrow(LiveThingConfigError);
     expect(() => Chat.use(socket)).toThrow(/not registered on this socket/);
   });
 
-  it('throws for an observe-only plugin that exposes no API', () => {
+  it('throws for a hook-only plugin that exposes no API', () => {
     const Watcher = plugin()({ id: 'acme:watcher', setup: () => ({}) });
 
     const socket = buildSocket(Watcher());

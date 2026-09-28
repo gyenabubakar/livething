@@ -2,7 +2,7 @@ import { assertPositiveInteger } from '~/_engine/validation.ts';
 import type { SQLProvider } from '~/context.ts';
 
 const CREATE_SEQUENCE_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_sequence (
+  CREATE TABLE IF NOT EXISTS __livething_sequence (
     scope TEXT PRIMARY KEY,
     nextSeq INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
@@ -15,7 +15,7 @@ const GLOBAL_SEQUENCE_SCOPE = 'global';
 /**
  * Create the SQLite table used by durable sequence numbers.
  *
- * WSKit keeps a single row here with the next `seq` number that has not been
+ * LiveThing keeps a single row here with the next `seq` number that has not been
  * handed out yet.
  */
 export function ensureSequenceSchema(sql: SQLProvider): void {
@@ -37,12 +37,12 @@ export function allocatePersistentSequence(sql: SQLProvider): number {
     const row = tx
       .exec<{
         nextSeq: number;
-      }>('SELECT nextSeq FROM __wskit_sequence WHERE scope = ?', GLOBAL_SEQUENCE_SCOPE)
+      }>('SELECT nextSeq FROM __livething_sequence WHERE scope = ?', GLOBAL_SEQUENCE_SCOPE)
       .one();
 
     if (!row) {
       tx.exec(
-        'INSERT INTO __wskit_sequence (scope, nextSeq) VALUES (?, ?)',
+        'INSERT INTO __livething_sequence (scope, nextSeq) VALUES (?, ?)',
         GLOBAL_SEQUENCE_SCOPE,
         2,
       );
@@ -53,7 +53,7 @@ export function allocatePersistentSequence(sql: SQLProvider): number {
     const nextSeq = Number(row.nextSeq);
 
     tx.exec(
-      'UPDATE __wskit_sequence SET nextSeq = ? WHERE scope = ?',
+      'UPDATE __livething_sequence SET nextSeq = ? WHERE scope = ?',
       nextSeq + 1,
       GLOBAL_SEQUENCE_SCOPE,
     );
@@ -92,7 +92,7 @@ export function createPersistentSequenceAllocator(
       const row = tx
         .exec<{
           nextSeq: number;
-        }>('SELECT nextSeq FROM __wskit_sequence WHERE scope = ?', GLOBAL_SEQUENCE_SCOPE)
+        }>('SELECT nextSeq FROM __livething_sequence WHERE scope = ?', GLOBAL_SEQUENCE_SCOPE)
         .one();
 
       const start = row ? Number(row.nextSeq) : 1;
@@ -100,13 +100,13 @@ export function createPersistentSequenceAllocator(
 
       if (!row) {
         tx.exec(
-          'INSERT INTO __wskit_sequence (scope, nextSeq) VALUES (?, ?)',
+          'INSERT INTO __livething_sequence (scope, nextSeq) VALUES (?, ?)',
           GLOBAL_SEQUENCE_SCOPE,
           end,
         );
       } else {
         tx.exec(
-          'UPDATE __wskit_sequence SET nextSeq = ? WHERE scope = ?',
+          'UPDATE __livething_sequence SET nextSeq = ? WHERE scope = ?',
           end,
           GLOBAL_SEQUENCE_SCOPE,
         );

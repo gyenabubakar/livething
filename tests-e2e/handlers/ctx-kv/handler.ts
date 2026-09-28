@@ -1,10 +1,9 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@livething/server';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -69,7 +68,7 @@ const handleKvTtlZeroProbe = base.on('kv-ttl-zero-probe', {
   },
 });
 
-export const ctxKvHandler = base.assemble({
+export const ctxKvDefinition = base.assemble({
   handlers: [
     handleKvSet,
     handleKvGet,
@@ -80,4 +79,4 @@ export const ctxKvHandler = base.assemble({
   ],
 });
 
-export type CtxKvClient = InferClient<typeof ctxKvHandler>;
+export type CtxKvClient = InferClient<typeof ctxKvDefinition>;

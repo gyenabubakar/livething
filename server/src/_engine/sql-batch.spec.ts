@@ -1,4 +1,4 @@
-import { isWSKitConfigError, WSKitConfigError } from '@wskit/core';
+import { isLiveThingConfigError, LiveThingConfigError } from '@livething/core';
 import { describe, expect, it } from 'vitest';
 import type { SqlLimits } from '~/context.ts';
 import { chunkForBind } from './sql-batch.ts';
@@ -46,14 +46,15 @@ describe('chunkForBind', () => {
     expect(chunkForBind(items, 2, limits)).toEqual([[1, 2]]);
   });
 
-  it('throws a WSKitConfigError naming the limit when paramsPerItem alone exceeds maxBoundParams', () => {
+  it('throws a LiveThingConfigError naming the limit when paramsPerItem alone exceeds maxBoundParams', () => {
     let captured: unknown;
     try {
       chunkForBind([1, 2, 3], 11, limits);
     } catch (error) {
       captured = error;
     }
-    expect(isWSKitConfigError(captured)).toBe(true);
+
+    expect(isLiveThingConfigError(captured)).toBe(true);
     expect(String(captured)).toMatch(/10/);
     expect(String(captured)).toMatch(/11/);
   });
@@ -63,14 +64,14 @@ describe('chunkForBind', () => {
   });
 
   it('throws for paramsPerItem of zero', () => {
-    expect(() => chunkForBind([1, 2, 3], 0, limits)).toThrow(WSKitConfigError);
+    expect(() => chunkForBind([1, 2, 3], 0, limits)).toThrow(LiveThingConfigError);
   });
 
   it('throws for a negative paramsPerItem', () => {
-    expect(() => chunkForBind([1, 2, 3], -1, limits)).toThrow(WSKitConfigError);
+    expect(() => chunkForBind([1, 2, 3], -1, limits)).toThrow(LiveThingConfigError);
   });
 
   it('throws for a non-integer paramsPerItem', () => {
-    expect(() => chunkForBind([1, 2, 3], 1.5, limits)).toThrow(WSKitConfigError);
+    expect(() => chunkForBind([1, 2, 3], 1.5, limits)).toThrow(LiveThingConfigError);
   });
 });

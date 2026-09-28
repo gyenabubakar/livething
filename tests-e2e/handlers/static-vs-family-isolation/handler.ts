@@ -1,10 +1,10 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { sequence } from '@wskit/server/sequence';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { sequence } from '@livething/server/sequence';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const MsgPayload = v.object({ from: v.string(), text: v.string() });
@@ -34,8 +34,7 @@ const KickFamilyPayload = v.object({
 });
 const KickAckPayload = v.object({ where: v.string() });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     dedup(),
@@ -97,9 +96,7 @@ const handleKickFamily = base.on('kick-family', {
 });
 
 const general = base.channel('general', {
-  outgoing: {
-    emits: { msg: t<v.InferOutput<typeof MsgPayload>>() },
-  },
+  capabilities: [emits({ msg: t<v.InferOutput<typeof MsgPayload>>() })],
 });
 
 const handleSendInGeneral = general.on('send-in-general', {
@@ -110,9 +107,7 @@ const handleSendInGeneral = general.on('send-in-general', {
 });
 
 const room = base.channel(['rooms', 'room:{id}'], {
-  outgoing: {
-    emits: { msg: t<v.InferOutput<typeof MsgPayload>>() },
-  },
+  capabilities: [emits({ msg: t<v.InferOutput<typeof MsgPayload>>() })],
 });
 
 const handleSendInRoom = room.on('send-in-room', {
@@ -123,7 +118,7 @@ const handleSendInRoom = room.on('send-in-room', {
   },
 });
 
-export const staticVsFamilyIsolationHandler = base.assemble({
+export const staticVsFamilyIsolationDefinition = base.assemble({
   handlers: [
     handleTagSelf,
     handleObserveStatic,
@@ -135,4 +130,4 @@ export const staticVsFamilyIsolationHandler = base.assemble({
   ],
 });
 
-export type StaticVsFamilyIsolationClient = InferClient<typeof staticVsFamilyIsolationHandler>;
+export type StaticVsFamilyIsolationClient = InferClient<typeof staticVsFamilyIsolationDefinition>;

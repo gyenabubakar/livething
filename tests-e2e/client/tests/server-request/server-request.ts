@@ -1,10 +1,10 @@
-import { client, connect, serverRequests } from '@wskit/client';
-import type { ServerRequestClient } from '@wskit/tests-e2e-handlers/server-request';
+import { client, connect, serverRequests } from '@livething/client';
+import type { ServerRequestClient } from '@livething/tests-e2e-handlers/server-request';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's serverRequests() against the real `server-request`
-// handler, typed by the same contract the server implements
-// (ServerRequestClient = InferClient<handler>). The server asks the client a
+// Drives @livething/client's serverRequests() against the real `server-request`
+// server definition, typed by the same contract the server implements
+// (ServerRequestClient = InferClient<definition>). The server asks the client a
 // declared server→client request; the client answers with onRequest(), and the
 // server reports the outcome back as an event.
 export function setup(): void {
@@ -46,11 +46,13 @@ export function setup(): void {
       // Never resolve: the server's request must hit its timeout.
       return new Promise<{ allowed: boolean }>(() => {});
     }
+
     if (mode === 'bad') {
       // Violates the response schema { allowed: boolean } so the server rejects
       // with request-invalid-response.
       return { allowed: 'nope' } as unknown as { allowed: boolean };
     }
+
     return { allowed: true };
   });
 

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { namespaceError } from '@wskit/core';
+import { namespaceError } from '@livething/core';
 import {
   pluginWireName,
   scopePluginContext,
@@ -7,12 +7,12 @@ import {
   scopeUpgradeHelpers,
 } from '~/plugin-scope.ts';
 import { serverRequestKey } from '~/request/outgoing-runtime.ts';
-import type { ErrorDefWithFactory } from '@wskit/core';
+import type { ErrorDefWithFactory } from '@livething/core';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { ResolvedServerRequest } from '~/request/capability.ts';
+import type { ResolvedServerRequest } from '~/request/server-requests.ts';
 
 /** The primitive kinds that route or declare by a plain `event` field. */
 const EVENT_KINDS = new Set([
@@ -78,16 +78,20 @@ interface PluginScope {
 function collectShortErrorCodes(primitives: readonly Primitive[]): Set<string> {
   const codes = new Set<string>();
   for (const primitive of primitives) {
-    if (primitive.__wskit !== 'errors') continue;
+    if (primitive.__livething !== 'errors') continue;
+
     const defs = (primitive as unknown as { defs: ErrorDefWithFactory<string, any>[] }).defs;
     for (const def of defs) codes.add(def.code);
   }
+
   return codes;
 }
 
 /** Rewrite one routable primitive into its namespaced form for plugin `id`. */
-function namespaceOne({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
-  if (!EVENT_KINDS.has(primitive.__wskit)) return primitive;
+function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
+  if (!EVENT_KINDS.has(primitive.__livething)) return primitive;
+
   const event = (primitive as { event?: string }).event;
   if (event === undefined) return primitive;
 
@@ -112,6 +116,7 @@ function namespaceOne({ id, shortCodes }: PluginScope, primitive: Primitive): Pr
       nudges: stream.nudges.map((n) => ({ ...n, event: pluginWireName(id, n.event) })),
     };
   }
+
   const nudges = (primitive as { nudges?: { event: string }[] }).nudges;
   if (nudges) {
     copy.nudges = nudges.map((n) => ({ ...n, event: pluginWireName(id, n.event) }));
@@ -123,12 +128,14 @@ function namespaceOne({ id, shortCodes }: PluginScope, primitive: Primitive): Pr
       handler(scopePluginContext(id, ctx), payload),
     );
   }
+
   const run = (primitive as { run?: (ctx: any, ...rest: any[]) => unknown }).run;
   if (run) {
     copy.run = scopePluginThrow(id, shortCodes, (ctx: any, ...rest: any[]) =>
       run(scopePluginContext(id, ctx), ...rest),
     );
   }
+
   return copy as unknown as Primitive;
 }
 
@@ -139,10 +146,11 @@ function namespaceOne({ id, shortCodes }: PluginScope, primitive: Primitive): Pr
  * sends are namespaced like any other plugin send.
  */
 function namespaceLifecycle(
-  { id, shortCodes }: PluginScope,
+  scope: PluginScope,
   kind: PluginLifecycleKind,
   primitive: Primitive,
 ): Primitive {
+  const { id, shortCodes } = scope;
   const handler = (primitive as unknown as { handler: (ctx: any, ...rest: any[]) => unknown })
     .handler;
   const scoped = scopePluginThrow(
@@ -170,7 +178,7 @@ function channelBareKey(primitive: Primitive): string {
 /**
  * Re-key a plugin's server→client request declarations to their `__<id>::` wire
  * names. The requests builder files each declaration under the bare event (and,
- * for a channel's `outgoing.requests`, the bare channel key) at build time —
+ * for a channel's `serverRequests(...)`, the bare channel key) at build time —
  * before namespacing — so the runtime, which resolves a plugin request by its
  * prefixed event / prefixed channel key, would miss the entry: a broadcast
  * request is wrongly rejected and a targeted one skips response validation. We
@@ -181,29 +189,36 @@ function channelBareKey(primitive: Primitive): string {
 function renamedServerRequests(
   id: string,
   primitives: readonly Primitive[],
-): Map<string, ResolvedServerRequest> | null {
-  const carrier = primitives.find((p) => p.__wskit === 'server-requests') as
-    | { __serverRequests?: Map<string, ResolvedServerRequest> }
-    | undefined;
-  const map = carrier?.__serverRequests;
-  if (!map || map.size === 0) return null;
+): ReadonlyMap<Primitive, Map<string, ResolvedServerRequest>> {
+  const renamed = new Map<Primitive, Map<string, ResolvedServerRequest>>();
 
   const pluginChannelKeys = new Set(
-    primitives.filter((p) => p.__wskit === 'channel').map(channelBareKey),
+    primitives.filter((p) => p.__livething === 'channel').map(channelBareKey),
   );
 
-  // Build a fresh map; never mutate the carrier in `manifest.handler.primitives`
-  // (keeps namespacing idempotent and copy-don't-mutate like the other helpers).
-  const next = new Map<string, ResolvedServerRequest>();
-  for (const [key, value] of map.entries()) {
-    const [channelKey, event] = JSON.parse(key) as [string | null, string];
-    const nextChannelKey =
-      channelKey !== null && pluginChannelKeys.has(channelKey)
-        ? pluginWireName(id, channelKey)
-        : channelKey;
-    next.set(serverRequestKey(nextChannelKey, pluginWireName(id, event)), value);
+  for (const primitive of primitives) {
+    if (primitive.__livething !== 'server-requests') continue;
+
+    const map = (primitive as { __serverRequests?: ReadonlyMap<string, ResolvedServerRequest> })
+      .__serverRequests;
+    if (!map || map.size === 0) continue;
+
+    // Build a fresh map; never mutate the carrier in `manifest.definition.primitives`
+    // (keeps namespacing idempotent and copy-don't-mutate like the other helpers).
+    const next = new Map<string, ResolvedServerRequest>();
+    for (const [key, value] of map) {
+      const [channelKey, event] = JSON.parse(key) as [string | null, string];
+      const nextChannelKey =
+        channelKey !== null && pluginChannelKeys.has(channelKey)
+          ? pluginWireName(id, channelKey)
+          : channelKey;
+      next.set(serverRequestKey(nextChannelKey, pluginWireName(id, event)), value);
+    }
+
+    renamed.set(primitive, next);
   }
-  return next;
+
+  return renamed;
 }
 
 /**
@@ -215,26 +230,38 @@ function renamedServerRequests(
 export function namespacePluginPrimitives(
   id: string,
   primitives: readonly Primitive[],
-  observesHost = false,
 ): Primitive[] {
   const scope: PluginScope = { id, shortCodes: collectShortErrorCodes(primitives) };
   const serverRequests = renamedServerRequests(id, primitives);
   return primitives.map((primitive) => {
-    if (primitive.__wskit === 'server-requests' && serverRequests) {
-      return { ...primitive, __serverRequests: serverRequests } as Primitive;
+    const declarations = serverRequests.get(primitive);
+    if (primitive.__livething === 'server-requests' && declarations) {
+      return (
+        primitive as Primitive & {
+          __withServerRequests: (requests: ReadonlyMap<string, ResolvedServerRequest>) => Primitive;
+        }
+      ).__withServerRequests(declarations);
     }
+
     if ((primitive as { __scopedUpgrade?: boolean }).__scopedUpgrade) {
       return namespaceUpgrade(id, primitive);
     }
-    const lifecycleKind = LIFECYCLE_KINDS[primitive.__wskit];
+
+    const lifecycleKind = LIFECYCLE_KINDS[primitive.__livething];
     if (lifecycleKind) return namespaceLifecycle(scope, lifecycleKind, primitive);
-    if (primitive.__wskit === 'scheduled') return namespaceScheduled(scope, primitive);
-    if (primitive.__wskit === 'channel') return namespaceChannel(scope, primitive, observesHost);
-    if (primitive.__wskit === 'tag-groups') return namespaceTagGroups(id, primitive);
-    if (primitive.__wskit === 'errors') return namespaceErrors(id, primitive);
-    if (primitive.__wskit === 'intercept') return ownHook(scope, primitive, observesHost);
-    if (primitive.__wskit === 'outgoingHook')
-      return ownOutgoingHook(scope, primitive, observesHost);
+
+    if (primitive.__livething === 'scheduled') return namespaceScheduled(scope, primitive);
+
+    if (primitive.__livething === 'channel') return namespaceChannel(scope, primitive);
+
+    if (primitive.__livething === 'tag-groups') return namespaceTagGroups(id, primitive);
+
+    if (primitive.__livething === 'errors') return namespaceErrors(id, primitive);
+
+    if (primitive.__livething === 'intercept') return ownHook(scope, primitive);
+
+    if (primitive.__livething === 'outgoingHook') return ownOutgoingHook(scope, primitive);
+
     return namespaceOne(scope, primitive);
   });
 }
@@ -243,8 +270,8 @@ export function namespacePluginPrimitives(
  * Scope a hook's ctx so its sends, kv keys, tags, channel sends, requests, and
  * scheduled tasks are namespaced like any other plugin call — the same wrapping
  * the normal handler path uses. An outgoing hook can run with no per-connection
- * ctx (e.g. during a broadcast), so a nullish ctx passes through untouched
- * rather than being proxied.
+ * ctx (e.g. a send from a scheduled task), so a nullish ctx passes through
+ * untouched rather than being proxied.
  */
 function scopeHookCtx(id: string, ctx: any): any {
   return ctx == null ? ctx : scopePluginContext(id, ctx);
@@ -252,16 +279,11 @@ function scopeHookCtx(id: string, ctx: any): any {
 
 /**
  * Stamp an intercept with its plugin owner and run it against a plugin-scoped
- * ctx. An intercept observes traffic — it declares no event — so its event is
- * not rewritten; the owner is recorded so the runtime scopes it to the plugin's
- * own frames (plus the app's when host observation is granted), and its ctx is
- * namespaced so a hook can emit the plugin's own events and write its own kv.
+ * ctx. An intercept declares no event, so its event is not rewritten; its ctx
+ * is namespaced so a hook can emit the plugin's own events and write its own kv.
  */
-function ownHook(
-  { id, shortCodes }: PluginScope,
-  primitive: Primitive,
-  observesHost: boolean,
-): Primitive {
+function ownHook(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
   const handler = (primitive as unknown as { handler: (ctx: any, frame: any) => unknown }).handler;
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
@@ -269,30 +291,26 @@ function ownHook(
       handler(scopeHookCtx(id, ctx), frame),
     ),
     __owner: { kind: 'plugin', id },
-    __observesHost: observesHost,
   } as unknown as Primitive;
 }
 
 /**
  * Stamp an outgoing hook with its plugin owner, run it against a plugin-scoped
  * ctx, and rebuild its `__setup` so it registers with that owner. Like an
- * intercept, it observes rather than declares, so its event is not rewritten.
+ * intercept, it declares no event, so its event is not rewritten.
  */
-function ownOutgoingHook(
-  { id, shortCodes }: PluginScope,
-  primitive: Primitive,
-  observesHost: boolean,
-): Primitive {
+function ownOutgoingHook(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
   const origHandler = (primitive as unknown as { handler: (ctx: any, frame: any) => unknown })
     .handler;
   const handler = scopePluginThrow(id, shortCodes, (ctx: any, frame: any) =>
     origHandler(scopeHookCtx(id, ctx), frame),
   );
-  const owner = { owner: { kind: 'plugin' as const, id }, observesHost };
+  const owner = { kind: 'plugin' as const, id };
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __owner: { kind: 'plugin', id },
-    __observesHost: observesHost,
     __setup(engine: EngineAccess) {
       engine.onOutgoing(handler, owner);
     },
@@ -304,11 +322,13 @@ function ownOutgoingHook(
  * its body runs in a plugin-scoped context (sends prefixed; `ctx.schedule(...)`
  * resolves to the namespaced id).
  */
-function namespaceScheduled({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
+function namespaceScheduled(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
   const taskId = (primitive as unknown as { taskId: string }).taskId;
   const wireTask = pluginWireName(id, taskId);
   const [key] = primitive.__identity;
   const handler = (primitive as unknown as { handler: (ctx: any, data?: any) => unknown }).handler;
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     taskId: wireTask,
@@ -323,18 +343,24 @@ function namespaceScheduled({ id, shortCodes }: PluginScope, primitive: Primitiv
 /**
  * Namespace a plugin's tag groups so each group declares under `__<id>::<group>`.
  * The provenance marker lets the engine register `::`-bearing names that
- * `assertValidWSKitIdentifier` would otherwise reject for a user.
+ * `assertValidLiveThingIdentifier` would otherwise reject for a user.
  */
 function namespaceTagGroups(id: string, primitive: Primitive): Primitive {
-  const kind = (primitive as unknown as { kind: 'ephemeral' | 'persistent' }).kind;
   const groups = (primitive as unknown as { groups: { name: string }[] }).groups;
   const namespaced = groups.map((g) => ({ ...g, name: pluginWireName(id, g.name) }));
+  const setup = primitive.__setup;
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __plugin: id,
     groups: namespaced,
+    // Run the original setup so it also installs the `ctx.tags` builder, but
+    // register the namespaced group names in place of the declared ones.
     __setup(engine: EngineAccess) {
-      engine.registerTagGroups(kind, namespaced as never);
+      const scopedEngine: EngineAccess = Object.create(engine);
+      scopedEngine.registerTagGroups = (groupKind) =>
+        engine.registerTagGroups(groupKind, namespaced as never);
+      setup?.call(primitive, scopedEngine);
     },
   } as unknown as Primitive;
 }
@@ -362,11 +388,7 @@ function namespaceErrors(id: string, primitive: Primitive): Primitive {
  * channel and its events carry the provenance marker so the compile
  * reserved-name and `::` guards permit the framework-namespaced form.
  */
-function namespaceChannel(
-  scope: PluginScope,
-  primitive: Primitive,
-  observesHost: boolean,
-): Primitive {
+function namespaceChannel(scope: PluginScope, primitive: Primitive): Primitive {
   const { id } = scope;
   const channel = primitive as unknown as {
     pattern: string | ScopeDeclaration<string>;
@@ -391,13 +413,16 @@ function namespaceChannel(
     pattern,
     __identity: [key, identityTail],
     __plugin: id,
-    // A channel intercept/outgoing hook routes through the same owner-stamp +
-    // ctx-scope path as a top-level one, so it is attributed to the plugin and
-    // can emit the channel's namespaced events / throw its declared errors.
+    // A channel intercept/outgoing hook routes through the same ctx-scope path
+    // as a top-level one, so it can emit the channel's namespaced events and
+    // throw its declared errors.
     primitives: channel.primitives.map((child) => {
-      if (child.__wskit === 'intercept') return ownHook(scope, child, observesHost);
-      if (child.__wskit === 'outgoingHook') return ownOutgoingHook(scope, child, observesHost);
-      if (CHANNEL_LIFECYCLE_REGISTER[child.__wskit]) return scopeChannelLifecycle(scope, child);
+      if (child.__livething === 'intercept') return ownHook(scope, child);
+
+      if (child.__livething === 'outgoingHook') return ownOutgoingHook(scope, child);
+
+      if (CHANNEL_LIFECYCLE_REGISTER[child.__livething]) return scopeChannelLifecycle(scope, child);
+
       return namespaceOne(scope, child);
     }),
   } as unknown as Primitive;
@@ -411,13 +436,15 @@ function namespaceChannel(
  * child's own `__setup` closes over the raw handler, so we rebuild `__setup` to
  * register the scoped handler under the same engine hook.
  */
-function scopeChannelLifecycle({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
-  const register = CHANNEL_LIFECYCLE_REGISTER[primitive.__wskit]!;
+function scopeChannelLifecycle(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
+  const register = CHANNEL_LIFECYCLE_REGISTER[primitive.__livething]!;
   const handler = (primitive as unknown as { handler: (ctx: any, ...rest: any[]) => unknown })
     .handler;
   const scoped = scopePluginThrow(id, shortCodes, (ctx: any, ...rest: any[]) =>
     handler(scopePluginContext(id, ctx), ...rest),
   );
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __plugin: id,
@@ -439,6 +466,7 @@ function namespaceUpgrade(id: string, primitive: Primitive): Primitive {
     const [request, helpers] = args;
     const result = await handler(request, scopeUpgradeHelpers(id, helpers));
     if (!result?.tags) return result;
+
     return {
       ...result,
       tags: result.tags.map((ref) =>
@@ -446,6 +474,7 @@ function namespaceUpgrade(id: string, primitive: Primitive): Primitive {
       ),
     };
   }
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __plugin: id,

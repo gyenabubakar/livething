@@ -34,6 +34,7 @@ function buildWithStream(opts?: StreamOptions) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -42,6 +43,7 @@ function buildWithStreamAndChannels(opts?: StreamOptions) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -51,16 +53,17 @@ type StreamSocket = ReturnType<typeof buildWithStream>['socket'];
 async function start(
   socket: StreamSocket,
   ws: MockWebSocket,
-  options?: { streamKind?: 'ephemeral' | 'persistent' },
+  options?: { streamDurability?: 'ephemeral' | 'persistent' },
 ): Promise<{ handle: AiHandle; sid: string }> {
   const promise = socket.stream('ask-ai', { prompt: 'hi' });
-  const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
+  const sid = ws.sentFrames().at(-1).metadata.stream?.id as string;
   ws.emit({
     event: '__streamOk__',
     payload: {},
-    __wskit: { streamId: sid, streamKind: options?.streamKind ?? 'ephemeral' },
+    metadata: { stream: { id: sid, durability: options?.streamDurability ?? 'ephemeral' } },
   });
   const handle = await promise;
+
   return { handle, sid };
 }
 
@@ -91,7 +94,7 @@ describe('nudge timeout', () => {
     const { handle, sid } = await start(socket, ws);
 
     const pending = handle.nudge('hint', { value: 'test' });
-    const nudgeId = ws.sentFrames().at(-1).__wskit.streamNudgeId as string;
+    const nudgeId = ws.sentFrames().at(-1).metadata.stream?.nudgeId as string;
     vi.advanceTimersByTime(500);
 
     await expect(pending).rejects.toMatchObject({ code: 'timeout' });
@@ -102,7 +105,7 @@ describe('nudge timeout', () => {
       ws.emit({
         event: '__nudgeOk__',
         payload: {},
-        __wskit: { streamId: sid, streamNudgeId: nudgeId },
+        metadata: { stream: { id: sid, nudgeId: nudgeId } },
       }),
     ).not.toThrow();
 
@@ -126,7 +129,7 @@ describe('trigger handshake timeout', () => {
     const { socket, ws } = buildWithStream({ timeout: 1000 });
 
     const promise = socket.stream('ask-ai', { prompt: 'hi' });
-    const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
+    const sid = ws.sentFrames().at(-1).metadata.stream?.id as string;
     vi.advanceTimersByTime(1000);
 
     await expect(promise).rejects.toMatchObject({ code: 'timeout' });
@@ -135,7 +138,7 @@ describe('trigger handshake timeout', () => {
       ws.emit({
         event: '__streamOk__',
         payload: {},
-        __wskit: { streamId: sid, streamKind: 'ephemeral' },
+        metadata: { stream: { id: sid, durability: 'ephemeral' } },
       }),
     ).not.toThrow();
   });
@@ -146,7 +149,7 @@ describe('nudge after stream ends', () => {
     const { socket, ws } = buildWithStream();
     const { handle, sid } = await start(socket, ws);
 
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
     const chunks: unknown[] = [];
     for await (const chunk of handle) chunks.push(chunk);
 
@@ -187,7 +190,7 @@ describe('cancel idempotency after stream ends', () => {
     const { socket, ws } = buildWithStream();
     const { handle, sid } = await start(socket, ws);
 
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
     for await (const _chunk of handle) {
       void _chunk;
     }
@@ -201,7 +204,7 @@ describe('cancel idempotency after stream ends', () => {
     const { socket, ws } = buildWithStream();
     const { handle, sid } = await start(socket, ws);
 
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
     for await (const _chunk of handle) {
       void _chunk;
     }
@@ -222,14 +225,18 @@ describe('broadcast scope and seq deduplication', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'r1', family: 'rooms' } },
     });
     await sub;
 
     const onChunk = vi.fn();
     room.onStream('ask-ai', { onChunk });
 
-    ws.emit({ event: 'ask-ai', payload: { text: 'hi' }, __wskit: { streamId: 'bs1', seq: 1 } });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'hi' },
+      metadata: { stream: { id: 'bs1', seq: 1 } },
+    });
 
     expect(onChunk).not.toHaveBeenCalled();
   });
@@ -243,7 +250,7 @@ describe('broadcast scope and seq deduplication', () => {
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'scoped' },
-      __wskit: { streamId: 'bs2', seq: 1, channel: 'r1', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'r1', family: 'rooms' }, stream: { id: 'bs2', seq: 1 } },
     });
 
     expect(onChunk).not.toHaveBeenCalled();
@@ -254,16 +261,28 @@ describe('broadcast scope and seq deduplication', () => {
     const onChunk = vi.fn();
     socket.onStream('ask-ai', { onChunk });
 
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: 'bs3', seq: 3 } });
-    ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: 'bs3', seq: 2 } });
-    ws.emit({ event: 'ask-ai', payload: { text: 'c' }, __wskit: { streamId: 'bs3', seq: 3 } });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'a' },
+      metadata: { stream: { id: 'bs3', seq: 3 } },
+    });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'b' },
+      metadata: { stream: { id: 'bs3', seq: 2 } },
+    });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'c' },
+      metadata: { stream: { id: 'bs3', seq: 3 } },
+    });
 
     expect(onChunk).toHaveBeenCalledTimes(1);
     expect(onChunk).toHaveBeenCalledWith({ text: 'a' }, 'bs3');
     ws.emit({
       event: '__streamEnd__',
       payload: {},
-      __wskit: { streamId: 'bs3', eventName: 'ask-ai' },
+      metadata: { stream: { id: 'bs3', event: 'ask-ai' } },
     });
   });
 
@@ -273,7 +292,11 @@ describe('broadcast scope and seq deduplication', () => {
     const onTimeout = vi.fn();
     socket.onStream('ask-ai', { onChunk: () => {}, onTimeout });
 
-    ws.emit({ event: 'ask-ai', payload: { text: 'first' }, __wskit: { streamId: 'bs4', seq: 1 } });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'first' },
+      metadata: { stream: { id: 'bs4', seq: 1 } },
+    });
     vi.advanceTimersByTime(800);
 
     expect(onTimeout).toHaveBeenCalledWith('bs4');
@@ -292,7 +315,7 @@ describe('late onStream subscriber receives subsequent chunks', () => {
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'chunk1' },
-      __wskit: { streamId: 'bsf1', seq: 1 },
+      metadata: { stream: { id: 'bsf1', seq: 1 } },
     });
     expect(firstChunks).toHaveBeenCalledTimes(1);
 
@@ -301,7 +324,7 @@ describe('late onStream subscriber receives subsequent chunks', () => {
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'chunk2' },
-      __wskit: { streamId: 'bsf1', seq: 2 },
+      metadata: { stream: { id: 'bsf1', seq: 2 } },
     });
 
     expect(firstChunks).toHaveBeenCalledTimes(2);
@@ -310,7 +333,7 @@ describe('late onStream subscriber receives subsequent chunks', () => {
     ws.emit({
       event: '__streamEnd__',
       payload: {},
-      __wskit: { streamId: 'bsf1', eventName: 'ask-ai' },
+      metadata: { stream: { id: 'bsf1', event: 'ask-ai' } },
     });
   });
 });
@@ -325,7 +348,7 @@ describe('pre-chunk error/end fires onError and onEnd', () => {
     ws.emit({
       event: '__streamEnd__',
       payload: {},
-      __wskit: { streamId: 'bsne1', eventName: 'ask-ai' },
+      metadata: { stream: { id: 'bsne1', event: 'ask-ai' } },
     });
 
     expect(onEnd).toHaveBeenCalledTimes(1);
@@ -340,7 +363,7 @@ describe('pre-chunk error/end fires onError and onEnd', () => {
     ws.emit({
       event: '__error__',
       payload: { code: 'stream-ended', message: 'ended' },
-      __wskit: { streamId: 'bsne2', eventName: 'ask-ai' },
+      metadata: { stream: { id: 'bsne2', event: 'ask-ai' } },
     });
 
     expect(onError).toHaveBeenCalledTimes(1);
@@ -356,7 +379,7 @@ describe('deliverBroadcast with no matching scope', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'r1', family: 'rooms' } },
     });
     await sub;
 
@@ -365,10 +388,14 @@ describe('deliverBroadcast with no matching scope', () => {
     // Subscribe at channel scope — this subscriber must NOT receive top-level chunks.
     room.onStream('ask-ai', { onChunk, onEnd });
 
-    ws.emit({ event: 'ask-ai', payload: { text: 'x' }, __wskit: { streamId: 'bs5', seq: 1 } });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'x' },
+      metadata: { stream: { id: 'bs5', seq: 1 } },
+    });
     expect(onChunk).not.toHaveBeenCalled();
 
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'bs5' } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'bs5' } } });
     expect(onEnd).not.toHaveBeenCalled();
   });
 
@@ -380,7 +407,7 @@ describe('deliverBroadcast with no matching scope', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'r1', family: 'rooms' } },
     });
     await sub;
 
@@ -388,10 +415,14 @@ describe('deliverBroadcast with no matching scope', () => {
     const onEnd = vi.fn();
     room.onStream('ask-ai', { onChunk, onEnd });
 
-    ws.emit({ event: 'ask-ai', payload: { text: 'x' }, __wskit: { streamId: 'bs6', seq: 1 } });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'x' },
+      metadata: { stream: { id: 'bs6', seq: 1 } },
+    });
     expect(onChunk).not.toHaveBeenCalled();
 
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'bs6' } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'bs6' } } });
     expect(onEnd).not.toHaveBeenCalled();
   });
 });
@@ -404,7 +435,7 @@ describe('broadcast terminal-frame routing (eventName)', () => {
     socket.onStream('ask-ai', { onChunk: vi.fn(), onEnd: endAskAi });
     socket.onStream('feed-b', { onChunk: vi.fn(), onEnd: endFeedB });
 
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 's1' } });
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 's1' } } });
 
     expect(endAskAi).not.toHaveBeenCalled();
     expect(endFeedB).not.toHaveBeenCalled();
@@ -416,12 +447,13 @@ describe('broadcast terminal-frame routing (eventName)', () => {
     const endFeedB = vi.fn();
     const errAskAi = vi.fn();
     socket.onStream('ask-ai', { onChunk: vi.fn(), onEnd: endAskAi, onError: errAskAi });
+
     socket.onStream('feed-b', { onChunk: vi.fn(), onEnd: endFeedB });
 
     ws.emit({
       event: '__streamEnd__',
       payload: {},
-      __wskit: { streamId: 's2', eventName: 'feed-b' },
+      metadata: { stream: { id: 's2', event: 'feed-b' } },
     });
     expect(endFeedB).toHaveBeenCalledTimes(1);
     expect(endAskAi).not.toHaveBeenCalled();
@@ -429,7 +461,7 @@ describe('broadcast terminal-frame routing (eventName)', () => {
     ws.emit({
       event: '__error__',
       payload: { code: 'internal-error' },
-      __wskit: { streamId: 's3', eventName: 'ask-ai', streamTerminated: true },
+      metadata: { stream: { id: 's3', event: 'ask-ai', terminated: true } },
     });
     expect(errAskAi).toHaveBeenCalledTimes(1);
   });

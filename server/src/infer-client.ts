@@ -2,6 +2,7 @@
 import type {
   ChannelNotFound,
   ChannelNotSubscribed,
+  ConnectionBusy,
   CrossInstanceRef,
   DurableStreamRequiresUser,
   ErrorDef,
@@ -71,7 +72,7 @@ type ContractOf<TServer extends ServerDefinition> =
   TServer extends ServerDefinition<any, infer TContract> ? TContract : ServerContract;
 
 /**
- * The set of framework error types WSKit can send to any client, so they are
+ * The set of framework error types LiveThing can send to any client, so they are
  * always present in a server's typed error map for `.matches()`. Covers the
  * full set of framework error codes a client can receive.
  */
@@ -84,6 +85,7 @@ type BuiltInErrorUnion =
   | typeof RejoinRejected
   | typeof InternalError
   | typeof RateLimited
+  | typeof ConnectionBusy
   | typeof RequestInvalidResponse
   | typeof RequestNoCorrelation
   | typeof RequestNoResponse
@@ -102,15 +104,15 @@ type BuiltInErrorUnion =
 type Slot<TContract, TKey extends string> = TKey extends keyof TContract ? TContract[TKey] : {};
 
 /**
- * Drop fields a stream never declared. A stream with no `cursor` validator
- * leaves `cursor` as `unknown`; a stream with no nudges leaves `nudges` as
- * either an open `{ [name: string]: unknown }` map or an empty `{}`. None of
- * these carry information, so the client entry omits them — only streams that
- * declare a real cursor or real nudges keep those fields.
+ * Drop fields the client has no use for. `cursor` is server-only: it never
+ * goes on the wire, so the client entry never has it. A stream with no nudges
+ * leaves `nudges` as either an open `{ [name: string]: unknown }` map or an
+ * empty `{}`, which carries no information, so only streams that declare real
+ * nudges keep that field.
  */
 type TidyStreamEntry<TEntry> = Omit<
   TEntry,
-  | ('cursor' extends keyof TEntry ? (unknown extends TEntry['cursor'] ? 'cursor' : never) : never)
+  | 'cursor'
   | ('nudges' extends keyof TEntry
       ? string extends keyof TEntry['nudges']
         ? 'nudges'
@@ -124,7 +126,7 @@ type TidyStreamEntry<TEntry> = Omit<
  * Map every entry of one server-side stream slot into its client shape:
  * tidied, and stamped with a `kind`. `kind` is `'persistent'` for the durable
  * kinds (`resumableStream` / `recordedStream`) that survive a reconnect, and
- * `'ephemeral'` for a plain `stream`. It mirrors the runtime `__wskit.streamKind`
+ * `'ephemeral'` for a plain `stream`. It mirrors the runtime `__livething.streamDurability`
  * on the wire, and the client reads it to gate resume-only methods at the type level.
  */
 type ClientStreamSlot<TSlot, TKind extends 'ephemeral' | 'persistent'> = {
@@ -254,22 +256,21 @@ type PluginsFragmentOf<TContract> =
     : EmptyPluginsFragment;
 
 /**
- * Read a WSKit `ServerDefinition` and turn it into the full client contract type.
+ * Read a LiveThing `ServerDefinition` and turn it into the full client contract type.
  *
  * Pass the type of your server definition (the value returned by `assemble(...)`)
  * and get back a type that describes every event, request, stream, channel,
- * and error the server exposes to clients.
+ * and error in the assembled server definition.
  *
  * The client SDK accepts this type as a generic parameter so all client calls
  * are fully type-safe.
  *
  * ```ts
  * import * as v from 'valibot';
- * import { define, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@livething/server';
  *
  * // server.ts
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [emits({ 'chat-message': t<{ text: string }>() })],
  * });
  * const handleSend = base.on('send-message', {
@@ -283,9 +284,9 @@ type PluginsFragmentOf<TContract> =
  * export type MyClient = InferClient<typeof myServer>;
  *
  * // client.ts
- * import { defineClient, connect } from '@wskit/client';
+ * import { client, connect } from '@livething/client';
  * import type { MyClient } from './server';
- * const socket = defineClient<MyClient>(connect('wss://example.com/ws'));
+ * const socket = client<MyClient>()(connect('wss://example.com/ws'));
  * socket.connect();
  * socket.send('send-message', { text: 'hello' }); // fully typed
  * ```

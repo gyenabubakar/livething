@@ -1,19 +1,14 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
-import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import * as v from 'valibot';
 import { describe, it } from 'vitest';
 
-interface Env {
-  SECRET: string;
-}
-
 describe('rateLimit override is gated on the rateLimit() capability', () => {
   it('rejects a per-handler rateLimit override when rateLimit() is not listed', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), requests()] });
+    const base = server({ capabilities: [channels(), clientRequests()] });
 
     base.on('ping', {
       input: v.object({}),
@@ -43,9 +38,8 @@ describe('rateLimit override is gated on the rateLimit() capability', () => {
   });
 
   it('accepts a rateLimit override when rateLimit() is listed', () => {
-    const base = define({
-      env: t<Env>(),
-      capabilities: [channels(), requests(), rateLimit({ max: 100 })],
+    const base = server({
+      capabilities: [channels(), clientRequests(), rateLimit({ max: 100 })],
     });
 
     base.on('ping', {

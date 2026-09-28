@@ -1,5 +1,5 @@
 // Helpers shared by every conformance feature page. Each feature module builds
-// its own buttons and result spans, then wires @wskit/client against the real
+// its own buttons and result spans, then wires @livething/client against the real
 // server reached over the same-origin /ws proxy.
 
 // Build the WebSocket URL for a feature's route. `room` and `username` come from
@@ -15,6 +15,11 @@ export function wsUrl(feature: string): string {
   }).toString();
   return `${scheme}://${location.host}/ws/${feature}?${qs}`;
 }
+
+// maxDelay for pages whose specs act while the client is offline after a drop.
+// The first retry then waits 1.4 to 2.6 s, long enough to see 'reconnecting'
+// and to act before the socket is back, even on a slow machine.
+export const OFFLINE_WINDOW_MAX_DELAY = 2000;
 
 // Render the feature's markup into the shell's mount point.
 export function mount(html: string): void {
@@ -44,7 +49,7 @@ export function ready(): void {
   document.body.appendChild(span);
 }
 
-// The code on a WSKitError (request/ack rejection, error frames), or '' if the
+// The code on a LiveThingError (request/ack rejection, error frames), or '' if the
 // thrown value isn't one.
 export function errorCode(err: unknown): string {
   return err && typeof err === 'object' && 'code' in err

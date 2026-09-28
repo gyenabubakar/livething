@@ -4,9 +4,10 @@ import {
   InternalError,
   NudgeOverflow,
   rethrowIfConfigError,
+  StreamAborted,
   StreamIdCollision,
   ValidationFailed,
-} from '@wskit/core';
+} from '@livething/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
@@ -24,9 +25,31 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { normalizeRuntimeError } from '~/errors/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
+import type { DurableStreamService } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ActiveStream, ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
+
+type OptsParameter = {
+  event: string;
+  payload: Record<string, unknown>;
+  livething: Record<string, unknown>;
+};
+type OptsParameter2 = {
+  routing:
+    | {
+        channel?: string;
+        channelFamily?: string | null;
+        streamId?: string;
+        streamSeq?: number;
+        streamDurability?: 'ephemeral' | 'persistent';
+      }
+    | undefined;
+  event: string;
+  payload: unknown;
+};
+type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
+type OptsParameter4 = { event: string; validationError: unknown; scope?: ResolvedChannel };
 
 /**
  * The small runtime surface stream helpers need from the engine.
@@ -51,54 +74,30 @@ interface StreamRuntime {
     scope?: ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
-  sendProtocolMessage(
-    connection: RuntimeConnection,
-    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-  ): void;
+  sendProtocolMessage(connection: RuntimeConnection, opts: OptsParameter): void;
 
-  sendThroughPipeline(
-    connection: RuntimeConnection,
-    opts: {
-      routing:
-        | {
-            channel?: string;
-            channelFamily?: string | null;
-            streamId?: string;
-            seq?: number;
-            streamKind?: 'ephemeral' | 'persistent';
-          }
-        | undefined;
-      event: string;
-      payload: unknown;
-    },
-  ): boolean;
+  sendThroughPipeline(connection: RuntimeConnection, opts: OptsParameter2): boolean;
 
   asyncContext: EngineAsyncContext;
 
-  handleRuntimeError(
-    connection: RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
-  ): Promise<void>;
+  handleRuntimeError(connection: RuntimeConnection, opts: OptsParameter3): Promise<void>;
 
-  handleValidationError(
-    connection: RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
-  ): Promise<void>;
+  handleValidationError(connection: RuntimeConnection, opts: OptsParameter4): Promise<void>;
 
   connections: Map<string, RuntimeConnection>;
 
   persistAttachment(connection: RuntimeConnection): void;
 }
 
-/** Build the `__wskit` routing block for a stream protocol frame. */
+/** Build the `__livething` routing block for a stream protocol frame. */
 function buildStreamRouting(
   streamId: string,
   scope: ResolvedChannel,
-): Partial<Protocol.WSKitProtocol> {
-  const wskit: Partial<Protocol.WSKitProtocol> = { streamId };
-  if (scope.channelName) wskit.channel = scope.channelName;
-  if (scope.channelFamily) wskit.channelFamily = scope.channelFamily;
-  return wskit;
+): Partial<Protocol.LiveThingProtocol> {
+  const livething: Partial<Protocol.LiveThingProtocol> = { streamId };
+  if (scope.channelName) livething.channel = scope.channelName;
+  if (scope.channelFamily) livething.channelFamily = scope.channelFamily;
+  return livething;
 }
 
 /**
@@ -150,7 +149,7 @@ export async function cancelStream(
     // doesn't escape the WS callback as an unhandled adapter error.
     await activeStream.generator.return(undefined);
   } catch (error) {
-    runtime.logger?.error('[wskit] stream cleanup threw on __streamCancel__', {
+    runtime.logger?.error('[livething] stream cleanup threw on __streamCancel__', {
       streamId: activeStream.id,
       connectionId: connection.id,
       error: error instanceof Error ? error.message : String(error),
@@ -161,22 +160,144 @@ export async function cancelStream(
     // terminal a normal completion sends. The creator initiated the cancel, so
     // it gets none. Peers route by the stream's event name, carried as eventName.
     if (activeStream.broadcast && activeStream.scope) {
-      const peerEndWskit = {
+      const peerEndLiveThing = {
         ...buildStreamRouting(activeStream.id, activeStream.scope),
         eventName: activeStream.event,
       };
+
       await forEachIsolatedAsync(
         streamBroadcastTargets(runtime.connections, connection.id, activeStream.scope),
         (target) =>
           runtime.sendProtocolMessage(target, {
             event: '__streamEnd__',
             payload: {},
-            wskit: peerEndWskit,
+            livething: peerEndLiveThing,
           }),
         { context: `stream broadcast cancel end streamId="${activeStream.id}"` },
       );
     }
+
     runtime.activeStreams.delete(activeStream.id);
+  }
+}
+
+export interface StopChannelStreamsOptions {
+  channelName: string;
+
+  channelFamily: string | null;
+
+  /**
+   * True when the user has no connection left in the channel. A stream of that
+   * user that kept running after its connection dropped (`keep-running`) is
+   * then stopped too, since no member can resume it.
+   */
+  userGone: boolean;
+}
+
+type StopChannelStreamsRuntime = Pick<
+  StreamRuntime,
+  'activeStreams' | 'connections' | 'sendProtocolMessage' | 'persistAttachment'
+> & {
+  logger?: Pick<Logger, 'error'>;
+  durableStream?: DurableStreamService;
+};
+
+function belongsToLeaver(
+  activeStream: ActiveStream,
+  connection: RuntimeConnection,
+  opts: StopChannelStreamsOptions,
+): boolean {
+  const scope = activeStream.scope;
+  if (!scope?.channelName) return false;
+
+  if (scope.channelName !== opts.channelName) return false;
+
+  if ((scope.channelFamily ?? null) !== opts.channelFamily) return false;
+
+  if (activeStream.connectionId === connection.id) return true;
+
+  return (
+    opts.userGone &&
+    activeStream.detached === true &&
+    connection.userId !== '' &&
+    activeStream.connection?.userId === connection.userId
+  );
+}
+
+/**
+ * Stop every stream a connection runs in a channel it just left (unsubscribe,
+ * kick, or server-side removal). Each stream's signal aborts with reason
+ * `'unsubscribed'` and its generator's `return()` runs. The owning client gets
+ * a terminal `stream-aborted` error with reason `'unsubscribed'`, and the peers
+ * of a broadcast stream get `__streamEnd__`. A resumable or recorded stream is
+ * also deleted from storage, so nobody can resume it later.
+ */
+export async function stopChannelStreams(
+  runtime: StopChannelStreamsRuntime,
+  connection: RuntimeConnection,
+  opts: StopChannelStreamsOptions,
+): Promise<void> {
+  const leaving = [...runtime.activeStreams.values()].filter(
+    (activeStream) => !activeStream.closed && belongsToLeaver(activeStream, connection, opts),
+  );
+
+  for (const activeStream of leaving) {
+    const scope = activeStream.scope!;
+    activeStream.closed = true;
+    abortActiveStream(activeStream, 'unsubscribed');
+
+    const owner = activeStream.detached ? undefined : activeStream.connection;
+    if (owner && !owner.closing) {
+      const routing: Protocol.LiveThingRouting = {
+        ...buildStreamRouting(activeStream.id, scope),
+        streamTerminated: true,
+      };
+
+      runtime.sendProtocolMessage(owner, {
+        event: '__error__',
+        payload: { code: StreamAborted.code, detail: { reason: 'unsubscribed' } },
+        livething: routing as Record<string, unknown>,
+      });
+    }
+
+    try {
+      await activeStream.generator.return(undefined);
+    } catch (error) {
+      runtime.logger?.error('[livething] stream cleanup threw on channel leave', {
+        streamId: activeStream.id,
+        connectionId: activeStream.connectionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    if (activeStream.durable) {
+      runtime.durableStream?.endOnLeave(runtime, activeStream.connection ?? connection, {
+        streamId: activeStream.id,
+        scope,
+      });
+    } else if (activeStream.broadcast) {
+      const peerEndLiveThing = {
+        ...buildStreamRouting(activeStream.id, scope),
+        eventName: activeStream.event,
+      };
+
+      await forEachIsolatedAsync(
+        streamBroadcastTargets(runtime.connections, activeStream.connectionId, scope),
+        (target) =>
+          runtime.sendProtocolMessage(target, {
+            event: '__streamEnd__',
+            payload: {},
+            livething: peerEndLiveThing,
+          }),
+        { context: `stream broadcast end on channel leave streamId="${activeStream.id}"` },
+      );
+    }
+
+    if (runtime.activeStreams.get(activeStream.id) === activeStream) {
+      runtime.activeStreams.delete(activeStream.id);
+    }
+
+    if (owner?.activeStreamIds?.delete(activeStream.id)) runtime.persistAttachment(owner);
   }
 }
 
@@ -198,7 +319,7 @@ export interface BufferStreamNudgeOptions {
 
   payload: unknown;
 
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 }
 
 export async function bufferStreamNudge(
@@ -209,14 +330,15 @@ export async function bufferStreamNudge(
   connection: RuntimeConnection,
   options: BufferStreamNudgeOptions,
 ): Promise<boolean> {
-  const { event, payload, wskit } = options;
-  const streamId = wskit?.streamId;
+  const { event, payload, livething } = options;
+  const streamId = livething?.streamId;
   if (streamId === undefined) return false;
-  const streamNudgeId = wskit?.streamNudgeId;
+
+  const streamNudgeId = livething?.streamNudgeId;
 
   // A rejected nudge is non-terminal: the error carries streamTerminated:false and
   // the streamNudgeId, so the client's nudge() Promise rejects without ending the stream.
-  const rejectRouting: Protocol.WSKitRouting = { streamId, streamTerminated: false };
+  const rejectRouting: Protocol.LiveThingRouting = { streamId, streamTerminated: false };
   if (streamNudgeId !== undefined) rejectRouting.streamNudgeId = streamNudgeId;
 
   const activeStream = runtime.activeStreams.get(streamId);
@@ -243,8 +365,8 @@ export async function bufferStreamNudge(
   // (or absent) scope for a channel stream is rejected — it must not reach
   // the generator or run on the wrong scope.
   const storedScope = activeStream.scope ?? {};
-  const claimedChannel = wskit?.channel;
-  const claimedScope = wskit?.channelFamily ?? null;
+  const claimedChannel = livething?.channel;
+  const claimedScope = livething?.channelFamily ?? null;
   const sameScope =
     (storedScope.channelName ?? undefined) === (claimedChannel ?? undefined) &&
     (storedScope.channelFamily ?? null) === claimedScope;
@@ -255,6 +377,7 @@ export async function bufferStreamNudge(
       storedScope.channelName,
       storedScope.channelFamily ?? null,
     );
+
   if (!sameScope || !memberOk) {
     await runtime.handleRuntimeError(connection, {
       error: ChannelNotSubscribed(),
@@ -290,7 +413,7 @@ export async function bufferStreamNudge(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: NudgeOverflow.code, detail: { cap: NUDGE_BUFFER_CAP } },
-      wskit: rejectRouting,
+      livething: rejectRouting,
     });
     return true;
   }
@@ -315,7 +438,7 @@ export async function bufferStreamNudge(
     runtime.sendProtocolMessage(connection, {
       event: '__nudgeOk__',
       payload: {},
-      wskit: { streamId, streamNudgeId },
+      livething: { streamId, streamNudgeId },
     });
   }
 
@@ -331,7 +454,7 @@ export interface RunStreamOptions {
 
   payload: unknown;
 
-  wskit?: Protocol.WSKitProtocol;
+  livething?: Protocol.LiveThingProtocol;
 }
 
 /**
@@ -343,7 +466,7 @@ export async function runStream(
   connection: RuntimeConnection,
   options: RunStreamOptions,
 ): Promise<void> {
-  const { scope, event, stream, payload, wskit } = options;
+  const { scope, event, stream, payload, livething } = options;
 
   // One active stream per event per connection, unless `allowConcurrent: true`.
   assertNoConcurrentStream(runtime, connection, {
@@ -355,11 +478,12 @@ export async function runStream(
   // active stream on this connection. The wire schema already bounds and
   // non-empties it (`StreamIdString`), so its presence is the only question.
   let streamId: string;
-  const suppliedId = wskit?.streamId;
+  const suppliedId = livething?.streamId;
   if (suppliedId !== undefined) {
     if (runtime.activeStreams.has(suppliedId)) {
       throw StreamIdCollision();
     }
+
     streamId = suppliedId;
   } else {
     streamId = runtime.generateId('stream');
@@ -368,7 +492,7 @@ export async function runStream(
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
-    wskit: { ...buildStreamRouting(streamId, scope), streamKind: 'ephemeral' },
+    livething: { ...buildStreamRouting(streamId, scope), streamDurability: 'ephemeral' },
   });
   if (connection.closing) return;
 
@@ -385,14 +509,20 @@ export async function runStream(
 
   async function sendBroadcastEnd(seq: number): Promise<void> {
     if (!stream.stream.broadcast) return;
-    const endWskit = { ...buildStreamRouting(streamId, scope), seq, eventName: event };
+
+    const endLiveThing = {
+      ...buildStreamRouting(streamId, scope),
+      streamSeq: seq,
+      eventName: event,
+    };
+
     await forEachIsolatedAsync(
       broadcastTargets(),
       (target) =>
         runtime.sendProtocolMessage(target, {
           event: '__streamEnd__',
           payload: {},
-          wskit: endWskit,
+          livething: endLiveThing,
         }),
       { context: `stream broadcast end streamId="${streamId}"` },
     );
@@ -401,7 +531,7 @@ export async function runStream(
   // The drain function needs the active-stream object to know when the stream is
   // torn down, but the iterator (built from ctx, which carries drain) is created
   // before the active stream exists. A late-bound holder breaks the cycle.
-  let activeStreamRef: ActiveStream | undefined;
+  let activeStreamRef: ActiveStream | undefined = undefined;
   const highWaterMark = stream.stream.highWaterMark ?? DEFAULT_HIGH_WATER_MARK;
   installCtxDrain(
     ctx,
@@ -461,12 +591,12 @@ export async function runStream(
         channel: scope.channelName,
         channelFamily: scope.channelFamily,
         streamId,
-        streamKind: 'ephemeral' as const,
-        seq,
+        streamDurability: 'ephemeral' as const,
+        streamSeq: seq,
       };
 
       if (stream.stream.broadcast) {
-        // Fan out per-target so each peer chunk carries streamId + seq + streamKind
+        // Fan out per-target so each peer chunk carries streamId + seq + streamDurability
         // (same as the creator's), which onStream needs to group and complete it.
         await forEachIsolatedAsync(
           broadcastTargets(),
@@ -480,6 +610,7 @@ export async function runStream(
           { context: `stream broadcast fan-out streamId="${streamId}" event="${event}"` },
         );
       }
+
       const sent = runtime.sendThroughPipeline(connection, {
         routing: chunkRouting,
         event,
@@ -497,35 +628,35 @@ export async function runStream(
     }
 
     if (!activeStream.closed && !connection.closing) {
-      const endWskit = { ...buildStreamRouting(streamId, scope), seq };
+      const endLiveThing = { ...buildStreamRouting(streamId, scope), streamSeq: seq };
       runtime.sendProtocolMessage(connection, {
         event: '__streamEnd__',
         payload: {},
-        wskit: endWskit,
+        livething: endLiveThing,
       });
       await sendBroadcastEnd(seq);
     }
   } catch (streamError) {
-    const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
+    const routing: Protocol.LiveThingRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelFamily) routing.channelFamily = scope.channelFamily;
 
     // A terminal error reaches the creator (below) and, for a broadcast, every
     // subscriber — so a peer's onError fires instead of a misleading clean end.
     if (stream.stream.broadcast) {
-      const { payload, wskit } = normalizeRuntimeError(
+      const { payload, livething } = normalizeRuntimeError(
         streamError,
         routing,
         runtime.declaredErrorCodes,
       );
-      const peerErrorWskit = { ...wskit, eventName: event };
+      const peerErrorLiveThing = { ...livething, eventName: event };
       await forEachIsolatedAsync(
         broadcastTargets(),
         (target) =>
           runtime.sendProtocolMessage(target, {
             event: '__error__',
             payload,
-            wskit: peerErrorWskit,
+            livething: peerErrorLiveThing,
           }),
         { context: `stream broadcast error streamId="${streamId}"` },
       );
@@ -534,14 +665,14 @@ export async function runStream(
     if (
       streamError &&
       typeof streamError === 'object' &&
-      (streamError as { __wskit?: string }).__wskit === 'defer'
+      (streamError as { __livething?: string }).__livething === 'defer'
     ) {
       // Defer makes no sense in a stream: a generator that already yielded
       // chunks cannot be retried from the start. Treat it as a programming
       // mistake — log an error and surface it to the client as a plain
       // internal error, not a defer-exhausted one (nothing was ever retried).
       runtime.logger.error(
-        '[wskit] Defer thrown inside a stream handler — streams cannot be retried',
+        '[livething] Defer thrown inside a stream handler — streams cannot be retried',
         {
           event,
           streamId,
@@ -558,7 +689,7 @@ export async function runStream(
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
         payload: { code: InternalError.code },
-        wskit: routing as Record<string, unknown>,
+        livething: routing as Record<string, unknown>,
       });
     } else {
       await runtime.handleRuntimeError(connection, { error: streamError, event, routing });

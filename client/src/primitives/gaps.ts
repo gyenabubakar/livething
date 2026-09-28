@@ -37,10 +37,13 @@ export function gaps(): GapsPrimitive {
           scopedHandlers = new Set();
           handlers.set(key, scopedHandlers);
         }
+
         scopedHandlers.add(callback);
         let active = true;
+
         return () => {
           if (!active) return;
+
           active = false;
           scopedHandlers.delete(callback);
           if (scopedHandlers.size === 0 && handlers.get(key) === scopedHandlers) {
@@ -57,14 +60,16 @@ export function gaps(): GapsPrimitive {
           const missedThrough = (message.payload as { missedThrough?: unknown } | null | undefined)
             ?.missedThrough;
           if (typeof missedThrough === 'number') {
-            const channel = message.__wskit?.channel;
-            const channelFamily = message.__wskit?.channelFamily;
+            const channel = message.metadata?.channel?.name;
+            const channelFamily = message.metadata?.channel?.family;
             const key = channel === undefined ? '' : channelKey(channelFamily, channel);
             const info: GapInfo = { missedThrough };
             if (channel !== undefined) info.channel = channel;
+
             if (channelFamily !== undefined) info.channelFamily = channelFamily;
             dispatchToHandlers(handlers.get(key), helpers.log, info);
           }
+
           return null;
         },
         install(socket) {
@@ -75,9 +80,7 @@ export function gaps(): GapsPrimitive {
             messaging.onGap = (callback: (info: GapInfo) => void) => {
               const markers = scope.markers();
               const key =
-                markers.channel === undefined
-                  ? ''
-                  : channelKey(markers.channelFamily, markers.channel);
+                markers.name === undefined ? '' : channelKey(markers.family, markers.name);
               return onGap(key, callback);
             };
           });

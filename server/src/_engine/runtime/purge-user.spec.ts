@@ -1,7 +1,7 @@
-import { CloseCodes } from '@wskit/core';
-import { adapter } from '~/_adapters/define.ts';
+import { CloseCodes } from '@livething/core';
+import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { purgeUser } from '~/_engine/runtime/purge-user.ts';
 import {
   ensureDurableStreamSchema,
@@ -55,16 +55,15 @@ function passthroughAsyncContext(): AsyncContextFactory {
 
 /** Build and initialize a real engine, exposing its core's real SQLite storage. */
 async function buildEngine(
-  handler: ServerDefinition,
+  definition: ServerDefinition,
 ): Promise<{ engine: Engine; sql: SQLProvider }> {
   const sql = createTestSql();
   let engine!: Engine;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'test',
     asyncContextFactory: passthroughAsyncContext(),
     setup(createEngine) {
       engine = createEngine({
-        env: {},
         platform: { kind: 'test' },
         storage: { sql, kv: createTestKV() },
         timers: {
@@ -72,14 +71,14 @@ async function buildEngine(
           deleteAlarm: vi.fn(async () => {}),
           getAlarm: vi.fn(async () => null),
         },
-        waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
   await engine.initialize();
+
   return { engine, sql };
 }
 
@@ -111,8 +110,7 @@ function fakeConnectionWithThrowingClose(id: string, userId: string): RuntimeCon
 }
 
 function withChannelsAndTags(): ServerDefinition {
-  const base = define({
-    env: t<Record<string, never>>(),
+  const base = server({
     capabilities: [
       channels(),
       tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
@@ -124,8 +122,7 @@ function withChannelsAndTags(): ServerDefinition {
 }
 
 function withEveryOwningCapability(): ServerDefinition {
-  const base = define({
-    env: t<Record<string, never>>(),
+  const base = server({
     capabilities: [
       channels(),
       tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
@@ -139,6 +136,7 @@ function withEveryOwningCapability(): ServerDefinition {
   const chat = base.channel('chat', { capabilities: [inbox(), readReceipts()] });
   const lobbyNoop = lobby.on('noop', { run() {} });
   const chatNoop = chat.on('noop', { run() {} });
+
   return base.assemble({ handlers: [lobbyNoop, chatNoop] });
 }
 
@@ -157,14 +155,14 @@ describe('admin().purgeUser() — every owning capability enabled together', () 
       userIds: ['alice'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'm-alice', event: 'msg', payload: { text: 'hi' } },
+      frame: { deliverySeq: 1, messageId: 'm-alice', event: 'msg', payload: { text: 'hi' } },
       now,
     });
     insertInboxRows(sql, {
       userIds: ['bob'],
       channelName: 'chat',
       channelFamily: null,
-      frame: { seq: 2, messageId: 'm-bob', event: 'msg', payload: { text: 'yo' } },
+      frame: { deliverySeq: 2, messageId: 'm-bob', event: 'msg', payload: { text: 'yo' } },
       now,
     });
 
@@ -226,7 +224,7 @@ describe('admin().purgeUser() — every owning capability enabled together', () 
     expect(loadUndeliveredRows(sql, 'bob')).toHaveLength(1);
     expect(
       sql
-        .exec<{ n: number }>('SELECT COUNT(*) AS n FROM __wskit_inbox WHERE user_id = ?', 'bob')
+        .exec<{ n: number }>('SELECT COUNT(*) AS n FROM __livething_inbox WHERE user_id = ?', 'bob')
         .one(),
     ).toMatchObject({ n: 1 });
 
@@ -264,6 +262,7 @@ describe('admin().purgeUser()', () => {
     const connection = fakeConnection('conn-1', 'alice');
     engine.core.connections.set(connection.id, connection);
     const otherConnection = fakeConnection('conn-2', 'bob');
+
     engine.core.connections.set(otherConnection.id, otherConnection);
 
     await engine.admin().purgeUser('alice');
@@ -282,6 +281,7 @@ describe('admin().purgeUser()', () => {
     insertTag(sql, { userId: 'alice', group: 'favorite', key: 'blue' });
     insertTag(sql, { userId: 'bob', group: 'favorite', key: 'green' });
     const bobConnection = fakeConnection('conn-bob', 'bob');
+
     engine.core.connections.set(bobConnection.id, bobConnection);
 
     await engine.admin().purgeUser('alice');
@@ -292,11 +292,12 @@ describe('admin().purgeUser()', () => {
   });
 
   it("with neither channels() nor tags() listed, closes only the purged user's sockets and touches no storage", async () => {
-    const base = define({ env: t<Record<string, never>>(), capabilities: [] });
-    const handler = base.assemble({ handlers: [] });
-    const { engine, sql } = await buildEngine(handler);
+    const base = server({ capabilities: [] });
+    const definition = base.assemble({ handlers: [] });
+    const { engine, sql } = await buildEngine(definition);
     const connection = fakeConnection('conn-1', 'alice');
     engine.core.connections.set(connection.id, connection);
+
     const otherConnection = fakeConnection('conn-2', 'bob');
     engine.core.connections.set(otherConnection.id, otherConnection);
     expect(engine.core.hooks.purgeUser).toHaveLength(0);
@@ -309,7 +310,7 @@ describe('admin().purgeUser()', () => {
     // call above completing without throwing is itself the "touches no storage" proof.
     expect(
       sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").toArray(),
-    ).not.toContainEqual(expect.objectContaining({ name: '__wskit_channel_memberships' }));
+    ).not.toContainEqual(expect.objectContaining({ name: '__livething_channel_memberships' }));
   });
 });
 
@@ -358,12 +359,11 @@ describe('admin().purgeUser() — one cleanup step throws', () => {
 
 describe('admin().purgeUser() — durable-stream schema never created before purge', () => {
   it('succeeds when resumableStream() is listed but no stream has ever been started', async () => {
-    const base = define({
-      env: t<Record<string, never>>(),
+    const base = server({
       capabilities: [resumableStream()],
     });
-    const handler = base.assemble({ handlers: [] });
-    const { engine } = await buildEngine(handler);
+    const definition = base.assemble({ handlers: [] });
+    const { engine } = await buildEngine(definition);
     const connection = fakeConnection('conn-1', 'alice');
     engine.core.connections.set(connection.id, connection);
 
@@ -458,6 +458,7 @@ describe('purgeUser — empty user id', () => {
     const anonB = fakeConnection('conn-anon-b', '');
     const alice = fakeConnection('conn-alice', 'alice');
     engine.core.connections.set(anonA.id, anonA);
+
     engine.core.connections.set(anonB.id, anonB);
     engine.core.connections.set(alice.id, alice);
 

@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { replaySnapshotHandler } from '@wskit/tests-e2e-handlers/replay-snapshot';
+import { bind } from '@livething/server-cloudflare';
+import { replaySnapshotDefinition } from '@livething/tests-e2e-handlers/replay-snapshot';
 
-export class ReplaySnapshotServer extends server(replaySnapshotHandler) {}
+export class ReplaySnapshotServer extends bind(replaySnapshotDefinition) {}

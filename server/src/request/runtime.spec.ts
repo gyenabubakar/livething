@@ -42,9 +42,10 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
-      __wskit: 'request',
+      __livething: 'request',
       event: 'status',
       handler: vi.fn(async (ctx: { respond: (value: unknown) => void }) => {
         ctx.respond({ ok: true });
@@ -58,7 +59,7 @@ describe('request/runtime', () => {
       event: 'status',
       request,
       payload: { room: 'room-1' },
-      wskit: { channelFamily: null, correlationId: 'req-1' },
+      livething: { channelFamily: null, correlationId: 'req-1' },
     });
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
@@ -81,9 +82,10 @@ describe('request/runtime', () => {
       logger: { error },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
-      __wskit: 'request',
+      __livething: 'request',
       event: 'status',
       handler: vi.fn(async (ctx: { respond: (value: unknown) => void }) => {
         ctx.respond({ first: true });
@@ -100,11 +102,11 @@ describe('request/runtime', () => {
       event: 'status',
       request,
       payload: {},
-      wskit: { correlationId: 'req-1', channelFamily: null },
+      livething: { correlationId: 'req-1', channelFamily: null },
     });
 
     expect(error).toHaveBeenCalledWith(
-      '[wskit] ctx.respond() was already called for this request invocation; ignoring the extra call',
+      '[livething] ctx.respond() was already called for this request invocation; ignoring the extra call',
       { event: 'status' },
     );
     expect(sendThroughPipeline).toHaveBeenCalledTimes(1);
@@ -130,9 +132,10 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
-      __wskit: 'request',
+      __livething: 'request',
       event: 'status',
       handler: vi.fn(async () => {}),
     } as unknown as RequestPrimitive;
@@ -144,7 +147,7 @@ describe('request/runtime', () => {
       event: 'status',
       request,
       payload: {},
-      wskit: { correlationId: 'req-1', channelFamily: null },
+      livething: { correlationId: 'req-1', channelFamily: null },
     });
 
     expect(sendThroughPipeline).toHaveBeenCalledTimes(1);
@@ -167,9 +170,10 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
-      __wskit: 'request',
+      __livething: 'request',
       event: 'status',
       handler: vi.fn(async (ctx: { respond: (value: unknown) => void }) => {
         ctx.respond(null);
@@ -183,7 +187,7 @@ describe('request/runtime', () => {
       event: 'status',
       request,
       payload: {},
-      wskit: { correlationId: 'req-1', channelFamily: null },
+      livething: { correlationId: 'req-1', channelFamily: null },
     });
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(
@@ -203,9 +207,10 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
-      __wskit: 'request',
+      __livething: 'request',
       event: 'status',
       handler: vi.fn(async (ctx: { respond: (v: unknown) => void }) => {
         ctx.respond(value);
@@ -219,7 +224,7 @@ describe('request/runtime', () => {
       event: 'status',
       request,
       payload: {},
-      wskit: { correlationId: 'req-1', channelFamily: null },
+      livething: { correlationId: 'req-1', channelFamily: null },
     });
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(
@@ -235,9 +240,10 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
-      __wskit: 'request',
+      __livething: 'request',
       event: 'status',
       handler: vi.fn(async (ctx: { respond: (v: unknown) => void }) => {
         ctx.respond({ ok: true, count: 3 });
@@ -251,7 +257,7 @@ describe('request/runtime', () => {
       event: 'status',
       request,
       payload: {},
-      wskit: { correlationId: 'req-1', channelFamily: null },
+      livething: { correlationId: 'req-1', channelFamily: null },
     });
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(
@@ -267,10 +273,11 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline: vi.fn(() => true),
     };
+
     const connection = createConnection();
     let seen: string | undefined;
     const request = {
-      __wskit: 'request',
+      __livething: 'request',
       event: 'status',
       handler: vi.fn(async () => {
         seen = asyncContext.getStore()?.connectionId;
@@ -286,7 +293,7 @@ describe('request/runtime', () => {
         event: 'status',
         request,
         payload: {},
-        wskit: { correlationId: 'req-async', channelFamily: null },
+        livething: { correlationId: 'req-async', channelFamily: null },
       }),
     ).rejects.toThrow('boom');
 
@@ -301,9 +308,11 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const shared = new Map<PropertyKey, unknown>();
     const key = Symbol('provided');
+
     const ctx = {
       provide(localKey: PropertyKey, value: unknown) {
         shared.set(localKey, value);
@@ -312,9 +321,10 @@ describe('request/runtime', () => {
         return shared.get(localKey);
       },
     };
+
     ctx.provide(key, { tag: 'top' });
     const request = {
-      __wskit: 'request',
+      __livething: 'request',
       event: 'status',
       handler: vi.fn(async (requestCtx: typeof ctx & { respond: (value: unknown) => void }) => {
         requestCtx.respond({
@@ -330,7 +340,7 @@ describe('request/runtime', () => {
       event: 'status',
       request,
       payload: {},
-      wskit: { correlationId: 'req-2', channelFamily: null },
+      livething: { correlationId: 'req-2', channelFamily: null },
     });
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {

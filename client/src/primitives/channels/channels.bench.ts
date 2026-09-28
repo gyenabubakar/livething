@@ -30,7 +30,7 @@ function connected() {
   const room = socket.channel('room');
   void room.subscribe();
   ws.onmessage!({
-    data: JSON.stringify({ event: '__subscribeOk__', payload: {}, __wskit: { channel: 'room' } }),
+    data: JSON.stringify(['__subscribeOk__', {}, { channel: { name: 'room' } }]),
   });
   room.on('post', () => {});
 
@@ -38,11 +38,11 @@ function connected() {
     const member = socket.channel('thread', `t-${i}`);
     void member.subscribe();
     ws.onmessage!({
-      data: JSON.stringify({
-        event: '__subscribeOk__',
-        payload: {},
-        __wskit: { channel: `t-${i}`, channelFamily: 'thread' },
-      }),
+      data: JSON.stringify([
+        '__subscribeOk__',
+        {},
+        { channel: { name: `t-${i}`, family: 'thread' } },
+      ]),
     });
     member.on('post', () => {});
   }
@@ -52,21 +52,17 @@ function connected() {
 
 function staticTraffic(count: number): string[] {
   return Array.from({ length: count }, (_, i) =>
-    JSON.stringify({
-      event: 'post',
-      payload: { text: `m${i}` },
-      __wskit: { channel: 'room' },
-    }),
+    JSON.stringify(['post', { text: `m${i}` }, { channel: { name: 'room' } }]),
   );
 }
 
 function familyTraffic(count: number): string[] {
   return Array.from({ length: count }, (_, i) =>
-    JSON.stringify({
-      event: 'post',
-      payload: { text: `m${i}` },
-      __wskit: { channel: `t-${i % ROOMS}`, channelFamily: 'thread' },
-    }),
+    JSON.stringify([
+      'post',
+      { text: `m${i}` },
+      { channel: { name: `t-${i % ROOMS}`, family: 'thread' } },
+    ]),
   );
 }
 

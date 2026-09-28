@@ -10,6 +10,39 @@ import type * as ScheduledPrimitive from '~/scheduled/types.ts';
 import type { TagGroupRegistration } from '~/tags/tags.ts';
 import type * as ValidationTypes from '~/types.ts';
 
+type MessageParameter = { event: string; payload: unknown };
+type FrameParameter = {
+  event: string;
+  payload: unknown;
+  livething: Protocol.LiveThingProtocol | undefined;
+};
+type OptsParameter = {
+  event: string;
+  payload: unknown;
+  correlationId: string;
+  channel?: string;
+  channelFamily?: string | null;
+};
+type OptionsParameter = {
+  channelName: string | null;
+  channelFamily: string | null;
+  event: string;
+  payload: unknown;
+  wire: { deliverySeq: number; messageId: string; channel?: string };
+};
+type OptionsParameter2 = {
+  channelName: string | null;
+  channelFamily: string | null;
+  missedThrough: number;
+};
+type OptionsParameter3 = { event: string; payload: unknown; livething?: Record<string, unknown> };
+type OptsParameter2 = {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+};
+
 /**
  * The runtime registration surface built-in primitives receive during engine
  * initialization.
@@ -72,7 +105,7 @@ export interface EngineAccess {
    * resolved — so the return value becomes the new payload only, even if
    * the returned object happens to have its own event field.
    */
-  onIncoming(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
+  onIncoming(handler: (message: MessageParameter) => unknown | void): void;
 
   /**
    * Settle a server→client request answer before normal routing.
@@ -80,20 +113,11 @@ export interface EngineAccess {
    * Each incoming user-event frame carrying a `correlationId` is offered to the
    * registered hooks; a hook returns `true` when the id matches a pending
    * server-initiated request it owns, which stops routing. Used by the
-   * `requests()` capability so the engine never imports its pending map.
+   * `serverRequests()` capability so the engine never imports its pending map.
    *
    * @internal
    */
-  onAnswerFrame(
-    handler: (
-      connectionId: string,
-      frame: {
-        event: string;
-        payload: unknown;
-        wskit: Protocol.WSKitProtocol | undefined;
-      },
-    ) => boolean,
-  ): void;
+  onAnswerFrame(handler: (connectionId: string, frame: FrameParameter) => boolean): void;
 
   /**
    * Send a server→client request frame to one live connection.
@@ -101,52 +125,44 @@ export interface EngineAccess {
    * Routes through the normal outgoing pipeline with the given `correlationId`
    * (and optional channel family) so plugin stampers and `onBeforeSend`/
    * `onAfterSend` hooks still run. Returns `false` when the connection is no
-   * longer live on this instance. Used by the `requests()` capability for
+   * longer live on this instance. Used by the `serverRequests()` capability for
    * `ctx.request(...)` and friends.
    *
    * @internal
    */
-  sendServerRequest(
-    connectionId: string,
-    opts: {
-      event: string;
-      payload: unknown;
-      correlationId: string;
-      channel?: string;
-      channelFamily?: string | null;
-    },
-  ): boolean;
+  sendServerRequest(connectionId: string, opts: OptsParameter): boolean;
 
   /**
    * Observe or rewrite outgoing wire messages before they are serialized.
    *
-   * The handler gets the active connection's context (or `undefined` for a
-   * fan-out broadcast) and the `OutgoingFrame` (`event`, `payload`, `owner`).
+   * The handler gets the context of the connection whose handler, intercept,
+   * or `onConnect` hook is running (the sender, for a broadcast), or
+   * `undefined` when none is, and the `OutgoingFrame` (`event`, `payload`, `owner`).
    * Return a value to replace the payload, or return nothing to keep the
    * original. Same locked-event semantics as `onIncoming`.
    */
   onOutgoing(
     handler: (ctx: unknown, frame: InterceptPrimitive.OutgoingFrame) => unknown | void,
-    owner?: InterceptPrimitive.HookOwner,
+    owner?: InterceptPrimitive.FrameOwner,
   ): void;
 
   /**
-   * Contribute `__wskit` metadata to every outgoing user frame.
+   * Contribute `__livething` metadata to every outgoing user frame.
    *
-   * The handler receives the event name and returns a partial `__wskit`
+   * The handler receives the event name and returns a partial `__livething`
    * object merged into the frame — used by `sequence()` and `dedup()` to add
-   * `seq` and `messageId`. Skipped for protocol frames. A value already set
-   * from routing (e.g. a durable stream's own `seq`) is not overwritten.
+   * `deliverySeq` and `messageId`. Skipped for protocol frames. A value already
+   * set from routing (e.g. a stream's own `streamSeq`) is not overwritten.
    *
    * @internal
    */
-  onWSKitStamp(handler: (event: string) => Record<string, unknown>): void;
+  onLiveThingStamp(handler: (event: string) => Record<string, unknown>): void;
 
   /**
    * Observe one fully prepared outgoing wire message before it is sent.
    *
-   * The framework metadata — `seq`, `messageId`, scope routing markers — lives
-   * on `message.wskit` by this point. This is an internal observer hook for
+   * The framework metadata — `deliverySeq`, `messageId`, scope routing markers — lives
+   * on `message.livething` by this point. This is an internal observer hook for
    * framework features such as replay storage; it is not a payload rewrite
    * hook. Throw to stop the send.
    *
@@ -161,6 +177,24 @@ export interface EngineAccess {
    */
   onAfterSend(
     handler: (message: EngineRuntimeTypes.WireOutgoingMessage) => void | Promise<void>,
+  ): void;
+
+  /**
+   * Observe one broadcast once, before any recipient is sent the frame. Runs
+   * even when no connection receives it live. Throw to stop the broadcast.
+   *
+   * @internal
+   */
+  onBeforeBroadcast(handler: (message: EngineRuntimeTypes.WireBroadcastMessage) => void): void;
+
+  /**
+   * Observe one broadcast once, after every recipient was sent the frame. Runs
+   * even when no connection received it live.
+   *
+   * @internal
+   */
+  onAfterBroadcast(
+    handler: (message: EngineRuntimeTypes.WireBroadcastMessage) => void | Promise<void>,
   ): void;
 
   /**
@@ -465,7 +499,7 @@ export interface EngineAccess {
    *
    * When enabled, the engine remembers the most recent `cap` `messageId`
    * values per connection and silently drops any incoming frame whose
-   * `__wskit.messageId` is already in the window. Used by `dedup()` to protect
+   * `__livething.messageId` is already in the window. Used by `dedup()` to protect
    * handlers from duplicate client sends (retries, flaky networks).
    *
    * @internal
@@ -476,7 +510,7 @@ export interface EngineAccess {
    * Register the application's declared error definitions.
    *
    * The engine uses this registry only for runtime checks such as warning when
-   * a thrown `WSKitError` was never declared in the contract's `errors: [...]`.
+   * a thrown `LiveThingError` was never declared in the contract's `errors: [...]`.
    */
   registerErrorDefinitions(defs: readonly ErrorsPrimitive.ErrorDef<string, unknown>[]): void;
 
@@ -672,29 +706,13 @@ export interface EngineAccess {
    * outgoing pipeline. Unlike `rawSend`, this routes through the replay
    * pipeline and applies `onBeforeSend` / `onAfterSend` hooks.
    */
-  sendReplay(
-    connectionId: string,
-    options: {
-      channelName: string | null;
-      channelFamily: string | null;
-      event: string;
-      payload: unknown;
-      wire: { seq: number; messageId: string; channel?: string };
-    },
-  ): void;
+  sendReplay(connectionId: string, options: OptionsParameter): void;
 
   /**
    * Send a `__gap__` frame to one connection. `missedThrough` is the scope's
    * eviction watermark (highest seq retention deleted). @internal
    */
-  sendGap(
-    connectionId: string,
-    options: {
-      channelName: string | null;
-      channelFamily: string | null;
-      missedThrough: number;
-    },
-  ): void;
+  sendGap(connectionId: string, options: OptionsParameter2): void;
 
   /**
    * Validate that a `ctx.sendReplay(...)` call satisfies the same contract
@@ -709,13 +727,6 @@ export interface EngineAccess {
     payload: unknown,
     routing: { channel?: string; channelFamily?: string | null } | undefined,
   ): asserts payload is Record<string, unknown>;
-
-  /**
-   * Let a background task continue even after the current callback returns.
-   *
-   * Adapters can map this to a platform primitive such as `waitUntil`.
-   */
-  waitUntil(promise: Promise<unknown>): void;
 
   /**
    * Recompute the next scheduled callback from the current scheduled-run table.
@@ -741,16 +752,13 @@ export interface EngineAccess {
   rawSend(connectionId: string, event: string, payload: unknown): void;
 
   /**
-   * Like `rawSend`, but carries a `__wskit` routing block (channel scope,
+   * Like `rawSend`, but carries a `__livething` routing block (channel scope,
    * correlationId) on the frame. Used to answer a scoped, correlated protocol
    * query — e.g. `inbox()` replying to a `__receivedQuery__` on one connection.
    *
    * @internal
    */
-  sendProtocolFrame(
-    connectionId: string,
-    options: { event: string; payload: unknown; wskit?: Record<string, unknown> },
-  ): void;
+  sendProtocolFrame(connectionId: string, options: OptionsParameter3): void;
 
   /**
    * Register the plain-stream trigger so the dispatch hub can start a matched
@@ -762,15 +770,16 @@ export interface EngineAccess {
   setStreamTrigger(trigger: FeatureSlots.StreamTrigger): void;
 
   /**
-   * Register the active-stream nudge buffer and cancel, shared by plain and
-   * durable streams. Either stream kind sets it, so the owner registers it
-   * through `installOnce` to keep it set exactly once.
+   * Register the active-stream nudge buffer, cancel, and channel-leave stop,
+   * shared by plain and durable streams. Either stream kind sets it, so the
+   * owner registers it through `installOnce` to keep it set exactly once.
    *
    * @internal
    */
   setActiveStreamOps(
     buffer: FeatureSlots.StreamNudgeBuffer,
     cancel: FeatureSlots.StreamCancel,
+    channelLeave: FeatureSlots.StreamChannelLeave,
   ): void;
 
   /**
@@ -784,7 +793,7 @@ export interface EngineAccess {
 
   /**
    * Register the request dispatcher so the hub can run a matched `request(...)`
-   * without importing its runtime. Set by the `requests()` capability.
+   * without importing its runtime. Set by the `serverRequests()` capability.
    *
    * @internal
    */
@@ -912,12 +921,7 @@ export interface EngineAccess {
    *
    * @internal
    */
-  broadcastToChannel(opts: {
-    channelName: string;
-    channelFamily: string | null;
-    event: string;
-    payload: Record<string, unknown>;
-  }): void;
+  broadcastToChannel(opts: OptsParameter2): void;
 
   /**
    * Count the live members currently in a channel. Used to skip the

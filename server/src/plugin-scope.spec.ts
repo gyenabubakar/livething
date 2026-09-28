@@ -22,12 +22,65 @@ describe('scopePluginContext — sendReplay (S1)', () => {
     expect(channelSendReplay).toHaveBeenCalledWith('__acme:feed::feed', { n: 1 }, { wire: true });
   });
 
+  it('namespaces the channel named in ctx.sendReplay wire.channel', () => {
+    const sendReplay = vi.fn();
+    const scoped = scopePluginContext(ID, { sendReplay });
+    const room = { __livethingChannel: true, __key: 'room' };
+    const roomRef = { __livethingChannelRef: true, family: 'rooms', name: 'room-1' };
+
+    scoped.sendReplay('feed', { n: 1 }, { deliverySeq: 1, messageId: 'm1', channel: room });
+    scoped.sendReplay('feed', { n: 2 }, { deliverySeq: 2, messageId: 'm2', channel: roomRef });
+    scoped.sendReplay('feed', { n: 3 }, { deliverySeq: 3, messageId: 'm3' });
+
+    expect(sendReplay.mock.calls).toEqual([
+      [
+        '__acme:feed::feed',
+        { n: 1 },
+        {
+          deliverySeq: 1,
+          messageId: 'm1',
+          channel: { __livethingChannel: true, __key: '__acme:feed::room' },
+        },
+      ],
+      [
+        '__acme:feed::feed',
+        { n: 2 },
+        {
+          deliverySeq: 2,
+          messageId: 'm2',
+          channel: { __livethingChannelRef: true, family: '__acme:feed::rooms', name: 'room-1' },
+        },
+      ],
+      ['__acme:feed::feed', { n: 3 }, { deliverySeq: 3, messageId: 'm3' }],
+    ]);
+    expect(room.__key).toBe('room');
+    expect(roomRef.family).toBe('rooms');
+  });
+
   it('does not invent optional send-like methods', () => {
     const scoped = scopePluginContext(ID, {});
 
     expect(scoped.request).toBeUndefined();
     expect(scoped.broadcastRequest).toBeUndefined();
     expect(scoped.sendReplay).toBeUndefined();
+  });
+});
+
+describe('scopePluginContext — channel broadcastTo', () => {
+  it('namespaces broadcastTo event names without changing the recipient', () => {
+    const channelBroadcastTo = vi.fn();
+    const handleBroadcastTo = vi.fn();
+    const target = { __livething: 'user-ref', id: 'u1' };
+    const scoped = scopePluginContext(ID, {
+      channel: { broadcastTo: channelBroadcastTo },
+      channels: { get: () => ({ broadcastTo: handleBroadcastTo }) },
+    });
+
+    scoped.channel.broadcastTo(target, 'feed', { n: 1 });
+    scoped.channels.get('room').broadcastTo(target, 'feed', { n: 2 });
+
+    expect(channelBroadcastTo).toHaveBeenCalledWith(target, '__acme:feed::feed', { n: 1 });
+    expect(handleBroadcastTo).toHaveBeenCalledWith(target, '__acme:feed::feed', { n: 2 });
   });
 });
 
@@ -66,6 +119,7 @@ describe('scopePluginContext — kv (A4)', () => {
     await scoped.kv.set('a', 1);
     expect(set).toHaveBeenCalledWith('__acme:feed::a', 1);
     await scoped.kv.delete('a');
+
     expect(del).toHaveBeenCalledWith('__acme:feed::a');
 
     const result = await scoped.kv.list('pre');

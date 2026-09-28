@@ -1,4 +1,4 @@
-import { CloseCodes, WSKitConfigError } from '@wskit/core';
+import { CloseCodes, LiveThingConfigError } from '@livething/core';
 import { acceptConnection } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -61,6 +61,7 @@ describe('acceptConnection — users.maxConnections policy', () => {
     for (let i = 0; i < 4; i += 1) {
       acceptConnection(runtime as never, Symbol(`ws${i}`), descriptorFor('u1'));
     }
+
     expect(runtime.usersByKey.get('u1')?.size).toBe(4);
     expect(runtime.connections.size).toBe(4);
   });
@@ -107,6 +108,7 @@ describe('acceptConnection — users.maxConnections policy', () => {
         translatorFactory() {
           translatorFactories += 1;
           if (translatorFactories === 2) throw new Error('invalid translator');
+
           return { inbound: (raw: string) => raw };
         },
       },
@@ -118,7 +120,7 @@ describe('acceptConnection — users.maxConnections policy', () => {
     acceptConnection(runtime as never, Symbol('rejected'), rejected);
 
     expect(first.close).not.toHaveBeenCalled();
-    expect(rejected.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
+    expect(rejected.close).toHaveBeenCalledWith(1011, '[livething] translator failed');
     expect(runtime.usersByKey.get('u1')?.size).toBe(1);
   });
 
@@ -132,8 +134,11 @@ describe('acceptConnection — users.maxConnections policy', () => {
 
     expect(() =>
       acceptConnection(runtime as never, Symbol('invalid-translator'), descriptor),
-    ).toThrow(WSKitConfigError);
-    expect(descriptor.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    ).toThrow(LiveThingConfigError);
+    expect(descriptor.close).toHaveBeenCalledWith(
+      1011,
+      '[livething] translator configuration failed',
+    );
     expect(runtime.connections).toHaveLength(0);
   });
 
@@ -155,6 +160,7 @@ describe('acceptConnection — users.maxConnections policy', () => {
       acceptConnection(runtime as never, Symbol(`ws${i}`), anon);
       expect(anon.close).not.toHaveBeenCalled();
     }
+
     expect(runtime.connections.size).toBe(5);
   });
 
@@ -167,6 +173,7 @@ describe('acceptConnection — users.maxConnections policy', () => {
       acceptConnection(runtime as never, Symbol(`ws${i}`), descriptor);
       expect(runtime.usersByKey.get('u1')?.size).toBeLessThanOrEqual(1);
     }
+
     expect(runtime.usersByKey.get('u1')?.size).toBe(1);
     for (const descriptor of descriptors) {
       expect(descriptor.close).toHaveBeenCalledTimes(descriptor === descriptors[4] ? 0 : 1);

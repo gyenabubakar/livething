@@ -4,9 +4,9 @@ import { buffering } from '~/primitives/buffering/index.ts';
 import { channels } from '~/primitives/channels/channels.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
+import type { Message, PrimitiveRuntime } from '~/internal/runtime.ts';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
-import type { WSKitSocket } from '~/socket/socket.ts';
+import type { LiveThingSocket } from '~/socket/socket.ts';
 
 interface TestContract {
   incoming: { response: { data: string } };
@@ -25,18 +25,19 @@ afterEach(() => {
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
 function buildSocket<const P extends readonly Primitive<any, any>[]>(
   ...primitives: [...P] & ValidatePrimitives<TestContract, P>
-): WSKitSocket {
-  return client<TestContract>()(connect('wss://test'), ...primitives) as unknown as WSKitSocket;
+): LiveThingSocket {
+  return client<TestContract>()(connect('wss://test'), ...primitives) as unknown as LiveThingSocket;
 }
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
 function openedSocket<const P extends readonly Primitive<any, any>[]>(
   ...primitives: [...P] & ValidatePrimitives<TestContract, P>
-): { socket: WSKitSocket; ws: MockWebSocket } {
+): { socket: LiveThingSocket; ws: MockWebSocket } {
   const socket = buildSocket(...primitives);
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -44,9 +45,10 @@ describe('send rejects reserved event names', () => {
   it('drops a reserved event name locally (returns false, nothing on the wire)', () => {
     const { socket, ws } = openedSocket();
     const send = socket.send.bind(socket) as (e: string, p: unknown) => boolean;
-    for (const name of ['ping', 'pong', '__error__', '']) {
+    for (const name of ['__subscribe__', '__custom', '__error__', '']) {
       expect(send(name, { id: 1 })).toBe(false);
     }
+
     expect(ws.sentFrames()).toHaveLength(0);
   });
 
@@ -60,10 +62,11 @@ describe('send rejects reserved event names', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room' } },
     });
     const before = ws.sentFrames().length;
-    expect(room.send('ping', { value: 'x' })).toBe(false);
+
+    expect(room.send('__custom', { value: 'x' })).toBe(false);
     expect(ws.sentFrames().length).toBe(before);
   });
 });
@@ -79,8 +82,10 @@ describe('queued frame isolation on open (#10)', () => {
         { event: 'good', payload: { ok: 1 } },
       ],
     };
+
     const errors: unknown[] = [];
     const socket = buildSocket();
+
     socket.onError((error) => errors.push(error));
     socket._setPrimitives([framePrimitive]);
     socket.connect();
@@ -102,8 +107,8 @@ describe('_send: onOutgoing null cancels before buffering fallback', () => {
     };
 
     const socket = buildSocket(buffering({ enabled: true }));
-    const existing = (socket as WSKitSocket)._primitives;
-    (socket as WSKitSocket)._setPrimitives([cancellingPrimitive, ...existing]);
+    const existing = (socket as LiveThingSocket)._primitives;
+    (socket as LiveThingSocket)._setPrimitives([cancellingPrimitive, ...existing]);
 
     expect(socket._state).toBe('closed');
 
@@ -121,8 +126,8 @@ describe('_send: onOutgoing null cancels before buffering fallback', () => {
     };
 
     const socket = buildSocket(buffering({ enabled: true }));
-    const existing = (socket as WSKitSocket)._primitives;
-    (socket as WSKitSocket)._setPrimitives([cancellingPrimitive, ...existing]);
+    const existing = (socket as LiveThingSocket)._primitives;
+    (socket as LiveThingSocket)._setPrimitives([cancellingPrimitive, ...existing]);
 
     socket.send('action', { id: 2 });
 
@@ -187,7 +192,7 @@ describe('_rawSend: dropped while socket is not open', () => {
   });
 
   it('drops a frame sent via helpers.rawSend before the socket opens', () => {
-    let rawSendRef: ((m: WireMessage) => void) | null = null;
+    let rawSendRef: ((m: Message) => void) | null = null;
     const spy: PrimitiveRuntime = {
       id: 'raw-spy',
     };
@@ -195,7 +200,7 @@ describe('_rawSend: dropped while socket is not open', () => {
     const socket = buildSocket();
     socket._setPrimitives([spy]);
 
-    rawSendRef = (m: WireMessage) => socket._rawSend(m);
+    rawSendRef = (m: Message) => socket._rawSend(m);
 
     rawSendRef({ event: 'early', payload: {} });
 
@@ -210,7 +215,7 @@ describe('_rawSend: dropped while socket is not open', () => {
   it('sends normally through _rawSend when socket IS open', () => {
     const { socket, ws } = openedSocket();
     socket._rawSend({ event: 'direct', payload: { x: 1 } });
-    expect(ws.sentFrames()).toContainEqual({ event: 'direct', payload: { x: 1 } });
+    expect(ws.sentFrames()).toContainEqual({ event: 'direct', payload: { x: 1 }, metadata: null });
   });
 });
 

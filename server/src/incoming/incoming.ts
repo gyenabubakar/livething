@@ -1,7 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidWSKitIdentifier } from '@wskit/core';
+import { assertValidLiveThingIdentifier } from '@livething/core';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
+
+interface IncomingOptions<TPayload> {
+  validator?: Validator<TPayload>;
+  allowInterleaving?: boolean;
+}
 
 /** Handler function for a client→server event. */
 export type IncomingHandler<TCtx = any, TPayload = unknown> = (
@@ -22,6 +27,8 @@ export interface IncomingPrimitive<
   readonly event: TEvent;
   /** The function to call when the event is received. */
   readonly handler: IncomingHandler<TCtx, TPayload>;
+  /** Whether this handler may start without waiting for prior app work. */
+  readonly allowInterleaving: boolean;
   /**
    * Optional schema validator. When present, the engine validates the raw
    * payload before calling `handler`. If validation fails, `onValidationError`
@@ -36,21 +43,22 @@ const INCOMING_KEY = Symbol('incoming');
 /**
  * Internal primitive factory. The user-facing surface for declaring a
  * client→server event is `base.on(...)`. This factory is called by the compile
- * step to bind a registered handler to an `IncomingDef`.
+ * step to bind a selected handler value to an `IncomingDef`.
  */
 export function incoming<TEvent extends string, TPayload, TCtx = any>(
   event: TEvent,
   handler: IncomingHandler<TCtx, TPayload>,
-  options?: { validator?: Validator<TPayload> },
+  options?: IncomingOptions<TPayload>,
 ): IncomingPrimitive<TEvent, TPayload, TCtx> {
-  assertValidWSKitIdentifier(event, 'incoming() event name');
+  assertValidLiveThingIdentifier(event, 'incoming() event name');
   return {
-    __wskit: 'incoming',
+    __livething: 'incoming',
     __kind: 'handler',
     __identity: [INCOMING_KEY, event],
     __requires: {},
     event,
     handler,
+    allowInterleaving: options?.allowInterleaving ?? false,
     validator: options?.validator,
   };
 }

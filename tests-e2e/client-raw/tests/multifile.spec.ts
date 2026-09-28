@@ -33,6 +33,7 @@ test.describe('multifile', () => {
     await a.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
     await a.getByTestId('subscribe').click();
+
     await expect(a.getByTestId('subscribed')).toHaveText('yes');
 
     await b.goto(`/multifile?room=${room}`);
@@ -40,6 +41,7 @@ test.describe('multifile', () => {
     await b.getByTestId('connect').click();
     await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
     await b.getByTestId('subscribe').click();
+
     await expect(b.getByTestId('subscribed')).toHaveText('yes');
 
     await a.getByTestId('send-hello').click();

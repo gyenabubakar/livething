@@ -1,10 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block, WSKitError } from '@wskit/core';
+import { Block, LiveThingError } from '@livething/core';
 import { handleUpgrade, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
 import { cancelStream } from '~/stream/runtime.ts';
+import * as v from 'valibot';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
@@ -28,6 +29,14 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
     latency: null,
     quality: 'good',
   };
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
 }
 
 function baseCompiled() {
@@ -60,7 +69,6 @@ function baseDispatchRuntime(
     beforeSendHooks: [],
     afterSendHooks: [],
     errorHooks: [],
-    waitUntil() {},
     logger: { warn: vi.fn(), error: vi.fn() },
     generateId() {
       return 'id_1';
@@ -79,7 +87,7 @@ function baseDispatchRuntime(
         quality: connection.quality,
         bufferedAmount: 0,
         ref: () => ({
-          __wskit: 'connection-ref' as const,
+          __livething: 'connection-ref' as const,
           id: connection.id,
           instance: undefined,
           userId: connection.userId,
@@ -114,6 +122,7 @@ describe('handleUpgrade', () => {
         ],
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -121,7 +130,8 @@ describe('handleUpgrade', () => {
     expect(result).toEqual({ reject: true, code: 4002, reason: 'nope' });
   });
 
-  it('maps non-RejectUpgrade errors to a 500 reject decision', async () => {
+  it('maps non-RejectUpgrade errors to a 500 reject decision and logs the real error', async () => {
+    const logger = { error: vi.fn() };
     const result = await handleUpgrade(
       {
         upgradeHooks: [
@@ -131,16 +141,115 @@ describe('handleUpgrade', () => {
         ],
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
+        logger,
       },
       new Request('https://example.com/'),
     );
 
     expect(result).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+    expect(logger.error).toHaveBeenCalledWith(
+      '[livething] upgrade hook threw; rejecting with HTTP 500',
+      expect.objectContaining({ error: 'boom', stack: expect.stringContaining('boom') }),
+    );
+  });
+
+  it('logs the helpful message for an undeclared ephemeral tag group', async () => {
+    const logger = { error: vi.fn() };
+    await handleUpgrade(
+      {
+        upgradeHooks: [],
+        builderUpgradeHook: async () => ({
+          tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
+        }),
+        upgradeHelpers: {},
+        isTagGroupDeclared: () => false,
+        getTagGroupSchema: () => undefined,
+        logger,
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(logger.error).toHaveBeenCalledWith(
+      '[livething] upgrade hook threw; rejecting with HTTP 500',
+      expect.objectContaining({
+        error: expect.stringContaining("onUpgrade returned an ephemeral tag for group 'typo'"),
+      }),
+    );
+  });
+
+  it('does not log a RejectUpgrade as an error', async () => {
+    const logger = { error: vi.fn() };
+    await handleUpgrade(
+      {
+        upgradeHooks: [
+          async () => {
+            throw RejectUpgrade(4002, 'nope');
+          },
+        ],
+        upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
+        logger,
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  describe('ephemeral tag keys are checked against the group schema', () => {
+    function roleRef(key: string) {
+      return { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
+    }
+
+    function upgradeWith(key: string, logger = { error: vi.fn() }) {
+      return handleUpgrade(
+        {
+          upgradeHooks: [],
+          builderUpgradeHook: async () => ({ tags: [roleRef(key)] }),
+          upgradeHelpers: {},
+          isTagGroupDeclared: () => true,
+          getTagGroupSchema: () => v.picklist(['admin', 'member']),
+          logger,
+        },
+        new Request('https://example.com/'),
+      );
+    }
+
+    it('accepts a key the schema allows', async () => {
+      const result = await upgradeWith('admin');
+      expect((result.tags ?? []).map((r) => r.key)).toEqual(['admin']);
+    });
+
+    it('rejects the upgrade for a key the schema rejects, and logs why', async () => {
+      const logger = { error: vi.fn() };
+      const result = await upgradeWith('root', logger);
+
+      expect(result).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+      expect(logger.error).toHaveBeenCalledWith(
+        '[livething] upgrade hook threw; rejecting with HTTP 500',
+        expect.objectContaining({
+          error:
+            "[livething] onUpgrade returned the ephemeral tag key 'root' for group 'role', which the group's schema rejects.",
+        }),
+      );
+    });
+
+    it('drops an empty key, the same as add()', async () => {
+      const result = await upgradeWith('');
+      expect(result.tags).toBeUndefined();
+    });
   });
 
   it('returns empty decision when no hooks are registered', async () => {
     const result = await handleUpgrade(
-      { upgradeHooks: [], upgradeHelpers: {}, isTagGroupDeclared: () => true },
+      {
+        upgradeHooks: [],
+        upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
+      },
       new Request('https://example.com/'),
     );
     expect(result).toEqual({});
@@ -158,6 +267,7 @@ describe('handleUpgrade', () => {
         }),
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -169,8 +279,9 @@ describe('handleUpgrade', () => {
 
   it('tags from internal hooks and the builder hook union together', async () => {
     function ref(key: string) {
-      return { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
+      return { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
     }
+
     const result = await handleUpgrade(
       {
         upgradeHooks: [
@@ -180,6 +291,7 @@ describe('handleUpgrade', () => {
         builderUpgradeHook: async () => ({ tags: [ref('user-tag')] }),
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -191,14 +303,16 @@ describe('handleUpgrade', () => {
 
   it('builder hook runs alone when no internal hooks are registered', async () => {
     function ref(key: string) {
-      return { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
+      return { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
     }
+
     const result = await handleUpgrade(
       {
         upgradeHooks: [],
         builderUpgradeHook: async () => ({ meta: { user_id: 'u_42' }, tags: [ref('authed')] }),
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -214,6 +328,7 @@ describe('handleUpgrade', () => {
         builderUpgradeHook: async () => ({}),
         upgradeHelpers: {},
         isTagGroupDeclared: () => true,
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -227,10 +342,11 @@ describe('handleUpgrade', () => {
       {
         upgradeHooks: [],
         builderUpgradeHook: async () => ({
-          tags: [{ __wskit: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
+          tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
         }),
         upgradeHelpers: {},
         isTagGroupDeclared: (_kind, group) => group === 'role',
+        getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
@@ -268,7 +384,11 @@ describe('defer retry behavior', () => {
       },
     });
 
-    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: {},
+      livething: undefined,
+    });
     expect(handler).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(10);
@@ -300,7 +420,7 @@ describe('defer retry behavior', () => {
     await dispatchIncoming(runtime, connection, {
       event: 'work',
       payload: { id: 1 },
-      wskit: undefined,
+      livething: undefined,
     });
     for (let i = 0; i < 5; i++) {
       await vi.advanceTimersByTimeAsync(1);
@@ -329,7 +449,11 @@ describe('defer retry behavior', () => {
       connections: new Map([[connection.id, connection]]),
     });
 
-    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: {},
+      livething: undefined,
+    });
     expect(handler).toHaveBeenCalledTimes(1);
 
     // Simulate the socket closing during the 10ms defer window: the close path
@@ -370,13 +494,13 @@ describe('defer retry behavior', () => {
     await dispatchIncoming(runtime, connection, {
       event: 'ask',
       payload: {},
-      wskit: { correlationId: 'c1' } as any,
+      livething: { correlationId: 'c1' } as any,
     });
     await vi.advanceTimersByTimeAsync(20);
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(errors).toHaveLength(1);
-    expect(errors[0].error.__wskit).toBe('defer');
+    expect(errors[0].error.__livething).toBe('defer');
   });
 
   it('does not retry a Defer thrown from an intercept — surfaces it as an error', async () => {
@@ -401,12 +525,16 @@ describe('defer retry behavior', () => {
       },
     } as any);
 
-    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: {},
+      livething: undefined,
+    });
     await vi.advanceTimersByTimeAsync(20);
 
     expect(interceptCalls).toBe(1);
     expect(handler).not.toHaveBeenCalled();
-    expect(errors[0].error.__wskit).toBe('defer');
+    expect(errors[0].error.__livething).toBe('defer');
   });
 });
 
@@ -425,13 +553,206 @@ describe('Disconnect thrown from handler', () => {
       connections: new Map([[connection.id, connection]]),
     });
 
-    await dispatchIncoming(runtime, connection, { event: 'evict', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'evict',
+      payload: {},
+      livething: undefined,
+    });
 
     expect(connection.descriptor.close).toHaveBeenCalledWith(4403, 'banned');
   });
 });
 
 describe('Block at dispatch', () => {
+  it('serializes ordinary incoming handlers on one connection', async () => {
+    const connection = createConnection();
+    const releaseFirst = deferred();
+    const events: string[] = [];
+    const handler = vi.fn(async (_ctx: unknown, payload: number) => {
+      events.push(`start:${payload}`);
+      if (payload === 1) await releaseFirst.promise;
+      events.push(`end:${payload}`);
+    });
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
+      } as any,
+    });
+
+    const first = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: 1,
+      livething: undefined,
+    });
+    await Promise.resolve();
+    expect(events).toEqual(['start:1']);
+
+    const second = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: 2,
+      livething: undefined,
+    });
+    await Promise.resolve();
+    expect(events).toEqual(['start:1']);
+
+    releaseFirst.resolve();
+    await Promise.all([first, second]);
+
+    expect(events).toEqual(['start:1', 'end:1', 'start:2', 'end:2']);
+  });
+
+  it('allows an incoming handler to opt into interleaved execution', async () => {
+    const connection = createConnection();
+    const releaseFirst = deferred();
+    const events: string[] = [];
+    const handler = vi.fn(async (_ctx: unknown, payload: number) => {
+      events.push(`start:${payload}`);
+      if (payload === 1) await releaseFirst.promise;
+      events.push(`end:${payload}`);
+    });
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        incoming: new Map([
+          ['work', { event: 'work', handler, validator: undefined, allowInterleaving: true }],
+        ]),
+      } as any,
+    });
+
+    const first = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: 1,
+      livething: undefined,
+    });
+    await Promise.resolve();
+
+    const second = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: 2,
+      livething: undefined,
+    });
+    await Promise.resolve();
+
+    expect(events).toEqual(['start:1', 'start:2', 'end:2']);
+
+    releaseFirst.resolve();
+    await Promise.all([first, second]);
+
+    expect(events).toEqual(['start:1', 'start:2', 'end:2', 'end:1']);
+  });
+
+  it('interleaves requests by default and can opt into ordered execution', async () => {
+    const connection = createConnection();
+    const releaseFirst = deferred();
+    let release = releaseFirst;
+    const events: string[] = [];
+    const requestDispatch = vi.fn(async (_runtime: unknown, _connection: unknown, options: any) => {
+      const payload = options.payload as number;
+      events.push(`start:${payload}`);
+      if (payload === 1) await release.promise;
+      events.push(`end:${payload}`);
+    });
+
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        requests: new Map([
+          ['default', { event: 'default', handler: vi.fn(), allowInterleaving: undefined }],
+          ['ordered', { event: 'ordered', handler: vi.fn(), allowInterleaving: false }],
+        ]),
+      } as any,
+      requestDispatch,
+    });
+
+    const firstDefault = dispatchIncoming(runtime, connection, {
+      event: 'default',
+      payload: 1,
+      livething: undefined,
+    });
+    await Promise.resolve();
+    const secondDefault = dispatchIncoming(runtime, connection, {
+      event: 'default',
+      payload: 2,
+      livething: undefined,
+    });
+    await Promise.resolve();
+
+    expect(events).toEqual(['start:1', 'start:2', 'end:2']);
+    releaseFirst.resolve();
+    await Promise.all([firstDefault, secondDefault]);
+
+    events.length = 0;
+    release = deferred();
+    const firstOrdered = dispatchIncoming(runtime, connection, {
+      event: 'ordered',
+      payload: 1,
+      livething: undefined,
+    });
+    await Promise.resolve();
+    const secondOrdered = dispatchIncoming(runtime, connection, {
+      event: 'ordered',
+      payload: 2,
+      livething: undefined,
+    });
+
+    await Promise.resolve();
+
+    expect(events).toEqual(['start:1']);
+    release.resolve();
+    await Promise.all([firstOrdered, secondOrdered]);
+    expect(events).toEqual(['start:1', 'end:1', 'start:2', 'end:2']);
+  });
+
+  it('does not make stream starts wait for ordered app work', async () => {
+    const connection = createConnection();
+    const releaseIncoming = deferred();
+    const events: string[] = [];
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        incoming: new Map([
+          [
+            'work',
+            {
+              event: 'work',
+              handler: async () => {
+                events.push('incoming:start');
+                await releaseIncoming.promise;
+                events.push('incoming:end');
+              },
+              validator: undefined,
+            },
+          ],
+        ]),
+        streams: new Map([['feed', { event: 'feed', stream: { validator: undefined } }]]),
+      } as any,
+      streamTrigger: async () => {
+        events.push('stream:start');
+      },
+    });
+
+    const incoming = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: {},
+      livething: undefined,
+    });
+    await Promise.resolve();
+
+    const stream = dispatchIncoming(runtime, connection, {
+      event: 'feed',
+      payload: {},
+      livething: undefined,
+    });
+    await stream;
+
+    expect(events).toEqual(['incoming:start', 'stream:start']);
+
+    releaseIncoming.resolve();
+    await incoming;
+    expect(events).toEqual(['incoming:start', 'stream:start', 'incoming:end']);
+  });
+
   it('silently swallows Block — no onError, no validation error', async () => {
     const connection = createConnection();
     const handler = vi.fn(async () => {
@@ -450,7 +771,11 @@ describe('Block at dispatch', () => {
       handleValidationError: validationError,
     });
 
-    await dispatchIncoming(runtime, connection, { event: 'any', payload: {}, wskit: undefined });
+    await dispatchIncoming(runtime, connection, {
+      event: 'any',
+      payload: {},
+      livething: undefined,
+    });
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(runtimeError).not.toHaveBeenCalled();
@@ -542,7 +867,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(runtimeWithActivity, connection, 'ping');
 
     expect(error).toHaveBeenCalledWith(
-      '[wskit] ping hook threw',
+      '[livething] ping hook threw',
       expect.objectContaining({ connectionId: connection.id }),
     );
     expect(after).toHaveBeenCalledWith(connection.id);
@@ -572,7 +897,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(runtimeWithActivity, connection, 'pong');
 
     expect(error).toHaveBeenCalledWith(
-      '[wskit] pong hook threw',
+      '[livething] pong hook threw',
       expect.objectContaining({ connectionId: connection.id }),
     );
     expect(after).toHaveBeenCalledWith(connection.id);
@@ -601,7 +926,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(runtimeWithActivity, connection, 'ping');
 
     expect(error).toHaveBeenCalledWith(
-      '[wskit] connection activity hook threw',
+      '[livething] connection activity hook threw',
       expect.objectContaining({ connectionId: connection.id }),
     );
     expect(pingHook).toHaveBeenCalledWith(connection.id);
@@ -627,11 +952,7 @@ describe('processTextMessage protocol branches', () => {
     expect(connectionActivity).toHaveBeenCalledTimes(1);
     expect(messageActivity).not.toHaveBeenCalled();
 
-    await processTextMessage(
-      runtimeWithActivity,
-      connection,
-      JSON.stringify({ event: 'noop', payload: {} }),
-    );
+    await processTextMessage(runtimeWithActivity, connection, JSON.stringify(['noop', {}, null]));
     expect(messageActivity).toHaveBeenCalledWith(connection.id);
   });
 
@@ -661,6 +982,7 @@ describe('processTextMessage protocol branches', () => {
     const generator = {
       return: vi.fn(async () => ({ value: undefined, done: true as const })),
     };
+
     const activeStreams = new Map([
       [
         'stream_1',
@@ -682,11 +1004,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(
       runtimeWithActivity,
       connection,
-      JSON.stringify({
-        event: '__streamCancel__',
-        payload: {},
-        __wskit: { streamId: 'stream_1' },
-      }),
+      JSON.stringify(['__streamCancel__', null, { stream: { id: 'stream_1' } }]),
     );
 
     expect(generator.return).toHaveBeenCalledTimes(1);
@@ -749,11 +1067,7 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(
       runtimeWithActivity,
       connection,
-      JSON.stringify({
-        event: '__subscribe__',
-        payload: {},
-        __wskit: { channel: 'room:general', channelFamily: 'rooms' },
-      }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'room:general', family: 'rooms' } }]),
     );
 
     expect(errors).toHaveLength(1);
@@ -771,7 +1085,7 @@ describe('processTextMessage protocol branches', () => {
     const runtime = baseDispatchRuntime({
       connections: new Map([[connection.id, connection]]),
       async handleUnsubscribe() {
-        throw new WSKitError('channel-not-subscribed', undefined);
+        throw new LiveThingError('channel-not-subscribed', undefined);
       },
       async handleRuntimeError(_conn, { error, event, routing }: SendRuntimeErrorOptions) {
         errors.push({ error, event, routing });
@@ -782,11 +1096,11 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(
       runtimeWithActivity,
       connection,
-      JSON.stringify({
-        event: '__unsubscribe__',
-        payload: {},
-        __wskit: { channel: 'room:general', channelFamily: 'rooms' },
-      }),
+      JSON.stringify([
+        '__unsubscribe__',
+        null,
+        { channel: { name: 'room:general', family: 'rooms' } },
+      ]),
     );
 
     expect(errors).toHaveLength(1);
@@ -870,7 +1184,6 @@ describe('onAfterSend async rejection', () => {
 
     const connection = createConnection();
     const error = vi.fn();
-    const waitUntilTasks: Promise<unknown>[] = [];
 
     sendThroughPipeline(
       {
@@ -880,11 +1193,8 @@ describe('onAfterSend async rejection', () => {
         } as any,
         outgoingHooks: [],
         beforeSendHooks: [],
-        wskitStampHooks: [],
+        livethingStampHooks: [],
         afterSendHooks: [() => Promise.reject(new Error('persist failed'))],
-        waitUntil(promise) {
-          waitUntilTasks.push(promise);
-        },
         logger: { warn: vi.fn(), error },
         generateId() {
           return 'id_1';
@@ -894,8 +1204,7 @@ describe('onAfterSend async rejection', () => {
       { routing: undefined, event: 'tick', payload: { n: 1 } },
     );
 
-    expect(waitUntilTasks).toHaveLength(1);
-    await waitUntilTasks[0];
-    expect(error).toHaveBeenCalledWith('[wskit] after-send hook failed', expect.any(Object));
+    await Promise.resolve();
+    expect(error).toHaveBeenCalledWith('[livething] after-send hook failed', expect.any(Object));
   });
 });

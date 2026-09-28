@@ -1,7 +1,7 @@
-import { channels, client, connect, dedup, inbox } from '@wskit/client';
-import type { InboxClient } from '@wskit/tests-e2e-handlers/inbox';
+import { channels, client, connect, dedup, inbox } from '@livething/client';
+import type { InboxClient } from '@livething/tests-e2e-handlers/inbox';
 
-// Type-only proof that @wskit/client surfaces inbox() methods but NOT
+// Type-only proof that @livething/client surfaces inbox() methods but NOT
 // readReceipts() ones on a channel whose contract sets only `inbox: true`. tsc
 // checks this file; nothing runs it. The `@ts-expect-error` lines are the
 // negatives — they only pass if the method is genuinely absent from the type.

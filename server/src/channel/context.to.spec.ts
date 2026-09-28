@@ -19,8 +19,8 @@ function createConnection(id: string, userId: string): RuntimeConnection {
 
 const scope = { channelName: 'room:general', channelFamily: null };
 
-describe('buildChannelHandle().send — the `to` option', () => {
-  it('with no `to`, sends through the pipeline to the calling connection and returns 1 when delivered', () => {
+describe('buildChannelHandle().send', () => {
+  it('sends through the pipeline to the calling connection and returns 1 when delivered', () => {
     const caller = createConnection('caller', 'u1');
     const pipelineCalls: unknown[] = [];
     const handle = buildChannelHandle(caller, scope, {
@@ -28,7 +28,7 @@ describe('buildChannelHandle().send — the `to` option', () => {
         pipelineCalls.push({ connId: conn.id, opts });
         return true;
       },
-      sendToChannelRecipient: vi.fn(),
+      broadcastToChannelRecipient: vi.fn(),
       broadcastToChannel: vi.fn(),
       getChannelMembers: vi.fn(),
       kickChannelMembers: vi.fn(),
@@ -50,11 +50,11 @@ describe('buildChannelHandle().send — the `to` option', () => {
     ]);
   });
 
-  it('with no `to`, returns 0 when the pipeline reports it did not deliver', () => {
+  it('returns 0 when the pipeline reports it did not deliver', () => {
     const caller = createConnection('caller', 'u1');
     const handle = buildChannelHandle(caller, scope, {
       sendThroughPipeline: () => false,
-      sendToChannelRecipient: vi.fn(),
+      broadcastToChannelRecipient: vi.fn(),
       broadcastToChannel: vi.fn(),
       getChannelMembers: vi.fn(),
       kickChannelMembers: vi.fn(),
@@ -63,24 +63,26 @@ describe('buildChannelHandle().send — the `to` option', () => {
 
     expect(handle.send('ping', {})).toBe(0);
   });
+});
 
-  it('with `to`, delegates to sendToChannelRecipient (channel-scoped) and returns its delivered count', () => {
+describe('buildChannelHandle().broadcastTo', () => {
+  it('delegates to the channel-scoped audience resolver and returns its delivered count', () => {
     const caller = createConnection('caller', 'u1');
-    const to = { __wskit: 'user-ref' as const, id: 'bob', instance: undefined };
-    const sendToChannelRecipient = vi.fn(() => 3);
+    const to = { __livething: 'user-ref' as const, id: 'bob', instance: undefined };
+    const broadcastToChannelRecipient = vi.fn(() => 3);
     const handle = buildChannelHandle(caller, scope, {
       sendThroughPipeline: vi.fn(),
-      sendToChannelRecipient,
+      broadcastToChannelRecipient,
       broadcastToChannel: vi.fn(),
       getChannelMembers: vi.fn(),
       kickChannelMembers: vi.fn(),
       subscribeConnectionAsServer: vi.fn(),
     } as never);
 
-    const delivered = handle.send('ping', { n: 2 }, { to });
+    const delivered = handle.broadcastTo(to, 'ping', { n: 2 });
 
     expect(delivered).toBe(3);
-    expect(sendToChannelRecipient).toHaveBeenCalledWith({
+    expect(broadcastToChannelRecipient).toHaveBeenCalledWith({
       channelName: 'room:general',
       channelFamily: null,
       to,
@@ -89,20 +91,20 @@ describe('buildChannelHandle().send — the `to` option', () => {
     });
   });
 
-  it('a `to` recipient that resolves to nobody returns 0 without touching the pipeline', () => {
+  it('returns 0 without touching the direct-send pipeline when the audience is empty', () => {
     const caller = createConnection('caller', 'u1');
     const pipeline = vi.fn();
-    const to = { __wskit: 'user-ref' as const, id: 'nobody', instance: undefined };
+    const to = { __livething: 'user-ref' as const, id: 'nobody', instance: undefined };
     const handle = buildChannelHandle(caller, scope, {
       sendThroughPipeline: pipeline,
-      sendToChannelRecipient: () => 0,
+      broadcastToChannelRecipient: () => 0,
       broadcastToChannel: vi.fn(),
       getChannelMembers: vi.fn(),
       kickChannelMembers: vi.fn(),
       subscribeConnectionAsServer: vi.fn(),
     } as never);
 
-    expect(handle.send('ping', {}, { to })).toBe(0);
+    expect(handle.broadcastTo(to, 'ping', {})).toBe(0);
     expect(pipeline).not.toHaveBeenCalled();
   });
 });
@@ -113,7 +115,7 @@ describe('buildChannelHandle().broadcast — includeSelf', () => {
     const broadcastToChannel = vi.fn();
     const handle = buildChannelHandle(caller, scope, {
       sendThroughPipeline: vi.fn(),
-      sendToChannelRecipient: vi.fn(),
+      broadcastToChannelRecipient: vi.fn(),
       broadcastToChannel,
       getChannelMembers: vi.fn(),
       kickChannelMembers: vi.fn(),
@@ -137,7 +139,7 @@ describe('buildChannelHandle().broadcast — includeSelf', () => {
     const broadcastToChannel = vi.fn();
     const handle = buildChannelHandle(caller, scope, {
       sendThroughPipeline: vi.fn(),
-      sendToChannelRecipient: vi.fn(),
+      broadcastToChannelRecipient: vi.fn(),
       broadcastToChannel,
       getChannelMembers: vi.fn(),
       kickChannelMembers: vi.fn(),

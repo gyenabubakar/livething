@@ -1,10 +1,10 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Secret = v.object({ text: v.string() });
@@ -12,8 +12,7 @@ const TopBeacon = v.object({ text: v.string() });
 const SendSecret = v.object({ text: v.string() });
 const SendBeacon = v.object({ text: v.string() });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({ 'top-beacon': t<v.InferOutput<typeof TopBeacon>>() }),
@@ -32,9 +31,7 @@ const handleSendBeacon = base.on('send-beacon', {
 });
 
 const privateChannel = base.channel('private', {
-  outgoing: {
-    emits: { secret: t<v.InferOutput<typeof Secret>>() },
-  },
+  capabilities: [emits({ secret: t<v.InferOutput<typeof Secret>>() })],
 });
 
 const handleSendSecret = privateChannel.on('send-secret', {
@@ -46,12 +43,12 @@ const handleSendSecret = privateChannel.on('send-secret', {
 
 privateChannel.replay({
   replay(ctx) {
-    ctx.sendReplay('secret', { text: 'top-secret-history' }, { seq: 1, messageId: 'm1' });
+    ctx.sendReplay('secret', { text: 'top-secret-history' }, { deliverySeq: 1, messageId: 'm1' });
   },
 });
 
-export const replayMembershipGateHandler = base.assemble({
+export const replayMembershipGateDefinition = base.assemble({
   handlers: [handleSendBeacon, handleSendSecret],
 });
 
-export type ReplayMembershipGateClient = InferClient<typeof replayMembershipGateHandler>;
+export type ReplayMembershipGateClient = InferClient<typeof replayMembershipGateDefinition>;

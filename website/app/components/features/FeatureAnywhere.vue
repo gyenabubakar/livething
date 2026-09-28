@@ -9,13 +9,13 @@ const props = defineProps<{
 
 const pills = [
   { label: 'Frames in, frames out', icon: 'i-ph-arrows-down-up-duotone' },
-  { label: 'Text and binary', icon: 'i-ph-binary-duotone' },
+  { label: 'One engine, any runtime', icon: 'i-ph-cpu-duotone' },
   { label: 'Adapters own the transport', icon: 'i-ph-plug-duotone' },
 ]
 
 const transports = ['WebSocket', 'Server-sent events', 'Long polling', 'Anything you write']
 const runtimes = ['Cloudflare', 'Node', 'Bun', 'Deno']
-const frames = ['{"t":"send-message",…}', '‹binary · 1.4 KB›']
+const frames = ['["send-message",{…}]', '["message",{…}]']
 
 const swap = ref(0)
 const transport = computed(() => transports[swap.value]!)
@@ -205,7 +205,7 @@ useViewportActivation(runtimeRef, {
                 :class="leg === 'handle' ? 'border-emerald-400/80' : ''"
               >
                 <UIcon name="i-ph-cpu-duotone" class="mx-auto size-5 text-emerald-300" />
-                <div class="mt-1.5 font-mono text-[11px] text-toned">WSKit engine</div>
+                <div class="mt-1.5 font-mono text-[11px] text-toned">LiveThing engine</div>
                 <div class="font-mono text-[10px] text-dimmed">contract · handlers</div>
                 <div class="font-mono text-[10px] text-emerald-300">unchanged</div>
               </div>
@@ -261,7 +261,7 @@ useViewportActivation(runtimeRef, {
           <div class="flex h-full flex-col justify-center">
             <p class="section-label">Runs anywhere</p>
             <h3 class="mt-4 text-2xl font-semibold tracking-tight text-highlighted md:text-3xl">
-              Your infra, any runtime<span class="text-primary">.</span>
+              Self-hosted, on the runtime you use<span class="text-primary">.</span>
             </h3>
             <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
               Because the engine only ever sees a frame, the same typed handler runs on Cloudflare Durable Objects, Node, Bun, or Deno — swap one import and your contract, handlers, and client stay identical. No hosted service to rent, no runtime lock-in.
@@ -284,11 +284,13 @@ useViewportActivation(runtimeRef, {
               <span class="font-mono text-xs text-toned">room.server.ts</span>
             </div>
             <div class="flex flex-1 flex-col justify-center overflow-x-auto p-5 font-mono text-xs leading-loose sm:text-sm">
-              <pre><code><span class="text-dimmed">// only the runtime entry changes</span>
-<span class="text-violet-400">import</span> { server } <span class="text-violet-400">from</span> <span class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-emerald-400">'@wskit/server-</span><span class="text-primary transition-colors duration-300">{{ active.slug }}</span><span class="text-emerald-400">'</span></span>
-<span class="text-violet-400">import</span> { chatHandler } <span class="text-violet-400">from</span> <span class="text-emerald-400">'./chat'</span>
+              <pre class="min-h-[10em]"><code><span class="text-dimmed">// only the runtime entry changes</span>
+<span v-if="active.slug === 'cloudflare'"><span class="text-violet-400">import</span> { bind } <span class="text-violet-400">from</span> <span class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-emerald-400">'@livething/server-</span><span class="text-primary transition-colors duration-300">{{ active.slug }}</span><span class="text-emerald-400">'</span></span></span><span v-else-if="active.slug === 'node'"><span class="text-violet-400">import</span> { setup } <span class="text-violet-400">from</span> <span class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-emerald-400">'@livething/server-</span><span class="text-primary transition-colors duration-300">{{ active.slug }}</span><span class="text-emerald-400">'</span></span></span><span v-else><span class="text-violet-400">import</span> { server } <span class="text-violet-400">from</span> <span class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-emerald-400">'@livething/server-</span><span class="text-primary transition-colors duration-300">{{ active.slug }}</span><span class="text-emerald-400">'</span></span></span>
+<span class="text-violet-400">import</span> { chatDefinition } <span class="text-violet-400">from</span> <span class="text-emerald-400">'./chat'</span>
 
-<span v-if="active.slug === 'cloudflare'" class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-violet-400">export class</span>&nbsp;ChatRoom&nbsp;<span class="text-violet-400">extends</span>&nbsp;<span class="text-amber-400">server</span>(chatHandler) {}</span><span v-else class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-violet-400">const</span>&nbsp;service = <span class="text-amber-400">server</span>(chatHandler, { <span class="text-sky-400">port</span>: <span class="text-amber-400">3000</span> })</span></code></pre>
+<span v-if="active.slug === 'cloudflare'" class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-violet-400">export class</span>&nbsp;ChatRoom&nbsp;<span class="text-violet-400">extends</span>&nbsp;<span class="text-amber-400">bind</span>(chatDefinition) {}</span><template v-else-if="active.slug === 'node'"><span class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-violet-400">const</span>&nbsp;livething = <span class="text-amber-400">setup</span>()</span>
+<span class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-violet-400">const</span>&nbsp;chat = livething.<span class="text-amber-400">bind</span>(chatDefinition, {})</span></template><span v-else class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-violet-400">const</span>&nbsp;service = <span class="text-amber-400">server</span>(chatDefinition, { <span class="text-sky-400">port</span>: <span class="text-amber-400">3000</span> })</span><template v-if="active.slug !== 'node'">
+<span aria-hidden="true" class="inline-flex items-center border border-transparent px-1">&nbsp;</span></template></code></pre>
             </div>
           </div>
         </Motion>

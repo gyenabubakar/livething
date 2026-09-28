@@ -1,7 +1,10 @@
+import type { LiveThingMetadata } from '@livething/core';
+
 /** What `parseBinary` returns after decoding a binary frame. */
 export interface ParsedFrame {
   event: string;
   payload: unknown;
+  metadata?: LiveThingMetadata | null;
 }
 
 /** Binary frames delivered as `ArrayBuffer`. */

@@ -16,6 +16,7 @@ import {
   persistReplayMessage,
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
+  readReplayGapWatermark,
   readReplayScope,
   readReplayWatermark,
   replayScopeKey,
@@ -23,6 +24,8 @@ import {
   storeReplayRow,
 } from './runtime.ts';
 import type { ReplayRow } from './types.ts';
+
+const SERVER_OWNER = { channelKey: undefined, claimedChannelKeys: new Set<string>() };
 
 function replayDb() {
   const sql = createTestSql();
@@ -32,14 +35,14 @@ function replayDb() {
 
 function replayKeys(sql: ReturnType<typeof createTestSql>): string[] {
   return sql
-    .exec<{ rowKey: string }>('SELECT rowKey FROM __wskit_replay')
+    .exec<{ rowKey: string }>('SELECT rowKey FROM __livething_replay')
     .toArray()
     .map((row) => row.rowKey);
 }
 
 function replaySeqs(sql: ReturnType<typeof createTestSql>): number[] {
   return sql
-    .exec<{ seq: number }>('SELECT seq FROM __wskit_replay')
+    .exec<{ seq: number }>('SELECT seq FROM __livething_replay')
     .toArray()
     .map((row) => Number(row.seq));
 }
@@ -54,10 +57,10 @@ describe('replay/runtime', () => {
       .toArray()
       .map((row) => row.name);
 
-    expect(created).toContain('__wskit_replay');
-    expect(created).toContain('__wskit_idx_replay_seq');
-    expect(created).toContain('__wskit_idx_replay_scope_seq');
-    expect(created).toContain('__wskit_replay_watermark');
+    expect(created).toContain('__livething_replay');
+    expect(created).toContain('__livething_idx_replay_seq');
+    expect(created).toContain('__livething_idx_replay_scope_seq');
+    expect(created).toContain('__livething_replay_watermark');
   });
 
   it('matches replay ownership by scope and excludes mismatched messages', () => {
@@ -73,14 +76,14 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(['typing']),
       }),
     ).toBe(true);
     expect(
       shouldStoreReplayMessage('typing', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(['typing']),
       }),
     ).toBe(false);
@@ -90,7 +93,7 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(true);
@@ -98,7 +101,7 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
         claimedChannelKeys: new Set(['rooms']),
       }),
@@ -107,7 +110,7 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: { channel: 'lobby' },
+        livething: { channel: 'lobby' },
         exclude: new Set(),
         claimedChannelKeys: new Set(['lobby']),
       }),
@@ -116,7 +119,7 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: {},
+        livething: {},
         exclude: new Set(),
         claimedChannelKeys: new Set(['rooms']),
       }),
@@ -127,19 +130,23 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('get-token', {
         channelKey: undefined,
-        wskit: { correlationId: 'req-abc' },
+        livething: { correlationId: 'req-abc' },
         exclude: new Set(),
       }),
     ).toBe(false);
     expect(
       shouldStoreReplayMessage('get-token', {
         channelKey: 'rooms',
-        wskit: { correlationId: 'req-abc', channel: 'room-1', channelFamily: 'rooms' },
+        livething: { correlationId: 'req-abc', channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
     expect(
-      shouldStoreReplayMessage('message', { channelKey: undefined, wskit: {}, exclude: new Set() }),
+      shouldStoreReplayMessage('message', {
+        channelKey: undefined,
+        livething: {},
+        exclude: new Set(),
+      }),
     ).toBe(true);
   });
 
@@ -147,19 +154,23 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('token', {
         channelKey: undefined,
-        wskit: { streamId: 'stream_abc_1' },
+        livething: { streamId: 'stream_abc_1' },
         exclude: new Set(),
       }),
     ).toBe(false);
     expect(
       shouldStoreReplayMessage('token', {
         channelKey: 'rooms',
-        wskit: { streamId: 'stream_abc_1', channel: 'room-1', channelFamily: 'rooms' },
+        livething: { streamId: 'stream_abc_1', channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
     expect(
-      shouldStoreReplayMessage('token', { channelKey: undefined, wskit: {}, exclude: new Set() }),
+      shouldStoreReplayMessage('token', {
+        channelKey: undefined,
+        livething: {},
+        exclude: new Set(),
+      }),
     ).toBe(true);
   });
 
@@ -170,34 +181,39 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('__memberOffline__', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
     for (const event of ['__memberJoin__', '__subscribeOk__', '__error__', '__streamEnd__']) {
       expect(
-        shouldStoreReplayMessage(event, { channelKey: undefined, wskit: {}, exclude: new Set() }),
+        shouldStoreReplayMessage(event, {
+          channelKey: undefined,
+          livething: {},
+          exclude: new Set(),
+        }),
       ).toBe(false);
     }
+
     expect(
       shouldStoreReplayMessage('room-msg', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelFamily: 'rooms' },
+        livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(true);
   });
 
-  it('builds replay rows from pure payloads and wskit metadata', () => {
+  it('builds replay rows from pure payloads and livething metadata', () => {
     const payload = { text: 'hello' };
-    const wskit = {
-      seq: 7,
+    const livething = {
+      deliverySeq: 7,
       messageId: 'msg_1',
       channel: 'room-1',
       channelFamily: 'rooms',
     };
 
-    expect(readReplayScope(wskit)).toEqual({
+    expect(readReplayScope(livething)).toEqual({
       channel: 'room-1',
       channelFamily: 'rooms',
     });
@@ -209,11 +225,11 @@ describe('replay/runtime', () => {
           snapshotKey: (_event: string, next: Record<string, unknown>) => String(next.text),
         },
         payload,
-        wskit,
+        livething,
         now: 99,
       }),
     ).toMatchObject({
-      rowKey: JSON.stringify(['snapshot', 'room-1', 'rooms', 'hello']),
+      rowKey: JSON.stringify(['snapshot', 'room-1', 'rooms', 'hello', null]),
       messageId: 'msg_1',
       seq: 7,
       event: 'message',
@@ -225,7 +241,7 @@ describe('replay/runtime', () => {
 
     expect(
       JSON.parse(
-        buildReplayRow('message', { options: { type: 'history' }, payload, wskit, now: 99 })
+        buildReplayRow('message', { options: { type: 'history' }, payload, livething, now: 99 })
           .payload,
       ),
     ).toEqual({
@@ -239,12 +255,12 @@ describe('replay/runtime', () => {
     // A raw `|` join makes both `snapshot|a|b||c`; JSON encoding keeps them apart.
     const a = buildReplayRow('e', {
       options: { type: 'snapshot', snapshotKey: () => 'c' },
-      wskit: { seq: 1, messageId: 'm', channel: 'a|b' },
+      livething: { deliverySeq: 1, messageId: 'm', channel: 'a|b' },
       ...base,
     });
     const b = buildReplayRow('e', {
       options: { type: 'snapshot', snapshotKey: () => '|c' },
-      wskit: { seq: 1, messageId: 'm', channel: 'a', channelFamily: 'b' },
+      livething: { deliverySeq: 1, messageId: 'm', channel: 'a', channelFamily: 'b' },
       ...base,
     });
     expect(a.rowKey).not.toBe(b.rowKey);
@@ -257,7 +273,7 @@ describe('replay/runtime', () => {
       options: { type: 'history' },
       event: 'message',
       payload: { text: 'one' },
-      wskit: { seq: 1, messageId: 'msg_1' },
+      livething: { deliverySeq: 1, messageId: 'msg_1' },
       now: 100,
     });
 
@@ -281,11 +297,11 @@ describe('replay/runtime', () => {
       },
       event: 'doc-content-set',
       payload: { id: 'doc-1', content: 'hello' },
-      wskit: { seq: 2, messageId: 'msg_2' },
+      livething: { deliverySeq: 2, messageId: 'msg_2' },
       now: 101,
     });
 
-    const snapshot = getReplayRowByKey(sql, JSON.stringify(['snapshot', '', '', 'doc-1']));
+    const snapshot = getReplayRowByKey(sql, JSON.stringify(['snapshot', '', '', 'doc-1', null]));
     expect(snapshot).toMatchObject({
       event: 'doc-snapshot',
       snapshotKey: 'doc-1',
@@ -306,11 +322,11 @@ describe('replay/runtime', () => {
       },
       event: 'doc-deleted',
       payload: { id: 'doc-1' },
-      wskit: { seq: 3, messageId: 'msg_3' },
+      livething: { deliverySeq: 3, messageId: 'msg_3' },
       now: 102,
     });
 
-    expect(getReplayRowByKey(sql, JSON.stringify(['snapshot', '', '', 'doc-1']))).toBeNull();
+    expect(getReplayRowByKey(sql, JSON.stringify(['snapshot', '', '', 'doc-1', null]))).toBeNull();
   });
 
   it('prunes retained rows and loads replay rows in sequence order', () => {
@@ -324,6 +340,7 @@ describe('replay/runtime', () => {
       payload: '{}',
       channel: null,
       channelFamily: null,
+      userId: null,
       snapshotKey: null,
       createdAt: 10,
     });
@@ -335,6 +352,7 @@ describe('replay/runtime', () => {
       payload: '{}',
       channel: null,
       channelFamily: null,
+      userId: null,
       snapshotKey: null,
       createdAt: 90,
     });
@@ -346,6 +364,7 @@ describe('replay/runtime', () => {
       payload: '{}',
       channel: 'room-1',
       channelFamily: 'rooms',
+      userId: null,
       snapshotKey: null,
       createdAt: 100,
     });
@@ -357,6 +376,7 @@ describe('replay/runtime', () => {
       payload: '{}',
       channel: 'room-1',
       channelFamily: 'rooms',
+      userId: null,
       snapshotKey: null,
       createdAt: 110,
     });
@@ -368,24 +388,22 @@ describe('replay/runtime', () => {
       payload: '{}',
       channel: 'room-1',
       channelFamily: 'rooms',
+      userId: null,
       snapshotKey: null,
       createdAt: 120,
     });
 
-    pruneExpiredReplayRows(sql, { maxAgeMs: 20 }, 100);
+    pruneExpiredReplayRows(sql, { retention: { maxAgeMs: 20 }, now: 100, owner: SERVER_OWNER });
     expect(getReplayRowByKey(sql, 'old')).toBeNull();
 
     pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: 'room-1', channelFamily: 'rooms' });
     expect(replayKeys(sql)).not.toContain('c1');
 
     expect(
-      loadReplayRows(sql, 1, { channelFamily: null } as {
-        channelName?: string;
-        channelFamily: string | null;
-      }).map((row) => row.seq),
+      loadReplayRows(sql, 1, { channelFamily: null, userId: null }).map((row) => row.seq),
     ).toEqual([2]);
     expect(
-      loadReplayRows(sql, 2, { channelName: 'room-1', channelFamily: 'rooms' }).map(
+      loadReplayRows(sql, 2, { channelName: 'room-1', channelFamily: 'rooms', userId: null }).map(
         (row) => row.seq,
       ),
     ).toEqual([4, 5]);
@@ -405,10 +423,12 @@ describe('replay/runtime', () => {
         payload: '{}',
         channel: null,
         channelFamily: null,
+        userId: null,
         snapshotKey: null,
         createdAt: seq,
       };
     }
+
     storeReplayRow(sql, make('a', 1));
     storeReplayRow(sql, make('b', 2));
     storeReplayRow(sql, make('c', 3));
@@ -416,10 +436,9 @@ describe('replay/runtime', () => {
 
     pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: null, channelFamily: null });
 
-    const surviving = loadReplayRows(sql, 0, { channelFamily: null } as {
-      channelName?: string;
-      channelFamily: string | null;
-    }).map((row) => row.seq);
+    const surviving = loadReplayRows(sql, 0, { channelFamily: null, userId: null }).map(
+      (row) => row.seq,
+    );
     expect(surviving).toEqual([3, 4]);
   });
 
@@ -433,6 +452,7 @@ describe('replay/runtime', () => {
           channelFamily: scope,
         });
       }
+
       return { channelMemberships: map } as unknown as RuntimeConnection;
     }
 
@@ -480,6 +500,7 @@ describe('replay/runtime', () => {
       payload: '{}',
       channel: 'replay-room',
       channelFamily: null,
+      userId: null,
       snapshotKey: null,
       createdAt: 100,
     });
@@ -491,6 +512,7 @@ describe('replay/runtime', () => {
       payload: '{}',
       channel: 'replay-room',
       channelFamily: null,
+      userId: null,
       snapshotKey: null,
       createdAt: 110,
     });
@@ -498,6 +520,7 @@ describe('replay/runtime', () => {
     const result = loadReplayRows(sql, 0, {
       channelName: 'replay-room',
       channelFamily: null,
+      userId: null,
     });
     expect(result.map((row) => row.seq)).toEqual([1, 2]);
   });
@@ -515,6 +538,7 @@ describe('replay/runtime', () => {
       payload: '{}',
       channel: null,
       channelFamily: null,
+      userId: null,
       snapshotKey: null,
       createdAt: 100,
     });
@@ -526,12 +550,75 @@ describe('replay/runtime', () => {
       payload: '{}',
       channel: null,
       channelFamily: null,
+      userId: null,
       snapshotKey: null,
       createdAt: 110,
     });
 
-    const result = loadReplayRows(sql, 0, { channelFamily: null });
+    const result = loadReplayRows(sql, 0, { channelFamily: null, userId: null });
     expect(result.map((row) => row.seq)).toEqual([1, 2]);
+  });
+
+  it('loads a user-addressed row only for that user', () => {
+    const sql = replayDb();
+    function row(rowKey: string, seq: number, userId: string | null): ReplayRow {
+      return {
+        rowKey,
+        messageId: `msg_${rowKey}`,
+        seq,
+        event: 'notice',
+        payload: '{}',
+        channel: null,
+        channelFamily: null,
+        userId,
+        snapshotKey: null,
+        createdAt: seq,
+      };
+    }
+
+    storeReplayRow(sql, row('all', 1, null));
+    storeReplayRow(sql, row('bob', 2, 'bob'));
+    storeReplayRow(sql, row('carol', 3, 'carol'));
+
+    function seqsFor(userId: string | null): number[] {
+      return loadReplayRows(sql, 0, { channelFamily: null, userId }).map((loaded) => loaded.seq);
+    }
+
+    expect(seqsFor('bob')).toEqual([1, 2]);
+    expect(seqsFor('carol')).toEqual([1, 3]);
+    expect(seqsFor(null)).toEqual([1]);
+  });
+
+  it('keeps one snapshot per audience, so a user value never replaces the shared one', () => {
+    const sql = replayDb();
+    const options = { type: 'snapshot' as const, snapshotKey: () => 'doc' };
+    persistReplayMessage(sql, {
+      options,
+      event: 'doc',
+      payload: { v: 'shared' },
+      livething: { deliverySeq: 1, messageId: 'm1' },
+      now: 1,
+    });
+    persistReplayMessage(sql, {
+      options,
+      event: 'doc',
+      payload: { v: 'bob-only' },
+      livething: { deliverySeq: 2, messageId: 'm2' },
+      userId: 'bob',
+      now: 2,
+    });
+
+    function payloadsFor(userId: string | null): string[] {
+      return loadReplayRows(sql, 0, { channelFamily: null, userId }).map(
+        (loaded) => loaded.payload,
+      );
+    }
+
+    expect(payloadsFor(null)).toEqual([JSON.stringify({ v: 'shared' })]);
+    expect(payloadsFor('bob')).toEqual([
+      JSON.stringify({ v: 'shared' }),
+      JSON.stringify({ v: 'bob-only' }),
+    ]);
   });
 
   describe('eviction watermark', () => {
@@ -544,6 +631,7 @@ describe('replay/runtime', () => {
         payload: '{}',
         channel: null,
         channelFamily: null,
+        userId: null,
         snapshotKey: null,
         createdAt: seq,
         ...overrides,
@@ -568,6 +656,7 @@ describe('replay/runtime', () => {
       expect(readReplayWatermark(sql, '')).toBe(10);
       bumpReplayWatermark(sql, '', 5);
       expect(readReplayWatermark(sql, '')).toBe(10);
+
       bumpReplayWatermark(sql, '', 20);
       expect(readReplayWatermark(sql, '')).toBe(20);
     });
@@ -594,7 +683,7 @@ describe('replay/runtime', () => {
       );
 
       // now=100, maxAgeMs=50 → cutoff 50: anything with createdAt < 50 is evicted.
-      pruneExpiredReplayRows(sql, { maxAgeMs: 50 }, 100);
+      pruneExpiredReplayRows(sql, { retention: { maxAgeMs: 50 }, now: 100, owner: SERVER_OWNER });
 
       expect(replayKeys(sql).sort()).toEqual(['r2', 't3']);
       expect(readReplayWatermark(sql, '')).toBe(2);
@@ -603,10 +692,82 @@ describe('replay/runtime', () => {
       ).toBe(3);
     });
 
+    it('server-level age prune leaves rows and watermarks of a channel that owns its own replay', () => {
+      const sql = replayDb();
+      storeReplayRow(sql, makeRow({ rowKey: 't1', seq: 1, createdAt: 10 }));
+      storeReplayRow(
+        sql,
+        makeRow({
+          rowKey: 'own1',
+          seq: 2,
+          createdAt: 10,
+          channel: 'room-1',
+          channelFamily: 'rooms',
+        }),
+      );
+      storeReplayRow(
+        sql,
+        makeRow({ rowKey: 'lobby1', seq: 3, createdAt: 10, channel: 'lobby', channelFamily: null }),
+      );
+      storeReplayRow(
+        sql,
+        makeRow({ rowKey: 'open1', seq: 4, createdAt: 10, channel: 'open', channelFamily: null }),
+      );
+
+      pruneExpiredReplayRows(sql, {
+        retention: { maxAgeMs: 50 },
+        now: 100,
+        owner: { channelKey: undefined, claimedChannelKeys: new Set(['rooms', 'lobby']) },
+      });
+
+      expect(replayKeys(sql).sort()).toEqual(['lobby1', 'own1']);
+      expect(readReplayWatermark(sql, '')).toBe(1);
+      expect(
+        readReplayWatermark(sql, replayScopeKey({ channel: 'open', channelFamily: null })),
+      ).toBe(4);
+      expect(
+        readReplayWatermark(sql, replayScopeKey({ channel: 'room-1', channelFamily: 'rooms' })),
+      ).toBeNull();
+      expect(
+        readReplayWatermark(sql, replayScopeKey({ channel: 'lobby', channelFamily: null })),
+      ).toBeNull();
+    });
+
+    it('channel-level age prune only touches its own channel rows', () => {
+      const sql = replayDb();
+      storeReplayRow(sql, makeRow({ rowKey: 't1', seq: 1, createdAt: 10 }));
+      storeReplayRow(
+        sql,
+        makeRow({
+          rowKey: 'own1',
+          seq: 2,
+          createdAt: 10,
+          channel: 'room-1',
+          channelFamily: 'rooms',
+        }),
+      );
+      storeReplayRow(
+        sql,
+        makeRow({ rowKey: 'other1', seq: 3, createdAt: 10, channel: 'lobby', channelFamily: null }),
+      );
+
+      pruneExpiredReplayRows(sql, {
+        retention: { maxAgeMs: 50 },
+        now: 100,
+        owner: { channelKey: 'rooms', claimedChannelKeys: new Set(['rooms']) },
+      });
+
+      expect(replayKeys(sql).sort()).toEqual(['other1', 't1']);
+      expect(readReplayWatermark(sql, '')).toBeNull();
+      expect(
+        readReplayWatermark(sql, replayScopeKey({ channel: 'room-1', channelFamily: 'rooms' })),
+      ).toBe(2);
+    });
+
     it('age prune with no matching rows leaves the watermark untouched', () => {
       const sql = replayDb();
       storeReplayRow(sql, makeRow({ rowKey: 't1', seq: 1, createdAt: 90 }));
-      pruneExpiredReplayRows(sql, { maxAgeMs: 50 }, 100);
+      pruneExpiredReplayRows(sql, { retention: { maxAgeMs: 50 }, now: 100, owner: SERVER_OWNER });
       expect(readReplayWatermark(sql, '')).toBeNull();
     });
 
@@ -620,6 +781,7 @@ describe('replay/runtime', () => {
           makeRow({ rowKey: `c${seq}`, seq, channel: 'room-1', channelFamily: 'rooms' }),
         );
       }
+
       pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: 'room-1', channelFamily: 'rooms' });
 
       const key = replayScopeKey({ channel: 'room-1', channelFamily: 'rooms' });
@@ -643,69 +805,98 @@ describe('replay/runtime', () => {
       pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: null, channelFamily: null });
       expect(readReplayWatermark(sql, '')).toBe(100);
     });
+
+    it('age prune of a row sent to one user raises only that user’s gap mark', () => {
+      const sql = replayDb();
+      storeReplayRow(sql, makeRow({ rowKey: 't1', seq: 1, createdAt: 10 }));
+      storeReplayRow(sql, makeRow({ rowKey: 't2', seq: 2, createdAt: 20, userId: 'alice' }));
+      storeReplayRow(sql, makeRow({ rowKey: 't3', seq: 3, createdAt: 90 }));
+
+      pruneExpiredReplayRows(sql, { retention: { maxAgeMs: 50 }, now: 100, owner: SERVER_OWNER });
+
+      const scope = { channel: null, channelFamily: null };
+      expect(readReplayGapWatermark(sql, scope, 'bob')).toBe(1);
+      expect(readReplayGapWatermark(sql, scope, 'alice')).toBe(2);
+    });
+
+    it('count prune of a row sent to one user raises only that user’s gap mark', () => {
+      const sql = replayDb();
+      const room = { channel: 'room-1', channelFamily: 'rooms' };
+      storeReplayRow(sql, makeRow({ rowKey: 'c1', seq: 1, ...room }));
+      storeReplayRow(sql, makeRow({ rowKey: 'c2', seq: 2, ...room, userId: 'alice' }));
+      storeReplayRow(sql, makeRow({ rowKey: 'c3', seq: 3, ...room }));
+
+      pruneReplayScopeRows(sql, { maxMessages: 1 }, room);
+
+      expect(readReplayGapWatermark(sql, room, 'bob')).toBe(1);
+      expect(readReplayGapWatermark(sql, room, 'alice')).toBe(2);
+      expect(readReplayGapWatermark(sql, room, null)).toBe(1);
+    });
   });
 });
 
 describe('buildLoadReplayQuery', () => {
   it('produces the static-channel query (channelFamily IS NULL) when scope.channelFamily is null', () => {
-    const query = buildLoadReplayQuery(0, { channelName: 'lobby', channelFamily: null });
+    const query = buildLoadReplayQuery(0, {
+      channelName: 'lobby',
+      channelFamily: null,
+      userId: null,
+    });
     expect(query.sql).toMatch(/channelFamily\s+IS\s+NULL/);
     expect(query.sql).not.toMatch(/channelFamily\s+IS\s+\?/);
-    expect(query.params).toEqual(['lobby', 0]);
+    expect(query.params).toEqual(['lobby', 0, null]);
   });
 
   it('produces the family query when scope.channelFamily is a non-null family key', () => {
-    const query = buildLoadReplayQuery(7, { channelName: 'room:1', channelFamily: 'rooms' });
+    const query = buildLoadReplayQuery(7, {
+      channelName: 'room:1',
+      channelFamily: 'rooms',
+      userId: 'alice',
+    });
     expect(query.sql).toMatch(/channelFamily\s+IS\s+\?/);
-    expect(query.params).toEqual(['room:1', 'rooms', 7]);
+    expect(query.params).toEqual(['room:1', 'rooms', 7, 'alice']);
   });
 
-  it('still produces the family query when the family key happens to equal the channel name', () => {
-    // Regression: the previous heuristic compared scope.channelFamily to
-    // scope.channelName and silently fell into the static path. Now the
-    // null-vs-string marker drives the branch, so a family with key 'rooms'
-    // and concrete name 'rooms' resolves as a family query.
-    const query = buildLoadReplayQuery(0, { channelName: 'rooms', channelFamily: 'rooms' });
+  it('produces the family query when the family key equals the channel name', () => {
+    // The null-vs-string family marker keeps this in the family query path.
+    const query = buildLoadReplayQuery(0, {
+      channelName: 'rooms',
+      channelFamily: 'rooms',
+      userId: null,
+    });
     expect(query.sql).toMatch(/channelFamily\s+IS\s+\?/);
     expect(query.sql).not.toMatch(/channelFamily\s+IS\s+NULL/);
-    expect(query.params).toEqual(['rooms', 'rooms', 0]);
+    expect(query.params).toEqual(['rooms', 'rooms', 0, null]);
   });
 
   it('produces the top-level query when no channelName is provided', () => {
-    const query = buildLoadReplayQuery(0, { channelFamily: null });
+    const query = buildLoadReplayQuery(0, { channelFamily: null, userId: null });
     expect(query.sql).toMatch(/channel IS NULL/);
     expect(query.sql).toMatch(/channelFamily IS NULL/);
-    expect(query.params).toEqual([0]);
+    expect(query.sql).toMatch(/userId IS NULL OR userId = \?/);
+    expect(query.params).toEqual([0, null]);
   });
 });
 
 describe('ReplayFrame schema', () => {
   it('accepts a top-level replay frame with no scope markers', () => {
-    const result = v.safeParse(ReplayFrame, {
-      event: '__replay__',
-      payload: { lastKnownSeq: 5 },
-      __wskit: {},
-    });
+    const result = v.safeParse(ReplayFrame, ['__replay__', { lastKnownSeq: 5 }, null]);
     expect(result.success).toBe(true);
   });
 
   it('accepts a channel-scoped replay frame', () => {
-    const result = v.safeParse(ReplayFrame, {
-      event: '__replay__',
-      payload: {},
-      __wskit: { channel: 'room', channelFamily: 'rooms' },
-    });
+    const result = v.safeParse(ReplayFrame, [
+      '__replay__',
+      {},
+      { channel: { name: 'room', family: 'rooms' } },
+    ]);
     expect(result.success).toBe(true);
   });
 
   it('rejects a replay frame that carries an unknown routing marker', () => {
-    // The replay frame's __wskit carries only known routing keys; a stray
+    // The replay frame's __livething carries only known routing keys; a stray
     // unknown marker must fail validation, not be silently ignored.
-    const result = v.safeParse(ReplayFrame, {
-      event: '__replay__',
-      payload: {},
-      __wskit: { bogus: 'admin' },
-    });
+    const result = v.safeParse(ReplayFrame, ['__replay__', {}, { bogus: { admin: true } }]);
     expect(result.success).toBe(false);
   });
 });

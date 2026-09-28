@@ -1,177 +1,254 @@
-/**
- * Wire-protocol frame schemas.
- *
- * Every WSKit wire frame is `{ event, payload, __wskit }`. `payload` is pure
- * user data; `__wskit` is framework routing and correlation metadata — the two
- * never share a namespace. Protocol events (the ones the engine itself speaks)
- * are named `__x__` and each has its own valibot schema here.
- *
- * The incoming variants are parsed once at the gateway, so the dispatcher works
- * with a discriminated union instead of hand-checking wire fields at each read
- * site.
- */
-import { WIRE_LIMITS } from '@wskit/core';
+/** The LiveThing wire protocol. Frames are always [event, payload, metadata]. */
+import { WIRE_LIMITS } from '@livething/core';
 import * as v from 'valibot';
 
-/**
- * A non-negative safe integer — sequence numbers and replay/resume cursors.
- * Bounded by `Number.MAX_SAFE_INTEGER` so a client-controlled cursor cannot
- * smuggle in a value that breaks integer math downstream.
- */
 const NonNegativeSafeInt = v.pipe(
   v.number(),
   v.integer(),
   v.minValue(0),
   v.maxValue(Number.MAX_SAFE_INTEGER),
 );
+function StringLimit(limit: number) {
+  return v.pipe(v.string(), v.minLength(1), v.maxLength(limit));
+}
 
-/**
- * A bounded streamId — same upper limit the engine uses when generating
- * server-side ids. Echoed back in error routing and used as a SQL key, so
- * unbounded length lets a client bloat logs and storage rows.
- */
-const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.streamId));
-
-/**
- * Whether a stream survives a reconnect. `ephemeral` is a plain `stream` — its
- * generator dies on disconnect. `persistent` is a `resumableStream` /
- * `recordedStream` — the client auto-resumes it. Stamped on `__streamOk__` and
- * every chunk so a subscriber knows regardless of when it joined.
- */
-const StreamKind = v.picklist(['ephemeral', 'persistent']);
-
-/** The side that originated a two-way exchange, carried on `__wskit.source`. */
+const EventName = StringLimit(WIRE_LIMITS.event);
+const WireId = StringLimit(WIRE_LIMITS.wireId);
+const StreamId = StringLimit(WIRE_LIMITS.streamId);
+const ChannelName = StringLimit(WIRE_LIMITS.channel);
+const ChannelFamily = StringLimit(WIRE_LIMITS.channelFamily);
 const Source = v.picklist(['server', 'client']);
+const Durability = v.picklist(['ephemeral', 'persistent']);
 
-/**
- * A bounded channel name. Channel names can be composite
- * (e.g. `org:123:room:abc`), so they get more headroom than the other
- * identifiers. The matcher runs the family regex against this value, so the cap
- * also bounds the worst-case match cost on attacker-controlled input.
- */
-const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.channel));
+/** Internal routing shape. It is normalized from/to the nested wire metadata. */
+export interface LiveThingProtocol {
+  correlationId?: string;
+  source?: 'server' | 'client';
+  channel?: string;
+  channelFamily: string | null;
+  unsubscribeId?: string;
+  channelMembership?: 'persistent' | 'ephemeral';
+  inbox?: boolean;
+  readReceipts?: boolean;
+  streamId?: string;
+  streamDurability?: 'ephemeral' | 'persistent';
+  streamNudgeId?: string;
+  streamTerminated?: boolean;
+  eventName?: string;
+  messageId?: string;
+  deliverySeq?: number;
+  streamSeq?: number;
+}
 
-/**
- * A bounded family key for dynamic channels. These are short identifiers that
- * must match a declared family, so 128 is never legitimately exceeded.
- */
-const ChannelFamilyKey = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.channelFamily));
+export interface ProtocolFrame {
+  event: string;
+  payload: unknown;
+  __livething: LiveThingProtocol;
+}
 
-/**
- * A bounded correlation / message id. The client SDK stamps these as
- * UUID/ULID-shaped strings (~26-36 chars); 128 matches the streamId cap.
- * Capping stops a client bloating logs, the dedup ring, and storage rows.
- */
-const WireId = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.wireId));
+const ExchangeMetadata = v.pipe(
+  v.strictObject({ id: v.optional(WireId), source: v.optional(Source) }),
+  v.check((value) => Object.keys(value).length > 0),
+);
+const ChannelMetadata = v.strictObject({
+  name: ChannelName,
+  family: v.optional(ChannelFamily),
+  unsubscribeId: v.optional(WireId),
+  membership: v.optional(v.picklist(['persistent', 'ephemeral'])),
+  inbox: v.optional(v.boolean()),
+  readReceipts: v.optional(v.boolean()),
+});
+const DeliveryMetadata = v.pipe(
+  v.strictObject({ id: v.optional(WireId), seq: v.optional(NonNegativeSafeInt) }),
+  v.check((value) => Object.keys(value).length > 0),
+);
+const StreamMetadata = v.strictObject({
+  id: StreamId,
+  event: v.optional(EventName),
+  durability: v.optional(Durability),
+  seq: v.optional(NonNegativeSafeInt),
+  nudgeId: v.optional(WireId),
+  terminated: v.optional(v.boolean()),
+});
 
-/** A bounded user-event name. Short identifier; 128 is generous. */
-const EventName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.event));
+/** The metadata shape accepted on the wire. Unknown groups and top-level fields reject. */
+const MetadataObjectSchema = v.strictObject({
+  exchange: v.optional(ExchangeMetadata),
+  channel: v.optional(ChannelMetadata),
+  delivery: v.optional(DeliveryMetadata),
+  stream: v.optional(StreamMetadata),
+});
+export const MetadataSchema = v.pipe(
+  MetadataObjectSchema,
+  v.check((value) => Object.keys(value).length > 0),
+);
+export const LiveThingProtocolSchema = MetadataSchema;
+const Metadata = v.nullable(MetadataSchema);
+const NoPayload = v.null();
+const EmptyPayload = v.strictObject({});
 
-/**
- * Scope markers for a frame that must target a channel. `channelFamily` is the
- * family key for dynamic channels; wire-missing or wire-null both resolve to
- * `null`, matching the engine's "static channel = null" convention.
- */
-const RequiredChannelScope = {
-  channel: ChannelName,
-  channelFamily: v.nullish(ChannelFamilyKey, null),
+function metadataToLiveThing(input: unknown): LiveThingProtocol {
+  const out: LiveThingProtocol = { channelFamily: null };
+  if (input === null) return out;
+
+  const metadata = input as {
+    exchange?: { id?: string; source?: 'server' | 'client' };
+    channel?: {
+      name: string;
+      family?: string | null;
+      unsubscribeId?: string;
+      membership?: 'persistent' | 'ephemeral';
+      inbox?: boolean;
+      readReceipts?: boolean;
+    };
+    delivery?: { id?: string; seq?: number };
+    stream?: {
+      id: string;
+      event?: string;
+      durability?: 'ephemeral' | 'persistent';
+      seq?: number;
+      nudgeId?: string;
+      terminated?: boolean;
+    };
+  };
+  if (metadata.exchange) {
+    if (metadata.exchange.id !== undefined) out.correlationId = metadata.exchange.id;
+    if (metadata.exchange.source !== undefined) out.source = metadata.exchange.source;
+  }
+
+  if (metadata.channel) {
+    out.channel = metadata.channel.name;
+    out.channelFamily = metadata.channel.family ?? null;
+    if (metadata.channel.unsubscribeId !== undefined)
+      out.unsubscribeId = metadata.channel.unsubscribeId;
+    if (metadata.channel.membership !== undefined)
+      out.channelMembership = metadata.channel.membership;
+
+    if (metadata.channel.inbox !== undefined) out.inbox = metadata.channel.inbox;
+    if (metadata.channel.readReceipts !== undefined)
+      out.readReceipts = metadata.channel.readReceipts;
+  }
+
+  if (metadata.delivery) {
+    if (metadata.delivery.id !== undefined) out.messageId = metadata.delivery.id;
+    if (metadata.delivery.seq !== undefined) out.deliverySeq = metadata.delivery.seq;
+  }
+
+  if (metadata.stream) {
+    out.streamId = metadata.stream.id;
+    if (metadata.stream.event !== undefined) out.eventName = metadata.stream.event;
+    if (metadata.stream.durability !== undefined) out.streamDurability = metadata.stream.durability;
+    if (metadata.stream.seq !== undefined) out.streamSeq = metadata.stream.seq;
+
+    if (metadata.stream.nudgeId !== undefined) out.streamNudgeId = metadata.stream.nudgeId;
+    if (metadata.stream.terminated !== undefined) out.streamTerminated = metadata.stream.terminated;
+  }
+
+  return out;
+}
+
+export { metadataFromLiveThing, serializeWireFrame } from './wire-serialize.ts';
+
+type MetadataObject = v.InferOutput<typeof MetadataObjectSchema>;
+type MetadataWithGroups<Groups extends keyof MetadataObject> = MetadataObject &
+  Required<Pick<MetadataObject, Groups>>;
+
+type RoutingForMetadata<Metadata> = Metadata extends { channel: { name: string } }
+  ? LiveThingProtocol & { channel: string }
+  : Metadata extends { stream: { id: string } }
+    ? LiveThingProtocol & { streamId: string }
+    : LiveThingProtocol;
+
+type FrameOutput<Event extends string, Payload, Metadata> = {
+  event: Event;
+  payload: Payload;
+  __livething: RoutingForMetadata<Metadata>;
 };
 
-/**
- * Scope markers for a frame that may be top-level or channel-scoped. Every
- * field is optional; `channelFamily` still resolves to `null` when absent.
- */
-const OptionalScope = {
-  channel: v.optional(ChannelName),
-  channelFamily: v.nullish(ChannelFamilyKey, null),
-};
+function frame<
+  Event extends string,
+  PayloadSchema extends v.GenericSchema,
+  MetadataSchema extends v.GenericSchema,
+>(
+  event: Event,
+  payload: PayloadSchema,
+  metadata: MetadataSchema,
+): v.GenericSchema<
+  unknown,
+  FrameOutput<Event, v.InferOutput<PayloadSchema>, v.InferOutput<MetadataSchema>>
+> {
+  return v.pipe(
+    v.strictTuple([v.literal(event), payload, metadata]),
+    v.transform((tuple) => {
+      const [name, body, routing] = tuple;
+      return {
+        event: name,
+        payload: body,
+        __livething: metadataToLiveThing(routing),
+      };
+    }),
+  ) as unknown as v.GenericSchema<
+    unknown,
+    FrameOutput<Event, v.InferOutput<PayloadSchema>, v.InferOutput<MetadataSchema>>
+  >;
+}
 
-/**
- * Scope markers for `__replay__`. Replay stores live at two scopes — top-level
- * and channel — so only those two markers are accepted; the strict object
- * rejects any other key.
- */
-const ReplayScope = {
-  channel: v.optional(ChannelName),
-  channelFamily: v.nullish(ChannelFamilyKey, null),
-};
+function requiredMetadata<Groups extends keyof MetadataObject>(
+  group: Groups,
+): v.GenericSchema<unknown, MetadataWithGroups<Groups>> {
+  return v.pipe(
+    Metadata,
+    v.check((value) => value !== null && group in value),
+  ) as unknown as v.GenericSchema<unknown, MetadataWithGroups<Groups>>;
+}
 
-/** An empty payload — protocol events that carry no app data. */
-const NoPayload = v.strictObject({});
+const channelMeta = requiredMetadata('channel');
+const exchangeMeta = requiredMetadata('exchange');
+const streamMeta = requiredMetadata('stream');
+const queryMeta = v.pipe(
+  exchangeMeta,
+  v.check((value) => 'channel' in value),
+) as v.GenericSchema<unknown, MetadataWithGroups<'exchange' | 'channel'>>;
 
-export const SubscribeFrame = v.object({
-  event: v.literal('__subscribe__'),
-  // Loose here — the channel's `check` validator type-checks it.
-  payload: v.optional(v.unknown()),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
-export const UnsubscribeFrame = v.object({
-  event: v.literal('__unsubscribe__'),
-  payload: NoPayload,
-  // `unsubscribeId` correlates the leave with its `__unsubscribeOk__`. Optional
-  // because low-level senders may leave without one; the engine only acks when
-  // an id is present.
-  __wskit: v.strictObject({ ...RequiredChannelScope, unsubscribeId: v.optional(WireId) }),
-});
-
-export const ReplayFrame = v.object({
-  event: v.literal('__replay__'),
-  payload: v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
-  __wskit: v.strictObject(ReplayScope),
-});
-
-export const StreamCancelFrame = v.object({
-  event: v.literal('__streamCancel__'),
-  payload: NoPayload,
-  // Scope markers let the engine find a broadcast stream's scope-keyed row.
-  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
-});
-
-export const ResumeStreamFrame = v.object({
-  event: v.literal('__resumeStream__'),
-  payload: v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
-  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
-});
-
-export const MemberSyncRequestFrame = v.object({
-  event: v.literal('__memberSync__'),
-  payload: v.optional(NoPayload),
-  __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
-});
-
-export const ReceivedFrame = v.object({
-  event: v.literal('__received__'),
-  payload: v.strictObject({ receivedThrough: NonNegativeSafeInt }),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
-export const ReadFrame = v.object({
-  event: v.literal('__read__'),
-  payload: v.strictObject({ readThrough: NonNegativeSafeInt }),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
-/**
- * The incoming half of a receipt query. The client asks who has received up to
- * `seq` on `__receivedQuery__`, or who has read up to `seq` on `__readQuery__`.
- * Each answer comes back under the same event name, paired only by
- * `correlationId` (like `__error__`).
- */
-export const ReceivedQueryFrame = v.object({
-  event: v.literal('__receivedQuery__'),
-  payload: v.strictObject({ seq: NonNegativeSafeInt }),
-  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
-});
-
-export const ReadQueryFrame = v.object({
-  event: v.literal('__readQuery__'),
-  payload: v.strictObject({ seq: NonNegativeSafeInt }),
-  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
-});
-
-/** All frames the client may send into the engine, discriminated on `event`. */
-export const IncomingProtocolFrame = v.variant('event', [
+export const SubscribeFrame = frame('__subscribe__', v.unknown(), channelMeta);
+export const UnsubscribeFrame = frame('__unsubscribe__', NoPayload, channelMeta);
+export const ReplayFrame = frame(
+  '__replay__',
+  v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
+  Metadata,
+);
+export const StreamCancelFrame = frame('__streamCancel__', NoPayload, streamMeta);
+export const ResumeStreamFrame = frame(
+  '__resumeStream__',
+  v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
+  streamMeta,
+);
+export const MemberSyncRequestFrame = frame(
+  '__memberSync__',
+  v.nullable(v.strictObject({})),
+  channelMeta,
+);
+export const ReceivedFrame = frame(
+  '__received__',
+  v.strictObject({ receivedThrough: NonNegativeSafeInt }),
+  channelMeta,
+);
+export const ReadFrame = frame(
+  '__read__',
+  v.strictObject({ readThrough: NonNegativeSafeInt }),
+  channelMeta,
+);
+export const ReceivedQueryFrame = frame(
+  '__receivedQuery__',
+  v.strictObject({ seq: NonNegativeSafeInt }),
+  queryMeta,
+);
+export const ReadQueryFrame = frame(
+  '__readQuery__',
+  v.strictObject({ seq: NonNegativeSafeInt }),
+  queryMeta,
+);
+export const IncomingProtocolFrame = v.union([
   SubscribeFrame,
   UnsubscribeFrame,
   ReplayFrame,
@@ -184,171 +261,74 @@ export const IncomingProtocolFrame = v.variant('event', [
   ReadQueryFrame,
 ]);
 
-export const SubscribeOkFrame = v.object({
-  event: v.literal('__subscribeOk__'),
-  payload: NoPayload,
-  // `source` is who initiated the subscribe: 'client' (the client's own
-  // subscribe call, so it resolves that pending promise) or 'server' (the server
-  // subscribed it, so there is no client promise to settle). `channelMembership`
-  // tells the client whether this channel auto-rejoins on reconnect ('persistent',
-  // server-driven) or not ('ephemeral') so it knows not to re-subscribe it itself.
-  // `inbox` marks a channel whose delivery is inbox-backed, so the client acks
-  // only these with `__received__` and stays quiet on the rest.
-  __wskit: v.strictObject({
-    ...RequiredChannelScope,
-    source: Source,
-    channelMembership: v.picklist(['persistent', 'ephemeral']),
-    inbox: v.optional(v.boolean()),
-    readReceipts: v.optional(v.boolean()),
-  }),
-});
-
-export const UnsubscribeOkFrame = v.object({
-  event: v.literal('__unsubscribeOk__'),
-  payload: NoPayload,
-  // Echoes the leave's `unsubscribeId` so the client settles the exact pending
-  // leave op — never a stale one from an earlier connection.
-  __wskit: v.strictObject({ ...RequiredChannelScope, unsubscribeId: WireId }),
-});
-
-export const StreamOkFrame = v.object({
-  event: v.literal('__streamOk__'),
-  payload: NoPayload,
-  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString, streamKind: StreamKind }),
-});
-
-export const NudgeOkFrame = v.object({
-  event: v.literal('__nudgeOk__'),
-  payload: NoPayload,
-  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString, streamNudgeId: WireId }),
-});
-
-export const StreamEndFrame = v.object({
-  event: v.literal('__streamEnd__'),
-  payload: NoPayload,
-  // `seq` is the final sequence number, so the client can check for missed chunks.
-  // `eventName` is the stream's declared event, carried on a broadcast fan-out so a
-  // listen-only subscriber can route this terminal frame (its `event` is the protocol name).
-  __wskit: v.strictObject({
-    ...OptionalScope,
-    streamId: StreamIdString,
-    seq: v.optional(NonNegativeSafeInt),
-    eventName: v.optional(EventName),
-  }),
-});
-
-export const ErrorFrame = v.object({
-  event: v.literal('__error__'),
-  payload: v.strictObject({
-    code: v.string(),
-    detail: v.optional(v.unknown()),
-  }),
-  __wskit: v.strictObject({
-    ...OptionalScope,
-    correlationId: v.optional(v.string()),
-    source: v.optional(Source),
-    streamId: v.optional(v.string()),
-    streamNudgeId: v.optional(v.string()),
-    // On a stream error: true ends the stream, false (e.g. a rejected nudge) leaves it running.
-    streamTerminated: v.optional(v.boolean()),
-    // The stream's declared event, carried on a broadcast error fan-out so a
-    // listen-only subscriber can route this terminal frame.
-    eventName: v.optional(EventName),
-  }),
-});
-
-export const KickedFrame = v.object({
-  event: v.literal('__kicked__'),
-  payload: v.strictObject({ reason: v.string() }),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
-export const MemberJoinFrame = v.object({
-  event: v.literal('__memberJoin__'),
-  payload: v.strictObject({
-    connectionId: v.string(),
-    meta: v.optional(v.record(v.string(), v.unknown())),
-  }),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
-export const MemberLeaveFrame = v.object({
-  event: v.literal('__memberLeave__'),
-  payload: v.strictObject({
-    connectionId: v.string(),
-    meta: v.optional(v.record(v.string(), v.unknown())),
-  }),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
-export const MemberOnlineFrame = v.object({
-  event: v.literal('__memberOnline__'),
-  payload: v.strictObject({
-    connectionId: v.string(),
-    meta: v.optional(v.record(v.string(), v.unknown())),
-  }),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
-export const MemberOfflineFrame = v.object({
-  event: v.literal('__memberOffline__'),
-  payload: v.strictObject({ connectionId: v.string() }),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
-// The whole current member list, sent once right after __subscribeOk__ in
-// place of a per-member __memberJoin__ / __memberOnline__ initial batch.
-export const MemberSyncFrame = v.object({
-  event: v.literal('__memberSync__'),
-  payload: v.strictObject({
-    members: v.array(
-      v.strictObject({
-        connectionId: v.string(),
-        meta: v.optional(v.record(v.string(), v.unknown())),
-      }),
-    ),
-  }),
-  __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
-});
-
-export const ReceivedFanoutFrame = v.object({
-  event: v.literal('__received__'),
-  payload: v.strictObject({ userId: v.string(), receivedThrough: NonNegativeSafeInt }),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
-export const ReadFanoutFrame = v.object({
-  event: v.literal('__read__'),
-  payload: v.strictObject({ userId: v.string(), readThrough: NonNegativeSafeInt }),
-  __wskit: v.strictObject(RequiredChannelScope),
-});
-
+export const SubscribeOkFrame = frame('__subscribeOk__', EmptyPayload, channelMeta);
+export const UnsubscribeOkFrame = frame('__unsubscribeOk__', EmptyPayload, channelMeta);
+export const StreamOkFrame = frame('__streamOk__', EmptyPayload, streamMeta);
+export const NudgeOkFrame = frame('__nudgeOk__', EmptyPayload, streamMeta);
+export const StreamEndFrame = frame('__streamEnd__', EmptyPayload, streamMeta);
+export const ErrorFrame = frame(
+  '__error__',
+  v.strictObject({ code: v.string(), detail: v.optional(v.unknown()) }),
+  Metadata,
+);
+export const KickedFrame = frame('__kicked__', v.strictObject({ reason: v.string() }), channelMeta);
 /**
- * The outgoing half of a receipt query. Shares its event name with the incoming
- * request (`__receivedQuery__` / `__readQuery__`) and echoes its `correlationId`;
- * the client pairs the two by correlation id alone, exactly as `__error__` does.
+ * `memberId` is the user id on a persistent channel (stable across reconnects
+ * and tabs) and the connection id on an ephemeral channel or for an anonymous
+ * connection.
  */
-export const ReceivedQueryResultFrame = v.object({
-  event: v.literal('__receivedQuery__'),
-  payload: v.strictObject({ userIds: v.array(v.string()) }),
-  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+const MemberPayload = v.strictObject({
+  memberId: v.string(),
+  meta: v.optional(v.record(v.string(), v.unknown())),
 });
-
-export const ReadQueryResultFrame = v.object({
-  event: v.literal('__readQuery__'),
-  payload: v.strictObject({ userIds: v.array(v.string()) }),
-  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+export const MemberJoinFrame = frame('__memberJoin__', MemberPayload, channelMeta);
+export const MemberLeaveFrame = frame('__memberLeave__', MemberPayload, channelMeta);
+export const MemberOnlineFrame = frame('__memberOnline__', MemberPayload, channelMeta);
+export const MemberOfflineFrame = frame(
+  '__memberOffline__',
+  v.strictObject({ memberId: v.string() }),
+  channelMeta,
+);
+/**
+ * One roster entry. `online` is `false` for a member of a persistent channel
+ * that has no live connection right now.
+ */
+const SyncMemberPayload = v.strictObject({
+  memberId: v.string(),
+  meta: v.optional(v.record(v.string(), v.unknown())),
+  online: v.boolean(),
 });
-
-export const GapFrame = v.object({
-  event: v.literal('__gap__'),
-  // `missedThrough` is the highest seq the server pruned for this scope; below it, a client missed at least up to it.
-  payload: v.strictObject({ missedThrough: NonNegativeSafeInt }),
-  __wskit: v.strictObject(ReplayScope),
-});
-
-/** All frames the engine sends to clients, discriminated on `event`. */
-export const OutgoingProtocolFrame = v.variant('event', [
+export const MemberSyncFrame = frame(
+  '__memberSync__',
+  v.strictObject({ members: v.array(SyncMemberPayload) }),
+  channelMeta,
+);
+export const ReceivedFanoutFrame = frame(
+  '__received__',
+  v.strictObject({ userId: v.string(), receivedThrough: NonNegativeSafeInt }),
+  channelMeta,
+);
+export const ReadFanoutFrame = frame(
+  '__read__',
+  v.strictObject({ userId: v.string(), readThrough: NonNegativeSafeInt }),
+  channelMeta,
+);
+export const ReceivedQueryResultFrame = frame(
+  '__receivedQuery__',
+  v.strictObject({ userIds: v.array(v.string()) }),
+  queryMeta,
+);
+export const ReadQueryResultFrame = frame(
+  '__readQuery__',
+  v.strictObject({ userIds: v.array(v.string()) }),
+  queryMeta,
+);
+export const GapFrame = frame(
+  '__gap__',
+  v.strictObject({ missedThrough: NonNegativeSafeInt }),
+  Metadata,
+);
+export const OutgoingProtocolFrame = v.union([
   SubscribeOkFrame,
   UnsubscribeOkFrame,
   StreamOkFrame,
@@ -368,144 +348,138 @@ export const OutgoingProtocolFrame = v.variant('event', [
   GapFrame,
 ]);
 
-/**
- * The loose `__wskit` block on a user-event frame. Carries the correlation id
- * for request-response flows, the routing markers for scoped sends, and the
- * dedup/sequence ids the engine stamps.
- */
-export const WSKitProtocolSchema = v.strictObject({
-  correlationId: v.optional(WireId),
-  // The side that originated this exchange: 'server' or 'client'. One field
-  // shared by every two-way flow (requests, replies, acks, subscribe). It lets
-  // the receiver tell a request it must answer (the other side originated it)
-  // from a reply to its own request (it originated it).
-  source: v.optional(Source),
-  channel: v.optional(ChannelName),
-  channelFamily: v.nullish(ChannelFamilyKey, null),
-  streamId: v.optional(StreamIdString),
-  streamKind: v.optional(StreamKind),
-  streamNudgeId: v.optional(WireId),
-  streamTerminated: v.optional(v.boolean()),
-  eventName: v.optional(EventName),
-  messageId: v.optional(WireId),
-  seq: v.optional(NonNegativeSafeInt),
-});
-
-/** Any non-protocol frame: an app event with an optional `__wskit` block. */
-export const UserEventFrameSchema = v.strictObject({
-  event: EventName,
-  payload: v.optional(v.unknown()),
-  __wskit: v.optional(WSKitProtocolSchema),
-});
-
-const WSKIT_KEYS = new Set(Object.keys(WSKitProtocolSchema.entries));
-
-// The `__wskit` fields that are a bounded string, with each field's length cap.
-const WIRE_STRING_FIELDS: ReadonlyArray<[keyof WSKitProtocol, number]> = [
-  ['correlationId', WIRE_LIMITS.wireId],
-  ['channel', WIRE_LIMITS.channel],
-  ['streamId', WIRE_LIMITS.streamId],
-  ['streamNudgeId', WIRE_LIMITS.wireId],
-  ['eventName', WIRE_LIMITS.event],
-  ['messageId', WIRE_LIMITS.wireId],
-];
+const UserEventWireFrame = v.strictTuple([EventName, v.unknown(), Metadata]);
+export const WireFrameSchema = UserEventWireFrame;
+export const UserEventFrameSchema = v.pipe(
+  UserEventWireFrame,
+  v.transform((tuple) => {
+    const [event, payload, metadata] = tuple;
+    return {
+      event,
+      payload,
+      __livething: metadataToLiveThing(metadata),
+    };
+  }),
+);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function withinWireLimit(value: unknown, max: number): value is string {
-  return typeof value === 'string' && value.length >= 1 && value.length <= max;
+function validString(value: unknown, limit: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= limit;
 }
 
-/**
- * Validate a user-event frame directly, skipping valibot's per-field walk on the
- * hot path. Returns the parsed frame, or `null` when the frame deviates in any
- * way — the caller falls back to `v.parse(UserEventFrameSchema, …)` to raise the
- * exact ValiError. Mirrors {@link WSKitProtocolSchema} exactly: the same
- * wire-limit bounds, the `channelFamily` null default, and strict rejection of
- * unknown keys.
- */
-function fastParseUserEventFrame(input: unknown): UserEventFrame | null {
-  if (!isRecord(input)) return null;
-  for (const key in input) {
-    if (key !== 'event' && key !== 'payload' && key !== '__wskit') return null;
-  }
-  if (!withinWireLimit(input.event, WIRE_LIMITS.event)) return null;
-
-  if (input.__wskit === undefined) return { event: input.event, payload: input.payload };
-
-  const wskit = fastParseWSKit(input.__wskit);
-  if (wskit === null) return null;
-  return { event: input.event, payload: input.payload, __wskit: wskit };
+function validOptionalSequence(value: unknown): boolean {
+  return (
+    value === undefined || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
+  );
 }
 
-function fastParseWSKit(input: unknown): WSKitProtocol | null {
-  if (!isRecord(input)) return null;
-  for (const key in input) {
-    if (!WSKIT_KEYS.has(key)) return null;
-  }
+function validExchange(input: unknown): boolean {
+  if (!isRecord(input) || Object.keys(input).length === 0) return false;
 
-  // `channelFamily` is nullish (always present, defaulting to null); the rest are
-  // optional and added only when the frame carries them.
-  const out: WSKitProtocol = { channelFamily: null };
+  if (Object.keys(input).some((key) => key !== 'id' && key !== 'source')) return false;
 
-  for (const [key, max] of WIRE_STRING_FIELDS) {
-    const value = input[key];
-    if (value === undefined) continue;
-    if (!withinWireLimit(value, max)) return null;
-    (out as Record<string, unknown>)[key] = value;
-  }
+  if (input.id !== undefined && !validString(input.id, WIRE_LIMITS.wireId)) return false;
 
-  if (input.source !== undefined) {
-    if (input.source !== 'server' && input.source !== 'client') return null;
-    out.source = input.source;
-  }
-  if (input.streamKind !== undefined) {
-    if (input.streamKind !== 'ephemeral' && input.streamKind !== 'persistent') return null;
-    out.streamKind = input.streamKind;
-  }
-  if (input.streamTerminated !== undefined) {
-    if (typeof input.streamTerminated !== 'boolean') return null;
-    out.streamTerminated = input.streamTerminated;
-  }
-  if (input.seq !== undefined) {
-    const seq = input.seq;
-    if (
-      typeof seq !== 'number' ||
-      !Number.isInteger(seq) ||
-      seq < 0 ||
-      seq > Number.MAX_SAFE_INTEGER
-    )
-      return null;
-    out.seq = seq;
-  }
-
-  if (input.channelFamily !== undefined && input.channelFamily !== null) {
-    if (!withinWireLimit(input.channelFamily, WIRE_LIMITS.channelFamily)) return null;
-    out.channelFamily = input.channelFamily;
-  }
-
-  return out;
+  return input.source === undefined || input.source === 'server' || input.source === 'client';
 }
 
-/**
- * Parse a user-event frame off the wire. Tries the direct validator first and
- * falls back to valibot only when a frame is malformed, so an invalid frame
- * still throws the same detailed `ValiError`.
- */
-export function parseUserEventFrame(input: unknown): UserEventFrame {
-  return fastParseUserEventFrame(input) ?? v.parse(UserEventFrameSchema, input);
+function validChannel(input: unknown): boolean {
+  if (!isRecord(input) || !validString(input.name, WIRE_LIMITS.channel)) return false;
+
+  const allowed = ['name', 'family', 'unsubscribeId', 'membership', 'inbox', 'readReceipts'];
+  if (Object.keys(input).some((key) => !allowed.includes(key))) return false;
+
+  if (input.family !== undefined && !validString(input.family, WIRE_LIMITS.channelFamily))
+    return false;
+
+  if (input.unsubscribeId !== undefined && !validString(input.unsubscribeId, WIRE_LIMITS.wireId))
+    return false;
+
+  if (
+    input.membership !== undefined &&
+    input.membership !== 'persistent' &&
+    input.membership !== 'ephemeral'
+  )
+    return false;
+
+  if (input.inbox !== undefined && typeof input.inbox !== 'boolean') return false;
+
+  return input.readReceipts === undefined || typeof input.readReceipts === 'boolean';
+}
+
+function validDelivery(input: unknown): boolean {
+  if (!isRecord(input) || Object.keys(input).length === 0) return false;
+
+  if (Object.keys(input).some((key) => key !== 'id' && key !== 'seq')) return false;
+
+  if (input.id !== undefined && !validString(input.id, WIRE_LIMITS.wireId)) return false;
+
+  return validOptionalSequence(input.seq);
+}
+
+function validStream(input: unknown): boolean {
+  if (!isRecord(input) || !validString(input.id, WIRE_LIMITS.streamId)) return false;
+
+  const allowed = ['id', 'event', 'durability', 'seq', 'nudgeId', 'terminated'];
+  if (Object.keys(input).some((key) => !allowed.includes(key))) return false;
+
+  if (input.event !== undefined && !validString(input.event, WIRE_LIMITS.event)) return false;
+
+  if (
+    input.durability !== undefined &&
+    input.durability !== 'ephemeral' &&
+    input.durability !== 'persistent'
+  )
+    return false;
+
+  if (!validOptionalSequence(input.seq)) return false;
+
+  if (input.nudgeId !== undefined && !validString(input.nudgeId, WIRE_LIMITS.wireId)) return false;
+
+  return input.terminated === undefined || typeof input.terminated === 'boolean';
+}
+
+function fastMetadata(input: unknown): LiveThingProtocol | null | undefined {
+  if (input === null) return { channelFamily: null };
+
+  if (!isRecord(input) || Object.keys(input).length === 0) return undefined;
+
+  const allowed = ['exchange', 'channel', 'delivery', 'stream'];
+  if (Object.keys(input).some((key) => !allowed.includes(key))) return undefined;
+
+  if (input.exchange !== undefined && !validExchange(input.exchange)) return undefined;
+
+  if (input.channel !== undefined && !validChannel(input.channel)) return undefined;
+
+  if (input.delivery !== undefined && !validDelivery(input.delivery)) return undefined;
+
+  if (input.stream !== undefined && !validStream(input.stream)) return undefined;
+
+  return metadataToLiveThing(input);
+}
+
+/** Fast user-frame parser used by the gateway before Valibot's detailed error path. */
+export function parseUserEventFrame(input: unknown): ProtocolFrame {
+  if (Array.isArray(input) && input.length === 3 && validString(input[0], WIRE_LIMITS.event)) {
+    const livething = fastMetadata(input[2]);
+    if (livething !== undefined)
+      return {
+        event: input[0],
+        payload: input[1],
+        __livething: livething ?? { channelFamily: null },
+      };
+  }
+
+  return v.parse(UserEventFrameSchema, input) as ProtocolFrame;
 }
 
 export type IncomingProtocolFrame = v.InferOutput<typeof IncomingProtocolFrame>;
 export type OutgoingProtocolFrame = v.InferOutput<typeof OutgoingProtocolFrame>;
-export type WSKitProtocol = v.InferOutput<typeof WSKitProtocolSchema>;
 export type UserEventFrame = v.InferOutput<typeof UserEventFrameSchema>;
-
-/** A subset of `__wskit` markers — the routing carried on a server `__error__` frame. */
-export type WSKitRouting = Partial<WSKitProtocol>;
-
+export type LiveThingRouting = Partial<LiveThingProtocol>;
 export type SubscribeFrame = v.InferOutput<typeof SubscribeFrame>;
 export type UnsubscribeFrame = v.InferOutput<typeof UnsubscribeFrame>;
 export type ReplayFrame = v.InferOutput<typeof ReplayFrame>;
@@ -516,7 +490,6 @@ export type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
 export type ReadFrame = v.InferOutput<typeof ReadFrame>;
 export type ReceivedQueryFrame = v.InferOutput<typeof ReceivedQueryFrame>;
 export type ReadQueryFrame = v.InferOutput<typeof ReadQueryFrame>;
-
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
 export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
 export type StreamOkFrame = v.InferOutput<typeof StreamOkFrame>;
@@ -535,38 +508,43 @@ export type ReceivedQueryResultFrame = v.InferOutput<typeof ReceivedQueryResultF
 export type ReadQueryResultFrame = v.InferOutput<typeof ReadQueryResultFrame>;
 export type GapFrame = v.InferOutput<typeof GapFrame>;
 
-/** Names of the protocol events the client may send into the engine. */
-export type IncomingProtocolEvent = IncomingProtocolFrame['event'];
-/** Names of the protocol events the engine sends to clients. */
-export type OutgoingProtocolEvent = OutgoingProtocolFrame['event'];
+const INCOMING_NAMES = [
+  '__subscribe__',
+  '__unsubscribe__',
+  '__replay__',
+  '__streamCancel__',
+  '__resumeStream__',
+  '__memberSync__',
+  '__received__',
+  '__read__',
+  '__receivedQuery__',
+  '__readQuery__',
+] as const;
+const OUTGOING_NAMES = [
+  '__subscribeOk__',
+  '__unsubscribeOk__',
+  '__streamOk__',
+  '__nudgeOk__',
+  '__streamEnd__',
+  '__error__',
+  '__kicked__',
+  '__memberJoin__',
+  '__memberLeave__',
+  '__memberOnline__',
+  '__memberOffline__',
+  '__memberSync__',
+  '__received__',
+  '__read__',
+  '__receivedQuery__',
+  '__readQuery__',
+  '__gap__',
+] as const;
+export type IncomingProtocolEvent = (typeof INCOMING_NAMES)[number];
+export type OutgoingProtocolEvent = (typeof OUTGOING_NAMES)[number];
+export const OUTGOING_PROTOCOL_EVENT_NAMES: ReadonlySet<string> = new Set(OUTGOING_NAMES);
 
-/**
- * True when `name` has the protocol-event shape `__x__`.
- */
 export function isProtocolEventName(name: unknown): name is `__${string}__` {
   return (
     typeof name === 'string' && name.length > 4 && name.startsWith('__') && name.endsWith('__')
   );
 }
-
-/** Pull the `event` literal out of each option of a protocol variant schema. */
-function collectVariantEventNames(variant: typeof OutgoingProtocolFrame): string[] {
-  const names: string[] = [];
-  for (const option of variant.options) {
-    const eventSchema = option.entries.event;
-    if (eventSchema.type === 'literal' && typeof eventSchema.literal === 'string') {
-      names.push(eventSchema.literal);
-    }
-  }
-  return names;
-}
-
-/**
- * The exact set of protocol event names the engine itself sends to clients,
- * built from the outgoing protocol frame schemas. Use this — not the `__x__`
- * shape — to decide whether an outgoing event is real engine traffic, so an
- * undeclared `__madeUp__` cannot pass as a protocol frame.
- */
-export const OUTGOING_PROTOCOL_EVENT_NAMES: ReadonlySet<string> = new Set(
-  collectVariantEventNames(OutgoingProtocolFrame),
-);

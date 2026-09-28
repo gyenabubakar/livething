@@ -7,7 +7,7 @@ const WS_PATH = '/ws/stream-nudges';
 /**
  * A nudge is now acknowledged: a valid one gets `__nudgeOk__` (so the client's
  * `nudge()` Promise resolves), and a malformed one gets a non-terminal `__error__`
- * (`streamTerminated: false`) that rejects only that nudge while the stream runs on.
+ * (`stream.terminated: false`) that rejects only that nudge while the stream runs on.
  */
 test.describe('stream-nudges — nudge acknowledgement', () => {
   test('valid nudge → __nudgeOk__; bad nudge → non-terminal __error__, stream continues', async ({
@@ -26,39 +26,39 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
     await send(page, a, {
       event: 'start-nudge-stream',
       payload: { prompt: 'one two three four five six seven eight nine ten eleven twelve' },
-      __wskit: { streamId },
+      metadata: { stream: { id: streamId } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamOk__' && f.metadata?.stream?.id === streamId,
     });
 
-    // A valid nudge is confirmed with __nudgeOk__ echoing the streamNudgeId.
+    // A valid nudge is confirmed with __nudgeOk__ echoing the stream.nudgeId.
     await send(page, a, {
       event: 'speed-up',
       payload: { factor: 2 },
-      __wskit: { streamId, streamNudgeId: 'good-1' },
+      metadata: { stream: { id: streamId, nudgeId: 'good-1' } },
     });
     const ok = await waitForFrame(page, a, {
-      match: (f) => f.event === '__nudgeOk__' && f.__wskit?.streamNudgeId === 'good-1',
+      match: (f) => f.event === '__nudgeOk__' && f.metadata?.stream?.nudgeId === 'good-1',
     });
-    expect(ok.__wskit?.streamId).toBe(streamId);
+    expect(ok.metadata?.stream?.id).toBe(streamId);
 
     // A malformed nudge (`pause` is a strict empty object) is rejected — but
-    // non-terminally: the error carries streamTerminated:false.
+    // non-terminally: the error carries stream.terminated:false.
     await send(page, a, {
       event: 'pause',
       payload: { leak: 'x' },
-      __wskit: { streamId, streamNudgeId: 'bad-1' },
+      metadata: { stream: { id: streamId, nudgeId: 'bad-1' } },
     });
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamNudgeId === 'bad-1',
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.nudgeId === 'bad-1',
     });
     expect(err.payload.code).toBe('validation-failed');
-    expect(err.__wskit?.streamTerminated).toBe(false);
+    expect(err.metadata?.stream?.terminated).toBe(false);
 
     // The stream survived the rejected nudge and still completes.
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
     });
   });
 
@@ -74,25 +74,25 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
     const streamId = 'ns-overflow-1';
     const a = await connect(page, { path: WS_PATH, username: 'alice', room });
 
-    // A long prompt keeps the stream running while we flood it with nudges.
+    // Hold the generator before its first yield so every nudge is buffered.
     await send(page, a, {
       event: 'start-nudge-stream',
-      payload: { prompt: Array.from({ length: 40 }, (_, i) => `w${i}`).join(' ') },
-      __wskit: { streamId },
+      payload: { prompt: '__hold-overflow__' },
+      metadata: { stream: { id: streamId } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamOk__' && f.metadata?.stream?.id === streamId,
     });
 
-    // Burst 300 valid nudges in a single tick — past the 256 cap, before the
-    // generator can drain. `factor: 1` keeps the stream's pace unchanged.
+    // Burst 300 valid nudges while the generator is held. This is past the
+    // 256-item cap and cannot depend on scheduling speed.
     await page.evaluate(
       ([id, sid]) => {
         for (let i = 0; i < 300; i++) {
-          window.__wskitSend!(id, {
+          window.__livethingSend!(id, {
             event: 'speed-up',
             payload: { factor: 1 },
-            __wskit: { streamId: sid, streamNudgeId: `flood-${i}` },
+            metadata: { stream: { id: sid, nudgeId: `flood-${i}` } },
           });
         }
       },
@@ -103,19 +103,24 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
     const over = await waitForFrame(page, a, {
       match: (f) => f.event === '__error__' && f.payload.code === 'nudge-overflow',
     });
-    expect(over.__wskit?.streamTerminated).toBe(false);
+    expect(over.metadata?.stream?.terminated).toBe(false);
     expect((over.payload as { detail?: { cap?: number } }).detail?.cap).toBe(256);
-    expect(typeof over.__wskit?.streamNudgeId).toBe('string');
+    expect(typeof over.metadata?.stream?.nudgeId).toBe('string');
+
+    await send(page, a, {
+      event: 'release-overflow',
+      payload: {},
+    });
 
     // The overflow did NOT terminate the stream — no terminal error frame...
     const all = await frames(page, a);
-    expect(all.some((f) => f.event === '__error__' && f.__wskit?.streamTerminated === true)).toBe(
-      false,
-    );
+    expect(
+      all.some((f) => f.event === '__error__' && f.metadata?.stream?.terminated === true),
+    ).toBe(false);
 
     // ...and the stream still completes.
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
     });
   });
 
@@ -131,21 +136,27 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
     const streamId = 'durable-overflow-1';
     const a = await connect(page, { path: '/ws/stream-durable', username: 'alice', room });
 
-    // A recorded (durable) stream that drains nudges between yields.
-    await send(page, a, { event: 'count-tokens-nudged', payload: {}, __wskit: { streamId } });
-    const ok = await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === streamId,
+    // Hold the recorded stream before its first yield so every nudge is
+    // buffered while the overflow is produced.
+    await send(page, a, {
+      event: 'count-tokens-nudged',
+      payload: { hold: true },
+      metadata: { stream: { id: streamId } },
     });
-    expect(ok.__wskit?.streamKind).toBe('persistent'); // confirm it is durable
+    const ok = await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamOk__' && f.metadata?.stream?.id === streamId,
+    });
+    expect(ok.metadata?.stream?.durability).toBe('persistent'); // confirm it is durable
 
-    // Burst 300 'stop' nudges in one tick — past the 256 cap, before the generator drains.
+    // Burst 300 'stop' nudges while the generator is held. This is past the
+    // 256-item cap and cannot depend on scheduling speed.
     await page.evaluate(
       ([id, sid]) => {
         for (let i = 0; i < 300; i++) {
-          window.__wskitSend!(id, {
+          window.__livethingSend!(id, {
             event: 'stop',
             payload: {},
-            __wskit: { streamId: sid, streamNudgeId: `flood-${i}` },
+            metadata: { stream: { id: sid, nudgeId: `flood-${i}` } },
           });
         }
       },
@@ -156,18 +167,23 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
     const over = await waitForFrame(page, a, {
       match: (f) => f.event === '__error__' && f.payload.code === 'nudge-overflow',
     });
-    expect(over.__wskit?.streamTerminated).toBe(false);
+    expect(over.metadata?.stream?.terminated).toBe(false);
     expect((over.payload as { detail?: { cap?: number } }).detail?.cap).toBe(256);
+
+    await send(page, a, {
+      event: 'release-overflow',
+      payload: {},
+    });
 
     // The overflow did not terminate the stream — no terminal error frame...
     const all = await frames(page, a);
-    expect(all.some((f) => f.event === '__error__' && f.__wskit?.streamTerminated === true)).toBe(
-      false,
-    );
+    expect(
+      all.some((f) => f.event === '__error__' && f.metadata?.stream?.terminated === true),
+    ).toBe(false);
 
     // ...and the buffered 'stop' nudges then end it cleanly.
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
     });
   });
 });

@@ -1,25 +1,26 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
+import { emits } from '~/emits/emits.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
 import { channels } from './capability.ts';
 
-const base = define({ env: t<{ SECRET: string }>(), capabilities: [channels()] });
+const base = server({ capabilities: [channels()] });
 
 const lobby = base.channel('lobby', {
-  outgoing: { emits: { joined: t<{ id: string }>() } },
+  capabilities: [emits({ joined: t<{ id: string }>() })],
   subscribe: v.object({ token: v.string() }),
 });
 const handleChat = lobby.on('chat', { input: v.object({ text: v.string() }), run() {} });
 
 const room = base.channel(['rooms', 'rooms:{id}'], {
-  outgoing: { emits: { said: t<{ text: string }>() } },
+  capabilities: [emits({ said: t<{ text: string }>() })],
 });
 const handleSay = room.on('say', { input: v.object({ text: v.string() }), run() {} });
 
-const handler = base.assemble({ handlers: [handleChat, handleSay] });
-type C = InferClient<typeof handler>;
+const definition = base.assemble({ handlers: [handleChat, handleSay] });
+type C = InferClient<typeof definition>;
 
 describe('channel typing', () => {
   it('flips channel emits to client incoming and channel handlers to client outgoing', () => {

@@ -1,10 +1,10 @@
-import { channels, client, connect } from '@wskit/client';
-import type { ChannelCheckCommitClient } from '@wskit/tests-e2e-handlers/channel-check-commit';
+import { channels, client, connect } from '@livething/client';
+import type { ChannelCheckCommitClient } from '@livething/tests-e2e-handlers/channel-check-commit';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channel subscribe (check + commit) against the real
-// `channel-check-commit` handler, typed by the same contract the server
-// implements (ChannelCheckCommitClient = InferClient<handler>).
+// Drives @livething/client's channel subscribe (check + commit) against the real
+// `channel-check-commit` server definition, typed by the same contract the server
+// implements (ChannelCheckCommitClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>

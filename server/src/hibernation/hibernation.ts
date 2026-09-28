@@ -15,7 +15,7 @@ const HIBERNATION_KEY = Symbol('hibernation');
  * enabled, the worker process can pause between messages and wake only when
  * a new frame arrives — saving CPU and memory for mostly-idle connections.
  *
- * Enable this via `hibernation: true` on the contract config instead of
+ * Enable this via `hibernation: { enabled: true }` in `server()` instead of
  * calling this primitive directly.
  *
  * Requires the `hibernation` platform capability (e.g. Cloudflare Durable
@@ -23,7 +23,7 @@ const HIBERNATION_KEY = Symbol('hibernation');
  */
 export function hibernation(enabled = true): HibernationPrimitive {
   return {
-    __wskit: 'hibernation',
+    __livething: 'hibernation',
     __kind: 'infrastructure',
     __identity: [HIBERNATION_KEY],
     __requires: enabled ? { hibernation: true } : {},
@@ -31,6 +31,7 @@ export function hibernation(enabled = true): HibernationPrimitive {
     __setup(engine) {
       engine.setHibernationEnabled(enabled);
       if (!enabled) return;
+
       engine.onBootSchema(() => {
         ensureConnectionSchema(engine.storage.sql);
       });

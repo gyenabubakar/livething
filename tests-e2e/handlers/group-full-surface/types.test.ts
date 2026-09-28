@@ -8,6 +8,7 @@ describe('GroupFullSurfaceClient — no-any guard', () => {
     expectTypeOf<GroupFullSurfaceClient['clientRequests']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['streams']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['channels']>().not.toBeAny();
+
     expectTypeOf<GroupFullSurfaceClient['errors']>().not.toBeAny();
   });
 });

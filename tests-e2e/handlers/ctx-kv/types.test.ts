@@ -8,6 +8,7 @@ describe('CtxKvClient — no-any guard', () => {
     expectTypeOf<CtxKvClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxKvClient['streams']>().not.toBeAny();
     expectTypeOf<CtxKvClient['channels']>().not.toBeAny();
+
     expectTypeOf<CtxKvClient['errors']>().not.toBeAny();
   });
 });

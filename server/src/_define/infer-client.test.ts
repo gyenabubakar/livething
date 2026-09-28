@@ -2,23 +2,24 @@ import { t } from '~/_api/definitions.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
-import { define } from './define.ts';
+import { server } from './server.ts';
 
 const NotFound = error('not-found', v.object({ id: v.string() }));
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
-const base = define({
-  env: t<{ SECRET: string }>(),
+const base = server({
   upgrade: () => ({ userId: 'x', meta: { username: 'x' } }),
   capabilities: [
-    emits({ welcome: t<{ username: string }>() }),
-    emits({ goodbye: t<{ username: string }>() }),
+    emits({
+      welcome: t<{ username: string }>(),
+      goodbye: t<{ username: string }>(),
+    }),
     errors([NotFound, Forbidden]),
-    requests(),
+    clientRequests(),
   ],
 });
 
@@ -38,10 +39,10 @@ const handleAnything = base.on('anything', {
   run() {},
 });
 
-const handler = base.assemble({ handlers: [handleEcho, handleAnything, handleGetTime] });
-type C = InferClient<typeof handler>;
+const definition = base.assemble({ handlers: [handleEcho, handleAnything, handleGetTime] });
+type C = InferClient<typeof definition>;
 
-describe('InferClient for define()', () => {
+describe('InferClient for server()', () => {
   it('maps each emits capability to a client incoming event', () => {
     expectTypeOf<C['incoming']['welcome']>().toEqualTypeOf<{ username: string }>();
     expectTypeOf<C['incoming']['goodbye']>().toEqualTypeOf<{ username: string }>();
@@ -64,15 +65,21 @@ describe('InferClient for define()', () => {
     expectTypeOf<C['errors']['durable-stream-requires-user']>().toEqualTypeOf<void>();
   });
 
+  it('includes built-in connection backpressure errors in the client error map', () => {
+    expectTypeOf<C['errors']['connection-busy']>().toEqualTypeOf<{
+      retryAfterMs: number;
+    }>();
+  });
+
   it('maps a base.request handler to a client request with inferred payload and response', () => {
     expectTypeOf<C['clientRequests']['get-time']['payload']>().toEqualTypeOf<{ zone: string }>();
     expectTypeOf<C['clientRequests']['get-time']['response']>().toEqualTypeOf<{ now: string }>();
   });
 
   it('rejects a builder method whose capability was not listed', () => {
-    const bare = define({ env: t<{ SECRET: string }>() });
-    // `requests()` is not in capabilities, so `base.request` does not exist.
-    // @ts-expect-error base.request requires the requests() capability
+    const bare = server({});
+    // `clientRequests()` is not in capabilities, so `base.request` does not exist.
+    // @ts-expect-error base.request requires the clientRequests() capability
     bare.request;
   });
 

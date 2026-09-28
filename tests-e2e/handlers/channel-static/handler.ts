@@ -1,9 +1,9 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { stream } from '@wskit/server/streams';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { stream } from '@livething/server/streams';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const SendMessagePayload = v.object({ text: v.string() });
@@ -12,8 +12,7 @@ const ChannelTokenPayload = t<{ index: number }>();
 const TagSelfPayload = v.object({ tag: v.string() });
 const KickByTagPayload = v.object({ tag: v.string(), reason: v.string() });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),
@@ -22,6 +21,7 @@ const base = define({
     emits({
       'tag-ack': t<{ tag: string }>(),
       'kick-ack': t<{ tag: string }>(),
+      'kick-failed': t<{ tag: string; failures: number }>(),
     }),
   ],
 });
@@ -43,9 +43,18 @@ const handleTagSelf = base.on('tag-self', {
 const handleKickByTag = base.on('kick-by-tag', {
   input: KickByTagPayload,
   async run(ctx, payload) {
-    await ctx.channels
-      .get('room')
-      .kick(ctx.tags.ephemeral('label').ref(payload.tag), { reason: payload.reason });
+    try {
+      await ctx.channels
+        .get('room')
+        .kick(ctx.tags.ephemeral('label').ref(payload.tag), { reason: payload.reason });
+    } catch (error) {
+      if (!(error instanceof AggregateError)) throw error;
+
+      // Every tagged member was still kicked; only their leave hooks failed.
+      ctx.send('kick-failed', { tag: payload.tag, failures: error.errors.length });
+      return;
+    }
+
     ctx.send('kick-ack', { tag: payload.tag });
   },
 });
@@ -62,9 +71,7 @@ const room = base.channel('room', {
   // (onUnsubscribe fires, __memberLeave__ broadcasts), which only holds when
   // membership does not survive a reconnect.
   membership: 'ephemeral',
-  outgoing: {
-    emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
-  },
+  capabilities: [emits({ 'room-message': t<{ text: string; from: string; kind: string }>() })],
   check(ctx) {
     if (ctx.meta.username === 'blocked-user') {
       throw new Error('blocked-user may not subscribe');
@@ -76,9 +83,11 @@ room.subscribe((ctx) => {
   if (ctx.channel.name !== 'room') {
     throw new Error(`expected channel.name to be 'room', got ${ctx.channel.name}`);
   }
+
   if (ctx.meta.username === 'subscribe-thrower') {
     throw new Error('intentional onSubscribe throw');
   }
+
   ctx.channel.broadcast('room-message', {
     text: `${ctx.meta.username} entered`,
     from: 'system',
@@ -136,9 +145,7 @@ const room2 = base.channel('room2', {
   // drop a connection that is a member of both and expect a true leave on
   // this channel too.
   membership: 'ephemeral',
-  outgoing: {
-    emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
-  },
+  capabilities: [emits({ 'room-message': t<{ text: string; from: string; kind: string }>() })],
 });
 
 const handleRoom2SendMessage = room2.on('send-message', {
@@ -152,7 +159,7 @@ const handleRoom2SendMessage = room2.on('send-message', {
   },
 });
 
-export const channelStaticHandler = base.assemble({
+export const channelStaticDefinition = base.assemble({
   handlers: [
     handleTagSelf,
     handleKickByTag,
@@ -164,4 +171,4 @@ export const channelStaticHandler = base.assemble({
   ],
 });
 
-export type ChannelStaticClient = InferClient<typeof channelStaticHandler>;
+export type ChannelStaticClient = InferClient<typeof channelStaticDefinition>;

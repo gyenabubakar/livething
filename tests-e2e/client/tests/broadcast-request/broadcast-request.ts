@@ -1,10 +1,10 @@
-import { channels, client, connect, serverRequests } from '@wskit/client';
-import type { BroadcastRequestClient } from '@wskit/tests-e2e-handlers/broadcast-request';
+import { channels, client, connect, serverRequests } from '@livething/client';
+import type { BroadcastRequestClient } from '@livething/tests-e2e-handlers/broadcast-request';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's serverRequests() against the real `broadcast-request`
-// handler, typed by the same contract the server implements
-// (BroadcastRequestClient = InferClient<handler>). Members join the `lobby`
+// Drives @livething/client's serverRequests() against the real `broadcast-request`
+// server definition, typed by the same contract the server implements
+// (BroadcastRequestClient = InferClient<definition>). Members join the `lobby`
 // channel; the server fans a broadcast request out to every member and resolves
 // with the first valid answer plus the answerer's identity. Each page answers
 // per its own mode so a spec can pit a valid answerer against a silent/invalid
@@ -54,7 +54,9 @@ export function setup(): void {
   lobby.onRequest('volunteer', (payload) => {
     el('last-turn').textContent = String(payload.turn);
     if (mode === 'drop') return new Promise<{ ready: boolean }>(() => {});
+
     if (mode === 'bad') return { ready: 'sure' } as unknown as { ready: boolean };
+
     return { ready: true };
   });
 
@@ -72,6 +74,7 @@ export function setup(): void {
   button('answer-drop', () => {
     mode = 'drop';
   });
+
   button('trigger', () => {
     socket.send('trigger', { turn: 5 });
   });

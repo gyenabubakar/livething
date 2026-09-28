@@ -8,12 +8,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/multifile?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -24,10 +26,12 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'notification') {
 				notifications = [...notifications, data.payload?.title ?? ''];
 			}
+
 			if (data.event === '__subscribeOk__') subscribed = true;
 			if (data.event === 'room-message') {
 				const text = data.payload?.text ?? '';
@@ -38,15 +42,15 @@
 	}
 
 	function subscribe() {
-		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }));
+		ws?.send(window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'lobby' } } }));
 	}
 
 	function sendRoomMessage(text: string) {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'send-room-message',
 				payload: { text },
-				__wskit: { channel: 'lobby' },
+				metadata: { channel: { name: 'lobby' } },
 			}),
 		);
 	}

@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's dedup() against the real wskit `dedup` handler.
+// Conformance: @livething/client's dedup() against the real LiveThing `dedup` server definition.
 // Adapter-oblivious — it talks to whatever server the run booted over the /ws
 // proxy.
 //
-// Gap (cannot be proven from the client through THIS handler): dedup()'s DROP
+// Gap (cannot be proven from the client through this server definition): dedup()'s DROP
 // path needs two incoming frames carrying the SAME messageId. The server stamps
 // every outgoing frame with a fresh, monotonic messageId (server dedup
 // `generateId('msg')`), so two echoes always have distinct ids; and the server's
@@ -35,6 +35,7 @@ test.describe('dedup (conformance)', () => {
     await expect(page.getByTestId('echo-count')).toHaveText('1');
     await page.getByTestId('echo').click();
     await expect(page.getByTestId('echo-count')).toHaveText('2');
+
     await page.getByTestId('echo').click();
     await expect(page.getByTestId('echo-count')).toHaveText('3');
   });

@@ -2,7 +2,7 @@
 import type { Primitive } from '~/primitive.ts';
 
 /**
- * Phantom carrier that tells `define()` and `base.assemble()` which slots of
+ * Phantom carrier that tells `server()` and `base.assemble()` which slots of
  * the client contract a value contributes.
  *
  * Both capabilities (the things you list in `capabilities`) and handlers (the
@@ -21,7 +21,7 @@ export interface Contribution<TSlots = {}> {
 
 /**
  * A capability is an opt-in feature you list in
- * `define({ capabilities: [...] })`. Listing one is what pulls its engine code
+ * `server({ capabilities: [...] })`. Listing one is what pulls its engine code
  * into the bundle, so a server only ships the features it actually uses.
  *
  * You never build a capability by hand — call a capability factory such as
@@ -34,13 +34,15 @@ export interface Contribution<TSlots = {}> {
  * @template TBrand   The builder-method group this capability grants `base`
  *   (for example `'requests'` grants `base.request`). `never` for a capability
  *   that grants no method, such as `emits` or `errors`.
+ * @template TKind The stable identity shared by every call to one capability factory.
  */
 export interface Capability<
   TSlots = {},
   TFeature extends string = never,
   TBrand extends string = never,
+  TKind extends string = TBrand,
 > extends Contribution<TSlots> {
-  readonly __wskitCapability: true;
+  readonly __livethingCapability: true;
   /** Runtime primitives this capability contributes to the assembled server. @internal */
   readonly __primitives: readonly Primitive[];
   /** Feature flags this capability turns on, surfaced for build-time checks. @internal */
@@ -51,7 +53,7 @@ export interface Capability<
    * without calling the factory. Absent on capabilities that are never a
    * `dependsOn` target (such as plugin capabilities). @internal
    */
-  readonly __capabilityKind?: string;
+  readonly __capabilityKind?: TKind;
   /** @internal phantom — the builder-method group this capability grants; never set at runtime. */
   readonly __brand?: TBrand;
 }
@@ -68,18 +70,19 @@ export function capability<
   TSlots = {},
   TFeature extends string = never,
   TBrand extends string = never,
+  TKind extends string = TBrand,
   TExtra extends object = {},
 >(
   primitives: readonly Primitive[],
   features: readonly TFeature[] = [],
   extra?: TExtra,
-): Capability<TSlots, TFeature, TBrand> & TExtra {
+): Capability<TSlots, TFeature, TBrand, TKind> & TExtra {
   return {
-    __wskitCapability: true,
+    __livethingCapability: true,
     __primitives: primitives,
     __features: features,
     ...(extra ?? ({} as TExtra)),
-  } as Capability<TSlots, TFeature, TBrand> & TExtra;
+  } as Capability<TSlots, TFeature, TBrand, TKind> & TExtra;
 }
 
 /**
@@ -116,11 +119,13 @@ export function withCapabilityKind<TFactory extends (...args: any[]) => AnyCapab
 /**
  * A capability the **host** owns and a plugin can never list — the global
  * engines (`dedup`, `sequence`, `keepalive`, `rateLimit`, `replay`). It
- * carries a `__hostOnly` marker so `define({ scope: 'plugin' })` rejects it
+ * carries a `__hostOnly` marker so `server({ scope: 'plugin' })` rejects it
  * at compile time; a plugin declares a prerequisite on it instead.
  */
 export type HostCapability<TSlots = {}, TFeature extends string = never> = Capability<
   TSlots,
+  TFeature,
+  never,
   TFeature
 > & { readonly __hostOnly: true };
 
@@ -129,15 +134,17 @@ export function hostCapability<TSlots = {}, TFeature extends string = never>(
   primitives: readonly Primitive[],
   features: readonly TFeature[] = [],
 ): HostCapability<TSlots, TFeature> {
-  return capability<TSlots, TFeature, never, { readonly __hostOnly: true }>(primitives, features, {
-    __hostOnly: true,
-  });
+  return capability<TSlots, TFeature, never, TFeature, { readonly __hostOnly: true }>(
+    primitives,
+    features,
+    { __hostOnly: true },
+  );
 }
 
 /**
  * A capability that only makes sense inside a channel's own `capabilities`
  * list — `inbox()` and `readReceipts()`. It carries a `__channelOnly` marker so
- * `define({ capabilities })` and `define({ scope: 'plugin', capabilities })`
+ * `server({ capabilities })` and `server({ scope: 'plugin', capabilities })`
  * reject it at compile time; a channel declares it as a prerequisite the same
  * way a plugin declares a host-owned one.
  */
@@ -145,18 +152,20 @@ export type ChannelOnlyCapability<
   TSlots = {},
   TFeature extends string = never,
   TBrand extends string = never,
-> = Capability<TSlots, TFeature, TBrand> & { readonly __channelOnly: true };
+  TKind extends string = TBrand,
+> = Capability<TSlots, TFeature, TBrand, TKind> & { readonly __channelOnly: true };
 
 /** Build a channel-only capability — like `capability()`, but marked `__channelOnly`. */
 export function channelOnlyCapability<
   TSlots = {},
   TFeature extends string = never,
   TBrand extends string = never,
+  TKind extends string = TBrand,
 >(
   primitives: readonly Primitive[],
   features: readonly TFeature[] = [],
-): ChannelOnlyCapability<TSlots, TFeature, TBrand> {
-  return capability<TSlots, TFeature, TBrand, { readonly __channelOnly: true }>(
+): ChannelOnlyCapability<TSlots, TFeature, TBrand, TKind> {
+  return capability<TSlots, TFeature, TBrand, TKind, { readonly __channelOnly: true }>(
     primitives,
     features,
     { __channelOnly: true },
@@ -203,7 +212,35 @@ export function defineHostCapability<TKind extends string, TArgs extends readonl
  * readonly AnyCapability[]`) — the default `Capability` narrows the brand to
  * `never`, which would reject any capability that grants a builder method.
  */
-export type AnyCapability = Capability<any, string, string>;
+export type AnyCapability = Capability<any, string, string, string>;
+
+type CapabilityKindOf<TCapability> = TCapability extends {
+  readonly __capabilityKind?: infer TKind;
+}
+  ? Exclude<TKind, undefined>
+  : never;
+
+type DuplicateCapabilityKind<TKind extends string> = {
+  readonly __livethingDuplicateCapabilityKind: TKind;
+};
+
+export type UniqueCapabilityKinds<
+  TCapabilities extends readonly AnyCapability[],
+  TSeen extends string = never,
+> = TCapabilities extends readonly [
+  infer TCapability extends AnyCapability,
+  ...infer TRest extends readonly AnyCapability[],
+]
+  ? CapabilityKindOf<TCapability> extends infer TKind extends string
+    ? [TKind] extends [never]
+      ? UniqueCapabilityKinds<TRest, TSeen>
+      : string extends TKind
+        ? UniqueCapabilityKinds<TRest, TSeen>
+        : [Extract<TKind, TSeen>] extends [never]
+          ? UniqueCapabilityKinds<TRest, TSeen | TKind>
+          : DuplicateCapabilityKind<Extract<TKind, TSeen>>
+    : never
+  : unknown;
 
 /**
  * The union of builder-method brands granted across a list of capabilities.

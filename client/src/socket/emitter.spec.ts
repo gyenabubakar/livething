@@ -39,6 +39,7 @@ describe('Emitter.listenerCount', () => {
     const unsub = emitter.on('message', () => {});
     expect(emitter.listenerCount('message')).toBe(2);
     unsub();
+
     expect(emitter.listenerCount('message')).toBe(1);
   });
 
@@ -59,6 +60,7 @@ describe('Emitter.clear', () => {
     });
     emitter.clear();
     emitter.emit('open');
+
     expect(called).toBe(false);
   });
 
@@ -68,6 +70,7 @@ describe('Emitter.clear', () => {
     emitter.on('message', () => {});
     emitter.on('close', () => {});
     emitter.clear();
+
     expect(emitter.listenerCount('open')).toBe(0);
     expect(emitter.listenerCount('message')).toBe(0);
     expect(emitter.listenerCount('close')).toBe(0);

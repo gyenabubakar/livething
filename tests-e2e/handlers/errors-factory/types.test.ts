@@ -8,6 +8,7 @@ describe('ErrorsFactoryClient — no-any guard', () => {
     expectTypeOf<ErrorsFactoryClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['channels']>().not.toBeAny();
+
     expectTypeOf<ErrorsFactoryClient['errors']>().not.toBeAny();
   });
 });

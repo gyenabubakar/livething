@@ -1,4 +1,4 @@
-import type { WSKitError } from '@wskit/core';
+import type { LiveThingError } from '@livething/core';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { CloseEvent } from '~/socket/socket.ts';
@@ -19,7 +19,7 @@ export interface SocketConnection {
    * (`'closed'` | `'connecting'` | `'open'` | `'reconnecting'`), or watch it with
    * `state.subscribe(listener)` — the listener runs with the new state on every
    * change and returns an unsubscribe. This is the standard store shape, so it
-   * drops into any framework (see [Framework Hooks](/recipes/framework-hooks/overview)).
+   * drops into any framework (see [Framework Hooks](/recipes/framework-hooks/react)).
    */
   readonly state: ReadableStore<ConnectionState>;
 
@@ -53,14 +53,14 @@ export interface SocketContractBrand<TContract extends SocketContract> {
 
 /**
  * Every error the contract's `errors` section declares, as a discriminated union
- * of `WSKitError`, each typed to its own code and detail. Use it when a typed
+ * of `LiveThingError`, each typed to its own code and detail. Use it when a typed
  * contract error is needed in an API or helper; the runtime `onError` callback
  * is `unknown` because local code can throw any JavaScript value. A contract
  * from `InferClient` already folds in the framework's built-in errors alongside
  * your server's and any plugins'.
  */
 export type ContractError<TContract extends SocketContract> = {
-  [TCode in keyof ErrorsOf<TContract> & string]: WSKitError<TCode, ErrorsOf<TContract>[TCode]>;
+  [TCode in keyof ErrorsOf<TContract> & string]: LiveThingError<TCode, ErrorsOf<TContract>[TCode]>;
 }[keyof ErrorsOf<TContract> & string];
 
 type ContractErrorCode<TContract extends SocketContract> = keyof ErrorsOf<TContract> & string;
@@ -77,10 +77,10 @@ export type Socket<TContract extends SocketContract = SocketContract> = SocketCo
     onError(callback: (error: unknown) => void): () => void;
 
     /** Runs on any unclaimed server error, including codes added by a newer server. */
-    onServerError(callback: (error: WSKitError<string, unknown>) => void): () => void;
+    onServerError(callback: (error: LiveThingError<string, unknown>) => void): () => void;
     /** Runs only when an unclaimed server error has this declared contract code. */
     onServerError<TCode extends ContractErrorCode<TContract>>(
       code: TCode,
-      callback: (error: WSKitError<TCode, ErrorsOf<TContract>[TCode]>) => void,
+      callback: (error: LiveThingError<TCode, ErrorsOf<TContract>[TCode]>) => void,
     ): () => void;
   };

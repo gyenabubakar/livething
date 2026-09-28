@@ -1,13 +1,14 @@
-import { ChannelNotSubscribed } from '@wskit/core';
+import { ChannelNotSubscribed } from '@livething/core';
 import { Disconnected } from '~/errors.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { namespacePrefixOf } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import { familyKeyError, isReservedEventName, wireIdError } from '~/internal/wire-validation.ts';
+import type { LiveThingChannelMetadata } from '@livething/core';
 import type { PrimitiveHelpers, SendResult } from '~/internal/runtime.ts';
-import type { MessagingObject, ScopeMarkers } from '~/internal/scoped.ts';
+import type { MessagingObject } from '~/internal/scoped.ts';
 import type { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
-import type { WSKitSocket } from '~/socket/socket.ts';
+import type { LiveThingSocket } from '~/socket/socket.ts';
 
 /**
  * The shared context passed to the messaging and family-handle builders.
@@ -15,7 +16,7 @@ import type { WSKitSocket } from '~/socket/socket.ts';
  * them needing to manage those stores themselves.
  */
 export interface ChannelContext {
-  socket: WSKitSocket;
+  socket: LiveThingSocket;
   helpers: PrimitiveHelpers;
   resolveTtl(event: string): number | undefined;
   /** Get (or create) the messaging for one channel — cached, so the same name returns the same object. */
@@ -37,14 +38,14 @@ export function channelEventPrefix(channelName: string, familyKey: string | unde
   return namespacePrefixOf(familyKey ?? channelName);
 }
 
-/** The routing fields (`__wskit`) that identify this channel on outgoing frames. */
-export function channelMarkers(state: ChannelState): ScopeMarkers {
+/** The metadata fields that identify this channel on outgoing frames. */
+export function channelMarkers(state: ChannelState): LiveThingChannelMetadata {
   // Use an explicit absence check, not truthiness: a supplied family key is always
   // included so the frame stays a family-scoped channel. (An empty key is rejected
   // before a channel is built, so a present key here is real.)
   return state.familyKey !== undefined
-    ? { channel: state.name, channelFamily: state.familyKey }
-    : { channel: state.name };
+    ? { name: state.name, family: state.familyKey }
+    : { name: state.name };
 }
 
 /** Build the handle a developer interacts with for one channel. */
@@ -61,9 +62,10 @@ export function buildChannelMessaging(
   // `markers()` returns the routing fields stamped on every outgoing frame.
   // `assertReady` throws if the channel isn't subscribed yet — all sending methods
   // (including request/sendWithAck/stream added by other primitives) call it first.
-  function markers(): ScopeMarkers {
+  function markers(): ReturnType<typeof channelMarkers> {
     return channelMarkers(state);
   }
+
   function assertReady(): void {
     if (!state.active) throw ChannelNotSubscribed();
   }
@@ -77,6 +79,7 @@ export function buildChannelMessaging(
       let released = false;
       return () => {
         if (released) return;
+
         released = true;
         remove();
         helpers.lazyRelease();
@@ -88,13 +91,16 @@ export function buildChannelMessaging(
       // namespaced user event, while a plain channel keeps it as a protocol
       // frame and must still reject it.
       if (typeof event !== 'string' || event.length === 0) return false;
+
       const wireEvent = eventPrefix + event;
       if (isReservedEventName(wireEvent)) return false;
+
       const ttl = options?.ttl ?? context.resolveTtl(event);
       const result = helpers.send(
-        { event: wireEvent, payload, __wskit: markers() },
+        { event: wireEvent, payload, metadata: { channel: markers() } },
         ttl !== undefined ? { ttl } : undefined,
       );
+
       return result === 'sent' || result === 'buffered';
     },
     subscribe(data?: unknown) {
@@ -136,17 +142,20 @@ export function buildChannelMessaging(
       // old payload promise rejecting after a newer subscribe) clobbering the new one.
       function failSubscribe(error: unknown): void {
         if (state.pending !== thisPending) return;
+
         state.failPendingSubscribe(error);
       }
 
       function sendSubscribe(resolved: unknown): void {
         if (state.pending !== thisPending) return;
+
         state.resolvedSubscribeData = resolved;
         const frame = {
           event: '__subscribe__',
           payload: resolved ?? {},
-          __wskit: channelMarkers(state),
+          metadata: { channel: channelMarkers(state) },
         };
+
         let result: SendResult;
         try {
           result = helpers.rawSend(frame);
@@ -155,6 +164,7 @@ export function buildChannelMessaging(
           failSubscribe(error);
           return;
         }
+
         if (result === 'connecting') {
           state.pendingSubscribeFrame = frame;
         } else if (result === 'closed') {
@@ -176,6 +186,7 @@ export function buildChannelMessaging(
             failSubscribe(error);
             return;
           }
+
           void Promise.resolve(factoryResult).then(sendSubscribe, failSubscribe);
         } else {
           sendSubscribe(data);
@@ -201,8 +212,11 @@ export function buildChannelMessaging(
       if (state.pendingLeave) {
         if (state.deferredSubscribe) {
           state.deferredSubscribe = null;
-          state.failPendingSubscribe(new Error('[wskit] re-subscribe superseded by unsubscribe()'));
+          state.failPendingSubscribe(
+            new Error('[livething] re-subscribe superseded by unsubscribe()'),
+          );
         }
+
         return state.beginLeave(state.pendingLeave.unsubscribeId);
       }
 
@@ -216,8 +230,8 @@ export function buildChannelMessaging(
       const promise = state.beginLeave(unsubscribeId);
       const result = helpers.rawSend({
         event: '__unsubscribe__',
-        payload: {},
-        __wskit: { ...channelMarkers(state), unsubscribeId },
+        payload: null,
+        metadata: { channel: { ...channelMarkers(state), unsubscribeId } },
       });
       // Closed with no reconnect coming — the leave can never be confirmed.
       if (result === 'closed') state.failLeave(Disconnected());
@@ -226,10 +240,11 @@ export function buildChannelMessaging(
     },
     resyncMembers(): void {
       if (!state.active) return;
+
       helpers.rawSend({
         event: '__memberSync__',
-        payload: {},
-        __wskit: { ...channelMarkers(state), source: 'client' },
+        payload: null,
+        metadata: { exchange: { source: 'client' }, channel: channelMarkers(state) },
       });
     },
     members: state.members,
@@ -252,6 +267,7 @@ export function buildChannelMessaging(
     // gets no prefixName and leaves names bare.
     prefixName: eventPrefix ? (name) => eventPrefix + name : undefined,
   });
+
   return messaging;
 }
 
@@ -270,6 +286,8 @@ export function buildFamilyHandle(context: ChannelContext, familyKey: string): F
   handle.on = (event, handler) => family.addHandler(event, handler);
   handle.onSubscribed = (callback) => family.onSubscribed(callback);
   handle.onUnsubscribed = (callback) => family.onUnsubscribed(callback);
+
   handle.list = () => context.listFamily(familyKey);
+
   return handle;
 }

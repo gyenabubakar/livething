@@ -1,7 +1,7 @@
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AsyncContext, AsyncContextFactory, SQLProvider } from '~/context.ts';
 
-export const INVOCATION_SCOPE = Symbol('wskit.invocationScope');
+export const INVOCATION_SCOPE = Symbol('livething.invocationScope');
 
 /**
  * One deferred storage write batched for the end of the current invocation.
@@ -14,6 +14,7 @@ export interface PendingScopeFlush {
 
 export interface InvocationScopeState {
   dirtyConnections: Set<RuntimeConnection>;
+  /** Shared by every open scope of one engine, so a later handler merges into queued values. */
   pendingSnapshotFlushes: Map<string, PendingScopeFlush>;
 }
 
@@ -21,6 +22,7 @@ export interface EngineAsyncContextStore {
   connectionId?: string;
   [INVOCATION_SCOPE]?: InvocationScopeState;
 }
+
 export type EngineAsyncContext = AsyncContext<EngineAsyncContextStore>;
 
 export function createAsyncContext(factory: AsyncContextFactory): EngineAsyncContext {

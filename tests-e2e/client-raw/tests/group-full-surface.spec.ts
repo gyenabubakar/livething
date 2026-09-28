@@ -20,7 +20,7 @@ test.describe('group full surface', () => {
     await send(page, a, { event: 'chat', payload: { text: 'hi' } });
     await page.waitForFunction(
       ([sid]) =>
-        ((window.__wskitFrames!(sid as string) ?? []) as WireFrame[]).filter(
+        ((window.__livethingFrames!(sid as string) ?? []) as WireFrame[]).filter(
           (f) => f.event === 'welcome',
         ).length >= 2,
       [a],
@@ -35,10 +35,10 @@ test.describe('group full surface', () => {
     await send(page, a, {
       event: 'lookup',
       payload: { id: 'abc' },
-      __wskit: { correlationId: 'c1' },
+      metadata: { exchange: { id: 'c1' } },
     });
     const res = await waitForFrame(page, a, {
-      match: (f) => f.event === 'lookup' && f.__wskit?.correlationId === 'c1',
+      match: (f) => f.event === 'lookup' && f.metadata?.exchange?.id === 'c1',
     });
     expect(res.payload.found).toBe(true);
     expect(res.payload.hit).toBe('abc');
@@ -50,9 +50,9 @@ test.describe('group full surface', () => {
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
-    await send(page, a, { event: 'feed', payload: {}, __wskit: { streamId: 'feed-1' } });
+    await send(page, a, { event: 'feed', payload: {}, metadata: { stream: { id: 'feed-1' } } });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 'feed-1',
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === 'feed-1',
     });
     const chunks = (await frames(page, a))
       .filter((f) => f.event === 'feed' && typeof f.payload.idx === 'number')
@@ -65,18 +65,18 @@ test.describe('group full surface', () => {
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
-    await send(page, a, { event: 'paginate', payload: {}, __wskit: { streamId: 'p-1' } });
+    await send(page, a, { event: 'paginate', payload: {}, metadata: { stream: { id: 'p-1' } } });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 'p-1',
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === 'p-1',
     });
     const rows = (await frames(page, a))
       .filter((f) => f.event === 'paginate' && typeof f.payload.row === 'number')
       .map((f) => f.payload.row as number);
     expect(rows).toEqual([1, 2, 3, 4, 5]);
 
-    await send(page, a, { event: 'tokens', payload: {}, __wskit: { streamId: 't-1' } });
+    await send(page, a, { event: 'tokens', payload: {}, metadata: { stream: { id: 't-1' } } });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 't-1',
+      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === 't-1',
     });
     const toks = (await frames(page, a))
       .filter((f) => f.event === 'tokens' && typeof f.payload.token === 'string')
@@ -111,13 +111,17 @@ test.describe('group full surface', () => {
     const room = `gfs-ch-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
-    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'send-msg',
       payload: { text: 'hello room' },
-      __wskit: { channel: 'rooms' },
+      metadata: { channel: { name: 'rooms' } },
     });
     const msg = await waitForFrame(page, a, {
       match: (f) => f.event === 'room-msg' && f.payload.text === 'hello room',
@@ -176,7 +180,7 @@ test.describe('group full surface', () => {
 
     const b = await connect(page, { path: WS_PATH, username: 'bob', room: room });
     await waitForFrame(page, b, { match: (f) => f.event === 'welcome' });
-    await send(page, b, { event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} });
+    await send(page, b, { event: '__replay__', payload: { lastKnownSeq: 0 }, metadata: null });
 
     await waitForFrame(page, b, {
       match: (f) => f.event === 'replay-marker' && f.payload.note === 'stored-1',
@@ -193,16 +197,32 @@ test.describe('group full surface', () => {
       match: (f) => f.event === 'welcome' && f.payload.username === 'alice',
     });
     await closeSocket(page, a);
-    await page.waitForTimeout(300);
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, b, { match: (f) => f.event === 'welcome' });
-    await send(page, b, {
-      event: 'check-disconnect-log',
-      payload: { identity: 'alice' },
-    });
-    const goodbye = await waitForFrame(page, b, { match: (f) => f.event === 'goodbye' });
-    expect(goodbye.payload.username).toMatch(/^seen:[1-9]\d*$/);
+
+    // onDisconnect's SQL write for the old connection races the new
+    // connection's query, so retry the query itself instead of trusting a
+    // fixed delay. Only frames after `before` are considered so a retry
+    // matches its own fresh reply, not a stale one from an earlier attempt.
+    let goodbye!: WireFrame;
+    await expect(async () => {
+      const before = (await frames(page, b)).length;
+      await send(page, b, {
+        event: 'check-disconnect-log',
+        payload: { identity: 'alice' },
+      });
+      const start = Date.now();
+      let hit: WireFrame | undefined;
+      while (Date.now() - start < 1_000 && !hit) {
+        hit = (await frames(page, b)).slice(before).find((f) => f.event === 'goodbye');
+        if (!hit) await page.waitForTimeout(50);
+      }
+
+      expect(hit).toBeDefined();
+      goodbye = hit!;
+      expect(goodbye.payload.username).toMatch(/^seen:[1-9]\d*$/);
+    }).toPass({ timeout: 10_000 });
   });
 
   test('group.onInit ran at boot — check-init replies with ran=1', async ({ page }, testInfo) => {

@@ -1,7 +1,6 @@
-import { WSKitConfigError } from '@wskit/core';
-import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { LiveThingConfigError } from '@livething/core';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -28,17 +27,16 @@ function passthroughAsyncContext(): AsyncContextFactory {
 
 /** Build an engine whose `api` factory returns whatever the test hands back. */
 function buildEngine(makeApi: (ctx: unknown) => object): Engine<object> {
-  const base = define({ env: t<Record<string, never>>(), capabilities: [] });
+  const base = server({ capabilities: [] });
   const noop = base.on('noop', { input: v.object({}), run() {} });
-  const handler = base.assemble({ handlers: [noop], api: makeApi });
+  const definition = base.assemble({ handlers: [noop], api: makeApi });
 
   let engine!: Engine<object>;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'test',
     asyncContextFactory: passthroughAsyncContext(),
     setup(createEngine) {
       engine = createEngine({
-        env: {},
         platform: { kind: 'test' },
         storage: { sql: createTestSql(), kv: createTestKV() },
         timers: {
@@ -46,13 +44,13 @@ function buildEngine(makeApi: (ctx: unknown) => object): Engine<object> {
           deleteAlarm: vi.fn(async () => {}),
           getAlarm: vi.fn(async () => null),
         },
-        waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       }) as Engine<object>;
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
+
   return engine;
 }
 
@@ -73,6 +71,7 @@ describe('Engine.admin() surfacing the app api', () => {
         return `${this.#label}:${room}`;
       }
     }
+
     const engine = buildEngine(() => new AdminApi());
 
     const admin = engine.admin() as unknown as { archiveRoom(room: string): string };
@@ -87,6 +86,7 @@ describe('Engine.admin() surfacing the app api', () => {
         return 'prototype';
       },
     };
+
     const api = Object.assign(Object.create(inherited), {
       report: () => 'own',
     });
@@ -111,7 +111,7 @@ describe('Engine.admin() surfacing the app api', () => {
     expect(engine.admin().connectionCount).toBe(0);
   });
 
-  // These names belong to JavaScript, not to WSKit. Rejecting them in the engine
+  // These names belong to JavaScript, not to LiveThing. Rejecting them in the engine
   // means every adapter inherits the rule instead of restating it.
   describe('reserved api method names', () => {
     it("refuses 'then', which would make awaiting the admin surface hang forever", () => {
@@ -132,6 +132,7 @@ describe('Engine.admin() surfacing the app api', () => {
           return 'nope';
         }
       }
+
       const engine = buildEngine(() => new Api());
 
       expect(() => engine.admin()).toThrow(/then/);
@@ -143,7 +144,7 @@ describe('Engine.admin() surfacing the app api', () => {
       const api = Object.create(prototype) as Record<string, unknown>;
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
@@ -155,13 +156,14 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
     it('rejects an own constructor even when its prototype points back to the api', () => {
       const api = Object.create(null) as Record<string, unknown>;
       function AppConstructor() {}
+
       AppConstructor.prototype = api;
       Object.defineProperty(api, 'constructor', {
         value: AppConstructor,
@@ -171,7 +173,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
@@ -184,6 +186,7 @@ describe('Engine.admin() surfacing the app api', () => {
             reads += 1;
             return api;
           }
+
           return Reflect.get(target, key, receiver);
         },
       });
@@ -195,7 +198,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(reads).toBe(0);
     });
 
@@ -209,13 +212,14 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => Object.create(prototype));
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
     it('rejects a function marker forged on a null-prototype custom prototype', () => {
       const prototype = Object.create(null) as Record<string, unknown>;
       function AppConstructor() {}
+
       AppConstructor.prototype = prototype;
       Object.defineProperty(prototype, 'constructor', {
         value: AppConstructor,
@@ -225,13 +229,14 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => Object.create(prototype));
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
     it('rejects an inherited bound constructor', () => {
       const prototype = Object.create(null) as Record<string, unknown>;
       function AppConstructor() {}
+
       Object.defineProperty(prototype, 'constructor', {
         value: AppConstructor.bind(null),
         writable: true,
@@ -240,7 +245,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => Object.create(prototype));
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(() => engine.admin()).toThrow(/constructor/);
     });
 
@@ -256,7 +261,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => Object.create(prototype));
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(reads).toBe(0);
     });
 
@@ -278,7 +283,7 @@ describe('Engine.admin() surfacing the app api', () => {
       });
       const engine = buildEngine(() => api);
 
-      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(LiveThingConfigError);
       expect(reads).toBe(0);
     });
 

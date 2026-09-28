@@ -1,4 +1,4 @@
-import type { Logger, StorageProvider } from '@wskit/server/adapters';
+import type { Logger, StorageProvider } from '@livething/server/adapters';
 import { createKv } from './kv.ts';
 import { createSql } from './sql.ts';
 

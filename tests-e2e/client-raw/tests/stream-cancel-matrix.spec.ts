@@ -22,39 +22,41 @@ test.describe('stream-cancel matrix', () => {
 
     await send(page, a, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: channelKey, channelFamily: 'rooms' },
+      payload: null,
+      metadata: { channel: { name: channelKey, family: 'rooms' } },
     });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'start-room-stream',
       payload: { count: 20 },
-      __wskit: { channel: channelKey, channelFamily: 'rooms' },
+      metadata: { channel: { name: channelKey, family: 'rooms' } },
     });
     const ok = await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
-    const streamId = ok.__wskit?.streamId as string;
+    const streamId = ok.metadata?.stream?.id as string;
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter((f) => f.event === 'start-room-stream')
-          .length >= 1,
+        (window.__livethingFrames!(sid as string) ?? []).filter(
+          (f) => f.event === 'start-room-stream',
+        ).length >= 1,
       [a],
     );
 
     await send(page, a, {
       event: '__streamCancel__',
-      payload: {},
-      __wskit: { streamId },
+      payload: null,
+      metadata: { stream: { id: streamId } },
     });
     await page.waitForTimeout(400);
     const snapshot = await chunkCount(page, a, 'start-room-stream');
     await page.waitForTimeout(500);
     const after = await chunkCount(page, a, 'start-room-stream');
+
     expect(after - snapshot).toBe(0);
     expect(after).toBeLessThan(20);
     // Plain stream cancel does not send __streamEnd__.
     const ended = (await frames(page, a)).some(
-      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === streamId,
     );
     expect(ended).toBe(false);
   });
@@ -69,19 +71,23 @@ test.describe('stream-cancel matrix', () => {
       username: 'alice',
       room: room,
     });
-    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     const streamId = 'history-cancel-1';
     await send(page, a, {
       event: 'history',
       payload: {},
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
     await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
+        (window.__livethingFrames!(sid as string) ?? []).filter(
           (f) => f.event === 'history' && typeof f.payload?.idx === 'number',
         ).length >= 1,
       [a],
@@ -89,15 +95,14 @@ test.describe('stream-cancel matrix', () => {
 
     await send(page, a, {
       event: '__streamCancel__',
-      payload: {},
-      __wskit: { streamId },
+      payload: null,
+      metadata: { stream: { id: streamId } },
     });
-    await page.waitForTimeout(500);
-
+    // No wait: the resume must see the cancel even when it arrives right after it.
     await send(page, a, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
     const err = await waitForFrame(page, a, { match: (f) => f.event === '__error__' });
     expect(err.payload.code).toBe('stream-aborted');
@@ -114,19 +119,23 @@ test.describe('stream-cancel matrix', () => {
       username: 'alice',
       room: room,
     });
-    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'rooms' } },
+    });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     const streamId = 'paginate-cancel-1';
     await send(page, a, {
       event: 'paginate',
       payload: {},
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
     await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
+        (window.__livethingFrames!(sid as string) ?? []).filter(
           (f) => f.event === 'paginate' && typeof f.payload?.row === 'number',
         ).length >= 1,
       [a],
@@ -134,15 +143,14 @@ test.describe('stream-cancel matrix', () => {
 
     await send(page, a, {
       event: '__streamCancel__',
-      payload: {},
-      __wskit: { streamId },
+      payload: null,
+      metadata: { stream: { id: streamId } },
     });
-    await page.waitForTimeout(500);
-
+    // No wait: the resume must see the cancel even when it arrives right after it.
     await send(page, a, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'rooms', streamId },
+      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
     const err = await waitForFrame(page, a, { match: (f) => f.event === '__error__' });
     expect(err.payload.code).toBe('stream-aborted');
@@ -159,29 +167,37 @@ test.describe('stream-cancel matrix', () => {
     await send(page, a, {
       event: 'start-tokens',
       payload: { count: 10 },
-      __wskit: { streamId: 'tok-1' },
+      metadata: { stream: { id: 'tok-1' } },
     });
     await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     await page.waitForFunction(
       ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).some((f) => f.event === 'start-tokens'),
+        (window.__livethingFrames!(sid as string) ?? []).some((f) => f.event === 'start-tokens'),
       [a],
     );
 
-    await send(page, a, { event: '__streamCancel__', payload: {}, __wskit: { streamId: 'tok-1' } });
+    await send(page, a, {
+      event: '__streamCancel__',
+      payload: null,
+      metadata: { stream: { id: 'tok-1' } },
+    });
     await page.waitForTimeout(150);
     // Second cancel of the now-dead id is a no-op, not a crash.
-    await send(page, a, { event: '__streamCancel__', payload: {}, __wskit: { streamId: 'tok-1' } });
+    await send(page, a, {
+      event: '__streamCancel__',
+      payload: null,
+      metadata: { stream: { id: 'tok-1' } },
+    });
     await page.waitForTimeout(150);
 
     // Connection still alive — a fresh stream starts normally.
     await send(page, a, {
       event: 'start-empty',
       payload: {},
-      __wskit: { streamId: 'alive-check' },
+      metadata: { stream: { id: 'alive-check' } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === 'alive-check',
+      match: (f) => f.event === '__streamOk__' && f.metadata?.stream?.id === 'alive-check',
     });
   });
 
@@ -194,15 +210,15 @@ test.describe('stream-cancel matrix', () => {
 
     await send(page, a, {
       event: '__streamCancel__',
-      payload: {},
-      __wskit: { streamId: 'no-such-stream' },
+      payload: null,
+      metadata: { stream: { id: 'no-such-stream' } },
     });
     await page.waitForTimeout(150);
 
     // Connection still alive — a fresh stream starts normally.
-    await send(page, a, { event: 'start-empty', payload: {}, __wskit: { streamId: 'ck' } });
+    await send(page, a, { event: 'start-empty', payload: {}, metadata: { stream: { id: 'ck' } } });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === 'ck',
+      match: (f) => f.event === '__streamOk__' && f.metadata?.stream?.id === 'ck',
     });
   });
 });

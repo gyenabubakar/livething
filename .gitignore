@@ -38,3 +38,7 @@ AUDIT.md
 /*.png
 /*.jpg
 /*.jpeg
+
+.pnpm-store
+
+/ignore-this.ts

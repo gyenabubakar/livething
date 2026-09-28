@@ -357,7 +357,7 @@ const parcelCls: Record<string, string> = {
 
         <div class="border-t border-muted/60 px-4 py-3 font-mono text-xs text-toned flex items-center gap-2">
           <UIcon name="i-ph-link-duotone" class="size-4 text-primary shrink-0" />
-          replies can land in any order — WSKit routes each one back to the <span class="text-primary">promise that asked</span>. No manual IDs, no bookkeeping.
+          replies can land in any order — LiveThing routes each one back to the <span class="text-primary">promise that asked</span>. No manual IDs, no bookkeeping.
         </div>
       </div>
     </Motion>
@@ -374,10 +374,10 @@ const parcelCls: Record<string, string> = {
         <div>
           <p class="section-label">Server-sent requests</p>
           <h3 class="mt-4 text-2xl md:text-3xl font-semibold tracking-tight text-highlighted">
-            The server can ask too<span class="text-primary">.</span>
+            Requests from server to client<span class="text-primary">.</span>
           </h3>
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
-            Requests usually go one way — the client asks, the server answers. WSKit lets the server turn around and ask the client — for a confirmation, a permission, a value — and <code class="font-mono text-primary bg-elevated/60 border border-muted px-1 py-0.5">await</code> the typed answer, with a timeout if it never comes. The same request/response, pointed the other direction.
+            Requests usually go one way — the client asks, the server answers. LiveThing lets the server turn around and ask the client — for a confirmation, a permission, a value — and <code class="font-mono text-primary bg-elevated/60 border border-muted px-1 py-0.5">await</code> the typed answer, with a timeout if it never comes. The same request/response, pointed the other direction.
           </p>
         </div>
       </Motion>

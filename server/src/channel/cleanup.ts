@@ -20,7 +20,9 @@ export function reconcileMembershipOnBoot(
   isPairDurable: (channelName: string, channelFamily: string | null) => boolean,
 ): number {
   const pairs = sql
-    .exec<RawRow>('SELECT DISTINCT channel_name, channel_family FROM __wskit_channel_memberships')
+    .exec<RawRow>(
+      'SELECT DISTINCT channel_name, channel_family FROM __livething_channel_memberships',
+    )
     .toArray()
     .map((row) => ({
       channelName: row.channel_name,
@@ -30,8 +32,10 @@ export function reconcileMembershipOnBoot(
   let dropped = 0;
   for (const pair of pairs) {
     if (isPairDurable(pair.channelName, pair.channelFamily)) continue;
+
     deleteMembershipsByChannel(sql, pair.channelName, pair.channelFamily);
     dropped++;
   }
+
   return dropped;
 }

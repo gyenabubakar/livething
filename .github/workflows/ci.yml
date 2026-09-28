@@ -5,11 +5,16 @@
 # are pinned to commit SHAs. Never interpolate untrusted input into `run:`.
 name: CI
 
+# Docs-only changes skip CI; the pre-commit hook already formats and lints them.
 on:
   pull_request:
     branches: [main]
+    # ready_for_review runs the e2e jobs that were skipped while the PR was a draft.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore: ['website/**', '**/*.md']
   push:
     branches: [main]
+    paths-ignore: ['website/**', '**/*.md']
 
 permissions:
   contents: read
@@ -134,8 +139,9 @@ jobs:
 
   e2e:
     name: e2e (Playwright) — ${{ matrix.name }}
-    needs: gate
-    if: needs.gate.outputs.should_run == 'true'
+    needs: [gate, checks, guards]
+    # Draft PRs get checks and guards only; e2e waits until the PR is ready.
+    if: needs.gate.outputs.should_run == 'true' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The official Playwright image ships chromium + OS deps prebaked, so there
@@ -146,8 +152,10 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
     strategy:
       fail-fast: false
-      # One job per adapter (node/deno/bun to come), run concurrently so
-      # calendar time is the slowest suite, not the sum of all three.
+      # One job per implemented adapter (cf/node; deno/bun to come), run
+      # concurrently so calendar time is the slowest suite, not their sum.
+      # Node framework bindings (Hono, Fastify, H3) share the node:http engine
+      # path, so their integration specs cover them instead of a full e2e run.
       matrix:
         include:
           - name: client-puppet
@@ -155,13 +163,23 @@ jobs:
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
-          - name: cloudflare-raw
-            command: pnpm --filter @wskit/tests-e2e-server-cloudflare run test:e2e:cloudflare
+          - name: cf-raw
+            command: pnpm --filter @livething/tests-e2e-server-cloudflare run test:e2e:cloudflare
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
-          - name: cloudflare-packaged
-            command: pnpm --filter @wskit/tests-e2e-client run test:e2e:cloudflare
+          - name: cf-packaged
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:cloudflare
+            report-path: |
+              tests-e2e/client/playwright-report/
+              tests-e2e/client/test-results/
+          - name: node-http-raw
+            command: pnpm --filter @livething/tests-e2e-server-node run test:e2e:node:http
+            report-path: |
+              tests-e2e/client-raw/playwright-report/
+              tests-e2e/client-raw/test-results/
+          - name: node-http-packaged
+            command: pnpm --filter @livething/tests-e2e-client run test:e2e:node:http
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/

@@ -1,7 +1,7 @@
-import { channels, client, connect, dedup, inbox, readReceipts } from '@wskit/client';
-import type { ReceiptsClient } from '@wskit/tests-e2e-handlers/receipts';
+import { channels, client, connect, dedup, inbox, readReceipts } from '@livething/client';
+import type { ReceiptsClient } from '@livething/tests-e2e-handlers/receipts';
 
-// Type-only proof that @wskit/client surfaces the receipt methods on a channel
+// Type-only proof that @livething/client surfaces the receipt methods on a channel
 // whose contract sets both flags. tsc checks this file; nothing runs it. The
 // puppet package has no vitest, so the checks are dependency-free — each call
 // below only compiles if the method is present with the expected signature.

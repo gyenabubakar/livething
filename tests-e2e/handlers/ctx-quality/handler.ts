@@ -1,11 +1,10 @@
-import { define, emits, t } from '@wskit/server';
-import { keepalive } from '@wskit/server/keepalive';
+import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     // Ping fast so a pong round-trip completes inside the test window — quality
@@ -33,6 +32,6 @@ const handleGetQuality = base.on('get-quality', {
   },
 });
 
-export const ctxQualityHandler = base.assemble({ handlers: [handleGetQuality] });
+export const ctxQualityDefinition = base.assemble({ handlers: [handleGetQuality] });
 
-export type CtxQualityClient = InferClient<typeof ctxQualityHandler>;
+export type CtxQualityClient = InferClient<typeof ctxQualityDefinition>;

@@ -6,7 +6,7 @@ const kaPrimitive = keepalive({ pingIntervalMs: 15_000, idleTimeoutMs: 30_000 })
 const _kaType: KeepalivePrimitive = kaPrimitive;
 void _kaType;
 
-const _tag: 'keepalive' = kaPrimitive.__wskit;
+const _tag: 'keepalive' = kaPrimitive.__livething;
 const _kind: PrimitiveKind = kaPrimitive.__kind;
 const _ping: number = kaPrimitive.pingIntervalMs;
 const _idle: number = kaPrimitive.idleTimeoutMs;

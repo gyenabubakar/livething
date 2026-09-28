@@ -20,10 +20,10 @@ const landingItems = [
         to: '/start/what-is-websocket'
       },
       {
-        label: 'Why WSKit',
+        label: 'Why LiveThing',
         icon: 'i-ph-lightbulb-duotone',
         description: 'What you stop hand-building',
-        to: '/start/why-wskit'
+        to: '/start/why-livething'
       },
       {
         label: 'Installation',
@@ -36,12 +36,6 @@ const landingItems = [
         icon: 'i-ph-lightning-duotone',
         description: 'A tiny end-to-end app in minutes',
         to: '/start/quickstart'
-      },
-      {
-        label: 'Your First App',
-        icon: 'i-ph-blueprint-duotone',
-        description: 'Add auth and a channel',
-        to: '/start/your-first-app'
       }
     ]
   },
@@ -98,10 +92,10 @@ const landingItems = [
     to: '/server/overview',
     children: [
       {
-        label: 'define()',
+        label: 'server()',
         icon: 'i-ph-brackets-curly-duotone',
         description: 'The builder and assemble',
-        to: '/server/define/overview'
+        to: '/server/server/overview'
       },
       {
         label: 'Adapters',
@@ -188,54 +182,6 @@ const landingItems = [
         to: '/client/errors/overview'
       }
     ]
-  },
-  {
-    label: 'Recipes',
-    to: '/recipes/overview',
-    children: [
-      {
-        label: 'Framework Hooks',
-        icon: 'i-simple-icons-react',
-        description: 'React, Vue, Svelte, Solid, RN',
-        to: '/recipes/framework-hooks/react'
-      },
-      {
-        label: 'Chat App',
-        icon: 'i-ph-chat-circle-dots-duotone',
-        description: 'Rooms, presence, and history',
-        to: '/recipes/chat-app'
-      },
-      {
-        label: 'LLM Streaming',
-        icon: 'i-ph-robot-duotone',
-        description: 'Token streaming with nudges',
-        to: '/recipes/llm-streaming'
-      },
-      {
-        label: 'Notifications',
-        icon: 'i-ph-bell-duotone',
-        description: 'A per-user push channel',
-        to: '/recipes/notifications'
-      },
-      {
-        label: 'Collaborative Editor',
-        icon: 'i-ph-note-pencil-duotone',
-        description: 'Operations, cursors, and replay',
-        to: '/recipes/collaborative-editor'
-      },
-      {
-        label: 'Multiplayer Game',
-        icon: 'i-ph-game-controller-duotone',
-        description: 'Fast state sync and input',
-        to: '/recipes/multiplayer-game'
-      },
-      {
-        label: 'All recipes',
-        icon: 'i-ph-cooking-pot-duotone',
-        description: 'Every worked end-to-end app',
-        to: '/recipes/overview'
-      }
-    ]
   }
 ]
 </script>
@@ -243,6 +189,7 @@ const landingItems = [
 <template>
   <UNavigationMenu
     v-if="isHome"
+    class="mx-auto"
     variant="link"
     color="neutral"
     :items="landingItems"

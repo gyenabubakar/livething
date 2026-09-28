@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's inbox() against the real inbox handler — a
+// Conformance: @livething/client's inbox() against the real inbox server definition — a
 // persistent, inbox-backed channel that guarantees per-member delivery. A member
 // OFFLINE when a broadcast lands still receives it, drained on the next reconnect
 // after the auto-rejoin. The `__received__` ack settles the durable rows, so a
@@ -41,6 +41,7 @@ test.describe('inbox (guaranteed per-member delivery)', () => {
     await carol.page.getByTestId('sub').click();
     await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
     await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(carol.page.getByTestId('subscribed')).toHaveText('yes');
 
     // Alice goes fully offline (no auto-reconnect) BEFORE Bob broadcasts.
@@ -69,6 +70,7 @@ test.describe('inbox (guaranteed per-member delivery)', () => {
     await alice.page.getByTestId('connect').click();
     await expect(alice.page.getByTestId('status')).toHaveText('open');
     await alice.page.waitForTimeout(400);
+
     await expect(alice.page.getByTestId('message-count')).toHaveText('2');
 
     await alice.close();
@@ -99,6 +101,7 @@ test.describe('inbox (guaranteed per-member delivery)', () => {
     await alice.page.getByTestId('connect').click();
     await expect(alice.page.getByTestId('status')).toHaveText('open');
     await alice.page.waitForTimeout(400);
+
     await expect(alice.page.getByTestId('message-count')).toHaveText('1');
 
     await alice.close();

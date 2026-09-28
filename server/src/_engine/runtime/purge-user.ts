@@ -1,4 +1,4 @@
-import { CloseCodes, WSKitConfigError } from '@wskit/core';
+import { CloseCodes, LiveThingConfigError } from '@livething/core';
 import type { EngineCore } from '~/_engine/core.ts';
 
 /** Options accepted by {@link purgeUser}. */
@@ -31,7 +31,7 @@ export async function purgeUser(
   options?: PurgeUserOptions,
 ): Promise<void> {
   if (userId === '') {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       "purgeUser('') would match every anonymous connection. Pass the id of a signed-in user.",
     );
   }

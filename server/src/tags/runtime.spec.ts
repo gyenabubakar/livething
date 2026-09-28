@@ -50,18 +50,40 @@ function createRuntime(
 }
 
 describe('tag member index', () => {
-  it('tag-ref send reaches only connections holding the exact tag', () => {
+  it('tag-ref broadcast reaches only connections holding the exact tag', () => {
     const tagMembers = new Map<string, Set<RuntimeConnection>>();
     const sent: string[] = [];
     const eng = createConnection('eng');
     const sales = createConnection('sales');
     addConnectionTag(tagMembers, eng, { kind: 'ephemeral', group: 'team', key: 'eng' });
+
     addConnectionTag(tagMembers, sales, { kind: 'ephemeral', group: 'team', key: 'sales' });
 
     const runtime = createRuntime(tagMembers, sent);
-    buildGroupHandle(runtime, eng, { kind: 'ephemeral', group: 'team' }).ref('eng').send('evt', {});
+    buildGroupHandle(runtime, eng, { kind: 'ephemeral', group: 'team' })
+      .ref('eng')
+      .broadcast('evt', {});
 
     expect(sent).toEqual(['eng']);
+  });
+
+  it('persistent tag broadcast reaches only connections holding the exact tag', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    const admin = createConnection('admin');
+    const member = createConnection('member');
+    addConnectionTag(tagMembers, admin, { kind: 'persistent', group: 'role', key: 'admin' });
+
+    addConnectionTag(tagMembers, member, { kind: 'persistent', group: 'role', key: 'member' });
+
+    buildGroupHandle(createRuntime(tagMembers, sent), admin, {
+      kind: 'persistent',
+      group: 'role',
+    })
+      .ref('admin')
+      .broadcast('evt', {});
+
+    expect(sent).toEqual(['admin']);
   });
 
   it('add("") is a no-op so an empty key never creates a phantom bucket', () => {
@@ -76,22 +98,23 @@ describe('tag member index', () => {
 
     expect(group.count()).toBe(0);
     expect(tagMembers.size).toBe(0);
-    group.ref('').send('evt', {});
+    group.ref('').broadcast('evt', {});
     expect(sent).toEqual([]);
   });
 
-  it('group send reaches every connection with any key in the group', () => {
+  it('group broadcast reaches every connection with any key in the group', () => {
     const tagMembers = new Map<string, Set<RuntimeConnection>>();
     const sent: string[] = [];
     const a = createConnection('a');
     const b = createConnection('b');
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
+
     addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'sales' });
 
-    buildGroupHandle(createRuntime(tagMembers, sent), a, { kind: 'ephemeral', group: 'team' }).send(
-      'evt',
-      {},
-    );
+    buildGroupHandle(createRuntime(tagMembers, sent), a, {
+      kind: 'ephemeral',
+      group: 'team',
+    }).broadcast('evt', {});
 
     expect(sent.sort()).toEqual(['a', 'b']);
   });
@@ -106,7 +129,7 @@ describe('tag member index', () => {
     removeConnectionTag(tagMembers, conn, { kind: 'ephemeral', group: 'team', key: 'eng' });
 
     const runtime = createRuntime(tagMembers, sent);
-    buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'team' }).send('evt', {});
+    buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'team' }).broadcast('evt', {});
     expect(sent).toEqual(['c1']);
     expect(
       buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'team' }).ref('eng').count(),
@@ -142,6 +165,7 @@ describe('group handle reflection methods', () => {
     const a = createConnection('a');
     const b = createConnection('b');
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
+
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'lead' });
     addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'sales' });
 
@@ -162,6 +186,7 @@ describe('group handle reflection methods', () => {
     const b = createConnection('b');
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'lead' });
+
     addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'eng' });
 
     const runtime = createRuntime(tagMembers, []);

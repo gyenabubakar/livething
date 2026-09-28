@@ -1,15 +1,18 @@
 import {
   assertSynchronousResult,
   CloseCodes,
-  isWSKitConfigError,
+  isLiveThingConfigError,
+  LiveThingConfigError,
   StreamAborted,
-  WSKitConfigError,
-} from '@wskit/core';
+} from '@livething/core';
+import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
 import { withConnectionContext } from '~/_engine/async-context.ts';
+import { isValidCloseCode } from '~/_engine/close-code.ts';
+import { validateValue } from '~/_engine/compile/utils.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import { markTranslatorConfigError } from '~/translation/error.ts';
+import { isTranslatorConfigError, markTranslatorConfigError } from '~/translation/error.ts';
 import { TranslationInputError } from '~/translation/translator.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
@@ -17,8 +20,110 @@ import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type { Translator, TranslatorFactory } from '~/translation/translator.ts';
+import { serializeWireFrame } from './wire-serialize.ts';
 import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
+
+type RunConnectionLifecycleRuntimeParameter = {
+  connectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
+  disconnectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
+  /**
+   * New-model plugin connect/disconnect hooks, in registration order. Inbound
+   * (`connect`) runs these head-first before the app; outbound (`disconnect`)
+   * runs the app first, then these in reverse (LIFO) — the onion. The
+   * handlers are already wrapped in a plugin-scoped context.
+   */
+  pluginConnectHooks?: readonly {
+    handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
+  }[];
+  pluginDisconnectHooks?: readonly {
+    handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
+  }[];
+  asyncContext: EngineAsyncContext;
+};
+type CancelActiveStreamsForConnectionRuntimeParameter = {
+  activeStreams: Map<
+    string,
+    {
+      id: string;
+      connectionId: string;
+      generator: AsyncGenerator<unknown, void, unknown>;
+      closed: boolean;
+      onDisconnect?: EngineRuntimeTypes.OnDisconnect;
+      detached?: boolean;
+      abortController?: AbortController;
+    }
+  >;
+  logger?: Pick<PublicApi.Logger, 'error'>;
+};
+type HandleUpgradeRuntimeParameter = {
+  upgradeHooks: readonly ((
+    request: Request,
+    helpers: LifecycleTypes.UpgradeHelpers,
+  ) =>
+    | { meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
+    | Promise<{
+        meta?: Record<string, unknown>;
+        tags?: readonly PublicApi.TagRef[];
+      }>)[];
+  /**
+   * New-model plugin `upgrade` hooks, in registration order. Run before the
+   * app's builder hook (inbound onion). Each may own `userId`, but the
+   * single-owner rule below allows at most one user id source overall.
+   */
+  pluginUpgradeHooks?: readonly {
+    pluginId: string;
+    handler: (
+      request: Request,
+      helpers: LifecycleTypes.UpgradeHelpers,
+    ) =>
+      | { userId?: string; meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
+      | Promise<{
+          userId?: string;
+          meta?: Record<string, unknown>;
+          tags?: readonly PublicApi.TagRef[];
+        }>;
+  }[];
+  builderUpgradeHook?:
+    | ((
+        request: Request,
+        helpers: LifecycleTypes.UpgradeHelpers,
+      ) =>
+        | {
+            userId?: string;
+            meta?: Record<string, unknown>;
+            tags?: readonly PublicApi.TagRef[];
+          }
+        | Promise<{
+            userId?: string;
+            meta?: Record<string, unknown>;
+            tags?: readonly PublicApi.TagRef[];
+          }>)
+    | undefined;
+  /**
+   * Built once per engine. A contract with `tagGroups` populates the field;
+   * contracts without tag groups pass `undefined` and the helper bag is the
+   * empty object.
+   */
+  upgradeHelpers: LifecycleTypes.UpgradeHelpers;
+  /**
+   * Whether a tag group of the given kind was declared. Guards tag refs an
+   * upgrade returns — including the `tags: { ephemeral: { ... } }` sugar,
+   * which builds refs without going through the declaration-checked helper.
+   */
+  isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
+  /**
+   * The schema a tag group declared, or `undefined` for a `t<>()` group. Keys
+   * an upgrade returns are checked against it, the same as `add()`.
+   */
+  getTagGroupSchema(kind: 'ephemeral' | 'persistent', group: string): unknown;
+  logger?: Pick<PublicApi.Logger, 'error'>;
+};
+type ApplyResultParameter = {
+  userId?: string;
+  meta?: Record<string, unknown>;
+  tags?: readonly PublicApi.TagRef[];
+};
 
 export { userKeyOf } from '~/_engine/runtime/user-key.ts';
 
@@ -42,11 +147,13 @@ function addConnectionToUserIndex(
 ): void {
   const key = userKeyOf(connection);
   if (key === null) return;
+
   let members = usersByKey.get(key);
   if (!members) {
     members = new Set();
     usersByKey.set(key, members);
   }
+
   members.add(connection);
 }
 
@@ -60,9 +167,12 @@ function removeConnectionFromUserIndex(
 ): void {
   const key = userKeyOf(connection);
   if (key === null) return;
+
   const members = usersByKey.get(key);
   if (!members) return;
+
   members.delete(connection);
+
   if (members.size === 0) usersByKey.delete(key);
 }
 
@@ -85,6 +195,7 @@ function rollbackConnectionIndexes(
   for (const membership of ChannelPrimitive.listChannelMemberships(connection)) {
     ChannelPrimitive.removeChannelMembership(runtime.channelMembers, connection, membership);
   }
+
   removeConnectionFromTagIndex(runtime.tagMembers, connection);
 }
 
@@ -194,20 +305,47 @@ function createHandle(
     await connection.lifecycleReady;
   }
 
+  async function reportCallbackError(error: unknown): Promise<void> {
+    try {
+      await runtime.handleRuntimeError(connection, error, undefined);
+    } catch (handlerError) {
+      runtime.logger?.error('[livething] connection error handler failed', {
+        error: handlerError instanceof Error ? handlerError.message : String(handlerError),
+      });
+    }
+  }
+
   return {
     handleMessage: async (data) => {
-      await waitForLifecycle();
-      const translated = translateInbound(runtime, connection, data);
-      if (translated === undefined) return;
-      return runtime.processTextMessage(connection, translated);
+      try {
+        await waitForLifecycle();
+        const translated = translateInbound(runtime, connection, data);
+        if (translated === undefined) return;
+
+        await runtime.processTextMessage(connection, translated);
+      } catch (error) {
+        if (isTranslatorConfigError(error)) throw error;
+
+        await reportCallbackError(error);
+      }
     },
     handleClose: async (code, reason) => {
-      await waitForLifecycle();
-      return runtime.handleConnectionClose(connection, code, reason);
+      try {
+        await waitForLifecycle();
+        await runtime.handleConnectionClose(connection, code, reason);
+      } catch (error) {
+        await reportCallbackError(error);
+      }
     },
     handleError: async (error) => {
-      await waitForLifecycle();
-      return runtime.handleRuntimeError(connection, error, undefined);
+      try {
+        await waitForLifecycle();
+        await runtime.handleRuntimeError(connection, error, undefined);
+      } catch (handlerError) {
+        runtime.logger?.error('[livething] connection error handler failed', {
+          error: handlerError instanceof Error ? handlerError.message : String(handlerError),
+        });
+      }
     },
   };
 }
@@ -229,20 +367,21 @@ interface TranslationFailure {
   code?: number;
 }
 
-function closeForTranslationFailure({
-  runtime,
-  descriptor,
-  connection,
-  stage,
-  error,
-  code = 1011,
-}: TranslationFailure): void {
+function closeForTranslationFailure(failure: TranslationFailure): void {
+  const {
+    runtime,
+    descriptor,
+    connection,
+    stage,
+    error,
+    code = CloseCodes.INTERNAL_ERROR,
+  } = failure;
   if (connection) connection.closing = true;
-  runtime.logger?.error('[wskit] translator failed', {
+  runtime.logger?.error('[livething] translator failed', {
     stage,
     error: error instanceof Error ? error.message : String(error),
   });
-  descriptor.close(code, '[wskit] translator failed');
+  descriptor.close(code, '[livething] translator failed');
 }
 
 function rethrowTranslatorConfigError(
@@ -250,25 +389,32 @@ function rethrowTranslatorConfigError(
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
   connection?: EngineRuntimeTypes.RuntimeConnection,
 ): void {
-  if (!isWSKitConfigError(error)) return;
+  if (!isLiveThingConfigError(error)) return;
+
+  // A translator shape error is a developer configuration failure: close the
+  // affected connection, then rethrow so the host process can see the error.
   markTranslatorConfigError(error);
   if (connection?.closing) throw error;
+
   if (connection) {
     connection.closing = true;
     connection.preserveStateOnClose = true;
   }
-  descriptor.close(1011, '[wskit] translator configuration failed');
+
+  descriptor.close(CloseCodes.INTERNAL_ERROR, '[livething] translator configuration failed');
   throw error;
 }
 
 function assertTranslator(value: unknown): Translator {
   if (!value || typeof value !== 'object' || typeof (value as Translator).inbound !== 'function') {
-    throw new WSKitConfigError('translator factory did not return inbound(raw).');
+    throw new LiveThingConfigError('translator factory did not return inbound(raw).');
   }
+
   const translator = value as Translator;
   if (translator.outbound !== undefined && typeof translator.outbound !== 'function') {
-    throw new WSKitConfigError('translator outbound must be a function when provided.');
+    throw new LiveThingConfigError('translator outbound must be a function when provided.');
   }
+
   if (
     translator.hibernation !== undefined &&
     (!translator.hibernation ||
@@ -276,10 +422,11 @@ function assertTranslator(value: unknown): Translator {
       typeof translator.hibernation.serialize !== 'function' ||
       typeof translator.hibernation.restore !== 'function')
   ) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       'translator hibernation must provide both serialize() and restore().',
     );
   }
+
   return translator;
 }
 
@@ -288,6 +435,7 @@ function createTranslator(
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): Translator | null | undefined {
   if (!runtime.translatorFactory) return undefined;
+
   try {
     return assertTranslator(
       assertSynchronousResult(runtime.translatorFactory(), 'translator factory'),
@@ -306,13 +454,19 @@ interface TranslatedDescriptorOptions {
   getConnection: () => EngineRuntimeTypes.RuntimeConnection | undefined;
 }
 
-function translatedDescriptor({
-  runtime,
-  descriptor,
-  translator,
-  getConnection,
-}: TranslatedDescriptorOptions): EngineAdapterTypes.ConnectionDescriptor {
+interface RestoreWakeIndexesInput {
+  runtime: ConnectionRuntime;
+  connection: EngineRuntimeTypes.RuntimeConnection;
+  row: ConnectionStore.StoredConnectionRow | null;
+  restoredStreamIds: readonly string[];
+}
+
+function translatedDescriptor(
+  options: TranslatedDescriptorOptions,
+): EngineAdapterTypes.ConnectionDescriptor {
+  const { runtime, descriptor, translator, getConnection } = options;
   if (!translator) return descriptor;
+
   const translated: EngineAdapterTypes.ConnectionDescriptor = {
     send(data) {
       if (getConnection()?.closing) return false;
@@ -325,8 +479,9 @@ function translatedDescriptor({
             'translator.outbound',
           );
           if (translated !== null && typeof translated !== 'string') {
-            throw new Error('[wskit] translator outbound must return a string or null.');
+            throw new Error('[livething] translator outbound must return a string or null.');
           }
+
           if (translated !== null) outgoing = translated;
         } catch (error) {
           const connection = getConnection();
@@ -348,6 +503,7 @@ function translatedDescriptor({
         closeForTranslationFailure({ runtime, descriptor, connection, stage: 'outbound', error });
         return false;
       }
+
       return descriptor.send(outgoing);
     },
     close(code, reason) {
@@ -358,11 +514,15 @@ function translatedDescriptor({
     },
     userId: descriptor.userId,
   };
+
   if (descriptor.backpressureSupported !== undefined) {
     translated.backpressureSupported = descriptor.backpressureSupported;
   }
+
   if (descriptor.meta !== undefined) translated.meta = descriptor.meta;
+
   if (descriptor.tags !== undefined) translated.tags = descriptor.tags;
+
   return translated;
 }
 
@@ -372,17 +532,21 @@ function translateInbound(
   data: string,
 ): string | undefined {
   if (connection.closing) return undefined;
+
   if (!connection.translator) return data;
+
   try {
     const translated = assertSynchronousResult(
       connection.translator.inbound(data),
       'translator.inbound',
     );
     if (translated !== null && typeof translated !== 'string') {
-      throw new Error('[wskit] translator inbound must return a string or null.');
+      throw new Error('[livething] translator inbound must return a string or null.');
     }
+
     runtime.persistAttachment(connection);
     if (connection.closing) return undefined;
+
     return translated ?? data;
   } catch (error) {
     rethrowTranslatorConfigError(error, connection.descriptor, connection);
@@ -392,7 +556,10 @@ function translateInbound(
       connection,
       stage: 'inbound',
       error,
-      code: error instanceof TranslationInputError ? 1002 : 1011,
+      code:
+        error instanceof TranslationInputError
+          ? CloseCodes.PROTOCOL_ERROR
+          : CloseCodes.INTERNAL_ERROR,
     });
     return undefined;
   }
@@ -402,23 +569,7 @@ function translateInbound(
  * Run connect/disconnect hooks for both the handler and installed plugins.
  */
 export async function runConnectionLifecycle(
-  runtime: {
-    connectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
-    disconnectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
-    /**
-     * New-model plugin connect/disconnect hooks, in registration order. Inbound
-     * (`connect`) runs these head-first before the app; outbound (`disconnect`)
-     * runs the app first, then these in reverse (LIFO) — the onion. The
-     * handlers are already wrapped in a plugin-scoped context.
-     */
-    pluginConnectHooks?: readonly {
-      handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
-    }[];
-    pluginDisconnectHooks?: readonly {
-      handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
-    }[];
-    asyncContext: EngineAsyncContext;
-  },
+  runtime: RunConnectionLifecycleRuntimeParameter,
   kind: 'connect' | 'disconnect',
   ctx: Record<PropertyKey, unknown>,
 ): Promise<void> {
@@ -429,6 +580,7 @@ export async function runConnectionLifecycle(
       for (const entry of runtime.pluginConnectHooks ?? []) {
         await entry.handler(ctx);
       }
+
       for (const hook of runtime.connectHooks) {
         await hook(ctx);
       }
@@ -436,6 +588,7 @@ export async function runConnectionLifecycle(
       for (const hook of runtime.disconnectHooks) {
         await hook(ctx);
       }
+
       // Outbound onion: the app tears down first, then plugins unwind LIFO.
       const disconnects = runtime.pluginDisconnectHooks ?? [];
       for (let i = disconnects.length - 1; i >= 0; i -= 1) {
@@ -453,35 +606,24 @@ export async function runConnectionLifecycle(
  * the same user (or any broadcast subscriber) catches up from the buffer.
  */
 export async function cancelActiveStreamsForConnection(
-  runtime: {
-    activeStreams: Map<
-      string,
-      {
-        id: string;
-        connectionId: string;
-        generator: AsyncGenerator<unknown, void, unknown>;
-        closed: boolean;
-        onDisconnect?: EngineRuntimeTypes.OnDisconnect;
-        detached?: boolean;
-        abortController?: AbortController;
-      }
-    >;
-    logger?: Pick<PublicApi.Logger, 'error'>;
-  },
+  runtime: CancelActiveStreamsForConnectionRuntimeParameter,
   connectionId: string,
 ): Promise<void> {
   for (const activeStream of [...runtime.activeStreams.values()]) {
     if (activeStream.connectionId !== connectionId) continue;
+
     if (activeStream.onDisconnect === 'keep-running') {
       activeStream.detached = true;
       continue;
     }
+
     activeStream.closed = true;
     // Fire the stop signal before return() so slow awaited work tied to
     // ctx.stream.signal stops first; the generator's finally still runs.
     if (activeStream.abortController && !activeStream.abortController.signal.aborted) {
       activeStream.abortController.abort('aborted');
     }
+
     try {
       // A user-supplied generator may throw from its `finally` block. Log
       // and move on — the rest of connection-close cleanup (running
@@ -490,7 +632,7 @@ export async function cancelActiveStreamsForConnection(
       // stream's teardown blows up.
       await activeStream.generator.return(undefined);
     } catch (error) {
-      runtime.logger?.error('[wskit] stream cleanup threw on connection close', {
+      runtime.logger?.error('[livething] stream cleanup threw on connection close', {
         streamId: activeStream.id,
         connectionId,
         error: error instanceof Error ? error.message : String(error),
@@ -509,47 +651,65 @@ export interface HandleConnectionCloseOptions {
   reason: string;
 }
 
+type ConnectionCloseRuntime = Pick<
+  ConnectionRuntime,
+  | 'compiled'
+  | 'connections'
+  | 'usersByKey'
+  | 'tagMembers'
+  | 'wsToConnectionId'
+  | 'deleteConnectionState'
+> & {
+  cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
+  buildConnectionContext(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    scope?: EngineRuntimeTypes.ResolvedChannel,
+  ): Record<PropertyKey, unknown>;
+  runConnectionLifecycle(
+    kind: 'connect' | 'disconnect',
+    ctx: Record<PropertyKey, unknown>,
+  ): Promise<void>;
+  leaveChannel(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    opts: ChannelPrimitive.LeaveChannelOptions,
+  ): Promise<void>;
+  connectionCleanupHooks?: readonly ((connectionId: string) => void)[];
+  logger?: Pick<PublicApi.Logger, 'error'>;
+};
+
+const runningCloses = new WeakMap<EngineRuntimeTypes.RuntimeConnection, Promise<void>>();
+
 /**
  * Perform full close cleanup for a connection, including lifecycle hooks and
  * channel leaves.
+ *
+ * handleShutdown drives this directly so the cleanup completes before shutdown
+ * returns, and the adapter's own close event may call it again for the same
+ * connection, even while the first cleanup is still running. Every call after
+ * the first waits for that one cleanup, so onDisconnect and `__memberLeave__`
+ * run once.
  */
-export async function handleConnectionClose(
-  runtime: Pick<
-    ConnectionRuntime,
-    | 'compiled'
-    | 'connections'
-    | 'usersByKey'
-    | 'tagMembers'
-    | 'wsToConnectionId'
-    | 'deleteConnectionState'
-  > & {
-    cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
-    buildConnectionContext(
-      connection: EngineRuntimeTypes.RuntimeConnection,
-      scope?: EngineRuntimeTypes.ResolvedChannel,
-    ): Record<PropertyKey, unknown>;
-    runConnectionLifecycle(
-      kind: 'connect' | 'disconnect',
-      ctx: Record<PropertyKey, unknown>,
-    ): Promise<void>;
-    leaveChannel(
-      connection: EngineRuntimeTypes.RuntimeConnection,
-      opts: ChannelPrimitive.LeaveChannelOptions,
-    ): Promise<void>;
-    connectionCleanupHooks?: readonly ((connectionId: string) => void)[];
-    logger?: Pick<PublicApi.Logger, 'error'>;
-  },
+export function handleConnectionClose(
+  runtime: ConnectionCloseRuntime,
+  options: HandleConnectionCloseOptions,
+): Promise<void> {
+  const { connection } = options;
+  const running = runningCloses.get(connection);
+  if (running) return running;
+
+  if (!runtime.connections.has(connection.id)) return Promise.resolve();
+
+  const cleanup = closeConnection(runtime, options);
+  runningCloses.set(connection, cleanup);
+
+  return cleanup;
+}
+
+async function closeConnection(
+  runtime: ConnectionCloseRuntime,
   options: HandleConnectionCloseOptions,
 ): Promise<void> {
   const { connection, code, reason } = options;
-  // Idempotency guard. handleShutdown drives this directly so the close
-  // cleanup completes before shutdown returns; the adapter's natural
-  // webSocketClose callback may then fire a second time for the same
-  // connection. Re-running the lifecycle would double-fire onDisconnect
-  // and rebroadcast __memberLeave__ to peers. Bail when the connection has
-  // already been removed from the live set.
-  if (!runtime.connections.has(connection.id)) return;
-
   await runtime.cancelActiveStreamsForConnection(connection.id);
 
   connection.closing = true;
@@ -557,6 +717,7 @@ export async function handleConnectionClose(
   removeConnectionFromUserIndex(runtime.usersByKey, connection);
   pendingEvictions.delete(connection);
   runtime.wsToConnectionId.delete(connection.wsKey);
+
   if (!connection.preserveStateOnClose) {
     runtime.deleteConnectionState?.(connection.id);
   }
@@ -577,7 +738,7 @@ export async function handleConnectionClose(
     await runtime.runConnectionLifecycle('disconnect', ctx);
     /* oxlint-disable-next-line @typescript-eslint/no-unused-vars */
   } catch (error) {
-    runtime.logger?.error('[wskit] disconnect lifecycle hook threw', {
+    runtime.logger?.error('[livething] disconnect lifecycle hook threw', {
       connectionId: connection.id,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -604,7 +765,7 @@ export async function handleConnectionClose(
         disconnect: true,
       });
     } catch (error) {
-      runtime.logger?.error('[wskit] leaveChannel threw during close', {
+      runtime.logger?.error('[livething] leaveChannel threw during close', {
         connectionId: connection.id,
         channel: membership.channelName,
         channelFamily: membership.channelFamily,
@@ -629,7 +790,7 @@ export async function handleConnectionClose(
     try {
       hook(connection.id);
     } catch (error) {
-      runtime.logger?.error('[wskit] connection cleanup hook threw', {
+      runtime.logger?.error('[livething] connection cleanup hook threw', {
         connectionId: connection.id,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -646,22 +807,31 @@ export function acceptConnection(
   wsKey: unknown,
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): EngineAdapterTypes.ConnectionHandle {
-  assertUsableUserId(descriptor.userId);
+  const normalizedDescriptor = normalizeConnectionDescriptor(descriptor, {
+    onInvalidCloseCode: (code) => {
+      runtime.logger?.error('[livething] invalid server close code; closing with internal error', {
+        code,
+      });
+    },
+  });
 
-  const translator = createTranslator(runtime, descriptor);
+  assertUsableUserId(normalizedDescriptor.userId);
+
+  const translator = createTranslator(runtime, normalizedDescriptor);
   if (translator === null) return closedHandle();
 
   // A per-user connection cap only applies to identified users — an anonymous
   // connection has no user identity to count against.
   const usersPolicy = runtime.compiled.usersPolicy;
-  if (usersPolicy?.maxConnections !== undefined && descriptor.userId) {
-    const existing = runtime.usersByKey.get(descriptor.userId);
+  if (usersPolicy?.maxConnections !== undefined && normalizedDescriptor.userId) {
+    const existing = runtime.usersByKey.get(normalizedDescriptor.userId);
     const held = existing?.size ?? 0;
     if (held >= usersPolicy.maxConnections) {
       if (usersPolicy.onExceed === 'reject') {
-        descriptor.close(CloseCodes.CAPACITY, 'connection limit reached for this user');
+        normalizedDescriptor.close(CloseCodes.CAPACITY, 'connection limit reached for this user');
         return closedHandle();
       }
+
       // `replace`: evict the oldest connection(s) — set iteration is insertion
       // order — until admitting the newcomer would sit at the cap. The real
       // close event lands later, so the evicted socket is dropped from the
@@ -670,9 +840,11 @@ export function acceptConnection(
       let toEvict = held - usersPolicy.maxConnections + 1;
       for (const oldest of existing ?? []) {
         if (toEvict <= 0) break;
+
         // Removed from the index the moment it's picked, so it can never be
         // picked again by this or a later burst round.
         if (pendingEvictions.has(oldest)) continue;
+
         pendingEvictions.add(oldest);
         removeConnectionFromUserIndex(runtime.usersByKey, oldest);
         oldest.descriptor.close(CloseCodes.DUPLICATE, 'replaced by a newer connection');
@@ -681,18 +853,17 @@ export function acceptConnection(
     }
   }
 
-  let connection!: EngineRuntimeTypes.RuntimeConnection;
-  connection = {
+  const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
-    userId: descriptor.userId,
+    userId: normalizedDescriptor.userId,
     wsKey,
     descriptor: translatedDescriptor({
       runtime,
-      descriptor,
+      descriptor: normalizedDescriptor,
       translator,
       getConnection: () => connection,
     }),
-    meta: descriptor.meta ?? {},
+    meta: normalizedDescriptor.meta ?? {},
     ...(translator ? { translator } : {}),
 
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -702,8 +873,9 @@ export function acceptConnection(
     quality: 'good',
   };
 
-  for (const ref of descriptor.tags ?? []) {
+  for (const ref of normalizedDescriptor.tags ?? []) {
     if (ref.kind !== 'ephemeral') continue;
+
     addConnectionTag(runtime.tagMembers, connection, {
       kind: 'ephemeral',
       group: ref.group,
@@ -730,6 +902,7 @@ export function acceptConnection(
     runtime.deleteConnectionState?.(connection.id);
     throw error;
   }
+
   connection.pendingWrites = { active: true };
 
   const ctx = runtime.buildConnectionContext(connection);
@@ -746,7 +919,7 @@ export function acceptConnection(
         .catch((error) => {
           // A rejoin failure (e.g. a storage hiccup) must not skip onConnect.
           // Log it and still run the connect lifecycle so the handler fires.
-          runtime.logger?.error('[wskit] auto-rejoin failed; running onConnect anyway', {
+          runtime.logger?.error('[livething] auto-rejoin failed; running onConnect anyway', {
             connectionId: connection.id,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -763,10 +936,69 @@ export function acceptConnection(
         connection.pendingWrites.active = false;
         connection.pendingWrites = undefined;
       }
+
       runtime.persistAttachment(connection);
     });
 
   return createHandle(runtime, connection);
+}
+
+function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
+  const { runtime, connection, row, restoredStreamIds } = input;
+  try {
+    runtime.connections.set(connection.id, connection);
+    addConnectionToUserIndex(runtime.usersByKey, connection);
+    runtime.wsToConnectionId.set(connection.wsKey, connection.id);
+
+    for (const tag of row?.ephemeral_tags ?? []) {
+      addConnectionTag(runtime.tagMembers, connection, {
+        kind: 'ephemeral',
+        group: tag.group,
+        key: tag.key,
+      });
+    }
+
+    for (const membership of row?.ephemeral_memberships ?? []) {
+      ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
+        channelName: membership.channelName,
+        channelFamily: membership.channelFamily,
+      });
+    }
+
+    runtime.reloadPersistentTags?.(connection);
+
+    for (const streamId of restoredStreamIds) {
+      const sent = connection.descriptor.send(
+        serializeWireFrame(
+          '__error__',
+          { code: StreamAborted.code, detail: { reason: 'hibernation-wake' as const } },
+          { streamId },
+        ),
+      );
+      if (connection.closing) {
+        rollbackConnectionIndexes(runtime, connection);
+        runtime.deleteConnectionState?.(connection.id);
+        return false;
+      }
+
+      if (sent !== false) connection.activeStreamIds?.delete(streamId);
+    }
+
+    if (restoredStreamIds.length > 0) {
+      (runtime.flushAttachment ?? runtime.persistAttachment)(connection);
+      if (connection.closing) {
+        rollbackConnectionIndexes(runtime, connection);
+        if (!connection.preserveStateOnClose) runtime.deleteConnectionState?.(connection.id);
+        return false;
+      }
+    }
+
+    return true;
+  } catch (error) {
+    rollbackConnectionIndexes(runtime, connection);
+    if (!connection.preserveStateOnClose) runtime.deleteConnectionState?.(connection.id);
+    throw error;
+  }
 }
 
 /**
@@ -794,9 +1026,10 @@ export function wakeHibernatedConnection(
       ? assertSynchronousResult(runtime.restoreAttachment(wsKey), 'adapter hibernation.restore')
       : undefined;
   } catch (error) {
-    wsLike.close?.(1011, '[wskit] hibernation restore failed');
+    wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[livething] hibernation restore failed');
     throw error;
   }
+
   const attachmentId =
     attachment &&
     typeof attachment === 'object' &&
@@ -821,11 +1054,12 @@ export function wakeHibernatedConnection(
   const userId = row?.user_id ?? '';
   const meta = row?.meta ?? {};
   if (runtime.connections.has(id)) {
-    wsLike.close?.(1011, '[wskit] duplicate hibernation connection id');
-    throw new Error(`[wskit] hibernation restore found duplicate connection id "${id}".`);
+    wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[livething] duplicate hibernation connection id');
+    throw new Error(`[livething] hibernation restore found duplicate connection id "${id}".`);
   }
+
   const ephemeralRefs: PublicApi.TagRef[] = (row?.ephemeral_tags ?? []).map((t) => ({
-    __wskit: 'tag-ref' as const,
+    __livething: 'tag-ref' as const,
     kind: 'ephemeral' as const,
     group: t.group,
     key: t.key,
@@ -838,19 +1072,32 @@ export function wakeHibernatedConnection(
   >();
   const restoredStreamIds = row?.active_stream_ids ?? [];
 
-  const rawDescriptor: EngineAdapterTypes.ConnectionDescriptor = {
-    send: (data) => wsLike.send?.(data),
-    close: (code, reason) => wsLike.close?.(code, reason),
-    bufferedAmount: () => 0,
-    userId,
-    meta,
-    tags: ephemeralRefs,
-  };
+  const rawDescriptor = normalizeConnectionDescriptor(
+    {
+      send: (data) => wsLike.send?.(data),
+      close: (code, reason) => wsLike.close?.(code, reason),
+      bufferedAmount: () => 0,
+      userId,
+      meta,
+      tags: ephemeralRefs,
+    },
+    {
+      onInvalidCloseCode: (code) => {
+        runtime.logger?.error(
+          '[livething] invalid server close code; closing with internal error',
+          {
+            code,
+          },
+        );
+      },
+    },
+  );
   const translator = createTranslator(runtime, rawDescriptor);
   if (translator === null) {
     if (row) runtime.deleteConnectionState?.(row.connection_id);
     return closedHandle();
   }
+
   const translatorHibernation = translator?.hibernation;
   if (translatorHibernation) {
     try {
@@ -871,19 +1118,16 @@ export function wakeHibernatedConnection(
     }
   }
 
-  let connection: EngineRuntimeTypes.RuntimeConnection | undefined;
-  const descriptor = translatedDescriptor({
-    runtime,
-    descriptor: rawDescriptor,
-    translator,
-    getConnection: () => connection,
-  });
-
-  connection = {
+  const connection: EngineRuntimeTypes.RuntimeConnection = {
     id,
     userId,
     wsKey,
-    descriptor,
+    descriptor: translatedDescriptor({
+      runtime,
+      descriptor: rawDescriptor,
+      translator,
+      getConnection: () => connection,
+    }),
     meta,
     ...(translator ? { translator } : {}),
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -893,72 +1137,7 @@ export function wakeHibernatedConnection(
     quality: 'good',
   };
 
-  try {
-    runtime.connections.set(connection.id, connection);
-    addConnectionToUserIndex(runtime.usersByKey, connection);
-    runtime.wsToConnectionId.set(wsKey, connection.id);
-
-    for (const t of row?.ephemeral_tags ?? []) {
-      addConnectionTag(runtime.tagMembers, connection, {
-        kind: 'ephemeral',
-        group: t.group,
-        key: t.key,
-      });
-    }
-
-    for (const membership of row?.ephemeral_memberships ?? []) {
-      ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
-        channelName: membership.channelName,
-        channelFamily: membership.channelFamily,
-      });
-    }
-
-    // The snapshot above only holds ephemeral tags. Persistent tags are
-    // user-scoped, so reload them from durable storage on wake.
-    runtime.reloadPersistentTags?.(connection);
-
-    for (const streamId of restoredStreamIds) {
-      const sent = descriptor.send(
-        JSON.stringify({
-          event: '__error__',
-          payload: {
-            code: StreamAborted.code,
-            detail: { reason: 'hibernation-wake' as const },
-          },
-          __wskit: { streamId },
-        }),
-      );
-      if (connection.closing) {
-        rollbackConnectionIndexes(runtime, connection);
-        runtime.deleteConnectionState?.(connection.id);
-        return closedHandle();
-      }
-      if (sent !== false) connection.activeStreamIds?.delete(streamId);
-    }
-
-    // Re-persist so the row reflects the cleared active_stream_ids (the wake
-    // path drained above) and the attachment carries the correct id even if it
-    // was missing before. This must finish before wake returns: a queued flush
-    // could fail after this connection is indexed, leaving a closed connection
-    // in the live maps. A declined stream-abort stays active to retry on a
-    // later wake.
-    if (restoredStreamIds.length > 0) {
-      (runtime.flushAttachment ?? runtime.persistAttachment)(connection);
-      if (connection.closing) {
-        rollbackConnectionIndexes(runtime, connection);
-        if (!connection.preserveStateOnClose) {
-          runtime.deleteConnectionState?.(connection.id);
-        }
-        return closedHandle();
-      }
-    }
-  } catch (error) {
-    rollbackConnectionIndexes(runtime, connection);
-    if (!connection.preserveStateOnClose) {
-      runtime.deleteConnectionState?.(connection.id);
-    }
-    throw error;
-  }
+  if (!restoreWakeIndexes({ runtime, connection, row, restoredStreamIds })) return closedHandle();
 
   connection.lifecycleReady = Promise.resolve();
 
@@ -970,63 +1149,7 @@ export function wakeHibernatedConnection(
  * accept/reject data.
  */
 export async function handleUpgrade(
-  runtime: {
-    upgradeHooks: readonly ((
-      request: Request,
-      helpers: LifecycleTypes.UpgradeHelpers,
-    ) =>
-      | { meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
-      | Promise<{
-          meta?: Record<string, unknown>;
-          tags?: readonly PublicApi.TagRef[];
-        }>)[];
-    /**
-     * New-model plugin `upgrade` hooks, in registration order. Run before the
-     * app's builder hook (inbound onion). Each may own `userId`, but the
-     * single-owner rule below allows at most one user id source overall.
-     */
-    pluginUpgradeHooks?: readonly {
-      pluginId: string;
-      handler: (
-        request: Request,
-        helpers: LifecycleTypes.UpgradeHelpers,
-      ) =>
-        | { userId?: string; meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
-        | Promise<{
-            userId?: string;
-            meta?: Record<string, unknown>;
-            tags?: readonly PublicApi.TagRef[];
-          }>;
-    }[];
-    builderUpgradeHook?:
-      | ((
-          request: Request,
-          helpers: LifecycleTypes.UpgradeHelpers,
-        ) =>
-          | {
-              userId?: string;
-              meta?: Record<string, unknown>;
-              tags?: readonly PublicApi.TagRef[];
-            }
-          | Promise<{
-              userId?: string;
-              meta?: Record<string, unknown>;
-              tags?: readonly PublicApi.TagRef[];
-            }>)
-      | undefined;
-    /**
-     * Built once per engine. A contract with `tagGroups` populates the field;
-     * contracts without tag groups pass `undefined` and the helper bag is the
-     * empty object.
-     */
-    upgradeHelpers: LifecycleTypes.UpgradeHelpers;
-    /**
-     * Whether a tag group of the given kind was declared. Guards tag refs an
-     * upgrade returns — including the `tags: { ephemeral: { ... } }` sugar,
-     * which builds refs without going through the declaration-checked helper.
-     */
-    isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
-  },
+  runtime: HandleUpgradeRuntimeParameter,
   request: Request,
 ): Promise<EngineAdapterTypes.UpgradeDecision> {
   const pluginUpgradeHooks = runtime.pluginUpgradeHooks ?? [];
@@ -1048,55 +1171,73 @@ export async function handleUpgrade(
     let resolvedUserId: string | undefined;
     let userIdOwner: string | undefined;
     const mergedTags: PublicApi.TagRef[] = [];
-    function apply(
-      result: {
-        userId?: string;
-        meta?: Record<string, unknown>;
-        tags?: readonly PublicApi.TagRef[];
-      },
-      owner: string,
-    ): void {
+    function apply(result: ApplyResultParameter, owner: string): void {
       if (result.userId !== undefined) {
         if (userIdOwner !== undefined) {
           throw new Error(
-            `[wskit] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
+            `[livething] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
               'A user id has exactly one owner per connection — the app or one plugin, never both.',
           );
         }
+
         userIdOwner = owner;
         resolvedUserId = result.userId;
       }
+
       if (result.meta) {
         mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
       }
+
       if (result.tags) {
         for (const ref of result.tags) {
           if (ref.kind === 'persistent') {
             throw new Error(
-              `[wskit] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
+              `[livething] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
             );
           }
+
           if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
             throw new Error(
-              `[wskit] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
+              `[livething] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
             );
           }
+
+          // Same rules as `add()`: an empty key is a no-op, and a group with a
+          // schema must accept the key.
+          if (ref.key.length === 0) continue;
+
+          const schema = runtime.getTagGroupSchema('ephemeral', ref.group);
+          if (schema) {
+            try {
+              validateValue(schema, ref.key, `tag ephemeral:${ref.group}`);
+            } catch (error) {
+              throw new Error(
+                `[livething] onUpgrade returned the ephemeral tag key '${ref.key}' for group '${ref.group}', which the group's schema rejects.`,
+                { cause: error },
+              );
+            }
+          }
+
           mergedTags.push(ref);
         }
       }
     }
+
     for (const entry of pluginUpgradeHooks) {
       apply(
         (await entry.handler(request, runtime.upgradeHelpers)) ?? {},
         `plugin '${entry.pluginId}'`,
       );
     }
+
     for (const hook of runtime.upgradeHooks) {
       apply((await hook(request, runtime.upgradeHelpers)) ?? {}, 'an internal hook');
     }
+
     if (runtime.builderUpgradeHook) {
       apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {}, 'the app');
     }
+
     return {
       userId: resolvedUserId,
       meta: mergedMeta,
@@ -1106,21 +1247,45 @@ export async function handleUpgrade(
     if (
       error &&
       typeof error === 'object' &&
-      (error as { __wskit?: string }).__wskit === 'reject-upgrade'
+      (error as { __livething?: string }).__livething === 'reject-upgrade'
     ) {
+      const code = (error as { code: number }).code;
+      if (isValidCloseCode(code) || isValidHttpUpgradeStatus(code)) {
+        return {
+          reject: true,
+          code,
+          reason: (error as { reason: string }).reason,
+        };
+      }
+
+      runtime.logger?.error('[livething] invalid upgrade rejection code; rejecting with HTTP 403', {
+        code,
+      });
       return {
         reject: true,
-        code: (error as { code: number }).code,
-        reason: (error as { reason: string }).reason,
+        code: 403,
+        reason: 'Upgrade rejected',
       };
     }
 
+    // The client only sees a generic reason; the real error goes to the log.
+    runtime.logger?.error('[livething] upgrade hook threw; rejecting with HTTP 500', {
+      error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      ...(error instanceof Error && error.cause !== undefined
+        ? { cause: error.cause instanceof Error ? error.cause.message : String(error.cause) }
+        : {}),
+    });
     return {
       reject: true,
       code: 500,
       reason: 'Upgrade failed',
     };
   }
+}
+
+function isValidHttpUpgradeStatus(code: unknown): code is number {
+  return typeof code === 'number' && Number.isInteger(code) && code >= 400 && code <= 599;
 }
 
 /**
@@ -1160,7 +1325,7 @@ export async function handleShutdown(
     try {
       await hook(runtime.createShutdownContext());
     } catch (error) {
-      runtime.logger?.error('[wskit] shutdown hook threw', {
+      runtime.logger?.error('[livething] shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1172,7 +1337,7 @@ export async function handleShutdown(
     try {
       await pluginShutdowns[i]!.handler(runtime.createShutdownContext());
     } catch (error) {
-      runtime.logger?.error('[wskit] plugin shutdown hook threw', {
+      runtime.logger?.error('[livething] plugin shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1193,12 +1358,13 @@ export async function handleShutdown(
   for (const connection of draining) {
     connection.descriptor.close(CloseCodes.GOING_AWAY, 'Server shutting down');
   }
+
   await Promise.all(
     draining.map(async (connection) => {
       try {
         await runtime.handleConnectionClose(connection);
       } catch (error) {
-        runtime.logger?.error('[wskit] handleConnectionClose threw during shutdown', {
+        runtime.logger?.error('[livething] handleConnectionClose threw during shutdown', {
           connectionId: connection.id,
           error: error instanceof Error ? error.message : String(error),
         });

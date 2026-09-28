@@ -1,8 +1,8 @@
-import { define, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
+import { server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { recordedStream, resumableStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Empty = v.object({});
@@ -12,8 +12,7 @@ const PausePayload = v.object({ at: v.number() });
 const TokenChunk = t<{ token: string }>();
 const StopPayload = v.object({});
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), stream(), resumableStream(), recordedStream()],
 });
@@ -127,6 +126,7 @@ const handlePausedFeed = rooms.resumableStream('paused-feed', {
     for (let i = startAt + 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield ctx.stream.withCursor({ row: i }, { idx: i }));
       if (nudges.some((n) => n.event === 'pause')) return;
+
       await new Promise((r) => setTimeout(r, 150));
     }
   },
@@ -140,6 +140,7 @@ const handleChannelTokens = rooms.stream('channel-tokens', {
     for (let i = 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield { token: `t${i}` });
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },
@@ -156,12 +157,13 @@ const handleHistoryNudged = rooms.recordedStream('history-nudged', {
     for (let i = 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield { idx: i });
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },
 });
 
-export const streamDurableScopedHandler = base.assemble({
+export const streamDurableScopedDefinition = base.assemble({
   handlers: [
     handleStartConcurrent,
     handleShortWindow,
@@ -176,4 +178,4 @@ export const streamDurableScopedHandler = base.assemble({
   ],
 });
 
-export type StreamDurableScopedClient = InferClient<typeof streamDurableScopedHandler>;
+export type StreamDurableScopedClient = InferClient<typeof streamDurableScopedDefinition>;

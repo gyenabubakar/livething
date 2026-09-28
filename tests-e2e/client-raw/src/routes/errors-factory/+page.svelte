@@ -6,12 +6,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/errors-factory?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -21,7 +23,8 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === '__error__') {
 				errorResult = `${data.payload?.code ?? ''}:${JSON.stringify(data.payload?.detail ?? {})}`;
 			}
@@ -29,7 +32,7 @@
 	}
 
 	function send(event: string) {
-		ws?.send(JSON.stringify({ event, payload: {} }));
+		ws?.send(window.__livethingEncode({ event, payload: {} }));
 	}
 </script>
 

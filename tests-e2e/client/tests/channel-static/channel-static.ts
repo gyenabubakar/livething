@@ -1,11 +1,11 @@
-import { channels, client, clientRequests, connect, platform, stream } from '@wskit/client';
-import { WebEnvironment } from '@wskit/client/environment';
-import type { ChannelStaticClient } from '@wskit/tests-e2e-handlers/channel-static';
+import { channels, client, clientRequests, connect, platform, stream } from '@livething/client';
+import { WebEnvironment } from '@livething/client/environment';
+import type { ChannelStaticClient } from '@livething/tests-e2e-handlers/channel-static';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channels() against the real `channel-static` handler,
+// Drives @livething/client's channels() against the real `channel-static` server definition,
 // typed by the same contract the server implements
-// (ChannelStaticClient = InferClient<handler>).
+// (ChannelStaticClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
@@ -75,16 +75,16 @@ export function setup(): void {
     el('members-count').textContent = String(room.members.get().size);
   });
 
-  room.onMemberJoin((connectionId) => {
+  room.onMemberJoin((memberId) => {
     const span = el('member-joins');
-    const entry = `room:${connectionId}`;
+    const entry = `room:${memberId}`;
     span.textContent = span.textContent ? `${span.textContent},${entry}` : entry;
     el('members-count').textContent = String(room.members.get().size);
   });
 
-  room.onMemberLeave((connectionId) => {
+  room.onMemberLeave((memberId) => {
     const span = el('member-leaves');
-    const entry = `room:${connectionId}`;
+    const entry = `room:${memberId}`;
     span.textContent = span.textContent ? `${span.textContent},${entry}` : entry;
     el('members-count').textContent = String(room.members.get().size);
   });
@@ -132,6 +132,7 @@ export function setup(): void {
       chunks.push(chunk.index);
       el('stream-chunks').textContent = chunks.join(',');
     }
+
     el('stream-end').textContent = 'yes';
   });
 

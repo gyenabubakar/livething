@@ -27,7 +27,7 @@ export type { InterceptFn } from '~/primitives/intercept.ts';
 export { debug } from '~/primitives/debug.ts';
 export { platform } from '~/primitives/platform.ts';
 export type { PlatformApi, PlatformOptions } from '~/primitives/platform.ts';
-export { plugin, observeHost } from '~/plugins/index.ts';
+export { plugin } from '~/plugins/index.ts';
 export type {
   PluginDef,
   PluginInstance,
@@ -69,8 +69,16 @@ export type {
 export { stream } from '~/primitives/stream/index.ts';
 export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/index.ts';
 
-export { CloseCodes } from '@wskit/core';
-export type { WireMessage, WSKitEnvelope } from '@wskit/core';
+export { CloseCodes } from '@livething/core';
+export type {
+  LiveThingChannelMetadata,
+  LiveThingDeliveryMetadata,
+  LiveThingExchangeMetadata,
+  LiveThingMetadata,
+  LiveThingStreamMetadata,
+  Message,
+  WireFrame,
+} from '@livething/core';
 
 export type { ReadableStore } from '~/internal/store.ts';
 export type { Socket, SocketConnection, ContractError } from '~/socket/api.ts';

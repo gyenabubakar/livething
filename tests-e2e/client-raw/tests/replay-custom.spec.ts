@@ -51,12 +51,8 @@ test.describe('custom replay handler', () => {
   test('channel __replay__ request hits the channel handler, not the server-level handler', async ({
     page,
   }) => {
-    // Cascade contract: when a channel has its own `.replayCustom()`, the
-    // server-level replayCustom must NOT also handle channel-scoped __replay__
-    // requests. Pre-fix the channel primitive's `__wskit` tag did not match
-    // the compile-step claim collector's expectation, so the channel never
-    // marked itself as claimed and the server-level handler ran first,
-    // returning top-level rows for a channel request.
+    // The channel claim must win over the server-level replay handler, so
+    // channel-scoped requests do not receive top-level rows.
 
     // Add a top-level note. Stored in `_custom_replay`.
     await page.getByTestId('add-note-btn').click();
@@ -84,7 +80,7 @@ test.describe('custom replay handler', () => {
     expect(await page.getByTestId('replay-count').textContent()).toBe('0');
   });
 
-  test('onAfterSend marks messages as confirmed', async ({ page }) => {
+  test('afterBroadcast marks messages as confirmed', async ({ page }) => {
     await page.getByTestId('add-note-btn').click();
     await waitForText(page, 'notes', /custom replay note/);
 
@@ -97,7 +93,7 @@ test.describe('custom replay handler', () => {
     expect(Number(match![2])).toBeGreaterThan(0);
   });
 
-  test('channel onAfterSend marks room messages as confirmed', async ({ page }) => {
+  test('channel afterBroadcast marks room messages as confirmed', async ({ page }) => {
     await page.getByTestId('room-join-btn').click();
     await waitForText(page, 'room-subscribed', 'subscribed');
 
@@ -116,14 +112,14 @@ test.describe('custom replay handler', () => {
   test('custom replay supports nonzero since', async ({ page }) => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: 'add-note', payload: { text: 'top-old' } }));
+      ws?.send(window.__livethingEncode({ event: 'add-note', payload: { text: 'top-old' } }));
     });
     await waitForText(page, 'notes', /top-old/);
     const since = Number(await page.getByTestId('last-seq').textContent());
 
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: 'add-note', payload: { text: 'top-new' } }));
+      ws?.send(window.__livethingEncode({ event: 'add-note', payload: { text: 'top-new' } }));
     });
     await waitForText(page, 'notes', /top-new/);
 
@@ -132,6 +128,7 @@ test.describe('custom replay handler', () => {
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
     await page.getByTestId('since-input').fill(String(since));
+
     await page.getByTestId('replay-btn').click();
 
     await expect(async () => {
@@ -148,10 +145,10 @@ test.describe('custom replay handler', () => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'add-room-note',
           payload: { text: 'room-old' },
-          __wskit: { channel: 'custom-room' },
+          metadata: { channel: { name: 'custom-room' } },
         }),
       );
     });
@@ -161,10 +158,10 @@ test.describe('custom replay handler', () => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
-        JSON.stringify({
+        window.__livethingEncode({
           event: 'add-room-note',
           payload: { text: 'room-new' },
-          __wskit: { channel: 'custom-room' },
+          metadata: { channel: { name: 'custom-room' } },
         }),
       );
     });
@@ -175,6 +172,7 @@ test.describe('custom replay handler', () => {
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
     await page.getByTestId('room-join-btn').click();
+
     await waitForText(page, 'room-subscribed', 'subscribed');
     await page.getByTestId('room-since-input').fill(String(since));
     await page.getByTestId('room-replay-btn').click();

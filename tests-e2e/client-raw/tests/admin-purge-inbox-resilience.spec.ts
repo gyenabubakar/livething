@@ -8,22 +8,23 @@ test.describe('inbox purge resilience (real Durable Object)', () => {
     const alice = await openMember(browser, { path: '/receipts', room, username: 'alice' });
     const bob = await openMember(browser, { path: '/receipts', room, username: 'bob' });
     await subscribe(alice.page);
+
     await subscribe(bob.page);
 
     await send(bob.page, {
       event: 'send-room-msg',
       payload: { text: 'purge-me' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     const message = await waitForFrame(
       alice.page,
       (frame) => frame.event === 'room-msg' && frame.payload.text === 'purge-me',
     );
-    const seq = Number(message.__wskit?.seq);
+    const seq = Number(message.metadata?.delivery?.seq);
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
     await expect
       .poll(async () => {

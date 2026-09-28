@@ -6,12 +6,12 @@ import {
   platform,
   plugin,
   reconnection,
-} from '@wskit/client';
-import { WebEnvironment } from '@wskit/client/environment';
-import * as errorsEntry from '@wskit/client/errors';
-import * as platformEntry from '@wskit/client/platform';
-import * as testingEntry from '@wskit/client/testing';
-import type { Primitive, QualityApi, Socket } from '@wskit/client';
+} from '@livething/client';
+import { WebEnvironment } from '@livething/client/environment';
+import * as errorsEntry from '@livething/client/errors';
+import * as platformEntry from '@livething/client/platform';
+import * as testingEntry from '@livething/client/testing';
+import type { Primitive, QualityApi, Socket } from '@livething/client';
 
 // The page imports the BUILT client (dist via the package exports), so loading
 // and connecting at all is itself the bundle smoke test. The extra subpath
@@ -167,6 +167,10 @@ if (!useLazy) {
 }
 
 (window as unknown as { __drop(): void }).__drop = () => socket.send('drop', {});
+(window as unknown as { __disconnect(code: number, reason: string): void }).__disconnect = (
+  code,
+  reason,
+) => socket.disconnect(code, reason);
 
 el('connect').addEventListener('click', () => socket.connect());
 el('disconnect').addEventListener('click', () => socket.disconnect());

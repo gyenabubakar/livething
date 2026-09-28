@@ -1,8 +1,8 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 
 /**
- * Channel family templates use a tiny, fixed syntax that wskit compiles itself
- * — no raw regex from developers, so catastrophic backtracking is impossible by
+ * Channel family templates use a tiny, fixed syntax that LiveThing compiles itself
+ * — no raw regex from developers, so exponential backtracking is impossible by
  * construction. The grammar is just literals plus `{name}` captures:
  *
  * - `room:{id}`            matches `room:general` → `{ id: 'general' }`
@@ -17,8 +17,10 @@ export interface CompiledChannelTemplate {
   /** The original template string, kept for error messages and reconstruction. */
   readonly template: string;
   /** The compiled matcher. Anchored and built only from escaped literals and
-   * `(?<name>.+?)` groups, so it is always linear-to-quadratic — never
-   * exponential — regardless of the template. */
+   * `(?<name>.+?)` groups. Worst-case matching is polynomial in the name
+   * length with the param count as the power (linear for one param,
+   * quadratic for two, cubic for three) — never exponential. The 256-character
+   * wire limit on channel names bounds it. */
   readonly regex: RegExp;
   /** Capture names, in template order. */
   readonly paramNames: readonly string[];
@@ -33,17 +35,17 @@ function escapeLiteral(text: string): string {
 }
 
 /**
- * Parse a channel family template into a safe matcher. Throws `WSKitConfigError`
+ * Parse a channel family template into a safe matcher. Throws `LiveThingConfigError`
  * with a clear message on any malformed template — unclosed/unmatched brace,
  * empty `{}`, bad param name, duplicate param, or two params with no literal
  * between them.
  */
 export function compileChannelTemplate(
   template: string,
-  source = 'scope()',
+  source = 'base.channel()',
 ): CompiledChannelTemplate {
   if (typeof template !== 'string' || template.length === 0) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `${source} requires a non-empty template string — got ${JSON.stringify(template)}.`,
     );
   }
@@ -72,40 +74,47 @@ export function compileChannelTemplate(
         i += 2;
         continue;
       }
+
       const end = template.indexOf('}', i + 1);
       if (end === -1) {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           `${source} template "${template}" has an unclosed '{'. ` +
             `Write '{{' for a literal '{'.`,
         );
       }
+
       const name = template.slice(i + 1, end);
       if (name === '') {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           `${source} template "${template}" has an empty '{}'. ` +
             `Name the parameter, e.g. '{id}'.`,
         );
       }
+
       if (!PARAM_NAME.test(name)) {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           `${source} template "${template}" has an invalid parameter name '${name}'. ` +
             `Use a plain identifier (letters, digits, underscore; not starting with a digit).`,
         );
       }
+
       if (paramNames.includes(name)) {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           `${source} template "${template}" declares the parameter '${name}' twice. ` +
             `Each parameter name must be unique.`,
         );
       }
+
       if (previousWasParam) {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           `${source} template "${template}" has two parameters with no text between them. ` +
             `Separate them with a literal, e.g. '{a}:{b}'.`,
         );
       }
+
       flushLiteral();
       regexSource += `(?<${name}>.+?)`;
+
       paramNames.push(name);
       previousWasParam = true;
       i = end + 1;
@@ -120,7 +129,8 @@ export function compileChannelTemplate(
         i += 2;
         continue;
       }
-      throw new WSKitConfigError(
+
+      throw new LiveThingConfigError(
         `${source} template "${template}" has an unmatched '}'. ` + `Write '}}' for a literal '}'.`,
       );
     }
@@ -146,7 +156,7 @@ export function compileChannelTemplate(
 export function fillChannelTemplate(
   template: string,
   params: Record<string, string>,
-  source = 'scope()',
+  source = 'base.channel()',
 ): string {
   let result = '';
   let i = 0;
@@ -160,21 +170,25 @@ export function fillChannelTemplate(
         i += 2;
         continue;
       }
+
       const end = template.indexOf('}', i + 1);
       if (end === -1) {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           `${source} template "${template}" has an unclosed '{' — it must be a ` +
             'compiled family template.',
         );
       }
+
       const name = template.slice(i + 1, end);
       const value = params[name];
+
       if (typeof value !== 'string' || value === '') {
-        throw new WSKitConfigError(
+        throw new LiveThingConfigError(
           `${source} template "${template}" needs a non-empty '${name}' to resolve a ` +
             `channel name — got ${JSON.stringify(value)}.`,
         );
       }
+
       result += value;
       i = end + 1;
       continue;

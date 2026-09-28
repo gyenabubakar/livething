@@ -16,7 +16,7 @@ function backfillFrame(
   return {
     event: 'msg',
     payload: overrides.payload ?? { n: seq },
-    __wskit: { seq, messageId: `m${seq}` },
+    __livething: { deliverySeq: seq, messageId: `m${seq}` },
   };
 }
 
@@ -64,7 +64,7 @@ describe('inbox surface — backfill()', () => {
     const bad = {
       event: 'msg',
       payload: 'not-an-object',
-      __wskit: { seq: 1, messageId: 'm1' },
+      __livething: { deliverySeq: 1, messageId: 'm1' },
     } as unknown as BackfillMessage;
 
     expect(() => surface.backfill('newcomer', [bad])).toThrow();
@@ -85,7 +85,7 @@ describe('inbox surface — backfill()', () => {
     const bad = {
       event: 'msg',
       payload,
-      __wskit: { seq: 1, messageId: 'm1' },
+      __livething: { deliverySeq: 1, messageId: 'm1' },
     } as unknown as BackfillMessage;
 
     expect(() => surface.backfill('newcomer', [bad])).toThrow(/plain object/);

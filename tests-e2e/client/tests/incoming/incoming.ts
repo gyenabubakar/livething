@@ -1,10 +1,10 @@
-import { client, connect } from '@wskit/client';
-import type { IncomingClient } from '@wskit/tests-e2e-handlers/incoming';
+import { client, connect } from '@livething/client';
+import type { IncomingClient } from '@livething/tests-e2e-handlers/incoming';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's base on()/send() against the real `incoming` handler,
+// Drives @livething/client's base on()/send() against the real `incoming` server definition,
 // typed by the same contract the server implements (IncomingClient =
-// InferClient<handler>). The handler's incoming events are the client's
+// InferClient<definition>). The server definition's incoming events are the client's
 // outgoing (send), and its outgoing events are the client's incoming (on).
 export function setup(): void {
   mount(`

@@ -71,8 +71,7 @@ const pills = [
             <span class="font-mono text-xs text-toned">chat.server.ts</span>
           </div>
           <div class="p-6 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
-            <pre><code><span class="text-violet-400">const</span> base = <span class="text-amber-400">define</span>({
-  <span class="text-sky-400">env</span>: <span class="text-amber-400">t</span>&lt;<span class="text-sky-400">Env</span>&gt;(),
+            <pre><code><span class="text-violet-400">const</span> base = <span class="text-amber-400">server</span>({
   <span class="text-sky-400">capabilities</span>: [
     <span class="text-amber-400">emits</span>({ <span class="text-sky-400">message</span>: <span class="text-amber-400">t</span>&lt;{ text: <span class="text-sky-400">string</span>; from: <span class="text-sky-400">string</span> }&gt;() }),
   ],
@@ -83,69 +82,52 @@ const pills = [
   <span class="text-sky-400">run</span>: (ctx, msg) => ctx.<span class="text-amber-400">broadcast</span>(<span class="text-emerald-400">'message'</span>, msg),
 })
 
-<span class="text-violet-400">export const</span> handler = base.<span class="text-amber-400">assemble</span>({ <span class="text-sky-400">handlers</span>: [handleSend] })
+<span class="text-violet-400">export const</span> definition = base.<span class="text-amber-400">assemble</span>({ <span class="text-sky-400">handlers</span>: [handleSend] })
 
 <span class="block -mx-6 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.5rem-2px)] pr-6"><span class="text-dimmed">// the whole client API — one line, no codegen</span>
-<span class="text-violet-400">export type</span> <span class="text-sky-400">ChatSocket</span> = <span class="text-amber-400">InferClient</span>&lt;<span class="text-violet-400">typeof</span> handler&gt;</span></code></pre>
+<span class="text-violet-400">export type</span> <span class="text-sky-400">ChatSocket</span> = <span class="text-amber-400">InferClient</span>&lt;<span class="text-violet-400">typeof</span> definition&gt;</span></code></pre>
           </div>
         </div>
       </Motion>
 
-      <!-- Right: two client blocks — the contract holding, and the compiler catching a typo -->
+      <!-- Right: one client file — the contract holding, and the compiler catching a typo -->
       <Motion
         :initial="false"
         :while-in-view="{ opacity: 1, y: 0 }"
         :transition="{ duration: 0.5, delay: 0.2 }"
         :in-view-options="{ once: true }"
-        class="flex flex-col gap-6 h-full"
+        class="h-full"
       >
-        <!-- Typed: the contract holds -->
-        <div class="overflow-hidden border border-muted bg-default">
+        <div class="h-full flex flex-col overflow-hidden border border-muted bg-default">
           <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
             <span class="inline-flex items-center gap-1.5 font-mono text-[11px] text-sky-300">
               <span class="size-1.5 rounded-full bg-sky-400" /> client
             </span>
             <span class="font-mono text-xs text-toned">app.client.ts</span>
-            <span class="ml-auto inline-flex items-center gap-1.5 font-mono text-[11px] text-emerald-400">
-              <span class="size-1.5 rounded-full bg-emerald-400" /> inferred
+            <span class="ml-auto inline-flex items-center gap-3 font-mono text-[11px]">
+              <span class="inline-flex items-center gap-1.5 text-emerald-400"><span class="size-1.5 rounded-full bg-emerald-400" /> inferred</span>
+              <span class="inline-flex items-center gap-1.5 text-red-400"><span class="size-1.5 rounded-full bg-red-400" /> caught</span>
             </span>
           </div>
-          <div class="p-6 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
-            <pre><code>socket.<span class="text-amber-400">on</span>(<span class="text-emerald-400">'message'</span>, (msg) => {
+          <div class="flex-1 flex flex-col justify-center p-6 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
+            <pre><code><span class="text-violet-400">import type</span> { <span class="text-sky-400">ChatSocket</span> } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@chat/server'</span>
+<span class="block -mx-6 border-l-2 border-sky-500/70 bg-sky-500/10 pl-[calc(1.5rem-2px)] pr-6"><span class="text-violet-400">const</span> socket = <span class="text-amber-400">client</span>&lt;<span class="text-sky-400">ChatSocket</span>&gt;()(<span class="text-amber-400">connect</span>(url))</span>
+socket.<span class="text-amber-400">on</span>(<span class="text-emerald-400">'message'</span>, (msg) => {
   msg.text   <span class="text-dimmed">// string</span>
   msg.from   <span class="text-dimmed">// string</span>
 })
+socket.<span class="text-amber-400">send</span>(<span class="text-emerald-400">'send-message'</span>, { text, from }) <span class="text-dimmed">// typed too</span>
 
-socket.<span class="text-amber-400">send</span>(<span class="text-emerald-400">'send-message'</span>, { text, from }) <span class="text-dimmed">// typed too</span></code></pre>
-            <div class="mt-4 border-t border-muted pt-3">
-              <p class="text-xs text-toned">
-                <span class="text-emerald-400">&#10003;</span> Inferred from the server — every event and field typed
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Typo: the compiler catches it -->
-        <div class="overflow-hidden border border-muted bg-default">
-          <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
-            <span class="inline-flex items-center gap-1.5 font-mono text-[11px] text-sky-300">
-              <span class="size-1.5 rounded-full bg-sky-400" /> client
-            </span>
-            <span class="font-mono text-xs text-toned">app.client.ts</span>
-            <span class="ml-auto inline-flex items-center gap-1.5 font-mono text-[11px] text-red-400">
-              <span class="size-1.5 rounded-full bg-red-400" /> caught
-            </span>
-          </div>
-          <div class="p-6 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
-            <pre><code>socket.<span class="text-amber-400">on</span>(<span class="text-red-400 underline decoration-wavy decoration-red-500 underline-offset-4">'mesage'</span>, (msg) => {
-  msg.text
-})</code></pre>
-            <div class="mt-4 border-l-2 border-red-500/40 pl-3">
+socket.<span class="text-amber-400">on</span>(<span class="text-red-400 underline decoration-wavy decoration-red-500 underline-offset-4">'mesage'</span>, (msg) => {})</code></pre>
+            <div class="mt-3 border-l-2 border-red-500/40 pl-3">
               <p class="text-xs text-red-400/90 leading-relaxed">
                 Argument of type <span class="text-red-300">'mesage'</span> is not assignable to parameter of type <span class="text-red-300">'message'</span>.
               </p>
             </div>
-            <div class="mt-4 border-t border-muted pt-3">
+            <div class="mt-4 space-y-1 border-t border-muted pt-3">
+              <p class="text-xs text-toned">
+                <span class="text-emerald-400">&#10003;</span> Inferred from the server — every event and field typed
+              </p>
               <p class="text-xs text-toned">
                 <span class="text-red-400">&#10007;</span> Rename on the server and stale calls stop compiling
               </p>

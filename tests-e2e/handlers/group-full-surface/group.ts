@@ -1,4 +1,4 @@
-import { localKey, t } from '@wskit/server';
+import { emits, localKey, t } from '@livething/server';
 import * as v from 'valibot';
 import {
   BadPayload,
@@ -61,12 +61,12 @@ base.intercept((ctx, frame) => {
 });
 
 base.replay({
-  beforeSend: (ctx, msg) => {
+  beforeBroadcast: (ctx, msg) => {
     ctx.sql.exec(
       'INSERT INTO _replay_log (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
       msg.event,
       JSON.stringify(msg.payload),
-      msg.wire.seq,
+      msg.wire.deliverySeq,
       msg.wire.messageId,
     );
   },
@@ -81,7 +81,7 @@ base.replay({
     ).toArray();
     for (const row of rows) {
       ctx.sendReplay(row.event, JSON.parse(row.payload), {
-        seq: row.seq,
+        deliverySeq: row.seq,
         messageId: row.message_id,
       });
     }
@@ -154,7 +154,7 @@ export const handleStartTick = base.on('start-tick', {
 export const handleEmitReplayMarker = base.on('emit-replay-marker', {
   input: v.object({ note: v.string() }),
   run(ctx, payload) {
-    ctx.send('replay-marker', { note: payload.note });
+    ctx.broadcast('replay-marker', { note: payload.note }, { includeSelf: true });
   },
 });
 
@@ -204,16 +204,14 @@ export const handleTokens = base.recordedStream('tokens', {
   },
 });
 
-export const handleTick = base.scheduled('tick', {
+base.scheduled('tick', {
   run(ctx) {
     ctx.sql.exec('INSERT INTO _scheduled_log (t) VALUES (?)', Date.now());
   },
 });
 
 const rooms = base.channel('rooms', {
-  outgoing: {
-    emits: { 'room-msg': t<v.InferOutput<typeof RoomMsgPayload>>() },
-  },
+  capabilities: [emits({ 'room-msg': t<v.InferOutput<typeof RoomMsgPayload>>() })],
 });
 
 export const handleRoomSendMsg = rooms.on('send-msg', {

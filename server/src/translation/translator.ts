@@ -1,4 +1,4 @@
-import { assertSynchronousResult, WSKitConfigError } from '@wskit/core';
+import { assertSynchronousResult, LiveThingConfigError } from '@livething/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Validator } from '~/types.ts';
 
@@ -66,6 +66,7 @@ export function translator(
           'translator.outbound',
         );
     }
+
     if (definition.hibernation) {
       instance.hibernation = {
         serialize() {
@@ -91,11 +92,13 @@ function assertDefinition(
   definition: TranslatorDefinition<unknown> | ValidatedTranslatorDefinition<Validator, unknown>,
 ): TranslatorDefinition<unknown> | ValidatedTranslatorDefinition<Validator, unknown> {
   if (!definition || typeof definition !== 'object' || typeof definition.inbound !== 'function') {
-    throw new WSKitConfigError('translator() factory must return an object with inbound(raw).');
+    throw new LiveThingConfigError('translator() factory must return an object with inbound(raw).');
   }
+
   if (definition.outbound !== undefined && typeof definition.outbound !== 'function') {
-    throw new WSKitConfigError('translator outbound must be a function when provided.');
+    throw new LiveThingConfigError('translator outbound must be a function when provided.');
   }
+
   if (
     definition.hibernation !== undefined &&
     (!definition.hibernation ||
@@ -103,13 +106,15 @@ function assertDefinition(
       typeof definition.hibernation.serialize !== 'function' ||
       typeof definition.hibernation.restore !== 'function')
   ) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       'translator hibernation must provide both serialize() and restore().',
     );
   }
+
   if (definition.input !== undefined && !isValidator(definition.input)) {
-    throw new WSKitConfigError('translator input must be a Standard Schema validator.');
+    throw new LiveThingConfigError('translator input must be a Standard Schema validator.');
   }
+
   return definition;
 }
 
@@ -127,7 +132,7 @@ function validateInput(input: Validator, raw: string): unknown {
   try {
     frame = JSON.parse(raw);
   } catch {
-    throw new TranslationInputError('[wskit] translator input rejected invalid JSON.');
+    throw new TranslationInputError('[livething] translator input rejected invalid JSON.');
   }
 
   const result = assertSynchronousResult(
@@ -137,13 +142,15 @@ function validateInput(input: Validator, raw: string): unknown {
   );
   if (result.issues) {
     throw new TranslationInputError(
-      `[wskit] translator input rejected frame: ${result.issues[0]?.message ?? 'invalid input'}`,
+      `[livething] translator input rejected frame: ${result.issues[0]?.message ?? 'invalid input'}`,
     );
   }
+
   return result.value;
 }
 
 function assertTranslatedString(value: unknown, method: string): string | null {
   if (typeof value === 'string' || value === null) return value;
-  throw new WSKitConfigError(`${method} must return a string or null.`);
+
+  throw new LiveThingConfigError(`${method} must return a string or null.`);
 }

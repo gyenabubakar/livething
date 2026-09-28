@@ -5,7 +5,7 @@ const cfBeaconToken = process.env.NUXT_PUBLIC_CF_BEACON_TOKEN
 // Single source of truth for the site's public URL. Override via the
 // NUXT_PUBLIC_SITE_URL build env var, or just change this default when the
 // real domain is bought — every canonical/OG/sitemap URL follows it.
-const siteUrl = process.env.NUXT_PUBLIC_SITE_URL || 'https://wskit.gyen.dev'
+const siteUrl = process.env.NUXT_PUBLIC_SITE_URL || 'https://livething.dev'
 
 export default defineNuxtConfig({
   extends: ['docus'],
@@ -70,8 +70,16 @@ export default defineNuxtConfig({
     'nuxt-studio',
   ],
 
+  // Markdown resolves a code fence as `ProsePre`. Register this directory
+  // without its `content` path prefix so the local Pierre renderer replaces
+  // Nuxt UI's default renderer for every documentation page.
+  components: [
+    { path: '~/components/content', pathPrefix: false, global: true },
+    '~/components',
+  ],
+
   colorMode: {
-    preference: 'dark',
+    preference: 'system',
   },
 
   fonts: {
@@ -90,25 +98,25 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
 
   site: {
-    name: 'WSKit',
+    name: 'LiveThing',
     url: siteUrl,
   },
 
   llms: {
     domain: siteUrl,
-    title: 'WSKit',
+    title: 'LiveThing',
     description:
-      'A typed, end-to-end WebSocket framework for TypeScript: define one contract and get an inferred client and server, with channels, streams, requests, presence, and reliability built in.',
+      'A typed, end-to-end WebSocket framework for TypeScript: call server() once and get an inferred client and server, with channels, streams, requests, presence, and reliability built in.',
     full: {
-      title: 'WSKit — full documentation',
-      description: 'Every WSKit documentation page concatenated into one file.',
+      title: 'LiveThing — full documentation',
+      description: 'Every LiveThing documentation page concatenated into one file.',
     },
     // Group the index by the seven navbar sections. `@nuxt/content` fills each
     // section's links by querying the `docs` collection with these path filters.
     sections: [
       {
         title: 'Start',
-        description: 'Install WSKit and build your first typed realtime app.',
+        description: 'Install LiveThing and build your first typed realtime app.',
         contentCollection: 'docs',
         contentFilters: [{ field: 'path', operator: 'LIKE', value: '/start/%' }],
       },
@@ -120,20 +128,20 @@ export default defineNuxtConfig({
       },
       {
         title: 'Client',
-        description: 'The @wskit/client package: the socket, primitives, channels, streams, and errors.',
+        description: 'The @livething/client package: the socket, primitives, channels, streams, and errors.',
         contentCollection: 'docs',
         contentFilters: [{ field: 'path', operator: 'LIKE', value: '/client/%' }],
       },
       {
         title: 'Server',
         description:
-          'The @wskit/server package: define, capabilities, handlers, channels, streams, and adapters.',
+          'The @livething/server package: server(), capabilities, event handlers, channels, streams, and adapters.',
         contentCollection: 'docs',
         contentFilters: [{ field: 'path', operator: 'LIKE', value: '/server/%' }],
       },
       {
         title: 'Core',
-        description: 'The @wskit/core shared layer: the error model, built-in errors, and close codes.',
+        description: 'The @livething/core shared layer: the error model, built-in errors, and close codes.',
         contentCollection: 'docs',
         contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/%' }],
       },
@@ -172,10 +180,14 @@ export default defineNuxtConfig({
     },
     repository: {
       provider: 'github',
-      owner: 'plain-software-co',
-      repo: 'wskit',
+      owner: 'workmatter',
+      repo: 'livething',
       rootDir: 'website',
     },
+  },
+
+  $production: {
+    studio: false,
   },
 
   content: {

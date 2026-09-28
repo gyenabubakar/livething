@@ -1,14 +1,13 @@
-import { define, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { requests } from '@wskit/server/requests';
+import { server } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const requestContract = define({
-  env: t<Env>(),
+export const requestContract = server({
   upgrade: (request) => requireUsername(request),
-  capabilities: [requests(), channels()],
+  capabilities: [clientRequests(), channels()],
 });
 
 const handleGetTime = requestContract.request('get-time', {
@@ -70,7 +69,7 @@ const handleGetChannelInfo = room.request('get-channel-info', {
   },
 });
 
-export const requestHandler = requestContract.assemble({
+export const requestDefinition = requestContract.assemble({
   handlers: [
     handleGetTime,
     handleNoResponse,
@@ -83,4 +82,4 @@ export const requestHandler = requestContract.assemble({
   ],
 });
 
-export type RequestClient = InferClient<typeof requestHandler>;
+export type RequestClient = InferClient<typeof requestDefinition>;

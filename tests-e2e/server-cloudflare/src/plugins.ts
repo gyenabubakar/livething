@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { pluginsHandler } from './plugins/handler.ts';
+import { bind } from '@livething/server-cloudflare';
+import { pluginsDefinition } from './plugins/handler.ts';
 
-export class PluginsServer extends server(pluginsHandler) {}
+export class PluginsServer extends bind(pluginsDefinition) {}

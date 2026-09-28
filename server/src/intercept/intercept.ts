@@ -12,30 +12,8 @@ export type FrameOwner<TId extends string = string> =
   | { readonly kind: 'app' }
   | { readonly kind: 'plugin'; readonly id: TId };
 
-/**
- * Who registered a hook (intercept or outgoing) and whether it was granted
- * host-traffic observation. The app sees every frame; a plugin sees only its
- * own frames, plus the app's frames when `observesHost` is true.
- */
-export interface HookOwner {
-  readonly owner: FrameOwner;
-  readonly observesHost: boolean;
-}
-
-/** A hook registered by the app sees every frame and grants no host observation. */
-export const APP_HOOK_OWNER: HookOwner = { owner: { kind: 'app' }, observesHost: false };
-
-/**
- * Decide whether a hook runs for a frame under least-privilege scoping:
- * - an app hook runs for every frame (the host sees all);
- * - a plugin hook runs for its own frames, plus the app's frames when it was
- *   granted host observation, and never for another plugin's frames.
- */
-export function hookRunsForFrame(hook: HookOwner, frame: FrameOwner): boolean {
-  if (hook.owner.kind === 'app') return true;
-  if (frame.kind === 'plugin') return frame.id === hook.owner.id;
-  return hook.observesHost;
-}
+/** The app owns hooks registered outside a plugin. */
+export const APP_HOOK_OWNER: FrameOwner = { kind: 'app' };
 
 /**
  * The shape of a message as it travels through the intercept pipeline.
@@ -53,13 +31,13 @@ export interface InterceptFrame<TOwnerId extends string = string> {
   readonly event: string;
   /**
    * The payload value. Type is `unknown` until narrowed by `matches()` or
-   * `unsafeCast()` from `@wskit/server`. `matches()` also validates against
+   * `unsafeCast()` from `@livething/server`. `matches()` also validates against
    * the declared schema; `unsafeCast()` is a type-only assertion.
    */
   readonly payload: unknown;
   /** Which primitive family handles this event, or `'unknown'` if none match. */
   readonly kind: 'incoming' | 'request' | 'stream' | 'nudge' | 'unknown';
-  /** Curated routing metadata from the wire `__wskit` envelope. */
+  /** Curated routing metadata from the wire `__livething` envelope. */
   readonly routing: InterceptRouting;
   /** Whether this event is app-owned or plugin-owned, derived from its name. */
   readonly owner: FrameOwner<TOwnerId>;
@@ -75,14 +53,18 @@ export interface InterceptFrame<TOwnerId extends string = string> {
 export interface OutgoingFrame<TOwnerId extends string = string> {
   /** The event name as it will be sent to the client. */
   readonly event: string;
-  /** The payload value, narrowable with `matches()` / `unsafeCast()`. */
+  /**
+   * The payload value. `ctx.matches()` / `ctx.unsafeCast()` take only an
+   * incoming `InterceptFrame`, so check `frame.event` and narrow the payload
+   * yourself.
+   */
   readonly payload: unknown;
   /** Whether this event is app-owned or plugin-owned, derived from its name. */
   readonly owner: FrameOwner<TOwnerId>;
 }
 
 /**
- * Curated subset of the wire `__wskit` envelope — the routing/correlation
+ * Curated subset of the wire `__livething` envelope — the routing/correlation
  * markers safe for user code to read inside an intercept.
  */
 export interface InterceptRouting {
@@ -92,7 +74,8 @@ export interface InterceptRouting {
   readonly channel?: string;
   /** The dynamic channel family key for a channel-scoped frame, or `null` for a static channel. */
   readonly channelFamily?: string | null;
-  readonly seq?: number;
+  readonly deliverySeq?: number;
+  readonly streamSeq?: number;
 }
 
 /**
@@ -116,8 +99,6 @@ export interface InterceptPrimitive<TCtx = any> extends Primitive<'intercept'> {
   readonly handler: InterceptHandler<TCtx>;
   /** Set by plugin namespacing when a plugin contributes this intercept; absent ⇒ app-owned. @internal */
   readonly __owner?: FrameOwner;
-  /** Whether the owning plugin was granted host-traffic observation. @internal */
-  readonly __observesHost?: boolean;
 }
 
 /**
@@ -154,7 +135,7 @@ const INTERCEPT_KEY = Symbol('intercept');
  *
  * @example
  * ```ts
- * import { matches } from '@wskit/server';
+ * import { matches } from '@livething/server';
  *
  * // Log all messages
  * intercept((ctx, frame) => { console.log(frame.kind, frame.event); });
@@ -169,7 +150,7 @@ const INTERCEPT_KEY = Symbol('intercept');
  */
 export function intercept(handler: InterceptHandler<any>): InterceptPrimitive<any> {
   return {
-    __wskit: 'intercept',
+    __livething: 'intercept',
     __kind: 'infrastructure',
     __identity: [INTERCEPT_KEY, 'intercept'],
     __requires: {},
@@ -184,12 +165,18 @@ intercept.__key = INTERCEPT_KEY;
 
 /**
  * Handler signature for an outgoing hook: runs on every server→client frame
- * before it is serialized. Receives the active connection's context (or
- * `undefined` for a fan-out broadcast) and the `OutgoingFrame`. Return a value
- * to rewrite the payload; return nothing to observe. The event is locked.
+ * before it is serialized. Return a value to rewrite the payload; return
+ * nothing to observe. The event is locked.
+ *
+ * `ctx` is the context of the connection whose `on`, `request` or `stream`
+ * handler, intercept, or `onConnect` hook is running when the frame is sent —
+ * for a broadcast from that code, the sender, not each receiver. It is
+ * `undefined` in every other case, such as a send from a channel `subscribe`
+ * hook, `onDisconnect`, `onError`, a scheduled task, `onInit`, `onShutdown`,
+ * or the admin API.
  */
 export type OutgoingHandler<TCtx = any> = (
-  ctx: TCtx,
+  ctx: TCtx | undefined,
   frame: OutgoingFrame,
 ) => unknown | void | Promise<unknown | void>;
 
@@ -198,8 +185,6 @@ export interface OutgoingHookPrimitive<TCtx = any> extends Primitive<'outgoingHo
   readonly handler: OutgoingHandler<TCtx>;
   /** Set by plugin namespacing when a plugin contributes this hook; absent ⇒ app-owned. @internal */
   readonly __owner?: FrameOwner;
-  /** Whether the owning plugin was granted host-traffic observation. @internal */
-  readonly __observesHost?: boolean;
 }
 
 /** Unique symbol. One outgoing hook per scope, mirroring `intercept`. */
@@ -215,7 +200,7 @@ const OUTGOING_HOOK_KEY = Symbol('outgoingHook');
  */
 export function outgoingHook(handler: OutgoingHandler<any>): OutgoingHookPrimitive<any> {
   return {
-    __wskit: 'outgoingHook',
+    __livething: 'outgoingHook',
     __kind: 'infrastructure',
     __identity: [OUTGOING_HOOK_KEY, 'outgoingHook'],
     __requires: {},

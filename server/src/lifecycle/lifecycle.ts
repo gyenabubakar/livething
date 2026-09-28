@@ -13,7 +13,7 @@ export interface UpgradeResult {
   /**
    * Stable string identifying the user-equivalent entity behind this socket —
    * user id, session id, device id, whatever your app treats as "the same
-   * client across reconnects". WSKit does not interpret it; it stores it on
+   * client across reconnects". LiveThing does not interpret it; it stores it on
    * the connection and uses it as a row key for any per-user durable state.
    * Surfaced as `ctx.user.id` in every handler context.
    */
@@ -152,7 +152,7 @@ function makeLifecycle<TTag extends string>(
   setupFn: (engine: EngineAccess, handler: any) => void,
 ) {
   return <THandler>(handler: THandler) => ({
-    __wskit: tag,
+    __livething: tag,
     __kind: 'lifecycle' as const,
     __identity: [key] as const,
     __requires: {},
@@ -265,7 +265,7 @@ export const onError = Object.assign(
 
 /**
  * Creates an `onUpgrade` lifecycle primitive. Prefer the `upgrade` option on
- * `define(...)` — this factory is used internally by `assemble(...)`.
+ * `server(...)` — this factory is used internally by `assemble(...)`.
  */
 export const onUpgrade = Object.assign(
   makeLifecycle('onUpgrade', ON_UPGRADE_KEY, (e, h) => e.setBuilderUpgradeHook(h)) as (

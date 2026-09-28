@@ -1,11 +1,10 @@
-import { define, emits, t } from '@wskit/server';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [sequence(), emits({ tock: t<{}>() })],
 });
@@ -17,6 +16,6 @@ const handleTick = base.on('tick', {
   },
 });
 
-export const sequenceHandler = base.assemble({ handlers: [handleTick] });
+export const sequenceDefinition = base.assemble({ handlers: [handleTick] });
 
-export type SequenceClient = InferClient<typeof sequenceHandler>;
+export type SequenceClient = InferClient<typeof sequenceDefinition>;

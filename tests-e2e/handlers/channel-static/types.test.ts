@@ -8,6 +8,7 @@ describe('ChannelStaticClient — no-any guard', () => {
     expectTypeOf<ChannelStaticClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ChannelStaticClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelStaticClient['channels']>().not.toBeAny();
+
     expectTypeOf<ChannelStaticClient['errors']>().not.toBeAny();
   });
 });
@@ -21,8 +22,17 @@ describe('ChannelStaticClient — top-level incoming (server outgoing)', () => {
     expectTypeOf<ChannelStaticClient['incoming']['kick-ack']>().toEqualTypeOf<{ tag: string }>();
   });
 
-  it('exactly two events in top-level incoming', () => {
-    expectTypeOf<keyof ChannelStaticClient['incoming']>().toEqualTypeOf<'tag-ack' | 'kick-ack'>();
+  it('has kick-failed', () => {
+    expectTypeOf<ChannelStaticClient['incoming']['kick-failed']>().toEqualTypeOf<{
+      tag: string;
+      failures: number;
+    }>();
+  });
+
+  it('exactly three events in top-level incoming', () => {
+    expectTypeOf<keyof ChannelStaticClient['incoming']>().toEqualTypeOf<
+      'tag-ack' | 'kick-ack' | 'kick-failed'
+    >();
   });
 });
 

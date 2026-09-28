@@ -112,7 +112,7 @@ describe('connection-store', () => {
   it('adds metadata and translator_state when opening a database created by an older build', () => {
     const olderSql = createTestSql();
     olderSql.exec(`
-      CREATE TABLE __wskit_connections (
+      CREATE TABLE __livething_connections (
         connection_id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         meta TEXT NOT NULL,
@@ -188,7 +188,7 @@ describe('connection-store', () => {
     // throwing — the connection wakes with no tags / no memberships rather
     // than crashing the engine.
     sql.exec(
-      'INSERT OR REPLACE INTO __wskit_connections (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT OR REPLACE INTO __livething_connections (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids) VALUES (?, ?, ?, ?, ?, ?)',
       'broken',
       'broken-id',
       'not-json',
@@ -200,6 +200,7 @@ describe('connection-store', () => {
     expect(row?.meta).toEqual({});
     expect(row?.ephemeral_tags).toEqual([]);
     expect(row?.ephemeral_memberships).toEqual([]);
+
     expect(row?.active_stream_ids).toEqual([]);
   });
 
@@ -213,6 +214,7 @@ describe('connection-store', () => {
           buildConnectionRow(fakeConnection({ id: `conn_${i}`, userId: `user_${i}` })),
         );
       }
+
       return batchedSql;
     }
 

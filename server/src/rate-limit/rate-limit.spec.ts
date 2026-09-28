@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RateLimited } from '@wskit/core';
+import { RateLimited } from '@livething/core';
 import { describe, expect, it } from 'vitest';
 import { rateLimit } from './rate-limit.ts';
 
@@ -11,11 +11,11 @@ describe('rateLimit primitive', () => {
       ]),
       eventOverrides: new Map(),
     }) as any;
-    expect(prim.__wskit).toBe('intercept');
+    expect(prim.__livething).toBe('intercept');
     expect(typeof prim.handler).toBe('function');
   });
 
-  it('passes the first frame, then throws RateLimited with a positive retryAfter when max=1', async () => {
+  it('passes the first frame, then throws RateLimited with a positive retryAfterMs when max=1', async () => {
     const prim = rateLimit({
       scopeRules: new Map([
         ['top', { id: 1, windowMs: 60_000, max: 1, per: (ctx: any) => ctx.id }],
@@ -32,7 +32,8 @@ describe('rateLimit primitive', () => {
     } catch (err) {
       caught = err;
     }
+
     expect(RateLimited.matches(caught)).toBe(true);
-    expect(caught.detail.retryAfter).toBeGreaterThanOrEqual(1);
+    expect(caught.detail.retryAfterMs).toBeGreaterThanOrEqual(1_000);
   });
 });

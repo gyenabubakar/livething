@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's stream().nudge() against the real wskit
-// `stream-nudges` handler. Adapter-oblivious — it talks to whatever server the
+// Conformance: @livething/client's stream().nudge() against the real LiveThing
+// `stream-nudges` server definition. Adapter-oblivious — it talks to whatever server the
 // run booted over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/stream-nudges/index.html?room=${room}&username=alice`);
@@ -93,6 +93,18 @@ test.describe('stream-nudges (conformance)', () => {
     await page.getByTestId('cancel').click();
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
     await expect(page.getByTestId('active')).toHaveText('false');
+  });
+
+  test('cancelling a held stream releases its generator', async ({ page }, testInfo) => {
+    await open(page, `sn-held-cancel-${testInfo.testId}`);
+
+    await page.getByTestId('start-held').click();
+    await expect(page.getByTestId('held-stream-id')).not.toHaveText('');
+    await expect(page.getByTestId('held-end')).toHaveText('');
+
+    await page.getByTestId('cancel-held').click();
+    await expect(page.getByTestId('held-end')).toHaveText('yes');
+    await expect(page.getByTestId('held-server-released')).toHaveText('yes');
   });
 
   test('breaking out of the for-await loop ends the stream', async ({ page }, testInfo) => {

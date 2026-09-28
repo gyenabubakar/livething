@@ -19,10 +19,10 @@ describe('common engine deps', () => {
 
     const deps = EngineDeps.commonDeps(core);
     expect(() =>
-      deps.sendToChannelRecipient({
+      deps.broadcastToChannelRecipient({
         channelName: 'room',
         channelFamily: null,
-        to: { __wskit: 'connection-ref', id: 'peer', instance: 'other', userId: 'peer' },
+        to: { __livething: 'connection-ref', id: 'peer', instance: 'other', userId: 'peer' },
         event: 'message',
         payload: {},
       }),
@@ -30,16 +30,17 @@ describe('common engine deps', () => {
 
     let thrown: unknown;
     try {
-      deps.sendToChannelRecipient({
+      deps.broadcastToChannelRecipient({
         channelName: 'room',
         channelFamily: null,
-        to: { __wskit: 'user-ref', id: 'peer', instance: 'other' },
+        to: { __livething: 'user-ref', id: 'peer', instance: 'other' },
         event: 'message',
         payload: {},
       });
     } catch (error) {
       thrown = error;
     }
+
     expect(CrossInstanceRef.matches(thrown)).toBe(true);
   });
 
@@ -57,7 +58,7 @@ describe('common engine deps', () => {
     } as unknown as EngineCore;
 
     const deps = EngineDeps.commonDeps(core);
-    const foreign = { __wskit: 'user-ref' as const, id: 'alice', instance: 'other' };
+    const foreign = { __livething: 'user-ref' as const, id: 'alice', instance: 'other' };
 
     let thrown: unknown;
     try {

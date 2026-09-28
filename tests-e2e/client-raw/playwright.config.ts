@@ -5,9 +5,9 @@ import { defineConfig } from '@playwright/test';
 // implementation. WHICH server to boot is injected by whoever drives the suite
 // (an adapter's `test:e2e` script) through these env vars. Playwright starts
 // the server entry first and waits for both ports before any test runs.
-const serverCommand = process.env.WSKIT_E2E_SERVER_COMMAND;
-const serverCwd = process.env.WSKIT_E2E_SERVER_CWD;
-const serverPort = Number(process.env.WSKIT_E2E_SERVER_PORT ?? 8787);
+const serverCommand = process.env.LIVETHING_E2E_SERVER_COMMAND;
+const serverCwd = process.env.LIVETHING_E2E_SERVER_CWD;
+const serverPort = Number(process.env.LIVETHING_E2E_SERVER_PORT ?? 8787);
 
 export default defineConfig({
   testDir: 'tests',
@@ -29,15 +29,17 @@ export default defineConfig({
             command: serverCommand,
             cwd: serverCwd,
             port: serverPort,
-            reuseExistingServer: !process.env.CI,
-            timeout: 60_000,
+            reuseExistingServer: false,
+            // Two wrangler dev servers starting at once (pnpm test:e2e runs
+            // the raw and packaged lanes side by side) can take over a minute.
+            timeout: 180_000,
           },
         ]
       : []),
     {
       command: 'pnpm run dev:ui',
       port: 4173,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 30_000,
     },
   ],

@@ -1,12 +1,12 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { Disconnect } from '@wskit/server/errors';
-import { inbox } from '@wskit/server/inbox';
-import { lastSeen } from '@wskit/server/last-seen';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { Disconnect } from '@livething/server/errors';
+import { inbox } from '@livething/server/inbox';
+import { lastSeen } from '@livething/server/last-seen';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 import { SendRoomMsg } from './events.ts';
 import type { RoomMsg } from './events.ts';
@@ -18,8 +18,7 @@ import type { RoomMsg } from './events.ts';
 // `plain` has no inbox config at all, so its handle's `.inbox()` must return
 // `null`. `lastSeen()` rides along so `backlog()` fills each member's
 // `lastSeenAt` instead of omitting the field.
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -33,7 +32,7 @@ const base = define({
   ],
 });
 
-// Mirrors `InboxBacklogEntry` from `@wskit/server` structurally — that type is
+// Mirrors `InboxBacklogEntry` from `@livething/server` structurally — that type is
 // not re-exported from the package root, so the emit payload spells it out.
 interface BacklogEntry {
   userId: string;
@@ -53,21 +52,21 @@ export const handleServerDrop = base.on('server-drop', {
 
 export const chat = base.channel('chat', {
   membership: 'persistent',
-  capabilities: [inbox()],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox(),
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const plain = base.channel('plain', {
   membership: 'persistent',
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleSendRoomMsg = chat.on('send-room-msg', {
@@ -115,7 +114,7 @@ export const handleAskBacklog = base.on('ask-backlog', {
 
 // Both channels carry the `inbox: true` / no-flag client-contract shape needed
 // for `InferClient` to type the receipts surface only where it applies.
-export const inboxHandleHandler = base.assemble({
+export const inboxHandleDefinition = base.assemble({
   handlers: [
     handleServerDrop,
     handleSendRoomMsg,
@@ -127,4 +126,4 @@ export const inboxHandleHandler = base.assemble({
   ],
 });
 
-export type InboxHandleClient = InferClient<typeof inboxHandleHandler>;
+export type InboxHandleClient = InferClient<typeof inboxHandleDefinition>;

@@ -43,6 +43,7 @@ function createCore(
     storage: { sql },
     generateId: (prefix = 'id') => `${prefix}_${++idCounter}`,
   } as unknown as EngineCore;
+
   return { core, sql };
 }
 
@@ -95,7 +96,7 @@ describe('fanOutToInbox', () => {
       channelFamily: null,
       event: 'msg',
       payload: { text: 'hi' },
-      seq: 1,
+      deliverySeq: 1,
       messageId: 'm1',
     });
 
@@ -112,7 +113,7 @@ describe('fanOutToInbox', () => {
       channelFamily: null,
       event: 'msg',
       payload: { text: 'hi' },
-      seq: 42,
+      deliverySeq: 42,
       messageId: 'msg_1',
     });
 
@@ -132,7 +133,7 @@ describe('fanOutToInbox', () => {
       channelFamily: null,
       event: 'msg',
       payload: {},
-      seq: 1,
+      deliverySeq: 1,
       messageId: 'm1',
     });
 
@@ -148,16 +149,16 @@ describe('fanOutToInbox', () => {
       channelFamily: null,
       event: 'msg',
       payload: {},
-      seq: 1,
+      deliverySeq: 1,
       messageId: 'm1',
     });
 
-    expect(sql.exec('SELECT COUNT(*) AS c FROM __wskit_inbox').one() as { c: number }).toEqual({
+    expect(sql.exec('SELECT COUNT(*) AS c FROM __livething_inbox').one() as { c: number }).toEqual({
       c: 0,
     });
   });
 
-  it('excludeUserId skips that member entirely (regression: sender got its own message back)', () => {
+  it('excludeUserId skips that member entirely', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
     insertMembership(sql, { userId: 'alice', channelName: 'room', channelFamily: null });
     insertMembership(sql, { userId: 'bob', channelName: 'room', channelFamily: null });
@@ -167,7 +168,7 @@ describe('fanOutToInbox', () => {
       channelFamily: null,
       event: 'msg',
       payload: { text: 'hi' },
-      seq: 1,
+      deliverySeq: 1,
       messageId: 'm1',
       excludeUserId: 'alice',
     });
@@ -185,7 +186,7 @@ describe('fanOutToInbox', () => {
       channelFamily: 'rooms',
       event: 'msg',
       payload: {},
-      seq: 1,
+      deliverySeq: 1,
       messageId: 'm1',
     });
 
@@ -195,7 +196,7 @@ describe('fanOutToInbox', () => {
   it('rolls back retention deletes when the overflow watermark cannot be written', () => {
     const sql = createTestSql({
       onExec(query) {
-        if (query.includes('INSERT OR REPLACE INTO __wskit_inbox_watermark')) {
+        if (query.includes('INSERT OR REPLACE INTO __livething_inbox_watermark')) {
           throw new Error('injected watermark failure');
         }
       },
@@ -211,7 +212,7 @@ describe('fanOutToInbox', () => {
       channelFamily: null,
       event: 'msg',
       payload: { n: 1 },
-      seq: 1,
+      deliverySeq: 1,
       messageId: 'm1',
     });
 
@@ -221,7 +222,7 @@ describe('fanOutToInbox', () => {
         channelFamily: null,
         event: 'msg',
         payload: { n: 2 },
-        seq: 2,
+        deliverySeq: 2,
         messageId: 'm2',
       }),
     ).toThrow('injected watermark failure');
@@ -242,7 +243,7 @@ describe('fanOutToInbox', () => {
         channelFamily: null,
         event: 'msg',
         payload: { seq },
-        seq,
+        deliverySeq: seq,
         messageId: `m${seq}`,
       });
     }
@@ -265,7 +266,7 @@ describe('fanOutToInbox', () => {
       channelFamily: null,
       event: 'msg',
       payload: {},
-      seq: 1,
+      deliverySeq: 1,
       messageId: 'm1',
     });
 
@@ -281,14 +282,14 @@ describe('quiet inbox retention sweep', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
+      frame: { deliverySeq: 1, messageId: 'm1', event: 'msg', payload: {} },
       now: 10,
     });
     insertInboxRows(sql, {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 2, messageId: 'm2', event: 'msg', payload: {} },
+      frame: { deliverySeq: 2, messageId: 'm2', event: 'msg', payload: {} },
       now: 90,
     });
 
@@ -312,7 +313,7 @@ describe('quiet inbox retention sweep', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
+      frame: { deliverySeq: 1, messageId: 'm1', event: 'msg', payload: {} },
       now: 10,
     });
     ackInboxRows(sql, {
@@ -327,7 +328,7 @@ describe('quiet inbox retention sweep', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 2, messageId: 'm2', event: 'msg', payload: {} },
+      frame: { deliverySeq: 2, messageId: 'm2', event: 'msg', payload: {} },
       now: 90,
     });
 
@@ -342,7 +343,7 @@ describe('quiet inbox retention sweep', () => {
         .exec<{
           seq: number;
           delivered_at: number | null;
-        }>('SELECT seq, delivered_at FROM __wskit_inbox ORDER BY seq')
+        }>('SELECT seq, delivered_at FROM __livething_inbox ORDER BY seq')
         .toArray(),
     ).toEqual([{ seq: 2, delivered_at: null }]);
     expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
@@ -354,7 +355,7 @@ describe('quiet inbox retention sweep', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
+      frame: { deliverySeq: 1, messageId: 'm1', event: 'msg', payload: {} },
       now: 10,
     });
 
@@ -386,7 +387,7 @@ describe('drainInboxOnReconnect', () => {
       calls.push(`gap:${opts.channelName}:${opts.missedThrough}`),
     );
     vi.spyOn(Wire, 'sendReplay').mockImplementation((_c, _conn, opts) =>
-      calls.push(`row:${opts.channelName}:${opts.wire.seq}`),
+      calls.push(`row:${opts.channelName}:${opts.wire.deliverySeq}`),
     );
 
     bumpInboxWatermark(sql, {
@@ -399,7 +400,7 @@ describe('drainInboxOnReconnect', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 8, messageId: 'm8', event: 'msg', payload: {} },
+      frame: { deliverySeq: 8, messageId: 'm8', event: 'msg', payload: {} },
       now: 1,
     });
 
@@ -434,7 +435,7 @@ describe('drainInboxOnReconnect', () => {
     const gap = vi.spyOn(Wire, 'sendGap').mockImplementation(() => {});
     const seqs: number[] = [];
     vi.spyOn(Wire, 'sendReplay').mockImplementation((_c, _conn, opts) => {
-      seqs.push(opts.wire.seq);
+      seqs.push(opts.wire.deliverySeq);
     });
 
     for (const seq of [3, 1, 2]) {
@@ -442,7 +443,7 @@ describe('drainInboxOnReconnect', () => {
         userIds: ['alice'],
         channelName: 'room',
         channelFamily: null,
-        frame: { seq, messageId: `m${seq}`, event: 'msg', payload: {} },
+        frame: { deliverySeq: seq, messageId: `m${seq}`, event: 'msg', payload: {} },
         now: 1,
       });
     }
@@ -458,7 +459,7 @@ describe('drainInboxOnReconnect', () => {
     const reconnecting = connection('alice');
     const seqs: number[] = [];
     vi.spyOn(Wire, 'sendReplay').mockImplementation((_core, target, opts) => {
-      seqs.push(opts.wire.seq);
+      seqs.push(opts.wire.deliverySeq);
       target.closing = true;
     });
 
@@ -467,7 +468,7 @@ describe('drainInboxOnReconnect', () => {
         userIds: ['alice'],
         channelName: 'room',
         channelFamily: null,
-        frame: { seq, messageId: `m${seq}`, event: 'msg', payload: {} },
+        frame: { deliverySeq: seq, messageId: `m${seq}`, event: 'msg', payload: {} },
         now: seq,
       });
     }
@@ -505,10 +506,11 @@ describe('drainInboxOnReconnect', () => {
         userIds: ['alice'],
         channelName: 'room',
         channelFamily: null,
-        frame: { seq, messageId: `m${seq}`, event: 'msg', payload: {} },
+        frame: { deliverySeq: seq, messageId: `m${seq}`, event: 'msg', payload: {} },
         now: seq,
       });
     }
+
     pruneInboxRetentionAndBumpWatermark(sql, {
       userId: 'alice',
       channelName: 'room',
@@ -520,7 +522,7 @@ describe('drainInboxOnReconnect', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 4, messageId: 'm4', event: 'msg', payload: {} },
+      frame: { deliverySeq: 4, messageId: 'm4', event: 'msg', payload: {} },
       now: 4,
     });
     pruneInboxRetentionAndBumpWatermark(sql, {
@@ -536,7 +538,7 @@ describe('drainInboxOnReconnect', () => {
       calls.push(`gap:${opts.channelName}:${opts.missedThrough}`),
     );
     vi.spyOn(Wire, 'sendReplay').mockImplementation((_c, _conn, opts) =>
-      calls.push(`row:${opts.channelName}:${opts.wire.seq}`),
+      calls.push(`row:${opts.channelName}:${opts.wire.deliverySeq}`),
     );
 
     drainInboxOnReconnect(core, connection('alice'));
@@ -581,7 +583,7 @@ describe('clearInboxForChannel', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
+      frame: { deliverySeq: 1, messageId: 'm1', event: 'msg', payload: {} },
       now: 1,
     });
     bumpInboxWatermark(sql, {
@@ -604,7 +606,7 @@ describe('clearInboxForChannel', () => {
       userIds: ['alice'],
       channelName: 'lobby',
       channelFamily: null,
-      frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
+      frame: { deliverySeq: 1, messageId: 'm1', event: 'msg', payload: {} },
       now: 1,
     });
 
@@ -623,29 +625,29 @@ describe('backfillInbox', () => {
       channelFamily: null,
       userId: 'newcomer',
       frames: [
-        { seq: 1, messageId: 'm1', event: 'msg', payload: { n: 1 } },
-        { seq: 2, messageId: 'm2', event: 'msg', payload: { n: 2 } },
+        { deliverySeq: 1, messageId: 'm1', event: 'msg', payload: { n: 1 } },
+        { deliverySeq: 2, messageId: 'm2', event: 'msg', payload: { n: 2 } },
       ],
     });
     backfillInbox(sql, {
       channelName: 'room',
       channelFamily: null,
       userId: '',
-      frames: [{ seq: 9, messageId: 'm9', event: 'msg', payload: {} }],
+      frames: [{ deliverySeq: 9, messageId: 'm9', event: 'msg', payload: {} }],
     });
 
     expect(loadUndeliveredRows(sql, 'newcomer').map((r) => r.seq)).toEqual([1, 2]);
     expect(loadUndeliveredRows(sql, '')).toEqual([]);
   });
 
-  it('does nothing without retention passed (regression: backfill bypassed retention entirely)', () => {
+  it('does nothing when no retention policy is provided', () => {
     const { sql } = createCore();
     backfillInbox(sql, {
       channelName: 'room',
       channelFamily: null,
       userId: 'newcomer',
       frames: [1, 2, 3, 4, 5].map((seq) => ({
-        seq,
+        deliverySeq: seq,
         messageId: `m${seq}`,
         event: 'msg',
         payload: {},
@@ -662,7 +664,7 @@ describe('backfillInbox', () => {
       channelFamily: null,
       userId: 'newcomer',
       frames: [1, 2, 3, 4, 5].map((seq) => ({
-        seq,
+        deliverySeq: seq,
         messageId: `m${seq}`,
         event: 'msg',
         payload: {},
@@ -679,7 +681,12 @@ describe('backfillInbox', () => {
       channelName: 'room',
       channelFamily: null,
       userId: 'newcomer',
-      frames: [1, 2, 3].map((seq) => ({ seq, messageId: `m${seq}`, event: 'msg', payload: {} })),
+      frames: [1, 2, 3].map((seq) => ({
+        deliverySeq: seq,
+        messageId: `m${seq}`,
+        event: 'msg',
+        payload: {},
+      })),
       retention: { maxMessages: 1 },
     });
 
@@ -691,7 +698,7 @@ describe('backfillInbox', () => {
   it('rolls back backfill retention deletes when the overflow watermark cannot be written', () => {
     const sql = createTestSql({
       onExec(query) {
-        if (query.includes('INSERT OR REPLACE INTO __wskit_inbox_watermark')) {
+        if (query.includes('INSERT OR REPLACE INTO __livething_inbox_watermark')) {
           throw new Error('injected watermark failure');
         }
       },
@@ -704,7 +711,7 @@ describe('backfillInbox', () => {
         channelFamily: null,
         userId: 'newcomer',
         frames: [1, 2].map((seq) => ({
-          seq,
+          deliverySeq: seq,
           messageId: `m${seq}`,
           event: 'msg',
           payload: {},
@@ -723,7 +730,7 @@ describe('backfillInbox', () => {
       channelName: 'room',
       channelFamily: null,
       userId: 'newcomer',
-      frames: [{ seq: 1, messageId: 'm1', event: 'msg', payload: {} }],
+      frames: [{ deliverySeq: 1, messageId: 'm1', event: 'msg', payload: {} }],
       retention: { maxMessages: 5 },
     });
 

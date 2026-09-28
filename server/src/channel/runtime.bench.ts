@@ -76,18 +76,20 @@ function createRuntime(memberCount: number) {
     persistAttachment: () => {},
     sendProtocolMessage: (
       _connection: RuntimeConnection,
-      { event, payload, wskit }: SendProtocolMessageOptions,
+      { event, payload }: SendProtocolMessageOptions,
     ) => {
-      JSON.stringify({ event, payload, __wskit: wskit });
+      JSON.stringify([event, payload, null]);
     },
     broadcastToChannel: () => {},
-    wskitStampHooks: [],
+    livethingStampHooks: [],
     handleValidationError: async () => {},
     handleRuntimeError: async () => {},
     isChannelDurable: () => false,
     persistMembership: () => {},
     deleteDurableMembership: () => {},
-    hasDurableMembership: () => false,
+    getDurableMembership: () => undefined,
+    markDurableMembershipKicked: () => {},
+    listDurableMembers: () => [],
     logger: { error() {} },
   };
 
@@ -131,6 +133,7 @@ for (const memberCount of [1000]) {
           channelFamily: null,
         });
       }
+
       for (const member of members) {
         removeChannelMembership(channelMembers, member, {
           channelName: 'general',
@@ -146,6 +149,7 @@ for (const memberCount of [1000]) {
           channelFamily: 'rooms',
         });
       }
+
       for (const member of members) {
         removeChannelMembership(channelMembers, member, {
           channelName: 'room:general',

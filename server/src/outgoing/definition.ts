@@ -7,7 +7,9 @@ import type { Validator } from '~/types.ts';
 /** A `t<T>()` marker carries only a compile-time type — no runtime validator. */
 function isTypeMarker(value: unknown): value is TypeMarker<unknown> {
   return (
-    !!value && typeof value === 'object' && (value as { __wskit_t?: unknown }).__wskit_t === 't'
+    !!value &&
+    typeof value === 'object' &&
+    (value as { __livething_t?: unknown }).__livething_t === 't'
   );
 }
 

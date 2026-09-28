@@ -8,6 +8,7 @@ describe('CtxSqlClient — no-any guard', () => {
     expectTypeOf<CtxSqlClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['streams']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['channels']>().not.toBeAny();
+
     expectTypeOf<CtxSqlClient['errors']>().not.toBeAny();
   });
 });
@@ -49,7 +50,6 @@ describe('CtxSqlClient — incoming (server outgoing)', () => {
       | 'sql-raw-result'
       | 'sql-reuse-result'
       | 'snapshot-result'
-      | 'env-result'
     >();
   });
 });

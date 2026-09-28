@@ -41,11 +41,13 @@ test.describe('ctx-send', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await a.goto(`/ctx-send?room=${room}`);
     await b.goto(`/ctx-send?room=${room}`);
     await a.getByTestId('username').fill('alice');
     await b.getByTestId('username').fill('bob');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
@@ -81,6 +83,7 @@ test.describe('ctx-send', () => {
     await a.getByTestId('username').fill('crew');
     await b.getByTestId('username').fill('crew');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
@@ -100,11 +103,13 @@ test.describe('ctx-send', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await a.goto(`/ctx-send?room=${room}`);
     await b.goto(`/ctx-send?room=${room}`);
     await a.getByTestId('username').fill('alice');
     await b.getByTestId('username').fill('bob');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
@@ -129,9 +134,10 @@ test.describe('ctx-send', () => {
         const url = `${protocol}//${location.host}/ws/ctx-send?username=${encodeURIComponent('closer')}&room=${encodeURIComponent(currentRoom)}`;
         const ws = new WebSocket(url);
         ws.onopen = () => {
-          ws.send(JSON.stringify({ event: 'do-server-close', payload: {} }));
+          ws.send(window.__livethingEncode({ event: 'do-server-close', payload: {} }));
         };
         ws.onclose = (ev) => resolve({ code: ev.code, reason: ev.reason });
+
         ws.onerror = () => reject(new Error('ws failed'));
         setTimeout(() => reject(new Error('timeout')), 5_000);
       });
@@ -161,11 +167,13 @@ test.describe('ctx-send', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await a.goto(`/ctx-send?room=${room}`);
     await b.goto(`/ctx-send?room=${room}`);
     await a.getByTestId('username').fill('alice');
     await b.getByTestId('username').fill('bob');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');

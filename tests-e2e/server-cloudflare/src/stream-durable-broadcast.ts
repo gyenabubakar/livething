@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { streamDurableBroadcastHandler } from '@wskit/tests-e2e-handlers/stream-durable-broadcast';
+import { bind } from '@livething/server-cloudflare';
+import { streamDurableBroadcastDefinition } from '@livething/tests-e2e-handlers/stream-durable-broadcast';
 
-export class StreamDurableBroadcastServer extends server(streamDurableBroadcastHandler) {}
+export class StreamDurableBroadcastServer extends bind(streamDurableBroadcastDefinition) {}

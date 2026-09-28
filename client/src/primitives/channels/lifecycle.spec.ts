@@ -2,7 +2,9 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
+import { dedup } from '~/primitives/dedup.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
+import { replay } from '~/primitives/replay.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -33,6 +35,7 @@ function build() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -58,7 +61,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -73,7 +76,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       second.emit({
         event: '__error__',
         payload: { code: 'forbidden' },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect(onSubFailed).toHaveBeenCalledWith(expect.objectContaining({ code: 'forbidden' }));
@@ -97,7 +100,10 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       // Drop → reconnect. A persistent channel is auto-rejoined by the server, so
@@ -109,7 +115,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
 
       const clientResubscribes = second
         .sentFrames()
-        .filter((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general');
+        .filter((f) => f.event === '__subscribe__' && f.metadata?.channel?.name === 'general');
       expect(clientResubscribes).toHaveLength(0);
 
       const onSubFailed = vi.fn();
@@ -118,7 +124,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       second.emit({
         event: '__error__',
         payload: { code: 'rejoin-rejected' },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect(onSubFailed).toHaveBeenCalledWith(
@@ -141,22 +147,168 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     const onSubFailed = vi.fn();
+    const onServerError = vi.fn();
     room.onSubscriptionFailed(onSubFailed);
+    socket.onServerError(onServerError);
 
     ws.emit({
       event: '__error__',
       payload: { code: 'validation-failed' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
-    expect(onSubFailed).toHaveBeenCalledWith(
+    expect(onSubFailed).not.toHaveBeenCalled();
+    expect(onServerError).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'validation-failed' }),
     );
+    expect(room.status.get()).toBe('subscribed');
     expect(() => room.send('send-message', { text: 'x' })).not.toThrow();
+  });
+
+  it('passes an unsupported __replay__ error through during a rejoin instead of failing the channel', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(
+        connect('wss://test'),
+        channels(),
+        dedup(),
+        replay(),
+        reconnection(),
+      );
+      socket.setDebug(true);
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      expect(room.status.get()).toBe('subscribing');
+
+      const onSubFailed = vi.fn();
+      const onServerError = vi.fn();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      room.onSubscriptionFailed(onSubFailed);
+      socket.onServerError(onServerError);
+
+      second.emit({
+        event: '__error__',
+        payload: { code: 'unsupported-protocol', detail: { event: '__replay__' } },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      expect(onSubFailed).not.toHaveBeenCalled();
+      expect(onServerError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'unsupported-protocol' }),
+      );
+      expect(warn.mock.calls.some((args) => String(args[1] ?? '').includes('replay()'))).toBe(true);
+      expect(room.status.get()).toBe('subscribing');
+      warn.mockRestore();
+
+      second.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+      expect(room.status.get()).toBe('subscribed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('passes a rejected channel message through during a rejoin instead of failing the channel', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      expect(room.status.get()).toBe('subscribing');
+
+      const onSubFailed = vi.fn();
+      const onServerError = vi.fn();
+      room.onSubscriptionFailed(onSubFailed);
+      socket.onServerError(onServerError);
+
+      second.emit({
+        event: '__error__',
+        payload: { code: 'validation-failed', detail: { event: 'react', issues: [] } },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      expect(onSubFailed).not.toHaveBeenCalled();
+      expect(onServerError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'validation-failed' }),
+      );
+      expect(room.status.get()).toBe('subscribing');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still fails the channel when the rejoin itself is rejected', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      const onSubFailed = vi.fn();
+      room.onSubscriptionFailed(onSubFailed);
+
+      second.emit({
+        event: '__error__',
+        payload: { code: 'validation-failed', detail: { event: '__subscribe__', issues: [] } },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      expect(onSubFailed).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'validation-failed' }),
+      );
+      expect(room.status.get()).toBe('failed');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -177,16 +329,17 @@ describe('channels-reconnect-skips-persistent', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: {
-          source: 'client',
-          channel: 'room:1',
-          channelFamily: 'rooms',
-          channelMembership: 'ephemeral',
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'room:1', family: 'rooms', membership: 'ephemeral' },
         },
       });
 
@@ -196,7 +349,7 @@ describe('channels-reconnect-skips-persistent', () => {
       second.open();
 
       const resubscribes = second.sentFrames().filter((f) => f.event === '__subscribe__');
-      expect(resubscribes.map((f) => f.__wskit?.channel)).toEqual(['room:1']);
+      expect(resubscribes.map((f) => f.metadata?.channel?.name)).toEqual(['room:1']);
     } finally {
       vi.useRealTimers();
     }
@@ -219,7 +372,10 @@ describe('channels-reconnect-skips-persistent', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       first.serverClose(1006, 'drop');
@@ -255,7 +411,7 @@ describe('channels-reconnect-rejoin-before-queued-ops', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -274,6 +430,7 @@ describe('channels-reconnect-rejoin-before-queued-ops', () => {
       const reqIdx = events.indexOf('history');
       expect(subIdx).toBeGreaterThanOrEqual(0);
       expect(reqIdx).toBeGreaterThanOrEqual(0);
+
       expect(subIdx).toBeLessThan(reqIdx);
     } finally {
       vi.useRealTimers();
@@ -297,7 +454,10 @@ describe('channels-unsubscribe-during-reconnect-wins-over-rejoin', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       first.serverClose(1006, 'drop');
@@ -311,10 +471,10 @@ describe('channels-unsubscribe-during-reconnect-wins-over-rejoin', () => {
 
       const sent = second.sentFrames();
       expect(
-        sent.some((f) => f.event === '__unsubscribe__' && f.__wskit?.channel === 'general'),
+        sent.some((f) => f.event === '__unsubscribe__' && f.metadata?.channel?.name === 'general'),
       ).toBe(true);
       expect(
-        sent.some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general'),
+        sent.some((f) => f.event === '__subscribe__' && f.metadata?.channel?.name === 'general'),
       ).toBe(false);
       expect(unsubscribed).toHaveBeenCalledTimes(1);
     } finally {
@@ -343,7 +503,7 @@ describe('channels-reconnect-refreshes-function-subscribe-payload', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -379,6 +539,7 @@ describe('channels-reconnect-payload-refresh-failure-reaches-onError (#22)', () 
       void room.subscribe(() => {
         calls++;
         if (calls > 1) throw new Error('token refresh boom');
+
         return {};
       });
 
@@ -386,7 +547,7 @@ describe('channels-reconnect-payload-refresh-failure-reaches-onError (#22)', () 
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -410,14 +571,14 @@ describe('channels-onclose-keeps-active-clears-members', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await subscribePromise;
 
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
-      __wskit: { channel: 'general' },
+      payload: { members: [{ memberId: 'c1', meta: { name: 'Ada' }, online: true }] },
+      metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().size).toBe(1);
 
@@ -443,7 +604,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'server', channel: 'room-42', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'server' }, channel: { name: 'room-42', family: 'rooms' } },
     });
 
     expect(onFamilySubscribed).toHaveBeenCalledWith('room-42', 'server');
@@ -462,7 +623,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-42', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room-42', family: 'rooms' } },
     });
     await subscribePromise;
 
@@ -471,7 +632,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
     ws.emit({
       event: '__kicked__',
       payload: { reason: 'banned' },
-      __wskit: { channel: 'room-42', channelFamily: 'rooms' },
+      metadata: { channel: { name: 'room-42', family: 'rooms' } },
     });
 
     expect(onFamilyUnsubscribed).toHaveBeenCalledWith('room-42');
@@ -492,7 +653,7 @@ describe('channel-subscribeok-server-leaves-pending-hanging', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'server', channel: 'general' },
+      metadata: { exchange: { source: 'server' }, channel: { name: 'general' } },
     });
 
     await subscribePromise;
@@ -525,7 +686,7 @@ describe('channel-unsubscribe-while-inactive-is-a-no-op', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     const onUnsub = vi.fn();
@@ -533,8 +694,8 @@ describe('channel-unsubscribe-while-inactive-is-a-no-op', () => {
     room.unsubscribe();
 
     const leaveFrame = ws.sentFrames().find((f) => f.event === '__unsubscribe__');
-    expect(leaveFrame).toMatchObject({ payload: {}, __wskit: { channel: 'general' } });
-    expect(typeof leaveFrame.__wskit.unsubscribeId).toBe('string');
+    expect(leaveFrame).toMatchObject({ payload: null, metadata: { channel: { name: 'general' } } });
+    expect(typeof leaveFrame.metadata.channel?.unsubscribeId).toBe('string');
     expect(onUnsub).toHaveBeenCalled();
   });
 });
@@ -559,7 +720,7 @@ describe('scope-handle-list-only-active', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-x', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room-x', family: 'rooms' } },
     });
     await subscribePromise;
 
@@ -578,7 +739,7 @@ describe('scope-handle-list-only-active', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-1', channelFamily: 'rooms' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'room-1', family: 'rooms' } },
     });
     await roomSubscribe;
 
@@ -586,7 +747,7 @@ describe('scope-handle-list-only-active', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'lobby-1', channelFamily: 'lobbies' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'lobby-1', family: 'lobbies' } },
     });
     await lobbySubscribe;
 
@@ -666,7 +827,7 @@ describe('BUG subscribe-when-active', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await firstPromise;
 
@@ -699,7 +860,10 @@ describe('BUG persistence-flip', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
 
       first.serverClose(1006, 'drop');
@@ -714,7 +878,7 @@ describe('BUG persistence-flip', () => {
 
       const clientSubscribe = second
         .sentFrames()
-        .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general');
+        .some((f) => f.event === '__subscribe__' && f.metadata?.channel?.name === 'general');
 
       expect(clientSubscribe || onSubFailed.mock.calls.length > 0).toBe(true);
     } finally {
@@ -739,6 +903,7 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       const first = MockWebSocket.last();
       first.open();
       first.serverClose(1006); // drop before __subscribeOk__ — subscribe never activates
+
       vi.advanceTimersByTime(1500);
       MockWebSocket.last().open();
       vi.advanceTimersByTime(2000);
@@ -758,13 +923,18 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       MockWebSocket.last().emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
+        metadata: {
+          exchange: { source: 'client' },
+          channel: { name: 'general', membership: 'persistent' },
+        },
       });
+
       MockWebSocket.last().serverClose(1006);
       vi.advanceTimersByTime(1500);
       MockWebSocket.last().open();
       socket.disconnect();
       socket.connect();
+
       const fresh = MockWebSocket.last();
       fresh.open();
       vi.advanceTimersByTime(6000);
@@ -783,16 +953,22 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       const first = MockWebSocket.last();
       first.open();
       const room = socket.channel('general');
+
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
       first.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-        __wskit: { channel: 'general' },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
+        metadata: { channel: { name: 'general' } },
       });
 
       const joins: string[] = [];
@@ -807,16 +983,82 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       second.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
+
       second.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'c' }] },
-        __wskit: { channel: 'general' },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'c', online: true },
+          ],
+        },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect(joins).toEqual(['c']);
       expect(leaves).toEqual(['b']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a peer that went offline during the drop as an offline member, with no leave', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const room = socket.channel('general');
+
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+      first.emit({
+        event: '__memberSync__',
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      const events: string[] = [];
+      room.onMemberJoin((id) => events.push(`join ${id}`));
+      room.onMemberLeave((id) => events.push(`leave ${id}`));
+      room.onMemberOnline((id) => events.push(`online ${id}`));
+      room.onMemberOffline((id) => events.push(`offline ${id}`));
+
+      first.serverClose(1006);
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      second.emit({
+        event: '__subscribeOk__',
+        payload: {},
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
+      });
+
+      second.emit({
+        event: '__memberSync__',
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: false },
+          ],
+        },
+        metadata: { channel: { name: 'general' } },
+      });
+
+      expect(events).toEqual(['offline b']);
+      expect(room.members.get().get('b')).toEqual({ meta: {}, online: false });
     } finally {
       vi.useRealTimers();
     }
@@ -834,12 +1076,13 @@ describe('reconnection give-up tears down active channels', () => {
     const onUnsub = vi.fn();
     room.onUnsubscribed(onUnsub);
     room.subscribe();
+
     const ws = MockWebSocket.last();
     ws.open();
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(1);
 
@@ -867,12 +1110,13 @@ describe('member join deltas after a failed rejoin', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
+
       first.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }] },
-        __wskit: { channel: 'general' },
+        payload: { members: [{ memberId: 'a', online: true }] },
+        metadata: { channel: { name: 'general' } },
       });
 
       first.serverClose(1006, 'drop');
@@ -885,7 +1129,7 @@ describe('member join deltas after a failed rejoin', () => {
       second.emit({
         event: '__error__',
         payload: { code: 'forbidden' },
-        __wskit: { channel: 'general' },
+        metadata: { channel: { name: 'general' } },
       });
 
       joins.length = 0;
@@ -894,12 +1138,17 @@ describe('member join deltas after a failed rejoin', () => {
       second.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
       second.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-        __wskit: { channel: 'general' },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect([...joins].sort()).toEqual(['a', 'b']);
@@ -914,15 +1163,16 @@ describe('member join deltas after a failed rejoin', () => {
     const joins: string[] = [];
     room.onMemberJoin((id) => joins.push(id));
     room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     ws.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'a' }] },
-      __wskit: { channel: 'general' },
+      payload: { members: [{ memberId: 'a', online: true }] },
+      metadata: { channel: { name: 'general' } },
     });
 
     ws.serverClose(1006, 'drop');
@@ -937,12 +1187,18 @@ describe('member join deltas after a failed rejoin', () => {
     second.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
+
     second.emit({
       event: '__memberSync__',
-      payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-      __wskit: { channel: 'general' },
+      payload: {
+        members: [
+          { memberId: 'a', online: true },
+          { memberId: 'b', online: true },
+        ],
+      },
+      metadata: { channel: { name: 'general' } },
     });
 
     expect([...joins].sort()).toEqual(['a', 'b']);
@@ -963,12 +1219,17 @@ describe('presence deltas across a double drop', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
       first.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-        __wskit: { channel: 'general' },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
+        metadata: { channel: { name: 'general' } },
       });
 
       const joins: string[] = [];
@@ -988,12 +1249,17 @@ describe('presence deltas across a double drop', () => {
       third.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general' },
+        metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
       });
       third.emit({
         event: '__memberSync__',
-        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
-        __wskit: { channel: 'general' },
+        payload: {
+          members: [
+            { memberId: 'a', online: true },
+            { memberId: 'b', online: true },
+          ],
+        },
+        metadata: { channel: { name: 'general' } },
       });
 
       expect(joins).toEqual([]);
@@ -1010,15 +1276,16 @@ describe('duplicate subscribe confirmation', () => {
     const onSub = vi.fn();
     room.onSubscribed(onSub);
     room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'server', channel: 'general' },
+      metadata: { exchange: { source: 'server' }, channel: { name: 'general' } },
     });
     expect(onSub).toHaveBeenCalledTimes(1);
   });
@@ -1044,7 +1311,7 @@ describe('channel.status store', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await subscribePromise;
 
@@ -1060,7 +1327,7 @@ describe('channel.status store', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
     await subscribePromise;
 
@@ -1068,7 +1335,7 @@ describe('channel.status store', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'general' } },
     });
 
     expect(room.status.get()).toBe('unsubscribed');
@@ -1082,7 +1349,7 @@ describe('channel.status store', () => {
     ws.emit({
       event: '__error__',
       payload: { code: 'forbidden', message: 'no access' },
-      __wskit: { channel: 'general' },
+      metadata: { channel: { name: 'general' } },
     });
 
     await expect(subscribePromise).rejects.toMatchObject({ code: 'forbidden' });

@@ -198,6 +198,7 @@ describe('keepalive/runtime', () => {
         passOnePingInterval();
         answerPongAfter(monitor, 'c1', rtt);
       }
+
       expect(lastLatency(port)).toBe(30);
 
       // A sixth sample drops the 10 and averages [20, 30, 40, 50, 60].

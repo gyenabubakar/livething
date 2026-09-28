@@ -30,17 +30,19 @@ class FakeSqlProvider implements SQLProvider {
   exec<TRow = unknown>(query: string, ...params: unknown[]): FakeSqlResult<TRow> {
     const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();
 
-    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS __wskit_sequence')) {
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS __livething_sequence')) {
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalizedQuery.startsWith('SELECT nextSeq FROM __wskit_sequence WHERE scope = ?')) {
+    if (normalizedQuery.startsWith('SELECT nextSeq FROM __livething_sequence WHERE scope = ?')) {
       const scope = String(params[0]);
       const row = this.sequence.get(scope);
       return new FakeSqlResult<TRow>((row ? [row] : []) as TRow[]);
     }
 
-    if (normalizedQuery.startsWith('INSERT INTO __wskit_sequence (scope, nextSeq) VALUES (?, ?)')) {
+    if (
+      normalizedQuery.startsWith('INSERT INTO __livething_sequence (scope, nextSeq) VALUES (?, ?)')
+    ) {
       const scope = String(params[0]);
       this.sequence.set(scope, {
         scope,
@@ -49,7 +51,7 @@ class FakeSqlProvider implements SQLProvider {
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalizedQuery.startsWith('UPDATE __wskit_sequence SET nextSeq = ? WHERE scope = ?')) {
+    if (normalizedQuery.startsWith('UPDATE __livething_sequence SET nextSeq = ? WHERE scope = ?')) {
       const scope = String(params[1]);
       this.sequence.set(scope, {
         scope,
@@ -74,12 +76,12 @@ function installSequence(
   options?: { persist?: boolean },
   sql = new FakeSqlProvider(),
 ): {
-  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>>;
+  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>>;
   bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBootSchema']>[0]>>;
-  hook: NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>;
+  hook: NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>;
   sql: FakeSqlProvider;
 } {
-  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>> = [];
+  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>> = [];
   const bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBootSchema']>[0]>> = [];
   const installs = new Set<symbol>();
 
@@ -94,7 +96,7 @@ function installSequence(
     onBootSchema(handler) {
       bootHandlers.push(handler);
     },
-    onWSKitStamp(handler) {
+    onLiveThingStamp(handler) {
       stampHandlers.push(handler);
     },
     setSequencePersistent() {},
@@ -113,7 +115,12 @@ function installSequence(
     },
   } as Pick<
     EngineAccess,
-    'installOnce' | 'onBoot' | 'onBootSchema' | 'onWSKitStamp' | 'storage' | 'setSequencePersistent'
+    | 'installOnce'
+    | 'onBoot'
+    | 'onBootSchema'
+    | 'onLiveThingStamp'
+    | 'storage'
+    | 'setSequencePersistent'
   > as EngineAccess;
 
   sequence(options).__setup?.(engine);
@@ -133,7 +140,7 @@ function installSequence(
 describe('sequence', () => {
   it('produces correct tag and kind', () => {
     const p = sequence();
-    expect(p.__wskit).toBe('sequence');
+    expect(p.__livething).toBe('sequence');
     expect(p.__kind).toBe('infrastructure');
   });
 
@@ -155,7 +162,7 @@ describe('sequence', () => {
   });
 
   it('registers its stamp hook only once', () => {
-    const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>> = [];
+    const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>> = [];
     const installs = new Set<symbol>();
     const engine = {
       installOnce(key, install) {
@@ -164,13 +171,13 @@ describe('sequence', () => {
         installs.add(key);
         install();
       },
-      onWSKitStamp(handler) {
+      onLiveThingStamp(handler) {
         stampHandlers.push(handler);
       },
       setSequencePersistent() {},
     } as Pick<
       EngineAccess,
-      'installOnce' | 'onWSKitStamp' | 'setSequencePersistent'
+      'installOnce' | 'onLiveThingStamp' | 'setSequencePersistent'
     > as EngineAccess;
 
     sequence().__setup?.(engine);
@@ -179,20 +186,20 @@ describe('sequence', () => {
     expect(stampHandlers).toHaveLength(1);
   });
 
-  it('stamps an increasing seq into __wskit for outgoing messages', () => {
+  it('stamps an increasing seq into __livething for outgoing messages', () => {
     const { hook } = installSequence();
     const first = hook('message');
     const second = hook('alert');
 
-    expect(first).toEqual({ seq: 1 });
-    expect(second).toEqual({ seq: 2 });
+    expect(first).toEqual({ deliverySeq: 1 });
+    expect(second).toEqual({ deliverySeq: 2 });
   });
 
   it('still stamps plugin-owned outgoing events with a double underscore prefix', () => {
     const { hook } = installSequence();
     const pluginMessage = hook('__acme:analytics:flushed');
 
-    expect(pluginMessage).toEqual({ seq: 1 });
+    expect(pluginMessage).toEqual({ deliverySeq: 1 });
   });
 
   it('creates its SQLite table during boot when persistence is enabled', async () => {
@@ -222,7 +229,7 @@ describe('sequence', () => {
     // storage and reserves [101, 201). Wire gaps from unused reservations are
     // expected and harmless — clients treat sequence gaps as "ask the server
     // what's missing", not as lost messages.
-    expect(firstMessage).toEqual({ seq: 1 });
-    expect(secondMessage).toEqual({ seq: 101 });
+    expect(firstMessage).toEqual({ deliverySeq: 1 });
+    expect(secondMessage).toEqual({ deliverySeq: 101 });
   });
 });

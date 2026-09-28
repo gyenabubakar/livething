@@ -29,8 +29,49 @@
 	let streamThrowChunks = $state(0);
 	let streamThrowId = $state('');
 
+	const eventHandlers: Record<string, (payload: Record<string, any>, msg: any) => void> = {
+		'__e2e:drizzle::drizzle-ready': (payload) => {
+			dbConnected = true;
+			drizzleReadyPayload = JSON.stringify(payload);
+		},
+		'record-inserted': (payload) => {
+			lastInsertedId = payload.id;
+			insertResult = `id: ${payload.id}`;
+		},
+		'record-list': (payload) => (recordList = JSON.stringify(payload.records)),
+		'single-record': (payload) => (singleRecord = JSON.stringify(payload.record)),
+		'record-count': (payload) => (recordCount = `count: ${payload.count}`),
+		'record-deleted': (payload) => (deleteResult = payload.success ? 'deleted' : 'failed'),
+		'message-count': (payload) => (messageCountResult = `messages: ${payload.count}`),
+		'__e2e:drizzle::drizzle-vacuum-done': (payload) => (vacuumResult = `vacuum:${payload.timestamp}`),
+		'outgoing-count': (payload) => (outgoingCountResult = `outgoing: ${payload.count}`),
+		'disconnect-count': (payload) => (disconnectCountResult = `disconnects: ${payload.count}`),
+		'generated-id': (payload) =>
+			(generatedIdResult = payload.value ? `generated: ${payload.value}` : 'generated: none'),
+		'last-state': (payload) => (lastStateResult = JSON.stringify(payload.state)),
+		'shutdown-count': (payload) => (shutdownCountResult = `shutdowns: ${payload.count}`),
+		'plugin-rewrite-result': (payload) =>
+			(rewriteResult = `text:${payload.text},rewritten:${payload.rewritten ?? false}`),
+		'__e2e:drizzle::plugin-every-tick': (payload) => (everyTickCount = Number(payload.count)),
+		'__e2e:drizzle::plugin-flaky-result': (payload) => (flakyResult = `attempts:${payload.attempts}`),
+		'__e2e:drizzle::plugin-dlq-result': (payload) =>
+			(dlqResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`),
+		'__e2e:drizzle::error-result': (payload) => (errorLog = JSON.stringify(payload)),
+		'__e2e:drizzle::plugin-task-data-result': (payload) => (pluginTaskDataResult = payload.result),
+		'stream-connection-id': (payload) => {
+			if (typeof payload.id === 'string') streamConnIdChunks = [...streamConnIdChunks, payload.id];
+		},
+		'stream-throw-on-cancel': (payload) => {
+			if (typeof payload.tick === 'number') streamThrowChunks++;
+		},
+		'__streamOk__': (_payload, msg) => {
+			if (typeof msg.metadata?.stream?.id === 'string') streamThrowId = msg.metadata.stream?.id;
+		},
+	};
+
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
@@ -54,88 +95,16 @@
 
 		ws.onmessage = (event) => {
 			if (event.data === 'pong') return;
-			const msg = JSON.parse(event.data as string) as {
+
+			const msg = window.__livethingDecode(event.data) as {
 				event: string;
 				payload: Record<string, unknown>;
-				__wskit?: Record<string, unknown>;
+				metadata?: Record<string, Record<string, unknown>> | null;
 			};
 			const { event: evt, payload } = msg;
 			messageLog = [...messageLog, `${evt}: ${JSON.stringify(payload)}`].slice(-50);
 
-			switch (evt) {
-				case '__e2e:drizzle::drizzle-ready':
-					dbConnected = true;
-					drizzleReadyPayload = JSON.stringify(payload);
-					break;
-				case 'record-inserted':
-					lastInsertedId = payload.id as number;
-					insertResult = `id: ${payload.id}`;
-					break;
-				case 'record-list':
-					recordList = JSON.stringify(payload.records);
-					break;
-				case 'single-record':
-					singleRecord = JSON.stringify(payload.record);
-					break;
-				case 'record-count':
-					recordCount = `count: ${payload.count}`;
-					break;
-				case 'record-deleted':
-					deleteResult = payload.success ? 'deleted' : 'failed';
-					break;
-				case 'message-count':
-					messageCountResult = `messages: ${payload.count}`;
-					break;
-				case '__e2e:drizzle::drizzle-vacuum-done':
-					vacuumResult = `vacuum:${payload.timestamp}`;
-					break;
-				case 'outgoing-count':
-					outgoingCountResult = `outgoing: ${payload.count}`;
-					break;
-				case 'disconnect-count':
-					disconnectCountResult = `disconnects: ${payload.count}`;
-					break;
-				case 'generated-id':
-					generatedIdResult = payload.value ? `generated: ${payload.value}` : 'generated: none';
-					break;
-				case 'last-state':
-					lastStateResult = JSON.stringify(payload.state);
-					break;
-				case 'shutdown-count':
-					shutdownCountResult = `shutdowns: ${payload.count}`;
-					break;
-				case 'plugin-rewrite-result':
-					rewriteResult = `text:${payload.text},rewritten:${payload.rewritten ?? false}`;
-					break;
-				case '__e2e:drizzle::plugin-every-tick':
-					everyTickCount = Number(payload.count);
-					break;
-				case '__e2e:drizzle::plugin-flaky-result':
-					flakyResult = `attempts:${payload.attempts}`;
-					break;
-				case '__e2e:drizzle::plugin-dlq-result':
-					dlqResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`;
-					break;
-				case '__e2e:drizzle::error-result':
-					errorLog = JSON.stringify(payload);
-					break;
-				case '__e2e:drizzle::plugin-task-data-result':
-					pluginTaskDataResult = payload.result as string;
-					break;
-				case 'stream-connection-id':
-					if (typeof payload.id === 'string') {
-						streamConnIdChunks = [...streamConnIdChunks, payload.id];
-					}
-					break;
-				case 'stream-throw-on-cancel':
-					if (typeof payload.tick === 'number') {
-						streamThrowChunks++;
-					}
-					break;
-				case '__streamOk__':
-					if (typeof msg.__wskit?.streamId === 'string') streamThrowId = msg.__wskit.streamId;
-					break;
-			}
+			eventHandlers[evt]?.(payload, msg);
 		};
 	}
 
@@ -146,13 +115,13 @@
 		dbConnected = false;
 	}
 
-	function send(event: string, payload: Record<string, unknown> = {}) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(event: string, payload: Record<string, unknown> | null = null) {
+		ws?.send(window.__livethingEncode({ event, payload }));
 	}
 </script>
 
 <main>
-	<h1>wskit plugins e2e</h1>
+	<h1>LiveThing plugins E2E</h1>
 
 	<section>
 		<h2>Connection</h2>
@@ -319,7 +288,7 @@
 		<h2>Stream that throws from finally on cancel</h2>
 		<button
 			data-testid="stream-throw-on-cancel-btn"
-			onclick={() => send('stream-throw-on-cancel')}
+			onclick={() => send('stream-throw-on-cancel', {})}
 			disabled={status !== 'connected'}>Start throwing stream</button
 		>
 		<div data-testid="stream-throw-chunks">{streamThrowChunks}</div>

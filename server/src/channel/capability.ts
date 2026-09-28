@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { assertUniqueCapabilityKinds } from '~/_define/capability-checks.ts';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { channel as channelFactory, scope as scopeFactory } from '~/channel/channel.ts';
@@ -16,10 +17,17 @@ import { channelRuntimePrimitive } from '~/channel/service.ts';
 import { fillChannelTemplate } from '~/channel/template.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
-import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
+
+type HooksParameter = {
+  beforeBroadcast?: unknown;
+  afterBroadcast?: unknown;
+  replay: unknown;
+};
+type ConfigParameter = { input?: unknown; allowInterleaving?: boolean; run: any };
+type HooksParameter2 = { beforeBroadcast?: any; afterBroadcast?: any; replay: any };
 
 /** Builds one stream primitive from a `(event, config)` pair. Supplied by a stream capability. */
 type StreamBuild = (event: string, config: unknown) => Primitive;
@@ -32,7 +40,10 @@ type StreamBuild = (event: string, config: unknown) => Primitive;
  */
 interface ChannelOnlyBuilder {
   readonly __capabilityKind?: string;
+  readonly __primitives: readonly Primitive[];
   __buildChannelPrimitive?: () => Primitive;
+  readonly __channelEmits?: Record<string, unknown>;
+  readonly __channelServerRequests?: Record<string, unknown>;
 }
 
 /** The capability name a channel stream of each kind needs listed. */
@@ -56,19 +67,14 @@ export interface ChannelDeps {
     recorded?: StreamBuild;
   };
   /** Custom-replay builder, present only when `replay.custom()` is listed. */
-  readonly buildCustomReplay?: (hooks: {
-    beforeSend?: unknown;
-    afterSend?: unknown;
-    replay: unknown;
-  }) => Primitive;
+  readonly buildCustomReplay?: (hooks: HooksParameter) => Primitive;
   /** Built-in replay builder, present only when `replay.history()`/`replay.snapshot()` is listed. */
   readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
-  /** Request builder, present only when the `requests()` capability is listed. */
-  readonly buildRequest?: (event: string, config: { input?: unknown; run: any }) => Primitive;
+  /** Request builder, present only when the `clientRequests()` capability is listed. */
+  readonly buildClientRequest?: (event: string, config: ConfigParameter) => Primitive;
   /**
-   * Merge a channel's own `outgoing.requests` declarations into the engine's
-   * server→client request table. Present only when `requests()` is listed, so a
-   * channel declaring `outgoing.requests` without it is a build error.
+   * Merge channel `serverRequests(...)` declarations into the server→client
+   * request table. Present only when `serverRequests()` is listed at the root.
    */
   readonly registerServerRequests?: (channelKey: string, declarations: Record<string, any>) => void;
 }
@@ -84,8 +90,9 @@ function withChannelCtx(
  * The accumulating channel object returned by `base.channel(...)`. Its handler
  * methods register onto the channel and return a value carrying both the
  * client-contract type and a reference back to the channel; its gate and
- * lifecycle methods mutate and return void. `assemble()` reaches the channel
- * through any of those values (or the channel itself) and builds it once.
+ * lifecycle methods mutate and return void. A handler value passed to
+ * `assemble()` enables that handler; passing the channel itself only includes
+ * its configuration and lifecycle behavior.
  *
  * Stream and custom-replay handlers delegate to the matching capability's
  * builder (passed in as `deps`), so a channel only pulls in those engines when
@@ -93,18 +100,19 @@ function withChannelCtx(
  */
 export class ChannelBuilder {
   /** Marks this value for `assemble()` to collect as a channel. @internal */
-  readonly __wskitChannel = true as const;
+  readonly __livethingChannel = true as const;
   /** Self-reference, so a channel and its handlers resolve to the same channel. @internal */
   readonly __channel: ChannelBuilder = this;
   /** The channel's unique key (static name or family key). @internal */
   readonly __key: string;
   /** The channel-level rate-limit rule, if the config set one. @internal */
   readonly __rateLimit?: RateLimitConfig;
-  /** Per-handler rate-limit overrides for this channel, keyed by event. @internal */
-  readonly __rateLimitOverrides = new Map<string, RateLimitConfig>();
+  /** Per-handler rate-limit overrides for this channel. @internal */
+  readonly __rateLimitOverrides = new Map<Primitive, { event: string; config: RateLimitConfig }>();
 
   private readonly pattern: string | ReturnType<typeof scopeFactory>;
   private readonly children: Primitive[] = [];
+  private readonly handlerPrimitives = new Set<Primitive>();
   private readonly once = new Set<string>();
   private readonly deps: ChannelDeps;
   /** Capability kinds declared by this channel's own `capabilities` list. */
@@ -122,39 +130,46 @@ export class ChannelBuilder {
     }
 
     const cfg = config ?? {};
+    assertUniqueCapabilityKinds(
+      (cfg.capabilities as readonly Capability[] | undefined) ?? [],
+      `channel '${this.__key}' capabilities`,
+    );
+
     if (cfg.rateLimit) this.__rateLimit = cfg.rateLimit as RateLimitConfig;
-    const emits = cfg.outgoing?.emits as Record<string, unknown> | undefined;
-    if (emits) {
-      for (const event of Object.keys(emits)) this.children.push(outgoingFactory(event));
-    }
-    const serverRequests = cfg.outgoing?.requests as Record<string, unknown> | undefined;
-    if (serverRequests && Object.keys(serverRequests).length > 0) {
-      const register = deps.registerServerRequests;
-      if (!register) {
-        throw new Error(
-          `[wskit] channel '${this.__key}' declares outgoing.requests but the requests() ` +
-            'capability is not listed. Add requests() to capabilities.',
-        );
-      }
-      register(this.__key, serverRequests);
-    }
     if (cfg.membership !== undefined) {
       this.children.push(membershipMarker(cfg.membership === 'persistent'));
     }
+
     if (cfg.replay !== undefined) {
       const build = deps.buildBuiltinReplay;
       if (!build) {
         throw new Error(
-          `[wskit] channel '${this.__key}' sets replay but no built-in replay capability is ` +
+          `[livething] channel '${this.__key}' sets replay but no built-in replay capability is ` +
             'listed. Add replay.history() or replay.snapshot() to capabilities.',
         );
       }
+
       this.children.push(build(cfg.replay));
     }
+
     for (const cap of (cfg.capabilities as readonly ChannelOnlyBuilder[] | undefined) ?? []) {
       if (cap.__capabilityKind) this.capabilityKinds.add(cap.__capabilityKind);
+      if (cap.__channelEmits) this.children.push(...cap.__primitives);
+      if (cap.__channelServerRequests && Object.keys(cap.__channelServerRequests).length > 0) {
+        const register = deps.registerServerRequests;
+        if (!register) {
+          throw new Error(
+            `[livething] channel '${this.__key}' declares serverRequests(...) but serverRequests() ` +
+              'is not listed. Add serverRequests() to capabilities.',
+          );
+        }
+
+        register(this.__key, cap.__channelServerRequests);
+      }
+
       if (cap.__buildChannelPrimitive) this.children.push(cap.__buildChannelPrimitive());
     }
+
     if (cfg.check) {
       this.children.push(
         checkFactory(
@@ -165,6 +180,7 @@ export class ChannelBuilder {
     } else if (cfg.subscribe) {
       this.children.push(checkFactory(() => undefined, { validator: cfg.subscribe }));
     }
+
     if (cfg.commit) this.children.push(commitFactory(withChannelCtx(cfg.commit) as any));
     if (cfg.revalidate)
       this.children.push(revalidateFactory(withChannelCtx(cfg.revalidate) as any));
@@ -178,43 +194,48 @@ export class ChannelBuilder {
   at(params: Record<string, string>): ChannelRefValue {
     if (typeof this.pattern === 'string') {
       throw new Error(
-        `[wskit] .at(...) is only available on dynamic family channels; '${this.__key}' is a ` +
+        `[livething] .at(...) is only available on dynamic family channels; '${this.__key}' is a ` +
           'static channel — pass it to ctx.channels.get(...) directly.',
       );
     }
+
     const name = fillChannelTemplate(this.pattern.template, params, `channel '${this.__key}'`);
-    return { __wskitChannelRef: true, family: this.__key, name };
+    return { __livethingChannelRef: true, family: this.__key, name };
   }
 
   on(event: string, config: any): ChannelHandlerValue {
-    this.recordRateLimit(event, config);
-    this.children.push(
-      incomingFactory(
-        event,
-        withChannelCtx(config.run) as any,
-        config.input ? { validator: config.input } : undefined,
-      ),
-    );
-    return this.handlerValue();
+    const primitive = incomingFactory(event, withChannelCtx(config.run) as any, {
+      validator: config.input,
+      allowInterleaving: config.allowInterleaving,
+    });
+    this.recordRateLimit(event, config, primitive);
+    this.handlerPrimitives.add(primitive);
+    this.children.push(primitive);
+
+    return this.handlerValue(primitive);
   }
 
   request(event: string, config: any): ChannelHandlerValue {
-    const build = this.deps.buildRequest;
+    const build = this.deps.buildClientRequest;
     if (!build) {
       throw new Error(
-        `[wskit] channel '${this.__key}' uses request() but the requests() capability is not ` +
-          'listed. Add requests() to capabilities.',
+        `[livething] channel '${this.__key}' uses request() but clientRequests() is not ` +
+          'listed. Add clientRequests() to capabilities.',
       );
     }
-    this.recordRateLimit(event, config);
+
     const run = config.run;
-    this.children.push(
-      build(event, {
-        input: config.input,
-        run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
-      }),
-    );
-    return this.handlerValue();
+    const primitive = build(event, {
+      input: config.input,
+      allowInterleaving: config.allowInterleaving,
+      run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
+    });
+    this.recordRateLimit(event, config, primitive);
+
+    this.handlerPrimitives.add(primitive);
+    this.children.push(primitive);
+
+    return this.handlerValue(primitive);
   }
 
   stream(event: string, config: any): ChannelHandlerValue {
@@ -245,20 +266,26 @@ export class ChannelBuilder {
     this.registerOnce('intercept', interceptFactory(withChannelCtx(handler) as any));
   }
 
-  replay(hooks: { beforeSend?: any; afterSend?: any; replay: any }): void {
+  replay(hooks: HooksParameter2): void {
     const build = this.deps.buildCustomReplay;
     if (!build) {
       throw new Error(
-        `[wskit] channel '${this.__key}' uses replay() but the replay.custom() capability is ` +
+        `[livething] channel '${this.__key}' uses replay() but the replay.custom() capability is ` +
           'not listed. Add replay.custom() to capabilities.',
       );
     }
+
     this.registerOnce('replay', build(hooks));
   }
 
   /** Build the channel primitive from everything registered so far. @internal */
-  __build(): Primitive {
-    const primitive = channelFactory(this.pattern as any, ...(this.children as any[]));
+  __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive {
+    const children = selectedHandlers
+      ? this.children.filter(
+          (child) => !this.handlerPrimitives.has(child) || selectedHandlers.has(child),
+        )
+      : this.children;
+    const primitive = channelFactory(this.pattern as any, ...(children as any[]));
     (primitive as { __capabilityKinds?: ReadonlySet<string> }).__capabilityKinds =
       this.capabilityKinds;
     return primitive;
@@ -274,46 +301,57 @@ export class ChannelBuilder {
     if (!build) {
       const capabilityName = CHANNEL_STREAM_CAPABILITY[kind];
       throw new Error(
-        `[wskit] channel '${this.__key}' uses ${capabilityName} but the ${capabilityName} ` +
+        `[livething] channel '${this.__key}' uses ${capabilityName} but the ${capabilityName} ` +
           `capability is not listed. Add ${capabilityName} to capabilities.`,
       );
     }
-    this.recordRateLimit(event, config);
+
     const run = config.run;
     const channelConfig = {
       ...config,
       run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
     };
-    this.children.push(build(event, channelConfig));
-    return this.handlerValue();
+
+    const primitive = build(event, channelConfig);
+
+    this.recordRateLimit(event, config, primitive);
+    this.handlerPrimitives.add(primitive);
+    this.children.push(primitive);
+
+    return this.handlerValue(primitive);
   }
 
   /** Stash a handler's `rateLimit` override so assembly can fold it into the plan. */
-  private recordRateLimit(event: string, config: any): void {
+  private recordRateLimit(event: string, config: any, primitive: Primitive): void {
     if (config?.rateLimit) {
-      this.__rateLimitOverrides.set(event, config.rateLimit as RateLimitConfig);
+      this.__rateLimitOverrides.set(primitive, {
+        event,
+        config: config.rateLimit as RateLimitConfig,
+      });
     }
   }
 
   private registerOnce(slot: string, primitive: Primitive): void {
     if (this.once.has(slot)) {
       throw new Error(
-        `[wskit] Duplicate ${slot} on channel '${this.__key}'. Only one ${slot} can be attached.`,
+        `[livething] Duplicate ${slot} on channel '${this.__key}'. Only one ${slot} can be attached.`,
       );
     }
+
     this.once.add(slot);
     this.children.push(primitive);
   }
 
-  private handlerValue(): ChannelHandlerValue {
-    return { __wskitChannelHandler: true, __channel: this };
+  private handlerValue(primitive: Primitive): ChannelHandlerValue {
+    return { __livethingChannelHandler: true, __channel: this, __handler: primitive };
   }
 }
 
 /** The value a channel handler returns — carries a reference to its channel. @internal */
 export interface ChannelHandlerValue {
-  readonly __wskitChannelHandler: true;
+  readonly __livethingChannelHandler: true;
   readonly __channel: ChannelBuilder;
+  readonly __handler: Primitive;
 }
 
 /**
@@ -322,7 +360,7 @@ export interface ChannelHandlerValue {
  * is `ChannelRef` (it carries the channel's emit + request contract). @internal
  */
 export interface ChannelRefValue {
-  readonly __wskitChannelRef: true;
+  readonly __livethingChannelRef: true;
   readonly family: string;
   readonly name: string;
 }
@@ -346,17 +384,19 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { channels } from '@wskit/server/channels';
+ * import { server, emits, t } from '@livething/server';
+ * import { channels } from '@livething/server/channels';
  * import * as v from 'valibot';
  *
- * const base = define({ env: t<Env>(), capabilities: [channels()] });
+ * const base = server({ capabilities: [channels()] });
  *
- * const lobby = base.channel('lobby', { outgoing: { emits: { joined: t<{ id: string }>() } } });
+ * const lobby = base.channel('lobby', { capabilities: [emits({ joined: t<{ id: string }>() })] });
  * export const handleChat = lobby.on('chat', {
  *   input: v.object({ text: v.string() }),
  *   run(ctx, input) { ctx.channel.broadcast('joined', { id: ctx.connection.id }); },
  * });
+ *
+ * export const server = base.assemble({ handlers: [handleChat] });
  * ```
  */
 export const channels = withCapabilityKind(function channels(): ChannelsCapability {

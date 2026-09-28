@@ -16,6 +16,7 @@ test('pauses reconnection while offline and reconnects on the online event', asy
       online,
     );
   }
+
   async function serverCount(): Promise<number> {
     const res = await request.get(`http://127.0.0.1:8788/__count?room=${room}`);
     return ((await res.json()) as { count: number }).count;

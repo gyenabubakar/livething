@@ -16,10 +16,9 @@ function makeDeps(overrides: Partial<CreateAdminContextDeps> = {}) {
   ]);
   const deps = {
     connections,
-    env: {},
+
     logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     platform: {},
-    waitUntilImpl: vi.fn(),
     getStorage: () => ({}) as never,
     getStorageView: () => ({}) as never,
     broadcastToConnections: vi.fn(),
@@ -28,9 +27,11 @@ function makeDeps(overrides: Partial<CreateAdminContextDeps> = {}) {
     kickChannelMembers: vi.fn(() => Promise.resolve()),
     resolveChannel: vi.fn((target: unknown) => {
       if (target === 'missing') return undefined;
+
       if (typeof target === 'string') {
         return { channelName: target, channelFamily: null, params: {} };
       }
+
       const { family, name } = target as { family: string; name: string };
       return { channelName: name, channelFamily: family, params: {} };
     }),
@@ -50,6 +51,7 @@ describe('createAdminContext', () => {
     expect(deps.broadcastToConnections).toHaveBeenCalledTimes(1);
     const [conns, opts] = (deps.broadcastToConnections as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect([...(conns as Iterable<unknown>)]).toHaveLength(3);
+
     expect(opts).toEqual({ event: 'ping', payload: { n: 1 } });
   });
 
@@ -80,7 +82,7 @@ describe('createAdminContext', () => {
 
   it('channels.get(family, instance) resolves a dynamic channel and kick revokes membership', () => {
     const { deps } = makeDeps();
-    const target: PublicApi.UserRef = { __wskit: 'user-ref', id: 'alice', instance: undefined };
+    const target: PublicApi.UserRef = { __livething: 'user-ref', id: 'alice', instance: undefined };
     createAdminContext(deps)
       .channels.get('rooms', 'rooms:42')
       .kick(target, { reason: 'banned', revoke: true });

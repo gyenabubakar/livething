@@ -15,18 +15,47 @@
 	function userMessagesFor(channel: string) {
 		return (userMessagesByChannel[channel] ?? []).join(',');
 	}
+
 	function systemMessagesFor(channel: string) {
 		return (systemMessagesByChannel[channel] ?? []).join(',');
 	}
 
+	function recordRoomMessage(payload: Record<string, any>) {
+		const channel = payload.channel ?? '';
+		const entry = `${payload.from}:${payload.text}`;
+		const target = payload.kind === 'system' ? systemMessagesByChannel : userMessagesByChannel;
+		const next = { ...target, [channel]: [...(target[channel] ?? []), entry] };
+		if (payload.kind === 'system') systemMessagesByChannel = next;
+		else userMessagesByChannel = next;
+	}
+
+	const eventHandlers: Record<string, (data: any) => void> = {
+		'top-only-action-fired': (data) => (topOnlyActionFired = data.payload?.from ?? ''),
+		'validation-observed': (data) =>
+			(validationObserved = `${data.payload?.channel ?? ''}|${data.payload?.event ?? ''}`),
+		'scoped-error-observed': (data) =>
+			(scopedErrorObserved = `${data.payload?.channel ?? ''}|${data.payload?.family ?? ''}|${data.payload?.event ?? ''}`),
+		'__subscribeOk__': (data) => (subscribeOk = [...subscribeOk, data.metadata?.channel?.name ?? '']),
+		'__error__': (data) => {
+			if (!data.metadata?.channel?.name) return;
+
+			subscribeError = `${data.metadata.channel?.name}:${data.payload.code}`;
+			subscribeErrorScope = data.metadata.channel?.family ?? '';
+		},
+		'name-result': (data) => (nameResult = `${data.payload.name}|${data.payload.suffix}`),
+		'room-message': (data) => recordRoomMessage(data.payload ?? {}),
+	};
+
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/channel-dynamic?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 			// Expose for tests that need to send raw frames (e.g. protocol events).
@@ -38,59 +67,42 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
-			if (data.event === 'top-only-action-fired') {
-				topOnlyActionFired = data.payload?.from ?? '';
-			}
-			if (data.event === 'validation-observed') {
-				validationObserved = `${data.payload?.channel ?? ''}|${data.payload?.event ?? ''}`;
-			}
-			if (data.event === 'scoped-error-observed') {
-				scopedErrorObserved = `${data.payload?.channel ?? ''}|${data.payload?.family ?? ''}|${data.payload?.event ?? ''}`;
-			}
-			if (data.event === '__subscribeOk__') {
-				subscribeOk = [...subscribeOk, data.__wskit?.channel ?? ''];
-			}
-			if (data.event === '__error__' && data.__wskit?.channel) {
-				subscribeError = `${data.__wskit.channel}:${data.payload.code}`;
-				subscribeErrorScope = data.__wskit.channelFamily ?? '';
-			}
-			if (data.event === 'name-result') {
-				nameResult = `${data.payload.name}|${data.payload.suffix}`;
-			}
-			if (data.event === 'room-message') {
-				const ch = data.payload?.channel ?? '';
-				const entry = `${data.payload.from}:${data.payload.text}`;
-				const target = data.payload.kind === 'system' ? systemMessagesByChannel : userMessagesByChannel;
-				const next = { ...target, [ch]: [...(target[ch] ?? []), entry] };
-				if (data.payload.kind === 'system') systemMessagesByChannel = next;
-				else userMessagesByChannel = next;
-			}
+
+			const data = window.__livethingDecode(ev.data);
+			eventHandlers[data.event]?.(data);
 		};
 	}
 
 	function send(
 		event: string,
-		payload: Record<string, unknown> = {},
-		__wskit?: Record<string, unknown>,
+		payload: Record<string, unknown> | null = null,
+		metadata?: { channel?: string; family?: string },
 	) {
-		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
+		const wireMetadata = metadata?.channel
+			? { channel: { name: metadata.channel, ...(metadata.family ? { family: metadata.family } : {}) } }
+			: null;
+		ws?.send(window.__livethingEncode({ event, payload, metadata: wireMetadata }));
 	}
+
 	function subscribe(channel: string) {
-		send('__subscribe__', {}, { channel, channelFamily: 'room' });
+		send('__subscribe__', null, { channel, family: 'room' });
 	}
+
 	function subscribeNoScope(channel: string) {
 		// Missing channelFamily — should emit __error__ channel-not-found.
-		send('__subscribe__', {}, { channel });
+		send('__subscribe__', null, { channel });
 	}
+
 	function subscribeUnknownScope(channel: string, scopeName: string) {
-		send('__subscribe__', {}, { channel, channelFamily: scopeName });
+		send('__subscribe__', null, { channel, family: scopeName });
 	}
+
 	function echoName(channel: string) {
-		send('echo-name', {}, { channel, channelFamily: 'room' });
+		send('echo-name', {}, { channel, family: 'room' });
 	}
+
 	function sendTo(channel: string, text: string) {
-		send('send-message', { text }, { channel, channelFamily: 'room' });
+		send('send-message', { text }, { channel, family: 'room' });
 	}
 </script>
 

@@ -33,6 +33,7 @@ export function signalBus(helpers: PrimitiveHelpers): SignalBus {
 
   const bus = createSignalBus(helpers.log);
   helpers.shared.set(SIGNAL_BUS_KEY, bus);
+
   return bus;
 }
 
@@ -51,6 +52,7 @@ function createSignalBus(log: PrimitiveLogger): SignalBus {
         set = new Set();
         handlers.set(name, set);
       }
+
       set.add(handler);
 
       return () => {

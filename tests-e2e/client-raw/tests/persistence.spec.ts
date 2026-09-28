@@ -4,8 +4,10 @@ import type { Page } from '@playwright/test';
 type WireFrame = {
   event: string;
   payload: Record<string, unknown>;
-  __wskit?: Record<string, unknown>;
+  metadata?: Record<string, Record<string, unknown>> | null;
 };
+
+type WireInput = Omit<WireFrame, 'payload'> & { payload: Record<string, unknown> | null };
 
 declare global {
   interface Window {
@@ -30,15 +32,17 @@ async function installRig(page: Page) {
       const ws = new WebSocket(url);
       sockets.set(id, ws);
       frames.set(id, []);
+
       ws.addEventListener('message', (ev) => {
         if (typeof ev.data === 'string') {
           try {
-            frames.get(id)!.push(JSON.parse(ev.data));
+            frames.get(id)!.push(window.__livethingDecode(ev.data));
           } catch {
             // ignore
           }
         }
       });
+
       return new Promise((resolve, reject) => {
         ws.addEventListener('open', () => resolve({ id, frames: frames.get(id)! }));
         ws.addEventListener('error', () => reject(new Error('ws error')));
@@ -46,7 +50,7 @@ async function installRig(page: Page) {
     };
 
     window.__wsSend = (id, frame) => {
-      sockets.get(id)?.send(JSON.stringify(frame));
+      sockets.get(id)?.send(window.__livethingEncode(frame));
     };
 
     window.__wsClose = (id) => {
@@ -65,7 +69,7 @@ async function connect(page: Page, username: string, room: string): Promise<stri
   return result;
 }
 
-async function send(page: Page, id: string, frame: WireFrame) {
+async function send(page: Page, id: string, frame: WireInput) {
   await page.evaluate(([sid, f]) => window.__wsSend!(sid, f as WireFrame), [id, frame] as const);
 }
 
@@ -88,8 +92,10 @@ async function waitForFrame(
     const all = await frames(page, id);
     const found = all.find(match);
     if (found) return found;
+
     await page.waitForTimeout(50);
   }
+
   throw new Error('frame not received in time');
 }
 
@@ -108,8 +114,8 @@ test.describe('persistence', () => {
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     await waitForFrame(page, alice1, (f) => f.event === '__subscribeOk__');
     await close(page, alice1);
@@ -119,8 +125,8 @@ test.describe('persistence', () => {
     const bob = await connect(page, 'bob', room);
     await send(page, bob, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     await waitForFrame(page, bob, (f) => f.event === '__subscribeOk__');
 
@@ -132,20 +138,20 @@ test.describe('persistence', () => {
     const onlineFrame = await waitForFrame(
       page,
       bob,
-      (f) => f.event === '__memberOnline__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__memberOnline__' && f.metadata?.channel?.name === 'archive-room',
     );
-    expect(onlineFrame.__wskit?.channel).toBe('archive-room');
+    expect(onlineFrame.metadata?.channel?.name).toBe('archive-room');
 
     const bobFrames = await frames(page, bob);
     // Bob's own initial sync arrives as __memberSync__, not __memberJoin__.
-    // What matters: there is NOT a __memberJoin__ frame specifically for
-    // Alice's new socket. The __memberOnline__ frame for Alice should not
-    // be preceded by a matching __memberJoin__.
+    // What matters: there is NOT a __memberJoin__ frame for Alice's member
+    // id. The __memberOnline__ frame for Alice should not be preceded by a
+    // matching __memberJoin__.
     const memberJoinIdx = bobFrames.findIndex(
       (f) =>
         f.event === '__memberJoin__' &&
-        f.__wskit?.channel === 'archive-room' &&
-        f.payload.connectionId === onlineFrame.payload.connectionId,
+        f.metadata?.channel?.name === 'archive-room' &&
+        f.payload.memberId === onlineFrame.payload.memberId,
     );
     expect(memberJoinIdx).toBe(-1);
 
@@ -154,7 +160,7 @@ test.describe('persistence', () => {
     await send(page, bob, {
       event: 'send-message',
       payload: { text: 'hello rejoined alice' },
-      __wskit: { channel: 'archive-room' },
+      metadata: { channel: { name: 'archive-room' } },
     });
     const echoToAlice = await waitForFrame(
       page,
@@ -172,8 +178,8 @@ test.describe('persistence', () => {
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'typing-indicator' },
+      payload: null,
+      metadata: { channel: { name: 'typing-indicator' } },
     });
     await waitForFrame(page, alice1, (f) => f.event === '__subscribeOk__');
     await close(page, alice1);
@@ -186,7 +192,7 @@ test.describe('persistence', () => {
     // No __subscribeOk__ for typing-indicator should appear because the
     // channel is opt-out persistent.
     const rejoined = alice2Frames.find(
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'typing-indicator',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'typing-indicator',
     );
     expect(rejoined).toBeUndefined();
   });
@@ -199,8 +205,8 @@ test.describe('persistence', () => {
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     await waitForFrame(page, alice1, (f) => f.event === '__subscribeOk__');
 
@@ -224,7 +230,7 @@ test.describe('persistence', () => {
     await page.waitForTimeout(300);
     const alice2Frames = await frames(page, alice2);
     const rejoinedSubscribeOk = alice2Frames.find(
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'archive-room',
     );
     expect(rejoinedSubscribeOk).toBeUndefined();
   });
@@ -237,16 +243,16 @@ test.describe('persistence', () => {
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     await waitForFrame(page, alice1, (f) => f.event === '__subscribeOk__');
 
     const bob = await connect(page, 'bob', room);
     await send(page, bob, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     await waitForFrame(page, bob, (f) => f.event === '__subscribeOk__');
 
@@ -254,16 +260,22 @@ test.describe('persistence', () => {
     const beforeLen = (await frames(page, bob)).length;
 
     await close(page, alice1);
-    await page.waitForTimeout(300);
+    // Wait for the offline broadcast to actually arrive instead of a fixed
+    // delay, then check the same snapshot for the leave that must be absent.
+    await waitForFrame(
+      page,
+      bob,
+      (f) => f.event === '__memberOffline__' && f.metadata?.channel?.name === 'archive-room',
+    );
 
     const after = (await frames(page, bob)).slice(beforeLen);
     const offline = after.find(
-      (f) => f.event === '__memberOffline__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__memberOffline__' && f.metadata?.channel?.name === 'archive-room',
     );
     expect(offline).toBeTruthy();
 
     const leave = after.find(
-      (f) => f.event === '__memberLeave__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__memberLeave__' && f.metadata?.channel?.name === 'archive-room',
     );
     expect(leave).toBeUndefined();
   });
@@ -275,13 +287,13 @@ test.describe('persistence', () => {
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     await waitForFrame(
       page,
       alice1,
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'archive-room',
     );
     await close(page, alice1);
     await page.waitForTimeout(200);
@@ -292,9 +304,9 @@ test.describe('persistence', () => {
     const ok = await waitForFrame(
       page,
       alice2,
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'archive-room',
     );
-    expect(ok.__wskit?.source).toBe('server');
+    expect(ok.metadata?.exchange?.source).toBe('server');
   });
 
   test('plain disconnect fires onSessionEnd (session-ended) but NOT onUnsubscribe (true-leave)', async ({
@@ -307,23 +319,30 @@ test.describe('persistence', () => {
     for (const c of [alice, bob]) {
       await send(page, c, {
         event: '__subscribe__',
-        payload: {},
-        __wskit: { channel: 'archive-room' },
+        payload: null,
+        metadata: { channel: { name: 'archive-room' } },
       });
       await waitForFrame(
         page,
         c,
-        (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+        (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'archive-room',
       );
     }
 
     const beforeLen = (await frames(page, bob)).length;
     await close(page, alice);
-    await page.waitForTimeout(400);
+    // Wait for the session-ended broadcast to actually arrive instead of a
+    // fixed delay, then check the same snapshot for the true-leave that must
+    // be absent.
+    await waitForFrame(
+      page,
+      bob,
+      (f) => f.event === 'session-ended' && f.metadata?.channel?.name === 'archive-room',
+    );
 
     const after = (await frames(page, bob)).slice(beforeLen);
     const sessionEnded = after.find(
-      (f) => f.event === 'session-ended' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === 'session-ended' && f.metadata?.channel?.name === 'archive-room',
     );
     expect(sessionEnded).toBeTruthy();
     expect(sessionEnded!.payload.username).toBe('alice');
@@ -341,13 +360,13 @@ test.describe('persistence', () => {
     const admin = await connect(page, 'admin', room);
     await send(page, alice, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     await waitForFrame(
       page,
       alice,
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'archive-room',
     );
 
     const beforeLen = (await frames(page, alice)).length;
@@ -374,13 +393,13 @@ test.describe('persistence', () => {
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     await waitForFrame(
       page,
       alice1,
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'archive-room',
     );
 
     // An admin bans alice; the ban is durable, so it is visible when alice's
@@ -397,7 +416,7 @@ test.describe('persistence', () => {
     const alice2 = await connect(page, 'alice', room);
     await page.waitForTimeout(400);
     const rejoined = (await frames(page, alice2)).find(
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'archive-room',
     );
     expect(rejoined).toBeUndefined();
   });
@@ -411,13 +430,13 @@ test.describe('persistence', () => {
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'capacity-room' },
+      payload: null,
+      metadata: { channel: { name: 'capacity-room' } },
     });
     await waitForFrame(
       page,
       alice1,
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'capacity-room',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'capacity-room',
     );
 
     // Alice drops; her durable membership stays but she is offline (live count 0).
@@ -428,13 +447,13 @@ test.describe('persistence', () => {
     const bob = await connect(page, 'bob', room);
     await send(page, bob, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'capacity-room' },
+      payload: null,
+      metadata: { channel: { name: 'capacity-room' } },
     });
     await waitForFrame(
       page,
       bob,
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'capacity-room',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'capacity-room',
     );
 
     // Alice reconnects. If commit ran on auto-rejoin it would see Bob in the seat
@@ -446,10 +465,10 @@ test.describe('persistence', () => {
       alice2,
       (f) =>
         f.event === '__subscribeOk__' &&
-        f.__wskit?.channel === 'capacity-room' &&
-        f.__wskit?.source === 'server',
+        f.metadata?.channel?.name === 'capacity-room' &&
+        f.metadata?.exchange?.source === 'server',
     );
-    expect(rejoined.__wskit?.source).toBe('server');
+    expect(rejoined.metadata?.exchange?.source).toBe('server');
   });
 
   test('anonymous connection does NOT auto-rejoin on reconnect (no durable membership row)', async ({
@@ -477,16 +496,18 @@ test.describe('persistence', () => {
           };
           w.__anon ??= new Map();
           const frames: WireFrame[] = [];
+
           w.__anon.set(sid, { ws, frames });
           ws.addEventListener('message', (ev) => {
             if (typeof ev.data === 'string') {
               try {
-                frames.push(JSON.parse(ev.data));
+                frames.push(window.__livethingDecode(ev.data));
               } catch {
                 // ignore
               }
             }
           });
+
           return new Promise<void>((resolve, reject) => {
             ws.addEventListener('open', () => resolve());
             ws.addEventListener('error', () => reject(new Error('ws error')));
@@ -496,13 +517,13 @@ test.describe('persistence', () => {
       );
     }
 
-    function sendAnon(id: string, frame: WireFrame) {
+    function sendAnon(id: string, frame: WireInput) {
       return page.evaluate(
         ([sid, f]) => {
           const w = window as unknown as {
             __anon?: Map<string, { ws: WebSocket; frames: WireFrame[] }>;
           };
-          w.__anon?.get(sid)?.ws.send(JSON.stringify(f as WireFrame));
+          w.__anon?.get(sid)?.ws.send(window.__livethingEncode(f as WireFrame));
         },
         [id, frame] as const,
       );
@@ -530,8 +551,8 @@ test.describe('persistence', () => {
     await connectAnon('a1');
     await sendAnon('a1', {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     // The channel check (ban:<empty>) passes for an empty identity, so the
     // manual subscribe still returns __subscribeOk__.
@@ -539,12 +560,18 @@ test.describe('persistence', () => {
     let subscribed = false;
     while (Date.now() - start < 2000) {
       const all = await framesAnon('a1');
-      if (all.some((f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room')) {
+      if (
+        all.some(
+          (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'archive-room',
+        )
+      ) {
         subscribed = true;
         break;
       }
+
       await page.waitForTimeout(50);
     }
+
     expect(subscribed).toBe(true);
 
     await closeAnon('a1');
@@ -556,7 +583,7 @@ test.describe('persistence', () => {
     await page.waitForTimeout(400);
     const a2Frames = await framesAnon('a2');
     const rejoined = a2Frames.find(
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'archive-room',
     );
     expect(rejoined).toBeUndefined();
   });
@@ -567,8 +594,8 @@ test.describe('persistence', () => {
     const alice = await connect(page, 'alice', room);
     await send(page, alice, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     await waitForFrame(page, alice, (f) => f.event === '__subscribeOk__');
 
@@ -577,15 +604,15 @@ test.describe('persistence', () => {
     const bob = await connect(page, 'bob', room);
     await send(page, bob, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'archive-room' },
+      payload: null,
+      metadata: { channel: { name: 'archive-room' } },
     });
     const sync = await waitForFrame(
       page,
       bob,
-      (f) => f.event === '__memberSync__' && f.__wskit?.channel === 'archive-room',
+      (f) => f.event === '__memberSync__' && f.metadata?.channel?.name === 'archive-room',
     );
-    const members = sync.payload.members as { connectionId: string; meta: { username?: string } }[];
+    const members = sync.payload.members as { memberId: string; meta: { username?: string } }[];
     expect(members.some((m) => m.meta?.username === 'alice')).toBe(true);
   });
 
@@ -611,16 +638,18 @@ test.describe('persistence', () => {
           };
           w.__anon ??= new Map();
           const frames: WireFrame[] = [];
+
           w.__anon.set(sid, { ws, frames });
           ws.addEventListener('message', (ev) => {
             if (typeof ev.data === 'string') {
               try {
-                frames.push(JSON.parse(ev.data));
+                frames.push(window.__livethingDecode(ev.data));
               } catch {
                 // ignore
               }
             }
           });
+
           return new Promise<void>((resolve, reject) => {
             ws.addEventListener('open', () => resolve());
             ws.addEventListener('error', () => reject(new Error('ws error')));
@@ -630,13 +659,13 @@ test.describe('persistence', () => {
       );
     }
 
-    async function sendAnon(id: string, frame: WireFrame) {
+    async function sendAnon(id: string, frame: WireInput) {
       await page.evaluate(
         ([sid, f]) => {
           const w = window as unknown as {
             __anon?: Map<string, { ws: WebSocket; frames: WireFrame[] }>;
           };
-          w.__anon?.get(sid)?.ws.send(JSON.stringify(f as WireFrame));
+          w.__anon?.get(sid)?.ws.send(window.__livethingEncode(f as WireFrame));
         },
         [id, frame] as const,
       );
@@ -655,14 +684,14 @@ test.describe('persistence', () => {
     await sendAnon('anon-stream-conn', {
       event: 'anon-stream',
       payload: {},
-      __wskit: { streamId: 'anon-1' },
+      metadata: { stream: { id: 'anon-1' } },
     });
 
     const start = Date.now();
     let rejection: WireFrame | undefined;
     while (Date.now() - start < 2000 && !rejection) {
       const all = await framesAnon('anon-stream-conn');
-      rejection = all.find((f) => f.event === '__error__' && f.__wskit?.streamId === 'anon-1');
+      rejection = all.find((f) => f.event === '__error__' && f.metadata?.stream?.id === 'anon-1');
       if (!rejection) await page.waitForTimeout(50);
     }
 

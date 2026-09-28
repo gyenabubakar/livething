@@ -145,7 +145,7 @@ export type SocketWithPrimitives<
 /**
  * A type-level error hint. The method exists but is not callable, so calling
  * it shows a message like:
- *   "This expression is not callable. Type '{ error: "[wskit] …" }' has no
+ *   "This expression is not callable. Type '{ error: "[livething] …" }' has no
  *    call signatures."
  * The object wrapper stops TypeScript from widening the message to `string`,
  * and putting it as a value (not a key) keeps the em-dash and other punctuation.
@@ -216,23 +216,23 @@ type ChannelHandleStubs<TContract, Api> = (AnyChannelSectionDeclared<
   ? 'request' extends keyof Api
     ? {}
     : {
-        request: NeedsPrimitive<'[wskit] channel.request needs the clientRequests() primitive — add clientRequests() to client()'>;
+        request: NeedsPrimitive<'[livething] channel.request needs the clientRequests() primitive — add clientRequests() to client()'>;
       }
   : {}) &
   (AnyChannelSectionDeclared<TContract, 'serverRequests'> extends true
     ? 'onRequest' extends keyof Api
       ? {}
       : {
-          onRequest: NeedsPrimitive<'[wskit] channel.onRequest needs the serverRequests() primitive — add serverRequests() to client()'>;
+          onRequest: NeedsPrimitive<'[livething] channel.onRequest needs the serverRequests() primitive — add serverRequests() to client()'>;
         }
     : {}) &
   (AnyChannelSectionDeclared<TContract, 'streams'> extends true
     ? 'onStream' extends keyof Api
       ? {}
       : {
-          stream: NeedsPrimitive<'[wskit] channel.stream needs the stream() primitive — add stream() to client()'>;
-          onStream: NeedsPrimitive<'[wskit] channel.onStream needs the stream() primitive — add stream() to client()'>;
-          resumeStream: NeedsPrimitive<'[wskit] channel.resumeStream needs the stream() primitive — add stream() to client()'>;
+          stream: NeedsPrimitive<'[livething] channel.stream needs the stream() primitive — add stream() to client()'>;
+          onStream: NeedsPrimitive<'[livething] channel.onStream needs the stream() primitive — add stream() to client()'>;
+          resumeStream: NeedsPrimitive<'[livething] channel.resumeStream needs the stream() primitive — add stream() to client()'>;
         }
     : {});
 
@@ -268,30 +268,30 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
           ? 'channel' extends keyof Api
             ? ChannelAccessorStub<TContract, Api, TPrimitives>
             : {
-                channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
+                channel: NeedsPrimitive<'[livething] socket.channel needs the channels() primitive — add channels() to client()'>;
               }
           : {}) &
           (SectionDeclared<TContract, 'clientRequests'> extends true
             ? 'request' extends keyof Api
               ? {}
               : {
-                  request: NeedsPrimitive<'[wskit] socket.request needs the clientRequests() primitive — add clientRequests() to client()'>;
+                  request: NeedsPrimitive<'[livething] socket.request needs the clientRequests() primitive — add clientRequests() to client()'>;
                 }
             : {}) &
           (SectionDeclared<TContract, 'serverRequests'> extends true
             ? 'onRequest' extends keyof Api
               ? {}
               : {
-                  onRequest: NeedsPrimitive<'[wskit] socket.onRequest needs the serverRequests() primitive — add serverRequests() to client()'>;
+                  onRequest: NeedsPrimitive<'[livething] socket.onRequest needs the serverRequests() primitive — add serverRequests() to client()'>;
                 }
             : {}) &
           (SectionDeclared<TContract, 'streams'> extends true
             ? 'onStream' extends keyof Api
               ? {}
               : {
-                  stream: NeedsPrimitive<'[wskit] socket.stream needs the stream() primitive — add stream() to client()'>;
-                  onStream: NeedsPrimitive<'[wskit] socket.onStream needs the stream() primitive — add stream() to client()'>;
-                  resumeStream: NeedsPrimitive<'[wskit] socket.resumeStream needs the stream() primitive — add stream() to client()'>;
+                  stream: NeedsPrimitive<'[livething] socket.stream needs the stream() primitive — add stream() to client()'>;
+                  onStream: NeedsPrimitive<'[livething] socket.onStream needs the stream() primitive — add stream() to client()'>;
+                  resumeStream: NeedsPrimitive<'[livething] socket.resumeStream needs the stream() primitive — add stream() to client()'>;
                 }
             : {})
       : {};

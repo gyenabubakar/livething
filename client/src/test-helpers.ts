@@ -1,3 +1,5 @@
+type EvParameter = { code: number; reason: string; wasClean: boolean };
+type EvParameter2 = { data: unknown };
 /* oxlint-disable @typescript-eslint/no-explicit-any -- test harness */
 
 /**
@@ -10,6 +12,7 @@ export class MockWebSocket {
   static last(): MockWebSocket {
     const ws = MockWebSocket.instances.at(-1);
     if (!ws) throw new Error('no MockWebSocket instance created yet');
+
     return ws;
   }
   static reset(): void {
@@ -22,11 +25,12 @@ export class MockWebSocket {
   protocol = '';
   readyState = 0;
   sent: unknown[] = [];
+  closeCall?: { code: number; reason: string };
 
   onopen: ((ev: unknown) => void) | null = null;
-  onclose: ((ev: { code: number; reason: string; wasClean: boolean }) => void) | null = null;
+  onclose: ((ev: EvParameter) => void) | null = null;
   onerror: ((ev: unknown) => void) | null = null;
-  onmessage: ((ev: { data: unknown }) => void) | null = null;
+  onmessage: ((ev: EvParameter2) => void) | null = null;
 
   constructor(url: string, protocols?: string | string[]) {
     this.url = url;
@@ -39,6 +43,15 @@ export class MockWebSocket {
   }
 
   close(code = 1000, reason = ''): void {
+    if (code !== 1000 && (!Number.isInteger(code) || code < 3000 || code > 4999)) {
+      throw new DOMException('Invalid close code', 'InvalidAccessError');
+    }
+
+    if (new TextEncoder().encode(reason).byteLength > 123) {
+      throw new DOMException('Close reason is too long', 'SyntaxError');
+    }
+
+    this.closeCall = { code, reason };
     this.readyState = 3;
     this.onclose?.({ code, reason, wasClean: true });
   }
@@ -52,7 +65,15 @@ export class MockWebSocket {
 
   /** Pretend a message arrived. Pass an object (auto-JSON) or a raw string. */
   emit(frame: unknown): void {
-    const data = typeof frame === 'string' ? frame : JSON.stringify(frame);
+    let data: string;
+    if (typeof frame === 'string') {
+      data = frame;
+    } else if (isMessage(frame)) {
+      data = JSON.stringify([frame.event, frame.payload, frame.metadata]);
+    } else {
+      data = JSON.stringify(frame);
+    }
+
     this.onmessage?.({ data });
   }
 
@@ -76,14 +97,37 @@ export class MockWebSocket {
     return this.sent
       .map((s) => {
         if (typeof s !== 'string') return s;
+
         try {
-          return JSON.parse(s);
+          const frame = JSON.parse(s);
+          return isWireFrame(frame)
+            ? { event: frame[0], payload: frame[1], metadata: frame[2] }
+            : frame;
         } catch {
           return undefined;
         }
       })
       .filter((f) => f !== undefined);
   }
+}
+
+function isMessage(value: unknown): value is {
+  event: string;
+  payload: unknown;
+  metadata?: unknown;
+} {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { event?: unknown }).event === 'string' &&
+    'payload' in value &&
+    true
+  );
+}
+
+function isWireFrame(value: unknown): value is [string, unknown, unknown] {
+  return Array.isArray(value) && value.length === 3 && typeof value[0] === 'string';
 }
 
 /** Swap in the fake WebSocket and return a function that puts the real one back. */

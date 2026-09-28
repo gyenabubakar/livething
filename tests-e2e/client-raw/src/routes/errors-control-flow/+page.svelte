@@ -12,12 +12,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/errors-control-flow?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -27,30 +29,38 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			switch (data.event) {
 				case 'echoed':
 					echoResult = data.payload?.text ?? '';
 					break;
+
 				case 'block-reply':
 					blockReply = `leaked:${data.payload?.leaked}`;
 					break;
+
 				case 'defer-result':
 					deferResult = 'deferred-received';
 					break;
+
 				case 'defer-exhausted-result':
 					deferExhausted = `${data.payload?.event}:retries=${data.payload?.retries}`;
 					break;
+
 				case 'validation-error-fired':
 					validationError = `validation-error:${data.payload?.event}`;
 					break;
+
 				case '__subscribeOk__':
 					chatSubscribed = true;
 					break;
+
 				case '__error__':
-					if (data.__wskit?.streamId) {
-						streamError = `${data.payload.code}:${data.__wskit.streamId}`;
+					if (data.metadata?.stream?.id) {
+						streamError = `${data.payload.code}:${data.metadata.stream?.id}`;
 					}
+
 					break;
 			}
 		};
@@ -58,10 +68,10 @@
 
 	function send(
 		event: string,
-		payload: Record<string, unknown> = {},
-		__wskit?: Record<string, unknown>,
+		payload: Record<string, unknown> | null = null,
+		metadata?: { channel?: { name: string; family?: string } },
 	) {
-		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
+		ws?.send(window.__livethingEncode(metadata ? { event, payload, metadata } : { event, payload }));
 	}
 </script>
 
@@ -70,31 +80,31 @@
 <button data-testid="connect" onclick={connect}>Connect</button>
 
 <button data-testid="do-echo" onclick={() => send('do-echo', { text: 'alive' })}>Do echo</button>
-<button data-testid="block-test" onclick={() => send('block-test')}>Block test</button>
-<button data-testid="defer-test" onclick={() => send('defer-test')}>Defer test</button>
-<button data-testid="always-defer" onclick={() => send('always-defer')}>Always defer</button>
-<button data-testid="manual-validation" onclick={() => send('manual-validation')}>
+<button data-testid="block-test" onclick={() => send('block-test', {})}>Block test</button>
+<button data-testid="defer-test" onclick={() => send('defer-test', {})}>Defer test</button>
+<button data-testid="always-defer" onclick={() => send('always-defer', {})}>Always defer</button>
+<button data-testid="manual-validation" onclick={() => send('manual-validation', {})}>
 	Manual validation failed
 </button>
-<button data-testid="force-disconnect" onclick={() => send('force-disconnect')}>
+<button data-testid="force-disconnect" onclick={() => send('force-disconnect', {})}>
 	Force disconnect
 </button>
-<button data-testid="disconnect-intercept" onclick={() => send('disconnect-intercept')}>
+<button data-testid="disconnect-intercept" onclick={() => send('disconnect-intercept', {})}>
 	Disconnect from intercept
 </button>
 <button
 	data-testid="subscribe-chat"
-	onclick={() => send('__subscribe__', {}, { channel: 'chat' })}
+	onclick={() => send('__subscribe__', null, { channel: { name: 'chat' } })}
 >
 	Subscribe chat
 </button>
 <button
 	data-testid="chat-always-defer"
-	onclick={() => send('chat-always-defer', {}, { channel: 'chat' })}
+	onclick={() => send('chat-always-defer', {}, { channel: { name: 'chat' } })}
 >
 	Chat always defer
 </button>
-<button data-testid="start-defer-stream" onclick={() => send('start-defer-stream')}>
+<button data-testid="start-defer-stream" onclick={() => send('start-defer-stream', {})}>
 	Start defer stream
 </button>
 

@@ -4,7 +4,7 @@ import { channels } from '~/primitives/channels/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SocketConfig } from '~/internal/config.ts';
-import type { WireMessage } from '~/internal/runtime.ts';
+import type { Message } from '~/internal/runtime.ts';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 import type { SocketContract } from '~/types.ts';
 
@@ -53,7 +53,7 @@ function configPrimitive(apply: (config: SocketConfig) => void): Primitive {
 let primitiveCounter = 0;
 
 /** Build a primitive runtime with a given onIncoming hook. Each call gets a unique tag. */
-function incomingPrimitive(onIncoming: (message: WireMessage) => WireMessage | null): Primitive {
+function incomingPrimitive(onIncoming: (message: Message) => Message | null): Primitive {
   const tag = `test-primitive-${++primitiveCounter}`;
   return {
     _tag: tag,
@@ -172,6 +172,17 @@ describe('incoming pipeline — server ping auto-pong', () => {
     expect(ws.sent).toContain('pong');
     expect(pingHandler).not.toHaveBeenCalled();
   });
+
+  it('delivers an app event named "ping", because only the bare text is a keepalive frame', () => {
+    const pingHandler = vi.fn();
+    const { socket, ws } = connected();
+    socket.on('ping', pingHandler);
+
+    ws.emitRaw(JSON.stringify(['ping', { at: 1 }, null]));
+
+    expect(pingHandler).toHaveBeenCalledWith({ at: 1 });
+    expect(ws.sent).not.toContain('pong');
+  });
 });
 
 describe('incoming pipeline — scoped frame top-level guard', () => {
@@ -188,7 +199,7 @@ describe('incoming pipeline — scoped frame top-level guard', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'chat' },
+      metadata: { exchange: { source: 'client' }, channel: { name: 'chat' } },
     });
 
     socket.channel('chat').on('message', channelHandler);
@@ -196,7 +207,7 @@ describe('incoming pipeline — scoped frame top-level guard', () => {
 
     // A channel-scoped event: channels.onIncoming routes it AND returns message (not null),
     // but _processIncoming's top-level guard sees envelope.channel is set → skips top-level
-    ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { channel: 'chat' } });
+    ws.emit({ event: 'message', payload: { text: 'hi' }, metadata: { channel: { name: 'chat' } } });
 
     expect(channelHandler).toHaveBeenCalledWith({ text: 'hi' });
     expect(topHandler).not.toHaveBeenCalled();
@@ -208,13 +219,7 @@ describe('incoming pipeline — scoped frame top-level guard', () => {
     socket.on('chunk', topHandler);
 
     // streamId is set → the top-level guard filters it out, no handler fires
-    ws.emitRaw(
-      JSON.stringify({
-        event: 'chunk',
-        payload: { data: 'a' },
-        __wskit: { streamId: 's1', seq: 1 },
-      }),
-    );
+    ws.emitRaw(JSON.stringify(['chunk', { data: 'a' }, { stream: { id: 's1', seq: 1 } }]));
 
     expect(topHandler).not.toHaveBeenCalled();
   });
@@ -248,6 +253,7 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
 
     const conditional = incomingPrimitive((msg) => {
       if (shouldThrow) throw new Error('first frame crash');
+
       return msg;
     });
 

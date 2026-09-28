@@ -17,6 +17,7 @@ function build(windowMs?: number) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -34,6 +35,7 @@ function buildWithWindow(windowMs: number) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -44,15 +46,16 @@ describe('dedup — keeps every id within the window', () => {
     const handler = vi.fn();
     socket.on('trade', handler);
 
-    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    ws.emit({ event: 'trade', payload: { id: 'A' }, metadata: { delivery: { id: 'A' } } });
     expect(handler).toHaveBeenCalledTimes(1);
 
     for (const id of ['B', 'C', 'D', 'E']) {
-      ws.emit({ event: 'trade', payload: { id }, __wskit: { messageId: id } });
+      ws.emit({ event: 'trade', payload: { id }, metadata: { delivery: { id: id } } });
     }
+
     expect(handler).toHaveBeenCalledTimes(5);
 
-    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    ws.emit({ event: 'trade', payload: { id: 'A' }, metadata: { delivery: { id: 'A' } } });
     expect(handler).toHaveBeenCalledTimes(5);
   });
 });
@@ -64,15 +67,15 @@ describe('dedup — window eviction', () => {
     const handler = vi.fn();
     socket.on('trade', handler);
 
-    ws.emit({ event: 'trade', payload: { id: 'x' }, __wskit: { messageId: 'id-1' } });
+    ws.emit({ event: 'trade', payload: { id: 'x' }, metadata: { delivery: { id: 'id-1' } } });
     expect(handler).toHaveBeenCalledTimes(1);
 
-    ws.emit({ event: 'trade', payload: { id: 'x' }, __wskit: { messageId: 'id-1' } });
+    ws.emit({ event: 'trade', payload: { id: 'x' }, metadata: { delivery: { id: 'id-1' } } });
     expect(handler).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(501);
 
-    ws.emit({ event: 'trade', payload: { id: 'x' }, __wskit: { messageId: 'id-1' } });
+    ws.emit({ event: 'trade', payload: { id: 'x' }, metadata: { delivery: { id: 'id-1' } } });
     expect(handler).toHaveBeenCalledTimes(2);
   });
 
@@ -82,17 +85,17 @@ describe('dedup — window eviction', () => {
     const handler = vi.fn();
     socket.on('trade', handler);
 
-    ws.emit({ event: 'trade', payload: { id: '1' }, __wskit: { messageId: 'id-old' } });
+    ws.emit({ event: 'trade', payload: { id: '1' }, metadata: { delivery: { id: 'id-old' } } });
     vi.advanceTimersByTime(600);
-    ws.emit({ event: 'trade', payload: { id: '2' }, __wskit: { messageId: 'id-new' } });
+    ws.emit({ event: 'trade', payload: { id: '2' }, metadata: { delivery: { id: 'id-new' } } });
     expect(handler).toHaveBeenCalledTimes(2);
 
     vi.advanceTimersByTime(500);
 
-    ws.emit({ event: 'trade', payload: { id: '1' }, __wskit: { messageId: 'id-old' } });
+    ws.emit({ event: 'trade', payload: { id: '1' }, metadata: { delivery: { id: 'id-old' } } });
     expect(handler).toHaveBeenCalledTimes(3);
 
-    ws.emit({ event: 'trade', payload: { id: '2' }, __wskit: { messageId: 'id-new' } });
+    ws.emit({ event: 'trade', payload: { id: '2' }, metadata: { delivery: { id: 'id-new' } } });
     expect(handler).toHaveBeenCalledTimes(3);
   });
 
@@ -102,19 +105,19 @@ describe('dedup — window eviction', () => {
     const handler = vi.fn();
     socket.on('trade', handler);
 
-    ws.emit({ event: 'trade', payload: { id: '1' }, __wskit: { messageId: 'stale-1' } });
-    ws.emit({ event: 'trade', payload: { id: '2' }, __wskit: { messageId: 'stale-2' } });
-    ws.emit({ event: 'trade', payload: { id: '3' }, __wskit: { messageId: 'stale-3' } });
+    ws.emit({ event: 'trade', payload: { id: '1' }, metadata: { delivery: { id: 'stale-1' } } });
+    ws.emit({ event: 'trade', payload: { id: '2' }, metadata: { delivery: { id: 'stale-2' } } });
+    ws.emit({ event: 'trade', payload: { id: '3' }, metadata: { delivery: { id: 'stale-3' } } });
     expect(handler).toHaveBeenCalledTimes(3);
 
     vi.advanceTimersByTime(301);
 
-    ws.emit({ event: 'trade', payload: { id: '4' }, __wskit: { messageId: 'fresh-1' } });
+    ws.emit({ event: 'trade', payload: { id: '4' }, metadata: { delivery: { id: 'fresh-1' } } });
     expect(handler).toHaveBeenCalledTimes(4);
 
-    ws.emit({ event: 'trade', payload: { id: '1' }, __wskit: { messageId: 'stale-1' } });
-    ws.emit({ event: 'trade', payload: { id: '2' }, __wskit: { messageId: 'stale-2' } });
-    ws.emit({ event: 'trade', payload: { id: '3' }, __wskit: { messageId: 'stale-3' } });
+    ws.emit({ event: 'trade', payload: { id: '1' }, metadata: { delivery: { id: 'stale-1' } } });
+    ws.emit({ event: 'trade', payload: { id: '2' }, metadata: { delivery: { id: 'stale-2' } } });
+    ws.emit({ event: 'trade', payload: { id: '3' }, metadata: { delivery: { id: 'stale-3' } } });
     expect(handler).toHaveBeenCalledTimes(7);
   });
 });
@@ -126,15 +129,15 @@ describe('dedup — sliding window', () => {
     const handler = vi.fn();
     socket.on('trade', handler);
 
-    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    ws.emit({ event: 'trade', payload: { id: 'A' }, metadata: { delivery: { id: 'A' } } });
     expect(handler).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(600);
-    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    ws.emit({ event: 'trade', payload: { id: 'A' }, metadata: { delivery: { id: 'A' } } });
     expect(handler).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(600);
-    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    ws.emit({ event: 'trade', payload: { id: 'A' }, metadata: { delivery: { id: 'A' } } });
     expect(handler).toHaveBeenCalledTimes(1);
   });
 });

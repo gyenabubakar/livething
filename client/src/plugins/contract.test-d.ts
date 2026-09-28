@@ -81,4 +81,5 @@ interface PlainContract {
   incoming: { tick: { n: number } };
   outgoing: { pong: {} };
 }
+
 expectTypeOf<PluginSlice<PlainContract, 'acme:chat'>['incoming']>().toEqualTypeOf<{}>();

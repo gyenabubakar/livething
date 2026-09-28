@@ -16,7 +16,12 @@ function seedRow(
     userIds: [row.userId],
     channelName: SCOPE.channelName,
     channelFamily: SCOPE.channelFamily,
-    frame: { seq: row.seq, messageId: `m${row.seq}-${row.userId}`, event: 'msg', payload: {} },
+    frame: {
+      deliverySeq: row.seq,
+      messageId: `m${row.seq}-${row.userId}`,
+      event: 'msg',
+      payload: {},
+    },
     now: row.createdAt,
   });
 }
@@ -104,6 +109,7 @@ describe('inbox backlog()', () => {
       at: (identity) => (identity === 'alice' ? 4242 : null),
       online: () => false,
     };
+
     const { sql, surface } = harness({ lastSeen });
     seedRow(sql, { userId: 'alice', seq: 1, createdAt: 100 });
 

@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's channels() dynamic-family surface against the real
-// wskit `channel-dynamic` handler. Adapter-oblivious — it talks to whatever
+// Conformance: @livething/client's channels() dynamic-family surface against the real
+// LiveThing `channel-dynamic` server definition. Adapter-oblivious — it talks to whatever
 // server the run booted over the /ws proxy.
 async function open(page: Page, room: string, username = 'alice'): Promise<void> {
   await page.goto(`/tests/channel-dynamic/index.html?room=${room}&username=${username}`);
@@ -36,12 +36,14 @@ test.describe('channel-dynamic (conformance)', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('open');
     await page.getByTestId('sub-general').click();
+
     await expect(page.getByTestId('sub-general-ok')).toHaveText('room:general');
 
     await page.getByTestId('fail-general').click();
-    await expect(page.getByTestId('subscription-failed')).toHaveText('yes');
+    await expect(page.getByTestId('server-error')).not.toHaveText('');
     await page.waitForTimeout(650);
 
+    await expect(page.getByTestId('subscription-failed')).toHaveText('');
     await expect(page.getByTestId('status')).toHaveText('open');
   });
 
@@ -83,6 +85,7 @@ test.describe('channel-dynamic (conformance)', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await open(a, room, 'alice');
     await open(b, room, 'bob');
 
@@ -107,6 +110,7 @@ test.describe('channel-dynamic (conformance)', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await open(a, room, 'alice');
     await open(b, room, 'bob');
 
@@ -117,6 +121,7 @@ test.describe('channel-dynamic (conformance)', () => {
     await b.getByTestId('sub-vip').click();
     await expect(a.getByTestId('sub-general-ok')).toHaveText('room:general');
     await expect(b.getByTestId('sub-general-ok')).toHaveText('room:general');
+
     await expect(b.getByTestId('sub-vip-ok')).toHaveText('room:vip');
 
     // Alice publishes to general. Bob (on both) must see it on general — that

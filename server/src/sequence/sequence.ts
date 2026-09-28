@@ -53,8 +53,9 @@ const SEQUENCE_KEY = Symbol('sequence');
  * Stamps every outgoing message with a monotonically increasing number so
  * clients can detect gaps and request a replay of what they missed.
  *
- * Enable this via `sequence: true` (or `sequence: { persist: true }`) on the
- * contract config instead of calling this primitive directly.
+ * Enable this by listing the `sequence()` (or `sequence({ persist: true })`)
+ * capability in `server({ capabilities: [...] })` instead of calling this
+ * primitive directly.
  */
 export function sequence(options?: SequenceOptions): SequencePrimitive {
   assertOptionalPositiveInteger(options?.batchSize, 'batchSize', 'sequence()');
@@ -62,7 +63,7 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
   const batchSize = options?.batchSize ?? DEFAULT_SEQUENCE_BATCH_SIZE;
 
   return {
-    __wskit: 'sequence',
+    __livething: 'sequence',
     __kind: 'infrastructure',
     __identity: [SEQUENCE_KEY],
     __requires: {},
@@ -81,17 +82,18 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
           });
         }
 
-        // Stamp `seq` into every outgoing user frame's `__wskit`. The pipeline
+        // Stamp `deliverySeq` into every outgoing user frame's `__livething`. The pipeline
         // already skips protocol frames before calling stampers.
-        engine.onWSKitStamp(() => {
+        engine.onLiveThingStamp(() => {
           if (persist) {
             persistentAllocator ??= createPersistentSequenceAllocator(
               engine.storage.sql,
               batchSize,
             );
-            return { seq: persistentAllocator.next() };
+            return { deliverySeq: persistentAllocator.next() };
           }
-          return { seq: (current += 1) };
+
+          return { deliverySeq: (current += 1) };
         });
       });
     },

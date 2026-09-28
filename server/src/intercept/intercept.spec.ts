@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest';
 describe('intercept', () => {
   it('creates an intercept primitive', () => {
     async function handler() {}
+
     const p = intercept(handler);
 
-    expect(p.__wskit).toBe('intercept');
+    expect(p.__livething).toBe('intercept');
     expect(p.__kind).toBe('infrastructure');
     expect(p.handler).toBe(handler);
   });

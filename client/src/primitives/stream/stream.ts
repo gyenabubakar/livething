@@ -1,18 +1,18 @@
 import { Disconnected, Timeout } from '~/errors.ts';
-import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { namespacePrefixOf } from '~/internal/namespace.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import { buildStreamHandle } from '~/primitives/stream/handle.ts';
 import { StreamState } from '~/primitives/stream/state.ts';
-import type { WSKitError } from '@wskit/core';
+import type { LiveThingError } from '@livething/core';
 import type {
   FrameOwner,
+  LiveThingMetadata,
+  Message,
   PrimitiveLogger,
   SendResult,
-  WireMessage,
-  WSKitEnvelope,
 } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { StreamHandleDependencies } from '~/primitives/stream/handle.ts';
@@ -32,6 +32,7 @@ interface Trigger {
 }
 
 interface PendingNudge {
+  streamId: string;
   resolve: () => void;
   reject: (error: unknown) => void;
   timer: ReturnType<typeof setTimeout> | null;
@@ -48,17 +49,32 @@ interface BroadcastRun {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
+interface StreamContext {
+  markers: ScopeMarkers;
+  options?: StreamTriggerOptions;
+}
+
+interface ResumeStreamOptions {
+  lastKnownSeq?: number;
+}
+
+interface ResumeContext {
+  markers: ScopeMarkers;
+  options?: ResumeStreamOptions;
+}
+
 /** True if a chunk's scope markers match what an `onStream` subscriber asked for. */
 function scopeMatches(
   scope: ScopeMarkers | undefined,
-  envelope: WSKitEnvelope | undefined,
+  envelope: LiveThingMetadata | null,
 ): boolean {
   if (!scope) return envelope?.channel === undefined;
-  return scope.channel === envelope?.channel && scope.channelFamily === envelope?.channelFamily;
+
+  return scope.name === envelope?.channel?.name && scope.family === envelope?.channel?.family;
 }
 
 /** The `stream-aborted` reason on an error, if any. */
-function abortReason(error: WSKitError): string | undefined {
+function abortReason(error: LiveThingError): string | undefined {
   return (error.detail as { reason?: string } | undefined)?.reason;
 }
 
@@ -111,13 +127,13 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // while not open, so they are held here and flushed on open — otherwise the
       // stream would never start (and with timeout 0 the promise would never
       // settle, leaking the lazy hold).
-      const triggerOutbox = new Map<string, { message: WireMessage; owner: FrameOwner }>();
-      const resumeOutbox = new Map<string, WireMessage>();
+      const triggerOutbox = new Map<string, { message: Message; owner: FrameOwner }>();
+      const resumeOutbox = new Map<string, Message>();
       // Cancel frames for streams cancelled while the socket was connecting/
       // reconnecting (rawSend can't send them yet), keyed by streamId. Held here
       // and flushed on open; the stream stays alive until then so its durable row
       // isn't left orphaned server-side, and a pending cancel suppresses resume.
-      const cancelOutbox = new Map<string, WireMessage>();
+      const cancelOutbox = new Map<string, Message>();
       // Warn at most once: a resumable stream relies on detecting a dead socket,
       // which only keepalive can do for a half-open connection (no close event).
       let warnedNoKeepalive = false;
@@ -125,6 +141,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function startChunkTimer(state: StreamState): void {
         if (state.timer) clearTimeout(state.timer);
         if (timeout <= 0) return;
+
         state.timer = setTimeout(() => {
           helpers.log.info(`stream '${state.streamId}' timed out`);
           finishStream(state, Timeout());
@@ -136,17 +153,33 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // stream that already released its hold on a drop can't double-release.
       function finishStream(state: StreamState, error?: unknown): void {
         if (!state.active) return;
+
         state.active = false;
         if (state.timer) clearTimeout(state.timer);
         state.timer = null;
         if (state.resumeTimer) clearTimeout(state.resumeTimer);
+
         state.resumeTimer = null;
         streams.delete(state.streamId);
         resumeOutbox.delete(state.streamId);
         cancelOutbox.delete(state.streamId);
         releaseStreamHold(state);
+
+        settleStreamNudges(state.streamId, error);
+
         if (error) state.queue.abort(error);
         else state.queue.end();
+      }
+
+      // A nudge still waiting for its answer when the stream finishes gets the
+      // same result as a nudge sent after the end (success), or the error that
+      // ended the stream.
+      function settleStreamNudges(streamId: string, error?: unknown): void {
+        for (const [id, pending] of pendingNudges) {
+          if (pending.streamId !== streamId) continue;
+
+          settleNudge(id, (nudge) => (error ? nudge.reject(error) : nudge.resolve()));
+        }
       }
 
       // Idempotent per-stream lazy hold. A resumable stream releases its hold on a
@@ -155,11 +188,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // be corrupted for unrelated consumers.
       function acquireStreamHold(state: StreamState): void {
         if (state.hasLazyHold) return;
+
         state.hasLazyHold = true;
         helpers.lazyAcquire();
       }
+
       function releaseStreamHold(state: StreamState): void {
         if (!state.hasLazyHold) return;
+
         state.hasLazyHold = false;
         helpers.lazyRelease();
       }
@@ -170,28 +206,43 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function failTrigger(streamId: string, error: unknown): void {
         const trigger = triggers.get(streamId);
         if (!trigger) return;
+
         if (trigger.timer) clearTimeout(trigger.timer);
         triggers.delete(streamId);
         triggerOutbox.delete(streamId);
+
         helpers.lazyRelease();
         trigger.reject(error);
       }
 
       function settleNudge(id: string | undefined, run: (pending: PendingNudge) => void): void {
         if (id === undefined) return;
+
         const pending = pendingNudges.get(id);
         if (!pending) return;
+
         if (pending.timer) clearTimeout(pending.timer);
         pendingNudges.delete(id);
+
         run(pending);
       }
 
-      function resumeFrame(state: StreamState, lastKnownSeq?: number): WireMessage {
+      function resumeFrame(state: StreamState, lastKnownSeq?: number): Message {
         const seq = lastKnownSeq ?? (Number.isFinite(state.lastSeq) ? state.lastSeq : undefined);
         return {
           event: '__resumeStream__',
           payload: seq !== undefined ? { lastKnownSeq: seq } : {},
-          __wskit: { streamId: state.streamId, ...state.markers },
+          metadata: {
+            stream: { id: state.streamId },
+            ...(state.markers.name
+              ? {
+                  channel: {
+                    name: state.markers.name,
+                    ...(state.markers.family ? { family: state.markers.family } : {}),
+                  },
+                }
+              : {}),
+          },
         };
       }
 
@@ -200,8 +251,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           const { event, payload } = details;
           const eventError = wireIdError(event, event, 'event');
           if (eventError) return Promise.reject(eventError);
+
           const streamNudgeId = idGenerator(helpers)('nudge');
           let result: SendResult;
+
           try {
             result = helpers.rawSend({
               // A plugin stream's nudge event needs the same `__id::` prefix its
@@ -209,16 +262,29 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               // from the stream's own namespaced event. A plain app stream gets ''.
               event: namespacePrefixOf(state.event) + event,
               payload,
-              __wskit: { streamId: state.streamId, ...state.markers, streamNudgeId },
+              metadata: {
+                stream: { id: state.streamId, nudgeId: streamNudgeId },
+                ...(state.markers.name
+                  ? {
+                      channel: {
+                        name: state.markers.name,
+                        ...(state.markers.family ? { family: state.markers.family } : {}),
+                      },
+                    }
+                  : {}),
+              },
             });
           } catch (error) {
             // Serialization happens inside rawSend, before the Promise exists —
             // turn a throw into a rejection so nudge() always returns a Promise.
             return Promise.reject(error);
           }
+
           // Not open: fail fast rather than drop the frame and wait out the timeout.
           if (result !== 'sent') return Promise.reject(Disconnected());
+
           const timeoutMs = details.timeout ?? nudgeTimeout;
+
           return new Promise<void>((resolve, reject) => {
             const timer =
               timeoutMs > 0
@@ -227,15 +293,26 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
                     reject(Timeout());
                   }, timeoutMs)
                 : null;
-            pendingNudges.set(streamNudgeId, { resolve, reject, timer });
+            pendingNudges.set(streamNudgeId, { streamId: state.streamId, resolve, reject, timer });
           });
         },
         cancel(state) {
-          const frame: WireMessage = {
+          const frame: Message = {
             event: '__streamCancel__',
-            payload: {},
-            __wskit: { streamId: state.streamId, ...state.markers },
+            payload: null,
+            metadata: {
+              stream: { id: state.streamId },
+              ...(state.markers.name
+                ? {
+                    channel: {
+                      name: state.markers.name,
+                      ...(state.markers.family ? { family: state.markers.family } : {}),
+                    },
+                  }
+                : {}),
+            },
           };
+
           const result = helpers.rawSend(frame);
           // Connecting/reconnecting: hold the cancel and keep the stream alive so its
           // durable row isn't orphaned. It flushes (and the stream finishes) on open.
@@ -243,6 +320,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             cancelOutbox.set(state.streamId, frame);
             return;
           }
+
           finishStream(state); // a cancel ends the loop without throwing
         },
       };
@@ -250,7 +328,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function triggerStream(
         event: string,
         payload: unknown,
-        context: { markers: ScopeMarkers; options?: StreamTriggerOptions },
+        context: StreamContext,
       ): Promise<StreamHandle<unknown>> {
         const streamId = context.options?.streamId ?? idGenerator(helpers)('stream');
         // Reject a bad event or streamId locally — the server rejects such a frame
@@ -258,13 +336,30 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         const idError =
           wireIdError(event, event, 'event') ?? wireIdError(event, streamId, 'streamId');
         if (idError) return Promise.reject(idError);
+
         helpers.ensureConnected();
         helpers.lazyAcquire();
-        const frame: WireMessage = { event, payload, __wskit: { streamId, ...context.markers } };
+        const frame: Message = {
+          event,
+          payload,
+          metadata: {
+            stream: { id: streamId },
+            ...(context.markers.name
+              ? {
+                  channel: {
+                    name: context.markers.name,
+                    ...(context.markers.family ? { family: context.markers.family } : {}),
+                  },
+                }
+              : {}),
+          },
+        };
+
         const owner: FrameOwner = {
           isPending: () => triggers.has(streamId),
           reject: (error) => failTrigger(streamId, error),
         };
+
         // Send through the normal path so buffering can take it — queued while
         // offline, or held behind a draining staggered flush so it keeps order. With
         // no buffering, hold it only while a connect is in progress (flushed on
@@ -278,6 +373,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           // throws synchronously — its contract is to always return a Promise.
           return Promise.reject(error);
         }
+
         if (result === 'connecting') {
           triggerOutbox.set(streamId, { message: frame, owner });
         } else if (result === 'closed' || result === 'blocked') {
@@ -301,7 +397,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function resumeStream(
         event: string,
         streamId: string,
-        context: { markers: ScopeMarkers; options?: { lastKnownSeq?: number } },
+        context: ResumeContext,
       ): StreamHandle<unknown> {
         const idError = wireIdError(event, streamId, 'streamId');
         if (idError) {
@@ -311,6 +407,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           finishStream(errored, idError);
           return buildStreamHandle(errored, handleDependencies);
         }
+
         let state = streams.get(streamId);
         if (!state) {
           state = new StreamState(streamId, event, context.markers);
@@ -318,7 +415,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           streams.set(streamId, state);
           acquireStreamHold(state);
         }
+
         startChunkTimer(state);
+
         const frame = resumeFrame(state, context.options?.lastKnownSeq);
         let result: SendResult;
         try {
@@ -330,12 +429,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           finishStream(state, error);
           return buildStreamHandle(state, handleDependencies);
         }
+
         if (result === 'connecting') {
           resumeOutbox.set(streamId, frame);
         } else if (result === 'closed') {
           // Closed, non-lazy: settle now; the queue buffers the abort for a late iterator.
           finishStream(state, Disconnected());
         }
+
         return buildStreamHandle(state, handleDependencies);
       }
 
@@ -350,13 +451,16 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           subscribers = new Set();
           broadcastSubs.set(event, subscribers);
         }
+
         const subscriber: BroadcastSub = { handlers, scope };
         subscribers.add(subscriber);
         // Guard so calling this unsubscribe more than once releases the lazy hold
         // only once — a second call must not steal another listener's hold.
         let released = false;
+
         return () => {
           if (released) return;
+
           released = true;
           subscribers.delete(subscriber);
           if (subscribers.size === 0) broadcastSubs.delete(event);
@@ -364,22 +468,26 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         };
       }
 
-      function deliverBroadcast(message: WireMessage, streamId: string): void {
+      function deliverBroadcast(message: Message, streamId: string): void {
         const { event, payload } = message;
-        const envelope = message.__wskit;
-        const seq = envelope?.seq;
+        const envelope = message.metadata;
+        const seq = envelope?.stream?.seq;
         const subscribers = broadcastSubs.get(event);
         if (!subscribers || subscribers.size === 0) return;
+
         const recipients = [...subscribers].filter((subscriber) =>
-          scopeMatches(subscriber.scope, envelope),
+          scopeMatches(subscriber.scope, envelope ?? null),
         );
         if (recipients.length === 0) return;
+
         let run = broadcastRuns.get(streamId);
         if (!run) {
           run = { event, lastSeq: Number.NEGATIVE_INFINITY, timer: null };
           broadcastRuns.set(streamId, run);
         }
+
         if (seq !== undefined && seq <= run.lastSeq) return;
+
         if (seq !== undefined) run.lastSeq = seq;
         if (run.timer) clearTimeout(run.timer);
         if (timeout > 0) {
@@ -387,10 +495,11 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             helpers.log.info(`broadcast stream '${streamId}' timed out`);
             broadcastRuns.delete(streamId);
             for (const subscriber of broadcastSubs.get(event) ?? [])
-              if (scopeMatches(subscriber.scope, envelope))
+              if (scopeMatches(subscriber.scope, envelope ?? null))
                 callStreamHandler(helpers.log, () => subscriber.handlers.onTimeout?.(streamId));
           }, timeout);
         }
+
         helpers.log.info(`broadcast stream '${streamId}' chunk received`);
         for (const subscriber of recipients)
           callStreamHandler(helpers.log, () => subscriber.handlers.onChunk(payload, streamId));
@@ -398,7 +507,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
       function endBroadcast(
         streamId: string,
-        envelope: WSKitEnvelope | undefined,
+        envelope: LiveThingMetadata | null,
         notify: (handlers: StreamHandlers<unknown>) => void,
       ): void {
         const active = broadcastRuns.get(streamId);
@@ -409,133 +518,153 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         // eventName the server stamps on broadcast terminal frames). A frame whose
         // event can't be resolved — e.g. a private stream's end, which has neither —
         // is left alone; fanning out to every subscriber would misdeliver it.
-        const event = active?.event ?? envelope?.eventName;
+        const event = active?.event ?? envelope?.stream?.event;
         if (event === undefined) return;
+
         for (const subscriber of broadcastSubs.get(event) ?? [])
           if (scopeMatches(subscriber.scope, envelope))
             callStreamHandler(helpers.log, () => notify(subscriber.handlers));
+      }
+
+      function handleStreamOk(streamId: string, envelope: LiveThingMetadata | null): null {
+        const trigger = triggers.get(streamId);
+        if (!trigger) {
+          const resumed = streams.get(streamId);
+          if (resumed?.resumeTimer) {
+            clearTimeout(resumed.resumeTimer);
+            resumed.resumeTimer = null;
+          }
+
+          return null;
+        }
+
+        if (trigger.timer) clearTimeout(trigger.timer);
+        triggers.delete(streamId);
+        triggerOutbox.delete(streamId);
+
+        const state = new StreamState(streamId, trigger.event, trigger.markers);
+        state.hasLazyHold = true;
+        state.resumable = envelope?.stream?.durability === 'persistent';
+        if (state.resumable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
+          warnedNoKeepalive = true;
+          helpers.log.warn(
+            'a resumable stream is active without keepalive() — if the connection half-dies (no close frame) the stream cannot tell and will wait forever. Add keepalive() so a dead connection is detected and the stream resumes.',
+          );
+        }
+
+        streams.set(streamId, state);
+
+        startChunkTimer(state);
+        trigger.resolve(buildStreamHandle(state, handleDependencies));
+
+        return null;
+      }
+
+      function handleStreamError(
+        message: Message,
+        streamId: string,
+        envelope: LiveThingMetadata | null,
+      ): Message | null {
+        if (envelope?.exchange?.id !== undefined) return message;
+
+        const streamEvent =
+          triggers.get(streamId)?.event ??
+          streams.get(streamId)?.event ??
+          broadcastRuns.get(streamId)?.event ??
+          envelope?.stream?.event;
+        const error = unscopeErrorCode(
+          streamEvent,
+          toLiveThingError(message.payload),
+        ) as LiveThingError;
+        if (envelope?.stream?.terminated === false) {
+          settleNudge(envelope.stream.nudgeId, (pending) => pending.reject(error));
+          return null;
+        }
+
+        if (triggers.has(streamId)) {
+          failTrigger(streamId, error);
+          return null;
+        }
+
+        const state = streams.get(streamId);
+        if (state) finishOrResumeAfterError(state, error);
+        endBroadcast(streamId, envelope, (handlers) => handlers.onError?.(error, streamId));
+
+        return null;
+      }
+
+      function finishOrResumeAfterError(state: StreamState, error: LiveThingError): void {
+        if (
+          state.resumable &&
+          error.code === 'stream-aborted' &&
+          abortReason(error) === 'hibernation-wake'
+        ) {
+          startChunkTimer(state);
+          helpers.rawSend(resumeFrame(state));
+          return;
+        }
+
+        finishStream(state, error);
+      }
+
+      function handleStreamChunk(
+        message: Message,
+        streamId: string,
+        envelope: LiveThingMetadata | null,
+      ): Message {
+        if (isProtocolFrameEvent(message.event)) return message;
+
+        const seq = envelope?.stream?.seq ?? envelope?.delivery?.seq;
+        const state = streams.get(streamId);
+        if (state && (seq === undefined || seq > state.lastSeq)) {
+          if (state.resumeTimer) {
+            clearTimeout(state.resumeTimer);
+            state.resumeTimer = null;
+          }
+
+          if (seq !== undefined) state.lastSeq = seq;
+          if (helpers.log.debug) helpers.log.info(`stream '${streamId}' chunk received`);
+          state.queue.push(message.payload);
+          startChunkTimer(state);
+        }
+
+        deliverBroadcast(message, streamId);
+
+        return message;
       }
 
       return {
         id: 'stream',
 
         onIncoming(message) {
-          const envelope = message.__wskit;
-          const streamId = envelope?.streamId;
+          const envelope = message.metadata;
+          const streamId = envelope?.stream?.id;
           if (typeof streamId !== 'string') return message;
 
           switch (message.event) {
-            case '__streamOk__': {
-              const trigger = triggers.get(streamId);
-              if (!trigger) {
-                // A resume ack for an already-running stream. The server confirmed
-                // the resume, so the stream is alive — drop the one-shot resume
-                // deadline. The per-chunk timer stays unstarted until the first
-                // resumed chunk lands (as on reconnect), so a slow first chunk
-                // can't trip a stale timeout.
-                const resumed = streams.get(streamId);
-                if (resumed?.resumeTimer) {
-                  clearTimeout(resumed.resumeTimer);
-                  resumed.resumeTimer = null;
-                }
-                return null;
-              }
-              if (trigger.timer) clearTimeout(trigger.timer);
-              triggers.delete(streamId);
-              triggerOutbox.delete(streamId);
-              const state = new StreamState(streamId, trigger.event, trigger.markers);
-              // The hold the trigger took in triggerStream now belongs to the
-              // running stream — adopt it rather than acquiring a second one.
-              state.hasLazyHold = true;
-              state.resumable = envelope?.streamKind === 'persistent';
-              if (state.resumable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
-                warnedNoKeepalive = true;
-                helpers.log.warn(
-                  'a resumable stream is active without keepalive() — if the connection half-dies (no close frame) the stream cannot tell and will wait forever. Add keepalive() so a dead connection is detected and the stream resumes.',
-                );
-              }
-              streams.set(streamId, state);
-              startChunkTimer(state);
-              trigger.resolve(buildStreamHandle(state, handleDependencies));
-              return null;
-            }
+            case '__streamOk__':
+              return handleStreamOk(streamId, envelope ?? null);
+
             case '__streamEnd__': {
               helpers.log.info(`stream '${streamId}' completed`);
               const state = streams.get(streamId);
               if (state) finishStream(state);
-              endBroadcast(streamId, envelope, (handlers) =>
-                handlers.onEnd?.(streamId, envelope?.seq),
+              endBroadcast(streamId, envelope ?? null, (handlers) =>
+                handlers.onEnd?.(streamId, envelope?.stream?.seq),
               );
               return null;
             }
+
             case '__nudgeOk__': {
-              settleNudge(envelope?.streamNudgeId, (pending) => pending.resolve());
+              settleNudge(envelope?.stream?.nudgeId, (pending) => pending.resolve());
               return null;
             }
-            case '__error__': {
-              if (envelope?.correlationId !== undefined) return message;
-              // A plugin stream's server error arrives namespaced (`__id::code`);
-              // strip it back to the plain code using the stream's own namespaced
-              // event, wherever that stream is tracked. Built-in codes (e.g.
-              // `stream-aborted`) don't carry the prefix and pass through unchanged.
-              const streamEvent =
-                triggers.get(streamId)?.event ??
-                streams.get(streamId)?.event ??
-                broadcastRuns.get(streamId)?.event ??
-                envelope?.eventName;
-              const error = unscopeErrorCode(
-                streamEvent,
-                toWSKitError(message.payload),
-              ) as WSKitError;
-              // A non-terminal error (a rejected nudge) settles its nudge() Promise
-              // and leaves the stream running.
-              if (envelope?.streamTerminated === false) {
-                settleNudge(envelope?.streamNudgeId, (pending) => pending.reject(error));
-                return null;
-              }
-              // An error before __streamOk__ (e.g. stream-id-collision,
-              // stream-already-active) means the trigger never started — reject
-              // the pending stream() promise instead of leaving it to time out.
-              if (triggers.has(streamId)) {
-                failTrigger(streamId, error);
-                return null;
-              }
-              const state = streams.get(streamId);
-              if (state) {
-                // A hibernated server tells a durable stream to resume itself.
-                if (
-                  state.resumable &&
-                  error.code === 'stream-aborted' &&
-                  abortReason(error) === 'hibernation-wake'
-                ) {
-                  startChunkTimer(state);
-                  helpers.rawSend(resumeFrame(state));
-                } else {
-                  finishStream(state, error);
-                }
-              }
-              endBroadcast(streamId, envelope, (handlers) => handlers.onError?.(error, streamId));
-              return null;
-            }
-            default: {
-              if (isProtocolFrameEvent(message.event)) return message;
-              const seq = envelope?.seq;
-              const state = streams.get(streamId);
-              if (state && (seq === undefined || seq > state.lastSeq)) {
-                // The first resumed chunk arrived — drop the resume deadline and
-                // hand back over to the normal per-chunk timer.
-                if (state.resumeTimer) {
-                  clearTimeout(state.resumeTimer);
-                  state.resumeTimer = null;
-                }
-                if (seq !== undefined) state.lastSeq = seq;
-                if (helpers.log.debug) helpers.log.info(`stream '${streamId}' chunk received`);
-                state.queue.push(message.payload);
-                startChunkTimer(state);
-              }
-              deliverBroadcast(message, streamId);
-              return message;
-            }
+
+            case '__error__':
+              return handleStreamError(message, streamId, envelope ?? null);
+
+            default:
+              return handleStreamChunk(message, streamId, envelope ?? null);
           }
         },
 
@@ -563,17 +692,20 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           }
 
           if (resumeOutbox.size === 0) return null;
+
           const frames = [...resumeOutbox.values()];
           resumeOutbox.clear();
+
           return frames;
         },
 
         onReconnect() {
-          const frames: WireMessage[] = [];
+          const frames: Message[] = [];
           for (const state of streams.values()) {
             // A queued cancel wins over resume — don't revive a stream the user
             // already asked to cancel; onOpen flushes the cancel instead.
             if (cancelOutbox.has(state.streamId)) continue;
+
             if (state.active && state.resumable) {
               acquireStreamHold(state);
               frames.push(resumeFrame(state));
@@ -590,6 +722,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               }
             }
           }
+
           return frames.length ? frames : null;
         },
 
@@ -600,6 +733,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             helpers.lazyRelease();
             trigger.reject(Disconnected());
           }
+
           triggers.clear();
           triggerOutbox.clear();
           resumeOutbox.clear();
@@ -608,6 +742,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             if (pending.timer) clearTimeout(pending.timer);
             pending.reject(Disconnected());
           }
+
           pendingNudges.clear();
 
           for (const state of [...streams.values()]) {
@@ -633,16 +768,26 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             }
           }
 
-          for (const run of broadcastRuns.values()) if (run.timer) clearTimeout(run.timer);
-          broadcastRuns.clear();
+          for (const run of broadcastRuns.values()) {
+            if (run.timer) clearTimeout(run.timer);
+            run.timer = null;
+          }
+
+          // Keep each run's last seq across a drop that will reconnect: a resume
+          // resends stored chunks, and onChunk must not see those twice.
+          if (intentional || !(suspended || helpers.willReconnect(code, reason))) {
+            broadcastRuns.clear();
+          }
         },
 
         onReconnectFailed() {
+          broadcastRuns.clear();
           for (const trigger of triggers.values()) {
             if (trigger.timer) clearTimeout(trigger.timer);
             helpers.lazyRelease();
             trigger.reject(Disconnected());
           }
+
           triggers.clear();
           triggerOutbox.clear();
 
@@ -667,7 +812,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           socket.resumeStream = (
             event: string,
             streamId: string,
-            resumeOptions?: { lastKnownSeq?: number },
+            resumeOptions?: ResumeStreamOptions,
           ) => resumeStream(event, streamId, { markers: {}, options: resumeOptions });
 
           getAugmenters(socket).push((messaging, scope) => {
@@ -687,7 +832,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             messaging.resumeStream = (
               event: string,
               streamId: string,
-              resumeOptions?: { lastKnownSeq?: number },
+              resumeOptions?: ResumeStreamOptions,
             ) => {
               scope.assertReady?.();
               return resumeStream(scopedName(scope, event), streamId, {

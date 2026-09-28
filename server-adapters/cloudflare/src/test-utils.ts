@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { ConnectionHandle, Engine, UpgradeDecision } from '@wskit/server/adapters';
+import type { ConnectionHandle, Engine, UpgradeDecision } from '@livething/server/adapters';
 
 // `WebSocketRequestResponsePair` is a Workers runtime global; Node test runs
 // lack it, so stand it in for the adapter's setWebSocketAutoResponse wiring.
@@ -41,6 +41,7 @@ export function makeFakeWebSocket(): FakeWebSocket {
       for (const fn of bucket) fn(event);
     },
   };
+
   return ws;
 }
 
@@ -57,6 +58,7 @@ export function installWebSocketPair(): { pairs: Array<[FakeWebSocket, FakeWebSo
     const server = makeFakeWebSocket();
     const pair: [FakeWebSocket, FakeWebSocket] = [client, server];
     pairs.push(pair);
+
     return pair;
   } as unknown as new () => [FakeWebSocket, FakeWebSocket];
   return { pairs };
@@ -116,6 +118,7 @@ function baseFakeState(): FakeDOState {
         for (const [k, v] of storageMap) {
           if (!prefix || k.startsWith(prefix)) out.set(k, v);
         }
+
         return out;
       }),
       setAlarm: vi.fn(async (time: number) => {
@@ -146,6 +149,7 @@ export interface FakeEngine {
     handleHibernationWake: unknown[];
     handleAlarm: number;
     handleShutdown: number;
+    handleShutdownOptions: unknown[][];
     reconcileConnections: Array<ReadonlySet<string>>;
     restoreHibernatedConnections: unknown[][];
   };
@@ -182,6 +186,7 @@ export function makeFakeEngine(): FakeEngine {
     handleHibernationWake: [],
     handleAlarm: 0,
     handleShutdown: 0,
+    handleShutdownOptions: [],
     reconcileConnections: [],
     restoreHibernatedConnections: [],
   };
@@ -197,13 +202,14 @@ export function makeFakeEngine(): FakeEngine {
   };
 
   // What engine.admin() returns: the admin context (spied), which the app's own
-  // api is merged into. WSKitAdmin projects this onto flat RPC methods, so the
+  // api is merged into. LiveThingAdmin projects this onto flat RPC methods, so the
   // managers here carry the same shape the real context builds.
   const adminConnection = {
     id: 'c1',
     userId: 'u1',
-    ref: () => ({ __wskit: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' }),
+    ref: () => ({ __livething: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' }),
   };
+
   const connectionSend = vi.fn(() => true);
   const userSend = vi.fn(() => 2);
   const userClose = vi.fn();
@@ -212,6 +218,7 @@ export function makeFakeEngine(): FakeEngine {
     members: vi.fn(() => [adminConnection]),
     kick: vi.fn(async () => {}),
   };
+
   const adminApi: Record<string, unknown> = {
     broadcast: vi.fn(),
     purgeUser: vi.fn(async () => {}),
@@ -220,15 +227,13 @@ export function makeFakeEngine(): FakeEngine {
       get: vi.fn(() => ({ send: connectionSend })),
       all: vi.fn(() => [adminConnection]),
     },
-    users: { get: vi.fn(() => ({ send: userSend, close: userClose })) },
+    users: { get: vi.fn(() => ({ broadcast: userSend, close: userClose })) },
     channels: { get: vi.fn(() => channelHandle) },
     connectionCount: 3,
     sql: {},
     kv: {},
-    env: {},
     log: {},
     platform: {},
-    waitUntil: vi.fn(),
     schedule: vi.fn(),
     cancelScheduled: vi.fn(),
   };
@@ -262,8 +267,9 @@ export function makeFakeEngine(): FakeEngine {
     handleAlarm: vi.fn(async () => {
       calls.handleAlarm += 1;
     }),
-    handleShutdown: vi.fn(async () => {
+    handleShutdown: vi.fn(async (...options: unknown[]) => {
       calls.handleShutdown += 1;
+      calls.handleShutdownOptions.push(options);
     }),
     reconcileConnections: vi.fn((surviving: ReadonlySet<string>) => {
       calls.reconcileConnections.push(surviving);

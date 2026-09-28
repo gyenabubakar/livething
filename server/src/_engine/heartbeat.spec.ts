@@ -1,6 +1,5 @@
-import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { keepalive } from '~/keepalive/capability.ts';
@@ -51,8 +50,7 @@ type ServerOptions = {
 };
 
 function buildEngine(options: ServerOptions = {}): Engine {
-  const base = define({
-    env: t<Record<string, never>>(),
+  const base = server({
     ...(options.hibernation ? { hibernation: { enabled: true } } : {}),
     capabilities: options.withKeepalive ? [keepalive(options.withKeepalive)] : [],
   });
@@ -61,10 +59,10 @@ function buildEngine(options: ServerOptions = {}): Engine {
   if (options.onPong) base.onPong(options.onPong);
 
   const noop = base.on('noop', { run() {} });
-  const handler = base.assemble({ handlers: [noop] });
+  const definition = base.assemble({ handlers: [noop] });
 
   let engine!: Engine;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'test',
     asyncContextFactory: passthroughAsyncContext(),
     ...(options.hibernation
@@ -74,15 +72,15 @@ function buildEngine(options: ServerOptions = {}): Engine {
       engine = createEngine({
         storage: createTestStorage(),
         timers: createTestTimers(),
-        env: {},
+
         platform: { kind: 'test' },
-        waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
+
   return engine;
 }
 
@@ -92,6 +90,7 @@ async function connect(engine: Engine) {
   const handle = engine.accept(Symbol('ws'), socket.descriptor);
   // `accept` starts the connect lifecycle without awaiting it.
   await Promise.resolve();
+
   return { socket, handle };
 }
 
@@ -228,7 +227,7 @@ describe('the heartbeat hooks', () => {
     it('emits no ping from a server without keepalive(), whatever the client does', async () => {
       const { socket, handle } = await connect(buildEngine());
 
-      await handle.handleMessage(JSON.stringify({ event: 'noop', payload: {} }));
+      await handle.handleMessage(JSON.stringify(['noop', {}, null]));
       await handle.handleMessage('ping');
       await handle.handleMessage('pong');
 

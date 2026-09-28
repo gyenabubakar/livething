@@ -29,7 +29,7 @@ const pills = [
 ]
 
 // The AI reply that streams in, one token per chunk.
-const tokens = ['WSKit ', 'gives ', 'your ', 'server ', 'and ', 'client ', 'one ', 'inferred ', 'contract, ', 'so ', 'realtime ', 'stays ', 'type-safe ', 'end ', 'to ', 'end. ', 'Each ', 'yield ', 'is ', 'one ', 'typed ', 'chunk ', 'on ', 'the ', 'wire, ', 'and ', 'the ', 'client ', 'reads ', 'them ', 'with ', 'a ', 'plain ', 'for-await ', 'loop ', 'as ', 'they ', 'arrive.']
+const tokens = ['LiveThing ', 'gives ', 'your ', 'server ', 'and ', 'client ', 'one ', 'inferred ', 'contract, ', 'so ', 'realtime ', 'stays ', 'type-safe ', 'end ', 'to ', 'end. ', 'Each ', 'yield ', 'is ', 'one ', 'typed ', 'chunk ', 'on ', 'the ', 'wire, ', 'and ', 'the ', 'client ', 'reads ', 'them ', 'with ', 'a ', 'plain ', 'for-await ', 'loop ', 'as ', 'they ', 'arrive.']
 const visibleText = computed(() => tokens.slice(0, shown.value).join(''))
 
 // One chunk per agent step; the redirect nudge is read between two of them.
@@ -395,7 +395,7 @@ onBeforeUnmount(() => {
         <div>
           <p class="section-label">Nudges</p>
           <h3 class="mt-4 text-2xl md:text-3xl font-semibold tracking-tight text-highlighted">
-            Steer it between steps<span class="text-primary">.</span>
+            Send messages into a running stream<span class="text-primary">.</span>
           </h3>
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
             Change your mind mid-stream. Between steps, the client can reach back into a running stream to <code class="font-mono text-primary bg-elevated/60 border border-muted px-1 py-0.5">stop</code> it or point it somewhere new, with no restart and nothing torn down. Typed, like everything else.
@@ -490,7 +490,7 @@ onBeforeUnmount(() => {
         <div>
           <p class="section-label">Durable streams</p>
           <h3 class="mt-4 text-2xl md:text-3xl font-semibold tracking-tight text-highlighted">
-            Lose the socket, keep the stream<span class="text-primary">.</span>
+            Durable streams that resume after a reconnect<span class="text-primary">.</span>
           </h3>
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
             Mark a stream durable and a disconnected client never loses its place — it picks up mid-stream on reconnect, no replay logic on your side. Two flavors, for two kinds of source.
@@ -521,7 +521,7 @@ onBeforeUnmount(() => {
             <span class="font-mono text-xs text-toned">resumable — re-runs from a cursor</span>
           </div>
           <div class="p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
-            <pre><code><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">base.<span class="text-amber-400">resumableStream</span>(<span class="text-emerald-400">'paginate'</span>, {</span><span class="block">  <span class="text-sky-400">input</span>: v.<span class="text-amber-400">object</span>({}),</span><span class="block">  <span class="text-sky-400">chunk</span>: <span class="text-amber-400">t</span>&lt;{ row: <span class="text-sky-400">number</span> }&gt;(),</span><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">  <span class="text-sky-400">cursor</span>: <span class="text-amber-400">t</span>&lt;{ idx: <span class="text-sky-400">number</span> }&gt;(),</span><span class="block">  <span class="text-violet-400">async</span> *<span class="text-sky-400">run</span>(ctx) {</span><span class="block">    <span class="text-violet-400">let</span> i = ctx.stream.cursor?.idx ?? 0</span><span class="block">    <span class="text-violet-400">while</span> (++i &lt;= 1000) {</span><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">      <span class="text-violet-400">yield</span> ctx.stream.<span class="text-amber-400">withCursor</span>({ row: i }, { idx: i })</span><span class="block">    }</span><span class="block">  },</span><span class="block">})</span></code></pre>
+            <pre><code><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">base.<span class="text-amber-400">resumableStream</span>(<span class="text-emerald-400">'export-room'</span>, {</span><span class="block">  <span class="text-sky-400">input</span>: v.<span class="text-amber-400">object</span>({ roomId: v.<span class="text-amber-400">string</span>() }),</span><span class="block">  <span class="text-sky-400">chunk</span>: <span class="text-amber-400">t</span>&lt;{ messages: <span class="text-sky-400">Message</span>[] }&gt;(),</span><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">  <span class="text-sky-400">cursor</span>: <span class="text-amber-400">t</span>&lt;{ page: <span class="text-sky-400">number</span> }&gt;(),</span><span class="block">  <span class="text-violet-400">async</span> *<span class="text-sky-400">run</span>(ctx, { roomId }) {</span><span class="block">    <span class="text-violet-400">let</span> page = ctx.stream.cursor?.page ?? 0</span><span class="block">    <span class="text-violet-400">while</span> (++page &lt;= <span class="text-amber-400">pageCount</span>(roomId)) {</span><span class="block">      <span class="text-violet-400">const</span> messages = <span class="text-violet-400">await</span> <span class="text-amber-400">loadPage</span>(roomId, page)</span><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">      <span class="text-violet-400">yield</span> ctx.stream.<span class="text-amber-400">withCursor</span>({ messages }, { page })</span><span class="block">    }</span><span class="block">  },</span><span class="block">})</span></code></pre>
           </div>
         </div>
       </Motion>
@@ -589,7 +589,7 @@ onBeforeUnmount(() => {
           <div ref="resumableRef" class="overflow-hidden border border-muted bg-default">
             <div class="flex items-center gap-2.5 border-b border-muted px-4 py-3">
               <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-4 text-primary shrink-0" />
-              <span class="min-w-0 shrink truncate font-mono text-xs sm:text-sm text-toned"><span class="text-default">resumable</span> · paginate</span>
+              <span class="min-w-0 shrink truncate font-mono text-xs sm:text-sm text-toned"><span class="text-default">resumable</span> · export-room</span>
               <span class="hidden sm:inline-flex items-center gap-1 border border-muted bg-elevated/40 px-2 py-0.5 font-mono text-[10px] text-toned">best for re-runnable sources</span>
               <span class="ml-auto inline-flex min-w-[10.5rem] shrink-0 items-center justify-end gap-1.5 font-mono text-[11px] transition-colors duration-300" :class="durableTone[resStatus.tone]">
                 <span class="size-1.5 rounded-full transition-colors duration-300" :class="[durableDot[resStatus.tone], resStatus.tone !== 'ok' ? 'animate-pulse' : '']" />
@@ -603,7 +603,7 @@ onBeforeUnmount(() => {
                   v-if="r <= resShown"
                   class="shrink-0 whitespace-nowrap border px-2 py-1 transition-colors duration-300"
                   :class="r <= 3 ? 'border-sky-400/40 bg-sky-500/10 text-sky-200' : 'border-emerald-400/50 bg-emerald-500/10 text-emerald-200'"
-                >row #{{ r }}</span>
+                >page {{ r }}</span>
                 <span
                   v-if="resPhase !== 'streaming' && r === 3"
                   :key="`rm-${r}`"
@@ -611,17 +611,17 @@ onBeforeUnmount(() => {
                   :class="resPhase === 'dropped' ? 'border-red-500/50 bg-red-500/10 text-red-300' : 'border-primary/50 bg-primary/10 text-primary'"
                 >
                   <UIcon :name="resPhase === 'dropped' ? 'i-ph-plugs-duotone' : 'i-ph-arrow-clockwise-duotone'" class="size-3.5" />
-                  {{ resPhase === 'dropped' ? 'disconnected' : 're-run from idx: 3' }}
+                  {{ resPhase === 'dropped' ? 'disconnected' : 're-run from page: 3' }}
                 </span>
               </template>
               <span v-if="resShown > 0" class="ml-1 inline-flex shrink-0 whitespace-nowrap items-center gap-1 border border-primary/40 bg-primary/[0.06] px-2 py-1 text-primary">
-                <UIcon name="i-ph-map-pin-duotone" class="size-3.5" /> cursor idx: {{ resCursor }}
+                <UIcon name="i-ph-map-pin-duotone" class="size-3.5" /> cursor page: {{ resCursor }}
               </span>
             </div>
 
             <div class="flex flex-col gap-2 border-t border-muted/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <p class="text-xs leading-relaxed text-toned">Only the cursor is stored. On reconnect the generator re-runs from it and continues live — nothing buffered but the position.</p>
-              <code class="shrink-0 border border-muted bg-elevated/40 px-2 py-1 font-mono text-[11px] text-primary">base.resumableStream('paginate', …)</code>
+              <code class="shrink-0 border border-muted bg-elevated/40 px-2 py-1 font-mono text-[11px] text-primary">base.resumableStream('export-room', …)</code>
             </div>
           </div>
         </Motion>

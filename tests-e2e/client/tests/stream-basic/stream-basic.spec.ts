@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's stream() against the real wskit `stream-basic`
-// handler. Adapter-oblivious — it talks to whatever server the run booted over
+// Conformance: @livething/client's stream() against the real LiveThing `stream-basic`
+// server definition. Adapter-oblivious — it talks to whatever server the run booted over
 // the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/stream-basic/index.html?room=${room}&username=alice`);
@@ -20,10 +20,11 @@ test.describe('stream-basic (conformance)', () => {
     await expect(page.getByTestId('stream-ok')).toHaveText('yes');
     await expect(page.getByTestId('stream-id')).not.toHaveText('');
     await expect(page.getByTestId('chunk-indices')).toHaveText('0,1,2');
+
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
 
-  test('an unhandled stream throw makes the iterator throw a typed WSKitError', async ({
+  test('an unhandled stream throw makes the iterator throw a typed LiveThingError', async ({
     page,
   }, testInfo) => {
     await open(page, `stream-boom-${testInfo.testId}`);
@@ -31,7 +32,7 @@ test.describe('stream-basic (conformance)', () => {
     await expect(page.getByTestId('stream-error')).toHaveText('internal-error');
   });
 
-  test('a registered error factory survives as the thrown WSKitError code', async ({
+  test('a registered error factory survives as the thrown LiveThingError code', async ({
     page,
   }, testInfo) => {
     await open(page, `stream-typed-${testInfo.testId}`);

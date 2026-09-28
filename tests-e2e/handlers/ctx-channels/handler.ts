@@ -1,12 +1,11 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({
@@ -19,11 +18,11 @@ const base = define({
 });
 
 const room = base.channel('room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-message': t<{ text: string; from: string }>(),
-    },
-  },
+    }),
+  ],
 });
 
 const handleGetMembers = base.on('get-members', {
@@ -79,23 +78,23 @@ const handleSendRoomMessage = room.on('send-room-message', {
   },
 });
 
-// Exercises `ctx.channel.send(event, payload, { to })`: `to` is a channel
+// Exercises `ctx.channel.broadcastTo(to, event, payload)`: `to` is a channel
 // member's tag, so only sockets that are BOTH a member AND hold the tag
 // receive the frame. A tag with no matching member delivers to 0. The
 // delivered count comes back so the test can assert the intersection.
 const handleSendToTaggedMember = room.on('send-to-tagged-member', {
   input: v.object({ tag: v.string(), text: v.string() }),
   run(ctx, input) {
-    const delivered = ctx.channel.send(
+    const delivered = ctx.channel.broadcastTo(
+      ctx.tags.ephemeral('user').ref(input.tag),
       'room-message',
       { text: input.text, from: ctx.meta.username },
-      { to: ctx.tags.ephemeral('user').ref(input.tag) },
     );
     ctx.send('members-result', { channel: 'room', count: delivered });
   },
 });
 
-export const ctxChannelsHandler = base.assemble({
+export const ctxChannelsDefinition = base.assemble({
   handlers: [
     handleGetMembers,
     handleGetMemberId,
@@ -107,4 +106,4 @@ export const ctxChannelsHandler = base.assemble({
   ],
 });
 
-export type CtxChannelsClient = InferClient<typeof ctxChannelsHandler>;
+export type CtxChannelsClient = InferClient<typeof ctxChannelsDefinition>;

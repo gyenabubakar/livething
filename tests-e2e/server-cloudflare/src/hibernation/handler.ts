@@ -1,10 +1,10 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { stream } from '@wskit/server/streams';
-import { tags } from '@wskit/server/tags';
-import { requireUsernameWithUserTag } from '@wskit/tests-e2e-handlers/_shared/upgrade';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { stream } from '@livething/server/streams';
+import { tags } from '@livething/server/tags';
+import { requireUsernameWithUserTag } from '@livething/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 
 const BroadcastToRoomPayload = v.object({ text: v.string() });
 const SaveNotePayload = v.object({ title: v.string(), body: v.string() });
@@ -17,8 +17,7 @@ const ProbeConnPayload = v.object({});
 const StartSlowStreamPayload = v.object({});
 const SlowChunk = t<{ index: number }>();
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   hibernation: { enabled: true },
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
@@ -89,7 +88,7 @@ const handleTagSelf = base.on('tag-self', {
 const handleSendToTag = base.on('send-to-tag', {
   input: SendToTagPayload,
   run(ctx, payload) {
-    ctx.tags.ephemeral('label').ref(payload.tag).send('tagged-message', {
+    ctx.tags.ephemeral('label').ref(payload.tag).broadcast('tagged-message', {
       text: payload.text,
       from: ctx.meta.username,
     });
@@ -124,7 +123,7 @@ const handleSlowStream = base.stream('start-slow-stream', {
 });
 
 const room = base.channel('room', {
-  outgoing: { emits: { 'room-message': t<{ text: string }>() } },
+  capabilities: [emits({ 'room-message': t<{ text: string }>() })],
 });
 
 const handleBroadcastToRoom = room.on('broadcast-to-room', {
@@ -134,7 +133,7 @@ const handleBroadcastToRoom = room.on('broadcast-to-room', {
   },
 });
 
-export const hibernationHandler = base.assemble({
+export const hibernationDefinition = base.assemble({
   handlers: [
     handleSaveNote,
     handleGetNotes,
@@ -147,4 +146,4 @@ export const hibernationHandler = base.assemble({
   ],
 });
 
-export type HibernationClient = InferClient<typeof hibernationHandler>;
+export type HibernationClient = InferClient<typeof hibernationDefinition>;

@@ -36,6 +36,7 @@ function buildAccess(
  */
 export function ensureScheduledRuntime(core: EngineCore, createTaskContext: () => unknown): void {
   if (core.installedFeatures.has(SCHEDULED_RUNTIME_KEY)) return;
+
   core.installedFeatures.add(SCHEDULED_RUNTIME_KEY);
 
   registerAlarmSource(core, SCHEDULED_RUNTIME_KEY, () => {
@@ -43,6 +44,7 @@ export function ensureScheduledRuntime(core: EngineCore, createTaskContext: () =
     for (const run of core.scheduledRuns.values()) {
       if (next === null || run.time < next) next = run.time;
     }
+
     return next;
   });
 
@@ -130,7 +132,7 @@ export const scheduledService: ScheduledService = {
 };
 
 /** Installs the scheduled service once, set by `scheduled()` or a durable stream. */
-const SCHEDULED_SERVICE_KEY = Symbol('wskit.scheduledService');
+const SCHEDULED_SERVICE_KEY = Symbol('livething.scheduledService');
 
 export function registerScheduledService(engine: EngineAccess): void {
   engine.installOnce(SCHEDULED_SERVICE_KEY, () => {

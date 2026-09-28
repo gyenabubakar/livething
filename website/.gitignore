@@ -1,5 +1,7 @@
 # Nuxt dev/build outputs
 .output
+.lighthouseci
+.lighthouse-results
 .data
 .nuxt
 .nitro
@@ -35,3 +37,5 @@ logs
 #VSC
 .history
 .wrangler
+
+--port/

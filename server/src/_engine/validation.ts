@@ -1,4 +1,9 @@
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
+
+interface AllowedValueLocation {
+  field: string;
+  context: string;
+}
 
 /**
  * Reject numeric config that would silently break runtime math or unbound a
@@ -8,12 +13,12 @@ import { WSKitConfigError } from '@wskit/core';
  * `Defer(NaN)` passes through `setTimeout` as a 0ms retry loop. The accepted
  * shape is a positive integer that fits in `Number.MAX_SAFE_INTEGER`.
  *
- * Throws `WSKitConfigError` so build paths fail fast — the engine refuses to
+ * Throws `LiveThingConfigError` so build paths fail fast — the engine refuses to
  * construct and the server doesn't start.
  */
 export function assertPositiveInteger(value: unknown, field: string, context: string): void {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `${context}: '${field}' must be a positive safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
     );
   }
@@ -27,7 +32,7 @@ export function assertPositiveInteger(value: unknown, field: string, context: st
  */
 export function assertNonNegativeSafeInteger(value: unknown, field: string, context: string): void {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `${context}: '${field}' must be a non-negative safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
     );
   }
@@ -44,22 +49,23 @@ export function assertOptionalPositiveInteger(
   context: string,
 ): void {
   if (value === undefined) return;
+
   assertPositiveInteger(value, field, context);
 }
 
 /**
  * Reject string-enum config that was widened to `string` (usually via
  * `as any`). The runtime then silently picks the `else` branch instead of
- * the expected behavior. Throws `WSKitConfigError` so the misconfiguration
+ * the expected behavior. Throws `LiveThingConfigError` so the misconfiguration
  * fails at build time with the allowed set spelled out.
  */
 export function assertOneOf<T extends string>(
   value: unknown,
   allowed: readonly T[],
-  where: { field: string; context: string },
+  where: AllowedValueLocation,
 ): asserts value is T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `${where.context}: '${where.field}' must be one of ${allowed.map((v) => `'${v}'`).join(', ')}, got ${JSON.stringify(value)}.`,
     );
   }

@@ -54,7 +54,7 @@ function memberRuntime(
       quality: 'good' as const,
       bufferedAmount: 0,
       ref: () => ({
-        __wskit: 'connection-ref' as const,
+        __livething: 'connection-ref' as const,
         id: c.id,
         instance: undefined,
         userId: c.userId,
@@ -87,6 +87,7 @@ describe('getChannelMembers scope isolation', () => {
     const familyMember = createConnection('family');
     const otherFamilyMember = createConnection('other');
     addMembership(channelMembers, staticMember, { channelName: 'lobby', channelFamily: null });
+
     addMembership(channelMembers, familyMember, { channelName: 'lobby', channelFamily: 'rooms' });
     addMembership(channelMembers, otherFamilyMember, {
       channelName: 'lobby',

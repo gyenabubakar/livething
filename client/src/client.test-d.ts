@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type test file uses `any` for assertions */
 // Type-only checks for the client API against a contract shaped exactly like
-// what `@wskit/server`'s `InferClient` produces. tsc checks these; vitest never
+// what `@livething/server`'s `InferClient` produces. tsc checks these; vitest never
 // runs them. A broken assumption shows up as a build error.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
@@ -14,9 +14,8 @@ import { replay } from '~/primitives/replay.ts';
 import { serverRequests } from '~/primitives/server-requests/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { expectTypeOf } from 'vitest';
-// BUG 2 regression: `GapInfo` must be importable from the package root, not
-// only from `~/types.ts` — a consumer annotating an `onGap` handler needs it
-// from the same place as every other public type.
+// `GapInfo` must be importable from the package root so a consumer can annotate
+// an `onGap` handler from the same place as every other public type.
 import type { GapInfo as GapInfoFromIndex, GapsTypeFn as GapsTypeFnFromIndex } from '~/index.ts';
 import type { EmptyTypeFn, Primitive, TypeFn } from '~/primitives/types.ts';
 import type { GapInfo, StreamHandle } from '~/types.ts';
@@ -36,7 +35,7 @@ interface Full {
       kind: 'ephemeral';
       nudges: { stop: { now: boolean } };
     };
-    resumable: { payload: {}; chunk: { row: number }; kind: 'persistent'; cursor: { idx: number } };
+    resumable: { payload: {}; chunk: { row: number }; kind: 'persistent' };
     recorded: { payload: {}; chunk: { token: string }; kind: 'persistent' };
   };
   channels: {
@@ -217,6 +216,7 @@ everything.channel('room').onStream('ch-stream', { onChunk: () => {} });
 interface ReceiveOnly {
   incoming: { tick: { n: number } };
 }
+
 const recv = client<ReceiveOnly>()(connect('wss://example.com'));
 recv.on('tick', (data) => expectTypeOf(data).toEqualTypeOf<{ n: number }>());
 // @ts-expect-error — no outgoing, so send() is missing
@@ -225,15 +225,18 @@ recv.send;
 interface PingApiTypeFn extends TypeFn {
   readonly _api: { ping(): number };
 }
+
 function pingPrimitive(): Primitive<PingApiTypeFn> {
   return { _tag: 'ping-test' };
 }
+
 const withApi = client<ReceiveOnly>()(connect('wss://example.com'), pingPrimitive());
 expectTypeOf(withApi.ping()).toBeNumber();
 
 function noop(): Primitive<EmptyTypeFn> {
   return { _tag: 'noop-test' };
 }
+
 const plain = client<ReceiveOnly>()(connect('wss://example.com'), noop());
 // @ts-expect-error — noop adds no methods
 plain.ping;
@@ -241,6 +244,7 @@ plain.ping;
 function needsChannels(): Primitive<EmptyTypeFn, { channels: Record<string, any> }> {
   return { _tag: 'needs-channels' };
 }
+
 // @ts-expect-error — ReceiveOnly has no `channels`
 client<ReceiveOnly>()(connect('wss://example.com'), needsChannels());
 
@@ -298,11 +302,9 @@ plainRoom.receivers;
 // @ts-expect-error — 'plain' channel has no readReceipts flag, so markAsRead is absent
 plainRoom.markAsRead;
 
-// BUG 3 regression: a channel that carries BOTH an installed channel primitive's
-// surface (inbox) AND a section whose primitive is missing (clientRequests).
-// Forgetting clientRequests() must still produce a clear stub error on
-// `request`, but it must NOT also erase `receivers` — inbox() is installed and
-// works fine at runtime, so the type must keep saying so.
+// A channel can carry both an installed primitive's surface (inbox) and a
+// section whose primitive is missing (clientRequests). Omitting clientRequests()
+// must produce a clear stub error on `request` without erasing `receivers`.
 interface MixedChannel {
   channels: {
     room: {
@@ -333,6 +335,7 @@ interface MixedFamily {
     };
   };
 }
+
 const mixedFamily = client<MixedFamily>()(connect('wss://example.com'), channels(), inbox());
 const mixedFamilyMember = mixedFamily.channel('rooms', 'general');
 expectTypeOf(mixedFamilyMember.receivers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();

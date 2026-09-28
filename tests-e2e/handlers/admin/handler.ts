@@ -1,13 +1,12 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { scheduled } from '@wskit/server/scheduled';
-import { resumableStream } from '@wskit/server/streams';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { scheduled } from '@livething/server/scheduled';
+import { resumableStream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: requireUsername,
   capabilities: [
     channels(),
@@ -29,12 +28,12 @@ const noop = base.on('noop', { input: v.object({}), run() {} });
 
 export const lobby = base.channel('lobby', {
   membership: 'persistent',
-  outgoing: { emits: { 'room-notice': t<{ text: string }>() } },
+  capabilities: [emits({ 'room-notice': t<{ text: string }>() })],
 });
 
 const handleJoinLobby = lobby.on('join-lobby', { input: v.object({}), run() {} });
 
-const handleAnnounceTask = base.scheduled('admin-announce', {
+base.scheduled('admin-announce', {
   run(ctx, data) {
     ctx.broadcast('announced', { text: data.text });
   },
@@ -50,8 +49,8 @@ const handleAnnounceTask = base.scheduled('admin-announce', {
  * `purgeUser` needs no capability of its own — it wipes whatever durable state
  * the listed capabilities own.
  */
-export const adminHandler = base.assemble({
-  handlers: [noop, handleJoinLobby, handleAnnounceTask, lobby],
+export const adminDefinition = base.assemble({
+  handlers: [noop, handleJoinLobby, lobby],
   api: (ctx) => ({
     announce(text: string) {
       ctx.broadcast('announced', { text });
@@ -75,18 +74,20 @@ export const adminHandler = base.assemble({
     pokeConnection(connectionId: string, text: string): boolean {
       const target = ctx.connections.all().find((info) => info.id === connectionId);
       if (!target) return false;
+
       return ctx.connections.get(target.ref()).send('poked', { text });
     },
 
     closeConnection(connectionId: string, code: number, reason: string): boolean {
       const target = ctx.connections.all().find((info) => info.id === connectionId);
       if (!target) return false;
+
       ctx.connections.get(target.ref()).close(code, reason);
       return true;
     },
 
     notifyUser(userId: string, text: string): number {
-      return ctx.users.get(userId).send('notified', { text });
+      return ctx.users.get(userId).broadcast('notified', { text });
     },
 
     bootUser(userId: string): void {
@@ -138,22 +139,8 @@ export const adminHandler = base.assemble({
       return typeof value === 'string' ? value : null;
     },
 
-    envKeys(): string[] {
-      return Object.keys(ctx.env).sort();
-    },
-
     logSomething(text: string): void {
       ctx.log.info('[e2e] admin log', { text });
-    },
-
-    // Proves waitUntil by its observable effect: the awaited work lands in sql.
-    deferNote(text: string): void {
-      ctx.waitUntil(
-        Promise.resolve().then(() => {
-          ctx.sql.exec('CREATE TABLE IF NOT EXISTS admin_notes (text TEXT)');
-          ctx.sql.exec('INSERT INTO admin_notes (text) VALUES (?)', text);
-        }),
-      );
     },
 
     hasPlatform(): boolean {
@@ -162,4 +149,4 @@ export const adminHandler = base.assemble({
   }),
 });
 
-export type AdminClient = InferClient<typeof adminHandler>;
+export type AdminClient = InferClient<typeof adminDefinition>;

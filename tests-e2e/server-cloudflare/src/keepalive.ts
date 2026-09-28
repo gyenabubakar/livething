@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { keepaliveHandler } from '@wskit/tests-e2e-handlers/keepalive';
+import { bind } from '@livething/server-cloudflare';
+import { keepaliveDefinition } from '@livething/tests-e2e-handlers/keepalive';
 
-export class KeepaliveServer extends server(keepaliveHandler) {}
+export class KeepaliveServer extends bind(keepaliveDefinition) {}

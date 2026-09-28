@@ -1,4 +1,4 @@
-import { DurableStreamRequiresUser } from '@wskit/core';
+import { DurableStreamRequiresUser } from '@livething/core';
 import { createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -69,7 +69,7 @@ describe('runDurableStream — anonymous connection guard', () => {
         scope: {},
         def: baseDef(),
         payload: {},
-        wskit: undefined,
+        livething: undefined,
       });
     } catch (err) {
       thrown = err;
@@ -91,7 +91,7 @@ describe('runDurableStream — anonymous connection guard', () => {
         scope: { channelName: 'room:general' } as never,
         def: baseDef({ broadcast: true }),
         payload: {},
-        wskit: undefined,
+        livething: undefined,
       }),
     ).rejects.toMatchObject({ code: 'durable-stream-requires-user' });
   });
@@ -110,7 +110,7 @@ describe('runDurableStream — anonymous connection guard', () => {
         },
       }),
       payload: {},
-      wskit: undefined,
+      livething: undefined,
     });
 
     expect(Storage.readStream(sql, 'u1', 'dstream_1')).not.toBeNull();

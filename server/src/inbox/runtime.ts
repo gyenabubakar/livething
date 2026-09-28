@@ -45,6 +45,51 @@ export function scopeMatchesChannel(
  */
 export const DEFAULT_MAX_RECEIPT_AUDIENCE = 256;
 
+interface InboxFanOutOptions {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+  deliverySeq: number;
+  messageId: string;
+  excludeUserId?: string;
+}
+
+interface InboxRetentionDeadlineOptions {
+  channelKey: string;
+  maxAgeMs: number;
+}
+
+interface InboxRetentionSweepOptions {
+  channelKey: string;
+  retention: InboxRetention;
+  now: number;
+}
+
+interface InboxAckOptions {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+  receivedThrough: number;
+  onDelivered: ResolvedInboxOptions['onDelivered'];
+}
+
+interface InboxMemberKey {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+}
+
+interface InboxBackfillOptions extends InboxMemberKey {
+  frames: readonly InboxFrame[];
+  retention?: InboxRetention;
+}
+
+interface InboxRetentionApplyOptions extends Omit<InboxMemberKey, 'userId'> {
+  userId: string;
+  retention: InboxRetention;
+}
+
 /** Resolve the channel key (family key for families, name for static channels). */
 export function channelKeyFor(channelName: string, channelFamily: string | null): string {
   return channelFamily ?? channelName;
@@ -52,11 +97,11 @@ export function channelKeyFor(channelName: string, channelFamily: string | null)
 
 /**
  * Fan one logical channel message out to every durable member's inbox, keyed on
- * the `seq`/`messageId` the broadcast already stamped, so a member's inbox row
+ * the `deliverySeq`/`messageId` the broadcast already stamped, so a member's inbox row
  * matches the live frame it also receives (its ack settles the row, and dedup
  * suppresses the reconnect re-delivery). A no-op for a channel without inbox.
  * Anonymous members (empty user id) hold no durable row and get live-only
- * delivery, but still see the same shared seq/messageId on the live frame.
+ * delivery, but still see the same shared deliverySeq/messageId on the live frame.
  *
  * `excludeUserId`, when set, skips that member's row entirely — used when the
  * broadcast excluded their one and only connection in this channel, so they
@@ -64,18 +109,7 @@ export function channelKeyFor(channelName: string, channelFamily: string | null)
  * second, still-included connection in the channel is never passed here, and
  * gets its row as normal.
  */
-export function fanOutToInbox(
-  core: EngineCore,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    event: string;
-    payload: Record<string, unknown>;
-    seq: number;
-    messageId: string;
-    excludeUserId?: string;
-  },
-): void {
+export function fanOutToInbox(core: EngineCore, opts: InboxFanOutOptions): void {
   const config = core.inboxChannels.get(channelKeyFor(opts.channelName, opts.channelFamily));
   if (!config) return;
 
@@ -86,11 +120,12 @@ export function fanOutToInbox(
   if (userIds.length === 0) return;
 
   const frame: InboxFrame = {
-    seq: opts.seq,
+    deliverySeq: opts.deliverySeq,
     messageId: opts.messageId,
     event: opts.event,
     payload: opts.payload,
   };
+
   insertInboxRows(sql, {
     userIds,
     channelName: opts.channelName,
@@ -136,7 +171,7 @@ export function fanOutToInbox(
 /** Return the next age-retention deadline for one static channel or family. */
 export function nextInboxRetentionDeadline(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelKey: string; maxAgeMs: number },
+  params: InboxRetentionDeadlineOptions,
 ): number | null {
   return nextInboxRetentionAt(sql, params);
 }
@@ -148,7 +183,7 @@ export function nextInboxRetentionDeadline(
  */
 export function sweepInboxRetention(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
-  params: { channelKey: string; retention: InboxRetention; now: number },
+  params: InboxRetentionSweepOptions,
 ): number {
   const maxAgeMs = params.retention.maxAgeMs;
   if (maxAgeMs === undefined && params.retention.maxMessages === undefined) return 0;
@@ -177,6 +212,7 @@ export function sweepInboxRetention(
       pruned += 1;
     }
   }
+
   return pruned;
 }
 
@@ -196,6 +232,7 @@ export function memberCountKey(
  */
 export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConnection): void {
   if (!connection.userId) return;
+
   const { sql } = core.storage;
 
   const watermarks = loadInboxWatermarks(sql, connection.userId);
@@ -218,7 +255,7 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
       event: row.event,
       payload: JSON.parse(row.payload) as Record<string, unknown>,
       wire: {
-        seq: row.seq,
+        deliverySeq: row.seq,
         messageId: row.messageId,
         channel: row.channelName,
       },
@@ -228,16 +265,7 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
 }
 
 /** Apply a member's `__received__` ack: drop or mark-delivered up to `receivedThrough`. */
-export function applyInboxAck(
-  sql: Pick<SQLProvider, 'exec'>,
-  opts: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    receivedThrough: number;
-    onDelivered: ResolvedInboxOptions['onDelivered'];
-  },
-): void {
+export function applyInboxAck(sql: Pick<SQLProvider, 'exec'>, opts: InboxAckOptions): void {
   ackInboxRows(sql, {
     userId: opts.userId,
     channelName: opts.channelName,
@@ -255,12 +283,11 @@ export function applyInboxAck(
 }
 
 /** Drop a member's rows for a channel it has left. */
-export function clearInboxForChannel(
-  core: EngineCore,
-  key: { userId: string; channelName: string; channelFamily: string | null },
-): void {
+export function clearInboxForChannel(core: EngineCore, key: InboxMemberKey): void {
   if (!key.userId) return;
+
   if (!core.inboxChannels.has(channelKeyFor(key.channelName, key.channelFamily))) return;
+
   const { sql } = core.storage;
   const { userId } = key;
   deleteInboxRowsForChannel(sql, {
@@ -268,6 +295,7 @@ export function clearInboxForChannel(
     channelName: key.channelName,
     channelFamily: key.channelFamily,
   });
+
   deleteInboxWatermarkForChannel(sql, {
     userId,
     channelName: key.channelName,
@@ -279,7 +307,7 @@ export function clearInboxForChannel(
 
 /**
  * Back a user's inbox from a set of full frames. Each frame keeps its own
- * seq/messageId so ordering and dedup stay consistent with live traffic; the
+ * deliverySeq/messageId so ordering and dedup stay consistent with live traffic; the
  * rows drain on the member's next reconnect, or arrive live if it is connected.
  *
  * Runs the inserted rows through the same retention and overflow-watermark
@@ -289,16 +317,12 @@ export function clearInboxForChannel(
  */
 export function backfillInbox(
   sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    userId: string;
-    frames: readonly InboxFrame[];
-    retention?: InboxRetention;
-  },
+  opts: InboxBackfillOptions,
 ): void {
   if (!opts.userId) return;
+
   if (opts.frames.length === 0) return;
+
   insertInboxRowsForUserId(sql, {
     userId: opts.userId,
     channelName: opts.channelName,
@@ -308,6 +332,7 @@ export function backfillInbox(
   });
 
   if (!opts.retention) return;
+
   applyInboxRetention(sql, {
     userId: opts.userId,
     channelName: opts.channelName,
@@ -328,12 +353,7 @@ export function backfillInbox(
  */
 function applyInboxRetention(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
-  opts: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    retention: InboxRetention;
-  },
+  opts: InboxRetentionApplyOptions,
 ): number | null {
   return pruneInboxRetentionAndBumpWatermark(sql, {
     userId: opts.userId,

@@ -1,6 +1,10 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "import", "unicorn"],
+  "jsPlugins": [
+    { "name": "eslint-js", "specifier": "oxlint-plugin-eslint" },
+    { "name": "livething", "specifier": "./lint-rules/index.mjs" }
+  ],
   "categories": {
     "correctness": "off"
   },
@@ -89,6 +93,140 @@
     "no-useless-backreference": "error",
     "require-yield": "error",
     "no-nested-ternary": "error",
-    "max-params": ["error", { "max": 3 }]
-  }
+    "complexity": ["error", { "max": 50, "variant": "classic" }],
+    "max-params": ["error", { "max": 3 }],
+    "eslint-js/no-restricted-syntax": [
+      "error",
+      {
+        "selector": "VariableDeclarator > Identifier > TSTypeAnnotation > TSTypeLiteral, :matches(FunctionDeclaration, FunctionExpression, ArrowFunctionExpression) Identifier > TSTypeAnnotation > TSTypeLiteral",
+        "message": "Extract inline object types into a named type or interface."
+      },
+      {
+        "selector": ":matches(FunctionDeclaration, FunctionExpression, ArrowFunctionExpression) > :matches(ObjectPattern, ArrayPattern), :matches(FunctionDeclaration, FunctionExpression, ArrowFunctionExpression) > AssignmentPattern > :matches(ObjectPattern, ArrayPattern)",
+        "message": "Do not destructure function parameters; use a named parameter."
+      }
+    ],
+    "livething/max-consecutive-statements": ["error", { "max": 5 }],
+    "livething/padding-after-block": "error",
+    "livething/padding-after-guard-clause": "error",
+    "livething/padding-after-object-literal-declaration": "error",
+    "livething/padding-before-final-return": ["error", { "minStatements": 5 }],
+    "livething/switch-case-padding": ["error", { "minCases": 3 }]
+  },
+  "overrides": [
+    {
+      "files": ["**/*.svelte"],
+      "rules": {
+        "livething/max-consecutive-statements": "off",
+        "livething/padding-after-block": "off",
+        "livething/padding-after-guard-clause": "off",
+        "livething/padding-after-object-literal-declaration": "off",
+        "livething/padding-before-final-return": "off",
+        "livething/switch-case-padding": "off"
+      }
+    },
+    {
+      "files": [
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.test-d.ts",
+        "**/*.bench.ts",
+        "**/_test/**",
+        "**/test-utils.ts",
+        "tests-e2e/**"
+      ],
+      "rules": {
+        "eslint-js/no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": [".dependency-cruiser.cjs"],
+      "rules": {
+        "import/no-commonjs": "off"
+      }
+    },
+    {
+      "files": ["server/src/**/*.ts"],
+      "excludeFiles": [
+        "server/src/**/_test/**",
+        "server/src/**/*.spec.ts",
+        "server/src/**/*.test.ts",
+        "server/src/**/*.test-d.ts",
+        "server/src/**/*.bench.ts"
+      ],
+      "env": {
+        "builtin": true
+      },
+      "globals": {
+        "AbortController": "readonly",
+        "AbortSignal": "readonly",
+        "atob": "readonly",
+        "Blob": "readonly",
+        "btoa": "readonly",
+        "clearInterval": "readonly",
+        "clearTimeout": "readonly",
+        "console": "readonly",
+        "crypto": "readonly",
+        "Event": "readonly",
+        "EventTarget": "readonly",
+        "fetch": "readonly",
+        "FormData": "readonly",
+        "Headers": "readonly",
+        "MessageChannel": "readonly",
+        "MessageEvent": "readonly",
+        "MessagePort": "readonly",
+        "performance": "readonly",
+        "queueMicrotask": "readonly",
+        "ReadableStream": "readonly",
+        "Request": "readonly",
+        "Response": "readonly",
+        "setInterval": "readonly",
+        "setTimeout": "readonly",
+        "structuredClone": "readonly",
+        "TextDecoder": "readonly",
+        "TextEncoder": "readonly",
+        "TransformStream": "readonly",
+        "URL": "readonly",
+        "URLSearchParams": "readonly",
+        "WebSocket": "readonly",
+        "WritableStream": "readonly"
+      },
+      "rules": {
+        "import/no-nodejs-modules": "error",
+        "no-undef": ["error", { "typeof": true }],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "globalThis",
+            "message": "LiveThing server code must not read runtime globals through globalThis."
+          }
+        ],
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "cloudflare:workers",
+                "message": "Runtime bindings belong in a server adapter."
+              },
+              {
+                "name": "@livething/server-node",
+                "message": "Server code must depend on adapter interfaces, not a runtime adapter."
+              },
+              {
+                "name": "@livething/server-cloudflare",
+                "message": "Server code must depend on adapter interfaces, not a runtime adapter."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@livething/server-node/*", "@livething/server-cloudflare/*"],
+                "message": "Server code must depend on adapter interfaces, not a runtime adapter."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

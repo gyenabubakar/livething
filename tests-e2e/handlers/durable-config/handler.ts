@@ -1,15 +1,14 @@
-import { define, emits, t } from '@wskit/server';
-import { dedup } from '@wskit/server/dedup';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { dedup } from '@livething/server/dedup';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 // Exercises two durable capability configs in one DO:
 //  - sequence({ persist: true }) so the seq counter survives a restart
 //  - dedup({ cap: 2 }) so the incoming dedup ring evicts the oldest id
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     sequence({ persist: true, batchSize: 5 }),
@@ -32,6 +31,6 @@ const handleDoEcho = base.on('do-echo', {
   },
 });
 
-export const durableConfigHandler = base.assemble({ handlers: [handleTick, handleDoEcho] });
+export const durableConfigDefinition = base.assemble({ handlers: [handleTick, handleDoEcho] });
 
-export type DurableConfigClient = InferClient<typeof durableConfigHandler>;
+export type DurableConfigClient = InferClient<typeof durableConfigDefinition>;

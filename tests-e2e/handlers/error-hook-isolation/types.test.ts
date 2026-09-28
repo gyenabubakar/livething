@@ -8,6 +8,7 @@ describe('ErrorHookIsolationClient — no-any guard', () => {
     expectTypeOf<ErrorHookIsolationClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['channels']>().not.toBeAny();
+
     expectTypeOf<ErrorHookIsolationClient['errors']>().not.toBeAny();
   });
 });

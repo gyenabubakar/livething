@@ -1,5 +1,5 @@
 {
-  "name": "@wskit/tests-e2e-client-raw",
+  "name": "@livething/tests-e2e-client-raw",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "prepare": "svelte-kit sync || echo ''",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "clean": "rm -rf node_modules dist .svelte-kit build test-results"
+    "clean": "rm -rf node_modules dist .svelte-kit build test-results .wrangler"
   },
   "devDependencies": {
     "@playwright/test": "1.59.1",

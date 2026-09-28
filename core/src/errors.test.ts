@@ -3,15 +3,16 @@
 import {
   Block,
   CloseCodes,
+  ConnectionBusy,
   CrossInstanceRef,
   error,
+  LiveThingError,
   NudgeOverflow,
   RateLimited,
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
   ValidationFailed,
-  WSKitError,
 } from '~/errors.ts';
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
@@ -23,6 +24,9 @@ import type { ErrorDef, ErrorDefWithFactory } from '~/errors.ts';
 
 const _normal: 1000 = CloseCodes.NORMAL;
 const _goingAway: 1001 = CloseCodes.GOING_AWAY;
+const _protocolError: 1002 = CloseCodes.PROTOCOL_ERROR;
+const _unsupportedData: 1003 = CloseCodes.UNSUPPORTED_DATA;
+const _internalError: 1011 = CloseCodes.INTERNAL_ERROR;
 const _authExpired: 4001 = CloseCodes.AUTH_EXPIRED;
 const _authInvalid: 4002 = CloseCodes.AUTH_INVALID;
 const _duplicate: 4003 = CloseCodes.DUPLICATE;
@@ -33,6 +37,9 @@ const _capacity: 4010 = CloseCodes.CAPACITY;
 void [
   _normal,
   _goingAway,
+  _protocolError,
+  _unsupportedData,
+  _internalError,
   _authExpired,
   _authInvalid,
   _duplicate,
@@ -46,10 +53,10 @@ void [
 CloseCodes.NEW_CODE = 5000;
 
 // ===========================================================================
-// 2. WSKitError — constructor and properties
+// 2. LiveThingError — constructor and properties
 // ===========================================================================
 
-const wsErr = new WSKitError('forbidden', { reason: 'not a member' });
+const wsErr = new LiveThingError('forbidden', { reason: 'not a member' });
 
 const _code: 'forbidden' = wsErr.code;
 const _detail: { reason: string } = wsErr.detail;
@@ -58,7 +65,7 @@ void [_code, _detail];
 const _isError: boolean = wsErr instanceof Error;
 void _isError;
 
-const wsErrVoid = new WSKitError('not-found', undefined as void);
+const wsErrVoid = new LiveThingError('not-found', undefined as void);
 const _voidCode: 'not-found' = wsErrVoid.code;
 void _voidCode;
 
@@ -74,10 +81,10 @@ void _notFoundCode;
 const _notFoundDef: ErrorDef<'not-found', void> = NotFound;
 void _notFoundDef;
 
-const _notFoundErr: WSKitError<'not-found', void> = NotFound();
+const _notFoundErr: LiveThingError<'not-found', void> = NotFound();
 void _notFoundErr;
 
-const _matchesFn: (err: unknown) => err is WSKitError<'not-found', void> = NotFound.matches;
+const _matchesFn: (err: unknown) => err is LiveThingError<'not-found', void> = NotFound.matches;
 void _matchesFn;
 
 const crossInstanceErr = CrossInstanceRef({
@@ -140,7 +147,7 @@ if (QuotaExceeded.matches(anyErr)) {
 // 6. .matches() — negative cases
 // ===========================================================================
 
-// .matches() returns false for non-WSKitError — plain Error is not WSKitError
+// .matches() returns false for non-LiveThingError — plain Error is not LiveThingError
 declare const plainError: Error;
 const _plainMatch: boolean = Forbidden.matches(plainError);
 void _plainMatch;
@@ -181,8 +188,8 @@ error('SCREAMING');
 // 9. Block — frozen singleton
 // ===========================================================================
 
-const _blockWSKit: 'block' = Block.__wskit;
-void _blockWSKit;
+const _blockLiveThing: 'block' = Block.__livething;
+void _blockLiveThing;
 
 // @ts-expect-error — Block is frozen, cannot add properties
 Block.extra = true;
@@ -291,7 +298,7 @@ if (StreamAlreadyActive.matches(maybeSaa)) {
 const _sicCode: 'stream-id-collision' = StreamIdCollision.code;
 void _sicCode;
 
-const _sicErr: WSKitError<'stream-id-collision', void> = StreamIdCollision();
+const _sicErr: LiveThingError<'stream-id-collision', void> = StreamIdCollision();
 void _sicErr;
 
 declare const maybeSic: unknown;
@@ -308,20 +315,46 @@ if (StreamIdCollision.matches(maybeSic)) {
 const _rlCode: 'rate-limited' = RateLimited.code;
 void _rlCode;
 
-const rlErr = RateLimited({ retryAfter: 5 });
+const rlErr = RateLimited({ retryAfterMs: 5_000 });
 const _rlErrCode: 'rate-limited' = rlErr.code;
-const _rlDetail: { retryAfter: number } = rlErr.detail;
+const _rlDetail: { retryAfterMs: number } = rlErr.detail;
 void [_rlErrCode, _rlDetail];
 
-// @ts-expect-error — missing retryAfter
+// @ts-expect-error — missing retryAfterMs
 RateLimited({});
 
 // @ts-expect-error — wrong shape
-RateLimited({ retryAfter: 'soon' });
+RateLimited({ retryAfterMs: 'soon' });
+
+// @ts-expect-error — unsupported field
+RateLimited({ retryAfter: 5_000 });
 
 declare const maybeRl: unknown;
 if (RateLimited.matches(maybeRl)) {
   const _rlmc: 'rate-limited' = maybeRl.code;
-  const _rlmd: { retryAfter: number } = maybeRl.detail;
+  const _rlmd: { retryAfterMs: number } = maybeRl.detail;
   void [_rlmc, _rlmd];
+}
+
+// ===========================================================================
+// 15. ConnectionBusy — built-in with parsed detail
+// ===========================================================================
+
+const _cbCode: 'connection-busy' = ConnectionBusy.code;
+const cbErr = ConnectionBusy({ retryAfterMs: 1_000 });
+const _cbErrCode: 'connection-busy' = cbErr.code;
+const _cbDetail: { retryAfterMs: number } = cbErr.detail;
+void [_cbCode, _cbErrCode, _cbDetail];
+
+// @ts-expect-error — missing retryAfterMs
+ConnectionBusy({});
+
+// @ts-expect-error — wrong shape
+ConnectionBusy({ retryAfterMs: 'soon' });
+
+declare const maybeCb: unknown;
+if (ConnectionBusy.matches(maybeCb)) {
+  const _cbmc: 'connection-busy' = maybeCb.code;
+  const _cbmd: { retryAfterMs: number } = maybeCb.detail;
+  void [_cbmc, _cbmd];
 }

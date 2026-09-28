@@ -1,9 +1,10 @@
-import { adapter } from '~/_adapters/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { writeConnectionRow } from '~/_engine/runtime/connection-store.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
+import { emits } from '~/emits/emits.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
@@ -50,13 +51,12 @@ function buildEngine(
   restore: (wsKey: unknown) => unknown = (wsKey) =>
     (wsKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
 ): Engine {
-  const base = define({
-    env: t<Record<string, never>>(),
+  const base = server({
     hibernation: { enabled: true },
     capabilities: [channels()],
   });
   const room = base.channel('room', {
-    outgoing: { emits: { 'room-message': t<{ text: string }>() } },
+    capabilities: [emits({ 'room-message': t<{ text: string }>() })],
   });
   const shout = room.on('shout', {
     input: v.object({ text: v.string() }),
@@ -64,10 +64,10 @@ function buildEngine(
       ctx.channel.broadcast('room-message', { text: payload.text });
     },
   });
-  const handler = base.assemble({ handlers: [shout] });
+  const definition = base.assemble({ handlers: [shout] });
 
   let engine!: Engine;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'test',
     hibernation: {
       persist: () => {},
@@ -76,7 +76,6 @@ function buildEngine(
     asyncContextFactory: passthroughAsyncContext(),
     setup(createEngine) {
       engine = createEngine({
-        env: {},
         platform: { kind: 'test' },
         storage,
         timers: {
@@ -84,13 +83,13 @@ function buildEngine(
           deleteAlarm: vi.fn(async () => {}),
           getAlarm: vi.fn(async () => null),
         },
-        waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
+
   return engine;
 }
 
@@ -119,20 +118,16 @@ describe('hibernation restore — live delivery to a passive member', () => {
 
     // Kofi and Ama never send a message; without eager restore their membership
     // would be missing and the broadcast would skip them.
-    await engine.handleHibernationWake(yaw.ws).handleMessage(
-      JSON.stringify({
-        event: 'shout',
-        payload: { text: 'akwaaba' },
-        __wskit: { channel: 'room' },
-      }),
-    );
+    await engine
+      .handleHibernationWake(yaw.ws)
+      .handleMessage(JSON.stringify(['shout', { text: 'akwaaba' }, { channel: { name: 'room' } }]));
 
     function received(s: { frames: string[] }) {
-      return s.frames.map((f) => JSON.parse(f)).find((m) => m.event === 'room-message');
+      return s.frames.map((f) => JSON.parse(f)).find((m) => m[0] === 'room-message');
     }
 
-    expect(received(kofi)?.payload).toEqual({ text: 'akwaaba' });
-    expect(received(ama)?.payload).toEqual({ text: 'akwaaba' });
+    expect(received(kofi)?.[1]).toEqual({ text: 'akwaaba' });
+    expect(received(ama)?.[1]).toEqual({ text: 'akwaaba' });
   });
 
   it('rejects boot restore failures instead of leaving an unobserved wake promise', async () => {

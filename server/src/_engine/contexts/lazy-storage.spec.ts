@@ -9,6 +9,7 @@ function view(listResult: string[] = []) {
     delete: vi.fn(async () => {}),
     list: vi.fn(async () => listResult),
   };
+
   const storage: any = { sql: {}, kv: kvImpl };
   return { ...createLazyStorageView(storage), kvImpl };
 }
@@ -20,6 +21,7 @@ describe('lazy kv — reserved-key guard (kv namespace hardening)', () => {
     await expect(kv.set('a::b', 1)).rejects.toThrow(/reserved form/);
     await expect(kv.get('__x')).rejects.toThrow(/reserved form/);
     await expect(kv.delete('x::y')).rejects.toThrow(/reserved form/);
+
     await expect(kv.list('__')).rejects.toThrow(/reserved form/);
   });
 
@@ -37,6 +39,7 @@ describe('lazy kv — reserved-key guard (kv namespace hardening)', () => {
     await expect(kv.get('__acme:store::secret')).rejects.toThrow(/reserved form/);
     await expect(kv.delete('__acme:store::secret')).rejects.toThrow(/reserved form/);
     expect(kvImpl.set).not.toHaveBeenCalled();
+
     expect(kvImpl.get).not.toHaveBeenCalled();
     expect(kvImpl.delete).not.toHaveBeenCalled();
   });
@@ -47,6 +50,7 @@ describe('lazy kv — reserved-key guard (kv namespace hardening)', () => {
     await privileged.set('__acme:store::count', 1);
     expect(kvImpl.set).toHaveBeenCalledWith('__acme:store::count', 1, undefined);
     await privileged.get('__acme:store::count');
+
     expect(kvImpl.get).toHaveBeenCalledWith('__acme:store::count');
   });
 });

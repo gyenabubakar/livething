@@ -7,12 +7,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/ctx-locals?username=testuser&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -22,7 +24,8 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'echoed') echoed = data.payload?.text ?? '';
 			if (data.event === 'lookup') lookupResult = data.payload?.text ?? '';
 			if (data.event === '__subscribeOk__') subscribed = 'yes';
@@ -30,35 +33,35 @@
 	}
 
 	function sendEcho() {
-		ws?.send(JSON.stringify({ event: 'echo', payload: { text: 'hello' } }));
+		ws?.send(window.__livethingEncode({ event: 'echo', payload: { text: 'hello' } }));
 	}
 
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
+		ws?.send(window.__livethingEncode({ event: '__subscribe__', payload: null, metadata: { channel: { name: 'room' } } }));
 	}
 
 	function sendChannelEcho() {
 		ws?.send(
-			JSON.stringify({ event: 'echo', payload: { text: 'hello' }, __wskit: { channel: 'room' } }),
+			window.__livethingEncode({ event: 'echo', payload: { text: 'hello' }, metadata: { channel: { name: 'room' } } }),
 		);
 	}
 
 	function sendLookupTop() {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'lookup',
 				payload: { text: 'hello' },
-				__wskit: { correlationId: 'top-1' },
+				metadata: { exchange: { id: 'top-1' } },
 			}),
 		);
 	}
 
 	function sendLookupChannel() {
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: 'lookup',
 				payload: { text: 'hello' },
-				__wskit: { correlationId: 'channel-1', channel: 'room' },
+				metadata: { exchange: { id: 'channel-1' }, channel: { name: 'room' } },
 			}),
 		);
 	}

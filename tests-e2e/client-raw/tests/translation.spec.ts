@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { connect, installRig, rawFrames, sendRaw } from './_ws-rig.ts';
 
 type ForeignReply = { type: 'message'; name: string; body: unknown };
+type LiveThingFrame = [string, unknown, unknown];
 
 async function waitForRawFrame(
   page: Page,
@@ -12,11 +13,34 @@ async function waitForRawFrame(
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     for (const raw of await rawFrames(page, id)) {
+      // This is the translator's foreign outbound protocol, not a LiveThing wire frame.
       const frame = JSON.parse(raw) as Record<string, unknown>;
       if (match(frame)) return frame;
     }
+
     await page.waitForTimeout(50);
   }
+
+  throw new Error('timed out waiting for frame');
+}
+
+async function waitForRawTuple(
+  page: Page,
+  id: string,
+  match: (frame: LiveThingFrame) => boolean,
+): Promise<LiveThingFrame> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    for (const raw of await rawFrames(page, id)) {
+      const frame = JSON.parse(raw);
+      if (Array.isArray(frame) && frame.length === 3 && match(frame as LiveThingFrame)) {
+        return frame as LiveThingFrame;
+      }
+    }
+
+    await page.waitForTimeout(50);
+  }
+
   throw new Error('timed out waiting for frame');
 }
 
@@ -34,6 +58,7 @@ async function closeAfterForeignFrame(
         ws.onopen = () => ws.send(JSON.stringify(currentFrame));
         ws.onclose = (event) => resolve(event.code);
         ws.onerror = () => reject(new Error('WebSocket failed'));
+
         setTimeout(() => reject(new Error('timed out waiting for close')), 5_000);
       }),
     { currentPath: path, currentRoom: room, currentFrame: frame },
@@ -90,7 +115,7 @@ test.describe('translation', () => {
     } satisfies ForeignReply);
   });
 
-  test('translates WSKit protocol errors on the outbound path', async ({ page }, testInfo) => {
+  test('translates LiveThing protocol errors on the outbound path', async ({ page }, testInfo) => {
     await page.goto('/');
     await installRig(page);
     const id = await connect(page, {
@@ -154,15 +179,17 @@ test.describe('translation', () => {
       room: `translation-pass-through-${testInfo.testId}`,
     });
 
-    await sendRaw(page, id, JSON.stringify({ event: 'echo', payload: { text: 'unchanged' } }));
-    await expect(waitForRawFrame(page, id, (frame) => frame.event === 'heard')).resolves.toEqual({
-      event: 'heard',
-      payload: { text: 'unchanged' },
-      __wskit: {},
-    });
+    await sendRaw(page, id, JSON.stringify(['echo', { text: 'unchanged' }, null]));
+    await expect(waitForRawTuple(page, id, (frame) => frame[0] === 'heard')).resolves.toEqual([
+      'heard',
+      { text: 'unchanged' },
+      null,
+    ]);
   });
 
-  test('leaves outbound frames as WSKit when outbound is omitted', async ({ page }, testInfo) => {
+  test('leaves outbound frames as LiveThing when outbound is omitted', async ({
+    page,
+  }, testInfo) => {
     await page.goto('/');
     await installRig(page);
     const id = await connect(page, {
@@ -172,10 +199,10 @@ test.describe('translation', () => {
     });
 
     await sendRaw(page, id, JSON.stringify({ type: 'send', text: 'inbound only' }));
-    await expect(waitForRawFrame(page, id, (frame) => frame.event === 'heard')).resolves.toEqual({
-      event: 'heard',
-      payload: { text: 'inbound only' },
-      __wskit: {},
-    });
+    await expect(waitForRawTuple(page, id, (frame) => frame[0] === 'heard')).resolves.toEqual([
+      'heard',
+      { text: 'inbound only' },
+      null,
+    ]);
   });
 });

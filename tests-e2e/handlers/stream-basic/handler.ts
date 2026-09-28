@@ -1,16 +1,15 @@
-import { define, emits, errors, t } from '@wskit/server';
-import { error } from '@wskit/server/errors';
-import { stream } from '@wskit/server/streams';
+import { emits, errors, server, t } from '@livething/server';
+import { error } from '@livething/server/errors';
+import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Token = t<{ index: number }>();
 
 const StreamNotFound = error('not-found', v.object({ id: v.string() }));
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     stream(),
@@ -69,6 +68,7 @@ const handleStartCancelObserve = base.stream('start-cancel-observe', {
         yield { index: i };
         await new Promise((r) => setTimeout(r, 50));
       }
+
       completedNaturally = true;
     } finally {
       if (!completedNaturally) {
@@ -85,7 +85,7 @@ const handleStartEmpty = base.stream('start-empty', {
   async *run() {},
 });
 
-export const streamBasicHandler = base.assemble({
+export const streamBasicDefinition = base.assemble({
   handlers: [
     handleStartTokens,
     handleStartBoom,
@@ -96,4 +96,4 @@ export const streamBasicHandler = base.assemble({
   ],
 });
 
-export type StreamBasicClient = InferClient<typeof streamBasicHandler>;
+export type StreamBasicClient = InferClient<typeof streamBasicDefinition>;

@@ -1,15 +1,14 @@
-import { define, emits, t } from '@wskit/server';
-import { scheduled } from '@wskit/server/scheduled';
+import { emits, server, t } from '@livething/server';
+import { scheduled } from '@livething/server/scheduled';
 import * as v from 'valibot';
-import type { ConnectionContext, InferClient } from '@wskit/server';
+import type { ConnectionContext, InferClient } from '@livething/server';
 
 function assertNoConnectionAlarm(ctx: ConnectionContext) {
   // @ts-expect-error Product connection contexts cannot call the platform alarm API.
   ctx.setAlarm(Date.now());
 }
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   capabilities: [scheduled({ 'alarm-api-task': null }), emits({ 'alarm-api-reply': t<{}>() })],
 });
 
@@ -30,15 +29,15 @@ base.onShutdown((ctx) => {
   ctx.setAlarm(Date.now());
 });
 
-const alarmApiTask = base.scheduled('alarm-api-task', {
+base.scheduled('alarm-api-task', {
   run(ctx) {
     // @ts-expect-error Product scheduled handlers cannot call the platform alarm API.
     ctx.setAlarm(Date.now());
   },
 });
 
-export const alarmApiHandler = base.assemble({
-  handlers: [alarmApiEvent, alarmApiTask],
+export const alarmApiDefinition = base.assemble({
+  handlers: [alarmApiEvent],
   api: (ctx) => ({
     attemptPlatformAlarm() {
       // @ts-expect-error Product admin operations cannot call the platform alarm API.
@@ -46,4 +45,4 @@ export const alarmApiHandler = base.assemble({
     },
   }),
 });
-export type AlarmApiClient = InferClient<typeof alarmApiHandler>;
+export type AlarmApiClient = InferClient<typeof alarmApiDefinition>;

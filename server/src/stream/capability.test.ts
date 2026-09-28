@@ -1,5 +1,5 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
 import * as v from 'valibot';
@@ -7,8 +7,7 @@ import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
 import { stream } from './capability.ts';
 
-const base = define({
-  env: t<{ SECRET: string }>(),
+const base = server({
   capabilities: [stream(), resumableStream(), recordedStream()],
 });
 
@@ -37,8 +36,8 @@ const tokens = base.recordedStream('tokens', {
   },
 });
 
-const handler = base.assemble({ handlers: [feed, paginate, tokens] });
-type C = InferClient<typeof handler>;
+const definition = base.assemble({ handlers: [feed, paginate, tokens] });
+type C = InferClient<typeof definition>;
 
 describe('stream typing', () => {
   it('infers the chunk type from what the generator yields', () => {

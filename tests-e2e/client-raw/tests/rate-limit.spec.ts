@@ -9,7 +9,9 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
   });
 
-  test('top-level cap allows max then rejects with rate-limited + retryAfter', async ({ page }) => {
+  test('top-level cap allows max then rejects with rate-limited + retryAfterMs', async ({
+    page,
+  }) => {
     // Cap is max=3 in a fresh bucket.
     await page.getByTestId('tick').click();
     await page.getByTestId('tick').click();
@@ -24,7 +26,7 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('tock-count')).toHaveText('3');
     await expect(page.getByTestId('last-error-code')).toHaveText('rate-limited');
 
-    const retry = await page.getByTestId('last-retry-after').textContent();
+    const retry = await page.getByTestId('last-retry-after-ms').textContent();
     expect(Number(retry)).toBeGreaterThanOrEqual(1);
   });
 
@@ -52,6 +54,7 @@ test.describe('rate-limit', () => {
     for (let i = 0; i < 10; i += 1) {
       await page.getByTestId('send-no-limit').click();
     }
+
     await expect(page.getByTestId('no-limit-msg-count')).toHaveText('10');
     await expect(page.getByTestId('rate-limited-count')).toHaveText('0');
   });
@@ -88,7 +91,7 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('tock-count')).toHaveText('1');
   });
 
-  test('_correlationId is preserved on rate-limited request rejection', async ({ page }) => {
+  test('metadata.exchange.id is preserved on rate-limited request rejection', async ({ page }) => {
     // 'echo-req' has a per-handler override max=1. First request resolves with
     // its correlation id; the second is rejected with `_error rate-limited`
     // carrying the second request's correlation id.
@@ -125,6 +128,7 @@ test.describe('rate-limit', () => {
       await pageA.getByTestId('tick').click();
       await pageA.getByTestId('tick').click();
       await expect(pageA.getByTestId('tock-count')).toHaveText('3');
+
       await expect(pageA.getByTestId('rate-limited-count')).toHaveText('1');
 
       // B's bucket is untouched.
@@ -187,23 +191,23 @@ test.describe('rate-limit', () => {
     const c = await connect(page, { path: '/ws/rate-limit', username: 'tight-user', room });
     await send(page, c, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'tight-room' },
+      payload: null,
+      metadata: { channel: { name: 'tight-room' } },
     });
     await waitForFrame(page, c, {
-      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'tight-room',
+      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'tight-room',
     });
 
     // Two frames across two different events both pass (scope bucket max=2).
     await send(page, c, {
       event: 'alpha',
       payload: { text: 'a' },
-      __wskit: { channel: 'tight-room' },
+      metadata: { channel: { name: 'tight-room' } },
     });
     await send(page, c, {
       event: 'beta',
       payload: { text: 'b' },
-      __wskit: { channel: 'tight-room' },
+      metadata: { channel: { name: 'tight-room' } },
     });
     await expect
       .poll(async () => (await frames(page, c)).filter((f) => f.event === 'tight-broadcast').length)
@@ -213,7 +217,7 @@ test.describe('rate-limit', () => {
     await send(page, c, {
       event: 'alpha',
       payload: { text: 'c' },
-      __wskit: { channel: 'tight-room' },
+      metadata: { channel: { name: 'tight-room' } },
     });
     const err = await waitForFrame(page, c, { match: (f) => f.event === '__error__' });
     expect((err.payload as { code?: string }).code).toBe('rate-limited');

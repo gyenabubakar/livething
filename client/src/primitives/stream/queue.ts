@@ -40,6 +40,7 @@ export class StreamQueue<T> {
       this.chunks = this.chunks.slice(this.head);
       this.head = 0;
     }
+
     return chunk;
   }
 
@@ -54,6 +55,7 @@ export class StreamQueue<T> {
   /** The stream failed — the loop throws. */
   abort(error: unknown): void {
     if (this.done || this.error) return;
+
     this.error = error;
     while (this.waiters.length) {
       this.waiters.shift()!.reject(error);
@@ -65,8 +67,11 @@ export class StreamQueue<T> {
     if (this.head < this.chunks.length) {
       return Promise.resolve({ value: this.take(), done: false });
     }
+
     if (this.error) return Promise.reject(this.error);
+
     if (this.done) return Promise.resolve({ value: undefined, done: true });
+
     return new Promise<IteratorResult<T>>((resolve, reject) => {
       this.waiters.push({ resolve, reject });
     });

@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
 // lost. The client holds __streamCancel__ until reopen, suppresses the durable
 // stream's auto-resume, and the server deletes the durable row — proven by a
 // later resumeStream() of the same id aborting with not-found. Talks to the real
-// `stream-durable` handler over the /ws proxy.
+// `stream-durable` server definition over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/stream-cancel-reconnect/index.html?room=${room}&username=alice`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');

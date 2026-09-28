@@ -13,6 +13,8 @@
 **/.wrangler/
 **/.nuxt/
 **/.output/
+**/.lighthouseci/
+**/.lighthouse-results/
 
 # Written by `wrangler types`, committed but never hand-edited
 **/worker-configuration.d.ts
@@ -34,3 +36,5 @@ website/tsconfig.json
 website/wrangler.jsonc
 website/package.json
 website/README.md
+
+!/ignore-this.ts

@@ -19,6 +19,7 @@ function clock(): Clock {
       return this.now;
     },
   };
+
   return c;
 }
 
@@ -64,7 +65,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'ev')).toBeNull();
   });
 
-  it('allows up to max in a fresh window then rejects with retryAfter', () => {
+  it('allows up to max in a fresh window then rejects with retryAfterMs', () => {
     const c = clock();
     const rt = new RateLimitRuntime(
       plan([['top', { id: 1, windowMs: 60_000, max: 3, per: (ctx: any) => ctx.id }]]),
@@ -73,12 +74,25 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
+
     const verdict = rt.check({ id: 'c1' }, 'e');
     expect(verdict).not.toBeNull();
-    expect(verdict!.retryAfter).toBeGreaterThanOrEqual(1);
+    expect(verdict!.retryAfterMs).toBeGreaterThanOrEqual(1_000);
   });
 
-  it('refills tokens over time and accepts again after retryAfter', () => {
+  it('keeps the minimum retryAfterMs at one second', () => {
+    const c = clock();
+    const rt = new RateLimitRuntime(
+      plan([['top', { id: 1, windowMs: 1_000, max: 1, per: (ctx: any) => ctx.id }]]),
+      c.read.bind(c),
+    );
+    rt.check({ id: 'c1' }, 'e');
+
+    c.advance(999);
+    expect(rt.check({ id: 'c1' }, 'e')!.retryAfterMs).toBe(1_000);
+  });
+
+  it('refills tokens over time and accepts again after retryAfterMs', () => {
     const c = clock();
     const rt = new RateLimitRuntime(
       plan([['top', { id: 1, windowMs: 60_000, max: 3, per: (ctx: any) => ctx.id }]]),
@@ -87,6 +101,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
+
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
 
     c.advance(20_000);
@@ -102,6 +117,20 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'a' }, 'e')).toBeNull();
     expect(rt.check({ id: 'a' }, 'e')).not.toBeNull();
     expect(rt.check({ id: 'b' }, 'e')).toBeNull();
+  });
+
+  it('gives each connection its own budget when `per` returns an empty key', () => {
+    const c = clock();
+    const rt = new RateLimitRuntime(
+      plan([['top', { id: 1, windowMs: 60_000, max: 1, per: (ctx: any) => ctx.user.id }]]),
+      c.read.bind(c),
+    );
+    const anonymousA = { user: { id: '' }, connection: { id: 'conn-a' } };
+    const anonymousB = { user: { id: '' }, connection: { id: 'conn-b' } };
+
+    expect(rt.check(anonymousA, 'e')).toBeNull();
+    expect(rt.check(anonymousA, 'e')).not.toBeNull();
+    expect(rt.check(anonymousB, 'e')).toBeNull();
   });
 
   it('shares a bucket across events under one scope rule', () => {
@@ -129,7 +158,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'cheap')).toBeNull();
   });
 
-  it('retryAfter reflects the configured refill rate', () => {
+  it('retryAfterMs reflects the configured refill rate', () => {
     const c = clock();
     const rt = new RateLimitRuntime(
       plan([['top', { id: 1, windowMs: 10_000, max: 10, per: (ctx: any) => ctx.id }]]),
@@ -138,8 +167,8 @@ describe('RateLimitRuntime — token bucket math', () => {
     for (let i = 0; i < 10; i += 1) rt.check({ id: 'c1' }, 'e');
     const verdict = rt.check({ id: 'c1' }, 'e');
     expect(verdict).not.toBeNull();
-    // Tokens went to 0; one token comes back in 1000ms → retryAfter ≈ 1s.
-    expect(verdict!.retryAfter).toBe(1);
+    // Tokens went to 0; one token comes back in 1000ms.
+    expect(verdict!.retryAfterMs).toBe(1000);
   });
 
   it('refill clamps at max even after a very long idle', () => {
@@ -151,6 +180,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
+
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
 
     // Sleep way longer than one window. Bucket should be capped at max, not larger.
@@ -158,6 +188,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     for (let i = 0; i < 3; i += 1) {
       expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     }
+
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
   });
 
@@ -170,6 +201,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1', user: { id: 'u-42' } }, 'e')).toBeNull();
     expect(rt.check({ id: 'c2', user: { id: 'u-42' } }, 'e')).toBeNull();
     expect(rt.check({ id: 'c3', user: { id: 'u-42' } }, 'e')).not.toBeNull();
+
     expect(rt.check({ id: 'c4', user: { id: 'u-99' } }, 'e')).toBeNull();
   });
 
@@ -185,6 +217,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
     expect(rt.check({ id: 'c1', channel: { name: 'room-a', family: 'rooms' } }, 'e')).toBeNull();
+
     expect(
       rt.check({ id: 'c1', channel: { name: 'room-a', family: 'rooms' } }, 'e'),
     ).not.toBeNull();
@@ -202,6 +235,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'exempt')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'exempt')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'exempt')).toBeNull();
+
     expect(rt.check({ id: 'c1' }, 'other')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'other')).not.toBeNull();
   });

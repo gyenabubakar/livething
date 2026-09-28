@@ -18,13 +18,18 @@ export interface RequestDef<
   readonly response?: Validator<TResponse>;
 }
 
+interface RequestDefinitionConfig<TPayload, TResponse> {
+  payload?: Validator<TPayload>;
+  response?: Validator<TResponse>;
+}
+
 /**
  * Declare a request/response pair. The handler returns a value matching the
  * declared response type to reply.
  */
 export function request<TName extends string, TPayload = unknown, TResponse = unknown>(
   name: TName,
-  config?: { payload?: Validator<TPayload>; response?: Validator<TResponse> },
+  config?: RequestDefinitionConfig<TPayload, TResponse>,
 ): RequestDef<TName, TPayload, TResponse> {
   assertNonReservedEventName(name, 'request');
   return { _: 'request', name, payload: config?.payload, response: config?.response };

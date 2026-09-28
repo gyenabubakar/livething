@@ -21,6 +21,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -29,6 +30,7 @@ function reconnectAfterDrop(ws: MockWebSocket): MockWebSocket {
   vi.advanceTimersByTime(1500);
   const next = MockWebSocket.last();
   next.open();
+
   return next;
 }
 
@@ -47,7 +49,11 @@ describe('replay — per-channel scope catch-up', () => {
     it('tracks seq under the channel name, not the top-level key', () => {
       const { ws } = build(dedup(), gaps(), replay(), reconnection());
 
-      ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room-a', seq: 3 } });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'hi' },
+        metadata: { channel: { name: 'room-a' }, delivery: { seq: 3 } },
+      });
 
       const second = reconnectAfterDrop(ws);
       const frames = second.sentFrames();
@@ -55,21 +61,38 @@ describe('replay — per-channel scope catch-up', () => {
       expect(frames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 3 },
-        __wskit: { channel: 'room-a' },
+        metadata: { channel: { name: 'room-a' } },
+      });
+    });
+
+    it('uses null metadata for a top-level catch-up request', () => {
+      const { ws } = build(dedup(), gaps(), replay(), reconnection());
+
+      ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { delivery: { seq: 3 } } });
+
+      const second = reconnectAfterDrop(ws);
+      expect(second.sentFrames()).toContainEqual({
+        event: '__replay__',
+        payload: { lastKnownSeq: 3 },
+        metadata: null,
       });
     });
 
     it('does not emit a top-level __replay__ when only channel-scoped messages were seen', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
-      ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room-a', seq: 7 } });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'hi' },
+        metadata: { channel: { name: 'room-a' }, delivery: { seq: 7 } },
+      });
 
       const second = reconnectAfterDrop(ws);
       const frames = second.sentFrames();
 
       const topLevelReplay = frames.find(
-        (f: { event: string; __wskit?: unknown }) =>
-          f.event === '__replay__' && f.__wskit === undefined,
+        (f: { event: string; metadata?: unknown }) =>
+          f.event === '__replay__' && f.metadata === undefined,
       );
       expect(topLevelReplay).toBeUndefined();
     });
@@ -80,12 +103,12 @@ describe('replay — per-channel scope catch-up', () => {
       ws.emit({
         event: 'msg',
         payload: { text: 'a' },
-        __wskit: { channel: 'lobby', channelFamily: 'rooms', seq: 5 },
+        metadata: { channel: { name: 'lobby', family: 'rooms' }, delivery: { seq: 5 } },
       });
       ws.emit({
         event: 'msg',
         payload: { text: 'b' },
-        __wskit: { channel: 'lobby', channelFamily: 'tenants', seq: 9 },
+        metadata: { channel: { name: 'lobby', family: 'tenants' }, delivery: { seq: 9 } },
       });
 
       const second = reconnectAfterDrop(ws);
@@ -96,12 +119,12 @@ describe('replay — per-channel scope catch-up', () => {
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 5 },
-        __wskit: { channel: 'lobby', channelFamily: 'rooms' },
+        metadata: { channel: { name: 'lobby', family: 'rooms' } },
       });
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 9 },
-        __wskit: { channel: 'lobby', channelFamily: 'tenants' },
+        metadata: { channel: { name: 'lobby', family: 'tenants' } },
       });
     });
   });
@@ -113,7 +136,7 @@ describe('replay — per-channel scope catch-up', () => {
       ws.emit({
         event: 'msg',
         payload: { text: 'scoped' },
-        __wskit: { channel: 'room-b', channelFamily: 'tenant-1', seq: 10 },
+        metadata: { channel: { name: 'room-b', family: 'tenant-1' }, delivery: { seq: 10 } },
       });
 
       const second = reconnectAfterDrop(ws);
@@ -122,14 +145,18 @@ describe('replay — per-channel scope catch-up', () => {
       expect(frames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 10 },
-        __wskit: { channel: 'room-b', channelFamily: 'tenant-1' },
+        metadata: { channel: { name: 'room-b', family: 'tenant-1' } },
       });
     });
 
     it('omits channelFamily from the frame when the original message had none', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
-      ws.emit({ event: 'msg', payload: { text: 'plain' }, __wskit: { channel: 'room-c', seq: 2 } });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'plain' },
+        metadata: { channel: { name: 'room-c' }, delivery: { seq: 2 } },
+      });
 
       const second = reconnectAfterDrop(ws);
       const replayFrame = second
@@ -137,7 +164,7 @@ describe('replay — per-channel scope catch-up', () => {
         .find((f: { event: string }) => f.event === '__replay__');
 
       expect(replayFrame).toBeDefined();
-      expect(replayFrame.__wskit).not.toHaveProperty('channelFamily');
+      expect(replayFrame.metadata).not.toHaveProperty('channelFamily');
     });
   });
 
@@ -145,8 +172,16 @@ describe('replay — per-channel scope catch-up', () => {
     it('produces one __replay__ per channel when two distinct channels received messages', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
-      ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'alpha', seq: 1 } });
-      ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'beta', seq: 9 } });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'a' },
+        metadata: { channel: { name: 'alpha' }, delivery: { seq: 1 } },
+      });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'b' },
+        metadata: { channel: { name: 'beta' }, delivery: { seq: 9 } },
+      });
 
       const second = reconnectAfterDrop(ws);
       const replayFrames = second
@@ -158,20 +193,24 @@ describe('replay — per-channel scope catch-up', () => {
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 1 },
-        __wskit: { channel: 'alpha' },
+        metadata: { channel: { name: 'alpha' } },
       });
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 9 },
-        __wskit: { channel: 'beta' },
+        metadata: { channel: { name: 'beta' } },
       });
     });
 
     it('tracks top-level and channel-scoped seqs independently', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
-      ws.emit({ event: 'msg', payload: { text: 'top' }, __wskit: { seq: 4 } });
-      ws.emit({ event: 'msg', payload: { text: 'ch' }, __wskit: { channel: 'gamma', seq: 6 } });
+      ws.emit({ event: 'msg', payload: { text: 'top' }, metadata: { delivery: { seq: 4 } } });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'ch' },
+        metadata: { channel: { name: 'gamma' }, delivery: { seq: 6 } },
+      });
 
       const second = reconnectAfterDrop(ws);
       const replayFrames = second
@@ -183,12 +222,12 @@ describe('replay — per-channel scope catch-up', () => {
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 4 },
-        __wskit: {},
+        metadata: null,
       });
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 6 },
-        __wskit: { channel: 'gamma' },
+        metadata: { channel: { name: 'gamma' } },
       });
     });
   });
@@ -204,7 +243,7 @@ describe('replay — per-channel scope catch-up', () => {
       const errorFrame = {
         event: '__error__',
         payload: { code: 'unsupported-protocol', detail: { event: '__replay__' } },
-        __wskit: {},
+        metadata: null,
       };
 
       ws.emit(errorFrame);
@@ -229,7 +268,7 @@ describe('replay — per-channel scope catch-up', () => {
       ws.emit({
         event: '__error__',
         payload: { code: 'unsupported-protocol', detail: { event: '__resumeStream__' } },
-        __wskit: { streamId: 's-1' },
+        metadata: { stream: { id: 's-1' } },
       });
 
       const replayWarns = warn.mock.calls.filter((args) =>
@@ -245,9 +284,17 @@ describe('replay — per-channel scope catch-up', () => {
     it('does not lower the stored seq when a lower seq arrives later', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
-      ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'delta', seq: 20 } });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'a' },
+        metadata: { channel: { name: 'delta' }, delivery: { seq: 20 } },
+      });
       // Lower seq arrives — must not replace 20
-      ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'delta', seq: 5 } });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'b' },
+        metadata: { channel: { name: 'delta' }, delivery: { seq: 5 } },
+      });
 
       const second = reconnectAfterDrop(ws);
       const frames = second.sentFrames();
@@ -255,15 +302,23 @@ describe('replay — per-channel scope catch-up', () => {
       expect(frames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 20 },
-        __wskit: { channel: 'delta' },
+        metadata: { channel: { name: 'delta' } },
       });
     });
 
     it('updates the stored seq when a higher seq arrives later', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
-      ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'epsilon', seq: 3 } });
-      ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'epsilon', seq: 11 } });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'a' },
+        metadata: { channel: { name: 'epsilon' }, delivery: { seq: 3 } },
+      });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'b' },
+        metadata: { channel: { name: 'epsilon' }, delivery: { seq: 11 } },
+      });
 
       const second = reconnectAfterDrop(ws);
       const frames = second.sentFrames();
@@ -271,7 +326,7 @@ describe('replay — per-channel scope catch-up', () => {
       expect(frames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 11 },
-        __wskit: { channel: 'epsilon' },
+        metadata: { channel: { name: 'epsilon' } },
       });
     });
   });
@@ -279,17 +334,21 @@ describe('replay — per-channel scope catch-up', () => {
   describe('stream chunks do not corrupt channel catch-up', () => {
     it('tracks the channel seq, not a stream chunk seq, as the high-water mark', () => {
       const { ws } = build(dedup(), replay(), reconnection());
-      ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room-a', seq: 3 } });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'hi' },
+        metadata: { channel: { name: 'room-a' }, delivery: { seq: 3 } },
+      });
       ws.emit({
         event: 'tokens',
         payload: { text: 'x' },
-        __wskit: { channel: 'room-a', streamId: 's-1', seq: 50 },
+        metadata: { channel: { name: 'room-a' }, stream: { id: 's-1', seq: 50 } },
       });
       const second = reconnectAfterDrop(ws);
 
       const frame = second
         .sentFrames()
-        .find((f: { event: string; __wskit?: { channel?: string } }) => f.event === '__replay__');
+        .find((f: { event: string; metadata?: { channel?: string } }) => f.event === '__replay__');
       expect(frame.payload).toEqual({ lastKnownSeq: 3 });
     });
 
@@ -298,7 +357,7 @@ describe('replay — per-channel scope catch-up', () => {
       ws.emit({
         event: 'tokens',
         payload: { text: 'x' },
-        __wskit: { channel: 'room-b', streamId: 's-2', seq: 7 },
+        metadata: { channel: { name: 'room-b' }, stream: { id: 's-2', seq: 7 } },
       });
       const second = reconnectAfterDrop(ws);
 
@@ -314,12 +373,13 @@ describe('replay — per-channel scope catch-up', () => {
       const ws = MockWebSocket.last();
       ws.open();
       const onGap = vi.fn();
+
       socket.onGap(onGap);
 
-      ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { seq: 5 } });
+      ws.emit({ event: 'msg', payload: { text: 'a' }, metadata: { delivery: { seq: 5 } } });
 
       const second = reconnectAfterDrop(ws);
-      second.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: {} });
+      second.emit({ event: '__gap__', payload: { missedThrough: 12 }, metadata: null });
 
       expect(onGap).toHaveBeenCalledWith({ missedThrough: 12 });
 
@@ -329,7 +389,7 @@ describe('replay — per-channel scope catch-up', () => {
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 12 },
-        __wskit: {},
+        metadata: null,
       });
     });
   });

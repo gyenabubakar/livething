@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -10,8 +10,7 @@ import { resumableStream as resumableStreamDef } from './definition.ts';
 
 describe('resumableStream build-time validation', () => {
   it('builds when the stream is top-level', () => {
-    const base = define({
-      env: t<Record<string, unknown>>(),
+    const base = server({
       capabilities: [resumableStream()],
     });
     const handle = base.resumableStream('feed', {
@@ -25,8 +24,7 @@ describe('resumableStream build-time validation', () => {
   });
 
   it('builds when declared inside a channel', () => {
-    const base = define({
-      env: t<Record<string, unknown>>(),
+    const base = server({
       capabilities: [channels(), resumableStream()],
     });
     const rooms = base.channel('rooms');
@@ -42,21 +40,20 @@ describe('resumableStream build-time validation', () => {
 
   // FLAGGED: the new API has no "declaration without a handler" state — a
   // base.resumableStream(...) call always carries its generator, so the missing-
-  // generator path in compile.ts is unreachable through define()/assemble(). The
+  // generator path in compile.ts is unreachable through server()/assemble(). The
   // assertion is preserved by driving compileResumableStreamDef directly with an
   // empty handler map, the same path the capability builder feeds.
-  it('throws at build when a resumableStream declaration has no handler', () => {
+  it('throws when a resumableStream handler is not assembled', () => {
     const def = resumableStreamDef('feed', {
       payload: v.object({}),
     });
     expect(() => compileResumableStreamDef(def, new Map())).toThrow(
-      /No generator registered for resumableStream/,
+      /No handler assembled for resumableStream/,
     );
   });
 
   it('throws at build when keep-running is used on a non-broadcast resumableStream', () => {
-    const base = define({
-      env: t<Record<string, unknown>>(),
+    const base = server({
       capabilities: [resumableStream()],
     });
     expect(() =>
@@ -72,8 +69,7 @@ describe('resumableStream build-time validation', () => {
   });
 
   it('allows keep-running on a broadcast resumableStream', () => {
-    const base = define({
-      env: t<Record<string, unknown>>(),
+    const base = server({
       capabilities: [resumableStream()],
     });
     const handle = base.resumableStream('feed', {

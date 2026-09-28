@@ -50,6 +50,7 @@ function harness(
   } as unknown as EngineAccess;
 
   readReceipts(options).__setup!(engine as never);
+
   return { sql, handlers, broadcasts, sentFrames, invalidateInboxMemberCount };
 }
 
@@ -81,7 +82,7 @@ function readFrame(readThrough: number): Protocol.IncomingProtocolFrame {
   return {
     event: '__read__',
     payload: { readThrough },
-    __wskit: { channel: 'room' },
+    __livething: { channel: 'room' },
   } as unknown as Protocol.IncomingProtocolFrame;
 }
 
@@ -99,6 +100,7 @@ describe('readReceipts __read__ handler', () => {
       broadcastReceipts: true,
       maxReceiptAudience: 256,
     };
+
     const { sql, handlers, broadcasts, invalidateInboxMemberCount } = harness(
       { maxReceiptAudience: 256 },
       { inboxConfig },
@@ -107,7 +109,7 @@ describe('readReceipts __read__ handler', () => {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 3, messageId: 'm3', event: 'msg', payload: {} },
+      frame: { deliverySeq: 3, messageId: 'm3', event: 'msg', payload: {} },
       now: 1,
     });
     const ctx = ctxFor('alice', memberConnection('c1', 'room'));
@@ -134,12 +136,13 @@ describe('readReceipts __read__ handler', () => {
       broadcastReceipts: false,
       maxReceiptAudience: 256,
     };
+
     const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 256 }, { inboxConfig });
     insertInboxRows(sql, {
       userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
-      frame: { seq: 3, messageId: 'm3', event: 'msg', payload: {} },
+      frame: { deliverySeq: 3, messageId: 'm3', event: 'msg', payload: {} },
       now: 1,
     });
     const ctx = ctxFor('alice', memberConnection('c1', 'room'));
@@ -231,7 +234,7 @@ describe('readReceipts __readQuery__ handler', () => {
     return {
       event: '__readQuery__',
       payload: { seq },
-      __wskit: { channel: 'room', correlationId: 'q-1' },
+      __livething: { channel: 'room', correlationId: 'q-1' },
     } as unknown as Protocol.IncomingProtocolFrame;
   }
 
@@ -252,7 +255,7 @@ describe('readReceipts __readQuery__ handler', () => {
     expect(sentFrames[0]!.frame).toMatchObject({
       event: '__readQuery__',
       payload: { userIds: ['bob'] },
-      wskit: { channel: 'room', correlationId: 'q-1' },
+      livething: { channel: 'room', correlationId: 'q-1' },
     });
   });
 
@@ -274,10 +277,11 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'other', channelFamily: null },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'other'),
     };
+
     const frame = {
       event: '__read__',
       payload: { readThrough: 5 },
-      __wskit: { channel: 'other' },
+      __livething: { channel: 'other' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__read__')!(ctx, frame)).toBe(false);
@@ -291,10 +295,11 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', { channelFamily: 'rooms' }),
     };
+
     const frame = {
       event: '__read__',
       payload: { readThrough: 5 },
-      __wskit: { channel: 'alpha', channelFamily: 'rooms' },
+      __livething: { channel: 'alpha', channelFamily: 'rooms' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__read__')!(ctx, frame)).toBe(false);
@@ -308,10 +313,11 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha'),
     };
+
     const frame = {
       event: '__read__',
       payload: { readThrough: 5 },
-      __wskit: { channel: 'alpha' },
+      __livething: { channel: 'alpha' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__read__')!(ctx, frame)).toBe(false);
@@ -325,10 +331,11 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', { channelFamily: 'rooms' }),
     };
+
     const frame = {
       event: '__readQuery__',
       payload: { seq: 5 },
-      __wskit: { channel: 'alpha', channelFamily: 'rooms', correlationId: 'q-1' },
+      __livething: { channel: 'alpha', channelFamily: 'rooms', correlationId: 'q-1' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__readQuery__')!(ctx, frame)).toBe(false);
@@ -342,10 +349,11 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha'),
     };
+
     const frame = {
       event: '__readQuery__',
       payload: { seq: 5 },
-      __wskit: { channel: 'alpha', correlationId: 'q-1' },
+      __livething: { channel: 'alpha', correlationId: 'q-1' },
     } as unknown as Protocol.IncomingProtocolFrame;
 
     expect(handlers.get('__readQuery__')!(ctx, frame)).toBe(false);

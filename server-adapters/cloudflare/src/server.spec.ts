@@ -1,5 +1,6 @@
+import { CloseCodes } from '@livething/server/errors';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type * as ServerAdapters from '@wskit/server/adapters';
+import type * as ServerAdapters from '@livething/server/adapters';
 import {
   FakeDurableObjectBase,
   installPermissiveResponse,
@@ -7,7 +8,7 @@ import {
   makeFakeDOState,
   makeFakeEngine,
 } from './test-utils.ts';
-import type { WSKitAdmin } from './admin.ts';
+import type { LiveThingAdmin } from './admin.ts';
 import type { FakeEngine } from './test-utils.ts';
 
 const responseRestore = installPermissiveResponse();
@@ -25,7 +26,7 @@ type AdapterSetup = (
 
 let fake: FakeEngine;
 
-vi.mock('@wskit/server/adapters', async (importOriginal) => ({
+vi.mock('@livething/server/adapters', async (importOriginal) => ({
   ...(await importOriginal<typeof ServerAdapters>()),
   adapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
@@ -38,7 +39,7 @@ vi.mock('@wskit/server/adapters', async (importOriginal) => ({
 }));
 
 // Import AFTER mocks are in place.
-const { server } = await import('./server.ts');
+const { bind } = await import('./server.ts');
 
 type DOInstance = {
   fetch(req: Request): Promise<Response>;
@@ -51,16 +52,13 @@ type DOInstance = {
 };
 
 /** The real built-in surface, plus whatever dev api methods a test stages on it. */
-type AdminSurface = WSKitAdmin & Record<string, unknown>;
+type AdminSurface = LiveThingAdmin & Record<string, unknown>;
 
 function buildClass(opts?: { hibernation?: boolean; translation?: boolean }) {
   fake = makeFakeEngine();
   if (opts?.hibernation !== false) fake.setHibernation(true);
   if (opts?.translation) fake.setTranslation(true);
-  return server({} as never) as unknown as new (
-    ctx: DurableObjectState,
-    env: unknown,
-  ) => DOInstance;
+  return bind({} as never) as unknown as new (ctx: DurableObjectState, env: unknown) => DOInstance;
 }
 
 function upgradeRequest() {
@@ -69,7 +67,7 @@ function upgradeRequest() {
   });
 }
 
-describe('WSKitDurableObject fetch / upgrade', () => {
+describe('LiveThingDurableObject fetch / upgrade', () => {
   let pairs: ReturnType<typeof installWebSocketPair>['pairs'];
 
   beforeEach(() => {
@@ -86,12 +84,48 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     expect(fake.calls.handleUpgrade).toHaveLength(0);
   });
 
+  it('passes Cloudflare client IP metadata to the engine request', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await instance.fetch(
+      new Request('https://do.example/', {
+        headers: {
+          Upgrade: 'websocket',
+          'CF-Connecting-IP': '203.0.113.7',
+          'LiveThing-Client-IP': '198.51.100.99',
+        },
+      }),
+    );
+
+    expect(fake.calls.handleUpgrade[0]?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
+  });
+
+  it('does not pass through a client-supplied IP metadata header', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await instance.fetch(
+      new Request('https://do.example/', {
+        headers: {
+          Upgrade: 'websocket',
+          'LiveThing-Client-IP': '198.51.100.99',
+        },
+      }),
+    );
+
+    expect(fake.calls.handleUpgrade[0]?.headers.get('LiveThing-Client-IP')).toBeNull();
+  });
+
   it('upgrades and returns 101 with client socket when accepted (standard mode)', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
     function ref(kind: 'ephemeral', group: string, key: string) {
-      return { __wskit: 'tag-ref' as const, kind, group, key };
+      return { __livething: 'tag-ref' as const, kind, group, key };
     }
+
     fake.stageUpgrade({ meta: { user: 'a' }, tags: [ref('ephemeral', 'role', 't1')] });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
@@ -111,16 +145,15 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     };
     expect(desc.meta).toEqual({ user: 'a' });
     expect(desc.tags).toEqual([
-      { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key: 't1' },
+      { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key: 't1' },
     ]);
     expect(fake.calls.create).toHaveLength(1);
+
     expect(fake.calls.create[0]).toMatchObject({
-      env: {},
       logger: expect.any(Object),
       platform: expect.any(Object),
       storage: expect.any(Object),
       timers: expect.any(Object),
-      waitUntil: expect.any(Function),
     });
   });
 
@@ -139,7 +172,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
 
     const [, server] = pairs[0]!;
     expect(state.acceptWebSocket).toHaveBeenCalledWith(server);
-    expect(server.close).toHaveBeenCalledWith(1011, '[wskit] connection setup failed');
+    expect(server.close).toHaveBeenCalledWith(1011, '[livething] connection setup failed');
   });
 
   it('does not close an accepted socket again when the engine already closed it', async () => {
@@ -149,7 +182,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     const setupError = new Error('translator setup failed');
     (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (_ws: unknown, descriptor: { close(code: number, reason: string): void }) => {
-        descriptor.close(1011, '[wskit] translator configuration failed');
+        descriptor.close(1011, '[livething] translator configuration failed');
         throw setupError;
       },
     );
@@ -160,7 +193,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
 
     const [, server] = pairs[0]!;
     expect(server.close).toHaveBeenCalledTimes(1);
-    expect(server.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(server.close).toHaveBeenCalledWith(1011, '[livething] translator configuration failed');
   });
 
   it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
@@ -225,8 +258,13 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     const state = makeFakeDOState();
     fake.stageUpgrade({
       tags: [
-        { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'room', key: 'lobby' },
-        { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'tier', key: 'free' },
+        {
+          __livething: 'tag-ref' as const,
+          kind: 'ephemeral' as const,
+          group: 'room',
+          key: 'lobby',
+        },
+        { __livething: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'tier', key: 'free' },
       ],
     });
 
@@ -238,6 +276,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     expect(state.acceptWebSocket).toHaveBeenCalledTimes(1);
     expect(state.acceptWebSocket.mock.calls[0]![0]).toBe(server);
     expect(state.acceptWebSocket.mock.calls[0]!).toHaveLength(1);
+
     expect(server.accept).not.toHaveBeenCalled();
     expect(server.addEventListener).not.toHaveBeenCalled();
   });
@@ -307,6 +346,18 @@ describe('handleRejectedUpgrade', () => {
     expect(fake.calls.accept).toHaveLength(0);
   });
 
+  it('limits an oversized WebSocket close reason before closing the pair', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({ reject: true, code: 4002, reason: '🙂'.repeat(100) });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const server = pairs[0]![1];
+    expect(server.close).toHaveBeenCalledWith(4002, '🙂'.repeat(30));
+  });
+
   it('returns an HTTP response of the given status when 400 <= code <= 599', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
@@ -360,6 +411,24 @@ describe('hibernation wake callbacks', () => {
     expect(fake.connectionHandle.handleMessage).toHaveBeenCalledWith('hello');
   });
 
+  it.each([
+    ['ArrayBuffer', new ArrayBuffer(4)],
+    ['ArrayBufferView', new Uint8Array(4)],
+  ])('webSocketMessage closes with 1003 on a binary %s frame', async (_kind, frame) => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    const ws = { close: vi.fn() } as unknown as WebSocket;
+    await expect(instance.webSocketMessage(ws, frame)).resolves.toBeUndefined();
+
+    expect(ws.close).toHaveBeenCalledWith(
+      CloseCodes.UNSUPPORTED_DATA,
+      '[livething] binary frames are not supported yet',
+    );
+    expect(fake.connectionHandle.handleMessage).not.toHaveBeenCalled();
+  });
+
   it('webSocketClose invokes connection.handleClose with code and reason', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
@@ -402,6 +471,7 @@ describe('alarm() and shutdown() RPCs', () => {
 
     await instance.shutdown();
     expect(fake.calls.handleShutdown).toBe(1);
+    expect(fake.calls.handleShutdownOptions).toEqual([[]]);
   });
 
   it('shutdown() under hibernation wakes every Cloudflare-managed socket before draining', async () => {
@@ -437,7 +507,7 @@ describe('engine wiring in the constructor', () => {
     installWebSocketPair();
   });
 
-  it('provides env, storage, platform, timers, and waitUntil to the engine', () => {
+  it('provides storage, platform, and timers to the engine', () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
     const env = { KEY: 'value' };
@@ -446,22 +516,16 @@ describe('engine wiring in the constructor', () => {
     expect(fake.calls.create).toHaveLength(1);
     const engineOptions = fake.calls.create[0] as Record<string, unknown>;
     expect(fake.engine.setInstanceId).toHaveBeenCalledWith('fake-instance');
-    expect(engineOptions.env).toEqual(env);
     expect(engineOptions.storage).toBeDefined();
-    expect(engineOptions.platform).toBeDefined();
+    expect(engineOptions.platform).toMatchObject({ env });
+
     expect(engineOptions.timers).toBeDefined();
-    expect(engineOptions.waitUntil).toBeTypeOf('function');
     expect(engineOptions.logger).toBeDefined();
 
     const adapterLogger = engineOptions.logger as Record<string, unknown>;
     expect(typeof adapterLogger.info).toBe('function');
     expect(typeof adapterLogger.warn).toBe('function');
     expect(typeof adapterLogger.error).toBe('function');
-
-    const wrapper = engineOptions.waitUntil as (p: Promise<unknown>) => void;
-    const p = Promise.resolve();
-    wrapper(p);
-    expect(state.waitUntil).toHaveBeenCalledWith(p);
   });
 
   it('restores every surviving socket at boot under hibernation so live delivery reaches them', async () => {
@@ -485,6 +549,7 @@ describe('engine wiring in the constructor', () => {
     fake.setRestoreFailure(failure);
     const sockA = { tag: 'a' } as unknown;
     const sockB = { tag: 'b' } as unknown;
+
     const state = makeFakeDOState({ getWebSockets: vi.fn(() => [sockA, sockB]) });
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const ready = (instance as unknown as { ready: Promise<void> }).ready;
@@ -529,6 +594,7 @@ describe('engine wiring in the constructor', () => {
     function onUnhandled(reason: unknown) {
       unhandled.push(reason);
     }
+
     const processLike = (
       globalThis as unknown as {
         process: {
@@ -560,7 +626,7 @@ describe('engine wiring in the constructor', () => {
   });
 });
 
-describe('WSKitDurableObject admin()', () => {
+describe('LiveThingDurableObject admin()', () => {
   async function adminOf(opts?: { hibernation?: boolean }) {
     const Cls = buildClass(opts);
     const state = makeFakeDOState({ getWebSockets: vi.fn(() => [{ tag: 'ws1' }]) });
@@ -626,7 +692,7 @@ describe('WSKitDurableObject admin()', () => {
     expect(channels.get).toHaveBeenCalledWith('rooms', 'rooms:42');
     expect(fake.adminSpies.channelMembers).toHaveBeenCalled();
 
-    const target = { __wskit: 'user-ref', id: 'u1', instance: undefined } as const;
+    const target = { __livething: 'user-ref', id: 'u1', instance: undefined } as const;
     await admin.channelKick('lobby', target, { reason: 'banned', revoke: true });
     expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(
       { ...target, instance: 'fake-instance' },
@@ -639,7 +705,7 @@ describe('WSKitDurableObject admin()', () => {
 
   it('preserves an explicit foreign user-ref instance for the engine to reject', async () => {
     const { admin } = await adminOf();
-    const target = { __wskit: 'user-ref', id: 'u1', instance: 'other' } as const;
+    const target = { __livething: 'user-ref', id: 'u1', instance: 'other' } as const;
 
     await admin.channelKick('lobby', target, { reason: 'foreign' });
 
@@ -648,7 +714,7 @@ describe('WSKitDurableObject admin()', () => {
 
   it('leaves the context plumbing off the stub surface', async () => {
     const { admin } = await adminOf();
-    for (const plumbing of ['sql', 'kv', 'env', 'log', 'platform', 'waitUntil', 'schedule']) {
+    for (const plumbing of ['sql', 'kv', 'log', 'platform', 'schedule']) {
       expect(admin).not.toHaveProperty(plumbing);
     }
   });
@@ -659,7 +725,7 @@ describe('WSKitDurableObject admin()', () => {
     fake.adminApi.evict = evict; // a dev-defined api method
     fake.setHibernation(false);
     // Rebuild against this staged engine.
-    const Cls = server({} as never) as unknown as new (
+    const Cls = bind({} as never) as unknown as new (
       ctx: DurableObjectState,
       env: unknown,
     ) => DOInstance;
@@ -674,10 +740,11 @@ describe('WSKitDurableObject admin()', () => {
     fake = makeFakeEngine();
     fake.adminApi.broadcast = rogue; // tries to replace the built-in broadcast
     fake.setHibernation(false);
-    const Cls = server({} as never) as unknown as new (
+    const Cls = bind({} as never) as unknown as new (
       ctx: DurableObjectState,
       env: unknown,
     ) => DOInstance;
+
     const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
     const admin = await instance.admin();
     admin.broadcast('evt', { n: 1 });

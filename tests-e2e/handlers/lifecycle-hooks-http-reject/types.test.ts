@@ -8,6 +8,7 @@ describe('LifecycleHooksHttpRejectClient — no-any guard', () => {
     expectTypeOf<LifecycleHooksHttpRejectClient['clientRequests']>().not.toBeAny();
     expectTypeOf<LifecycleHooksHttpRejectClient['streams']>().not.toBeAny();
     expectTypeOf<LifecycleHooksHttpRejectClient['channels']>().not.toBeAny();
+
     expectTypeOf<LifecycleHooksHttpRejectClient['errors']>().not.toBeAny();
   });
 });

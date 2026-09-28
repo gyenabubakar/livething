@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: inbox OVERFLOW surfacing against the real inbox-gap handler
+// Conformance: inbox OVERFLOW surfacing against the real inbox-gap server definition
 // (retention keeps one undelivered row per member). A member offline across two
 // broadcasts loses the first held row to eviction; on reconnect the drain emits a
 // `__gap__` before the surviving row. Only a client running gaps() fires onGap — an inbox-only
@@ -19,6 +19,7 @@ async function open(page: Page, options: MemberOptions): Promise<void> {
   await page.goto(`/tests/inbox-gap/index.html?room=${room}&username=${username}${gapsParam}`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
   await page.getByTestId('connect').click();
+
   await expect(page.getByTestId('status')).toHaveText('open');
 }
 
@@ -46,6 +47,7 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     await carol.page.getByTestId('sub').click();
     await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
     await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(carol.page.getByTestId('subscribed')).toHaveText('yes');
 
     // Alice goes offline, then Bob publishes two messages. With one undelivered row
@@ -71,6 +73,7 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     await alice.page.getByTestId('connect').click();
     await expect(alice.page.getByTestId('status')).toHaveText('open');
     await expect(alice.page.getByTestId('gap-count')).toHaveText('1');
+
     await expect(alice.page.getByTestId('message-count')).toHaveText('1');
 
     await alice.close();
@@ -93,6 +96,7 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     await carol.page.getByTestId('sub').click();
     await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
     await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(carol.page.getByTestId('subscribed')).toHaveText('yes');
 
     await alice.page.getByTestId('disconnect').click();
@@ -130,6 +134,7 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     await carol.page.getByTestId('sub').click();
     await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
     await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(carol.page.getByTestId('subscribed')).toHaveText('yes');
 
     // Alice receives and acknowledges the first message while the inbox scope

@@ -1,6 +1,6 @@
 import { Disconnected } from '~/errors.ts';
 import { channelKey } from '~/internal/channel-key.ts';
-import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent } from '~/internal/wire-validation.ts';
 import { markRejoinConfirmation } from '~/primitives/channels/leave-confirmation.ts';
@@ -10,8 +10,8 @@ import {
   channelMarkers,
 } from '~/primitives/channels/messaging.ts';
 import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
-import type { WSKitError } from '@wskit/core';
-import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
+import type { LiveThingError } from '@livething/core';
+import type { LiveThingMetadata, Message } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { ChannelContext, FamilyHandle } from '~/primitives/channels/messaging.ts';
 import type {
@@ -19,7 +19,7 @@ import type {
   ChannelsPrimitive,
   SubscribeSource,
 } from '~/primitives/channels/types.ts';
-import type { WSKitSocket } from '~/socket/socket.ts';
+import type { LiveThingSocket } from '~/socket/socket.ts';
 
 const PERSISTENT_REJOIN_FALLBACK_MS = 5000;
 
@@ -35,16 +35,36 @@ function channelEventName(prefix: string, event: string): string {
   return prefix && event.startsWith(prefix) ? event.slice(prefix.length) : event;
 }
 
-/** Parse a `{ connectionId, meta? }` payload from an untrusted wire message — returns null if the shape is wrong. */
-function readMember(
-  payload: unknown,
-): { connectionId: string; meta?: Record<string, unknown> } | null {
-  const fields = (payload ?? {}) as { connectionId?: unknown; meta?: unknown };
-  if (typeof fields.connectionId !== 'string') return null;
+/** Parse a `{ memberId, meta? }` payload from an untrusted wire message — returns null if the shape is wrong. */
+function readMember(payload: unknown): { memberId: string; meta?: Record<string, unknown> } | null {
+  const fields = (payload ?? {}) as { memberId?: unknown; meta?: unknown };
+  if (typeof fields.memberId !== 'string') return null;
+
   return {
-    connectionId: fields.connectionId,
+    memberId: fields.memberId,
     meta: fields.meta as Record<string, unknown> | undefined,
   };
+}
+
+/** Parse one `{ memberId, meta?, online }` roster entry of a `__memberSync__` — null if the shape is wrong. */
+function readSyncMember(
+  entry: unknown,
+): { memberId: string; meta?: Record<string, unknown>; online: boolean } | null {
+  const member = readMember(entry);
+  const online = (entry as { online?: unknown } | null | undefined)?.online;
+  if (!member || typeof online !== 'boolean') return null;
+
+  return { ...member, online };
+}
+
+/**
+ * True when an `__error__` payload names the frame it answers, and that frame
+ * is not a subscribe: a channel message or another protocol frame such as
+ * `__replay__`.
+ */
+function answersAnotherEvent(payload: unknown): boolean {
+  const detail = (payload as { detail?: { event?: unknown } } | null | undefined)?.detail;
+  return typeof detail?.event === 'string' && detail.event !== '__subscribe__';
 }
 
 /** The host `channel` method: a fixed/dynamic getter plus `.family`. */
@@ -52,6 +72,22 @@ type HostChannel = {
   (nameOrFamily: string, name?: string): MessagingObject;
   family(familyKey: string): FamilyHandle;
 };
+
+interface ChannelIncoming {
+  message: Message;
+  state: ChannelState;
+  name: string;
+  familyKey: string | undefined;
+  metadata: LiveThingMetadata | null | undefined;
+}
+
+const PRESENCE_EVENTS = new Set([
+  '__memberSync__',
+  '__memberJoin__',
+  '__memberLeave__',
+  '__memberOnline__',
+  '__memberOffline__',
+]);
 
 /**
  * Wrap the host `channel` method for a plugin scope. A plugin owns its namespace,
@@ -67,6 +103,7 @@ function scopedChannelMethod(channel: HostChannel, scope: ScopeInfo): HostChanne
       ? channel(scopedName(scope, nameOrFamily))
       : channel(scopedName(scope, nameOrFamily), name);
   }
+
   scoped.family = (familyKey: string): FamilyHandle => channel.family(scopedName(scope, familyKey));
   return scoped;
 }
@@ -86,12 +123,17 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
       const families = new Map<string, FamilyState>();
       const familyHandles = new Map<string, FamilyHandle>();
       const warnedInboxMissing = new Set<string>();
-      const warnedReadReceiptsMissing = new Set<string>();
-      let socket: WSKitSocket; // assigned in install, before any handle is built
 
-      function warnMissingReceiptPrimitive(key: string, name: string, wskit?: WSKitEnvelope): void {
+      const warnedReadReceiptsMissing = new Set<string>();
+      let socket: LiveThingSocket; // assigned in install, before any handle is built
+
+      function warnMissingReceiptPrimitive(
+        key: string,
+        name: string,
+        metadata?: LiveThingMetadata | null,
+      ): void {
         if (
-          wskit?.inbox === true &&
+          metadata?.channel?.inbox === true &&
           !helpers.hasPrimitive('inbox') &&
           !warnedInboxMissing.has(key)
         ) {
@@ -100,8 +142,9 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             `channel '${name}' is inbox-backed but inbox() is not registered — received receipts will not be tracked. Add inbox() to client().`,
           );
         }
+
         if (
-          wskit?.readReceipts === true &&
+          metadata?.channel?.readReceipts === true &&
           !helpers.hasPrimitive('read-receipts') &&
           !warnedReadReceiptsMissing.has(key)
         ) {
@@ -114,7 +157,9 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
       function resolveTtl(event: string): number | undefined {
         if (typeof options.ttl === 'number') return options.ttl;
+
         if (options.ttl) return options.ttl[event];
+
         return undefined;
       }
 
@@ -125,6 +170,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           state = new ChannelState(name, familyKey, helpers.log);
           states.set(key, state);
         }
+
         return state;
       }
 
@@ -134,6 +180,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           family = new FamilyState(helpers.log);
           families.set(familyKey, family);
         }
+
         return family;
       }
 
@@ -142,6 +189,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         for (const state of states.values()) {
           if (state.familyKey === familyKey && state.active) names.push(state.name);
         }
+
         return names;
       }
 
@@ -160,146 +208,153 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             messaging = buildChannelMessaging(context, stateFor(name, familyKey));
             cache.set(key, messaging);
           }
+
           return messaging;
         },
       };
 
+      function handleSubscribe(incoming: ChannelIncoming): Message | null {
+        const { message, state, name, familyKey, metadata } = incoming;
+        const source: SubscribeSource =
+          metadata?.exchange?.source === 'server' ? 'server' : 'client';
+        if (state.pendingLeave !== null) {
+          helpers.log.info(
+            `channel '${name}' ignoring a subscribe confirmation while a leave is pending`,
+          );
+          return null;
+        }
+
+        helpers.log.info(`channel '${name}' subscribed (${source})`);
+        warnMissingReceiptPrimitive(channelKey(familyKey, name), name, metadata);
+
+        state.persistent = metadata?.channel?.membership === 'persistent';
+        state.markSubscribed(source);
+        if (familyKey) familyFor(familyKey).fireSubscribed(name, source);
+
+        return message;
+      }
+
+      function handlePresence(message: Message, state: ChannelState, name: string): null {
+        if (!state.active || state.pendingLeave !== null) {
+          helpers.log.info(`channel '${name}' ignoring a presence frame for an inactive channel`);
+          return null;
+        }
+
+        if (message.event === '__memberSync__') {
+          const raw = (message.payload as { members?: unknown })?.members;
+          state.syncMembers(
+            Array.isArray(raw) ? raw.map(readSyncMember).filter((m) => m !== null) : [],
+          );
+          return null;
+        }
+
+        const member = readMember(message.payload);
+        if (!member) return null;
+
+        switch (message.event) {
+          case '__memberJoin__':
+            state.addMember(member.memberId, member.meta);
+            break;
+
+          case '__memberLeave__':
+            state.removeMember(member.memberId);
+            break;
+
+          case '__memberOnline__':
+            state.memberWentOnline(member.memberId, member.meta);
+            break;
+
+          case '__memberOffline__':
+            state.memberWentOffline(member.memberId);
+            break;
+        }
+
+        return null;
+      }
+
+      /**
+       * Claim a channel `__error__` only when it answers a subscribe or a
+       * reconnect rejoin. Any other channel error (a failed send, a `__replay__`
+       * the server does not support) goes on to later primitives and
+       * `onServerError`.
+       */
+      function handleChannelError(incoming: ChannelIncoming): Message | null {
+        const { message, state, name, familyKey, metadata } = incoming;
+        if (metadata?.exchange?.id !== undefined || metadata?.stream !== undefined) return message;
+
+        if (!state.hasSubscribeInFlight || answersAnotherEvent(message.payload)) return message;
+
+        const error = unscopeErrorCode(
+          familyKey ?? name,
+          toLiveThingError(message.payload),
+        ) as LiveThingError;
+        state.fireSubscriptionFailed(error);
+
+        return null;
+      }
+
+      function handleChannelEvent(incoming: ChannelIncoming): Message {
+        const { message, state, name, familyKey, metadata } = incoming;
+        if (
+          isProtocolFrameEvent(message.event) ||
+          metadata?.exchange?.id !== undefined ||
+          metadata?.stream !== undefined
+        ) {
+          return message;
+        }
+
+        const event = channelEventName(state.eventPrefix, message.event);
+        if (helpers.log.debug) helpers.log.info(`routing '${event}' to channel '${name}'`);
+        state.dispatch(event, message.payload);
+
+        if (familyKey) familyFor(familyKey).dispatch(event, message.payload, name);
+
+        return message;
+      }
+
+      function handleIncoming(message: Message): Message | null {
+        const metadata = message.metadata;
+        const name = metadata?.channel?.name;
+        if (typeof name !== 'string') return message;
+
+        const familyKey = metadata?.channel?.family;
+        const state = stateFor(name, familyKey);
+        const incoming = { message, state, name, familyKey, metadata };
+        if (PRESENCE_EVENTS.has(message.event)) return handlePresence(message, state, name);
+
+        switch (message.event) {
+          case '__subscribeOk__':
+            return handleSubscribe(incoming);
+
+          case '__unsubscribeOk__': {
+            const id = metadata?.channel?.unsubscribeId;
+            if (typeof id !== 'string') return null;
+
+            const confirmation = state.confirmLeave(id);
+            if (!confirmation) return null;
+
+            return confirmation.rejoinPending ? markRejoinConfirmation(message) : message;
+          }
+
+          case '__kicked__': {
+            const reason = (message.payload as { reason?: unknown })?.reason;
+            state.fireKicked(typeof reason === 'string' ? reason : '');
+            state.markUnsubscribed();
+            if (familyKey) familyFor(familyKey).fireUnsubscribed(name);
+            return message;
+          }
+
+          case '__error__':
+            return handleChannelError(incoming);
+
+          default:
+            return handleChannelEvent(incoming);
+        }
+      }
+
       return {
         id: 'channels',
-
-        onIncoming(message) {
-          const wskit = message.__wskit;
-          const name = wskit?.channel;
-          if (typeof name !== 'string') return message;
-
-          const familyKey = wskit?.channelFamily;
-          const state = stateFor(name, familyKey);
-
-          switch (message.event) {
-            case '__subscribeOk__': {
-              const source: SubscribeSource = wskit?.source === 'server' ? 'server' : 'client';
-              // While a leave is outstanding, ignore EVERY subscribe confirmation —
-              // a server auto-rejoin OR a late client-source ack from a subscribe
-              // that overlapped the leave. Either would wrongly re-activate a channel
-              // the user has asked to leave. A deliberate re-subscribe queued behind
-              // the leave only sends its frame after the leave is confirmed (and
-              // pendingLeave is cleared), so it is never blocked here.
-              if (state.pendingLeave !== null) {
-                helpers.log.info(
-                  `channel '${name}' ignoring a subscribe confirmation while a leave is pending`,
-                );
-                return null;
-              }
-              helpers.log.info(`channel '${name}' subscribed (${source})`);
-              warnMissingReceiptPrimitive(channelKey(familyKey, name), name, wskit);
-              state.persistent = wskit?.channelMembership === 'persistent';
-              state.markSubscribed(source);
-              if (familyKey) familyFor(familyKey).fireSubscribed(name, source);
-              // Forward so inbox() (after channels) can read `__wskit.inbox`; stays channel-scoped.
-              return message;
-            }
-            case '__unsubscribeOk__': {
-              // Only the active leave owns this confirmation. Consume a stale
-              // ack here before it reaches receipt primitives: their state can
-              // outlive a rejoin, so a receipt primitive must never infer
-              // ownership from the channel's current status.
-              const id = wskit?.unsubscribeId;
-              if (typeof id !== 'string') return null;
-              const confirmation = state.confirmLeave(id);
-              if (!confirmation) return null;
-              // Receipt primitives preserve their scope only when this same ack
-              // also launched a queued rejoin.
-              return confirmation.rejoinPending ? markRejoinConfirmation(message) : message;
-            }
-            case '__memberSync__':
-            case '__memberJoin__':
-            case '__memberLeave__':
-            case '__memberOnline__':
-            case '__memberOffline__': {
-              if (!state.active || state.pendingLeave !== null) {
-                helpers.log.info(
-                  `channel '${name}' ignoring a presence frame for an inactive channel`,
-                );
-                return null;
-              }
-
-              if (message.event === '__memberSync__') {
-                const raw = (message.payload as { members?: unknown })?.members;
-
-                const members = Array.isArray(raw)
-                  ? raw.map(readMember).filter((m) => m !== null)
-                  : [];
-
-                state.syncMembers(members);
-
-                return null;
-              }
-
-              const member = readMember(message.payload);
-              if (member) {
-                switch (message.event) {
-                  case '__memberJoin__':
-                    state.addMember(member.connectionId, member.meta);
-                    break;
-                  case '__memberLeave__':
-                    state.removeMember(member.connectionId);
-                    break;
-                  case '__memberOnline__':
-                    state.memberWentOnline(member.connectionId, member.meta);
-                    break;
-                  case '__memberOffline__':
-                    state.memberWentOffline(member.connectionId);
-                    break;
-                }
-              }
-              return null;
-            }
-
-            case '__kicked__': {
-              const reason = (message.payload as { reason?: unknown })?.reason;
-
-              state.fireKicked(typeof reason === 'string' ? reason : '');
-              state.markUnsubscribed();
-              if (familyKey) familyFor(familyKey).fireUnsubscribed(name);
-
-              // Forward so inbox() can forget this scope's ack tracking on a kick.
-              return message;
-            }
-
-            case '__error__': {
-              // A request/ack error carries its own id and belongs to that primitive.
-              if (wskit?.correlationId !== undefined) return message;
-              // A stream error carries a streamId and belongs to the stream primitive.
-              if (wskit?.streamId !== undefined) return message;
-              // A plugin channel's error arrives namespaced (`__id::code`); strip it
-              // back to the plain code the plugin declared, keyed by the channel's
-              // namespaced name/family — the same source the incoming event strip uses.
-              const error = unscopeErrorCode(
-                familyKey ?? name,
-                toWSKitError(message.payload),
-              ) as WSKitError;
-              state.fireSubscriptionFailed(error);
-              return null;
-            }
-
-            default: {
-              if (isProtocolFrameEvent(message.event)) return message;
-              if (wskit?.correlationId !== undefined) return message;
-
-              // A channel-scoped stream chunk carries a streamId — it belongs to
-              // the stream primitive, not channel.on(). Pass it through untouched.
-              if (wskit?.streamId !== undefined) return message;
-
-              const event = channelEventName(state.eventPrefix, message.event);
-              if (helpers.log.debug) helpers.log.info(`routing '${event}' to channel '${name}'`);
-
-              state.dispatch(event, message.payload);
-              if (familyKey) familyFor(familyKey).dispatch(event, message.payload, name);
-
-              return message;
-            }
-          }
-        },
+        onIncoming: handleIncoming,
 
         onOpen() {
           // Resend any outstanding leave BEFORE the subscribe flush — a leave wins
@@ -309,12 +364,15 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // its rejoin and a server auto-rejoin __subscribeOk__ is ignored.
           for (const state of states.values()) {
             if (!state.pendingLeave) continue;
+
             helpers.rawSend({
               event: '__unsubscribe__',
-              payload: {},
-              __wskit: {
-                ...channelMarkers(state),
-                unsubscribeId: state.pendingLeave.unsubscribeId,
+              payload: null,
+              metadata: {
+                channel: {
+                  ...channelMarkers(state),
+                  unsubscribeId: state.pendingLeave.unsubscribeId,
+                },
               },
             });
           }
@@ -334,6 +392,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               reject: (error) => sub.failPendingSubscribe(error),
             });
           }
+
           return null;
         },
 
@@ -369,7 +428,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // the member list back in). Persistent channels are skipped — the server
           // re-adds those automatically and sends its own __subscribeOk__, so sending
           // a client subscribe on top would run the subscribe flow twice.
-          const resubscribes: WireMessage[] = [];
+          const resubscribes: Message[] = [];
           for (const state of states.values()) {
             // A leaving channel is already inactive, so this skip also keeps a
             // pending leave from rejoining — onOpen resends the leave instead.
@@ -384,7 +443,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               resubscribes.push({
                 event: '__subscribe__',
                 payload: state.resolvedSubscribeData ?? {},
-                __wskit: channelMarkers(state),
+                metadata: { channel: channelMarkers(state) },
               });
             } else {
               const rejoining = state;
@@ -397,11 +456,12 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                 helpers.rawSend({
                   event: '__subscribe__',
                   payload: rejoining.resolvedSubscribeData ?? {},
-                  __wskit: channelMarkers(rejoining),
+                  metadata: { channel: channelMarkers(rejoining) },
                 });
               }, PERSISTENT_REJOIN_FALLBACK_MS);
             }
           }
+
           return resubscribes.length ? resubscribes : null;
         },
 
@@ -471,6 +531,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               handle = buildFamilyHandle(context, familyKey);
               familyHandles.set(familyKey, handle);
             }
+
             return handle;
           };
 
@@ -482,6 +543,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // channels don't nest, so it gets no `channel` here.
           getAugmenters(installedSocket).push((messaging, scope) => {
             if (!scope.prefixName) return;
+
             messaging.channel = scopedChannelMethod(channel, scope);
           });
         },

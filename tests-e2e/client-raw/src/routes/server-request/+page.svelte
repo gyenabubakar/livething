@@ -16,12 +16,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/server-request?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -31,31 +33,35 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
-			const correlationId = data.__wskit?.correlationId;
+
+			const data = window.__livethingDecode(ev.data);
+			const correlationId = data.metadata?.exchange?.id;
 
 			if (data.event === 'ask-permission' && correlationId) {
 				lastRequest = { action: data.payload?.action ?? '', correlationId };
 				if (answerMode === 'drop') return;
+
 				if (answerMode === 'decline') {
 					ws?.send(
-						JSON.stringify({
+						window.__livethingEncode({
 							event: '__error__',
 							payload: { code: 'request-no-response' },
-							__wskit: { correlationId },
+							metadata: { exchange: { id: correlationId } },
 						}),
 					);
 					return;
 				}
+
 				const payload =
 					answerMode === 'good' ? { allowed: true } : { allowed: 'not-a-boolean' };
-				ws?.send(JSON.stringify({ event: 'ask-permission', payload, __wskit: { correlationId } }));
+				ws?.send(window.__livethingEncode({ event: 'ask-permission', payload, metadata: { exchange: { id: correlationId } } }));
+
 				return;
 			}
 
 			if (data.event === 'ping-ack' && correlationId) {
 				ws?.send(
-					JSON.stringify({ event: 'ping-ack', payload: { sneaky: true }, __wskit: { correlationId } }),
+					window.__livethingEncode({ event: 'ping-ack', payload: { sneaky: true }, metadata: { exchange: { id: correlationId } } }),
 				);
 				return;
 			}
@@ -63,10 +69,10 @@
 			if (data.event === 'undeclared-question' && correlationId) {
 				undeclaredSeen = String(data.payload?.action ?? '');
 				ws?.send(
-					JSON.stringify({
+					window.__livethingEncode({
 						event: 'undeclared-question',
 						payload: { ok: true },
-						__wskit: { correlationId },
+						metadata: { exchange: { id: correlationId } },
 					}),
 				);
 				return;
@@ -82,24 +88,24 @@
 	function trigger() {
 		outcome = '';
 		errorOutcome = '';
-		ws?.send(JSON.stringify({ event: 'trigger', payload: { action: 'delete' } }));
+		ws?.send(window.__livethingEncode({ event: 'trigger', payload: { action: 'delete' } }));
 	}
 
 	function triggerTimeout() {
 		outcome = '';
 		errorOutcome = '';
-		ws?.send(JSON.stringify({ event: 'trigger-timeout', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'trigger-timeout', payload: {} }));
 	}
 
 	function triggerAck() {
 		ackOutcome = '';
-		ws?.send(JSON.stringify({ event: 'trigger-ack', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'trigger-ack', payload: {} }));
 	}
 
 	function triggerUndeclared() {
 		undeclaredOutcome = '';
 		undeclaredSeen = '';
-		ws?.send(JSON.stringify({ event: 'trigger-undeclared', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'trigger-undeclared', payload: {} }));
 	}
 </script>
 

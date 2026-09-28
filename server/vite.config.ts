@@ -21,7 +21,8 @@ export default defineConfig({
         index: resolve(__dirname, 'src/index.ts'),
         '_adapters/index': resolve(__dirname, 'src/_adapters/index.ts'),
         errors: resolve(__dirname, 'src/errors/index.ts'),
-        requests: resolve(__dirname, 'src/request/capability.ts'),
+        'client-requests': resolve(__dirname, 'src/request/client-requests.ts'),
+        'server-requests': resolve(__dirname, 'src/request/server-requests.ts'),
         scheduled: resolve(__dirname, 'src/scheduled/capability.ts'),
         dedup: resolve(__dirname, 'src/dedup/capability.ts'),
         sequence: resolve(__dirname, 'src/sequence/capability.ts'),
@@ -32,7 +33,7 @@ export default defineConfig({
         'last-seen': resolve(__dirname, 'src/last-seen/capability.ts'),
         streams: resolve(__dirname, 'src/streams.ts'),
         // Each stream capability is its own entry so a consumer importing only
-        // one of them from `@wskit/server/streams` does not pull the engines of
+        // one of them from `@livething/server/streams` does not pull the engines of
         // the others — the barrel re-exports these separable chunks.
         'stream/capability': resolve(__dirname, 'src/stream/capability.ts'),
         'stream-resumable/capability': resolve(__dirname, 'src/stream-resumable/capability.ts'),
@@ -40,17 +41,17 @@ export default defineConfig({
         channels: resolve(__dirname, 'src/channel/index.ts'),
         tags: resolve(__dirname, 'src/tags/capability.ts'),
         intercepts: resolve(__dirname, 'src/intercept/index.ts'),
-        plugin: resolve(__dirname, 'src/_define/plugin.ts'),
+        plugins: resolve(__dirname, 'src/_define/plugins.ts'),
       },
       formats: ['es'],
     },
     minify: true,
     sourcemap: true,
     rollupOptions: {
-      // @wskit/core is now a real published peer; consumers install it
-      // alongside @wskit/server. Keep it external so the server bundle does
+      // @livething/core is now a real published peer; consumers install it
+      // alongside @livething/server. Keep it external so the server bundle does
       // not duplicate core's runtime code.
-      external: [/^@wskit\/core(?:\/.*)?$/, /^@standard-schema\/.+$/],
+      external: [/^@livething\/core(?:\/.*)?$/, /^@standard-schema\/.+$/],
     },
   },
 });

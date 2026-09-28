@@ -114,9 +114,8 @@ describe('message runtime', () => {
       },
       outgoingHooks: [],
       beforeSendHooks: [],
-      wskitStampHooks: [],
+      livethingStampHooks: [],
       afterSendHooks: [],
-      waitUntil() {},
       logger: {
         warn() {},
         error() {},
@@ -203,7 +202,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -226,7 +224,7 @@ describe('message runtime', () => {
       {
         event: 'message',
         payload: { text: 'hi' },
-        wskit: { channel: 'room:general', channelFamily: 'rooms' },
+        livething: { channel: 'room:general', channelFamily: 'rooms' },
       },
     );
 
@@ -241,7 +239,7 @@ describe('message runtime', () => {
   });
 
   it('routes ValidationFailed thrown from a handler to handleValidationError', async () => {
-    const { ValidationFailed } = await import('@wskit/core');
+    const { ValidationFailed } = await import('@livething/core');
     const validationErrors: string[] = [];
     const runtimeErrors: unknown[] = [];
     const connection = createConnection('conn_1');
@@ -298,7 +296,6 @@ describe('message runtime', () => {
       },
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -307,14 +304,14 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      { event: 'manual-check', payload: {}, wskit: undefined },
+      { event: 'manual-check', payload: {}, livething: undefined },
     );
 
     expect(validationErrors).toEqual(['manual-check']);
     expect(runtimeErrors).toHaveLength(1);
   });
 
-  it('propagates WSKitConfigError without routing through handleValidationError (async validator)', async () => {
+  it('propagates LiveThingConfigError without routing through handleValidationError (async validator)', async () => {
     const handleValidationError = vi.fn();
     const handleRuntimeError = vi.fn();
     const handler = vi.fn();
@@ -363,7 +360,6 @@ describe('message runtime', () => {
       handleValidationError,
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -373,7 +369,7 @@ describe('message runtime', () => {
       dispatchIncoming(runtime as unknown as Parameters<typeof dispatchIncoming>[0], connection, {
         event: 'do-thing',
         payload: {},
-        wskit: undefined,
+        livething: undefined,
       }),
     ).rejects.toThrow(/async validators are not supported/);
 
@@ -431,7 +427,6 @@ describe('message runtime', () => {
       handleValidationError,
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -440,29 +435,25 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      { event: 'send-strict', payload: {}, wskit: undefined },
+      { event: 'send-strict', payload: {}, livething: undefined },
     );
 
-    // Schema validation rejected the payload. Validation hook fires once
-    // (regression test for the prior double-fire bug — the inner catch
-    // routed the error AND the outer dispatch error path matched
-    // 'validation-failed' and routed it again).
+    // Schema validation rejects the payload and reports it exactly once through
+    // each error path.
     expect(handleValidationError).toHaveBeenCalledTimes(1);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     expect(handler).not.toHaveBeenCalled();
   });
 
   it('manual ValidationFailed thrown from a channel handler reaches handleValidationError with the resolved scope', async () => {
-    // Pre-fix the outer dispatch catch called handleValidationError
-    // without scope, so onValidationError hooks saw a top-level ctx (no
-    // ctx.channel) for manually-thrown ValidationFailed
-    // — but a properly scoped ctx for schema-failed payloads. Same hook,
-    // two different shapes.
-    const { ValidationFailed } = await import('@wskit/core');
+    // A manually thrown ValidationFailed keeps the same resolved channel scope
+    // that a schema validation failure would use.
+    const { ValidationFailed } = await import('@livething/core');
     const handleValidationError = vi.fn();
     const handleRuntimeError = vi.fn();
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
+
     addMembership(channelMembers, connection, { channelName: 'room' });
 
     const channel = {
@@ -528,7 +519,6 @@ describe('message runtime', () => {
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
       requestDispatch: requestDispatchForSpec,
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -537,7 +527,7 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      { event: 'manual-check', payload: {}, wskit: { channel: 'room', channelFamily: null } },
+      { event: 'manual-check', payload: {}, livething: { channel: 'room', channelFamily: null } },
     );
 
     expect(handleValidationError).toHaveBeenCalledTimes(1);
@@ -601,7 +591,6 @@ describe('message runtime', () => {
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
       requestDispatch: requestDispatchForSpec,
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -613,7 +602,7 @@ describe('message runtime', () => {
       {
         event: 'get-user',
         payload: { id: 42 },
-        wskit: { correlationId: 'corr-99', channelFamily: null },
+        livething: { correlationId: 'corr-99', channelFamily: null },
       }, // wrong type — schema fails
     );
 
@@ -622,11 +611,9 @@ describe('message runtime', () => {
     expect(routing).toEqual({ correlationId: 'corr-99' });
   });
 
-  it('a thrown request handler error preserves correlationId on the error frame', async () => {
-    // Pre-fix handleDispatchError called handleRuntimeError without
-    // routing, so the _error frame the client received carried no
-    // correlation id and the request-response plugin could not settle
-    // the pending request — it hung until timeout.
+  it('a thrown request handler error preserves the exchange ID on the error frame', async () => {
+    // Request error routing keeps the exchange ID so the waiting call can
+    // reject immediately.
     const handleRuntimeError = vi.fn();
     const connection = createConnection('conn_1');
 
@@ -677,7 +664,6 @@ describe('message runtime', () => {
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
       requestDispatch: requestDispatchForSpec,
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -689,7 +675,7 @@ describe('message runtime', () => {
       {
         event: 'get-user',
         payload: { id: 'u1' },
-        wskit: { correlationId: 'corr-42', channelFamily: null },
+        livething: { correlationId: 'corr-42', channelFamily: null },
       },
     );
 
@@ -756,7 +742,7 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       outgoingHooks: [],
-      wskitStampHooks: [],
+      livethingStampHooks: [],
       beforeSendHooks: [],
       afterSendHooks: [],
       errorHooks: [],
@@ -772,7 +758,6 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       requestDispatch: requestDispatchForSpec,
-      waitUntil() {},
       logger: { warn() {}, error() {} },
       generateId() {
         return 'id_1';
@@ -785,18 +770,14 @@ describe('message runtime', () => {
       {
         event: 'lookup',
         payload: {},
-        wskit: { correlationId: 'corr-ctx', channelFamily: null },
+        livething: { correlationId: 'corr-ctx', channelFamily: null },
       },
     );
 
     expect(connection.descriptor.send).toHaveBeenCalledTimes(1);
     expect(
       JSON.parse((connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0]),
-    ).toEqual({
-      event: 'lookup',
-      payload: { tag: 'top' },
-      __wskit: { correlationId: 'corr-ctx', source: 'client' },
-    });
+    ).toEqual(['lookup', { tag: 'top' }, { exchange: { id: 'corr-ctx', source: 'client' } }]);
   });
 
   it('does not fall back to top-level handlers for events sent inside a channel scope', async () => {
@@ -862,7 +843,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -871,7 +851,7 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      { event: 'top-only', payload: {}, wskit: { channel: 'room', channelFamily: null } },
+      { event: 'top-only', payload: {}, livething: { channel: 'room', channelFamily: null } },
     );
 
     expect(topLevelHandler).not.toHaveBeenCalled();
@@ -936,7 +916,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -946,11 +925,7 @@ describe('message runtime', () => {
       processTextMessage(
         runtime as unknown as Parameters<typeof processTextMessage>[0],
         connection,
-        JSON.stringify({
-          event: '__replay__',
-          payload: {},
-          __wskit: { channel: 'admin', channelFamily: 'rooms' },
-        }),
+        JSON.stringify(['__replay__', {}, { channel: { name: 'admin', family: 'rooms' } }]),
       ),
     ).resolves.toBeUndefined();
 
@@ -1009,7 +984,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1019,7 +993,7 @@ describe('message runtime', () => {
       processTextMessage(
         runtime as unknown as Parameters<typeof processTextMessage>[0],
         connection,
-        JSON.stringify({ event: 'stop', payload: {}, __wskit: { streamId: 's1' } }),
+        JSON.stringify(['stop', {}, { stream: { id: 's1' } }]),
       ),
     ).resolves.toBeUndefined();
 
@@ -1032,7 +1006,7 @@ describe('message runtime', () => {
     expect(event).toBe('stop');
   });
 
-  it('rejects a __subscribe__ frame whose __wskit.channel is not a string', async () => {
+  it('rejects a __subscribe__ frame whose __livething.channel is not a string', async () => {
     // A non-string `channel` fails the protocol-frame schema parse, so the
     // frame settles as a ValidationFailed routed through handleRuntimeError
     // instead of reaching handleSubscribe with a bad channel.
@@ -1076,7 +1050,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       handleSubscribe,
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1085,11 +1058,7 @@ describe('message runtime', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: '__subscribe__',
-        payload: {},
-        __wskit: { channel: 42, channelFamily: 'rooms' },
-      }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 42, family: 'rooms' } }]),
     );
 
     expect(handleSubscribe).not.toHaveBeenCalled();
@@ -1099,7 +1068,7 @@ describe('message runtime', () => {
     expect((error as { code?: string }).code).toBe('validation-failed');
   });
 
-  it('rejects an __unsubscribe__ frame whose __wskit.channel is not a string', async () => {
+  it('rejects an __unsubscribe__ frame whose __livething.channel is not a string', async () => {
     const connection = createConnection('conn_1');
     const handleRuntimeError = vi.fn();
     const handleUnsubscribe = vi.fn();
@@ -1140,7 +1109,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       handleUnsubscribe,
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1149,11 +1117,7 @@ describe('message runtime', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: '__unsubscribe__',
-        payload: {},
-        __wskit: { channel: { id: 1 }, channelFamily: 99 },
-      }),
+      JSON.stringify(['__unsubscribe__', {}, { channel: { name: { id: 1 }, family: 99 } }]),
     );
 
     expect(handleUnsubscribe).not.toHaveBeenCalled();
@@ -1203,7 +1167,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1212,7 +1175,7 @@ describe('message runtime', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({ event: '__replay__', payload: {}, __wskit: {} }),
+      JSON.stringify(['__replay__', {}, null]),
     );
 
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
@@ -1230,7 +1193,7 @@ describe('message runtime', () => {
     const sent: Array<{
       event: string;
       payload: Record<string, unknown>;
-      wskit: Record<string, unknown>;
+      livething: Record<string, unknown>;
     }> = [];
 
     const runtime = {
@@ -1269,7 +1232,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1278,14 +1240,14 @@ describe('message runtime', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({ event: '__resumeStream__', payload: {}, __wskit: { streamId: 's-1' } }),
+      JSON.stringify(['__resumeStream__', {}, { stream: { id: 's-1' } }]),
     );
 
     expect(sent).toHaveLength(1);
     expect(sent[0]!.event).toBe('__error__');
     expect(sent[0]!.payload.code).toBe('unsupported-protocol');
     expect((sent[0]!.payload.detail as { event?: string }).event).toBe('__resumeStream__');
-    expect(sent[0]!.wskit.streamId).toBe('s-1');
+    expect(sent[0]!.livething.streamId).toBe('s-1');
   });
 });
 
@@ -1345,7 +1307,6 @@ function makeNudgeRuntime(
     sendProtocolMessage() {},
     sendReplay() {},
     persistAttachment() {},
-    waitUntil() {},
     generateId() {
       return 'id_1';
     },
@@ -1380,19 +1341,19 @@ describe('inbound __memberSync__ request (bug #16)', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: '__memberSync__',
-        payload: {},
-        __wskit: { channel: 'room', source: 'client' },
-      }),
+      JSON.stringify([
+        '__memberSync__',
+        {},
+        { channel: { name: 'room' }, exchange: { source: 'client' } },
+      ]),
     );
 
     expect(handleMemberSync).toHaveBeenCalledTimes(1);
     const frame = handleMemberSync.mock.calls[0]?.[1] as {
-      __wskit: { channel: string; source?: string };
+      __livething: { channel: string; source?: string };
     };
-    expect(frame.__wskit.channel).toBe('room');
-    expect(frame.__wskit.source).toBe('client');
+    expect(frame.__livething.channel).toBe('room');
+    expect(frame.__livething.source).toBe('client');
   });
 });
 
@@ -1413,11 +1374,7 @@ describe('nudge intercepts', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: 'nudge-event',
-        payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', channelFamily: null },
-      }),
+      JSON.stringify(['nudge-event', { value: 1 }, { stream: { id: 'stream_1' } }]),
     );
 
     expect(seenFrames).toHaveLength(1);
@@ -1437,11 +1394,7 @@ describe('nudge intercepts', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: 'nudge-event',
-        payload: { original: true },
-        __wskit: { streamId: 'stream_1', channelFamily: null },
-      }),
+      JSON.stringify(['nudge-event', { original: true }, { stream: { id: 'stream_1' } }]),
     );
 
     expect(activeStream.nudges).toHaveLength(1);
@@ -1449,7 +1402,7 @@ describe('nudge intercepts', () => {
   });
 
   it('Block thrown in a nudge intercept drops the nudge without buffering', async () => {
-    const { Block } = await import('@wskit/core');
+    const { Block } = await import('@livething/core');
     const connection = createConnection('conn_1');
     const activeStream = makeActiveStream(connection.id, 'nudge-event');
     const activeStreams = new Map([['stream_1', activeStream]]);
@@ -1464,11 +1417,7 @@ describe('nudge intercepts', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: 'nudge-event',
-        payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', channelFamily: null },
-      }),
+      JSON.stringify(['nudge-event', { value: 1 }, { stream: { id: 'stream_1' } }]),
     );
 
     expect(activeStream.nudges).toHaveLength(0);
@@ -1484,11 +1433,7 @@ describe('nudge intercepts', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: 'nudge-event',
-        payload: { passthrough: true },
-        __wskit: { streamId: 'stream_1', channelFamily: null },
-      }),
+      JSON.stringify(['nudge-event', { passthrough: true }, { stream: { id: 'stream_1' } }]),
     );
 
     expect(activeStream.nudges).toHaveLength(1);
@@ -1511,11 +1456,7 @@ describe('nudge intercepts', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: 'nudge-event',
-        payload: {},
-        __wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelFamily: null },
-      }),
+      JSON.stringify(['nudge-event', {}, { stream: { id: 'stream_1', nudgeId: 'nudge_1' } }]),
     );
 
     expect(activeStream.nudges).toHaveLength(0);
@@ -1531,7 +1472,7 @@ describe('nudge intercepts', () => {
   });
 
   it('Block in channel intercept drops a nudge sent with channel routing', async () => {
-    const { Block } = await import('@wskit/core');
+    const { Block } = await import('@livething/core');
     const connection = createConnection('conn_1');
     const activeStream = makeActiveStream(connection.id, 'ch-nudge');
     const activeStreams = new Map([['stream_1', activeStream]]);
@@ -1546,11 +1487,11 @@ describe('nudge intercepts', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: 'ch-nudge',
-        payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', channel: 'room', channelFamily: null },
-      }),
+      JSON.stringify([
+        'ch-nudge',
+        { value: 1 },
+        { channel: { name: 'room' }, stream: { id: 'stream_1' } },
+      ]),
     );
 
     expect(activeStream.nudges).toHaveLength(0);
@@ -1615,7 +1556,6 @@ describe('Defer retry hook isolation', () => {
         async handleValidationError() {},
         async handleSubscribe() {},
         async handleUnsubscribe() {},
-        waitUntil() {},
         generateId() {
           return 'id_1';
         },
@@ -1624,7 +1564,7 @@ describe('Defer retry hook isolation', () => {
       await dispatchIncoming(
         runtime as unknown as Parameters<typeof dispatchIncoming>[0],
         connection,
-        { event: 'work', payload: {}, wskit: undefined },
+        { event: 'work', payload: {}, livething: undefined },
       );
 
       expect(handlerAttempt).toBe(1);
@@ -1715,7 +1655,6 @@ describe('Defer retry hook isolation', () => {
         async handleSubscribe() {},
         async handleUnsubscribe() {},
         sendThroughPipeline: () => true,
-        waitUntil() {},
         generateId() {
           return 'id_1';
         },
@@ -1724,7 +1663,7 @@ describe('Defer retry hook isolation', () => {
       await dispatchIncoming(
         runtime as unknown as Parameters<typeof dispatchIncoming>[0],
         connection,
-        { event: 'work', payload: {}, wskit: { channel: 'room', channelFamily: null } },
+        { event: 'work', payload: {}, livething: { channel: 'room', channelFamily: null } },
       );
       // Exhaust the defer retries (initial + 3 retries at 10ms each).
       await vi.advanceTimersByTimeAsync(100);
@@ -1747,9 +1686,10 @@ describe('declined server→client request routing (Major 1)', () => {
       answerFrameHooks: [
         (
           id: string,
-          frame: { event: string; payload: unknown; wskit?: { correlationId?: string } },
+          frame: { event: string; payload: unknown; livething?: { correlationId?: string } },
         ) => {
-          if (frame.wskit?.correlationId !== 'sreq_1') return false;
+          if (frame.livething?.correlationId !== 'sreq_1') return false;
+
           claimed.push({
             id,
             event: frame.event,
@@ -1763,11 +1703,11 @@ describe('declined server→client request routing (Major 1)', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({
-        event: '__error__',
-        payload: { code: 'request-no-response' },
-        __wskit: { correlationId: 'sreq_1' },
-      }),
+      JSON.stringify([
+        '__error__',
+        { code: 'request-no-response' },
+        { exchange: { id: 'sreq_1' } },
+      ]),
     );
 
     // The decline reached settle (not dispatchProtocolFrame, which would have
@@ -1787,7 +1727,7 @@ describe('declined server→client request routing (Major 1)', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({ event: '__error__', payload: {}, __wskit: { correlationId: 'gone' } }),
+      JSON.stringify(['__error__', {}, { exchange: { id: 'gone' } }]),
     );
 
     expect(handleRuntimeError).not.toHaveBeenCalled();
@@ -1804,7 +1744,7 @@ describe('declined server→client request routing (Major 1)', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify({ event: '__error__', payload: { code: 'x' } }),
+      JSON.stringify(['__error__', { code: 'x' }, null]),
     );
 
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);

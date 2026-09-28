@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RequestNoCorrelation } from '@wskit/core';
+import { RequestNoCorrelation } from '@livething/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -7,15 +7,14 @@ import type { ResolvedChannel, RoutingTarget, RuntimeConnection } from '~/_engin
 import type { Logger } from '~/context.ts';
 import type { RequestPrimitive } from './request.ts';
 
+type OptsParameter = { routing: RoutingTarget | undefined; event: string; payload: unknown };
+
 interface RequestRuntime {
   asyncContext: EngineAsyncContext;
 
   logger: Pick<Logger, 'error'>;
 
-  sendThroughPipeline(
-    connection: RuntimeConnection,
-    opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
-  ): boolean;
+  sendThroughPipeline(connection: RuntimeConnection, opts: OptsParameter): boolean;
 }
 
 export interface HandleRequestOptions {
@@ -31,7 +30,7 @@ export interface HandleRequestOptions {
 
   payload: unknown;
 
-  wskit: Protocol.WSKitProtocol | undefined;
+  livething: Protocol.LiveThingProtocol | undefined;
 }
 
 /**
@@ -40,7 +39,7 @@ export interface HandleRequestOptions {
  *
  * A request handler typically calls `ctx.respond(value)`. This runtime helper
  * captures that value, then emits an outgoing event with the same name and the
- * original `correlationId` (read from the incoming frame's `__wskit`) so the
+ * original `correlationId` (read from the incoming frame's `__livething`) so the
  * client can resolve the correct Promise.
  *
  * A handler that finishes without a real answer — it returned nothing, `null`,
@@ -53,8 +52,8 @@ export async function handleRequest(
   runtime: RequestRuntime,
   options: HandleRequestOptions,
 ): Promise<void> {
-  const { connection, scope, event, request, payload, wskit } = options;
-  const correlationId = wskit?.correlationId;
+  const { connection, scope, event, request, payload, livething } = options;
+  const correlationId = livething?.correlationId;
 
   // Refuse to run the handler when no correlationId is on the wire — the
   // response could never settle a pending client promise, but any side
@@ -78,7 +77,7 @@ export async function handleRequest(
         // throwing — a throw here would surface a spurious `internal-error`
         // to a client that already got its answer.
         runtime.logger.error(
-          '[wskit] ctx.respond() was already called for this request invocation; ignoring the extra call',
+          '[livething] ctx.respond() was already called for this request invocation; ignoring the extra call',
           { event },
         );
         return;

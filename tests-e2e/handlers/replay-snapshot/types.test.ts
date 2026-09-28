@@ -8,6 +8,7 @@ describe('ReplaySnapshotClient — no-any guard', () => {
     expectTypeOf<ReplaySnapshotClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['streams']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['channels']>().not.toBeAny();
+
     expectTypeOf<ReplaySnapshotClient['errors']>().not.toBeAny();
   });
 });

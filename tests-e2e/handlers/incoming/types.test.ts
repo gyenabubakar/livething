@@ -8,6 +8,7 @@ describe('IncomingClient — no-any guard', () => {
     expectTypeOf<IncomingClient['clientRequests']>().not.toBeAny();
     expectTypeOf<IncomingClient['streams']>().not.toBeAny();
     expectTypeOf<IncomingClient['channels']>().not.toBeAny();
+
     expectTypeOf<IncomingClient['errors']>().not.toBeAny();
   });
 });

@@ -35,8 +35,10 @@ function connected(debug: boolean) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   socket.on('message', () => {});
   socket.on('presence', () => {});
+
   return { socket, ws, restore };
 }
 
@@ -45,19 +47,14 @@ function trafficFor(count: number): string[] {
   const frames: string[] = [];
   for (let i = 0; i < count; i++) {
     if (i % 5 === 0) {
-      frames.push(
-        JSON.stringify({
-          event: 'post',
-          payload: { text: `m${i}` },
-          __wskit: { channel: 'room' },
-        }),
-      );
+      frames.push(JSON.stringify(['post', { text: `m${i}` }, { channel: { name: 'room' } }]));
     } else if (i % 5 === 1) {
-      frames.push(JSON.stringify({ event: 'presence', payload: { online: i } }));
+      frames.push(JSON.stringify(['presence', { online: i }, null]));
     } else {
-      frames.push(JSON.stringify({ event: 'message', payload: { text: `m${i}`, from: 'u-1' } }));
+      frames.push(JSON.stringify(['message', { text: `m${i}`, from: 'u-1' }, null]));
     }
   }
+
   return frames;
 }
 

@@ -8,6 +8,7 @@ describe('CtxTagsClient — no-any guard', () => {
     expectTypeOf<CtxTagsClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxTagsClient['streams']>().not.toBeAny();
     expectTypeOf<CtxTagsClient['channels']>().not.toBeAny();
+
     expectTypeOf<CtxTagsClient['errors']>().not.toBeAny();
   });
 });

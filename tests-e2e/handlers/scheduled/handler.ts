@@ -1,15 +1,14 @@
-import { define, emits, t } from '@wskit/server';
-import { scheduled } from '@wskit/server/scheduled';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { scheduled } from '@livething/server/scheduled';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 let flakyAttempts = 0;
 let defaultRetryAttempts = 0;
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('role', t<string>())]),
@@ -27,7 +26,9 @@ const base = define({
       'send-to-tag-task': null,
     }),
     emits({
+      'cleanup-scheduled': t<{}>(),
       'cleanup-done': t<{ at: number }>(),
+      'cleanup-history-result': t<{ ranAt: number | null }>(),
       'cleanup-cancelled': t<{}>(),
       'heartbeat-tick': t<{ count: number }>(),
       'flaky-task-result': t<{ attempts: number }>(),
@@ -47,56 +48,66 @@ const base = define({
   ],
 });
 
-const handleCleanupTask = base.scheduled('cleanup', {
+base.onInit((ctx) => {
+  ctx.sql.exec(
+    'CREATE TABLE IF NOT EXISTS _cleanup_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ranAt INTEGER NOT NULL)',
+  );
+});
+
+base.scheduled('cleanup', {
   run(ctx) {
-    ctx.broadcast('cleanup-done', { at: Date.now() });
+    const ranAt = Date.now();
+    ctx.sql.exec('INSERT INTO _cleanup_log (ranAt) VALUES (?)', ranAt);
+    ctx.broadcast('cleanup-done', { at: ranAt });
   },
 });
 
-const handleHeartbeatTask = base.scheduled('heartbeat-tick', {
+base.scheduled('heartbeat-tick', {
   run(ctx) {
     ctx.broadcast('heartbeat-tick', { count: Date.now() });
   },
 });
 
-const handleFlakyTask = base.scheduled('flaky-task', {
+base.scheduled('flaky-task', {
   run(ctx) {
     flakyAttempts += 1;
     if (flakyAttempts < 3) throw new Error('flaky');
+
     ctx.broadcast('flaky-task-result', { attempts: flakyAttempts });
     flakyAttempts = 0;
   },
 });
 
-const handleDefaultRetryTask = base.scheduled('default-retry-task', {
+base.scheduled('default-retry-task', {
   run(ctx) {
     defaultRetryAttempts += 1;
     if (defaultRetryAttempts < 2) throw new Error('retry-once');
+
     ctx.broadcast('default-retry-result', { attempts: defaultRetryAttempts });
     defaultRetryAttempts = 0;
   },
 });
 
-const handleAlwaysFailTask = base.scheduled('always-fail-task', {
+base.scheduled('always-fail-task', {
   run() {
     throw new Error('permanent failure');
   },
 });
 
-const handleBigintThrowTask = base.scheduled('bigint-throw-task', {
+base.scheduled('bigint-throw-task', {
   run() {
     // eslint-disable-next-line @typescript-eslint/only-throw-error
     throw 1n;
   },
 });
 
-const handleFilteredCleanupTask = base.scheduled('filtered-cleanup', {
+base.scheduled('filtered-cleanup', {
   run(ctx, data) {
     ctx.broadcast('filtered-task-result', { label: data.label });
   },
 });
 
-const handleSendToConnTask = base.scheduled('send-to-conn-task', {
+base.scheduled('send-to-conn-task', {
   run(ctx, data) {
     const target = ctx.connections.all().find((info) => info.id === data.connectionId);
     const delivered = target
@@ -111,19 +122,19 @@ const handleSendToConnTask = base.scheduled('send-to-conn-task', {
   },
 });
 
-const handleEmptyBackoffTask = base.scheduled('empty-backoff-task', {
+base.scheduled('empty-backoff-task', {
   run() {
     throw new Error('always fails with no retry');
   },
 });
 
-const handleBroadcastTask = base.scheduled('broadcast-task', {
+base.scheduled('broadcast-task', {
   run(ctx) {
     ctx.broadcast('broadcast-result', { text: 'from-task' });
   },
 });
 
-const handleSendToTagTask = base.scheduled('send-to-tag-task', {
+base.scheduled('send-to-tag-task', {
   run(ctx) {
     for (const conn of ctx.connections.all()) {
       if (conn.tags.some((r) => r.kind === 'ephemeral' && r.group === 'role' && r.key === 'vip')) {
@@ -137,6 +148,17 @@ const handleScheduleCleanup = base.on('schedule-cleanup', {
   input: v.object({ delayMs: v.number() }),
   run(ctx, input) {
     ctx.schedule('cleanup', { time: Date.now() + input.delayMs });
+    ctx.send('cleanup-scheduled', {});
+  },
+});
+
+const handleQueryCleanupHistory = base.on('query-cleanup-history', {
+  input: v.object({}),
+  run(ctx) {
+    const row = ctx.sql
+      .exec<{ ranAt: number }>('SELECT ranAt FROM _cleanup_log ORDER BY id DESC LIMIT 1')
+      .one();
+    ctx.send('cleanup-history-result', { ranAt: row ? Number(row.ranAt) : null });
   },
 });
 
@@ -201,7 +223,9 @@ const handleQueryDeadLetter = base.on('query-dead-letter', {
         taskId: string;
         attempts: number;
         error: string;
-      }>('SELECT taskId, attempts, error FROM __wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1')
+      }>(
+        'SELECT taskId, attempts, error FROM __livething_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
+      )
       .toArray();
     const row = rows[0];
     if (!row) return;
@@ -345,20 +369,10 @@ const handleTriggerScheduleUnknownTask = base.on('trigger-schedule-unknown-task'
   },
 });
 
-export const scheduledHandler = base.assemble({
+export const scheduledDefinition = base.assemble({
   handlers: [
-    handleCleanupTask,
-    handleHeartbeatTask,
-    handleFlakyTask,
-    handleDefaultRetryTask,
-    handleAlwaysFailTask,
-    handleBigintThrowTask,
-    handleFilteredCleanupTask,
-    handleSendToConnTask,
-    handleEmptyBackoffTask,
-    handleBroadcastTask,
-    handleSendToTagTask,
     handleScheduleCleanup,
+    handleQueryCleanupHistory,
     handleCancelCleanup,
     handleStartHeartbeat,
     handleCancelHeartbeat,
@@ -383,4 +397,4 @@ export const scheduledHandler = base.assemble({
   ],
 });
 
-export type ScheduledClient = InferClient<typeof scheduledHandler>;
+export type ScheduledClient = InferClient<typeof scheduledDefinition>;

@@ -1,22 +1,23 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { StreamIdCollision } from '@wskit/core';
+import { StreamIdCollision } from '@livething/core';
 
 /**
- * Storage layer for durable streams. Two tables keyed by
- * `(user_id, stream_id)`: `__wskit_streams` (one row per stream) and
- * `__wskit_stream_chunks` (recorded streams only, ON DELETE CASCADE).
+ * Storage layer for durable streams. `__livething_streams` has one row per stream.
+ * `__livething_stream_chunks` stores recorded-stream payloads and
+ * `__livething_stream_checkpoints` stores resumable-stream cursors. Both child
+ * tables cascade when their stream row is deleted.
  */
 
 const CREATE_STREAMS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_streams (
+  CREATE TABLE IF NOT EXISTS __livething_streams (
     user_id                   TEXT NOT NULL,
     stream_id                 TEXT NOT NULL,
     event                     TEXT NOT NULL,
     payload                   TEXT NOT NULL,
     kind                      TEXT NOT NULL,
     status                    TEXT NOT NULL DEFAULT 'active',
-    cursor                    TEXT,
     last_seq                  INTEGER NOT NULL DEFAULT 0,
+    attempt                   INTEGER NOT NULL DEFAULT 1,
     channel_key               TEXT,
     channel_family             TEXT,
     broadcast                 INTEGER NOT NULL DEFAULT 0,
@@ -34,12 +35,12 @@ const CREATE_STREAMS_TABLE_SQL = `
 `;
 
 const CREATE_STREAMS_STATUS_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_streams_status
-  ON __wskit_streams (status, last_activity_at)
+  CREATE INDEX IF NOT EXISTS __livething_idx_streams_status
+  ON __livething_streams (status, last_activity_at)
 `;
 
 const CREATE_STREAM_CHUNKS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_stream_chunks (
+  CREATE TABLE IF NOT EXISTS __livething_stream_chunks (
     user_id      TEXT NOT NULL,
     stream_id    TEXT NOT NULL,
     seq          INTEGER NOT NULL,
@@ -49,14 +50,26 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata     TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (user_id, stream_id, seq),
-    FOREIGN KEY (user_id, stream_id) REFERENCES __wskit_streams (user_id, stream_id) ON DELETE CASCADE
+    FOREIGN KEY (user_id, stream_id) REFERENCES __livething_streams (user_id, stream_id) ON DELETE CASCADE
+  )
+`;
+
+const CREATE_STREAM_CHECKPOINTS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS __livething_stream_checkpoints (
+    user_id      TEXT NOT NULL,
+    stream_id    TEXT NOT NULL,
+    seq          INTEGER NOT NULL,
+    cursor       TEXT NOT NULL,
+    saved_at     INTEGER NOT NULL,
+    PRIMARY KEY (user_id, stream_id, seq),
+    FOREIGN KEY (user_id, stream_id) REFERENCES __livething_streams (user_id, stream_id) ON DELETE CASCADE
   )
 `;
 
 // One row per subscriber of a broadcast stream: how far a resume has caught
 // them up, and when they opted out (null while subscribed).
 const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_stream_subscribers (
+  CREATE TABLE IF NOT EXISTS __livething_stream_subscribers (
     user_id              TEXT NOT NULL,
     stream_id            TEXT NOT NULL,
     subscriber_user_id   TEXT NOT NULL,
@@ -65,27 +78,29 @@ const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata             TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (user_id, stream_id, subscriber_user_id),
-    FOREIGN KEY (user_id, stream_id) REFERENCES __wskit_streams (user_id, stream_id) ON DELETE CASCADE
+    FOREIGN KEY (user_id, stream_id) REFERENCES __livething_streams (user_id, stream_id) ON DELETE CASCADE
   )
 `;
 
 /** Which durable-stream primitive owns the row. */
-export type DurableStreamKind = 'resumable' | 'recorded';
+export type DurableStreamDurability = 'resumable' | 'recorded';
 
 /** Lifecycle state of a durable stream row. */
 export type DurableStreamStatus = 'active' | 'suspended' | 'ended';
 
-/** One row from `__wskit_streams`, decoded into typed fields. */
+/** One row from `__livething_streams`, decoded into typed fields. */
 export interface DurableStreamRow {
   userId: string;
   streamId: string;
   event: string;
   payload: string;
-  kind: DurableStreamKind;
+  kind: DurableStreamDurability;
   status: DurableStreamStatus;
 
-  cursor: string | null;
   lastSeq: number;
+
+  /** How many times the generator has run: 1 on the first run, +1 on every resume that re-runs it. */
+  attempt: number;
 
   channelKey: string | null;
   channelFamily: string | null;
@@ -104,7 +119,7 @@ export interface DurableStreamRow {
   metadata?: Record<string, unknown>;
 }
 
-/** One row from `__wskit_stream_chunks`, decoded into typed fields. */
+/** One row from `__livething_stream_chunks`, decoded into typed fields. */
 export interface DurableStreamChunkRow {
   userId: string;
   streamId: string;
@@ -116,6 +131,15 @@ export interface DurableStreamChunkRow {
   emittedAt: number;
   /** Forward-compat blob (see the metadata column); not yet read or written. */
   metadata?: Record<string, unknown>;
+}
+
+/** One cursor checkpoint from `__livething_stream_checkpoints`. */
+export interface DurableStreamCursorCheckpointRow {
+  userId: string;
+  streamId: string;
+  seq: number;
+  cursor: string;
+  savedAt: number;
 }
 
 interface SqlExec {
@@ -138,7 +162,7 @@ interface SubscriberRef {
   subscriberUserId: string;
 }
 
-// All four statements (the PRAGMA + three CREATEs) bundled into one round
+// All statements (the PRAGMA + table/index CREATEs) bundled into one round
 // trip. The PRAGMA is repeated every boot anyway since SQLite resets it
 // per-connection, so it stays at the front of the bundle.
 // @__PURE__ lets the bundler drop this when unused; see channel/storage.ts.
@@ -147,6 +171,7 @@ const DURABLE_STREAM_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_STREAMS_TABLE_SQL,
   CREATE_STREAMS_STATUS_INDEX_SQL,
   CREATE_STREAM_CHUNKS_TABLE_SQL,
+  CREATE_STREAM_CHECKPOINTS_TABLE_SQL,
   CREATE_STREAM_SUBSCRIBERS_TABLE_SQL,
 ].join(';\n');
 
@@ -161,10 +186,10 @@ function rowToStream(row: Record<string, unknown>): DurableStreamRow {
     streamId: row.stream_id as string,
     event: row.event as string,
     payload: row.payload as string,
-    kind: row.kind as DurableStreamKind,
+    kind: row.kind as DurableStreamDurability,
     status: row.status as DurableStreamStatus,
-    cursor: (row.cursor as string | null) ?? null,
     lastSeq: Number(row.last_seq ?? 0),
+    attempt: Number(row.attempt ?? 1),
     channelKey: (row.channel_key as string | null) ?? null,
     channelFamily: (row.channel_family as string | null) ?? null,
     broadcast: Number(row.broadcast ?? 0) === 1,
@@ -185,7 +210,7 @@ export interface InsertStreamInput {
   streamId: string;
   event: string;
   payload: string;
-  kind: DurableStreamKind;
+  kind: DurableStreamDurability;
   now: number;
 
   channelKey?: string | null;
@@ -209,7 +234,7 @@ export interface InsertStreamInput {
 export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
   try {
     sql.exec(
-      `INSERT INTO __wskit_streams
+      `INSERT INTO __livething_streams
        (user_id, stream_id, event, payload, kind, status, last_seq, channel_key, channel_family, broadcast, creator_user_id, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
        VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.userId,
@@ -231,14 +256,17 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
     if (isUniqueConstraintError(err)) {
       throw StreamIdCollision();
     }
+
     throw err;
   }
 }
 
 function isUniqueConstraintError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
+
   const msg = (err as { message?: unknown }).message;
   if (typeof msg !== 'string') return false;
+
   return (
     msg.includes('UNIQUE constraint') ||
     msg.includes('PRIMARY KEY') ||
@@ -254,28 +282,12 @@ export function readStream(
 ): DurableStreamRow | null {
   const rows = sql
     .exec(
-      'SELECT * FROM __wskit_streams WHERE user_id = ? AND stream_id = ? LIMIT 1',
+      'SELECT * FROM __livething_streams WHERE user_id = ? AND stream_id = ? LIMIT 1',
       userId,
       streamId,
     )
     .toArray();
   return rows.length > 0 ? rowToStream(rows[0]!) : null;
-}
-
-/** Persist the latest cursor + last_seq + activity timestamp for a resumable stream. */
-export function updateCursor(
-  sql: SqlExec,
-  opts: StreamRef & { cursor: string; lastSeq: number; now: number },
-): void {
-  const { userId, streamId, cursor, lastSeq, now } = opts;
-  sql.exec(
-    'UPDATE __wskit_streams SET cursor = ?, last_seq = ?, last_activity_at = ? WHERE user_id = ? AND stream_id = ?',
-    cursor,
-    lastSeq,
-    now,
-    userId,
-    streamId,
-  );
 }
 
 /** Persist the latest last_seq + activity timestamp. Used when no cursor is yielded. */
@@ -285,7 +297,7 @@ export function updateLastSeq(
 ): void {
   const { userId, streamId, lastSeq, now } = opts;
   sql.exec(
-    'UPDATE __wskit_streams SET last_seq = ?, last_activity_at = ? WHERE user_id = ? AND stream_id = ?',
+    'UPDATE __livething_streams SET last_seq = ?, last_activity_at = ? WHERE user_id = ? AND stream_id = ?',
     lastSeq,
     now,
     userId,
@@ -293,11 +305,33 @@ export function updateLastSeq(
   );
 }
 
+/**
+ * Rewind a resumable stream to the cursor the reconnecting client confirmed,
+ * mark it active for the re-run, and count that run. Returns the new attempt
+ * number.
+ */
+export function rewindResumableStream(
+  sql: SqlExec,
+  opts: StreamRef & { lastSeq: number; now: number },
+): number {
+  sql.exec(
+    `UPDATE __livething_streams
+     SET last_seq = ?, status = 'active', last_activity_at = ?, attempt = attempt + 1
+     WHERE user_id = ? AND stream_id = ?`,
+    opts.lastSeq,
+    opts.now,
+    opts.userId,
+    opts.streamId,
+  );
+
+  return readStream(sql, opts.userId, opts.streamId)?.attempt ?? 1;
+}
+
 /** Move an active row to suspended so the sweep can age it out after `maxAgeMs`. */
 export function markSuspended(sql: SqlExec, opts: StreamRef & { now: number }): void {
   const { userId, streamId, now } = opts;
   sql.exec(
-    `UPDATE __wskit_streams SET status = 'suspended', last_activity_at = ?
+    `UPDATE __livething_streams SET status = 'suspended', last_activity_at = ?
      WHERE user_id = ? AND stream_id = ? AND status = 'active'`,
     now,
     userId,
@@ -305,11 +339,25 @@ export function markSuspended(sql: SqlExec, opts: StreamRef & { now: number }): 
   );
 }
 
+/**
+ * Suspend every row still marked active. Called when a new process starts: no
+ * generator can be running yet, so an active row was left by a process that
+ * stopped mid-stream. Once suspended, a client can still resume it and the
+ * sweep expires it after `maxAgeMs`.
+ */
+export function suspendOrphanedStreams(sql: SqlExec, now: number): void {
+  sql.exec(
+    `UPDATE __livething_streams SET status = 'suspended', last_activity_at = ?
+     WHERE status = 'active'`,
+    now,
+  );
+}
+
 /** Mark a row ended and stamp `ended_at` so the retention window starts ticking. */
 export function markEnded(sql: SqlExec, opts: StreamRef & { now: number }): void {
   const { userId, streamId, now } = opts;
   sql.exec(
-    `UPDATE __wskit_streams SET status = 'ended', ended_at = ?, last_activity_at = ?
+    `UPDATE __livething_streams SET status = 'ended', ended_at = ?, last_activity_at = ?
      WHERE user_id = ? AND stream_id = ?`,
     now,
     now,
@@ -318,9 +366,9 @@ export function markEnded(sql: SqlExec, opts: StreamRef & { now: number }): void
   );
 }
 
-/** Delete the row and its chunks (ON DELETE CASCADE clears `__wskit_stream_chunks`). */
+/** Delete the row and its chunks (ON DELETE CASCADE clears `__livething_stream_chunks`). */
 export function deleteStream(sql: SqlExec, userId: string, streamId: string): void {
-  sql.exec('DELETE FROM __wskit_streams WHERE user_id = ? AND stream_id = ?', userId, streamId);
+  sql.exec('DELETE FROM __livething_streams WHERE user_id = ? AND stream_id = ?', userId, streamId);
 }
 
 /** Inputs accepted by `appendChunk`. */
@@ -338,7 +386,7 @@ export interface AppendChunkInput {
 /** Append one chunk to the buffer for replay on resume. */
 export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
   sql.exec(
-    `INSERT INTO __wskit_stream_chunks (user_id, stream_id, seq, message_id, payload, emitted_at)
+    `INSERT INTO __livething_stream_chunks (user_id, stream_id, seq, message_id, payload, emitted_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
     input.userId,
     input.streamId,
@@ -357,7 +405,7 @@ export function readChunksSince(
   const { userId, streamId, since } = opts;
   const rows = sql
     .exec(
-      `SELECT * FROM __wskit_stream_chunks
+      `SELECT * FROM __livething_stream_chunks
      WHERE user_id = ? AND stream_id = ? AND seq > ?
      ORDER BY seq ASC`,
       userId,
@@ -379,7 +427,7 @@ export function readChunksSince(
 export function countChunks(sql: SqlExec, userId: string, streamId: string): number {
   const rows = sql
     .exec(
-      'SELECT COUNT(*) AS n FROM __wskit_stream_chunks WHERE user_id = ? AND stream_id = ?',
+      'SELECT COUNT(*) AS n FROM __livething_stream_chunks WHERE user_id = ? AND stream_id = ?',
       userId,
       streamId,
     )
@@ -391,13 +439,13 @@ export function countChunks(sql: SqlExec, userId: string, streamId: string): num
 export function trimOldestChunks(sql: SqlExec, opts: StreamRef & { keepNewest: number }): void {
   const { userId, streamId, keepNewest } = opts;
   sql.exec(
-    `DELETE FROM __wskit_stream_chunks
+    `DELETE FROM __livething_stream_chunks
      WHERE user_id = ? AND stream_id = ?
        AND seq IN (
-         SELECT seq FROM __wskit_stream_chunks
+         SELECT seq FROM __livething_stream_chunks
          WHERE user_id = ? AND stream_id = ?
          ORDER BY seq ASC
-         LIMIT MAX(0, (SELECT COUNT(*) FROM __wskit_stream_chunks WHERE user_id = ? AND stream_id = ?) - ?)
+         LIMIT MAX(0, (SELECT COUNT(*) FROM __livething_stream_chunks WHERE user_id = ? AND stream_id = ?) - ?)
        )`,
     userId,
     streamId,
@@ -406,6 +454,70 @@ export function trimOldestChunks(sql: SqlExec, opts: StreamRef & { keepNewest: n
     userId,
     streamId,
     keepNewest,
+  );
+}
+
+/** Inputs accepted by `appendCursorCheckpoint`. */
+export interface AppendCursorCheckpointInput {
+  userId: string;
+  streamId: string;
+  seq: number;
+  cursor: string;
+  now: number;
+}
+
+/** Save the cursor that can restart a resumable stream after `seq`. */
+export function appendCursorCheckpoint(sql: SqlExec, input: AppendCursorCheckpointInput): void {
+  sql.exec(
+    `INSERT INTO __livething_stream_checkpoints (user_id, stream_id, seq, cursor, saved_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    input.userId,
+    input.streamId,
+    input.seq,
+    input.cursor,
+    input.now,
+  );
+}
+
+/** Read the newest resumable cursor checkpoint at or before a client sequence. */
+export function readCursorCheckpointAtOrBefore(
+  sql: SqlExec,
+  opts: StreamRef & { seq: number },
+): DurableStreamCursorCheckpointRow | null {
+  const row = sql
+    .exec(
+      `SELECT * FROM __livething_stream_checkpoints
+       WHERE user_id = ? AND stream_id = ? AND seq <= ?
+       ORDER BY seq DESC
+       LIMIT 1`,
+      opts.userId,
+      opts.streamId,
+      opts.seq,
+    )
+    .toArray()[0];
+
+  if (!row) return null;
+
+  return {
+    userId: row.user_id as string,
+    streamId: row.stream_id as string,
+    seq: Number(row.seq),
+    cursor: row.cursor as string,
+    savedAt: Number(row.saved_at),
+  };
+}
+
+/** Remove checkpoints for chunks the client did not confirm receiving. */
+export function deleteCursorCheckpointsAfter(
+  sql: SqlExec,
+  opts: StreamRef & { seq: number },
+): void {
+  sql.exec(
+    `DELETE FROM __livething_stream_checkpoints
+     WHERE user_id = ? AND stream_id = ? AND seq > ?`,
+    opts.userId,
+    opts.streamId,
+    opts.seq,
   );
 }
 
@@ -422,7 +534,7 @@ export interface StreamSubscriber {
 export function seedSubscriber(sql: SqlExec, opts: SubscriberRef): void {
   const { storageUserId, streamId, subscriberUserId } = opts;
   sql.exec(
-    `INSERT OR IGNORE INTO __wskit_stream_subscribers
+    `INSERT OR IGNORE INTO __livething_stream_subscribers
      (user_id, stream_id, subscriber_user_id, caught_up_seq)
      VALUES (?, ?, ?, 0)`,
     storageUserId,
@@ -435,7 +547,7 @@ export function seedSubscriber(sql: SqlExec, opts: SubscriberRef): void {
 export function setCaughtUpSeq(sql: SqlExec, opts: SubscriberRef & { caughtUpSeq: number }): void {
   const { storageUserId, streamId, subscriberUserId, caughtUpSeq } = opts;
   sql.exec(
-    `INSERT INTO __wskit_stream_subscribers
+    `INSERT INTO __livething_stream_subscribers
      (user_id, stream_id, subscriber_user_id, caught_up_seq)
      VALUES (?, ?, ?, ?)
      ON CONFLICT (user_id, stream_id, subscriber_user_id)
@@ -452,7 +564,7 @@ export function getSubscriber(sql: SqlExec, opts: SubscriberRef): StreamSubscrib
   const { storageUserId, streamId, subscriberUserId } = opts;
   const row = sql
     .exec(
-      `SELECT caught_up_seq, unsubscribed_at FROM __wskit_stream_subscribers
+      `SELECT caught_up_seq, unsubscribed_at FROM __livething_stream_subscribers
        WHERE user_id = ? AND stream_id = ? AND subscriber_user_id = ? LIMIT 1`,
       storageUserId,
       streamId,
@@ -460,6 +572,7 @@ export function getSubscriber(sql: SqlExec, opts: SubscriberRef): StreamSubscrib
     )
     .toArray()[0];
   if (!row) return null;
+
   return {
     caughtUpSeq: Number(row.caught_up_seq),
     unsubscribedAt: row.unsubscribed_at == null ? null : Number(row.unsubscribed_at),
@@ -470,7 +583,7 @@ export function getSubscriber(sql: SqlExec, opts: SubscriberRef): StreamSubscrib
 export function markUnsubscribed(sql: SqlExec, opts: SubscriberRef & { now: number }): void {
   const { storageUserId, streamId, subscriberUserId, now } = opts;
   sql.exec(
-    `INSERT INTO __wskit_stream_subscribers
+    `INSERT INTO __livething_stream_subscribers
      (user_id, stream_id, subscriber_user_id, unsubscribed_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT (user_id, stream_id, subscriber_user_id)
@@ -497,7 +610,7 @@ export interface SweepCandidate {
 export function findExpiredSuspended(sql: SqlExec, now: number): SweepCandidate[] {
   const rows = sql
     .exec(
-      `SELECT user_id, stream_id FROM __wskit_streams
+      `SELECT user_id, stream_id FROM __livething_streams
      WHERE status = 'suspended'
        AND max_age_ms IS NOT NULL
        AND (last_activity_at + max_age_ms) < ?`,
@@ -540,39 +653,43 @@ export function purgeStreamsByUser(
   options?: PurgeStreamsByUserOptions,
 ): void {
   if (options?.keepBroadcastContent) {
-    sql.exec('UPDATE __wskit_streams SET creator_user_id = NULL WHERE creator_user_id = ?', userId);
+    sql.exec(
+      'UPDATE __livething_streams SET creator_user_id = NULL WHERE creator_user_id = ?',
+      userId,
+    );
   } else {
     const createdRows = sql
-      .exec('SELECT user_id, stream_id FROM __wskit_streams WHERE creator_user_id = ?', userId)
+      .exec('SELECT user_id, stream_id FROM __livething_streams WHERE creator_user_id = ?', userId)
       .toArray();
     for (const row of createdRows) {
       const streamUserId = row.user_id as string;
       const streamId = row.stream_id as string;
       sql.exec(
-        'DELETE FROM __wskit_stream_chunks WHERE user_id = ? AND stream_id = ?',
+        'DELETE FROM __livething_stream_chunks WHERE user_id = ? AND stream_id = ?',
         streamUserId,
         streamId,
       );
       sql.exec(
-        'DELETE FROM __wskit_stream_subscribers WHERE user_id = ? AND stream_id = ?',
+        'DELETE FROM __livething_stream_subscribers WHERE user_id = ? AND stream_id = ?',
         streamUserId,
         streamId,
       );
     }
-    sql.exec('DELETE FROM __wskit_streams WHERE creator_user_id = ?', userId);
+
+    sql.exec('DELETE FROM __livething_streams WHERE creator_user_id = ?', userId);
   }
 
-  sql.exec('DELETE FROM __wskit_stream_chunks WHERE user_id = ?', userId);
-  sql.exec('DELETE FROM __wskit_stream_subscribers WHERE user_id = ?', userId);
-  sql.exec('DELETE FROM __wskit_stream_subscribers WHERE subscriber_user_id = ?', userId);
-  sql.exec('DELETE FROM __wskit_streams WHERE user_id = ?', userId);
+  sql.exec('DELETE FROM __livething_stream_chunks WHERE user_id = ?', userId);
+  sql.exec('DELETE FROM __livething_stream_subscribers WHERE user_id = ?', userId);
+  sql.exec('DELETE FROM __livething_stream_subscribers WHERE subscriber_user_id = ?', userId);
+  sql.exec('DELETE FROM __livething_streams WHERE user_id = ?', userId);
 }
 
 /** Ended streams whose retention window has elapsed since `ended_at`. */
 export function findExpiredEnded(sql: SqlExec, now: number): SweepCandidate[] {
   const rows = sql
     .exec(
-      `SELECT user_id, stream_id FROM __wskit_streams
+      `SELECT user_id, stream_id FROM __livething_streams
      WHERE status = 'ended'
        AND ended_at IS NOT NULL
        AND retention_after_end_ms IS NOT NULL

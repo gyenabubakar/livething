@@ -4,7 +4,7 @@ import { MessageBuffer } from '~/primitives/buffering/buffer.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WireMessage } from '~/internal/runtime.ts';
+import type { Message } from '~/internal/runtime.ts';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 import type { SocketContract } from '~/types.ts';
 
@@ -120,6 +120,7 @@ describe('MessageBuffer — owner settling', () => {
     buffer.flush(
       (m) => {
         if (m.event === 'bad') throw typeError;
+
         sent.push(m.event);
       },
       undefined,
@@ -203,8 +204,9 @@ describe('MessageBuffer — flush isolation (#25)', () => {
 
     const onError = vi.fn();
     const sent: string[] = [];
-    function send(m: WireMessage): void {
+    function send(m: Message): void {
       if (m.event === 'bad') throw new Error('serialize failed');
+
       sent.push(m.event);
     }
 
@@ -332,7 +334,7 @@ describe('MessageBuffer — staggered flushInterval tick loop', () => {
     const buffer = new MessageBuffer({ enabled: true, flushInterval: 100 });
     const delivered: string[] = [];
     let wireOpen = true;
-    function send(m: WireMessage): void {
+    function send(m: Message): void {
       if (wireOpen) delivered.push(m.event);
     }
 
@@ -446,6 +448,7 @@ describe('buffering — live send during a staggered flush stays in order', () =
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
+
     ws.serverClose(1006);
 
     socket.send('typing', { channelId: 'a' });
@@ -461,7 +464,7 @@ describe('buffering — live send during a staggered flush stays in order', () =
     vi.advanceTimersByTime(300);
     const order = ws
       .sentFrames()
-      .map((f: WireMessage) => (f.payload as { channelId: string }).channelId);
+      .map((f: Message) => (f.payload as { channelId: string }).channelId);
     expect(order).toEqual(['a', 'b', 'c']);
   });
 });

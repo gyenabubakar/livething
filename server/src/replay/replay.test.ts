@@ -7,7 +7,7 @@ const replayPrimitive = replay();
 const _replayType: ReplayPrimitive = replayPrimitive;
 void _replayType;
 
-const _tag: 'replay' = replayPrimitive.__wskit;
+const _tag: 'replay' = replayPrimitive.__livething;
 const _kind: PrimitiveKind = replayPrimitive.__kind;
 void [_tag, _kind];
 

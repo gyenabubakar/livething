@@ -6,13 +6,13 @@
  * for every brand simultaneously.
  */
 import { t } from '~/_api/index.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { lastSeen } from '~/last-seen/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
 import { replay } from '~/replay/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
@@ -23,7 +23,7 @@ import type { AnyCapability } from '~/_define/capability.ts';
 // ---------------------------------------------------------------------------
 
 declare const widenedCaps: AnyCapability[];
-const base = define({ env: t<Record<string, never>>(), capabilities: widenedCaps });
+const base = server({ capabilities: widenedCaps });
 
 // channels() cannot be confirmed listed either, once the array has widened —
 // every gate closes together, so `base.channel` itself is gone, not just its
@@ -33,9 +33,7 @@ base.channel('room', { rateLimit: { enabled: true, max: 5 } });
 
 // @ts-expect-error — channels() is not confirmed listed, so base.channel is absent.
 base.channel('room2', {
-  outgoing: {
-    requests: { ask: { out: t<{}>(), in: v.object({}) } },
-  },
+  capabilities: [serverRequests({ ask: { out: t<{}>(), in: v.object({}) } })],
 });
 
 base.on('ping', {
@@ -56,29 +54,21 @@ base.on('ping', {
   },
 });
 
-// ---------------------------------------------------------------------------
-// Regression — an inline, literal-brand `capabilities` array still grants
-// exactly what it lists.
-// ---------------------------------------------------------------------------
+// An inline, literal-brand `capabilities` array grants exactly what it lists.
 
-const rateLimitBase = define({
-  env: t<Record<string, never>>(),
+const rateLimitBase = server({
   capabilities: [channels(), rateLimit({ max: 5 })],
 });
 rateLimitBase.channel('room', { rateLimit: { enabled: true, max: 5 } });
 
-const requestsBase = define({
-  env: t<Record<string, never>>(),
-  capabilities: [channels(), requests()],
+const requestsBase = server({
+  capabilities: [channels(), serverRequests()],
 });
 requestsBase.channel('room2', {
-  outgoing: {
-    requests: { ask: { out: t<{}>(), in: v.object({}) } },
-  },
+  capabilities: [serverRequests({ ask: { out: t<{}>(), in: v.object({}) } })],
 });
 
-const channelsBase = define({
-  env: t<Record<string, never>>(),
+const channelsBase = server({
   capabilities: [channels()],
 });
 channelsBase.on('ping', {
@@ -88,8 +78,7 @@ channelsBase.on('ping', {
   },
 });
 
-const scheduledBase = define({
-  env: t<Record<string, never>>(),
+const scheduledBase = server({
   capabilities: [scheduled({ task: null })],
 });
 scheduledBase.on('ping', {
@@ -99,8 +88,7 @@ scheduledBase.on('ping', {
   },
 });
 
-const keepaliveBase = define({
-  env: t<Record<string, never>>(),
+const keepaliveBase = server({
   capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
 });
 keepaliveBase.on('ping', {
@@ -110,8 +98,7 @@ keepaliveBase.on('ping', {
   },
 });
 
-const lastSeenBase = define({
-  env: t<Record<string, never>>(),
+const lastSeenBase = server({
   capabilities: [lastSeen()],
 });
 lastSeenBase.on('ping', {
@@ -121,8 +108,7 @@ lastSeenBase.on('ping', {
   },
 });
 
-const replayBase = define({
-  env: t<Record<string, never>>(),
+const replayBase = server({
   capabilities: [replay.history()],
 });
 replayBase.on('ping', {

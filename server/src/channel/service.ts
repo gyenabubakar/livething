@@ -6,7 +6,9 @@ import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts'
 import {
   autoRejoinIdentity,
   deleteDurableMembership,
-  hasDurableMembership,
+  getDurableMembership,
+  listDurableMembers,
+  markDurableMembershipKicked,
   persistMembership,
   purgeChannelMembership,
 } from '~/channel/membership.ts';
@@ -28,7 +30,9 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 export const channelMembershipService: ChannelMembershipService = {
   persistMembership,
   deleteDurableMembership,
-  hasDurableMembership,
+  getDurableMembership,
+  markDurableMembershipKicked,
+  listDurableMembers,
   autoRejoinIdentity,
 };
 
@@ -46,8 +50,8 @@ function boundLeave(core: EngineCore) {
  * The channel subscribe/leave/kick runtime, reached through the engine's
  * `channelService` slot. Each method rebuilds its dependency bag from `core`, so
  * the engine never imports the channel-protocol engine to call them. Registered
- * by the `channels()` capability — a handler that lists no channels leaves the
- * slot unset and ships none of this.
+ * by the `channels()` capability — a server that does not list that capability
+ * leaves the slot unset and ships none of this.
  */
 export const channelService: ChannelService = {
   handleSubscribe(core, connection, frame) {
@@ -115,7 +119,7 @@ export function registerChannelRuntime(engine: EngineAccess): void {
         engine
           .getLogger?.()
           ?.info?.(
-            `[wskit] channel membership boot cleanup dropped ${dropped} orphaned channel-scope row group(s)`,
+            `[livething] channel membership boot cleanup dropped ${dropped} orphaned channel-scope row group(s)`,
           );
       }
     });

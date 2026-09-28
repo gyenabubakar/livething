@@ -42,11 +42,11 @@ export interface StreamCapability extends Capability<{}, never, 'stream'> {
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { stream } from '@wskit/server/streams';
+ * import { server, t } from '@livething/server';
+ * import { stream } from '@livething/server/streams';
  * import * as v from 'valibot';
  *
- * const base = define({ env: t<Env>(), capabilities: [stream()] });
+ * const base = server({ capabilities: [stream()] });
  *
  * export const handleFeed = base.stream('feed', {
  *   input: v.object({ count: v.number() }),
@@ -54,6 +54,8 @@ export interface StreamCapability extends Capability<{}, never, 'stream'> {
  *     for (let i = 0; i < input.count; i += 1) yield { index: i };
  *   },
  * });
+ *
+ * export const server = base.assemble({ handlers: [handleFeed] });
  * ```
  */
 export const stream = withCapabilityKind(function stream(): StreamCapability {

@@ -39,10 +39,10 @@ const frames = [
           </defs>
         </svg>
         <div
-          class="flex lowercase font-medium text-[46px] leading-none tracking-tight"
+          class="flex font-medium text-[46px] leading-none tracking-tight"
           :style="{ fontFamily: 'Geist Pixel Line', color: '#f5f5f5', textShadow: '0 0 10px rgba(255,255,255,0.3), 0 0 26px rgba(255,255,255,0.12)' }"
         >
-          wskit
+          LiveThing
         </div>
         <div
           class="flex"
@@ -53,7 +53,7 @@ const frames = [
         class="flex text-[16px] tracking-[0.18em] font-semibold uppercase"
         :style="{ fontFamily: 'DM Mono', color: '#9ea0a8' }"
       >
-        wskit.dev
+        livething.dev
       </div>
     </div>
 

@@ -1,4 +1,4 @@
-export { plugin, observeHost } from '~/plugins/plugins.ts';
+export { plugin } from '~/plugins/plugins.ts';
 export type {
   PluginDef,
   PluginFactory,

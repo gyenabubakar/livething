@@ -20,15 +20,16 @@ export interface IncomingDef<TName extends string = string, TPayload = unknown> 
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@livething/server';
  * import * as v from 'valibot';
  *
- * const base = define({ env: t<Env>() });
+ * const base = server({});
  *
  * const handleSend = base.on('send-msg', {
  *   input: v.object({ text: v.string() }),
  *   run(ctx, input) { ... },
  * });
+ * base.assemble({ handlers: [handleSend] });
  * ```
  */
 export function incoming<TName extends string>(name: TName): IncomingDef<TName, unknown>;

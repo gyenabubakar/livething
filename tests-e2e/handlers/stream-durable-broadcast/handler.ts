@@ -1,8 +1,8 @@
-import { define, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { recordedStream, resumableStream } from '@wskit/server/streams';
+import { server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { recordedStream, resumableStream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Empty = v.object({});
@@ -10,8 +10,7 @@ const TokenChunk = t<{ token: string }>();
 const RowChunk = t<{ row: number }>();
 const AttemptChunk = t<{ attempt: number }>();
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), recordedStream(), resumableStream()],
 });
@@ -75,13 +74,14 @@ const handleFeedNudged = rooms.recordedStream('feed-nudged', {
     for (let i = 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield { token: `t${i}` });
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },
 });
 
-export const streamDurableBroadcastHandler = base.assemble({
+export const streamDurableBroadcastDefinition = base.assemble({
   handlers: [handleFeed, handlePaginate, handleAttemptBroadcast, handleFeedNudged],
 });
 
-export type StreamDurableBroadcastClient = InferClient<typeof streamDurableBroadcastHandler>;
+export type StreamDurableBroadcastClient = InferClient<typeof streamDurableBroadcastDefinition>;

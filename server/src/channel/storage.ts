@@ -1,25 +1,26 @@
+import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import type { SQLProvider } from '~/context.ts';
 
 const CREATE_MEMBERSHIPS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_channel_memberships (
+  CREATE TABLE IF NOT EXISTS __livething_channel_memberships (
     user_id       TEXT NOT NULL,
     channel_name  TEXT NOT NULL,
     channel_family TEXT NOT NULL DEFAULT '',
     joined_at     INTEGER NOT NULL,
-    -- Reserved JSON blob: lets us add per-row fields later without a migration.
+    -- JSON blob { meta, kicked? }. New per-row fields go here without a migration.
     metadata      TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (user_id, channel_name, channel_family)
   )
 `;
 
 const CREATE_MEMBERSHIPS_USER_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_user
-  ON __wskit_channel_memberships (user_id)
+  CREATE INDEX IF NOT EXISTS __livething_idx_channel_memberships_user
+  ON __livething_channel_memberships (user_id)
 `;
 
 const CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_channel
-  ON __wskit_channel_memberships (channel_name, channel_family)
+  CREATE INDEX IF NOT EXISTS __livething_idx_channel_memberships_channel
+  ON __livething_channel_memberships (channel_name, channel_family)
 `;
 
 // All three DDL statements in one multi-statement string. Cloudflare's SQL
@@ -68,25 +69,61 @@ export interface MembershipKey {
   channelFamily: string | null;
 }
 
+/** A membership row to write: the key plus the joining connection's meta. */
+export interface MembershipInsert extends MembershipKey {
+  /** Shown to peers as the member's meta while the member is offline. */
+  meta?: Record<string, unknown>;
+}
+
+/**
+ * The stored state of one membership row.
+ *
+ * `kicked` is `true` after a kick that did not revoke the membership: the user
+ * left the group and peers saw them leave, but the row stays so they rejoin on
+ * their next connection.
+ */
+export interface StoredMembership {
+  meta: Record<string, unknown>;
+  kicked: boolean;
+}
+
 /**
  * Insert or replace a durable membership row. Called on a successful subscribe
- * to a persistent channel.
+ * to a persistent channel. Writing the row again clears the `kicked` state.
  */
 export function insertMembership(
   sql: Pick<SQLProvider, 'exec'>,
-  key: MembershipKey,
+  row: MembershipInsert,
   joinedAt: number = Date.now(),
 ): void {
   sql.exec(
     `
-      INSERT OR REPLACE INTO __wskit_channel_memberships
-        (user_id, channel_name, channel_family, joined_at)
-      VALUES (?, ?, ?, ?)
+      INSERT OR REPLACE INTO __livething_channel_memberships
+        (user_id, channel_name, channel_family, joined_at, metadata)
+      VALUES (?, ?, ?, ?, ?)
+    `,
+    row.userId,
+    row.channelName,
+    familyToDb(row.channelFamily),
+    joinedAt,
+    serializeJsonOrThrow({ meta: row.meta ?? {} }, `Channel membership meta for "${row.userId}"`),
+  );
+}
+
+/**
+ * Mark a durable membership row as kicked. The row stays, so the user still
+ * rejoins on their next connection, but the member roster no longer lists them.
+ */
+export function markMembershipKicked(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): void {
+  sql.exec(
+    `
+      UPDATE __livething_channel_memberships
+      SET metadata = json_set(metadata, '$.kicked', json('true'))
+      WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
     key.userId,
     key.channelName,
     familyToDb(key.channelFamily),
-    joinedAt,
   );
 }
 
@@ -97,7 +134,7 @@ export function insertMembership(
 export function deleteMembership(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): void {
   sql.exec(
     `
-      DELETE FROM __wskit_channel_memberships
+      DELETE FROM __livething_channel_memberships
       WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
     key.userId,
@@ -118,7 +155,7 @@ export function listMembershipsByUser(
     .exec<RawMembershipRow>(
       `
         SELECT channel_name, channel_family, joined_at
-        FROM __wskit_channel_memberships
+        FROM __livething_channel_memberships
         WHERE user_id = ?
       `,
       userId,
@@ -144,7 +181,7 @@ export function listIdentitiesByChannel(
   return sql
     .exec<{ user_id: string }>(
       `
-        SELECT user_id FROM __wskit_channel_memberships
+        SELECT user_id FROM __livething_channel_memberships
         WHERE channel_name = ? AND channel_family = ?
       `,
       channelName,
@@ -154,29 +191,51 @@ export function listIdentitiesByChannel(
     .map((row) => row.user_id);
 }
 
-/** True when a durable membership row exists for this user and channel. */
-export function membershipExists(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): boolean {
-  return (
-    sql
-      .exec(
-        `
-          SELECT 1 FROM __wskit_channel_memberships
-          WHERE user_id = ? AND channel_name = ? AND channel_family = ?
-          LIMIT 1
-        `,
-        key.userId,
-        key.channelName,
-        familyToDb(key.channelFamily),
-      )
-      .toArray().length > 0
-  );
+/** Read every durable member of one channel with its stored meta and kicked state. */
+export function listMembersByChannel(
+  sql: Pick<SQLProvider, 'exec'>,
+  channelName: string,
+  channelFamily: string | null,
+): (StoredMembership & { userId: string })[] {
+  return sql
+    .exec<{ user_id: string; metadata: string }>(
+      `
+        SELECT user_id, metadata FROM __livething_channel_memberships
+        WHERE channel_name = ? AND channel_family = ?
+      `,
+      channelName,
+      familyToDb(channelFamily),
+    )
+    .toArray()
+    .map((row) => ({ userId: row.user_id, ...parseStoredMembership(row.metadata) }));
+}
+
+/** Read one durable membership row, or `undefined` when the user has none. */
+export function readMembership(
+  sql: Pick<SQLProvider, 'exec'>,
+  key: MembershipKey,
+): StoredMembership | undefined {
+  const row = sql
+    .exec<{ metadata: string }>(
+      `
+        SELECT metadata FROM __livething_channel_memberships
+        WHERE user_id = ? AND channel_name = ? AND channel_family = ?
+        LIMIT 1
+      `,
+      key.userId,
+      key.channelName,
+      familyToDb(key.channelFamily),
+    )
+    .toArray()[0];
+
+  return row ? parseStoredMembership(row.metadata) : undefined;
 }
 
 /**
  * Delete every membership row for one user. Used by `purgeUser`.
  */
 export function purgeMembershipsByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec('DELETE FROM __wskit_channel_memberships WHERE user_id = ?', userId);
+  sql.exec('DELETE FROM __livething_channel_memberships WHERE user_id = ?', userId);
 }
 
 /**
@@ -190,7 +249,7 @@ export function deleteMembershipsByChannel(
 ): void {
   sql.exec(
     `
-      DELETE FROM __wskit_channel_memberships
+      DELETE FROM __livething_channel_memberships
       WHERE channel_name = ? AND channel_family = ?
     `,
     channelName,
@@ -215,4 +274,23 @@ function familyToDb(scope: string | null): string {
  */
 function familyFromDb(scope: string): string | null {
   return scope === '' ? null : scope;
+}
+
+function parseStoredMembership(raw: string): StoredMembership {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = undefined;
+  }
+
+  const fields = isPlainObject(parsed) ? parsed : {};
+  return {
+    meta: isPlainObject(fields.meta) ? fields.meta : {},
+    kicked: fields.kicked === true,
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

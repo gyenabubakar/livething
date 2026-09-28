@@ -1,13 +1,13 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { Disconnect } from '@wskit/server/errors';
-import { inbox, readReceipts } from '@wskit/server/inbox';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { Disconnect } from '@livething/server/errors';
+import { inbox, readReceipts } from '@livething/server/inbox';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 import { AddFavorite, SendRoomMsg, SendTopMsg } from './events.ts';
 import type { RoomMsg, TopMsg } from './events.ts';
@@ -19,8 +19,7 @@ import type { RoomMsg, TopMsg } from './events.ts';
 // concrete (family, name) pair the member joined, not the family alone. The
 // host's top-level `replay.history()` events keep their own sequence
 // numbers, independent of a room's per-member inbox seq.
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -57,12 +56,13 @@ export const handleAddFavorite = base.on('add-favorite', {
 
 const rooms = base.channel(['rooms', 'room:{id}'], {
   membership: 'persistent',
-  capabilities: [inbox(), readReceipts()],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox(),
+    readReceipts(),
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleSendRoomMsg = rooms.on('send-room-msg', {
@@ -75,8 +75,8 @@ export const handleSendRoomMsg = rooms.on('send-room-msg', {
 // `rooms` carries the `inbox: true` / `readReceipts: true` client-contract
 // flags, so it is passed to `assemble` for `InferClient` to expose the
 // inbox/readReceipts surface for the family.
-export const inboxDynamicHandler = base.assemble({
+export const inboxDynamicDefinition = base.assemble({
   handlers: [handleServerDrop, handleSendTopMsg, handleAddFavorite, handleSendRoomMsg, rooms],
 });
 
-export type InboxDynamicClient = InferClient<typeof inboxDynamicHandler>;
+export type InboxDynamicClient = InferClient<typeof inboxDynamicDefinition>;

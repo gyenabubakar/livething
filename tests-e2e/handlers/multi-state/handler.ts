@@ -4,16 +4,15 @@
  * that wrote one row per add. Post-A the writes batch into one row at the
  * end of the handler invocation.
  */
-import { define, emits, t } from '@wskit/server';
-import { tags } from '@wskit/server/tags';
+import { emits, server, t } from '@livething/server';
+import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const TagBatchPayload = v.object({});
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   hibernation: { enabled: true },
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
@@ -36,6 +35,7 @@ const handleAddFiveTags = base.on('add-five-tags', {
     ctx.tags.ephemeral('batch').add('k3');
     ctx.tags.ephemeral('batch').add('k4');
     ctx.tags.ephemeral('batch').add('k5');
+
     ctx.send('tag-batch-done', { ok: true });
   },
 });
@@ -49,12 +49,13 @@ const handleRemoveFiveTags = base.on('remove-five-tags', {
     ctx.tags.ephemeral('batch').remove('k3');
     ctx.tags.ephemeral('batch').remove('k4');
     ctx.tags.ephemeral('batch').remove('k5');
+
     ctx.send('tag-batch-done', { ok: true });
   },
 });
 
-export const multiStateHandler = base.assemble({
+export const multiStateDefinition = base.assemble({
   handlers: [handleAddFiveTags, handleRemoveFiveTags],
 });
 
-export type MultiStateClient = InferClient<typeof multiStateHandler>;
+export type MultiStateClient = InferClient<typeof multiStateDefinition>;

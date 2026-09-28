@@ -1,4 +1,4 @@
-import { isWSKitConfigError } from '@wskit/core';
+import { isLiveThingConfigError } from '@livething/core';
 import {
   assertOneOf,
   assertOptionalPositiveInteger,
@@ -19,7 +19,8 @@ describe('assertPositiveInteger', () => {
     } catch (error) {
       captured = error;
     }
-    expect(isWSKitConfigError(captured)).toBe(true);
+
+    expect(isLiveThingConfigError(captured)).toBe(true);
     expect(String(captured)).toMatch(/maxChunks.*must be a positive safe integer/);
   });
 
@@ -84,7 +85,8 @@ describe('assertOneOf', () => {
     } catch (error) {
       captured = error;
     }
-    expect(isWSKitConfigError(captured)).toBe(true);
+
+    expect(isLiveThingConfigError(captured)).toBe(true);
     expect(String(captured)).toMatch(/durability.*must be one of 'strict', 'best-effort'/);
   });
 

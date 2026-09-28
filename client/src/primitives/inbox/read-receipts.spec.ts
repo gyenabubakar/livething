@@ -31,6 +31,7 @@ function build(readReceiptsOptions?: { timeout?: number }) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -40,9 +41,13 @@ async function subscribed(socket: ReturnType<typeof build>['socket'], ws: MockWe
   ws.emit({
     event: '__subscribeOk__',
     payload: {},
-    __wskit: { source: 'client', channel: 'room', inbox: true, readReceipts: true },
+    metadata: {
+      exchange: { source: 'client' },
+      channel: { name: 'room', inbox: true, readReceipts: true },
+    },
   });
   await p;
+
   return room;
 }
 
@@ -60,13 +65,17 @@ describe('read-receipts — markAsRead default uses ownReceived', () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
 
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 8 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 8 } },
+    });
     room.markAsRead();
 
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__read__',
       payload: { readThrough: 8 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
   });
 
@@ -74,11 +83,15 @@ describe('read-receipts — markAsRead default uses ownReceived', () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
 
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 4 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 4 } },
+    });
     ws.emit({
       event: 'tokens',
       payload: { text: 'x' },
-      __wskit: { channel: 'room', streamId: 's-1', seq: 99 },
+      metadata: { channel: { name: 'room' }, stream: { id: 's-1', seq: 99 } },
     });
     room.markAsRead();
 
@@ -88,19 +101,27 @@ describe('read-receipts — markAsRead default uses ownReceived', () => {
   it('resets ownReceived after a leave so a rejoin markAsRead does not target the old mark', async () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 50 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 50 } },
+    });
 
     const leave = room.unsubscribe();
-    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const unsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: unsubscribeId } },
     });
     await leave;
 
     const rejoined = await subscribed(socket, ws);
-    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 5 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'b' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 5 } },
+    });
     rejoined.markAsRead();
 
     expect(ws.sentFrames().at(-1).payload).toEqual({ readThrough: 5 });
@@ -117,19 +138,19 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     // A lower value must not regress the cursor, and must not re-fire the listener.
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 3 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     // A genuine advance still fires.
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 9 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     expect(events).toEqual([
@@ -145,21 +166,22 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     const snapshotAfterFirst = room.readers.get();
     const events: Array<[string, number]> = [];
+
     room.onRead((userId, readThrough) => events.push([userId, readThrough]));
 
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 2 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     expect(events).toEqual([]);
@@ -182,7 +204,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     expect(onError).toHaveBeenCalledTimes(1);
@@ -199,12 +221,12 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 4 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     ws.emit({
       event: '__read__',
       payload: { userId: 'alice', readThrough: 2 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     expect(room.readers.get()).toEqual(
@@ -227,16 +249,16 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
     expect(room.readers.get().size).toBe(1);
 
     const leave = room.unsubscribe();
-    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const unsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: unsubscribeId } },
     });
     await leave;
 
@@ -249,14 +271,18 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
-    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 500 } });
+    ws.emit({
+      event: 'msg',
+      payload: { text: 'a' },
+      metadata: { channel: { name: 'room' }, delivery: { seq: 500 } },
+    });
 
     // Leave, then immediately rejoin before the leave is confirmed — the rejoin
     // is deferred behind the leave and only sent once it settles.
     const leave = room.unsubscribe();
-    const staleUnsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const staleUnsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     const rejoin = room.subscribe();
 
     // The server's confirmation for the leave finally arrives. It resolves the
@@ -265,7 +291,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: staleUnsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: staleUnsubscribeId } },
     });
     await leave;
 
@@ -274,7 +300,10 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room', inbox: true, readReceipts: true },
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { name: 'room', inbox: true, readReceipts: true },
+      },
     });
     await rejoin;
 
@@ -282,7 +311,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__read__',
       payload: { readThrough: 500 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
   });
 
@@ -292,27 +321,31 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     const leave1 = room.unsubscribe();
-    const leave1Id = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const leave1Id = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     const rejoin1 = room.subscribe();
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+      metadata: { channel: { name: 'room', unsubscribeId: leave1Id } },
     });
     await leave1;
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room', inbox: true, readReceipts: true },
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { name: 'room', inbox: true, readReceipts: true },
+      },
     });
     await rejoin1;
 
     const leave2 = room.unsubscribe();
-    const leave2Id = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const leave2Id = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     let leave2Settled = false;
     void leave2.then(() => {
       leave2Settled = true;
@@ -320,8 +353,9 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+      metadata: { channel: { name: 'room', unsubscribeId: leave1Id } },
     });
+
     await Promise.resolve();
     expect(leave2Settled).toBe(false);
     expect(room.readers.get()).toEqual(new Map([['bob', 5]]));
@@ -329,7 +363,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId: leave2Id },
+      metadata: { channel: { name: 'room', unsubscribeId: leave2Id } },
     });
     await leave2;
     expect(room.readers.get()).toEqual(new Map());
@@ -341,11 +375,11 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__read__',
       payload: { userId: 'bob', readThrough: 5 },
-      __wskit: { channel: 'room' },
+      metadata: { channel: { name: 'room' } },
     });
 
     const leave = room.unsubscribe();
-    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const unsubscribeId = ws.sentFrames().at(-1).metadata.channel?.unsubscribeId;
     const error = new Error('rejoin payload failed');
     const rejoin = room.subscribe(() => {
       throw error;
@@ -354,7 +388,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
-      __wskit: { channel: 'room', unsubscribeId },
+      metadata: { channel: { name: 'room', unsubscribeId: unsubscribeId } },
     });
 
     await expect(leave).resolves.toBeUndefined();
@@ -381,7 +415,7 @@ describe('read-receipts — readersOf query over __readQuery__', () => {
     ws.emit({
       event: '__readQuery__',
       payload: { userIds: ['alice', 7, null, 'carol'] },
-      __wskit: { channel: 'room', correlationId: query.__wskit.correlationId },
+      metadata: { exchange: { id: query.metadata.exchange?.id }, channel: { name: 'room' } },
     });
 
     await expect(promise).resolves.toEqual(['alice', 'carol']);
@@ -427,19 +461,20 @@ describe('read-receipts — disjoint query ownership with inbox', () => {
       .sentFrames()
       .filter((f) => f.event === '__readQuery__')
       .at(-1);
-    const receivedId = receivedQuery.__wskit.correlationId;
-    const readId = readQuery.__wskit.correlationId;
+    const receivedId = receivedQuery.metadata.exchange?.id;
+
+    const readId = readQuery.metadata.exchange?.id;
     expect(receivedId).not.toBe(readId);
 
     ws.emit({
       event: '__readQuery__',
       payload: { userIds: ['read-answer'] },
-      __wskit: { channel: 'room', correlationId: readId },
+      metadata: { exchange: { id: readId }, channel: { name: 'room' } },
     });
     ws.emit({
       event: '__receivedQuery__',
       payload: { userIds: ['received-answer'] },
-      __wskit: { channel: 'room', correlationId: receivedId },
+      metadata: { exchange: { id: receivedId }, channel: { name: 'room' } },
     });
 
     await expect(received).resolves.toEqual(['received-answer']);
@@ -468,7 +503,7 @@ describe('read-receipts — disjoint query ownership with inbox', () => {
     ws.emit({
       event: '__readQuery__',
       payload: { userIds: ['alice'] },
-      __wskit: { channel: 'room', correlationId: query.__wskit.correlationId },
+      metadata: { exchange: { id: query.metadata.exchange?.id }, channel: { name: 'room' } },
     });
 
     await expect(promise).resolves.toEqual(['alice']);

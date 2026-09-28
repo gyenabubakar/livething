@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { WSKitConfigError } from '@wskit/core';
+import { LiveThingConfigError } from '@livething/core';
 import {
   compileChannelPrimitive,
   validateChannelFamilyPatternsDisjointFromStaticNames,
@@ -78,10 +78,10 @@ export type ExtractParams<S extends string> = S extends `${string}{${infer Name}
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { channels } from '@wskit/server/channels';
+ * import { server, t } from '@livething/server';
+ * import { channels } from '@livething/server/channels';
  *
- * const base = define({ env: t<Env>(), capabilities: [channels()] });
+ * const base = server({ capabilities: [channels()] });
  *
  * // A `[familyKey, pattern]` tuple declares a channel family that matches
  * // `room:<anything>` subscriptions. The family key ('rooms') is used in
@@ -135,7 +135,7 @@ export type ChannelChild = ChannelStatePrimitive | ChannelLifecycleChild;
 
 /**
  * The TypeScript type returned by `channel()`. Holds the channel pattern and
- * the child primitives that define the channel's behaviour.
+ * the child primitives that server the channel's behaviour.
  */
 export interface ChannelPrimitive<
   TPattern extends ChannelPattern = ChannelPattern,
@@ -145,7 +145,7 @@ export interface ChannelPrimitive<
 > extends Primitive<'channel'> {
   /** The pattern this channel matches against subscription paths. */
   readonly pattern: TPattern;
-  /** The primitives that define this channel's behaviour. */
+  /** The primitives that server this channel's behaviour. */
   readonly primitives: TPrimitives;
   /**
    * The capability kinds this channel's own `capabilities` list declares
@@ -178,12 +178,13 @@ const CHANNEL_KEY = Symbol('channel');
  */
 function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, source: string): void {
   if (typeof declaration.key !== 'string' || declaration.key.trim() === '') {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `${source} requires a non-empty key — got ${JSON.stringify(declaration.key)}.`,
     );
   }
+
   if (!(declaration.pattern instanceof RegExp) || typeof declaration.template !== 'string') {
-    throw new WSKitConfigError(
+    throw new LiveThingConfigError(
       `${source} requires a compiled template — build it with scope(key, template), ` +
         `not a hand-rolled object.`,
     );
@@ -202,8 +203,11 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
  * capture at `ctx.channel.params.name`.
  *
  * The template grammar is just literals plus `{name}` captures (`{{`/`}}` for a
- * literal brace). wskit compiles it to a linear-time matcher itself, so unlike a
- * raw regex it can never trigger catastrophic backtracking.
+ * literal brace). LiveThing compiles it to a matcher itself, built only from
+ * escaped literals and lazy `.+?` groups. In the worst case, matching takes time
+ * polynomial in the name length, with the number of `{name}` captures as the
+ * power (linear for one, quadratic for two), and never exponential. Channel
+ * names are at most 256 characters on the wire, which bounds that cost.
  *
  * @param key      Family identifier. Used as the first tuple element in
  *   `base.channel([key, pattern])` and in `ctx.channels.get(key, name)` lookups.
@@ -223,22 +227,24 @@ export function scope<TKey extends string, const TTemplate extends string>(
   key: TKey,
   template: TTemplate,
 ): ScopeDeclaration<TKey, ExtractParams<TTemplate>> {
-  const compiled = compileChannelTemplate(template, 'scope()');
+  const source = `base.channel(['${String(key)}', ...])`;
+  const compiled = compileChannelTemplate(template, source);
   const declaration: ScopeDeclaration<TKey, ExtractParams<TTemplate>> = {
     key,
     template: compiled.template,
     pattern: compiled.regex,
     paramNames: compiled.paramNames,
   };
-  assertValidScopeDeclaration(declaration, 'scope()');
+
+  assertValidScopeDeclaration(declaration, source);
+
   return declaration;
 }
 
 /**
- * Internal primitive factory. The user-facing `channel()` for declaring a
- * channel in a contract lives at `~/channel/definition.ts`. This factory is
- * called by the implementer's compile step to wrap a channel's compiled
- * child primitives.
+ * Internal primitive factory. The user-facing channel builder lives at
+ * `base.channel(...)`. This factory is called by the definition compiler to
+ * wrap a channel's assembled child primitives.
  *
  * @param pattern A string (static channel name) or a `ScopeDeclaration` from
  *   `scope()` for dynamic families that match many subscription paths.
@@ -249,15 +255,16 @@ export function channel<
 >(pattern: TPattern, ...primitives: TPrimitives): ChannelPrimitive<TPattern, TPrimitives> {
   if (typeof pattern === 'string') {
     if (pattern.trim() === '') {
-      throw new WSKitConfigError(
+      throw new LiveThingConfigError(
         `channel() requires a non-empty name — got ${JSON.stringify(pattern)}.`,
       );
     }
   } else {
     assertValidScopeDeclaration(pattern, 'channel()');
   }
+
   return {
-    __wskit: 'channel',
+    __livething: 'channel',
     __kind: 'scope',
     __identity: [CHANNEL_KEY, typeof pattern === 'string' ? pattern : pattern.key],
     __requires: {},

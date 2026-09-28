@@ -15,12 +15,76 @@ import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import type { MembershipInsert } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
+import type { StopChannelStreamsOptions } from '~/stream/runtime.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 type ResolvedChannel = EngineRuntimeTypes.ResolvedChannel;
 type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
 type BroadcastOptions = PublicApi.BroadcastOptions;
+
+interface ConnectionInfoOptions {
+  lastSeen?: number | null;
+}
+
+interface PipelineOptions {
+  routing: RoutingTarget | undefined;
+  event: string;
+  payload: unknown;
+}
+
+interface InboxFanOutOptions {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+  deliverySeq: number;
+  messageId: string;
+}
+
+interface PersistAttachmentOptions {
+  force?: boolean;
+}
+
+interface ProtocolMessageOptions {
+  event: string;
+  payload: Record<string, unknown>;
+  livething: Record<string, unknown>;
+}
+
+interface ValidationErrorOptions {
+  event: string;
+  validationError: unknown;
+  scope?: ResolvedChannel;
+}
+
+interface RuntimeErrorOptions {
+  error: unknown;
+  event?: string;
+  routing?: Protocol.LiveThingRouting;
+}
+
+interface ReplayWire {
+  deliverySeq: number;
+  messageId: string;
+  channel?: string;
+}
+
+interface ReplaySendOptions {
+  channelName: string | null;
+  channelFamily: string | null;
+  event: string;
+  payload: unknown;
+  wire: ReplayWire;
+}
+
+interface BroadcastConnectionsOptions {
+  event: string;
+  payload: unknown;
+  options?: BroadcastOptions;
+  excludeConnectionId?: string;
+}
 
 // Each dependency bag closes over `core` and is otherwise constant for the
 // engine's life — build it once per core and reuse it, rather than rebuilding
@@ -43,6 +107,7 @@ function depsMemoFor(core: EngineCore): DepsMemo {
     memo = {};
     depsMemo.set(core, memo);
   }
+
   return memo;
 }
 
@@ -73,10 +138,8 @@ export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDe
 function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
   let storageView: ReturnType<typeof createLazyStorageView> | undefined;
   return {
-    env: core.env,
     logger: core.logger,
     platform: core.platform,
-    waitUntilImpl: core.waitUntilImpl,
     getStorage: () => core.storage,
     getStorageView: () => (storageView ??= createLazyStorageView(core.storage)),
     getTimers: () => core.timers,
@@ -93,18 +156,34 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     sendThroughPipeline: (connection, opts) => {
       return OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts);
     },
+    broadcastToUser: (connections, opts) =>
+      OutgoingRuntime.broadcastToUser(outgoingRuntime(core), connections, opts),
     broadcastToChannel: (opts) => {
       OutgoingRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
-    sendToChannelRecipient: (opts) => {
-      if (opts.to.__wskit === 'connection-ref' || opts.to.__wskit === 'user-ref') {
-        assertLocalRef(opts.to, core.engineInstanceId, 'channelHandle.send({ to })');
+    broadcastToChannelRecipient: (opts) => {
+      if (opts.to.__livething === 'connection-ref' || opts.to.__livething === 'user-ref') {
+        assertLocalRef(opts.to, core.engineInstanceId, 'channelHandle.broadcastTo(to, ...)');
       }
+
       const targets = ChannelPrimitive.resolveChannelRecipients(core.channelMembers, {
         channelName: opts.channelName,
         channelFamily: opts.channelFamily,
         to: opts.to,
       });
+      // A user is addressed as one audience, so replay can hand the frame to
+      // that user's next connection. Connection, tag, and group recipients are
+      // per-socket sends that replay never records.
+      if (opts.to.__livething === 'user-ref') {
+        return OutgoingRuntime.broadcastToUser(outgoingRuntime(core), targets, {
+          userId: opts.to.id,
+          event: opts.event,
+          payload: opts.payload,
+          channelName: opts.channelName,
+          channelFamily: opts.channelFamily,
+        });
+      }
+
       let delivered = 0;
       for (const target of targets) {
         const sent = OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), target, {
@@ -114,14 +193,16 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
         });
         if (sent) delivered += 1;
       }
+
       return delivered;
     },
     getChannelMembers: (channelName, channelFamily) =>
       core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
     kickChannelMembers: (opts) => {
-      if (opts.target.__wskit === 'user-ref') {
+      if (opts.target.__livething === 'user-ref') {
         assertLocalRef(opts.target, core.engineInstanceId, 'channelHandle.kick(target)');
       }
+
       return core.channelService?.kickChannelMembers(core, opts) ?? Promise.resolve();
     },
     subscribeConnectionAsServer: (ref, opts) =>
@@ -130,11 +211,15 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       if (typeof target === 'string') {
         const compiledChannel = core.compiled.channels.get(target);
         if (!compiledChannel) return undefined;
+
         return { channelName: target, channelFamily: null, params: {} };
       }
+
       const family = core.compiled.channelFamilies.get(target.family);
       if (!family) return undefined;
+
       if (!ChannelPrimitive.matchesFamilyPattern(family.pattern, target.name)) return undefined;
+
       return {
         channelName: target.name,
         channelFamily: target.family,
@@ -174,10 +259,12 @@ function buildOutgoingRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     outgoingHooks: core.hooks.outgoing,
-    wskitStampHooks: core.hooks.wskitStamp,
+    livethingStampHooks: core.hooks.livethingStamp,
     beforeSendHooks: core.hooks.beforeSend,
     afterSendHooks: core.hooks.afterSend,
-    waitUntil: (promise: Promise<unknown>) => core.waitUntilImpl(promise),
+    beforeBroadcastHooks: core.hooks.beforeBroadcast,
+    afterBroadcastHooks: core.hooks.afterBroadcast,
+    trackBackgroundWork: (work: Promise<void>) => core.trackBackgroundWork(work),
     logger: core.logger,
     generateId: (prefix?: string) => core.generateId(prefix),
     activityHooks: core.hooks.activity,
@@ -202,7 +289,7 @@ function buildMemberRuntime(core: EngineCore) {
     asyncContext: core.asyncContext,
     connections: core.connections,
     channelMembers: core.channelMembers,
-    toConnectionInfo: (connection: RuntimeConnection, opts?: { lastSeen?: number | null }) =>
+    toConnectionInfo: (connection: RuntimeConnection, opts?: ConnectionInfoOptions) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
         hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
@@ -210,19 +297,10 @@ function buildMemberRuntime(core: EngineCore) {
           : undefined,
         ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
       }),
-    sendThroughPipeline: (
-      connection: RuntimeConnection,
-      opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
-    ) => OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
+    sendThroughPipeline: (connection: RuntimeConnection, opts: PipelineOptions) =>
+      OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
     inboxFanOut: core.inboxService
-      ? (opts: {
-          channelName: string;
-          channelFamily: string | null;
-          event: string;
-          payload: Record<string, unknown>;
-          seq: number;
-          messageId: string;
-        }) => core.inboxService?.fanOut(core, opts)
+      ? (opts: InboxFanOutOptions) => core.inboxService?.fanOut(core, opts)
       : undefined,
   };
 }
@@ -250,28 +328,20 @@ function buildChannelRuntime(core: EngineCore) {
 
     buildConnectionContext: buildCtx,
 
-    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+    persistAttachment: (connection: RuntimeConnection, options?: PersistAttachmentOptions) =>
       EngineHibernation.persistAttachment(core, connection, options),
 
-    sendProtocolMessage: (
-      connection: RuntimeConnection,
-      opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-    ) => sendProtocolMessage(core, connection, opts),
+    sendProtocolMessage: (connection: RuntimeConnection, opts: ProtocolMessageOptions) =>
+      sendProtocolMessage(core, connection, opts),
 
-    handleValidationError: (
-      connection: RuntimeConnection,
-      opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
-    ) =>
+    handleValidationError: (connection: RuntimeConnection, opts: ValidationErrorOptions) =>
       EngineErrorRuntime.handleValidationError(
         { core, buildConnectionContext: buildCtx },
         connection,
         opts,
       ),
 
-    handleRuntimeError: (
-      connection: RuntimeConnection,
-      opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
-    ) =>
+    handleRuntimeError: (connection: RuntimeConnection, opts: RuntimeErrorOptions) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },
         connection,
@@ -280,12 +350,8 @@ function buildChannelRuntime(core: EngineCore) {
 
     isChannelDurable: (channelKey: string) => core.isChannelDurable(channelKey),
 
-    persistMembership: (userId: string, channelName: string, channelFamily: string | null) =>
-      core.channelMembershipService?.persistMembership(core, {
-        userId,
-        channelName,
-        channelFamily,
-      }),
+    persistMembership: (row: MembershipInsert) =>
+      core.channelMembershipService?.persistMembership(core, row),
 
     deleteDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
       core.channelMembershipService?.deleteDurableMembership(core, {
@@ -294,12 +360,26 @@ function buildChannelRuntime(core: EngineCore) {
         channelFamily,
       }),
 
-    hasDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
-      core.channelMembershipService?.hasDurableMembership(core, {
+    getDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
+      core.channelMembershipService?.getDurableMembership(core, {
         userId,
         channelName,
         channelFamily,
-      }) ?? false,
+      }),
+
+    markDurableMembershipKicked: (
+      userId: string,
+      channelName: string,
+      channelFamily: string | null,
+    ) =>
+      core.channelMembershipService?.markDurableMembershipKicked(core, {
+        userId,
+        channelName,
+        channelFamily,
+      }),
+
+    listDurableMembers: (channelName: string, channelFamily: string | null) =>
+      core.channelMembershipService?.listDurableMembers(core, channelName, channelFamily) ?? [],
 
     clearInbox: (userId: string, channelName: string, channelFamily: string | null) =>
       core.inboxService?.clearChannel(core, { userId, channelName, channelFamily }),
@@ -309,6 +389,9 @@ function buildChannelRuntime(core: EngineCore) {
 
     isReadReceiptsChannel: (channelName: string, channelFamily: string | null) =>
       core.readReceiptsChannels.has(channelFamily ?? channelName),
+
+    stopChannelStreams: (connection: RuntimeConnection, opts: StopChannelStreamsOptions) =>
+      core.streamChannelLeave?.(dispatchRuntime(core), connection, opts) ?? Promise.resolve(),
 
     logger: core.logger,
   };
@@ -338,39 +421,23 @@ function buildDispatchRuntime(core: EngineCore) {
 
     buildConnectionContext: buildCtx,
 
-    sendProtocolMessage: (
-      connection: RuntimeConnection,
-      opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-    ) => sendProtocolMessage(core, connection, opts),
+    sendProtocolMessage: (connection: RuntimeConnection, opts: ProtocolMessageOptions) =>
+      sendProtocolMessage(core, connection, opts),
 
-    sendReplay: (
-      connection: RuntimeConnection,
-      opts: {
-        channelName: string | null;
-        channelFamily: string | null;
-        event: string;
-        payload: unknown;
-        wire: { seq: number; messageId: string; channel?: string };
-      },
-    ) => sendReplay(core, connection, opts),
+    sendReplay: (connection: RuntimeConnection, opts: ReplaySendOptions) =>
+      sendReplay(core, connection, opts),
 
-    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+    persistAttachment: (connection: RuntimeConnection, options?: PersistAttachmentOptions) =>
       EngineHibernation.persistAttachment(core, connection, options),
 
-    handleRuntimeError: (
-      connection: RuntimeConnection,
-      opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
-    ) =>
+    handleRuntimeError: (connection: RuntimeConnection, opts: RuntimeErrorOptions) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },
         connection,
         opts,
       ),
 
-    handleValidationError: (
-      connection: RuntimeConnection,
-      opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
-    ) =>
+    handleValidationError: (connection: RuntimeConnection, opts: ValidationErrorOptions) =>
       EngineErrorRuntime.handleValidationError(
         { core, buildConnectionContext: buildCtx },
         connection,
@@ -379,12 +446,7 @@ function buildDispatchRuntime(core: EngineCore) {
 
     broadcastToConnections: (
       connections: Iterable<RuntimeConnection>,
-      opts: {
-        event: string;
-        payload: unknown;
-        options?: BroadcastOptions;
-        excludeConnectionId?: string;
-      },
+      opts: BroadcastConnectionsOptions,
     ) => OutgoingRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
 
     handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
@@ -453,7 +515,7 @@ function buildConnectionRuntime(core: EngineCore) {
 
     generateId: (prefix?: string) => core.generateId(prefix),
 
-    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+    persistAttachment: (connection: RuntimeConnection, options?: PersistAttachmentOptions) =>
       EngineHibernation.persistAttachment(core, connection, options),
 
     flushAttachment: (connection: RuntimeConnection) =>
@@ -494,6 +556,7 @@ function buildConnectionRuntime(core: EngineCore) {
         core.freshBoot = false;
         return Promise.resolve();
       }
+
       // Restore persistent tags before channel auto-rejoin so its check/revalidate
       // hooks can read them via `ctx.tags.persistent(...)`. Independent of
       // `channelMembershipService` — a handler with `tags()` and no `channels()`
@@ -515,6 +578,7 @@ function buildConnectionRuntime(core: EngineCore) {
       // Drain the reconnecting member's owed inbox rows after the rejoin
       // loop has restored its channel memberships.
       if (!core.inboxService) return rejoined;
+
       return rejoined.then(() => core.inboxService?.drainOnReconnect(core, connection));
     },
   };
@@ -545,6 +609,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
     sendServerRequest: (connectionId, opts) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return false;
+
       return OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
         routing: {
           correlationId: opts.correlationId,

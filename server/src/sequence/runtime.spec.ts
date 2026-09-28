@@ -15,6 +15,7 @@ function sequenceDb() {
   });
   ensureSequenceSchema(sql);
   calls.length = 0;
+
   return { calls, sql };
 }
 
@@ -28,7 +29,7 @@ describe('sequence/runtime', () => {
       .toArray()
       .map((row) => row.name);
 
-    expect(created).toContain('__wskit_sequence');
+    expect(created).toContain('__livething_sequence');
   });
 
   it('allocates persistent sequence numbers monotonically', () => {
@@ -41,19 +42,19 @@ describe('sequence/runtime', () => {
 
   it('resumes from a pre-existing sequence row after a restart', () => {
     const { calls, sql } = sequenceDb();
-    sql.exec('INSERT INTO __wskit_sequence (scope, nextSeq) VALUES (?, ?)', 'global', 42);
+    sql.exec('INSERT INTO __livething_sequence (scope, nextSeq) VALUES (?, ?)', 'global', 42);
     calls.length = 0;
 
     expect(allocatePersistentSequence(sql)).toBe(42);
     expect(allocatePersistentSequence(sql)).toBe(43);
-    expect(calls.some((q) => q.startsWith('INSERT INTO __wskit_sequence'))).toBe(false);
+    expect(calls.some((q) => q.startsWith('INSERT INTO __livething_sequence'))).toBe(false);
   });
 });
 
 describe('createPersistentSequenceAllocator (batched)', () => {
   function writeCount(calls: string[]): number {
     return calls.filter(
-      (q) => q.includes('__wskit_sequence') && (q.includes('INSERT') || q.includes('UPDATE')),
+      (q) => q.includes('__livething_sequence') && (q.includes('INSERT') || q.includes('UPDATE')),
     ).length;
   }
 

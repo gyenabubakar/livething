@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's stream() against the real `stream-backpressure`
+// Conformance: @livething/client's stream() against the real `stream-backpressure`
 // handler. The server awaits ctx.stream.drain() between yields; the typed
 // client must receive every chunk and see the stream end cleanly. Adapter-
 // oblivious — it talks to whatever server the run booted over the /ws proxy.

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { isWSKitConfigError, WSKitError } from '@wskit/core';
+import { isLiveThingConfigError, LiveThingError } from '@livething/core';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -7,21 +7,22 @@ import { collectUnique, validateValue } from './utils.ts';
 
 describe('collectUnique', () => {
   const outgoingWhere = { kind: 'outgoing', context: 'plugin("x")' };
-  const errorWhere = { kind: 'error', context: 'contract()' };
+  const errorWhere = { kind: 'error', context: 'server({ capabilities: [...] })' };
 
   it('returns the input untouched when all keys are unique', () => {
     const items = [{ name: 'a' }, { name: 'b' }, { name: 'c' }];
     expect(collectUnique(items, (i) => i.name, outgoingWhere)).toBe(items);
   });
 
-  it('throws WSKitConfigError naming the duplicated key', () => {
+  it('throws LiveThingConfigError naming the duplicated key', () => {
     let captured: unknown;
     try {
       collectUnique([{ name: 'ready' }, { name: 'ready' }], (i) => i.name, outgoingWhere);
     } catch (error) {
       captured = error;
     }
-    expect(isWSKitConfigError(captured)).toBe(true);
+
+    expect(isLiveThingConfigError(captured)).toBe(true);
     expect(String(captured)).toMatch(/duplicate outgoing "ready"/);
   });
 
@@ -44,16 +45,18 @@ describe('validateValue — StandardSchema duck-type detection', () => {
       expect(validateValue(schema, { name: 'Alice' }, 'test-event')).toEqual({ name: 'Alice' });
     });
 
-    it('throws ValidationFailed WSKitError with issues for invalid input', () => {
+    it('throws ValidationFailed LiveThingError with issues for invalid input', () => {
       let thrown: unknown;
       try {
         validateValue(schema, { name: 42 }, 'test-event');
       } catch (err) {
         thrown = err;
       }
-      expect(thrown).toBeInstanceOf(WSKitError);
-      const wsErr = thrown as WSKitError<'validation-failed', any>;
+
+      expect(thrown).toBeInstanceOf(LiveThingError);
+      const wsErr = thrown as LiveThingError<'validation-failed', any>;
       expect(wsErr.code).toBe('validation-failed');
+
       expect(Array.isArray(wsErr.detail.issues)).toBe(true);
       expect(wsErr.detail.issues.length).toBeGreaterThan(0);
       expect(typeof wsErr.detail.issues[0].message).toBe('string');
@@ -67,16 +70,18 @@ describe('validateValue — StandardSchema duck-type detection', () => {
       expect(validateValue(schema, { count: 5 }, 'test-event')).toEqual({ count: 5 });
     });
 
-    it('throws ValidationFailed WSKitError with issues for invalid input', () => {
+    it('throws ValidationFailed LiveThingError with issues for invalid input', () => {
       let thrown: unknown;
       try {
         validateValue(schema, { count: 'not-a-number' }, 'test-event');
       } catch (err) {
         thrown = err;
       }
-      expect(thrown).toBeInstanceOf(WSKitError);
-      const wsErr = thrown as WSKitError<'validation-failed', any>;
+
+      expect(thrown).toBeInstanceOf(LiveThingError);
+      const wsErr = thrown as LiveThingError<'validation-failed', any>;
       expect(wsErr.code).toBe('validation-failed');
+
       expect(Array.isArray(wsErr.detail.issues)).toBe(true);
       expect(wsErr.detail.issues.length).toBeGreaterThan(0);
       expect(typeof wsErr.detail.issues[0].message).toBe('string');

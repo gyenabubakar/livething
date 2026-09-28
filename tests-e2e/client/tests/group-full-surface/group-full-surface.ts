@@ -1,10 +1,10 @@
-import { channels, client, clientRequests, connect, dedup, stream } from '@wskit/client';
-import type { GroupFullSurfaceClient } from '@wskit/tests-e2e-handlers/group-full-surface';
+import { channels, client, clientRequests, connect, dedup, stream } from '@livething/client';
+import type { GroupFullSurfaceClient } from '@livething/tests-e2e-handlers/group-full-surface';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives a broad smoke across @wskit/client primitives against the real
-// `group-full-surface` handler, typed by the same contract the server
-// implements (GroupFullSurfaceClient = InferClient<handler>).
+// Drives a broad smoke across @livething/client primitives against the real
+// `group-full-surface` server definition, typed by the same contract the server
+// implements (GroupFullSurfaceClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
@@ -59,6 +59,7 @@ export function setup(): void {
       indices.push(chunk.idx);
       el('feed-chunks').textContent = indices.join(',');
     }
+
     el('feed-end').textContent = 'yes';
   });
 

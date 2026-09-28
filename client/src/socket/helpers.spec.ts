@@ -4,7 +4,7 @@ import { idGenerator } from '~/internal/id.ts';
 import { signalBus } from '~/internal/signals.ts';
 import { installMockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WSKitSocket } from '~/socket/socket.ts';
+import type { LiveThingSocket } from '~/socket/socket.ts';
 
 let restore: () => void;
 beforeEach(() => {
@@ -17,7 +17,7 @@ afterEach(() => {
 /** Build a socket and return its helpers object directly. */
 function makeHelpers() {
   const socket = client()(connect('wss://test'));
-  return (socket as WSKitSocket)._helpers();
+  return (socket as LiveThingSocket)._helpers();
 }
 
 describe('signal bus', () => {
@@ -96,9 +96,11 @@ describe('generateId', () => {
     function counter(id: string): number {
       return Number(id.split('-').at(-1));
     }
+
     const first = counter(gen());
     const second = counter(gen());
     const third = counter(gen());
+
     expect(second).toBeGreaterThan(first);
     expect(third).toBeGreaterThan(second);
   });
@@ -117,13 +119,14 @@ describe('generateId', () => {
     const reqId = gen('req');
     const streamN = streamId.replace('stream-', '');
     const reqN = reqId.replace('req-', '');
+
     expect(streamN).not.toBe(reqN);
   });
 });
 
 describe('id scope fallback (#17)', () => {
   /** The per-socket scope segment of `<scope>-<n>` (no prefix). */
-  function scopeOf(socket: WSKitSocket): string {
+  function scopeOf(socket: LiveThingSocket): string {
     const id = idGenerator(socket._helpers())();
     return id.slice(0, id.lastIndexOf('-'));
   }
@@ -142,8 +145,8 @@ describe('id scope fallback (#17)', () => {
   }
 
   it('two fresh sockets get different scopes', () => {
-    const a = client()(connect('wss://test')) as WSKitSocket;
-    const b = client()(connect('wss://test')) as WSKitSocket;
+    const a = client()(connect('wss://test')) as LiveThingSocket;
+    const b = client()(connect('wss://test')) as LiveThingSocket;
     expect(scopeOf(a)).not.toBe(scopeOf(b));
   });
 
@@ -156,9 +159,10 @@ describe('id scope fallback (#17)', () => {
         return array;
       },
     });
-    const a = client()(connect('wss://test')) as WSKitSocket;
-    const b = client()(connect('wss://test')) as WSKitSocket;
+    const a = client()(connect('wss://test')) as LiveThingSocket;
+    const b = client()(connect('wss://test')) as LiveThingSocket;
     expect(scopeOf(a)).not.toBe(scopeOf(b));
+
     expect(scopeOf(a)).toMatch(/^[0-9a-f]{32}/);
   });
 
@@ -174,8 +178,9 @@ describe('id scope fallback (#17)', () => {
         return array;
       },
     });
-    const a = client()(connect('wss://test')) as WSKitSocket;
-    const b = client()(connect('wss://test')) as WSKitSocket;
+    const a = client()(connect('wss://test')) as LiveThingSocket;
+    const b = client()(connect('wss://test')) as LiveThingSocket;
+
     expect(scopeOf(a)).not.toBe(scopeOf(b));
   });
 });

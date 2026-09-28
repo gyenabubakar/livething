@@ -3,6 +3,12 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
+type StartOptionsParameter = {
+  broadcast?: boolean;
+  allowConcurrent?: boolean;
+  highWaterMark?: number;
+};
+
 /**
  * Declares one client→server event that can be sent to a running stream as a
  * mid-stream signal. Created by `nudge()` and collected into a `StreamPrimitive` by `stream()`.
@@ -243,9 +249,9 @@ const GENERATE_KEY = Symbol('generate');
  * stream, which nudges it accepts, and whether chunks are broadcast.
  *
  * This primitive must be paired with a `generate()` primitive before the engine
- * can run the stream. You never call `stream()` directly — the implementer's
- * compile step (`compileStreamDef`) calls it from a contract-side `stream(...)`
- * declaration, then pairs it with `generate()` and the registered handler.
+ * can run the stream. You never call `stream()` directly — the definition
+ * compiler calls it while assembling a selected `base.stream(...)` value,
+ * then pairs it with `generate()` and that value's generator.
  *
  * @param startDeclaration Trigger event name, optional validator, and broadcast flag.
  * @param nudges    Zero or more nudge declarations from `nudge()`.
@@ -260,7 +266,7 @@ export function stream<
   ...nudges: TNudges
 ): StreamPrimitive<TEvent, TPayload, TChunks, TNudges> {
   return {
-    __wskit: 'stream',
+    __livething: 'stream',
     __kind: 'handler',
     __identity: [STREAM_KEY, startDeclaration.event],
     __requires: {},
@@ -277,9 +283,9 @@ export function stream<
  * Creates a generate primitive. Pairs a `StreamPrimitive` with the
  * `AsyncGenerator` function that produces chunks.
  *
- * You never call `generate()` directly. The implementer's compile step
- * (`compileStreamDef`) calls it, pairing the stream declaration with the
- * generator registered via `base.stream(name, ...)`.
+ * You never call `generate()` directly. The definition compiler calls it,
+ * pairing the stream declaration with the generator from an assembled
+ * `base.stream(name, ...)` value.
  *
  * @param streamDeclaration The stream declaration to attach the generator to.
  * @param generator  The `AsyncGenerator` that yields chunks to the client.
@@ -294,7 +300,7 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
   >,
 ): GeneratePrimitive<TStream, TBaseCtx, TNext> {
   return {
-    __wskit: 'stream-generate',
+    __livething: 'stream-generate',
     __kind: 'handler',
     __identity: [GENERATE_KEY, streamDeclaration.event],
     __requires: {},
@@ -341,7 +347,7 @@ export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
 export function start(
   name: string,
   validator?: Validator,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
+  options?: StartOptionsParameter,
 ): StreamStartDeclaration {
   return {
     event: name,

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes } from '@livething/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as InboxRuntime from '~/inbox/runtime.ts';
@@ -9,6 +9,26 @@ import type * as EngineAccessModule from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 
+type OptsParameter = { taskId: string; time: number; data: unknown };
+type OptsParameter2 = {
+  taskId: string;
+  filter?: Record<string, unknown>;
+};
+type OptsParameter3 = {
+  event: string;
+  payload: unknown;
+  correlationId: string;
+  channel?: string;
+  channelFamily?: string | null;
+};
+type OptsParameter4 = {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+};
+type CreateEngineAccessScopeParameter = { channelKey?: string };
+
 /** Callbacks engine-access can't build itself. Supplied by the facade. */
 export interface EngineAccessDeps {
   /** Install the scheduled runtime if not already installed. */
@@ -16,12 +36,9 @@ export interface EngineAccessDeps {
   /** Build a fresh task context for scheduled task handlers. */
   createTaskContext(): unknown;
   /** Queue one future scheduled task run. */
-  scheduleTask(opts: { taskId: string; time: number; data: unknown }): void;
+  scheduleTask(opts: OptsParameter): void;
   /** Remove queued runs for one scheduled task id. */
-  cancelScheduled(opts: {
-    taskId: string;
-    filter?: Record<string, unknown>;
-  }): ScheduledCancelResult;
+  cancelScheduled(opts: OptsParameter2): ScheduledCancelResult;
   /** Recompute the next scheduled callback from the queued-run table. */
   rescheduleAlarm(): void;
   /**
@@ -37,23 +54,9 @@ export interface EngineAccessDeps {
    */
   buildContextForConnection(connectionId: string): unknown;
   /** Send a server→client request frame through the outgoing pipeline. */
-  sendServerRequest(
-    connectionId: string,
-    opts: {
-      event: string;
-      payload: unknown;
-      correlationId: string;
-      channel?: string;
-      channelFamily?: string | null;
-    },
-  ): boolean;
+  sendServerRequest(connectionId: string, opts: OptsParameter3): boolean;
   /** Broadcast one already-built protocol frame to every live member of a channel. */
-  broadcastToChannel(opts: {
-    channelName: string;
-    channelFamily: string | null;
-    event: string;
-    payload: Record<string, unknown>;
-  }): void;
+  broadcastToChannel(opts: OptsParameter4): void;
   /** Count the live members currently in a channel. */
   channelMemberCount(channelName: string, channelFamily: string | null): number;
 }
@@ -67,7 +70,7 @@ export interface EngineAccessDeps {
 export function createEngineAccess(
   core: EngineCore,
   deps: EngineAccessDeps,
-  scope?: { channelKey?: string },
+  scope?: CreateEngineAccessScopeParameter,
 ): EngineAccessModule.EngineAccess {
   let onUpgradeCalled = false;
   return {
@@ -75,6 +78,7 @@ export function createEngineAccess(
     timers: core.timers,
     installOnce: (key, install) => {
       if (core.installedFeatures.has(key)) return;
+
       core.installedFeatures.add(key);
       install();
     },
@@ -96,7 +100,7 @@ export function createEngineAccess(
     sendServerRequest: (connectionId, opts) => deps.sendServerRequest(connectionId, opts),
     onOutgoing: (handler, owner) => {
       // The pipeline supplies the frame; ctx is resolved per-send from the
-      // active connection, or undefined when none is in scope (broadcasts).
+      // active connection in the async context, or undefined when none is set.
       // Note: this ctx is built fresh per send (new locals map) — it carries
       // stable identity/meta/routing but NOT per-dispatch `locals`/`inject` set
       // earlier in the same inbound dispatch. Outgoing hooks must not rely on
@@ -106,14 +110,20 @@ export function createEngineAccess(
         owner: owner ?? APP_HOOK_OWNER,
       });
     },
-    onWSKitStamp: (handler) => {
-      core.hooks.wskitStamp.push(handler);
+    onLiveThingStamp: (handler) => {
+      core.hooks.livethingStamp.push(handler);
     },
     onBeforeSend: (handler) => {
       core.hooks.beforeSend.push(handler);
     },
     onAfterSend: (handler) => {
       core.hooks.afterSend.push(handler);
+    },
+    onBeforeBroadcast: (handler) => {
+      core.hooks.beforeBroadcast.push(handler);
+    },
+    onAfterBroadcast: (handler) => {
+      core.hooks.afterBroadcast.push(handler);
     },
     onConnectionActivity: (handler) => {
       core.hooks.activity.push(handler);
@@ -139,18 +149,20 @@ export function createEngineAccess(
     onUpgrade: (handler) => {
       if (onUpgradeCalled) {
         throw new Error(
-          '[wskit] A primitive may only register one onUpgrade hook in its __setup. Compose multiple upgrade-time concerns inside one handler.',
+          '[livething] A primitive may only register one onUpgrade hook in its __setup. Compose multiple upgrade-time concerns inside one handler.',
         );
       }
+
       onUpgradeCalled = true;
       core.hooks.upgrade.push(handler);
     },
     setBuilderUpgradeHook: (handler) => {
       if (core.hooks.builderUpgrade !== undefined) {
         throw new Error(
-          '[wskit] The builder onUpgrade hook is already set. Compose multiple upgrade-time concerns inside one .onUpgrade(...) handler.',
+          '[livething] The builder onUpgrade hook is already set. Compose multiple upgrade-time concerns inside one .onUpgrade(...) handler.',
         );
       }
+
       core.hooks.builderUpgrade = handler;
     },
     onValidationError: (handler) => {
@@ -233,9 +245,10 @@ export function createEngineAccess(
     registerPluginApi: (id, factory) => {
       if (core.pluginApiFactories.has(id)) {
         throw new Error(
-          `[wskit] Plugin id '${id}' is registered more than once. Each plugin id must be unique.`,
+          `[livething] Plugin id '${id}' is registered more than once. Each plugin id must be unique.`,
         );
       }
+
       core.pluginApiFactories.set(id, factory);
     },
     getPluginApiFactory: (id) => core.pluginApiFactories.get(id),
@@ -251,9 +264,10 @@ export function createEngineAccess(
       for (const group of groups) {
         if (core.declaredTagGroups[kind].has(group.name)) {
           throw new Error(
-            `[wskit] tagGroups.${kind} group '${group.name}' declared more than once in this contract.`,
+            `[livething] tagGroups.${kind} group '${group.name}' declared more than once in this contract.`,
           );
         }
+
         core.declaredTagGroups[kind].add(group.name);
         if (group.schema) core.tagGroupSchemas.set(`${kind}:${group.name}`, group.schema);
       }
@@ -263,6 +277,7 @@ export function createEngineAccess(
     getLogger: () => core.logger,
     enableIncomingDedup: (cap) => {
       if (!Number.isFinite(cap) || cap <= 0) return;
+
       core.incomingDedupCap = Math.max(core.incomingDedupCap, Math.floor(cap));
     },
     registerErrorDefinitions: (defs) => {
@@ -277,6 +292,7 @@ export function createEngineAccess(
       if (connection.keepaliveTimer !== undefined) {
         clearTimeout(connection.keepaliveTimer as ReturnType<typeof setTimeout>);
       }
+
       connection.keepaliveTimer = setTimeout(() => {
         connection.descriptor.close(CloseCodes.IDLE, 'Keepalive timeout');
       }, timeoutMs);
@@ -321,48 +337,52 @@ export function createEngineAccess(
     sendReplay: (connectionId, options) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
+
       sendReplay(core, connection, options);
     },
     sendGap: (connectionId, options) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
+
       sendGap(core, connection, options);
     },
     assertReplaySendContract: (event, payload, routing) => {
       OutgoingRuntime.assertPayloadRecord(payload);
       if (!OutgoingRuntime.isDeclaredOutgoingEvent(core.compiled, event, routing)) {
-        throw new Error(`[wskit] Outgoing event "${event}" was not declared in the active scope.`);
+        throw new Error(
+          `[livething] Outgoing event "${event}" was not declared in the active scope.`,
+        );
       }
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),
-    waitUntil: (promise) => {
-      core.waitUntilImpl(promise);
-    },
     rawSend: (connectionId, event, payload) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
+
       sendProtocolMessage(core, connection, {
         event,
         payload: payload as Record<string, unknown>,
-        wskit: {},
+        livething: {},
       });
     },
     sendProtocolFrame: (connectionId, options) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
+
       sendProtocolMessage(core, connection, {
         event: options.event,
         payload: options.payload as Record<string, unknown>,
-        wskit: options.wskit ?? {},
+        livething: options.livething ?? {},
       });
     },
     setStreamTrigger: (trigger) => {
       core.streamTrigger = trigger;
     },
-    setActiveStreamOps: (buffer, cancel) => {
+    setActiveStreamOps: (buffer, cancel, channelLeave) => {
       core.streamNudgeBuffer = buffer;
       core.streamCancel = cancel;
+      core.streamChannelLeave = channelLeave;
     },
     setDurableStreamService: (service) => {
       core.durableStream = service;
@@ -403,6 +423,7 @@ export function createEngineAccess(
     },
     isUserOnline: (userId) => {
       if (!userId) return false;
+
       const members = core.usersByKey.get(userId);
       return members !== undefined && members.size > 0;
     },
@@ -450,7 +471,7 @@ function pushChannelHook<T>(
 ): void {
   const { hook, hookName } = options;
   if (!channelKey) {
-    throw new Error(`[wskit] ${hookName}() can only be registered inside channel(...).`);
+    throw new Error(`[livething] ${hookName}() can only be registered inside channel(...).`);
   }
 
   const existing = hooks.get(channelKey) ?? [];

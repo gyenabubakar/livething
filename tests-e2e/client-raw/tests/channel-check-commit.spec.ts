@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
+import type { WireFrame } from './_ws-rig.ts';
 
 async function openPage(page: Page, testId: string, username = 'testuser') {
   await page.goto(
@@ -98,13 +99,15 @@ test.describe('channel check/commit', () => {
             ws.onerror = (e) => reject(e);
           });
         }
+
         const a = await open('filler-a');
         const b = await open('filler-b');
-        const frame = JSON.stringify({
+        const frame = window.__livethingEncode({
           event: '__subscribe__',
           payload: { token: 'tok-member' },
-          __wskit: { channel: 'room' },
+          metadata: { channel: { name: 'room' } },
         });
+
         a.send(frame);
         b.send(frame);
         // Wait for both to be fully admitted before the next client tries.
@@ -161,10 +164,10 @@ test.describe('channel check/commit', () => {
           s.onerror = (e) => reject(e);
         });
         ws.send(
-          JSON.stringify({
+          window.__livethingEncode({
             event: '__subscribe__',
-            payload: {},
-            __wskit: { channel: 'commit-only' },
+            payload: null,
+            metadata: { channel: { name: 'commit-only' } },
           }),
         );
         await new Promise((r) => setTimeout(r, 200));
@@ -175,6 +178,38 @@ test.describe('channel check/commit', () => {
     await page.getByTestId('sub-commit-only').click();
     await expect(page.getByTestId('subscribe-error')).toContainText('commit-only');
     await expect(page.getByTestId('subscribe-ok')).toHaveText('');
+  });
+
+  test('two subscribes at once cannot both pass a one-member cap in commit', async ({
+    page,
+  }, testInfo) => {
+    await page.goto('/channel-check-commit');
+    await installRig(page);
+    const room = `ccc-race-${testInfo.testId}`;
+    const a = await connect(page, { path: '/ws/channel-check-commit', username: 'alice', room });
+    const b = await connect(page, { path: '/ws/channel-check-commit', username: 'bob', room });
+
+    const subscribe = {
+      event: '__subscribe__',
+      payload: null,
+      metadata: { channel: { name: 'cap-one' } },
+    };
+
+    await Promise.all([send(page, a, subscribe), send(page, b, subscribe)]);
+
+    function settled(f: WireFrame) {
+      return (
+        (f.event === '__subscribeOk__' || f.event === '__error__') &&
+        f.metadata?.channel?.name === 'cap-one'
+      );
+    }
+
+    const [aResult, bResult] = await Promise.all([
+      waitForFrame(page, a, { match: settled }),
+      waitForFrame(page, b, { match: settled }),
+    ]);
+
+    expect([aResult.event, bResult.event].sort()).toEqual(['__error__', '__subscribeOk__']);
   });
 
   test('an async commit() is rejected as internal-error and the connection stays alive', async ({
@@ -188,8 +223,8 @@ test.describe('channel check/commit', () => {
     // commit() must be synchronous; the engine rejects a returned Promise.
     await send(page, a, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'async-commit' },
+      payload: null,
+      metadata: { channel: { name: 'async-commit' } },
     });
     const err = await waitForFrame(page, a, {
       match: (f) => f.event === '__error__',
@@ -200,11 +235,11 @@ test.describe('channel check/commit', () => {
     // Connection stays alive — a valid subscribe still works afterward.
     await send(page, a, {
       event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'check-only' },
+      payload: null,
+      metadata: { channel: { name: 'check-only' } },
     });
     await waitForFrame(page, a, {
-      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'check-only',
+      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'check-only',
     });
   });
 });

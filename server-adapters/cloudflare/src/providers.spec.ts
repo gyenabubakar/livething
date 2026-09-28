@@ -23,12 +23,14 @@ function createState(entries: Record<string, KvEntry>) {
             filtered.set(key, value);
           }
         }
+
         return filtered;
       }),
     },
   } as unknown as DurableObjectState;
 
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
   return { kv: createKv(state, logger), storageMap, deleteSpy, logger };
 }
 
@@ -110,6 +112,7 @@ describe('createKv — list isolation', () => {
                 filtered.set(key, value);
               }
             }
+
             return filtered;
           }),
         },
@@ -137,6 +140,7 @@ describe('createSql.exec — one-shot result contract', () => {
         for (let next = iter.next(); !next.done; next = iter.next()) {
           remaining.push(next.value);
         }
+
         return remaining;
       },
       [Symbol.iterator]: () => iter,
@@ -145,6 +149,7 @@ describe('createSql.exec — one-shot result contract', () => {
         for (let next = iter.next(); !next.done; next = iter.next()) {
           remaining.push(Object.values(next.value));
         }
+
         return remaining;
       },
     };
@@ -229,7 +234,7 @@ describe('createSql.transaction', () => {
     const sql = createSql(state);
     const callback = vi.fn();
 
-    expect(() => sql.transaction(callback)).toThrow(/\[wskit\].*transactionSync/);
+    expect(() => sql.transaction(callback)).toThrow(/\[livething\].*transactionSync/);
     expect(callback).not.toHaveBeenCalled();
   });
 

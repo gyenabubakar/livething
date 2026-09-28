@@ -4,15 +4,15 @@ import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 export type { InterceptFn };
 
 /**
- * Looks at every incoming message before your `on()` handlers do. Return nothing
- * to leave it alone, return a new message to change it, or throw `Block` to drop
- * it. You can add `intercept()` more than once; they run in the order you list
- * them and stop at the first `Block`.
+ * Looks at every incoming app message before it is delivered: before your
+ * `on()` handlers, channel listeners, and stream loops. Return nothing to leave
+ * it alone, return a new message to change it, or throw `Block` to drop it. You
+ * can add `intercept()` more than once; they run in the order you list them and
+ * stop at the first `Block`.
  *
- * Plugins run before intercepts, so a frame a plugin claims in its namespace is
- * already consumed and never reaches here — an `intercept()` used as a global
- * logger won't see plugin traffic. A plugin that must observe host-wide traffic
- * uses `observeHost(...)` instead.
+ * Only `dedup()` runs earlier, so a duplicate never reaches here. Protocol
+ * frames (`__…__`), request replies and server-to-client requests, and a
+ * plugin's own namespaced traffic skip intercepts.
  *
  * ```ts
  * intercept((message) => {

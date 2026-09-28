@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
-import { streamNudgesHandler } from '@wskit/tests-e2e-handlers/stream-nudges';
+import { bind } from '@livething/server-cloudflare';
+import { streamNudgesDefinition } from '@livething/tests-e2e-handlers/stream-nudges';
 
-export class StreamNudgesServer extends server(streamNudgesHandler) {}
+export class StreamNudgesServer extends bind(streamNudgesDefinition) {}

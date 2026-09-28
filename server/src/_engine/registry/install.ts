@@ -3,6 +3,8 @@ import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 
+type VisitScopeParameter = { channelKey?: string };
+
 type Primitive = PrimitiveCore.Primitive;
 
 /**
@@ -10,11 +12,11 @@ type Primitive = PrimitiveCore.Primitive;
  * Scope is threaded through so channel-scoped hooks know their channel key.
  */
 export function installPrimitiveHooks(core: EngineCore, deps: EngineAccessDeps): void {
-  function visit(primitives: readonly Primitive[], scope?: { channelKey?: string }) {
+  function visit(primitives: readonly Primitive[], scope?: VisitScopeParameter) {
     for (const primitive of primitives) {
       primitive.__setup?.(createEngineAccess(core, deps, scope));
 
-      if (primitive.__wskit === 'channel') {
+      if (primitive.__livething === 'channel') {
         const channelPrimitive = primitive as Primitive & {
           pattern: string | { key: string };
           primitives: readonly Primitive[];

@@ -50,7 +50,7 @@ function createStreamRuntime() {
     sendThroughPipeline: (_conn: RuntimeConnection, _opts: SendThroughPipelineOptions) => true,
     asyncContext: new AsyncLocalStorage<AsyncContextStore>(),
     persistAttachment: vi.fn(),
-    wskitStampHooks: [],
+    livethingStampHooks: [],
     logger: { warn: vi.fn(), error: vi.fn() },
     errorHooks: [] as never[],
     declaredErrorCodes: new Set<string>(),
@@ -78,6 +78,7 @@ function blockingStream() {
         yield { tick: 0 };
         await new Promise<void>((resolve) => {
           if (seen.signal!.aborted) return resolve();
+
           seen.signal!.addEventListener('abort', () => resolve());
         });
       } finally {
@@ -86,6 +87,7 @@ function blockingStream() {
       }
     }),
   };
+
   return { stream, seen, wasAborted: () => aborted };
 }
 
@@ -178,6 +180,7 @@ describe('stream stop signal (ctx.stream.signal)', () => {
     });
     await Promise.resolve();
     await Promise.resolve();
+
     runtime.activeStreams.get('stream_1')!.onDisconnect = 'keep-running';
 
     await handleShutdown({

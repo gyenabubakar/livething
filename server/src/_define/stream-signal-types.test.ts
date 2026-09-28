@@ -1,6 +1,7 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
+import { emits } from '~/emits/emits.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
@@ -12,12 +13,8 @@ import { describe, expectTypeOf, it } from 'vitest';
  * generator: plain, resumable, recorded, and channel-scoped.
  */
 describe('ctx.stream.signal type', () => {
-  interface Env {
-    DB: unknown;
-  }
-
   it('is an AbortSignal in a plain stream run', () => {
-    const base = define({ env: t<Env>(), capabilities: [stream()] });
+    const base = server({ capabilities: [stream()] });
     base.stream('feed', {
       input: v.object({}),
       async *run(ctx) {
@@ -28,8 +25,7 @@ describe('ctx.stream.signal type', () => {
   });
 
   it('is an AbortSignal in a resumable stream run (alongside cursor)', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [resumableStream()],
     });
     base.resumableStream('paginate', {
@@ -44,8 +40,7 @@ describe('ctx.stream.signal type', () => {
   });
 
   it('is an AbortSignal in a recorded stream run', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [recordedStream()],
     });
     base.recordedStream('tokens', {
@@ -58,9 +53,9 @@ describe('ctx.stream.signal type', () => {
   });
 
   it('is an AbortSignal in a channel-scoped stream run', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), stream()] });
+    const base = server({ capabilities: [channels(), stream()] });
     const room = base.channel(['rooms', 'rooms:{id}'], {
-      outgoing: { emits: { said: t<{ text: string }>() } },
+      capabilities: [emits({ said: t<{ text: string }>() })],
     });
     room.stream('live', {
       input: v.object({}),

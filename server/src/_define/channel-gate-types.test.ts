@@ -1,18 +1,15 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
+import { emits } from '~/emits/emits.ts';
 import { replay } from '~/replay/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 
-interface Env {
-  SECRET: string;
-}
-
-const base = define({ env: t<Env>(), capabilities: [channels()] });
+const base = server({ capabilities: [channels()] });
 
 describe('channel check -> commit inference', () => {
   it('threads the check return type into commit (not any)', () => {
@@ -64,9 +61,9 @@ describe('channel check -> commit inference', () => {
 });
 
 describe('channel handler ctx typing', () => {
-  it('typed channel send, members, params not any', () => {
+  it('types channel send and broadcastTo, members, and params without any', () => {
     const room = base.channel(['rooms', 'rooms/:roomId'], {
-      outgoing: { emits: { message: t<{ text: string }>() } },
+      capabilities: [emits({ message: t<{ text: string }>() })],
     });
     room.on('send', {
       input: v.object({ text: v.string() }),
@@ -76,6 +73,10 @@ describe('channel handler ctx typing', () => {
         expectTypeOf(ctx.channel.params).not.toBeAny();
         expectTypeOf(ctx.channel.members()).not.toBeAny();
         ctx.channel.send('message', { text: 'hi' });
+
+        ctx.channel.broadcastTo(ctx.connection, 'message', { text: 'hello' });
+        // @ts-expect-error — send has no multi-recipient form.
+        ctx.channel.send('message', { text: 'nope' }, { to: ctx.connection });
       },
     });
   });
@@ -83,7 +84,7 @@ describe('channel handler ctx typing', () => {
 
 describe('channel gate surface typing', () => {
   it('omits channel-only handles from gate contexts but keeps channel membership reads', () => {
-    const gateBase = define({ env: t<Env>(), capabilities: [channels()] });
+    const gateBase = server({ capabilities: [channels()] });
     gateBase.channel('gated', {
       check(ctx) {
         expectTypeOf(ctx.channel.members).toBeFunction();
@@ -97,11 +98,10 @@ describe('channel gate surface typing', () => {
   });
 
   it('omits channel-owned request methods from check, commit, and revalidate', () => {
-    const requestGateBase = define({
-      env: t<Env>(),
+    const requestGateBase = server({
       capabilities: [
         channels(),
-        requests({
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
         }),
         tags((ephemeral) => [ephemeral('role', t<string>())]),
@@ -109,11 +109,11 @@ describe('channel gate surface typing', () => {
     });
 
     requestGateBase.channel('request-gated', {
-      outgoing: {
-        requests: {
+      capabilities: [
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-        },
-      },
+        }),
+      ],
       check(ctx) {
         // The request map belongs to this same config object, so it is not
         // available while the gate callbacks are being contextually typed.
@@ -125,6 +125,7 @@ describe('channel gate surface typing', () => {
         expectTypeOf(ctx.channel.broadcast).toBeFunction();
         expectTypeOf(ctx.channel.members).toBeFunction();
         expectTypeOf(ctx.request).toBeFunction();
+
         expectTypeOf(ctx.broadcastRequest).toBeFunction();
         expectTypeOf(ctx.tags.ephemeral('role').broadcastRequest).toBeFunction();
         // @ts-expect-error — stream generators have their own ctx, not a gate ctx.
@@ -146,11 +147,11 @@ describe('channel gate surface typing', () => {
     });
 
     const normal = requestGateBase.channel('request-normal', {
-      outgoing: {
-        requests: {
+      capabilities: [
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-        },
-      },
+        }),
+      ],
     });
     normal.on('message', {
       run(ctx) {
@@ -173,8 +174,7 @@ describe('channel gate surface typing', () => {
   });
 
   it('keeps replay channel-scoped instead of exposing the root replay method', () => {
-    const replayBase = define({
-      env: t<Env>(),
+    const replayBase = server({
       capabilities: [channels(), replay.history()],
     });
     replayBase.channel('replay-gated', {

@@ -2,6 +2,8 @@ import { assertValidHighWaterMark } from '~/_engine/compile/utils.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 
+type ValidateDurableStreamConfigOptsParameter = { maxChunks?: boolean };
+
 /**
  * Fields shared by every durable (resumable + recorded) stream config. Both
  * stream kinds keep a chunk alive across a disconnect and differ only in how
@@ -50,7 +52,7 @@ export function validateDurableStreamConfig(
       }
     | undefined,
   context: string,
-  opts?: { maxChunks?: boolean },
+  opts?: ValidateDurableStreamConfigOptsParameter,
 ): void {
   assertValidHighWaterMark(config?.highWaterMark, context);
   assertOptionalPositiveInteger(config?.maxAgeMs, 'maxAgeMs', context);

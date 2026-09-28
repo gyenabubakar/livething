@@ -1,4 +1,4 @@
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { base } from './contract.ts';
 import {
   handleBadPayload,
@@ -13,11 +13,10 @@ import {
   handlePaginate,
   handleRoomSendMsg,
   handleStartTick,
-  handleTick,
   handleTokens,
 } from './group.ts';
 
-export const groupFullSurfaceHandler = base.assemble({
+export const groupFullSurfaceDefinition = base.assemble({
   handlers: [
     handleChat,
     handleBang,
@@ -31,9 +30,8 @@ export const groupFullSurfaceHandler = base.assemble({
     handleFeed,
     handlePaginate,
     handleTokens,
-    handleTick,
     handleRoomSendMsg,
   ],
 });
 
-export type GroupFullSurfaceClient = InferClient<typeof groupFullSurfaceHandler>;
+export type GroupFullSurfaceClient = InferClient<typeof groupFullSurfaceDefinition>;

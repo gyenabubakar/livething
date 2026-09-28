@@ -5,7 +5,7 @@ import type { Browser, Page } from '@playwright/test';
 // is reconnecting must reach the server only AFTER the persistent channel is
 // rejoined. A witness client receiving the broadcast proves the send arrived
 // post-rejoin (otherwise the server would drop it as ChannelNotSubscribed). Talks
-// to the real `persistence` handler over the /ws proxy.
+// to the real `persistence` server definition over the /ws proxy.
 async function open(page: Page, room: string, username: string): Promise<void> {
   await page.goto(`/tests/queued-op-after-rejoin/index.html?room=${room}&username=${username}`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');

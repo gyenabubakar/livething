@@ -20,6 +20,7 @@ export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, 
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
+
     const set = this.listeners.get(event)!;
     const erased = listener as (...args: unknown[]) => void;
     set.add(erased);
@@ -34,6 +35,7 @@ export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, 
   emit<K extends keyof TEvents & string>(event: K, ...args: TEvents[K]): void {
     const set = this.listeners.get(event);
     if (!set) return;
+
     const snapshot = [...set];
     for (const listener of snapshot) {
       try {

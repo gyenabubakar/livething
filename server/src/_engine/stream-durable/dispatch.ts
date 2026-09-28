@@ -21,6 +21,9 @@ import * as DurableStreamRuntime from './runtime.ts';
 import { ensureDurableStreamSchema } from './storage.ts';
 import type * as DurableStreamStorage from './storage.ts';
 
+type OptionsParameter = { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
+type OptionsParameter2 = { streamId: string; cancelScope: ResolvedChannel };
+
 /**
  * Run the durable-stream DDL once per engine instance. The dispatch bag tracks
  * whether it has already run so repeat triggers skip the redundant check.
@@ -77,11 +80,14 @@ function resolveDurableDefForRow(
         ? runtime.compiled.channelFamilies.get(row.channelFamily)
         : runtime.compiled.channels.get(row.channelKey);
     if (!channel) return undefined;
+
     if (!ChannelPrimitive.hasChannelMembership(connection, row.channelKey, row.channelFamily)) {
       return undefined;
     }
+
     scope = { channel, channelName: row.channelKey, channelFamily: row.channelFamily };
     resumable = channel.resumableStreams.get(row.event);
+
     recorded = channel.recordedStreams.get(row.event);
   } else {
     resumable = runtime.compiled.resumableStreams.get(row.event);
@@ -91,9 +97,11 @@ function resolveDurableDefForRow(
   if (resumable) {
     return { scope, def: buildRuntimeDef(resumable, 'resumable') };
   }
+
   if (recorded) {
     return { scope, def: buildRuntimeDef(recorded, 'recorded') };
   }
+
   return undefined;
 }
 
@@ -108,20 +116,20 @@ export const durableStreamService: DurableStreamService = {
     connection: RuntimeConnection,
     options: DurableTriggerOptions,
   ): Promise<void> {
-    const { scope, durable, kind, payload, wskit } = options;
+    const { scope, durable, kind, payload, livething } = options;
     ensureSchemaOnce(runtime);
     await DurableStreamRuntime.runDurableStream(runtime, connection, {
       scope,
       def: buildRuntimeDef(durable, kind),
       payload,
-      wskit,
+      livething,
     });
   },
 
   async resume(
     runtime: any,
     connection: RuntimeConnection,
-    options: { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number },
+    options: OptionsParameter,
   ): Promise<void> {
     const { resumeScope, streamId, lastKnownSeq } = options;
     ensureSchemaOnce(runtime);
@@ -137,8 +145,13 @@ export const durableStreamService: DurableStreamService = {
   async cancel(
     runtime: any,
     connection: RuntimeConnection,
-    options: { streamId: string; cancelScope: ResolvedChannel },
+    options: OptionsParameter2,
   ): Promise<void> {
     await DurableStreamRuntime.cancelDurableStream(runtime, connection, options);
+  },
+
+  endOnLeave(runtime: any, connection: RuntimeConnection, options): void {
+    ensureSchemaOnce(runtime);
+    DurableStreamRuntime.endDurableStreamOnLeave(runtime, connection, options);
   },
 };

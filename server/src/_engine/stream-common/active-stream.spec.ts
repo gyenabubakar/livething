@@ -67,6 +67,7 @@ describe('buildDrain', () => {
     const target: DrainTarget = {
       descriptor: { bufferedAmount: () => 999_999 },
     };
+
     let polled = false;
     const drain = buildDrain({
       targets: () => [target],
@@ -96,6 +97,7 @@ describe('buildDrain', () => {
       },
     });
     await expect(drain()).resolves.toBeUndefined();
+
     expect(polled).toBe(false);
   });
 
@@ -113,6 +115,7 @@ describe('buildDrain', () => {
       },
     });
     await drain();
+
     expect(polls).toBe(2);
   });
 

@@ -1,6 +1,5 @@
-import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { scheduleTask } from '~/_engine/scheduling.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -20,11 +19,11 @@ import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from '
 
 /** Build and initialize a real engine, exposing its core's real SQLite storage. */
 async function buildEngine(
-  handler: ServerDefinition,
+  definition: ServerDefinition,
 ): Promise<{ engine: Engine; sql: SQLProvider }> {
   const sql = createTestSql();
   let engine!: Engine;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'test',
     asyncContextFactory: <TStore>() => {
       let current: TStore | undefined;
@@ -43,7 +42,6 @@ async function buildEngine(
     },
     setup(createEngine) {
       engine = createEngine({
-        env: {},
         platform: { kind: 'test' },
         storage: { sql, kv: createTestKV() },
         timers: {
@@ -51,14 +49,14 @@ async function buildEngine(
           deleteAlarm: vi.fn(async () => {}),
           getAlarm: vi.fn(async () => null),
         },
-        waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
   await engine.initialize();
+
   return { engine, sql };
 }
 
@@ -66,7 +64,7 @@ function scheduledTableRows(sql: ReturnType<typeof createTestSql>): Record<strin
   return sql
     .exec<
       Record<string, unknown>
-    >('SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __wskit_scheduled')
+    >('SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __livething_scheduled')
     .toArray();
 }
 
@@ -86,6 +84,7 @@ function createScheduledRuntime(
   const runsPersisted = new Map<string, string>();
   const dlqPersisted = new Map<string, string>();
   let idCounter = 0;
+
   const sql = createTestSql();
   const timers = {
     setAlarm: vi.fn(async () => {}),
@@ -148,13 +147,13 @@ describe('scheduled/runtime', () => {
 
   it('drops persisted runs whose taskId is no longer registered at boot', () => {
     // A previous deploy registered a recurring `cleanup` task and persisted
-    // its row to `__wskit_scheduled`. The new deploy removes the task. Boot
+    // its row to `__livething_scheduled`. The new deploy removes the task. Boot
     // must drop the orphan row instead of restoring it — otherwise every
     // alarm tick would skip the missing handler and re-queue the same row
     // for the next interval, leaving storage to grow forever.
     const { runtime, scheduledRuns, sql } = createScheduledRuntime([]);
     sql.exec(
-      `INSERT INTO __wskit_scheduled (id, taskId, time, data, everyMs, attempts, recurring, retry)
+      `INSERT INTO __livething_scheduled (id, taskId, time, data, everyMs, attempts, recurring, retry)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       'task_orphan_1',
       'cleanup',
@@ -251,12 +250,181 @@ describe('scheduled/runtime', () => {
     now.mockRestore();
   });
 
-  it('throws when data is queued for a task without .data(...)', () => {
+  it('throws when data is queued for a task that declares no data', () => {
     const { runtime } = createScheduledRuntime([{ taskId: 'flush' }]);
 
     expect(() =>
       scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { nope: true } }),
-    ).toThrow(/does not declare \.data/);
+    ).toThrow(
+      /declares no data\. Declare it as \{ data: t<\.\.\.>\(\) \} in scheduled\(\{ \.\.\. \}\)/,
+    );
+  });
+
+  describe('stopping a recurring task', () => {
+    function recurringRuns(scheduledRuns: Map<string, ScheduledRun>): ScheduledRun[] {
+      return [...scheduledRuns.values()].filter((run) => run.recurring);
+    }
+
+    it('a cancelled recurring task is not re-seeded by the next boot', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+      expect(recurringRuns(scheduledRuns)).toHaveLength(1);
+
+      expect(cancelScheduledRuns(runtime, 'tick')).toEqual({ taskExists: true, removed: 1 });
+      bootstrapScheduledRuntime(runtime);
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.size).toBe(0);
+    });
+
+    it('a stop that crashed before its queued run was deleted does not run the task again', async () => {
+      const handler = vi.fn(async () => {});
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 }, handler },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+
+      // The stop wrote its marker, then the process died before the write
+      // that deletes the queued recurring run.
+      runtime
+        .getStorage()
+        .sql.exec(
+          'INSERT INTO __livething_scheduled_stopped (taskId, stoppedAt) VALUES (?, ?)',
+          'tick',
+          0,
+        );
+
+      bootstrapScheduledRuntime(runtime);
+      const now = vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER - 1);
+      await handleScheduledAlarm(runtime);
+      now.mockRestore();
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(recurringRuns(scheduledRuns)).toHaveLength(0);
+    });
+
+    it('ctx.schedule starts a stopped recurring task again, at `time` and then every interval', async () => {
+      const handler = vi.fn(async () => {});
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 }, handler },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+      cancelScheduledRuns(runtime, 'tick');
+
+      scheduleTaskRun(runtime, { taskId: 'tick', time: 5_000, data: undefined });
+
+      expect(recurringRuns(scheduledRuns)).toEqual([
+        expect.objectContaining({ taskId: 'tick', time: 5_000, every: 1_000, recurring: true }),
+      ]);
+
+      bootstrapScheduledRuntime(runtime);
+      expect(recurringRuns(scheduledRuns)).toHaveLength(1);
+
+      const now = vi.spyOn(Date, 'now').mockReturnValue(5_000);
+      await handleScheduledAlarm(runtime);
+      now.mockRestore();
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(recurringRuns(scheduledRuns)).toEqual([
+        expect.objectContaining({ taskId: 'tick', time: 6_000 }),
+      ]);
+    });
+
+    it('ctx.schedule on a running (not stopped) recurring task only adds a one-shot run', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+
+      scheduleTaskRun(runtime, { taskId: 'tick', time: 5_000, data: undefined });
+
+      expect(recurringRuns(scheduledRuns)).toHaveLength(1);
+      expect(scheduledRuns.size).toBe(2);
+    });
+
+    it('a recurring task that cancels itself inside its own run stays stopped', async () => {
+      const handler = vi.fn(async () => {});
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 }, handler },
+      ]);
+      handler.mockImplementation(async () => {
+        expect(cancelScheduledRuns(runtime, 'tick').removed).toBe(1);
+      });
+      bootstrapScheduledRuntime(runtime);
+
+      const now = vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER - 10);
+      await handleScheduledAlarm(runtime);
+      now.mockRestore();
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(scheduledRuns.size).toBe(0);
+      bootstrapScheduledRuntime(runtime);
+      expect(scheduledRuns.size).toBe(0);
+    });
+
+    it('a recurring task that stops and re-schedules itself in its run keeps exactly one cycle', async () => {
+      const handler = vi.fn(async () => {});
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 }, handler },
+      ]);
+      handler.mockImplementation(async () => {
+        cancelScheduledRuns(runtime, 'tick');
+        scheduleTaskRun(runtime, { taskId: 'tick', time: 50_000, data: undefined });
+      });
+      bootstrapScheduledRuntime(runtime);
+
+      const now = vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER - 10);
+      await handleScheduledAlarm(runtime);
+      now.mockRestore();
+
+      expect(recurringRuns(scheduledRuns)).toEqual([expect.objectContaining({ time: 50_000 })]);
+    });
+
+    it('a filtered cancel does not stop the recurring task', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+
+      cancelScheduledRuns(runtime, 'tick', { any: 'filter' });
+      sql.exec('DELETE FROM __livething_scheduled');
+      bootstrapScheduledRuntime(runtime);
+
+      expect(recurringRuns(scheduledRuns)).toHaveLength(1);
+    });
+
+    it('boot drops the stopped marker of a task that no longer declares every', () => {
+      const first = createScheduledRuntime([{ taskId: 'tick', options: { every: 1_000 } }]);
+      bootstrapScheduledRuntime(first.runtime);
+      cancelScheduledRuns(first.runtime, 'tick');
+      function stoppedRows(): { taskId: string }[] {
+        return first.sql
+          .exec<{ taskId: string }>('SELECT taskId FROM __livething_scheduled_stopped')
+          .toArray();
+      }
+
+      expect(stoppedRows()).toHaveLength(1);
+
+      const redeployed = {
+        ...first.runtime,
+        getScheduledTask: () => ({ taskId: 'tick' }) as never,
+        getScheduledTasks: () => [{ taskId: 'tick' }] as never,
+      };
+
+      bootstrapScheduledRuntime(redeployed);
+
+      expect(stoppedRows()).toHaveLength(0);
+    });
+
+    it('cancelling an already stopped task removes nothing', () => {
+      const { runtime } = createScheduledRuntime([{ taskId: 'tick', options: { every: 1_000 } }]);
+      bootstrapScheduledRuntime(runtime);
+      cancelScheduledRuns(runtime, 'tick');
+
+      expect(cancelScheduledRuns(runtime, 'tick')).toEqual({ taskExists: true, removed: 0 });
+    });
   });
 
   it('throws synchronously when scheduling an unregistered task id', () => {
@@ -283,6 +451,7 @@ describe('scheduled/runtime', () => {
         scheduleTaskRun(runtime, { taskId: 'flush', time: bad, data: undefined }),
       ).toThrow(/must be a positive safe integer/);
     }
+
     expect([...scheduledRuns.values()]).toHaveLength(0);
   });
 
@@ -638,6 +807,7 @@ describe('scheduled/runtime', () => {
     expect(dlq).toBeDefined();
     expect(typeof dlq!.error.message).toBe('string');
     expect(dlq!.error.message).toBe('1');
+
     now.mockRestore();
   });
 });
@@ -646,21 +816,20 @@ describe('scheduled/runtime — through the real engine', () => {
   it('keeps the running task recoverable in storage across a nested ctx.schedule() call', async () => {
     const rowsDuringHandler: unknown[][] = [];
 
-    const base = define({
-      env: t<Record<string, never>>(),
+    const base = server({
       capabilities: [scheduled({ processRefund: { retry: false }, sendReceipt: null })],
     });
-    const processRefund = base.scheduled('processRefund', {
+    base.scheduled('processRefund', {
       run(ctx) {
         ctx.schedule('sendReceipt', { time: Date.now() + 5000 });
         rowsDuringHandler.push(
-          ctx.sql.exec<{ taskId: string }>('SELECT taskId FROM __wskit_scheduled').toArray(),
+          ctx.sql.exec<{ taskId: string }>('SELECT taskId FROM __livething_scheduled').toArray(),
         );
       },
     });
-    const sendReceipt = base.scheduled('sendReceipt', { run() {} });
+    base.scheduled('sendReceipt', { run() {} });
 
-    const { engine } = await buildEngine(base.assemble({ handlers: [processRefund, sendReceipt] }));
+    const { engine } = await buildEngine(base.assemble({ handlers: [] }));
 
     scheduleTask(engine.core, () => ({}), {
       taskId: 'processRefund',

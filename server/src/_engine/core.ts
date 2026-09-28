@@ -1,6 +1,7 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  ConnectionBusy,
   CrossInstanceRef,
   DurableStreamRequiresUser,
   InternalError,
@@ -13,12 +14,12 @@ import {
   StreamIdCollision,
   UnsupportedProtocol,
   ValidationFailed,
-} from '@wskit/core';
+} from '@livething/core';
 import { createAsyncContext } from '~/_engine/async-context.ts';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
-import type { EngineAsyncContext } from '~/_engine/async-context.ts';
+import type { EngineAsyncContext, PendingScopeFlush } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
@@ -26,7 +27,7 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
-import type * as DefineServer from '~/server-definition.ts';
+import type * as ServerTypes from '~/server-definition.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
 import type { Validator } from '~/types.ts';
 
@@ -56,10 +57,8 @@ export class EngineCore {
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
 
   storage: PublicApi.StorageProvider;
-  env: Record<string, unknown>;
   timers: PublicApi.TimerProvider;
   platform: unknown;
-  waitUntilImpl: (promise: Promise<unknown>) => void;
   logger: PublicApi.Logger;
 
   /**
@@ -83,6 +82,7 @@ export class EngineCore {
   streamTrigger?: FeatureSlots.StreamTrigger;
   streamNudgeBuffer?: FeatureSlots.StreamNudgeBuffer;
   streamCancel?: FeatureSlots.StreamCancel;
+  streamChannelLeave?: FeatureSlots.StreamChannelLeave;
   durableStream?: FeatureSlots.DurableStreamService;
   requestDispatch?: FeatureSlots.RequestDispatch;
   buildTagsApi?: FeatureSlots.BuildTagsApi;
@@ -171,7 +171,7 @@ export class EngineCore {
   readonly pluginApiFactories = new Map<string, (ctx: unknown) => unknown>();
 
   readonly declaredErrorCodes = new Set<string>([
-    // The engine's own fallback code for any non-WSKitError. It is always a
+    // The engine's own fallback code for any non-LiveThingError. It is always a
     // valid code to surface, so declaring it here keeps an explicit
     // `throw InternalError()` from logging a spurious "not declared" warning.
     InternalError.code,
@@ -181,6 +181,7 @@ export class EngineCore {
     CrossInstanceRef.code,
     DurableStreamRequiresUser.code,
     RateLimited.code,
+    ConnectionBusy.code,
     RejoinRejected.code,
     RequestNoCorrelation.code,
     RequestNoResponse.code,
@@ -212,6 +213,8 @@ export class EngineCore {
   /** Framework-owned alarm sources. The adapter exposes one durable alarm. */
   readonly alarmSources = new Map<symbol, () => number | null>();
   readonly installedFeatures = new Set<symbol>();
+  /** Background work started by the engine that must settle before storage closes. */
+  readonly backgroundWork = new Set<Promise<void>>();
 
   /**
    * Every persisted connection row, read in one query for the duration of the
@@ -227,44 +230,46 @@ export class EngineCore {
    * dispatch is on the async call stack; read by a plugin's `getState()`.
    */
   asyncContext: EngineAsyncContext;
+  /** Snapshot writes queued by open invocation scopes, one entry per row key. */
+  readonly pendingSnapshotFlushes = new Map<string, PendingScopeFlush>();
 
-  constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
+  constructor(definition: ServerTypes.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
     if (options.storage === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide storage.`);
+      throw new Error(`[livething] Adapter "${options.adapterId}" did not provide storage.`);
     }
+
     if (options.timers === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide timers.`);
+      throw new Error(`[livething] Adapter "${options.adapterId}" did not provide timers.`);
     }
-    if (options.env === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide env.`);
-    }
+
     if (options.platform === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide platform.`);
+      throw new Error(`[livething] Adapter "${options.adapterId}" did not provide platform.`);
     }
-    if (options.waitUntil === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide waitUntil.`);
-    }
+
     if (options.logger === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide logger.`);
+      throw new Error(`[livething] Adapter "${options.adapterId}" did not provide logger.`);
     }
+
     if (options.asyncContextFactory === undefined) {
       throw new Error(
-        `[wskit] Adapter "${options.adapterId}" did not provide async-context support.`,
+        `[livething] Adapter "${options.adapterId}" did not provide async-context support.`,
       );
     }
 
     this.options = options;
-    this.primitives = handler.primitives;
-    this.adminApiFactory = (handler as { __apiFactory?: (ctx: unknown) => unknown }).__apiFactory;
-    this.translatorFactory = handler.__translate;
-    this.compiled = EngineCompile.compileHandlerDefinition(handler);
+    this.primitives = definition.primitives;
+    this.adminApiFactory = (
+      definition as { __apiFactory?: (ctx: unknown) => unknown }
+    ).__apiFactory;
+    this.translatorFactory = definition.__translate;
+    this.compiled = EngineCompile.compileServerDefinition(definition);
+
     this.storage = options.storage;
-    this.env = options.env;
     this.timers = options.timers;
     this.platform = options.platform;
-    this.waitUntilImpl = options.waitUntil;
     this.logger = options.logger;
     this.asyncContext = createAsyncContext(options.asyncContextFactory);
+
     this.hooks.ping.push((connectionId) => this.replyPong(connectionId));
   }
 
@@ -285,6 +290,22 @@ export class EngineCore {
   generateId(prefix = 'id'): string {
     this.idCounter += 1;
     return `${prefix}_${this.instanceNonce}_${this.idCounter}`;
+  }
+
+  /** @internal */
+  trackBackgroundWork(work: Promise<void>): void {
+    this.backgroundWork.add(work);
+    void work.then(
+      () => this.backgroundWork.delete(work),
+      () => this.backgroundWork.delete(work),
+    );
+  }
+
+  /** @internal */
+  async drainBackgroundWork(): Promise<void> {
+    while (this.backgroundWork.size > 0) {
+      await Promise.allSettled([...this.backgroundWork]);
+    }
   }
 
   usesHibernation(): boolean {
@@ -322,6 +343,7 @@ export class EngineCore {
       const channel = this.compiled.channels.get(channelName);
       return channel ? this.isChannelDurable(channel.key) : false;
     }
+
     const family = this.compiled.channelFamilies.get(channelFamily);
     return family ? this.isChannelDurable(family.key) : false;
   }

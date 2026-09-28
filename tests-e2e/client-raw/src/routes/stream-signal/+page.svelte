@@ -16,16 +16,19 @@
 		chunkIndices = [];
 		signalFired = false;
 		signalAborted = '';
+
 		signalReason = '';
 		signalRanToCompletion = '';
 	}
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		reset();
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/stream-signal?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -38,17 +41,21 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			switch (data.event) {
 				case '__streamOk__':
 					streamOkReceived = true;
-					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
+					if (data.metadata?.stream?.id) lastStreamId = data.metadata.stream?.id;
 					break;
+
 				case 'slow-signal':
 					if (typeof data.payload?.index === 'number') {
 						chunkIndices = [...chunkIndices, data.payload.index];
 					}
+
 					break;
+
 				case 'signal-fired':
 					signalFired = true;
 					signalAborted = data.payload?.aborted ? 'yes' : 'no';
@@ -61,13 +68,15 @@
 
 	function startSlow() {
 		reset();
-		ws?.send(JSON.stringify({ event: 'slow-signal', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'slow-signal', payload: {} }));
 	}
+
 	function cancelStream() {
 		ws?.send(
-			JSON.stringify({ event: '__streamCancel__', payload: {}, __wskit: { streamId: lastStreamId } }),
+			window.__livethingEncode({ event: '__streamCancel__', payload: null, metadata: { stream: { id: lastStreamId } } }),
 		);
 	}
+
 	function disconnect() {
 		ws?.close();
 	}

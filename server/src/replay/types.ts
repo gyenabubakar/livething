@@ -94,7 +94,7 @@ export interface ReplayOptions {
    * - an `{ event, payload }` object to store the next snapshot value
    * - `null` to delete the snapshot for that key
    *
-   * If you do not provide `reduce`, WSKit uses the default "latest event wins"
+   * If you do not provide `reduce`, LiveThing uses the default "latest event wins"
    * behavior.
    */
   readonly reduce?: SnapshotReducer;
@@ -102,7 +102,7 @@ export interface ReplayOptions {
 
 /**
  * The event shape a snapshot `reduce` function reads and returns. Describe
- * only the logical event and payload — WSKit handles sequencing and
+ * only the logical event and payload — LiveThing handles sequencing and
  * deduplication for you.
  */
 export interface ReplaySnapshotValue {
@@ -138,6 +138,8 @@ export interface ReplayRow {
   payload: string;
   channel: string | null;
   channelFamily: string | null;
+  /** The one user the frame was addressed to; `null` when it went to everyone in its scope. */
+  userId: string | null;
   snapshotKey: string | null;
   createdAt: number;
   /** Forward-compat blob (see the metadata column); not yet read or written. */

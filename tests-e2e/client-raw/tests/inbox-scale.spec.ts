@@ -28,11 +28,16 @@ test.describe('inbox at scale (raw wire, real Durable Object)', () => {
     }
 
     for (const id of ids) {
-      await send(page, id, { event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } });
+      await send(page, id, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'chat' } },
+      });
     }
+
     for (const id of ids) {
       await waitForFrame(page, id, {
-        match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'chat',
+        match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'chat',
       });
     }
 
@@ -41,7 +46,7 @@ test.describe('inbox at scale (raw wire, real Durable Object)', () => {
     await send(page, ids[0]!, {
       event: 'send-room-msg',
       payload: { text: 'scale-hello' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
 
     for (const id of ids.slice(1)) {
@@ -79,12 +84,18 @@ test.describe('inbox at scale (raw wire, real Durable Object)', () => {
     for (let i = 0; i < MEMBERS; i++) {
       ids.push(await connect(page, { path: '/ws/inbox', username: `u${i}`, room }));
     }
+
     for (const id of ids) {
-      await send(page, id, { event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } });
+      await send(page, id, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'chat' } },
+      });
     }
+
     for (const id of ids) {
       await waitForFrame(page, id, {
-        match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'chat',
+        match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'chat',
       });
     }
 
@@ -92,12 +103,12 @@ test.describe('inbox at scale (raw wire, real Durable Object)', () => {
     // the same batched fan-out; if a batch were lost, this member never learns
     // the message existed.
     const absentee = ids[MEMBERS - 1]!;
-    await page.evaluate((sid) => window.__wskitClose!(sid), absentee);
+    await page.evaluate((sid) => window.__livethingClose!(sid), absentee);
 
     await send(page, ids[0]!, {
       event: 'send-room-msg',
       payload: { text: 'while-you-were-out' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
 
     // A member that stayed online proves the broadcast actually went out.

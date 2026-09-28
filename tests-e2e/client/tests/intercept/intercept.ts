@@ -1,11 +1,11 @@
-import { client, connect, intercept } from '@wskit/client';
-import { Block } from '@wskit/client/errors';
-import type { InterceptClient } from '@wskit/tests-e2e-handlers/intercept';
+import { client, connect, intercept } from '@livething/client';
+import { Block } from '@livething/client/errors';
+import type { InterceptClient } from '@livething/tests-e2e-handlers/intercept';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's intercept() against the real `intercept` handler, typed
+// Drives @livething/client's intercept() against the real `intercept` server definition, typed
 // by the same contract the server implements (InterceptClient =
-// InferClient<handler>). The client sends `echo` and the server replies with
+// InferClient<definition>). The client sends `echo` and the server replies with
 // `echoed` carrying { text: `top:<sent>` } — that reply is the INCOMING frame
 // the client-side intercepts transform before on('echoed') sees it. The sent
 // text selects which behaviour fires, so each test stays independent.
@@ -26,11 +26,14 @@ export function setup(): void {
     // marker, and stamps order '-1' so declaration order can be proven.
     intercept((message) => {
       if (message.event !== 'echoed') return;
+
       const payload = message.payload as { text: string };
       if (payload.text === 'top:rewrite-me') {
         return { ...message, payload: { text: 'rewritten-by-client' } };
       }
+
       if (payload.text === 'top:block-me') throw Block;
+
       if (payload.text === 'top:order-me') {
         return { ...message, payload: { text: `${payload.text}-1` } };
       }
@@ -39,6 +42,7 @@ export function setup(): void {
     // never see a blocked frame.
     intercept((message) => {
       if (message.event !== 'echoed') return;
+
       const payload = message.payload as { text: string };
       if (payload.text === 'top:order-me-1') {
         return { ...message, payload: { text: `${payload.text}-2` } };

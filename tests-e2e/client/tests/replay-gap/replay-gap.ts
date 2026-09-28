@@ -1,8 +1,8 @@
-import { channels, client, connect, dedup, gaps, reconnection, replay } from '@wskit/client';
-import type { ReplayGapClient } from '@wskit/tests-e2e-handlers/replay-gap';
+import { channels, client, connect, dedup, gaps, reconnection, replay } from '@livething/client';
+import type { ReplayGapClient } from '@livething/tests-e2e-handlers/replay-gap';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives gaps() against the real replay handler, which keeps only
+// Drives gaps() against the real replay server definition, which keeps only
 // the newest row per store (maxMessages: 1). A witness publishes while the
 // subject is offline, evicting the subject's last-known row; on reconnect the
 // server sends __gap__ before the surviving rows, and onGap fires with the

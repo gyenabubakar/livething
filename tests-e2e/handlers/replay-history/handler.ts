@@ -1,14 +1,14 @@
-import { define, emits, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { Disconnect } from '@wskit/server/errors';
-import { plugin } from '@wskit/server/plugin';
-import { replay } from '@wskit/server/replay';
-import { requests } from '@wskit/server/requests';
-import { sequence } from '@wskit/server/sequence';
-import { stream } from '@wskit/server/streams';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { dedup } from '@livething/server/dedup';
+import { Disconnect } from '@livething/server/errors';
+import { plugin } from '@livething/server/plugins';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
+import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 import {
   GetToken,
@@ -20,6 +20,7 @@ import {
   SendCursor,
   SendMsg,
   SendRoomMsg,
+  SendToUser,
   StartTinyStream,
   TinyChunk,
   TriggerBadReplay,
@@ -32,7 +33,7 @@ import type { ChatMsg, Cursor, ReplayGuardError, RoomMsg } from './events.ts';
 // `plugin-msg` broadcast rides out namespaced as `__e2e:replay::plugin-msg`,
 // and the host's top-level replay stores and re-delivers it like any other
 // outgoing frame. This is the proof that app-level replay covers plugin events.
-const pluginBase = define({
+const pluginBase = server({
   scope: 'plugin',
   capabilities: [emits({ 'plugin-msg': PluginMsg })],
 });
@@ -40,20 +41,17 @@ const pluginBase = define({
 const handlePluginPingAll = pluginBase.on('ping-all', {
   input: PingAll,
   run(ctx, payload) {
-    // Send to the caller AND broadcast to everyone else. The persist hook fires
-    // per recipient, so the send to the live caller is what stores the frame —
-    // exactly how the top-level `chat-msg` handler seeds a replayable row.
-    ctx.send('plugin-msg', { text: payload.text });
-    ctx.broadcast('plugin-msg', { text: payload.text });
+    // A broadcast is recorded once for replay, the same way the top-level
+    // `chat-msg` handler seeds a replayable row.
+    ctx.broadcast('plugin-msg', { text: payload.text }, { includeSelf: true });
   },
 });
 
 export const ReplayPlugin = plugin('e2e:replay', {
-  handler: pluginBase.assemble({ handlers: [handlePluginPingAll] }),
+  definition: pluginBase.assemble({ handlers: [handlePluginPingAll] }),
 });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -62,7 +60,7 @@ const base = define({
       'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
       'replay-guard-error': t<v.InferOutput<typeof ReplayGuardError>>(),
     }),
-    requests(),
+    clientRequests(),
     dedup(),
     sequence({ persist: true }),
     replay.history({
@@ -84,16 +82,40 @@ export const handleSendMsg = base.on('send-msg', {
   input: SendMsg,
   run(ctx, payload) {
     const msg = { text: payload.text, from: ctx.meta.username };
-    ctx.send('chat-msg', msg);
-    ctx.broadcast('chat-msg', msg);
+    ctx.broadcast('chat-msg', msg, { includeSelf: true });
   },
 });
 
 export const handleSendCursor = base.on('send-cursor', {
   input: SendCursor,
   run(ctx, payload) {
-    ctx.send('cursor', { x: payload.x, y: payload.y });
-    ctx.broadcast('cursor', { x: payload.x, y: payload.y });
+    ctx.broadcast('cursor', { x: payload.x, y: payload.y }, { includeSelf: true });
+  },
+});
+
+// A private reply to the caller only. Replay never records it, so no other
+// connection can read it back.
+export const handleSendPrivate = base.on('send-private', {
+  input: SendMsg,
+  run(ctx, payload) {
+    ctx.send('chat-msg', { text: payload.text, from: 'private' });
+  },
+});
+
+// A message addressed to one user. Replay records it for that user only.
+export const handleSendToUser = base.on('send-to-user', {
+  input: SendToUser,
+  run(ctx, payload) {
+    ctx.users.get(payload.userId).broadcast('chat-msg', { text: payload.text, from: 'dm' });
+  },
+});
+
+// A broadcast to everyone except the caller. Replay records it even when the
+// caller is the only connection, so nobody receives it live.
+export const handleShout = base.on('shout', {
+  input: SendMsg,
+  run(ctx, payload) {
+    ctx.broadcast('chat-msg', { text: payload.text, from: ctx.meta.username });
   },
 });
 
@@ -103,7 +125,7 @@ export const handleRequestHistory = base.on('request-history', {
     ctx.sendReplay(
       'chat-msg',
       { text: 'injected-history', from: 'system' },
-      { seq: 0, messageId: 'manual-001' },
+      { deliverySeq: 0, messageId: 'manual-001' },
     );
   },
 });
@@ -125,7 +147,7 @@ export const handleTriggerBadReplay = base.on('trigger-bad-replay', {
       ctx.sendReplay(
         'not-declared-event' as 'chat-msg',
         { text: 'x', from: 'system' },
-        { seq: 0, messageId: 'bad-1' },
+        { deliverySeq: 0, messageId: 'bad-1' },
       );
     } catch (err) {
       undeclared = err instanceof Error ? err.message : String(err);
@@ -141,7 +163,7 @@ export const handleInjectFamilyReplay = base.on('inject-family-replay', {
     ctx.sendReplay(
       'room-msg',
       { text: 'family-injected', from: 'system' },
-      { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelFamily: 'fams' },
+      { deliverySeq: 0, messageId: 'fam-manual-001', channel: fams.at({ id: '1' }) },
     );
   },
 });
@@ -155,12 +177,12 @@ export const handleTriggerBigIntReplay = base.on('trigger-bigint-replay', {
         text: string;
         from: string;
       },
-      { seq: 1, messageId: 'bigint-row-1' },
+      { deliverySeq: 1, messageId: 'bigint-row-1' },
     );
     ctx.sendReplay(
       'chat-msg',
       { text: 'after-bigint-row', from: 'system' },
-      { seq: 2, messageId: 'after-bigint-row' },
+      { deliverySeq: 2, messageId: 'after-bigint-row' },
     );
   },
 });
@@ -181,11 +203,11 @@ export const handleStartTinyStream = base.stream('start-tiny-stream', {
 });
 
 const replayRoom = base.channel('replay-room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleSendRoomMsg = replayRoom.on('send-room-msg', {
@@ -193,8 +215,16 @@ export const handleSendRoomMsg = replayRoom.on('send-room-msg', {
   run(ctx, payload) {
     const from = ctx.meta.username;
     const msg = { text: payload.text, from };
-    ctx.channel.send('room-msg', msg);
-    ctx.channel.broadcast('room-msg', msg);
+    ctx.channel.broadcast('room-msg', msg, { includeSelf: true });
+  },
+});
+
+// A channel broadcast to every member except the caller. Replay records it
+// even when the caller is the channel's only member.
+export const handleShoutRoom = replayRoom.on('shout-room', {
+  input: SendRoomMsg,
+  run(ctx, payload) {
+    ctx.channel.broadcast('room-msg', { text: payload.text, from: ctx.meta.username });
   },
 });
 
@@ -205,20 +235,21 @@ export const handleRequestRoomHistory = replayRoom.on('request-room-history', {
     if (!sendReplay) {
       throw new Error('channel replay is not active for replay-room');
     }
+
     sendReplay(
       'room-msg',
       { text: 'injected-room-history', from: 'system' },
-      { seq: 0, messageId: 'room-manual-001' },
+      { deliverySeq: 0, messageId: 'room-manual-001' },
     );
   },
 });
 
 const fams = base.channel(['fams', 'fam-{id}'], {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleFamsSendRoomMsg = fams.on('send-room-msg', {
@@ -232,11 +263,11 @@ export const handleFamsSendRoomMsg = fams.on('send-room-msg', {
 
 const optoutRoom = base.channel('optout-room', {
   replay: false,
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleOptoutSendRoomMsg = optoutRoom.on('send-room-msg', {
@@ -244,15 +275,18 @@ export const handleOptoutSendRoomMsg = optoutRoom.on('send-room-msg', {
   run(ctx, payload) {
     const from = ctx.meta.username;
     const msg = { text: payload.text, from };
-    ctx.channel.send('room-msg', msg);
-    ctx.channel.broadcast('room-msg', msg);
+    ctx.channel.broadcast('room-msg', msg, { includeSelf: true });
   },
 });
 
-export const replayHandler = base.assemble({
+export const replayDefinition = base.assemble({
   handlers: [
     handleSendMsg,
     handleSendCursor,
+    handleSendPrivate,
+    handleSendToUser,
+    handleShout,
+    handleShoutRoom,
     handleRequestHistory,
     handleGetToken,
     handleTriggerBadReplay,
@@ -267,4 +301,4 @@ export const replayHandler = base.assemble({
   ],
 });
 
-export type ReplayClient = InferClient<typeof replayHandler>;
+export type ReplayClient = InferClient<typeof replayDefinition>;

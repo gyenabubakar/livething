@@ -1,17 +1,16 @@
-import { define, t } from '@wskit/server';
-import { channels } from '@wskit/server/channels';
-import { dedup } from '@wskit/server/dedup';
-import { replay } from '@wskit/server/replay';
-import { sequence } from '@wskit/server/sequence';
+import { emits, server, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
+import { dedup } from '@livething/server/dedup';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const RoomMessage = v.object({ text: v.string() });
 const SendBatch = v.object({ count: v.number() });
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), dedup(), sequence({ persist: true }), replay.history()],
 });
@@ -22,7 +21,7 @@ const rooms = base.channel(['rooms', 'rooms'], {
   // relying on auto-rejoin — it needs a real subscribe/ack cycle to run.
   membership: 'ephemeral',
   replay: true,
-  outgoing: { emits: { 'room-message': t<v.InferOutput<typeof RoomMessage>>() } },
+  capabilities: [emits({ 'room-message': t<v.InferOutput<typeof RoomMessage>>() })],
 });
 
 const handleSendBatch = rooms.on('send-batch', {
@@ -34,6 +33,8 @@ const handleSendBatch = rooms.on('send-batch', {
   },
 });
 
-export const replayFamilyKeyEqualsNameHandler = base.assemble({ handlers: [handleSendBatch] });
+export const replayFamilyKeyEqualsNameDefinition = base.assemble({ handlers: [handleSendBatch] });
 
-export type ReplayFamilyKeyEqualsNameClient = InferClient<typeof replayFamilyKeyEqualsNameHandler>;
+export type ReplayFamilyKeyEqualsNameClient = InferClient<
+  typeof replayFamilyKeyEqualsNameDefinition
+>;

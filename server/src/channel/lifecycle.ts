@@ -3,6 +3,10 @@ import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive, ValidationView } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
+interface CheckOptions<TData> {
+  validator?: Validator<TData>;
+}
+
 /**
  * Handler called after a client subscribes to a channel. Receives only the
  * handler context — the subscription is already confirmed at this point.
@@ -114,7 +118,14 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  *
  * @example
  * ```ts
- * import { Block } from '@wskit/server/errors';
+ * import { errors, server } from '@livething/server';
+ * import { channels } from '@livething/server/channels';
+ * import { error } from '@livething/server/errors';
+ *
+ * const Forbidden = error('forbidden', v.object({ reason: v.string() }));
+ * const RoomFull = error('room-full');
+ *
+ * const base = server({ capabilities: [channels(), errors([Forbidden, RoomFull])] });
  *
  * base.channel('private-room', {
  *   subscribe: v.object({ token: v.string() }),
@@ -125,7 +136,7 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  *   },
  *   commit(ctx, user) {
  *     if (ctx.channel.members().length >= 50) {
- *       throw Block;
+ *       throw RoomFull();
  *     }
  *   },
  * });
@@ -133,10 +144,10 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  */
 export function check<TCtx, TData = unknown, TResult = unknown>(
   handler: CheckHandler<TCtx, TData, TResult>,
-  options?: { validator?: Validator<TData> },
+  options?: CheckOptions<TData>,
 ): CheckPrimitive<TCtx, TData, TResult> {
   return {
-    __wskit: 'check',
+    __livething: 'check',
     __kind: 'lifecycle',
     __identity: [ON_CHECK_KEY],
     __requires: {},
@@ -171,7 +182,7 @@ export function check<TCtx, TData = unknown, TResult = unknown>(
  */
 export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePrimitive<TCtx> {
   return {
-    __wskit: 'revalidate',
+    __livething: 'revalidate',
     __kind: 'lifecycle',
     __identity: [ON_REVALIDATE_KEY],
     __requires: {},
@@ -179,7 +190,7 @@ export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePr
     __validate(view: ValidationView) {
       if (view.channelKey && !view.isChannelDurable(view.channelKey)) {
         throw new Error(
-          `[wskit] Channel "${view.channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
+          `[livething] Channel "${view.channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
             `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
             `Remove \`membership: 'ephemeral'\` from this channel, or remove the .revalidate() hook (use \`.check()\` ` +
             `for first-subscribe authorization).`,
@@ -196,18 +207,27 @@ export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePr
  * Creates a `commit` lifecycle primitive for a channel.
  *
  * Run a final sync check right before the subscriber is added to the channel.
+ * It runs in the same JavaScript tick as the membership write, so
+ * `ctx.channel.members()` does not include the joiner yet, and two subscribes
+ * at once cannot both pass a capacity limit.
  *
  * Receives the value returned by `check` — TypeScript knows the type.
- * Use it for things like capacity limits. Throw to deny the subscribe.
+ * Use it for things like capacity limits. Throw an error declared with
+ * `errors([...])` to deny the subscribe; the client's `subscribe()` rejects
+ * with that error.
  *
  * Must be synchronous. Do not use `async` or return a `Promise`.
  *
  * @example
  * ```ts
+ * const RoomFull = error('room-full');
+ *
+ * const base = server({ capabilities: [channels(), errors([RoomFull])] });
+ *
  * base.channel('private-room', {
  *   commit(ctx) {
  *     if (ctx.channel.members().length >= 50) {
- *       throw Block(error('room-full')());
+ *       throw RoomFull();
  *     }
  *   },
  * });
@@ -217,7 +237,7 @@ export function commit<TCtx, TCheck = unknown>(
   handler: CommitHandler<TCtx, TCheck>,
 ): CommitPrimitive<TCtx, TCheck> {
   return {
-    __wskit: 'commit',
+    __livething: 'commit',
     __kind: 'lifecycle',
     __identity: [ON_COMMIT_KEY],
     __requires: {},
@@ -236,7 +256,7 @@ export function commit<TCtx, TCheck = unknown>(
  * @example
  * ```ts
  * const notifications = base.channel('notifications', {
- *   outgoing: { emits: { notifications: t<Item[]>() } },
+ *   capabilities: [emits({ notifications: t<Item[]>() })],
  * });
  * notifications.subscribe(async (ctx) => {
  *   const items = await db.getUnread(ctx.meta.userId);
@@ -246,7 +266,7 @@ export function commit<TCtx, TCheck = unknown>(
  */
 export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePrimitive<TCtx> {
   return {
-    __wskit: 'onSubscribe',
+    __livething: 'onSubscribe',
     __kind: 'lifecycle',
     __identity: [ON_SUBSCRIBE_KEY],
     __requires: {},
@@ -265,7 +285,7 @@ export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePri
  */
 export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): UnsubscribePrimitive<TCtx> {
   return {
-    __wskit: 'onUnsubscribe',
+    __livething: 'onUnsubscribe',
     __kind: 'lifecycle',
     __identity: [ON_UNSUBSCRIBE_KEY],
     __requires: {},
@@ -284,7 +304,7 @@ export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): Unsubscr
  */
 export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEndPrimitive<TCtx> {
   return {
-    __wskit: 'onSessionEnd',
+    __livething: 'onSessionEnd',
     __kind: 'lifecycle',
     __identity: [ON_SESSION_END_KEY],
     __requires: {},

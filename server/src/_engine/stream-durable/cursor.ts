@@ -1,6 +1,6 @@
 /** Marker wrapper for `ctx.stream.withCursor(chunk, cursor)` yields. */
 
-const CURSOR_MARK = Symbol('wskit:cursor');
+const CURSOR_MARK = Symbol('livething:cursor');
 
 /**
  * Internal envelope produced by `ctx.stream.withCursor(chunk, cursor)` so the

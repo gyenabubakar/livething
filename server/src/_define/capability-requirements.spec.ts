@@ -6,14 +6,14 @@ import type { AnyCapability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 
 function makePrimitive(
-  wskit: string,
+  livething: string,
   requiresCapabilities: readonly string[],
   extra: Record<string, unknown> = {},
 ): Primitive {
   return {
-    __wskit: wskit,
+    __livething: livething,
     __kind: 'infrastructure',
-    __identity: [Symbol(wskit)],
+    __identity: [Symbol(livething)],
     __requires: {},
     __requiresCapabilities: requiresCapabilities,
     ...extra,
@@ -22,7 +22,7 @@ function makePrimitive(
 
 function makeCapability(kind: string): AnyCapability {
   return {
-    __wskitCapability: true,
+    __livethingCapability: true,
     __primitives: [],
     __features: [],
     __capabilityKind: kind,
@@ -33,7 +33,7 @@ describe('resolveCapabilityRequirements', () => {
   it('throws on an app missing a required capability, naming the capability and the primitive that needs it', () => {
     const primitives = [makePrimitive('inbox', ['sequence', 'dedup'])];
     expect(() => resolveCapabilityRequirements(primitives, [], { scoped: false })).toThrow(
-      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to define({ capabilities: [...] }).',
+      '[livething] The sequence() capability is required by inbox but is not listed. Add sequence() to server({ capabilities: [...] }).',
     );
   });
 
@@ -53,13 +53,14 @@ describe('resolveCapabilityRequirements', () => {
     });
     expect(hostDependencies).toContain('sequence');
     expect(hostDependencies).toContain('dedup');
+
     expect(hostDependencies).not.toContain('channels');
   });
 
   it('still throws on a scoped plugin handler missing a capability it could own itself', () => {
     const primitives = [makePrimitive('inbox', ['channels'])];
     expect(() => resolveCapabilityRequirements(primitives, [], { scoped: true })).toThrow(
-      '[wskit] The channels() capability is required by inbox but is not listed. Add channels() to capabilities.',
+      '[livething] The channels() capability is required by inbox but is not listed. Add channels() to capabilities.',
     );
   });
 
@@ -67,7 +68,7 @@ describe('resolveCapabilityRequirements', () => {
     const nestedInbox = makePrimitive('inbox', ['sequence']);
     const channel = makePrimitive('channel', [], { primitives: [nestedInbox] });
     expect(() => resolveCapabilityRequirements([channel], [], { scoped: false })).toThrow(
-      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to define({ capabilities: [...] }).',
+      '[livething] The sequence() capability is required by inbox but is not listed. Add sequence() to server({ capabilities: [...] }).',
     );
   });
 
@@ -96,15 +97,15 @@ describe('resolveCapabilityRequirements', () => {
     const channel = makePrimitive('channel', [], { primitives: [nestedReadReceipts] });
     const capabilities = [makeCapability('sequence')];
     expect(() => resolveCapabilityRequirements([channel], capabilities, { scoped: false })).toThrow(
-      "[wskit] The inbox() capability is required by read-receipts but is not listed. Add inbox() to this channel's capabilities.",
+      "[livething] The inbox() capability is required by read-receipts but is not listed. Add inbox() to this channel's capabilities.",
     );
   });
 
-  it('names only the channel-local fix for a channel-only capability — never define({ capabilities })', () => {
+  it('names only the channel-local fix for a channel-only capability — never server({ capabilities })', () => {
     const nestedReadReceipts = makePrimitive('read-receipts', ['inbox']);
     const channel = makePrimitive('channel', [], { primitives: [nestedReadReceipts] });
     expect(() => resolveCapabilityRequirements([channel], [], { scoped: false })).toThrow(
-      "[wskit] The inbox() capability is required by read-receipts but is not listed. Add inbox() to this channel's capabilities.",
+      "[livething] The inbox() capability is required by read-receipts but is not listed. Add inbox() to this channel's capabilities.",
     );
   });
 
@@ -112,7 +113,7 @@ describe('resolveCapabilityRequirements', () => {
     const nestedInbox = makePrimitive('inbox', ['dedup']);
     const channel = makePrimitive('channel', [], { primitives: [nestedInbox] });
     expect(() => resolveCapabilityRequirements([channel], [], { scoped: false })).toThrow(
-      '[wskit] The dedup() capability is required by inbox but is not listed. Add dedup() to define({ capabilities: [...] }).',
+      '[livething] The dedup() capability is required by inbox but is not listed. Add dedup() to server({ capabilities: [...] }).',
     );
   });
 
@@ -124,6 +125,7 @@ describe('resolveCapabilityRequirements', () => {
       primitives: [nestedReadReceipts],
     });
     const capabilities = [makeCapability('sequence')];
+
     expect(() =>
       resolveCapabilityRequirements([inboxChannel, readReceiptsChannel], capabilities, {
         scoped: false,

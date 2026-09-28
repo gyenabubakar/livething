@@ -2,6 +2,8 @@ import { listReaders } from '~/inbox/receipts-storage.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { ChannelReadReceipts } from '~/context.ts';
 
+type BuildReadReceiptsSurfaceScopeParameter = { channelName: string; channelFamily: string | null };
+
 /**
  * Build the `ChannelReadReceipts` surface for one concrete channel. Shared by
  * the owning-scope `ctx.channel.readReceipts` member and the handle-augmenter's
@@ -10,7 +12,7 @@ import type { ChannelReadReceipts } from '~/context.ts';
  */
 export function buildReadReceiptsSurface(
   engine: EngineAccess,
-  scope: { channelName: string; channelFamily: string | null },
+  scope: BuildReadReceiptsSurfaceScopeParameter,
 ): ChannelReadReceipts {
   const { channelName, channelFamily } = scope;
   return {

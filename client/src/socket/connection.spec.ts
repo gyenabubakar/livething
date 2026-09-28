@@ -24,6 +24,7 @@ describe('url-as-function / async url resolution', () => {
     socket.connect();
     await Promise.resolve();
     expect(urlFn).toHaveBeenCalledTimes(1);
+
     expect(MockWebSocket.last().url).toBe('wss://resolved-host/ws');
   });
 
@@ -194,6 +195,7 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
+
     expect(socket.state.get()).toBe('reconnecting');
   });
 
@@ -203,6 +205,7 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
+
     expect(socket.state.get()).toBe('closed');
   });
 
@@ -264,6 +267,72 @@ describe('url-function rejection fires close event (no reconnection)', () => {
     // BUG: the catch path calls _setState('closed') but never emits 'close'.
     // Correct behaviour: onClose must fire so callers know the attempt ended.
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a connect attempt that fails before the socket exists fires onClose', () => {
+  const failed = { code: 1006, reason: 'connection failed', wasClean: false };
+
+  it('fires onClose once with reconnection() when the url function rejects', async () => {
+    const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
+    const socket = c(connect(urlFn), reconnection());
+    const onClose = vi.fn();
+    const statesSeen: string[] = [];
+    socket.onError(() => undefined);
+
+    socket.onClose((event) => {
+      statesSeen.push(socket.state.get());
+      onClose(event);
+    });
+
+    socket.connect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith(failed);
+    expect(statesSeen).toEqual(['reconnecting']);
+  });
+
+  it('fires onClose once with reconnection() when a query() resolver throws', async () => {
+    const socket = c(
+      connect('wss://host/ws'),
+      query(() => {
+        throw new Error('no token');
+      }),
+      reconnection(),
+    );
+    const onClose = vi.fn();
+    socket.onError(() => undefined);
+    socket.onClose(onClose);
+
+    socket.connect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(socket.state.get()).toBe('reconnecting');
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith(failed);
+  });
+
+  it('gives the same close event with and without reconnection()', async () => {
+    const withoutReconnection = c(connect(vi.fn().mockRejectedValue(new Error('DNS failed'))));
+    const withReconnection = c(
+      connect(vi.fn().mockRejectedValue(new Error('DNS failed'))),
+      reconnection(),
+    );
+    const plainClose = vi.fn();
+    const retryClose = vi.fn();
+    withoutReconnection.onError(() => undefined);
+
+    withReconnection.onError(() => undefined);
+    withoutReconnection.onClose(plainClose);
+    withReconnection.onClose(retryClose);
+
+    withoutReconnection.connect();
+    withReconnection.connect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(plainClose.mock.calls).toEqual([[failed]]);
+    expect(retryClose.mock.calls).toEqual(plainClose.mock.calls);
   });
 });
 
@@ -445,6 +514,7 @@ describe('searchParams URL separator', () => {
     socket.connect();
     await Promise.resolve();
     await Promise.resolve();
+
     expect(MockWebSocket.last().url).toBe('wss://host/ws?env=prod&token=xyz');
   });
 });

@@ -14,10 +14,10 @@ import type { SequenceOptions } from '~/sequence/sequence.ts';
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { sequence } from '@wskit/server/sequence';
+ * import { server, t } from '@livething/server';
+ * import { sequence } from '@livething/server/sequence';
  *
- * const base = define({ env: t<Env>(), capabilities: [sequence({ persist: true })] });
+ * const base = server({ capabilities: [sequence({ persist: true })] });
  * ```
  */
 export const sequence = defineHostCapability(

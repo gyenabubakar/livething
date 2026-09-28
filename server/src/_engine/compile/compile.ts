@@ -1,10 +1,43 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidWSKitIdentifier, WIRE_LIMITS } from '@wskit/core';
+import { assertValidLiveThingIdentifier, WIRE_LIMITS } from '@livething/core';
+import { parsePluginWireName } from '~/plugin-scope.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
-import type * as DefineServer from '~/server-definition.ts';
+import type * as ServerTypes from '~/server-definition.ts';
 import * as EngineCompileUtils from './utils.ts';
 import type * as EngineCompileTypes from './types.ts';
+
+type CheckEventsInScopeScopeParameter = {
+  outgoing: ReadonlyMap<string, unknown>;
+  incoming: ReadonlyMap<string, unknown>;
+  requests: ReadonlyMap<string, unknown>;
+  streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+  resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+  recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+};
+type CheckScopeParameter = {
+  incoming: ReadonlyMap<string, unknown>;
+  requests: ReadonlyMap<string, unknown>;
+  streams: ReadonlyMap<string, unknown>;
+  resumableStreams?: ReadonlyMap<string, unknown>;
+  recordedStreams?: ReadonlyMap<string, unknown>;
+};
+type CollectFromScopeScopeParameter = {
+  incoming: ReadonlyMap<string, unknown>;
+  requests: ReadonlyMap<string, unknown>;
+  outgoing: ReadonlyMap<string, unknown>;
+  streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+  resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+  recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+};
+type CheckScopeScopeParameter = {
+  outgoing: ReadonlyMap<string, unknown>;
+  incoming: ReadonlyMap<string, unknown>;
+  requests: ReadonlyMap<string, unknown>;
+  streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+  resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+  recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+};
 
 /**
  * Walk the top-level primitives into the compiled lookup maps. Returns the
@@ -21,7 +54,7 @@ function visitCompiledPrimitives(
   for (const primitive of primitives) {
     EngineCompileUtils.mergeRequires(compiled.requires, primitive.__requires);
 
-    switch (primitive.__wskit) {
+    switch (primitive.__livething) {
       case 'sequence':
         continue;
 
@@ -103,10 +136,11 @@ function visitCompiledPrimitives(
       if (typeof primitive.pattern === 'string') {
         if (compiled.channelFamilies.has(primitive.pattern)) {
           throw new Error(
-            `[wskit] Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
+            `[livething] Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
+
         EngineCompileUtils.setUniqueOrThrow(compiled.channels, primitive.pattern, {
           value: compiledChannel,
           kind: 'channel',
@@ -114,10 +148,11 @@ function visitCompiledPrimitives(
       } else {
         if (compiled.channels.has(primitive.pattern.key)) {
           throw new Error(
-            `[wskit] Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
+            `[livething] Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
+
         EngineCompileUtils.setUniqueOrThrow(compiled.channelFamilies, primitive.pattern.key, {
           value: compiledChannel,
           kind: 'channel family',
@@ -135,8 +170,8 @@ function visitCompiledPrimitives(
  * Convert the public server definition into the compact structure the engine
  * actually executes.
  */
-export function compileHandlerDefinition(
-  handler: DefineServer.ServerDefinition,
+export function compileServerDefinition(
+  definition: ServerTypes.ServerDefinition,
 ): EngineCompileTypes.CompiledServer {
   const compiled: EngineCompileTypes.CompiledServer = {
     outgoing: new Map(),
@@ -151,26 +186,29 @@ export function compileHandlerDefinition(
     scheduled: new Map(),
     requires: {},
     replayClaimedChannelKeys: new Set<string>(),
-    usersPolicy: handler.__usersPolicy,
+    usersPolicy: definition.__usersPolicy,
   };
 
-  const validateChannelsDisjoint = visitCompiledPrimitives(compiled, handler.primitives);
-  collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
-  validateReplayDependencies(handler.primitives);
+  const validateChannelsDisjoint = visitCompiledPrimitives(compiled, definition.primitives);
+  collectReplayClaimedScopes(definition.primitives, compiled.replayClaimedChannelKeys);
+  validateReplayDependencies(definition.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
   const declaredPluginEvents = collectPluginEventNames(compiled);
+
   const declaredPluginChannels = collectPluginChannelNames(compiled);
   validateNoReservedEventNames(compiled, declaredPluginEvents);
   validateScopeAndEventNameSyntax(compiled, declaredPluginEvents, declaredPluginChannels);
   validateChannelsDisjoint?.(compiled);
+
   return compiled;
 }
 
 function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): boolean {
   for (const primitive of primitives) {
-    if (primitive.__wskit === 'replay' && !(primitive as { disabled?: boolean }).disabled) {
+    if (primitive.__livething === 'replay' && !(primitive as { disabled?: boolean }).disabled) {
       return true;
     }
+
     if (
       EngineCompileUtils.isChannelPrimitive(primitive) &&
       hasAnyReplayPrimitive(primitive.primitives)
@@ -178,17 +216,23 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
       return true;
     }
   }
+
   return false;
 }
 
 /**
  * Refuse to boot when replay is enabled but the primitives it relies on are
- * missing or misconfigured. Replay persists every outgoing message keyed by
- * `messageId` (stamped by dedup) and `seq` (allocated by sequence). Without
- * dedup the first persisted send throws "missing messageId" at runtime;
- * without `sequence: { persist: true }` the seq column is unstable across
+ * missing or misconfigured. Replay stores every recorded message keyed by
+ * a message id (stamped by dedup) and sequence (allocated by sequence). Without
+ * dedup the first recorded message cannot be stored safely;
+ * without `sequence({ persist: true })` the seq column is unstable across
  * restarts and replay cannot order rows. Fail fast at compile so the misconfig
- * surfaces at boot instead of on the first message.
+ * surfaces at boot instead of on the first message. This is the one place the
+ * persistent-sequence rule for replay is checked.
+ *
+ * `replay.custom()` has the same rule: its hooks read `msg.wire.messageId`
+ * (from dedup) and `msg.wire.deliverySeq` (from sequence), and a custom store
+ * that keeps rows across restarts needs a seq that survives them too.
  */
 function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive[]): void {
   // dedup and sequence are top-level only — they have no meaning nested inside
@@ -197,22 +241,42 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
   // catch nested cases that the top-level scan would miss.
   let hasDedup = false;
   let hasPersistentSequence = false;
+  let hasCustomReplay = false;
   for (const primitive of primitives) {
-    if (primitive.__wskit === 'dedup') hasDedup = true;
-    if (primitive.__wskit === 'sequence' && (primitive as { persist?: boolean }).persist) {
+    if (primitive.__livething === 'dedup') hasDedup = true;
+    if (primitive.__livething === 'sequence' && (primitive as { persist?: boolean }).persist) {
       hasPersistentSequence = true;
     }
+
+    if (primitive.__livething === 'replayCustomSend') hasCustomReplay = true;
   }
+
+  if (hasCustomReplay) {
+    if (!hasDedup) {
+      throw new Error(
+        `[livething] replay.custom() needs the dedup() capability. Custom replay hooks get every broadcast's msg.wire.messageId from dedup. List dedup() in server({ capabilities: [...] }).`,
+      );
+    }
+
+    if (!hasPersistentSequence) {
+      throw new Error(
+        `[livething] replay.custom() needs a persistent sequence. Custom replay hooks get every broadcast's msg.wire.deliverySeq from sequence, and a stored seq only stays valid across restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
+      );
+    }
+  }
+
   const hasReplay = hasAnyReplayPrimitive(primitives);
   if (!hasReplay) return;
+
   if (!hasDedup) {
     throw new Error(
-      `[wskit] contract uses replay but did not enable dedup. Replay persists every outgoing message keyed by messageId, which dedup stamps. Add \`dedup: true\` to the contract config.`,
+      `[livething] replay needs the dedup() capability. Replay stores every recorded message by the message id that dedup stamps. List dedup() in server({ capabilities: [...] }).`,
     );
   }
+
   if (!hasPersistentSequence) {
     throw new Error(
-      `[wskit] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence: { persist: true }\` to the contract config.`,
+      `[livething] replay needs a persistent sequence. Replay orders stored rows by seq, which only survives restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
     );
   }
 }
@@ -242,28 +306,38 @@ function validateScopeAndEventNameSyntax(
   function checkScopeName(name: string, kind: 'channel', limit: number): void {
     // A plugin's channel is framework-namespaced as `__<id>::<name>` — it
     // legitimately carries `__` and `::`. Provenance (not string shape) is what
-    // exempts it, so a hand-declared `::` channel still throws.
+    // exempts the prefix, so a hand-declared `::` channel still throws. The name
+    // the plugin declared follows the same rules as an app channel name.
     if (declaredPluginChannels.has(name)) {
       if (name.length > limit) {
         throw new Error(
-          `[wskit] ${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
+          `[livething] ${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
         );
       }
+
+      const declared = parsePluginWireName(name);
+      if (declared) checkDeclaredScopeName(declared.name, kind);
+
       return;
     }
 
-    assertValidWSKitIdentifier(name, `${kind} name`, limit);
+    assertValidLiveThingIdentifier(name, `${kind} name`, limit);
+    checkDeclaredScopeName(name, kind);
+  }
+
+  function checkDeclaredScopeName(name: string, kind: 'channel'): void {
+    assertValidLiveThingIdentifier(name, `${kind} name`);
 
     if (name.startsWith('@') || name.startsWith('#')) {
       throw new Error(
-        `[wskit] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
+        `[livething] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
           `Those prefixes are reserved for the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
 
     if (name.includes('::')) {
       throw new Error(
-        `[wskit] ${kind} name '${name}' contains '::', which is reserved as the separator in ` +
+        `[livething] ${kind} name '${name}' contains '::', which is reserved as the separator in ` +
           `the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
@@ -271,34 +345,28 @@ function validateScopeAndEventNameSyntax(
 
   function checkEventName(event: string, scopeLabel: string): void {
     // A namespaced plugin event travels as `__<id>::<name>`, where `::` is the
-    // intentional id↔name boundary. Exempt it only when it is a known plugin
-    // event (by provenance), so a hand-declared `::` name still throws.
-    if (event.includes('::') && !declaredPluginEvents.has(event)) {
+    // intentional id↔name boundary. Exempt that boundary only when it is a known
+    // plugin event (by provenance), so a hand-declared `::` name still throws —
+    // and so does a `::` inside the name the plugin declared.
+    const declared = declaredPluginEvents.has(event) ? parsePluginWireName(event) : null;
+    const declaredName = declared ? declared.name : event;
+    if (declaredName.includes('::')) {
+      const where = declared ? `plugin '${declared.id}' (${scopeLabel})` : scopeLabel;
       throw new Error(
-        `[wskit] Event name '${event}' in ${scopeLabel} contains '::', which is reserved as the ` +
-          `separator in the contract.matches(...) path key syntax — pick a different name.`,
+        `[livething] Event name '${declaredName}' in ${where} contains '::', which is reserved as the ` +
+          `separator in plugin names and the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
 
     if (event.length > WIRE_LIMITS.event) {
       throw new Error(
-        `[wskit] Event name in ${scopeLabel} is ${event.length} characters; the wire protocol limit ` +
+        `[livething] Event name in ${scopeLabel} is ${event.length} characters; the wire protocol limit ` +
           `is ${WIRE_LIMITS.event}. A longer name can't travel over the wire, so no client could reach it.`,
       );
     }
   }
 
-  function checkEventsInScope(
-    scope: {
-      outgoing: ReadonlyMap<string, unknown>;
-      incoming: ReadonlyMap<string, unknown>;
-      requests: ReadonlyMap<string, unknown>;
-      streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-      resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
-      recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
-    },
-    scopeLabel: string,
-  ): void {
+  function checkEventsInScope(scope: CheckEventsInScopeScopeParameter, scopeLabel: string): void {
     for (const event of scope.outgoing.keys()) checkEventName(event, scopeLabel);
     for (const event of scope.incoming.keys()) checkEventName(event, scopeLabel);
     for (const event of scope.requests.keys()) checkEventName(event, scopeLabel);
@@ -352,16 +420,7 @@ function validateScopeAndEventNameSyntax(
 function validateNoCrossPrimitiveEventCollisions(
   compiled: EngineCompileTypes.CompiledServer,
 ): void {
-  function check(
-    scope: {
-      incoming: ReadonlyMap<string, unknown>;
-      requests: ReadonlyMap<string, unknown>;
-      streams: ReadonlyMap<string, unknown>;
-      resumableStreams?: ReadonlyMap<string, unknown>;
-      recordedStreams?: ReadonlyMap<string, unknown>;
-    },
-    label: string,
-  ): void {
+  function check(scope: CheckScopeParameter, label: string): void {
     const resumable = scope.resumableStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const recorded = scope.recordedStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const allNames = new Set<string>([
@@ -384,7 +443,7 @@ function validateNoCrossPrimitiveEventCollisions(
 
       if (where.length > 1) {
         throw new Error(
-          `[wskit] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
+          `[livething] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
             `An event name can only belong to one of incoming/request/stream/resumableStream/recordedStream within a scope — pick a different name.`,
         );
       }
@@ -427,34 +486,30 @@ function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): R
  * Collect every plugin-provenance event name in one scope — plain events plus
  * the nudge names a plugin stream declares (those travel as their own frames).
  */
-function collectFromScope(
-  scope: {
-    incoming: ReadonlyMap<string, unknown>;
-    requests: ReadonlyMap<string, unknown>;
-    outgoing: ReadonlyMap<string, unknown>;
-    streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-    resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
-    recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
-  },
-  names: Set<string>,
-): void {
+function collectFromScope(scope: CollectFromScopeScopeParameter, names: Set<string>): void {
   for (const map of [scope.incoming, scope.requests, scope.outgoing]) {
     for (const [event, primitive] of map) {
       if ((primitive as { __plugin?: string }).__plugin) names.add(event);
     }
   }
+
   for (const [event, generate] of scope.streams) {
     if (!(generate as { __plugin?: string }).__plugin) continue;
+
     names.add(event);
     for (const nudge of generate.stream.nudges) names.add(nudge.event);
   }
+
   for (const [event, generate] of scope.resumableStreams ?? []) {
     if (!(generate as { __plugin?: string }).__plugin) continue;
+
     names.add(event);
     for (const nudge of generate.nudges) names.add(nudge.event);
   }
+
   for (const [event, generate] of scope.recordedStreams ?? []) {
     if (!(generate as { __plugin?: string }).__plugin) continue;
+
     names.add(event);
     for (const nudge of generate.nudges) names.add(nudge.event);
   }
@@ -468,12 +523,13 @@ function collectPluginChannelNames(
   for (const channel of [...compiled.channels.values(), ...compiled.channelFamilies.values()]) {
     if (channel.__plugin) names.add(channel.key);
   }
+
   return names;
 }
 
 /**
  * Walk every event name registered on the compiled server and refuse boot
- * if any clash with the WSKit wire protocol. Also catches the bypass case
+ * if any clash with the LiveThing wire protocol. Also catches the bypass case
  * where a developer hand-rolls an event-shaped object instead of calling
  * `event(name, schema)` — the runtime guard sees the same primitives.
  */
@@ -482,37 +538,20 @@ function validateNoReservedEventNames(
   declaredPluginEvents: ReadonlySet<string>,
 ): void {
   function check(event: string, scopeLabel: string): void {
-    if (event === 'ping' || event === 'pong') {
-      throw new Error(
-        `[wskit] '${event}' is a reserved keepalive frame name (used by ${scopeLabel}). ` +
-          `Pick a different name for your event.`,
-      );
-    }
-
-    // The double-underscore prefix is reserved for WSKit protocol events
+    // The double-underscore prefix is reserved for LiveThing protocol events
     // (__subscribe__, __error__, ...) and plugin-owned events. Allow only the
     // names installed plugins actually declared (by provenance, not by string
     // shape) — anything else with the prefix is a user-declared event that would
     // clash with the protocol.
     if (event.startsWith('__') && !declaredPluginEvents.has(event)) {
       throw new Error(
-        `[wskit] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
-          `That prefix is reserved for wskit protocol and plugin events — pick a different name.`,
+        `[livething] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
+          `That prefix is reserved for livething protocol and plugin events — pick a different name.`,
       );
     }
   }
 
-  function checkScope(
-    scope: {
-      outgoing: ReadonlyMap<string, unknown>;
-      incoming: ReadonlyMap<string, unknown>;
-      requests: ReadonlyMap<string, unknown>;
-      streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-      resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
-      recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
-    },
-    label: string,
-  ): void {
+  function checkScope(scope: CheckScopeScopeParameter, label: string): void {
     for (const event of scope.outgoing.keys()) check(event, `${label} outgoing`);
     for (const event of scope.incoming.keys()) check(event, `${label} incoming`);
     for (const event of scope.requests.keys()) check(event, `${label} request`);

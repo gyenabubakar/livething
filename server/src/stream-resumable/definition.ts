@@ -54,37 +54,44 @@ interface ResumableStreamConfig<
 
 /**
  * Declare a server-pushed stream that survives client disconnects by
- * re-running the generator from a saved cursor on resume.
+ * re-running the generator from the last cursor checkpoint the client
+ * confirmed receiving.
  *
- * Inside the generator, `ctx.stream.cursor` holds the cursor you last
- * recorded (`null` on first run). `ctx.stream.attempt` is `1` on the first
- * run and increments on every resume. Yield chunks via
- * `ctx.stream.withCursor(chunk, cursor)` so the framework persists the
- * cursor alongside the chunk — on reconnect the generator restarts and
- * `ctx.stream.cursor` is set to that recorded value.
+ * Inside the generator, `ctx.stream.cursor` holds the last confirmed cursor
+ * checkpoint (`null` on first run). `ctx.stream.attempt` is `1` on the first
+ * run and goes up by one on every resume that re-runs the generator (`2`,
+ * `3`, ...). Yield chunks via
+ * `ctx.stream.withCursor(chunk, cursor)` so the framework saves a checkpoint
+ * alongside the chunk — on reconnect the generator restarts and
+ * `ctx.stream.cursor` is set to that confirmed value.
  *
  * Nudges declared here behave exactly like nudges on a plain `stream(...)`:
  * the client pushes a typed message into the running generator and the
- * generator reads them via `ctx.nudges(yield ...)`. Buffered nudges survive
- * a resume so a paused durable stream stays paused after reconnect.
+ * generator reads them via `ctx.nudges(yield ...)`. Nudges live only in the
+ * running generator: a resume starts a new run with no nudges, and nudges
+ * the old run had not read yet are dropped. State that a nudge changes (for
+ * example "paused") must go in the cursor if it has to survive a resume.
+ *
+ * If the stored cursor or trigger payload cannot be restored on resume, the
+ * stored stream is deleted and the resuming client gets
+ * `StreamAborted({ reason: 'cursor-invalid' })`.
  *
  * Pass a `cursor` validator to pin the cursor type and have the framework
- * runtime-check every cursor it restores from storage. A stored cursor that
- * fails the validator surfaces on the wire as
+ * runtime-check every checkpoint cursor it restores from storage. A stored
+ * cursor that fails the validator surfaces on the wire as
  * `StreamAborted({ reason: 'cursor-invalid' })` on the resuming client.
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
- * import { resumableStream } from '@wskit/server/streams';
+ * import { server, t } from '@livething/server';
+ * import { resumableStream } from '@livething/server/streams';
  * import * as v from 'valibot';
  *
  * const PaginatePayload = v.object({});
  * const RowChunk = t<{ row: number }>();
  * const PaginateCursor = v.object({ idx: v.number() });
  *
- * const base = define({
- *   env: t<Env>(),
+ * const base = server({
  *   capabilities: [resumableStream()],
  * });
  *

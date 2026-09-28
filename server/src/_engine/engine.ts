@@ -1,4 +1,5 @@
-import { CloseCodes, WSKitConfigError } from '@wskit/core';
+import { CloseCodes, LiveThingConfigError } from '@livething/core';
+import { stopAlarmCoordinator } from '~/_engine/alarm.ts';
 import { EngineCore } from '~/_engine/core.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
@@ -15,7 +16,9 @@ import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
-import type * as DefineServer from '~/server-definition.ts';
+import type * as ServerTypes from '~/server-definition.ts';
+
+type OptionsParameter = { terminal?: boolean };
 
 type ConnectionDescriptor = EngineAdapterTypes.ConnectionDescriptor;
 type ConnectionHandle = EngineAdapterTypes.ConnectionHandle;
@@ -26,7 +29,7 @@ type UpgradeDecision = EngineAdapterTypes.UpgradeDecision;
  * state lives on {@link EngineCore} and behaviour in `_engine/runtime/*` and
  * `_engine/registry/*`.
  *
- * @template TApi The `api` factory's return type, carried from the handler so
+ * @template TApi The `api` factory's return type, carried from the server definition so
  *   {@link Engine.admin} stays typed all the way out to the adapter.
  */
 export class Engine<TApi = unknown> {
@@ -34,15 +37,15 @@ export class Engine<TApi = unknown> {
   readonly core: EngineCore;
 
   constructor(
-    handler: DefineServer.ServerDefinition<
+    definition: ServerTypes.ServerDefinition<
       readonly Primitive[],
-      DefineServer.ServerContract,
+      ServerTypes.ServerContract,
       unknown,
       TApi
     >,
     options: EngineAdapterTypes.EngineOptions,
   ) {
-    this.core = new EngineCore(handler, options);
+    this.core = new EngineCore(definition, options);
   }
 
   /** Set the stable platform instance id before accepting connections. */
@@ -84,9 +87,10 @@ export class Engine<TApi = unknown> {
   handleHibernationWake(wsKey: unknown): ConnectionHandle {
     if (!this.usesHibernation()) {
       throw new Error(
-        '[wskit] hibernation is not enabled for this handler. Set `hibernation: true` on the contract.',
+        '[livething] hibernation is not enabled for this server definition. Set `hibernation: { enabled: true }` in server().',
       );
     }
+
     const handle = EngineConnectionRuntime.wakeHibernatedConnection(
       EngineDeps.connectionRuntime(this.core),
       wsKey,
@@ -97,7 +101,7 @@ export class Engine<TApi = unknown> {
   // Wrap each callback so any state changes the handler triggers collect into
   // one row write at the end of the handler instead of one row write per
   // change. Only covers what runs (and is awaited) inside the callback —
-  // work scheduled via waitUntil, a setTimeout, or a paused generator runs
+  // work scheduled with a setTimeout or a paused generator runs
   // after the callback returns, outside the scope, and writes right away.
   private wrapHandle(handle: ConnectionHandle): ConnectionHandle {
     return {
@@ -116,38 +120,51 @@ export class Engine<TApi = unknown> {
         pluginUpgradeHooks: this.core.hooks.pluginUpgrade,
         builderUpgradeHook: this.core.hooks.builderUpgrade,
         upgradeHelpers: this.buildUpgradeHelpers(),
+        logger: this.core.logger,
         isTagGroupDeclared: (kind, group) => this.core.isTagGroupDeclared(kind, group),
+        getTagGroupSchema: (kind, group) => this.core.getTagGroupSchema(kind, group),
       },
       request,
     );
   }
 
-  /** Shut down the engine and every connection or plugin it owns. */
-  async handleShutdown(): Promise<void> {
+  /**
+   * Shut down the engine and every connection or plugin it owns.
+   *
+   * Set `terminal` only when the adapter is about to close the timer or storage
+   * bindings it supplied. A non-terminal drain leaves alarm retries available
+   * for runtimes such as Durable Objects that can receive more work later.
+   */
+  async handleShutdown(options: OptionsParameter = {}): Promise<void> {
     const core = this.core;
-    return EngineConnectionRuntime.handleShutdown({
-      connections: core.connections,
-      activeStreams: core.activeStreams,
-      shutdownHooks: core.hooks.shutdown,
-      pluginShutdownHooks: core.hooks.pluginLifecycle.shutdown,
+    if (options.terminal) await stopAlarmCoordinator(core);
+    try {
+      await EngineConnectionRuntime.handleShutdown({
+        connections: core.connections,
+        activeStreams: core.activeStreams,
+        shutdownHooks: core.hooks.shutdown,
+        pluginShutdownHooks: core.hooks.pluginLifecycle.shutdown,
 
-      createShutdownContext: () => this.createShutdownContext(),
+        createShutdownContext: () => this.createShutdownContext(),
 
-      cancelActiveStreamsForConnection: (connectionId) =>
-        EngineConnectionRuntime.cancelActiveStreamsForConnection(
-          { activeStreams: core.activeStreams },
-          connectionId,
-        ),
+        cancelActiveStreamsForConnection: (connectionId) =>
+          EngineConnectionRuntime.cancelActiveStreamsForConnection(
+            { activeStreams: core.activeStreams },
+            connectionId,
+          ),
 
-      handleConnectionClose: (connection) =>
-        EngineDeps.handleConnectionClose(core, {
-          connection,
-          code: CloseCodes.GOING_AWAY,
-          reason: 'Server shutting down',
-        }),
+        handleConnectionClose: (connection) =>
+          EngineDeps.handleConnectionClose(core, {
+            connection,
+            code: CloseCodes.GOING_AWAY,
+            reason: 'Server shutting down',
+          }),
 
-      logger: core.logger,
-    });
+        logger: core.logger,
+      });
+    } finally {
+      if (options.terminal) await core.drainBackgroundWork();
+    }
   }
 
   /** Run scheduled hooks after a timer wake-up. Scheduled tasks drain via this path. */
@@ -176,6 +193,7 @@ export class Engine<TApi = unknown> {
    */
   async restoreHibernatedConnections(sockets: Iterable<unknown>): Promise<void> {
     if (!this.usesHibernation()) return;
+
     const runtime = EngineDeps.connectionRuntime(this.core);
     const restored = new Set<string>();
     EngineHibernation.withPreloadedConnectionRows(this.core, () => {
@@ -201,13 +219,13 @@ export class Engine<TApi = unknown> {
       return (group: string) => {
         if (!isDeclared(kind, group)) {
           throw new Error(
-            `[wskit] tag group '${group}' is not declared under tags (${kind}). Add it to your contract's tags: builder or check for a typo.`,
+            `[livething] tag group '${group}' is not declared under tags (${kind}). Add it to your contract's tags: builder or check for a typo.`,
           );
         }
 
         return {
           ref: (key: string): PublicApi.TagRef => ({
-            __wskit: 'tag-ref',
+            __livething: 'tag-ref',
             kind,
             group,
             key,
@@ -244,8 +262,7 @@ export class Engine<TApi = unknown> {
    * adapter hands it back whole; the Cloudflare adapter projects it onto an
    * `RpcTarget`, because only prototype methods survive a Worker→DO call.
    */
-  admin(): PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown> &
-    TApi {
+  admin(): PublicApi.AdminContext<Record<string, unknown>, unknown> & TApi {
     const core = this.core;
     const ctx = createAdminContext({
       connections: core.connections,
@@ -258,12 +275,8 @@ export class Engine<TApi = unknown> {
     // must stay live, and the built-ins have to land after the dev api to win.
     const surface = flattenApi(devApi);
     Object.defineProperties(surface, Object.getOwnPropertyDescriptors(ctx));
-    return surface as PublicApi.AdminContext<
-      Record<string, unknown>,
-      Record<string, unknown>,
-      unknown
-    > &
-      TApi;
+
+    return surface as PublicApi.AdminContext<Record<string, unknown>, unknown> & TApi;
   }
 }
 
@@ -278,6 +291,7 @@ export class Engine<TApi = unknown> {
  */
 function assertNotReservedApiName(key: string): void {
   if (!RESERVED_ADMIN_API_NAMES.has(key)) return;
+
   let reason: string;
   if (key === 'then') {
     reason =
@@ -293,7 +307,8 @@ function assertNotReservedApiName(key: string): void {
       `built on. A method by this name cannot be placed on the surface — the ` +
       `inherited one is already there — and would go missing without explanation.`;
   }
-  throw new WSKitConfigError(
+
+  throw new LiveThingConfigError(
     `assemble({ api }) declared the reserved method name '${key}'. ${reason} Rename it.`,
   );
 }
@@ -335,6 +350,7 @@ function isAutomaticConstructorMarker(
     ) {
       return false;
     }
+
     const prototype = Object.getOwnPropertyDescriptor(descriptor.value, 'prototype');
     return (
       prototype?.get === undefined &&
@@ -362,6 +378,7 @@ function flattenApi(api: unknown): Record<string, unknown> {
     level = Object.getPrototypeOf(level) as object | null
   ) {
     if (seen.has(level)) break;
+
     seen.add(level);
 
     for (const key of Object.getOwnPropertyNames(level)) {
@@ -376,14 +393,16 @@ function flattenApi(api: unknown): Record<string, unknown> {
       ) {
         continue;
       }
-      // Before the `in flat` guard: `'__proto__' in flat` is true on any plain
-      // object, so a method by that name would be skipped silently instead of
-      // reported.
+
+      // Check reserved names before the own-property lookup because
+      // `'__proto__' in flat` is true on a plain object.
       assertNotReservedApiName(key);
       if (Object.hasOwn(flat, key)) continue;
+
       const value = (api as Record<string, unknown>)[key];
       flat[key] = typeof value === 'function' ? value.bind(api) : value;
     }
   }
+
   return flat;
 }

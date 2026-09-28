@@ -1,10 +1,9 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@livething/server';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -72,8 +71,8 @@ const handleTriggerError = base.on('trigger-error', {
   },
 });
 
-export const lifecycleHooksHandler = base.assemble({
+export const lifecycleHooksDefinition = base.assemble({
   handlers: [handleBadEvent, handleTriggerError],
 });
 
-export type LifecycleHooksClient = InferClient<typeof lifecycleHooksHandler>;
+export type LifecycleHooksClient = InferClient<typeof lifecycleHooksDefinition>;

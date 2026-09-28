@@ -1,10 +1,11 @@
-export { adapter } from './define.ts';
+export { adapter } from './adapter.ts';
+export { normalizeCloseReason } from './close.ts';
 export type {
   AdapterConfig,
   ConnectionDescriptor,
   ConnectionHandle,
   Engine,
-  EngineOptions,
+  EngineRuntimeOptions,
   UpgradeDecision,
 } from './types.ts';
 export { ADMIN_CONTEXT_MEMBERS } from '~/admin/context.ts';

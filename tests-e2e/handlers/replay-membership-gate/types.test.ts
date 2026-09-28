@@ -8,6 +8,7 @@ describe('ReplayMembershipGateClient — no-any guard', () => {
     expectTypeOf<ReplayMembershipGateClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['channels']>().not.toBeAny();
+
     expectTypeOf<ReplayMembershipGateClient['errors']>().not.toBeAny();
   });
 });

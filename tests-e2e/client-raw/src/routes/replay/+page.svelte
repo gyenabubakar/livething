@@ -23,10 +23,12 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		replayRequested = false;
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		const sock = new WebSocket(
 			`${protocol}//${location.host}/ws/replay?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -34,32 +36,37 @@
 
 		sock.onopen = () => {
 			if (ws !== sock) return;
+
 			status = 'connected';
 			(window as unknown as Record<string, unknown>).__ws = sock;
 		};
 		sock.onclose = () => {
 			if (ws !== sock) return;
+
 			status = 'disconnected';
 			ws = null;
 		};
 		sock.onerror = () => {
 			if (ws !== sock) return;
+
 			status = 'disconnected';
 			ws = null;
 		};
 
 		sock.onmessage = (event) => {
 			if (ws !== sock) return;
+
 			if (event.data === 'pong') return;
+
 			rawLog = [...rawLog, String(event.data)].slice(-30);
-			const msg = JSON.parse(event.data as string) as {
+			const msg = window.__livethingDecode(event.data) as {
 				event: string;
 				payload: Record<string, unknown>;
-				__wskit?: Record<string, unknown>;
+				metadata?: Record<string, Record<string, unknown>> | null;
 			};
-			const { event: evt, payload, __wskit } = msg;
+			const { event: evt, payload, metadata } = msg;
 
-			if (__wskit?.seq) lastSeq = __wskit.seq as number;
+			if (metadata?.delivery?.seq) lastSeq = metadata.delivery?.seq as number;
 
 			if (evt === 'chat-msg') {
 				const text = `${payload.from}: ${payload.text}`;
@@ -68,9 +75,9 @@
 				if (payload.text === 'injected-history') historyInjected = 'true';
 				if (payload.text === 'after-bigint-row') afterBigintRowDelivered = 'true';
 			} else if (evt === '__error__') {
-				if (__wskit?.messageId === 'bigint-row-1') {
+				if (metadata?.delivery?.id === 'bigint-row-1') {
 					bigintReplayError = String(payload.code ?? '');
-					bigintReplayErrorMessageId = String(__wskit?.messageId ?? '');
+					bigintReplayErrorMessageId = String(metadata?.delivery?.id ?? '');
 				}
 			} else if (evt === 'cursor') {
 				cursorEvents = [...cursorEvents, `${payload.x},${payload.y}`].slice(-50);
@@ -82,7 +89,7 @@
 			} else if (evt === 'replay-guard-error') {
 				replayGuardUndeclared = String(payload.undeclared ?? '');
 			} else if (evt === '__subscribeOk__') {
-				if (__wskit?.channel === 'replay-room') roomSubscribed = 'subscribed';
+				if (metadata?.channel?.name === 'replay-room') roomSubscribed = 'subscribed';
 			}
 		};
 	}
@@ -96,10 +103,10 @@
 
 	function send(
 		event: string,
-		payload: Record<string, unknown>,
-		__wskit?: Record<string, unknown>,
+		payload: Record<string, unknown> | null,
+		metadata?: Record<string, Record<string, unknown>>,
 	) {
-		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
+		ws?.send(window.__livethingEncode(metadata ? { event, payload, metadata } : { event, payload }));
 	}
 
 	function sendMsg(text: string) {
@@ -115,26 +122,26 @@
 		roomReplayCount = 0;
 		replayRequested = true;
 		ws?.send(
-			JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: sinceValue }, __wskit: {} }),
+			window.__livethingEncode({ event: '__replay__', payload: { lastKnownSeq: sinceValue }, metadata: null }),
 		);
 	}
 
 	function joinRoom() {
-		send('__subscribe__', {}, { channel: 'replay-room' });
+		send('__subscribe__', null, { channel: { name: 'replay-room' } });
 	}
 
 	function sendRoomMsg(text: string) {
-		send('send-room-msg', { text }, { channel: 'replay-room' });
+		send('send-room-msg', { text }, { channel: { name: 'replay-room' } });
 	}
 
 	function requestRoomReplay() {
 		roomReplayCount = 0;
 		replayRequested = true;
 		ws?.send(
-			JSON.stringify({
+			window.__livethingEncode({
 				event: '__replay__',
 				payload: { lastKnownSeq: 0 },
-				__wskit: { channel: 'replay-room' },
+				metadata: { channel: { name: 'replay-room' } },
 			}),
 		);
 	}
@@ -158,12 +165,12 @@
 
 	function requestRoomHistory() {
 		roomHistoryInjected = '';
-		send('request-room-history', {}, { channel: 'replay-room' });
+		send('request-room-history', {}, { channel: { name: 'replay-room' } });
 	}
 </script>
 
 <main>
-	<h1>wskit replay e2e</h1>
+	<h1>LiveThing replay E2E</h1>
 
 	<section>
 		<h2>Connection</h2>

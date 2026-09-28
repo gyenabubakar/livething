@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
-import { plugin } from '~/_define/plugin.ts';
+import { plugin } from '~/_define/plugins.ts';
+import { server } from '~/_define/server.ts';
 import { channelRuntime, dispatchRuntime } from '~/_engine/engine.deps.ts';
 import { processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createTestStorage } from '~/_test/sql.ts';
@@ -12,7 +12,7 @@ import { removeChannelMembership } from '~/channel/runtime.ts';
 import * as ChannelRuntime from '~/channel/runtime.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { replay } from '~/replay/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
@@ -22,25 +22,25 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { inbox, readReceipts } from './capability.ts';
 
-function buildEngine(handler: ServerDefinition): Engine {
+function buildEngine(definition: ServerDefinition): Engine {
   let captured: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'inbox-subscribe-gate-spec',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       captured = createEngine({
         storage: createTestStorage(),
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};
     },
   });
-  server(handler, undefined as never);
+  runAdapter(definition, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return captured;
 }
 
@@ -85,19 +85,19 @@ function buildHandler() {
     revalidate: undefined,
     subscribe: undefined,
   };
+
   const handles: {
     gate: Record<string, unknown> | undefined;
     normal: Record<string, unknown> | undefined;
   } = { gate: undefined, normal: undefined };
 
-  const base = define({
-    env: t<Record<string, never>>(),
+  const base = server({
     capabilities: [
       channels(),
       sequence({ persist: true }),
       dedup(),
       replay.history(),
-      requests(),
+      serverRequests(),
       tags((ephemeral) => [ephemeral('role', t<string>())]),
     ],
   });
@@ -137,12 +137,11 @@ function buildHandler() {
   }
 
   const chat = base.channel('chat', {
-    outgoing: {
-      requests: {
-        ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-      },
-    },
-    capabilities: [inbox(), readReceipts()],
+    capabilities: [
+      serverRequests({ ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) } }),
+      inbox(),
+      readReceipts(),
+    ],
     check(ctx) {
       record('check', ctx);
     },
@@ -157,8 +156,9 @@ function buildHandler() {
     record('subscribe', ctx);
   });
 
-  const handler = base.assemble({ handlers: [chat] });
-  return { handler, sightings, handles };
+  const definition = base.assemble({ handlers: [chat] });
+
+  return { definition, sightings, handles };
 }
 
 function buildDynamicHandler() {
@@ -168,31 +168,30 @@ function buildDynamicHandler() {
     revalidate: undefined,
     subscribe: undefined,
   };
+
   const handles: {
     gate: Record<string, unknown> | undefined;
     normal: Record<string, unknown> | undefined;
   } = { gate: undefined, normal: undefined };
   const state = { sightings, handles };
 
-  const base = define({
-    env: t<Record<string, never>>(),
+  const base = server({
     capabilities: [
       channels(),
       sequence({ persist: true }),
       dedup(),
       replay.history(),
-      requests(),
+      serverRequests(),
       tags((ephemeral) => [ephemeral('role', t<string>())]),
     ],
   });
 
   const rooms = base.channel(['rooms', 'room:{id}'], {
-    outgoing: {
-      requests: {
-        ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-      },
-    },
-    capabilities: [inbox(), readReceipts()],
+    capabilities: [
+      serverRequests({ ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) } }),
+      inbox(),
+      readReceipts(),
+    ],
     check(ctx) {
       recordDynamic('check', ctx, state);
     },
@@ -208,7 +207,7 @@ function buildDynamicHandler() {
   });
 
   return {
-    handler: base.assemble({ handlers: [rooms] }),
+    definition: base.assemble({ handlers: [rooms] }),
     sightings,
     handles,
   };
@@ -257,8 +256,8 @@ function recordDynamic(
 
 describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe lifecycle', () => {
   it('are undefined inside check, commit, and revalidate on a channel with inbox() and readReceipts()', async () => {
-    const { handler, sightings, handles } = buildHandler();
-    const engine = buildEngine(handler);
+    const { definition, sightings, handles } = buildHandler();
+    const engine = buildEngine(definition);
     await engine.initialize();
 
     const core = engine.core;
@@ -269,7 +268,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
     await processTextMessage(
       runtime,
       connection,
-      JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'chat' } }]),
     );
 
     expect(sightings.check).toEqual({
@@ -347,8 +346,8 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
   });
 
   it('are present inside subscribe on that same channel', async () => {
-    const { handler, sightings, handles } = buildHandler();
-    const engine = buildEngine(handler);
+    const { definition, sightings, handles } = buildHandler();
+    const engine = buildEngine(definition);
     await engine.initialize();
 
     const core = engine.core;
@@ -359,7 +358,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
     await processTextMessage(
       runtime,
       connection,
-      JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'chat' } }]),
     );
 
     expect(sightings.subscribe).toEqual({
@@ -384,8 +383,8 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
   });
 
   it('keeps the same gate boundary for dynamic channel families', async () => {
-    const { handler, sightings, handles } = buildDynamicHandler();
-    const engine = buildEngine(handler);
+    const { definition, sightings, handles } = buildDynamicHandler();
+    const engine = buildEngine(definition);
     await engine.initialize();
 
     const core = engine.core;
@@ -396,11 +395,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
     await processTextMessage(
       runtime,
       connection,
-      JSON.stringify({
-        event: '__subscribe__',
-        payload: {},
-        __wskit: { channel: 'room:one', channelFamily: 'rooms' },
-      }),
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'room:one', family: 'rooms' } }]),
     );
 
     const gateSighting = {
@@ -421,6 +416,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasReplay: true,
       hasTags: true,
     };
+
     expect(sightings.check).toEqual(gateSighting);
     expect(sightings.commit).toEqual(gateSighting);
 
@@ -462,11 +458,11 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
   });
 
   it('keeps the gate boundary for a plugin channel regardless of capability order', async () => {
-    const pluginBase = define({
+    const pluginBase = server({
       scope: 'plugin',
       capabilities: [
         channels(),
-        requests({
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
         }),
       ],
@@ -478,6 +474,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
         revalidate: undefined,
         subscribe: undefined,
       };
+
     function recordPlugin(key: keyof typeof sightings, ctx: unknown): void {
       const raw = ctx as {
         channel: Record<string, unknown>;
@@ -504,14 +501,15 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
         hasTags: false,
       };
     }
+
     const room = pluginBase.channel('chat', {
-      outgoing: {
-        requests: {
+      capabilities: [
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-        },
-      },
-      // Reverse the capability order to exercise registration order too.
-      capabilities: [readReceipts(), inbox()],
+        }),
+        readReceipts(),
+        inbox(),
+      ],
       check(ctx) {
         recordPlugin('check', ctx);
       },
@@ -526,9 +524,10 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       recordPlugin('subscribe', ctx);
     });
 
-    const Feed = plugin('acme:gate-feed', { handler: pluginBase.assemble({ handlers: [room] }) });
-    const host = define({
-      env: t<Record<string, never>>(),
+    const Feed = plugin('acme:gate-feed', {
+      definition: pluginBase.assemble({ handlers: [room] }),
+    });
+    const host = server({
       capabilities: [sequence({ persist: true }), dedup(), Feed()],
     });
     const engine = buildEngine(host.assemble({ handlers: [] }));
@@ -539,6 +538,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
     core.connections.set(connection.id, connection);
     const channelName = '__acme:gate-feed::chat';
     expect(core.compiled.channels.has(channelName)).toBe(true);
+
     expect(core.hooks.check.has(channelName)).toBe(true);
     await ChannelRuntime.subscribeConnection(channelRuntime(core), connection, {
       channelName,
@@ -564,6 +564,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasReplay: false,
       hasTags: false,
     };
+
     expect(sightings.check).toEqual(gateSighting);
     expect(sightings.commit).toEqual(gateSighting);
 

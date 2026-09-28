@@ -9,7 +9,7 @@ export interface DedupOptions {
 /**
  * Drops a message you've already seen. When a connection drops and the server
  * replays what you missed, some messages can arrive twice; this throws away the
- * repeat. It only looks at messages that carry a `__wskit.messageId`; anything
+ * repeat. It only looks at messages that carry `metadata.delivery.id`; anything
  * without one always goes through.
  */
 export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
@@ -22,9 +22,10 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
 
       return {
         id: 'dedup',
+        beforeIntercepts: true,
 
         onIncoming(message) {
-          const id = message.__wskit?.messageId;
+          const id = message.metadata?.delivery?.id;
           if (typeof id !== 'string') return message;
 
           const now = Date.now();
@@ -32,11 +33,12 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
           // the oldest are first and we can stop at the first still-fresh one.
           for (const [key, time] of seen) {
             if (now - time <= windowMs) break;
+
             seen.delete(key);
           }
 
           if (seen.has(id)) {
-            helpers.log.info(`dropped duplicate '${message.event}' (messageId ${id})`);
+            helpers.log.info(`dropped duplicate '${message.event}' (delivery id ${id})`);
             // Sliding window: refresh the timestamp so an id stays remembered as
             // long as repeats keep arriving. delete + set moves it to the end, so
             // the oldest-first eviction order above stays correct.
@@ -46,6 +48,7 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
           }
 
           seen.set(id, now);
+
           return message;
         },
       };

@@ -1,11 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
-// A channel broadcast excludes the sender by default, so the sender never sees
-// its own message live. The durable inbox write used to happen before that
-// exclusion was applied, so a row was stored for the sender anyway. Having
-// never received the live frame, the sender never acknowledged the row — and
-// got its own message delivered back on the next reconnect, looking new.
+// A channel broadcast excludes the sender by default, so a single-connection
+// sender must not receive or store its own message. Otherwise that unacknowledged
+// inbox row would be delivered on the next reconnect as if it were new.
 //
 // Exclusion is per connection; the inbox is per user. A sender with a second
 // tab in the same channel DOES receive the live frame on that tab and acks it,
@@ -22,16 +20,20 @@ test.describe('inbox sender exclusion (raw wire, real Durable Object)', () => {
     const alice = await connect(page, { path: '/ws/inbox', username: 'alice', room });
     const bob = await connect(page, { path: '/ws/inbox', username: 'bob', room });
     for (const id of [alice, bob]) {
-      await send(page, id, { event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } });
+      await send(page, id, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'chat' } },
+      });
       await waitForFrame(page, id, {
-        match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'chat',
+        match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'chat',
       });
     }
 
     await send(page, alice, {
       event: 'send-room-msg',
       payload: { text: 'mine-only' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
 
     // Bob receiving it proves the broadcast went out and the inbox write ran.
@@ -39,7 +41,7 @@ test.describe('inbox sender exclusion (raw wire, real Durable Object)', () => {
       match: (f) => f.event === 'room-msg' && f.payload?.text === 'mine-only',
     });
 
-    await page.evaluate((sid) => window.__wskitClose!(sid), alice);
+    await page.evaluate((sid) => window.__livethingClose!(sid), alice);
     const back = await connect(page, { path: '/ws/inbox', username: 'alice', room });
 
     // Give any owed drain time to arrive before asserting it did not.
@@ -63,16 +65,20 @@ test.describe('inbox sender exclusion (raw wire, real Durable Object)', () => {
     const tabB = await connect(page, { path: '/ws/inbox', username: 'alice', room });
     const bob = await connect(page, { path: '/ws/inbox', username: 'bob', room });
     for (const id of [tabA, tabB, bob]) {
-      await send(page, id, { event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } });
+      await send(page, id, {
+        event: '__subscribe__',
+        payload: null,
+        metadata: { channel: { name: 'chat' } },
+      });
       await waitForFrame(page, id, {
-        match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'chat',
+        match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'chat',
       });
     }
 
     await send(page, tabA, {
       event: 'send-room-msg',
       payload: { text: 'from-tab-a' },
-      __wskit: { channel: 'chat' },
+      metadata: { channel: { name: 'chat' } },
     });
 
     // Only the sending connection is excluded, so alice's other tab gets it live.

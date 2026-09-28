@@ -1,9 +1,9 @@
-import { channels, client, clientRequests, connect, plugin, stream } from '@wskit/client';
-import { WSKitError } from '@wskit/client/errors';
-import type { StreamHandle } from '@wskit/client';
+import { channels, client, clientRequests, connect, plugin, stream } from '@livething/client';
+import { LiveThingError } from '@livething/client/errors';
+import type { StreamHandle } from '@livething/client';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `plugins` handler through a CLIENT
+// Drives @livething/client against the real `plugins` server definition through a CLIENT
 // PLUGIN, the mirror of the server's `e2e:feed` plugin. The client plugin owns
 // the `e2e:feed` namespace, so its `setup` works in plain names — `on('welcome')`,
 // `send('hello')`, `request('echo')`, `stream('feed')`, `channel('room')` — and
@@ -113,6 +113,7 @@ const Feed = plugin<FeedWire, FeedApi>()({
     const saidCbs = new Set<(text: string) => void>();
     const channelPingCbs = new Set<() => void>();
     const channelPongCbs = new Set<() => void>();
+
     const pluginFailureCbs = new Set<(code: string, reason: string) => void>();
     const roomFullErrorCbs = new Set<(code: string) => void>();
 
@@ -148,7 +149,7 @@ const Feed = plugin<FeedWire, FeedApi>()({
             await handle.nudge('boost', { amount: 2 });
             return 'ok';
           } catch (error) {
-            return error instanceof WSKitError ? error.code : String(error);
+            return error instanceof LiveThingError ? error.code : String(error);
           } finally {
             handle.cancel();
           }
@@ -280,7 +281,7 @@ export function setup(): void {
   // reach the app as the plain `room-full`, not the namespaced wire code.
   button('echo-fail', () => {
     void feed.echo('boom').catch((error: unknown) => {
-      el('echo-error').textContent = error instanceof WSKitError ? error.code : String(error);
+      el('echo-error').textContent = error instanceof LiveThingError ? error.code : String(error);
     });
     feed.onChannelPing(() => {
       el('channel-ping-seen').textContent = 'yes';
@@ -295,6 +296,7 @@ export function setup(): void {
   button('nudge', async () => {
     el('nudge-result').textContent = await feed.boost();
   });
+
   button('join-room', () => {
     feed.onSaid((text) => {
       el('said').textContent = text;
@@ -310,7 +312,7 @@ export function setup(): void {
       .joinRoom(() => undefined)
       .catch((error: unknown) => {
         el('subscribe-error').textContent =
-          error instanceof WSKitError ? error.code : String(error);
+          error instanceof LiveThingError ? error.code : String(error);
       });
   });
   // Send on the plugin channel; the server echoes it back as `said`, which only
@@ -329,6 +331,7 @@ export function setup(): void {
     }),
   );
   button('trigger-plugin-failure', () => feed.triggerPluginFailure());
+
   button('trigger-room-full-error', () => feed.triggerRoomFullError());
 
   ready();

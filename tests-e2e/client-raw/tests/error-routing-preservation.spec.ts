@@ -8,7 +8,7 @@ import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
  * failure to its pending operation. A rejected nudge stays non-terminal.
  */
 test.describe('error routing preservation for non-members', () => {
-  test('a non-member request error keeps the correlationId', async ({ page }, testInfo) => {
+  test('a non-member request error preserves metadata.exchange.id', async ({ page }, testInfo) => {
     await page.goto('/request');
     await installRig(page);
 
@@ -21,17 +21,19 @@ test.describe('error routing preservation for non-members', () => {
     await send(page, a, {
       event: 'get-channel-info',
       payload: {},
-      __wskit: { channel: 'room', correlationId: 'corr-xyz' },
+      metadata: { exchange: { id: 'corr-xyz' }, channel: { name: 'room' } },
     });
 
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.correlationId === 'corr-xyz',
+      match: (f) => f.event === '__error__' && f.metadata?.exchange?.id === 'corr-xyz',
     });
     expect(err.payload.code).toBe('channel-not-subscribed');
-    expect(err.__wskit?.channel).toBe('room');
+    expect(err.metadata?.channel?.name).toBe('room');
   });
 
-  test('a non-member stream-trigger error keeps the streamId', async ({ page }, testInfo) => {
+  test('a non-member stream-trigger error preserves metadata.stream.id', async ({
+    page,
+  }, testInfo) => {
     await page.goto('/intercept');
     await installRig(page);
 
@@ -44,16 +46,16 @@ test.describe('error routing preservation for non-members', () => {
     await send(page, a, {
       event: 'ch-nudge-stream',
       payload: {},
-      __wskit: { channel: 'room', streamId: 'st-xyz' },
+      metadata: { channel: { name: 'room' }, stream: { id: 'st-xyz' } },
     });
 
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamId === 'st-xyz',
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.id === 'st-xyz',
     });
     expect(err.payload.code).toBe('channel-not-subscribed');
   });
 
-  test('a non-member nudge error keeps streamId, streamNudgeId, and streamTerminated:false', async ({
+  test('a non-member nudge error preserves stream metadata and the non-terminal flag', async ({
     page,
   }, testInfo) => {
     await page.goto('/intercept');
@@ -68,14 +70,14 @@ test.describe('error routing preservation for non-members', () => {
     await send(page, a, {
       event: 'ch-hint',
       payload: { hint: 'x' },
-      __wskit: { channel: 'room', streamId: 'sn-xyz', streamNudgeId: 'nudge-xyz' },
+      metadata: { channel: { name: 'room' }, stream: { id: 'sn-xyz', nudgeId: 'nudge-xyz' } },
     });
 
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamNudgeId === 'nudge-xyz',
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.nudgeId === 'nudge-xyz',
     });
-    expect(err.__wskit?.streamId).toBe('sn-xyz');
-    expect(err.__wskit?.streamTerminated).toBe(false);
+    expect(err.metadata?.stream?.id).toBe('sn-xyz');
+    expect(err.metadata?.stream?.terminated).toBe(false);
   });
 });
 
@@ -101,19 +103,17 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
     await send(page, a, {
       event: 'ch-hint',
       payload: { hint: 'x' },
-      __wskit: {
-        channel: 'not-a-room',
-        channelFamily: 'rooms',
-        streamId: 'bn-1',
-        streamNudgeId: 'bn-nudge-1',
+      metadata: {
+        channel: { name: 'not-a-room', family: 'rooms' },
+        stream: { id: 'bn-1', nudgeId: 'bn-nudge-1' },
       },
     });
 
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamNudgeId === 'bn-nudge-1',
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.nudgeId === 'bn-nudge-1',
     });
-    expect(err.__wskit?.streamId).toBe('bn-1');
-    expect(err.__wskit?.streamTerminated).toBe(false);
+    expect(err.metadata?.stream?.id).toBe('bn-1');
+    expect(err.metadata?.stream?.terminated).toBe(false);
   });
 
   test('bad family key (no such family)', async ({ page }, testInfo) => {
@@ -127,19 +127,17 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
     await send(page, a, {
       event: 'ch-hint',
       payload: { hint: 'x' },
-      __wskit: {
-        channel: 'room:1',
-        channelFamily: 'no-such-family',
-        streamId: 'bf-1',
-        streamNudgeId: 'bf-nudge-1',
+      metadata: {
+        channel: { name: 'room:1', family: 'no-such-family' },
+        stream: { id: 'bf-1', nudgeId: 'bf-nudge-1' },
       },
     });
 
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamNudgeId === 'bf-nudge-1',
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.nudgeId === 'bf-nudge-1',
     });
-    expect(err.__wskit?.streamId).toBe('bf-1');
-    expect(err.__wskit?.streamTerminated).toBe(false);
+    expect(err.metadata?.stream?.id).toBe('bf-1');
+    expect(err.metadata?.stream?.terminated).toBe(false);
   });
 
   test('missing family key for a dynamic channel name', async ({ page }, testInfo) => {
@@ -155,14 +153,14 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
     await send(page, a, {
       event: 'ch-hint',
       payload: { hint: 'x' },
-      __wskit: { channel: 'room:1', streamId: 'mf-1', streamNudgeId: 'mf-nudge-1' },
+      metadata: { channel: { name: 'room:1' }, stream: { id: 'mf-1', nudgeId: 'mf-nudge-1' } },
     });
 
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamNudgeId === 'mf-nudge-1',
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.nudgeId === 'mf-nudge-1',
     });
-    expect(err.__wskit?.streamId).toBe('mf-1');
-    expect(err.__wskit?.streamTerminated).toBe(false);
+    expect(err.metadata?.stream?.id).toBe('mf-1');
+    expect(err.metadata?.stream?.terminated).toBe(false);
   });
 
   test('wrong static-vs-dynamic scope (family key on a static channel)', async ({
@@ -180,18 +178,16 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
     await send(page, a, {
       event: 'ch-hint',
       payload: { hint: 'x' },
-      __wskit: {
-        channel: 'room',
-        channelFamily: 'rooms',
-        streamId: 'wk-1',
-        streamNudgeId: 'wk-nudge-1',
+      metadata: {
+        channel: { name: 'room', family: 'rooms' },
+        stream: { id: 'wk-1', nudgeId: 'wk-nudge-1' },
       },
     });
 
     const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.streamNudgeId === 'wk-nudge-1',
+      match: (f) => f.event === '__error__' && f.metadata?.stream?.nudgeId === 'wk-nudge-1',
     });
-    expect(err.__wskit?.streamId).toBe('wk-1');
-    expect(err.__wskit?.streamTerminated).toBe(false);
+    expect(err.metadata?.stream?.id).toBe('wk-1');
+    expect(err.metadata?.stream?.terminated).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import type { InterceptFn, WireMessage } from '~/internal/runtime.ts';
+import type { InterceptFn, Message } from '~/internal/runtime.ts';
 
 /** Latency cut-offs (ms) for each quality tier. */
 export interface QualityThresholds {
@@ -30,11 +30,11 @@ export interface SocketConfig {
   /** Format the server delivers binary frames in. */
   binaryType?: 'arraybuffer' | 'blob';
   /** Decode a binary frame into a message, or `null` to ignore it. */
-  parseBinary?: (data: unknown) => WireMessage | null;
+  parseBinary?: (data: unknown) => Message | null;
   /** Decode a text frame into a message, or `null` to ignore it. */
-  parse?: (raw: string) => WireMessage | null;
+  parse?: (raw: string) => Message | null;
   /** Encode a message into the string sent over the wire. */
-  serialize?: (message: WireMessage) => string;
+  serialize?: (message: Message) => string;
 
   /** Functions that get to inspect/transform/drop each incoming message. */
   intercepts?: InterceptFn[];

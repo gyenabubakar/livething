@@ -9,12 +9,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/ctx-send?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -24,10 +26,12 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
+
+			const data = window.__livethingDecode(ev.data);
 			if (data.event === 'message') {
 				messages = [...messages, `${data.payload.from}:${data.payload.text}`];
 			}
+
 			if (data.event === 'who-am-i-result') connectionId = data.payload?.connectionId ?? '';
 			if (data.event === 'delivery-status') {
 				delivery = data.payload?.delivered ? 'true' : 'false';
@@ -36,27 +40,33 @@
 	}
 
 	function doBroadcast(text: string) {
-		ws?.send(JSON.stringify({ event: 'do-broadcast', payload: { text } }));
+		ws?.send(window.__livethingEncode({ event: 'do-broadcast', payload: { text } }));
 	}
+
 	function doBroadcastExcludeSelf(text: string) {
-		ws?.send(JSON.stringify({ event: 'do-broadcast-exclude-self', payload: { text } }));
+		ws?.send(window.__livethingEncode({ event: 'do-broadcast-exclude-self', payload: { text } }));
 	}
+
 	function doSendTo(tag: string, text: string) {
-		ws?.send(JSON.stringify({ event: 'do-send-to', payload: { tag, text } }));
+		ws?.send(window.__livethingEncode({ event: 'do-send-to', payload: { tag, text } }));
 	}
+
 	function doSendToEmpty(text: string) {
-		ws?.send(JSON.stringify({ event: 'do-send-to-empty', payload: { text } }));
+		ws?.send(window.__livethingEncode({ event: 'do-send-to-empty', payload: { text } }));
 	}
+
 	function doSendToConnection(connectionId: string, text: string) {
 		ws?.send(
-			JSON.stringify({ event: 'do-send-to-connection', payload: { connectionId, text } }),
+			window.__livethingEncode({ event: 'do-send-to-connection', payload: { connectionId, text } }),
 		);
 	}
+
 	function whoAmI() {
-		ws?.send(JSON.stringify({ event: 'who-am-i', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'who-am-i', payload: {} }));
 	}
+
 	function serverClose() {
-		ws?.send(JSON.stringify({ event: 'do-server-close', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'do-server-close', payload: {} }));
 	}
 </script>
 

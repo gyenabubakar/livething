@@ -8,6 +8,7 @@ describe('StreamDurableScopedClient — no-any guard', () => {
     expectTypeOf<StreamDurableScopedClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StreamDurableScopedClient['streams']>().not.toBeAny();
     expectTypeOf<StreamDurableScopedClient['channels']>().not.toBeAny();
+
     expectTypeOf<StreamDurableScopedClient['errors']>().not.toBeAny();
   });
 });

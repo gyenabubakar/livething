@@ -4,7 +4,7 @@
 // namespace. tsc checks these; vitest never runs them.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { observeHost, plugin } from '~/plugins/plugins.ts';
+import { plugin } from '~/plugins/plugins.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { expectTypeOf } from 'vitest';
 
@@ -58,8 +58,7 @@ socket.on('app-notice', (data) => {
 });
 expectTypeOf(socket.send('app-ping', { at: 1 })).toEqualTypeOf<boolean>();
 
-// The UNCLAIMED namespace must still work at the top level, fully typed — this is
-// the regression the isolated helper test missed.
+// The unclaimed namespace remains available and fully typed at the top level.
 socket.on('__acme:presence::here', (data) => {
   expectTypeOf(data).toEqualTypeOf<{ who: string }>();
   expectTypeOf(data).not.toBeAny();
@@ -92,22 +91,16 @@ bare.on('__acme:presence::here', (data) => expectTypeOf(data).toEqualTypeOf<{ wh
 interface NoChatContract {
   incoming: { 'app-notice': { text: string } };
 }
+
 // @ts-expect-error — NoChatContract has no __acme:chat:: names, so Chat can't register
 client<NoChatContract>()(connect('wss://example.com'), clientRequests(), Chat());
 
 // A contract that DOES declare the namespace accepts it.
 client<HostContract>()(connect('wss://example.com'), clientRequests(), Chat());
 
-// An observe-only plugin (no contract) requires nothing and registers anywhere.
+// A hook-only plugin (no contract) requires nothing and registers anywhere.
 const Watcher = plugin()({ id: 'acme:watcher', setup: () => ({}) });
 client<NoChatContract>()(connect('wss://example.com'), Watcher());
-
-// A host-observing plugin can't be registered bare — it must be granted.
-const Logger = plugin()({ id: 'acme:logger', observesHostTraffic: true, setup: () => ({}) });
-// @ts-expect-error — observesHostTraffic: true needs observeHost(...) to register
-client<NoChatContract>()(connect('wss://example.com'), Logger());
-// Wrapping it in observeHost(...) grants the privilege and it registers.
-client<NoChatContract>()(connect('wss://example.com'), observeHost(Logger()));
 
 // The API type comes from what `setup` returns, so a plugin only needs its
 // contract type argument. `use()` still gives the full API.
@@ -133,8 +126,59 @@ const Counter = plugin()({
 });
 expectTypeOf(Counter.use({})).toEqualTypeOf<{ count: () => number }>();
 
-// A plugin whose `setup` returns no `api` is `void`, as before.
+// A plugin whose `setup` returns no `api` has a void API.
 expectTypeOf(Watcher.use({})).toEqualTypeOf<void>();
 
 // The explicit second type argument still pins the API when you want it.
 expectTypeOf(Chat.use({})).toEqualTypeOf<ChatApi>();
+
+interface FeedWire {
+  incoming: { item: { id: string } };
+}
+
+interface FeedApi {
+  latest(): string | undefined;
+  count(): number;
+}
+
+// A pinned API is what `use()` returns, even when `setup` builds a wider object.
+const Feed = plugin<FeedWire, FeedApi>()({
+  id: 'acme:feed',
+  setup: (feedSocket) => {
+    const ids: string[] = [];
+    feedSocket.on('item', (item) => ids.push(item.id));
+    return {
+      api: () => ({
+        latest: () => ids.at(-1),
+        count: () => ids.length,
+        clear: () => ids.splice(0),
+      }),
+    };
+  },
+});
+expectTypeOf(Feed.use({})).toEqualTypeOf<FeedApi>();
+
+plugin<FeedWire, FeedApi>()({
+  id: 'acme:feed-wrong',
+  // @ts-expect-error — the API does not match the pinned FeedApi
+  setup: () => ({ api: () => ({ other: 1 }) }),
+});
+
+plugin<FeedWire, FeedApi>()({
+  id: 'acme:feed-incomplete',
+  // @ts-expect-error — the API is missing count() from the pinned FeedApi
+  setup: () => ({ api: () => ({ latest: () => undefined }) }),
+});
+
+plugin<FeedWire, FeedApi>()({
+  id: 'acme:feed-bad-method',
+  // @ts-expect-error — count() returns a string, not the pinned number
+  setup: () => ({ api: () => ({ latest: () => undefined, count: () => 'many' }) }),
+});
+
+// With only the contract type argument, the API is still inferred from `setup`.
+const InferredFeed = plugin<FeedWire>()({
+  id: 'acme:feed-inferred',
+  setup: () => ({ api: () => ({ other: 1 }) }),
+});
+expectTypeOf(InferredFeed.use({})).toEqualTypeOf<{ other: number }>();

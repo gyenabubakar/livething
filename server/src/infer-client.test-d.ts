@@ -6,12 +6,12 @@
  * persistent (gap 8).
  */
 import { t } from '~/_api/index.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
@@ -23,10 +23,9 @@ import type { InferClient } from '~/infer-client.ts';
 // ---------------------------------------------------------------------------
 // Gap 6 — `serverRequests` on InferClient (top-level + channel-scoped).
 // ---------------------------------------------------------------------------
-const reqBase = define({
-  env: t<{}>(),
+const reqBase = server({
   capabilities: [
-    requests({
+    serverRequests({
       ask: { out: t<{ a: string }>(), in: v.object({ ok: v.boolean() }) },
       vol: { out: t<{}>(), in: v.object({ r: v.boolean() }) },
     }),
@@ -35,18 +34,18 @@ const reqBase = define({
 });
 
 const reqChannel = reqBase.channel(['room', 'room:{id}'], {
-  outgoing: {
-    emits: { tick: t<{ n: number }>() },
-    requests: {
+  capabilities: [
+    emits({ tick: t<{ n: number }>() }),
+    serverRequests({
       'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
       vol: { out: t<{}>(), in: v.object({ r: v.boolean() }) },
-    },
-  },
+    }),
+  ],
 });
-const reqChannelHandler = reqChannel.on('ping', { run() {} });
+const reqChannelDefinition = reqChannel.on('ping', { run() {} });
 
 const reqDef = reqBase.assemble({
-  handlers: [reqBase.on('noop', { run() {} }), reqChannelHandler],
+  handlers: [reqBase.on('noop', { run() {} }), reqChannelDefinition],
 });
 type ReqClient = InferClient<typeof reqDef>;
 
@@ -70,10 +69,24 @@ expectTypeOf<ReqClient['channels']['room']['serverRequests']['vol']>().toEqualTy
 }>();
 
 // ---------------------------------------------------------------------------
+// A selected channel handler is the exact client contract and runtime surface.
+// ---------------------------------------------------------------------------
+const selectedBase = server({ capabilities: [channels()] });
+const selectedChannel = selectedBase.channel('selected', {});
+const selectedDefinition = selectedChannel.on('selected-event', { run() {} });
+selectedChannel.on('unselected-event', { run() {} });
+const selectedDef = selectedBase.assemble({ handlers: [selectedDefinition] });
+type SelectedClient = InferClient<typeof selectedDef>;
+
+expectTypeOf<SelectedClient['channels']['selected']['outgoing']>().toHaveProperty('selected-event');
+expectTypeOf<SelectedClient['channels']['selected']['outgoing']>().not.toHaveProperty(
+  'unselected-event',
+);
+
+// ---------------------------------------------------------------------------
 // Gap 8 — stream `kind` discriminator.
 // ---------------------------------------------------------------------------
-const streamBase = define({
-  env: t<{}>(),
+const streamBase = server({
   capabilities: [emits({ noop: t<{}>() }), stream(), resumableStream(), recordedStream()],
 });
 
@@ -102,12 +115,13 @@ expectTypeOf<StreamClient['streams']['plain']['kind']>().toEqualTypeOf<'ephemera
 expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('cursor');
 expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('nudges');
 
-// A resumable stream is persistent and keeps its declared cursor and nudges.
+// A resumable stream is persistent and keeps its nudges. Its cursor is
+// server-only, so the client entry has no cursor even when one is declared.
 expectTypeOf<StreamClient['streams']['resume']['kind']>().toEqualTypeOf<'persistent'>();
-expectTypeOf<StreamClient['streams']['resume']['cursor']>().toEqualTypeOf<{ at: number }>();
+expectTypeOf<StreamClient['streams']['resume']>().not.toHaveProperty('cursor');
 expectTypeOf<StreamClient['streams']['resume']['nudges']>().toHaveProperty('faster');
 
-// A recorded stream is persistent; with no cursor declared, the field is tidied.
+// A recorded stream is persistent and has no cursor either.
 expectTypeOf<StreamClient['streams']['record']['kind']>().toEqualTypeOf<'persistent'>();
 expectTypeOf<StreamClient['streams']['record']>().not.toHaveProperty('cursor');
 
@@ -115,26 +129,24 @@ expectTypeOf<StreamClient['streams']['record']>().not.toHaveProperty('cursor');
 // Gap — a channel's own `capabilities` (`inbox()` / `readReceipts()`) must
 // produce the `inbox: true` / `readReceipts: true` flags InferClient exposes.
 // ---------------------------------------------------------------------------
-const flagsBase = define({
-  env: t<{}>(),
+const flagsBase = server({
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
 
 const flaggedChannel = flagsBase.channel('flagged', {
-  capabilities: [inbox(), readReceipts()],
-  outgoing: { emits: { joined: t<{ id: string }>() } },
+  capabilities: [inbox(), readReceipts(), emits({ joined: t<{ id: string }>() })],
 });
-const flaggedChannelHandler = flaggedChannel.on('join', {
+const flaggedChannelDefinition = flaggedChannel.on('join', {
   input: v.object({ id: v.string() }),
   run() {},
 });
 
 const plainChannel = flagsBase.channel('plain', {});
 
-// The flags ride on the channel's own contribution, not its handlers' — so the
-// channel itself, not just handlers built from it, must reach `assemble`.
+// Passing a channel itself includes its configuration. This also includes the
+// plain channel, which has no handler value to pass.
 const flagsDef = flagsBase.assemble({
-  handlers: [flaggedChannel, plainChannel, flaggedChannelHandler],
+  handlers: [flaggedChannel, plainChannel, flaggedChannelDefinition],
 });
 type FlagsClient = InferClient<typeof flagsDef>;
 
@@ -149,3 +161,28 @@ expectTypeOf<FlagsClient['channels']['flagged']['outgoing']['join']>().toEqualTy
 
 expectTypeOf<FlagsClient['channels']['plain']>().not.toHaveProperty('inbox');
 expectTypeOf<FlagsClient['channels']['plain']>().not.toHaveProperty('readReceipts');
+
+// A channel's flags travel with its handler values: a definition assembled
+// only from channel handlers still gives the client `inbox` / `readReceipts`.
+const inboxOnlyChannel = flagsBase.channel('inboxOnly', { capabilities: [inbox()] });
+const handleInboxSay = inboxOnlyChannel.on('say', { run() {} });
+
+const receiptsFamily = flagsBase.channel(['receiptsRoom', 'room/:id'], {
+  capabilities: [inbox(), readReceipts()],
+});
+const handleReceiptsSay = receiptsFamily.on('say', { run() {} });
+
+const plainHandlerChannel = flagsBase.channel('plainHandler', {});
+const handlePlainSay = plainHandlerChannel.on('say', { run() {} });
+
+const handlerOnlyDef = flagsBase.assemble({
+  handlers: [handleInboxSay, handleReceiptsSay, handlePlainSay],
+});
+type HandlerOnlyClient = InferClient<typeof handlerOnlyDef>;
+
+expectTypeOf<HandlerOnlyClient['channels']['inboxOnly']['inbox']>().toEqualTypeOf<true>();
+expectTypeOf<HandlerOnlyClient['channels']['inboxOnly']>().not.toHaveProperty('readReceipts');
+expectTypeOf<HandlerOnlyClient['channels']['receiptsRoom']['inbox']>().toEqualTypeOf<true>();
+expectTypeOf<HandlerOnlyClient['channels']['receiptsRoom']['readReceipts']>().toEqualTypeOf<true>();
+expectTypeOf<HandlerOnlyClient['channels']['plainHandler']>().not.toHaveProperty('inbox');
+expectTypeOf<HandlerOnlyClient['channels']['plainHandler']>().not.toHaveProperty('readReceipts');

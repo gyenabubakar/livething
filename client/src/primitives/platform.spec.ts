@@ -28,6 +28,7 @@ function mockEnvironment() {
       return netUnsub;
     },
   });
+
   return {
     environment: instance,
     visUnsub,
@@ -45,6 +46,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -89,6 +91,7 @@ describe('background disconnect', () => {
     m.setVisible(true);
     m.setVisible(false);
     vi.advanceTimersByTime(999);
+
     expect(socket.state.get()).toBe('open');
     vi.advanceTimersByTime(1);
     expect(socket.state.get()).toBe('closed');
@@ -110,7 +113,7 @@ describe('background disconnect', () => {
     expect(socket.state.get()).toBe('closed');
   });
 
-  it('throws WSKitConfigError when backgroundDisconnectMs is set but the environment has no onVisibilityChange', () => {
+  it('throws LiveThingConfigError when backgroundDisconnectMs is set but the environment has no onVisibilityChange', () => {
     const netOnly = environment({ onNetworkChange: () => () => undefined });
     expect(() =>
       client<C>()(
@@ -129,6 +132,7 @@ describe('background disconnect', () => {
     const un1 = socket.on('message', () => undefined);
     socket.on('message', () => undefined);
     MockWebSocket.last().open();
+
     expect(socket.state.get()).toBe('open');
 
     m.setVisible(false);
@@ -237,6 +241,97 @@ describe('network-aware reconnection (reconnection + platform online signal)', (
     ws.serverClose(1006);
     vi.advanceTimersByTime(2000);
     expect(MockWebSocket.instances).toHaveLength(2);
+  });
+});
+
+describe('network signal before the first open', () => {
+  function offlineAtStart() {
+    const netUnsub = vi.fn();
+    let net: ((v: boolean) => void) | null = null;
+    const onNetworkChange = vi.fn((cb: (v: boolean) => void) => {
+      net = cb;
+      cb(false);
+      return netUnsub;
+    });
+    return {
+      environment: environment({ onNetworkChange }),
+      onNetworkChange,
+      netUnsub,
+      setOnline: (v: boolean) => net?.(v),
+    };
+  }
+
+  it('pauses retries when the device is offline before the first connection opens', () => {
+    const m = offlineAtStart();
+    const socket = client<C>()(
+      connect('wss://test'),
+      platform({ environment: m.environment }),
+      reconnection(),
+    );
+
+    socket.connect();
+    expect(socket.online.get()).toBe(false);
+
+    MockWebSocket.last().serverClose(1006);
+    expect(socket.state.get()).toBe('reconnecting');
+    expect(socket.reconnection.get()).toEqual({ retrying: true, attempt: 0, nextRetryAt: null });
+
+    vi.advanceTimersByTime(60_000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    m.setOnline(true);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    MockWebSocket.last().open();
+    expect(socket.state.get()).toBe('open');
+  });
+
+  it('binds the environment once across connect, retry and open', () => {
+    const m = offlineAtStart();
+    const socket = client<C>()(
+      connect('wss://test'),
+      platform({ environment: m.environment }),
+      reconnection(),
+    );
+
+    socket.connect();
+    MockWebSocket.last().serverClose(1006);
+    m.setOnline(true);
+    MockWebSocket.last().open();
+
+    expect(m.onNetworkChange).toHaveBeenCalledTimes(1);
+    expect(m.netUnsub).not.toHaveBeenCalled();
+  });
+
+  it('does not bind before connect() is called', () => {
+    const m = offlineAtStart();
+    const socket = client<C>()(connect('wss://test'), platform({ environment: m.environment }));
+
+    expect(m.onNetworkChange).not.toHaveBeenCalled();
+    expect(socket.online.get()).toBe(true);
+  });
+
+  it('unbinds on disconnect() and binds again on the next connect()', () => {
+    const m = offlineAtStart();
+    const socket = client<C>()(connect('wss://test'), platform({ environment: m.environment }));
+
+    socket.connect();
+    socket.disconnect();
+    expect(m.netUnsub).toHaveBeenCalledTimes(1);
+
+    socket.connect();
+    expect(m.onNetworkChange).toHaveBeenCalledTimes(2);
+    expect(m.netUnsub).toHaveBeenCalledTimes(1);
+  });
+
+  it('unbinds when disconnect() is called before the first open', () => {
+    const m = offlineAtStart();
+    const socket = client<C>()(connect('wss://test'), platform({ environment: m.environment }));
+
+    socket.connect();
+    socket.disconnect();
+
+    expect(m.onNetworkChange).toHaveBeenCalledTimes(1);
+    expect(m.netUnsub).toHaveBeenCalledTimes(1);
   });
 });
 

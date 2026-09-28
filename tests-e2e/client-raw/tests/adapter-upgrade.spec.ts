@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 // A WebSocket route only speaks the upgrade handshake. A plain GET (no
 // Upgrade header) must be answered with HTTP 426 Upgrade Required by the
-// adapter, the same way for every handler — a wire contract any port must meet.
+// adapter, the same way for every server definition — a wire contract any port must meet.
 test.describe('adapter upgrade requirement', () => {
   test('plain GET to a WS route returns HTTP 426 (incoming handler)', async ({
     request,

@@ -26,7 +26,13 @@ import {
 import type { InboxFrame } from './storage.ts';
 
 function frame(seq: number, overrides: Partial<InboxFrame> = {}): InboxFrame {
-  return { seq, messageId: `msg_${seq}`, event: 'message', payload: { n: seq }, ...overrides };
+  return {
+    deliverySeq: seq,
+    messageId: `msg_${seq}`,
+    event: 'message',
+    payload: { n: seq },
+    ...overrides,
+  };
 }
 
 function setup() {
@@ -82,7 +88,7 @@ describe('inbox/storage — insert and load', () => {
     expect(JSON.parse(rows[0]!.payload)).toEqual({ n: 1 });
   });
 
-  it('a duplicate insert never undoes an already-acknowledged row (regression: re-run import marking history unread)', () => {
+  it('a duplicate insert never makes an acknowledged row unread', () => {
     const sql = setup();
     insertInboxRows(sql, {
       userIds: ['alice'],
@@ -112,7 +118,7 @@ describe('inbox/storage — insert and load', () => {
     const row = sql
       .exec<{
         delivered_at: number | null;
-      }>('SELECT delivered_at FROM __wskit_inbox WHERE user_id = ? AND seq = 5', 'alice')
+      }>('SELECT delivered_at FROM __livething_inbox WHERE user_id = ? AND seq = 5', 'alice')
       .one();
     expect(row?.delivered_at).toBe(2000);
     expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
@@ -185,7 +191,7 @@ describe('inbox/storage — insert and load', () => {
   });
 });
 
-describe('inbox/storage — bind-limit batching (regression: broadcast to >12 members failed outright)', () => {
+describe('inbox/storage — bind-limit batching', () => {
   // 8 bound params per row: userId, channelName, family, seq, messageId, event, payload, created_at.
   function limitedSql(maxBoundParams: number) {
     const sql = createTestSql({ limits: { maxBoundParams } });
@@ -261,6 +267,7 @@ describe('inbox/storage — bind-limit batching (regression: broadcast to >12 me
       limits: { maxBoundParams: 32 }, // 4 rows per batch, 5 members needs 2 batches
       onExec: (query) => {
         if (!query.trim().startsWith('INSERT')) return;
+
         insertCalls += 1;
         if (insertCalls === 2) throw new Error('storage down mid-transaction');
       },
@@ -351,7 +358,7 @@ describe('inbox/storage — ack lifecycle', () => {
       .exec<{
         seq: number;
         delivered_at: number;
-      }>('SELECT seq, delivered_at FROM __wskit_inbox WHERE user_id = ? ORDER BY seq', 'alice')
+      }>('SELECT seq, delivered_at FROM __livething_inbox WHERE user_id = ? ORDER BY seq', 'alice')
       .toArray();
     expect(delivered.map((r) => [r.seq, r.delivered_at])).toEqual([
       [1, 2000],
@@ -379,7 +386,7 @@ describe('inbox/storage — ack lifecycle', () => {
     const first = sql
       .exec<{
         delivered_at: number;
-      }>('SELECT delivered_at FROM __wskit_inbox WHERE user_id = ? AND seq = 1', 'alice')
+      }>('SELECT delivered_at FROM __livething_inbox WHERE user_id = ? AND seq = 1', 'alice')
       .one();
     expect(first?.delivered_at).toBe(2000);
   });
@@ -408,7 +415,7 @@ describe('inbox/storage — leave clears rows and watermark', () => {
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.channelName)).toEqual(['lobby']);
   });
 
-  it('deleteInboxWatermarkForChannel removes only the matching scope (regression: leave leaves a stale gap)', () => {
+  it('deleteInboxWatermarkForChannel removes only the matching scope', () => {
     const sql = setup();
     bumpInboxWatermark(sql, {
       userId: 'alice',
@@ -579,7 +586,7 @@ describe('inbox/storage — retention and watermark', () => {
       now: 10,
     });
     sql.exec(
-      'UPDATE __wskit_inbox_receipts SET read_through = ? WHERE channel_name = ?',
+      'UPDATE __livething_inbox_receipts SET read_through = ? WHERE channel_name = ?',
       3,
       'old-chat',
     );
@@ -596,7 +603,7 @@ describe('inbox/storage — retention and watermark', () => {
     let fail = true;
     const sql = createTestSql({
       onExec(query) {
-        if (fail && query.includes('DELETE FROM __wskit_inbox_watermark')) {
+        if (fail && query.includes('DELETE FROM __livething_inbox_watermark')) {
           fail = false;
           throw new Error('injected reconcile failure');
         }
@@ -611,6 +618,7 @@ describe('inbox/storage — retention and watermark', () => {
       frame: frame(1),
       now: 10,
     });
+
     bumpInboxWatermark(sql, {
       userId: 'alice',
       channelName: 'old-chat',
@@ -687,7 +695,7 @@ describe('inbox/storage — retention and watermark', () => {
       sql
         .exec<{
           delivered_at: number | null;
-        }>('SELECT delivered_at FROM __wskit_inbox WHERE user_id = ? AND seq = ?', 'alice', 3)
+        }>('SELECT delivered_at FROM __livething_inbox WHERE user_id = ? AND seq = ?', 'alice', 3)
         .one()?.delivered_at,
     ).toBeNull();
     expect(loadInboxWatermarks(sql, 'alice')).toEqual([
@@ -748,7 +756,7 @@ describe('inbox/storage — retention and watermark', () => {
         .exec<{
           seq: number;
           delivered_at: number | null;
-        }>('SELECT seq, delivered_at FROM __wskit_inbox ORDER BY seq')
+        }>('SELECT seq, delivered_at FROM __livething_inbox ORDER BY seq')
         .toArray(),
     ).toEqual([{ seq: 3, delivered_at: 10 }]);
     expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
@@ -868,7 +876,7 @@ describe('inbox/storage — retention and watermark', () => {
   it('rolls back evictions when writing the overflow watermark fails', () => {
     const sql = createTestSql({
       onExec(query) {
-        if (query.includes('INSERT OR REPLACE INTO __wskit_inbox_watermark')) {
+        if (query.includes('INSERT OR REPLACE INTO __livething_inbox_watermark')) {
           throw new Error('injected watermark failure');
         }
       },

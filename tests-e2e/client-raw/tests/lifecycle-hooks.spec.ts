@@ -24,6 +24,7 @@ test.describe('lifecycle-hooks', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
 
@@ -56,6 +57,7 @@ test.describe('lifecycle-hooks', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
 
@@ -113,6 +115,7 @@ test.describe('lifecycle-hooks', () => {
       await fetch(`/ws/lifecycle-hooks/shutdown?room=${encodeURIComponent(currentRoom)}`, {
         method: 'POST',
       });
+
       return closed;
     }, room);
 
@@ -139,6 +142,7 @@ test.describe('lifecycle-hooks', () => {
       },
     });
     expect(response.status()).toBe(403);
+    expect(response.headers()['content-type']).toContain('text/plain');
     await expect(response.text()).resolves.toBe('Forbidden HTTP upgrade');
   });
 
@@ -228,6 +232,7 @@ test.describe('lifecycle-hooks', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
 
@@ -254,6 +259,7 @@ test.describe('lifecycle-hooks', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
 

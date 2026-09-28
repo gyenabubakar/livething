@@ -6,12 +6,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/sequence?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -25,14 +27,15 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
-			const seq = data?.__wskit?.seq;
+
+			const data = window.__livethingDecode(ev.data);
+			const seq = data?.metadata?.delivery?.seq;
 			if (typeof seq === 'number') lastSeq = seq;
 		};
 	}
 
 	function sendTick() {
-		ws?.send(JSON.stringify({ event: 'tick', payload: {} }));
+		ws?.send(window.__livethingEncode({ event: 'tick', payload: {} }));
 	}
 </script>
 

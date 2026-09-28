@@ -39,6 +39,7 @@ describe('highWaterMark validation (Major 7)', () => {
       nudges: [],
       highWaterMark: 0,
     };
+
     expect(() => buildActiveStream(input as any)).toThrow(/highWaterMark must be a positive/);
     expect(() => buildActiveStream({ ...input, highWaterMark: 1024 } as any)).not.toThrow();
   });

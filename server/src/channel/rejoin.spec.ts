@@ -1,16 +1,23 @@
-import { RejoinRejected, WSKitConfigError } from '@wskit/core';
+import { ChannelNotFound, LiveThingConfigError, RejoinRejected } from '@livething/core';
 import { createTestSql } from '~/_test/sql.ts';
 import { autoRejoinIdentity } from '~/channel/rejoin.ts';
 import {
+  deleteMembership,
   ensureMembershipSchema,
   insertMembership,
   listMembershipsByUser,
 } from '~/channel/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
+import type { SQLProvider } from '~/context.ts';
 
 function fakeConnection(userId: string) {
   return { id: 'c-1', userId } as never;
+}
+
+function dropRow(sql: Pick<SQLProvider, 'exec'>) {
+  return (userId: string, channelName: string, channelFamily: string | null) =>
+    deleteMembership(sql, { userId, channelName, channelFamily });
 }
 
 describe('autoRejoinIdentity', () => {
@@ -31,7 +38,12 @@ describe('autoRejoinIdentity', () => {
     const sendProtocolMessage = vi.fn();
 
     await autoRejoinIdentity(
-      { sql, subscribeConnectionAsServer: subscribe, sendProtocolMessage },
+      {
+        sql,
+        removeStoredMember: dropRow(sql),
+        subscribeConnectionAsServer: subscribe,
+        sendProtocolMessage,
+      },
       fakeConnection(''),
     );
     expect(subscribe).not.toHaveBeenCalled();
@@ -55,6 +67,7 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
+        removeStoredMember: dropRow(sql),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: () => {},
       },
@@ -83,6 +96,7 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
+        removeStoredMember: dropRow(sql),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: () => {},
       },
@@ -108,15 +122,16 @@ describe('autoRejoinIdentity', () => {
     const sent: Array<{
       event: string;
       payload: Record<string, unknown>;
-      wskit: Record<string, unknown>;
+      livething: Record<string, unknown>;
     }> = [];
 
     await autoRejoinIdentity(
       {
         sql,
+        removeStoredMember: dropRow(sql),
         subscribeConnectionAsServer: subscribe,
-        sendProtocolMessage: (_c, { event, payload, wskit }: SendProtocolMessageOptions) =>
-          sent.push({ event, payload, wskit }),
+        sendProtocolMessage: (_c, { event, payload, livething }: SendProtocolMessageOptions) =>
+          sent.push({ event, payload, livething }),
       },
       fakeConnection('u-42'),
     );
@@ -124,9 +139,42 @@ describe('autoRejoinIdentity', () => {
     expect(listMembershipsByUser(sql, 'u-42')).toHaveLength(0);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.event).toBe('__error__');
-    expect(sent[0]!.wskit.channel).toBe('team-eng');
+    expect(sent[0]!.livething.channel).toBe('team-eng');
     expect(sent[0]!.payload.code).toBe('rejoin-rejected');
+
     expect((sent[0]!.payload.detail as { message: string }).message).toBe('not on the eng team');
+  });
+
+  it('drops a row for a channel that no longer exists and sends a scoped rejoin-rejected _error', async () => {
+    const sql = createTestSql();
+    ensureMembershipSchema(sql);
+    insertMembership(sql, { userId: 'u-42', channelName: 'old-room', channelFamily: null });
+
+    const subscribe = vi.fn(async () => {
+      throw ChannelNotFound();
+    });
+    const removeStoredMember = vi.fn();
+    const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
+
+    await autoRejoinIdentity(
+      {
+        sql,
+        removeStoredMember,
+        subscribeConnectionAsServer: subscribe,
+        sendProtocolMessage: (_c, { event, payload }: SendProtocolMessageOptions) =>
+          sent.push({ event, payload }),
+      },
+      fakeConnection('u-42'),
+    );
+
+    expect(listMembershipsByUser(sql, 'u-42')).toHaveLength(0);
+    expect(removeStoredMember).not.toHaveBeenCalled();
+    expect(sent).toEqual([
+      {
+        event: '__error__',
+        payload: expect.objectContaining({ code: 'rejoin-rejected' }),
+      },
+    ]);
   });
 
   it('propagates a config error and keeps the durable row', async () => {
@@ -135,7 +183,7 @@ describe('autoRejoinIdentity', () => {
     insertMembership(sql, { userId: 'u-42', channelName: 'team-eng', channelFamily: null });
 
     const subscribe = vi.fn(async () => {
-      throw new WSKitConfigError('misconfigured gate');
+      throw new LiveThingConfigError('misconfigured gate');
     });
     const sent: unknown[] = [];
 
@@ -143,12 +191,13 @@ describe('autoRejoinIdentity', () => {
       autoRejoinIdentity(
         {
           sql,
+          removeStoredMember: dropRow(sql),
           subscribeConnectionAsServer: subscribe,
           sendProtocolMessage: () => sent.push(1),
         },
         fakeConnection('u-42'),
       ),
-    ).rejects.toBeInstanceOf(WSKitConfigError);
+    ).rejects.toBeInstanceOf(LiveThingConfigError);
 
     expect(listMembershipsByUser(sql, 'u-42')).toHaveLength(1);
     expect(sent).toHaveLength(0);
@@ -168,6 +217,7 @@ describe('autoRejoinIdentity', () => {
       autoRejoinIdentity(
         {
           sql,
+          removeStoredMember: dropRow(sql),
           subscribeConnectionAsServer: subscribe,
           sendProtocolMessage: () => sent.push(1),
         },
@@ -195,6 +245,7 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
+        removeStoredMember: dropRow(sql),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: () => {},
       },

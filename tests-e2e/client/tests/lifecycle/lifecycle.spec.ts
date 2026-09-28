@@ -37,6 +37,7 @@ test.describe('lifecycle (conformance)', () => {
     await page.getByTestId('disconnect').click();
     await expect(page.getByTestId('status')).toHaveText('closed');
     await expect(page.getByTestId('pending-error')).toHaveText('disconnected');
+
     await expect(page.getByTestId('ws-present')).toHaveText('no');
   });
 });

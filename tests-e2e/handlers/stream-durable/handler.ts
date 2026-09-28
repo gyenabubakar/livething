@@ -1,11 +1,11 @@
-import { define, t } from '@wskit/server';
-import { Disconnect, StreamAborted } from '@wskit/server/errors';
-import { recordedStream, resumableStream } from '@wskit/server/streams';
+import { server, t } from '@livething/server';
+import { Disconnect, StreamAborted } from '@livething/server/errors';
+import { recordedStream, resumableStream } from '@livething/server/streams';
 import * as v from 'valibot';
-import type { InferClient } from '@wskit/server';
+import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const CountTokensPayload = v.object({});
+const CountTokensPayload = v.object({ hold: v.optional(v.boolean()) });
 const TokenChunk = t<{ idx: number }>();
 const PaginatePayload = v.object({});
 const RowChunk = t<{ row: number }>();
@@ -15,11 +15,18 @@ const BufferFullPayload = v.object({});
 const BufferChunk = t<{ n: number }>();
 const NumberChunk = t<number>();
 const StopPayload = v.object({});
+const overflowGates = new Map<string, () => void>();
 
-const base = define({
-  env: t<Env>(),
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [recordedStream(), resumableStream()],
+});
+
+const handleReleaseOverflow = base.on('release-overflow', {
+  input: v.object({}),
+  run(ctx) {
+    overflowGates.get(ctx.connection.id)?.();
+  },
 });
 
 const handleCountTokens = base.recordedStream('count-tokens', {
@@ -89,6 +96,7 @@ const handleBufferFullDemo = base.recordedStream('buffer-full-demo', {
         if (StreamAborted.matches(err) && err.detail.reason === 'buffer-full') {
           return;
         }
+
         throw err;
       }
     }
@@ -114,10 +122,24 @@ const handleCountTokensNudged = base.recordedStream('count-tokens-nudged', {
   maxChunks: 100,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
-  async *run(ctx) {
+  async *run(ctx, input) {
+    if (input.hold) {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      overflowGates.set(ctx.connection.id, release);
+      try {
+        await gate;
+      } finally {
+        overflowGates.delete(ctx.connection.id);
+      }
+    }
+
     for (let i = 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield { idx: i });
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },
@@ -134,6 +156,7 @@ const handlePaginateNudged = base.resumableStream('paginate-nudged', {
     for (let i = startAt + 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield ctx.stream.withCursor({ row: i }, { idx: i }));
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },
@@ -148,7 +171,7 @@ const handleServerDrop = base.on('server-drop', {
   },
 });
 
-export const streamDurableHandler = base.assemble({
+export const streamDurableDefinition = base.assemble({
   handlers: [
     handleCountTokens,
     handlePaginate,
@@ -159,7 +182,8 @@ export const streamDurableHandler = base.assemble({
     handleCountTokensNudged,
     handlePaginateNudged,
     handleServerDrop,
+    handleReleaseOverflow,
   ],
 });
 
-export type StreamDurableClient = InferClient<typeof streamDurableHandler>;
+export type StreamDurableClient = InferClient<typeof streamDurableDefinition>;

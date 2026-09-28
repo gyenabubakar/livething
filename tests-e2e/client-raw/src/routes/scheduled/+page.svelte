@@ -21,14 +21,38 @@
 	let cancelNonexistentOk = $state(false);
 	let scheduleUnknownTaskResult = $state('');
 
+	const eventHandlers: Record<string, (payload: Record<string, any>) => void> = {
+		'cleanup-done': () => (cleanupFired = true),
+		'cleanup-cancelled': () => (cleanupCancelled = true),
+		'heartbeat-tick': () => (heartbeatCount += 1),
+		'flaky-task-result': (payload) => (flakyAttempts = payload.attempts ?? null),
+		'default-retry-result': (payload) => (defaultRetryAttempts = payload.attempts ?? null),
+		'dead-letter-result': (payload) =>
+			(deadLetter = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`),
+		'filtered-task-result': (payload) => (filteredLabels = [...filteredLabels, payload.label ?? '']),
+		'cancel-nothing-ok': () => (cancelNothingOk = true),
+		'schedule-guard-error': (payload) => (scheduleGuardError = payload.message ?? ''),
+		'schedule-send-to-conn-delivery': (payload) => (sendToConnDelivery = payload.text ?? ''),
+		'schedule-send-to-conn-status': (payload) =>
+			(sendToConnStatus = `id:${payload.connectionId},delivered:${payload.delivered}`),
+		'who-am-i-result': (payload) => (connectionId = payload.connectionId ?? ''),
+		'broadcast-result': (payload) => (broadcastResult = payload.text ?? ''),
+		'send-to-tag-result': (payload) => (sendToTagResult = payload.text ?? ''),
+		'cancel-nonexistent-ok': () => (cancelNonexistentOk = true),
+		'schedule-unknown-task-result': (payload) =>
+			(scheduleUnknownTaskResult = `${payload.rejected ? 'rejected' : 'accepted'}:${payload.message ?? ''}`),
+	};
+
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/scheduled?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -38,62 +62,14 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
-			const data = JSON.parse(ev.data);
-			switch (data.event) {
-				case 'cleanup-done':
-					cleanupFired = true;
-					break;
-				case 'cleanup-cancelled':
-					cleanupCancelled = true;
-					break;
-				case 'heartbeat-tick':
-					heartbeatCount += 1;
-					break;
-				case 'flaky-task-result':
-					flakyAttempts = data.payload?.attempts ?? null;
-					break;
-				case 'default-retry-result':
-					defaultRetryAttempts = data.payload?.attempts ?? null;
-					break;
-				case 'dead-letter-result':
-					deadLetter = `${data.payload?.taskId}:attempts=${data.payload?.attempts}:${data.payload?.error}`;
-					break;
-				case 'filtered-task-result':
-					filteredLabels = [...filteredLabels, data.payload?.label ?? ''];
-					break;
-				case 'cancel-nothing-ok':
-					cancelNothingOk = true;
-					break;
-				case 'schedule-guard-error':
-					scheduleGuardError = data.payload?.message ?? '';
-					break;
-				case 'schedule-send-to-conn-delivery':
-					sendToConnDelivery = data.payload?.text ?? '';
-					break;
-				case 'schedule-send-to-conn-status':
-					sendToConnStatus = `id:${data.payload?.connectionId},delivered:${data.payload?.delivered}`;
-					break;
-				case 'who-am-i-result':
-					connectionId = data.payload?.connectionId ?? '';
-					break;
-				case 'broadcast-result':
-					broadcastResult = data.payload?.text ?? '';
-					break;
-				case 'send-to-tag-result':
-					sendToTagResult = data.payload?.text ?? '';
-					break;
-				case 'cancel-nonexistent-ok':
-					cancelNonexistentOk = true;
-					break;
-				case 'schedule-unknown-task-result':
-					scheduleUnknownTaskResult = `${data.payload?.rejected ? 'rejected' : 'accepted'}:${data.payload?.message ?? ''}`;
-					break;
-			}
+
+			const data = window.__livethingDecode(ev.data);
+			eventHandlers[data.event]?.(data.payload ?? {});
 		};
 	}
 
-	function send(event: string, payload: Record<string, unknown> = {}) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(event: string, payload: Record<string, unknown> | null = null) {
+		ws?.send(window.__livethingEncode({ event, payload }));
 	}
 </script>
 
@@ -101,58 +77,58 @@
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
 
-<button data-testid="who-am-i" onclick={() => send('who-am-i')}>Who am I</button>
+<button data-testid="who-am-i" onclick={() => send('who-am-i', {})}>Who am I</button>
 <button data-testid="schedule-cleanup-soon" onclick={() => send('schedule-cleanup', { delayMs: 200 })}>
 	Schedule cleanup soon
 </button>
 <button data-testid="schedule-cleanup-long" onclick={() => send('schedule-cleanup', { delayMs: 10_000 })}>
 	Schedule cleanup long
 </button>
-<button data-testid="cancel-cleanup" onclick={() => send('cancel-cleanup')}>Cancel cleanup</button>
-<button data-testid="start-heartbeat" onclick={() => send('start-heartbeat')}>Start heartbeat</button>
-<button data-testid="trigger-flaky" onclick={() => send('trigger-flaky-task')}>Trigger flaky</button>
-<button data-testid="trigger-default-retry" onclick={() => send('trigger-default-retry-task')}>
+<button data-testid="cancel-cleanup" onclick={() => send('cancel-cleanup', {})}>Cancel cleanup</button>
+<button data-testid="start-heartbeat" onclick={() => send('start-heartbeat', {})}>Start heartbeat</button>
+<button data-testid="trigger-flaky" onclick={() => send('trigger-flaky-task', {})}>Trigger flaky</button>
+<button data-testid="trigger-default-retry" onclick={() => send('trigger-default-retry-task', {})}>
 	Trigger default retry
 </button>
-<button data-testid="trigger-always-fail" onclick={() => send('trigger-always-fail')}>
+<button data-testid="trigger-always-fail" onclick={() => send('trigger-always-fail', {})}>
 	Trigger always-fail
 </button>
-<button data-testid="trigger-bigint-throw" onclick={() => send('trigger-bigint-throw')}>
+<button data-testid="trigger-bigint-throw" onclick={() => send('trigger-bigint-throw', {})}>
 	Trigger bigint-throw
 </button>
-<button data-testid="query-dlq" onclick={() => send('query-dead-letter')}>Query DLQ</button>
-<button data-testid="schedule-filtered" onclick={() => send('schedule-filtered-tasks')}>
+<button data-testid="query-dlq" onclick={() => send('query-dead-letter', {})}>Query DLQ</button>
+<button data-testid="schedule-filtered" onclick={() => send('schedule-filtered-tasks', {})}>
 	Schedule filtered (drop+keep)
 </button>
 <button data-testid="cancel-drop" onclick={() => send('cancel-filtered-task', { label: 'drop' })}>
 	Cancel drop
 </button>
-<button data-testid="cancel-nothing" onclick={() => send('cancel-nothing')}>Cancel nothing</button>
-<button data-testid="trigger-invalid-cleanup-data" onclick={() => send('trigger-invalid-cleanup-data')}>
+<button data-testid="cancel-nothing" onclick={() => send('cancel-nothing', {})}>Cancel nothing</button>
+<button data-testid="trigger-invalid-cleanup-data" onclick={() => send('trigger-invalid-cleanup-data', {})}>
 	Trigger invalid cleanup data
 </button>
-<button data-testid="trigger-invalid-schedule-time" onclick={() => send('trigger-invalid-schedule-time')}>
+<button data-testid="trigger-invalid-schedule-time" onclick={() => send('trigger-invalid-schedule-time', {})}>
 	Trigger invalid schedule time
 </button>
-<button data-testid="trigger-empty-backoff" onclick={() => send('trigger-empty-backoff')}>
+<button data-testid="trigger-empty-backoff" onclick={() => send('trigger-empty-backoff', {})}>
 	Trigger empty backoff
 </button>
-<button data-testid="schedule-broadcast-task" onclick={() => send('schedule-broadcast-task')}>
+<button data-testid="schedule-broadcast-task" onclick={() => send('schedule-broadcast-task', {})}>
 	Schedule broadcast task
 </button>
-<button data-testid="schedule-send-to-tag" onclick={() => send('schedule-send-to-tag')}>
+<button data-testid="schedule-send-to-tag" onclick={() => send('schedule-send-to-tag', {})}>
 	Schedule send-to-tag
 </button>
-<button data-testid="cancel-nonexistent-task" onclick={() => send('cancel-nonexistent')}>
+<button data-testid="cancel-nonexistent-task" onclick={() => send('cancel-nonexistent', {})}>
 	Cancel nonexistent
 </button>
 <button
 	data-testid="schedule-unknown-task"
-	onclick={() => send('trigger-schedule-unknown-task')}
+	onclick={() => send('trigger-schedule-unknown-task', {})}
 >
 	Schedule unknown task
 </button>
-<button data-testid="tag-vip" onclick={() => send('tag-vip')}>Tag vip</button>
+<button data-testid="tag-vip" onclick={() => send('tag-vip', {})}>Tag vip</button>
 
 <input data-testid="target-id" bind:value={targetId} placeholder="target connection id" />
 <button

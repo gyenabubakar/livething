@@ -1,89 +1,79 @@
+import { LiveThingConfigError } from '@livething/core';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { server } from '~/_define/server.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { scheduled } from './capability.ts';
 import type { ScheduledPrimitive } from './scheduled.ts';
-
-interface Env {
-  SECRET: string;
-}
 
 type AnyScheduledPrimitive = Omit<ScheduledPrimitive, 'handler'> & {
   handler: (ctx: unknown, data?: unknown) => void | Promise<void>;
 };
 
-function scheduledPrimitive(primitives: readonly { __wskit: string }[]): AnyScheduledPrimitive {
-  const found = primitives.find((p) => p.__wskit === 'scheduled');
+function scheduledPrimitive(primitives: readonly { __livething: string }[]): AnyScheduledPrimitive {
+  const found = primitives.find((p) => p.__livething === 'scheduled');
   if (!found) throw new Error('no scheduled primitive');
+
   return found as unknown as AnyScheduledPrimitive;
 }
 
 describe('scheduled() capability', () => {
-  it('merges a declaration with its handler into one bootable task', () => {
-    const base = define({ env: t<Env>(), capabilities: [scheduled({ cleanup: null })] });
-    const handleCleanup = base.scheduled('cleanup', { run() {} });
-    const handler = base.assemble({ handlers: [handleCleanup] });
-    const compiled = compileHandlerDefinition(handler);
+  it('registers a declaration body into one bootable task', () => {
+    const base = server({ capabilities: [scheduled({ cleanup: null })] });
+    base.scheduled('cleanup', { run() {} });
+    const definition = base.assemble({ handlers: [] });
+    const compiled = compileServerDefinition(definition);
     expect(compiled.scheduled.has('cleanup')).toBe(true);
-    expect(scheduledPrimitive(handler.primitives).hasData).toBe(false);
+
+    expect(scheduledPrimitive(definition.primitives).hasData).toBe(false);
   });
 
   it('marks a task that declares typed data as carrying data', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [scheduled({ report: { data: t<{ userId: string }>(), retry: true } })],
     });
-    const handleReport = base.scheduled('report', { run() {} });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [handleReport] }).primitives);
+    base.scheduled('report', { run() {} });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
     expect(primitive.hasData).toBe(true);
     expect(primitive.options?.retry).toBe(true);
   });
 
   it('carries the recurring interval onto the task primitive', () => {
-    const base = define({
-      env: t<Env>(),
+    const base = server({
       capabilities: [scheduled({ heartbeat: { every: 30_000 } })],
     });
-    const handleHeartbeat = base.scheduled('heartbeat', { run() {} });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [handleHeartbeat] }).primitives);
+    base.scheduled('heartbeat', { run() {} });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
     expect(primitive.options?.every).toBe(30_000);
   });
 
-  it('throws when a declared task has no handler', () => {
-    const base = define({ env: t<Env>(), capabilities: [scheduled({ cleanup: null })] });
-    expect(() => base.assemble({ handlers: [] })).toThrow(
-      /No handler for scheduled task 'cleanup'/,
+  it('throws when a task id contains ::', () => {
+    expect(() => scheduled({ 'cleanup::daily': null })).toThrow(
+      /scheduled\(\) task id 'cleanup::daily' contains '::'/,
     );
   });
 
-  it('throws when a handler has no matching declaration', () => {
-    const base = define({ env: t<Env>(), capabilities: [scheduled({ cleanup: null })] });
-    const cleanup = base.scheduled('cleanup', { run() {} });
-    const otherBase = define({ env: t<Env>(), capabilities: [scheduled({ other: null })] });
-    const orphan = otherBase.scheduled('other', { run() {} });
-    expect(() => base.assemble({ handlers: [cleanup, orphan] })).toThrow(
-      /base\.scheduled\('other'\) has no matching declaration/,
+  it('throws when a declared task has no body', () => {
+    const base = server({ capabilities: [scheduled({ cleanup: null })] });
+    expect(() => base.assemble({ handlers: [] })).toThrow(/No body for scheduled task 'cleanup'/);
+  });
+
+  it('throws when the same task is registered twice', () => {
+    const base = server({ capabilities: [scheduled({ cleanup: null })] });
+    base.scheduled('cleanup', { run() {} });
+    expect(() => base.scheduled('cleanup', { run() {} })).toThrow(
+      /Duplicate scheduled task 'cleanup'/,
     );
   });
 
-  it('throws when the same task is bound twice', () => {
-    const base = define({ env: t<Env>(), capabilities: [scheduled({ cleanup: null })] });
-    const first = base.scheduled('cleanup', { run() {} });
-    const second = base.scheduled('cleanup', { run() {} });
-    expect(() => base.assemble({ handlers: [first, second] })).toThrow(
-      /Duplicate scheduled handler for 'cleanup'/,
-    );
-  });
-
-  it('passes trusted data to the merged handler at runtime', async () => {
-    const base = define({
-      env: t<Env>(),
+  it('passes trusted data to the registered body at runtime', async () => {
+    const base = server({
       capabilities: [scheduled({ report: { data: t<{ userId: string }>() } })],
     });
     const run = vi.fn();
-    const handleReport = base.scheduled('report', { run });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [handleReport] }).primitives);
+    base.scheduled('report', { run });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
 
     const ctx = {} as never;
     await primitive.handler(ctx, { userId: 'alice' });
@@ -91,23 +81,23 @@ describe('scheduled() capability', () => {
   });
 
   it('runs a no-data task body with only the context', async () => {
-    const base = define({ env: t<Env>(), capabilities: [scheduled({ cleanup: null })] });
+    const base = server({ capabilities: [scheduled({ cleanup: null })] });
     const run = vi.fn();
-    const handleCleanup = base.scheduled('cleanup', { run });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [handleCleanup] }).primitives);
+    base.scheduled('cleanup', { run });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
 
     const ctx = {} as never;
     await primitive.handler(ctx);
     expect(run).toHaveBeenCalledWith(ctx);
   });
 
-  it('throws when a scheduled body is assembled without the scheduled() capability', () => {
-    const base = define({ env: t<Env>() });
+  it('throws when a scheduled body has no matching declaration', () => {
+    const base = server({});
     const escapeHatch = base as unknown as {
       scheduled(taskId: string, config: { run: () => void }): unknown;
     };
-    const orphan = escapeHatch.scheduled('cleanup', { run() {} });
-    expect(() => base.assemble({ handlers: [orphan as never] })).toThrow(
+    escapeHatch.scheduled('cleanup', { run() {} });
+    expect(() => base.assemble({ handlers: [] })).toThrow(
       /base\.scheduled\('cleanup'\) has no matching declaration/,
     );
   });
@@ -144,6 +134,23 @@ describe('scheduled() capability', () => {
     it('accepts positive integers', () => {
       expect(declare(1)).not.toThrow();
       expect(declare(30_000)).not.toThrow();
+    });
+
+    it('rejects every combined with a t<...>() data marker', () => {
+      function declareBoth() {
+        return scheduled({ heartbeat: { every: 1_000, data: t<{ n: number }>() } as never });
+      }
+
+      expect(declareBoth).toThrow(LiveThingConfigError);
+      expect(declareBoth).toThrow(
+        /scheduled\("heartbeat"\): a task with 'every' cannot declare 'data'/,
+      );
+    });
+
+    it('rejects every combined with a schema data validator', () => {
+      expect(() => scheduled({ heartbeat: { every: 1_000, data: v.object({}) } as never })).toThrow(
+        /cannot declare 'data'/,
+      );
     });
   });
 

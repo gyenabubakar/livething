@@ -1,4 +1,4 @@
-import { RejectUpgrade } from '@wskit/server/errors';
+import { RejectUpgrade } from '@livething/server/errors';
 
 /**
  * The plain upgrade result: a stable `userId` and inferred `meta`, with no
@@ -20,7 +20,7 @@ interface UsernameUpgradeWithUserTag extends UsernameUpgrade {
 
 /**
  * Pull `username` from the query string and surface it as userId and meta.
- * Feeds `define()`'s `upgrade(request)`. For handlers that declare a `user`
+ * Feeds `server()`'s `upgrade(request)`. For handlers that declare a `user`
  * ephemeral tag group and want the tag attached on connect, use
  * {@link requireUsernameWithUserTag} instead.
  */
@@ -28,6 +28,7 @@ export function requireUsername(request: Request): UsernameUpgrade {
   const url = new URL(request.url);
   const username = url.searchParams.get('username');
   if (!username) throw RejectUpgrade(4001, 'Missing username');
+
   return { userId: username, meta: { username } };
 }
 

@@ -1,48 +1,39 @@
 /* oxlint-disable no-unused-vars */
 /**
- * Compile-time fixtures for capability-gated ctx surfaces and env/owner threading.
+ * Compile-time fixtures for capability-gated ctx surfaces and owner threading.
  *
- * Covers: `base.onInit`/`base.onShutdown` see the typed env, and shutdown's
- * `broadcast` is gated to declared emits (gap 5); `frame.owner.id` is the union
+ * Covers: `base.onInit`/`base.onShutdown` and shutdown's `broadcast` are typed
+ * to declared emits (gap 5); `frame.owner.id` is the union
  * of registered plugin ids in `intercept`/`outgoing` (gap 7); and each
  * capability-owned ctx arm exists only when its capability is listed, and is a
  * compile error otherwise (gap 9).
  */
 import { t } from '~/_api/index.ts';
-import { define } from '~/_define/define.ts';
-import { plugin } from '~/_define/plugin.ts';
+import { plugin } from '~/_define/plugins.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Gap 5 — env threading + gated broadcast in `init` / `shutdown`.
+// Gap 5 — gated broadcast in `init` / `shutdown`.
 // ---------------------------------------------------------------------------
-const lifecycleBase = define({
-  env: t<{ SECRET: string }>(),
+const lifecycleBase = server({
   upgrade: () => ({ userId: 'u', meta: { who: 'x' } }),
   capabilities: [emits({ bye: t<{ reason: string }>() })],
 });
 
 lifecycleBase.onInit((ctx) => {
-  const _secret: string = ctx.env.SECRET;
-  void _secret;
-  // @ts-expect-error — undeclared env key
-  ctx.env.NOPE;
+  void ctx;
 });
 
 lifecycleBase.onShutdown((ctx) => {
-  const _secret: string = ctx.env.SECRET;
-  void _secret;
-  // @ts-expect-error — undeclared env key
-  ctx.env.NOPE;
-
   // Broadcast is gated to declared emits with the correct payload.
   ctx.broadcast('bye', { reason: 'restart' });
   // @ts-expect-error — wrong payload for a declared emit
@@ -54,17 +45,17 @@ lifecycleBase.onShutdown((ctx) => {
 // ---------------------------------------------------------------------------
 // Gap 7 — `frame.owner.id` typed to the union of registered plugin ids.
 // ---------------------------------------------------------------------------
-const scopedA = define({ scope: 'plugin', capabilities: [emits({ a: t<{}>() })] });
+const scopedA = server({ scope: 'plugin', capabilities: [emits({ a: t<{}>() })] });
 const PluginA = plugin('acme:a', {
-  handler: scopedA.assemble({ handlers: [scopedA.on('a-in', { run() {} })] }),
+  definition: scopedA.assemble({ handlers: [scopedA.on('a-in', { run() {} })] }),
 });
 
-const scopedC = define({ scope: 'plugin', capabilities: [emits({ c: t<{}>() })] });
+const scopedC = server({ scope: 'plugin', capabilities: [emits({ c: t<{}>() })] });
 const PluginC = plugin('acme:c', {
-  handler: scopedC.assemble({ handlers: [scopedC.on('c-in', { run() {} })] }),
+  definition: scopedC.assemble({ handlers: [scopedC.on('c-in', { run() {} })] }),
 });
 
-const ownerBase = define({ env: t<{}>(), capabilities: [PluginA(), PluginC(), intercepts()] });
+const ownerBase = server({ capabilities: [PluginA(), PluginC(), intercepts()] });
 
 ownerBase.intercept((ctx, frame) => {
   void ctx;
@@ -79,7 +70,9 @@ ownerBase.intercept((ctx, frame) => {
 });
 
 ownerBase.onOutgoing((ctx, frame) => {
-  void ctx;
+  // @ts-expect-error — ctx is undefined when no connection's work is running
+  void ctx.connection;
+  void ctx?.connection;
   if (frame.owner.kind === 'plugin') {
     expectTypeOf(frame.owner.id).toEqualTypeOf<'acme:a' | 'acme:c'>();
   }
@@ -90,12 +83,12 @@ ownerBase.onOutgoing((ctx, frame) => {
 // ---------------------------------------------------------------------------
 
 // A bare server: none of the capability arms exist.
-const bareBase = define({ env: t<{}>(), capabilities: [emits({ e: t<{}>() })] });
+const bareBase = server({ capabilities: [emits({ e: t<{}>() })] });
 bareBase.on('bare', {
   run(ctx) {
-    // @ts-expect-error — `request` needs requests()
+    // @ts-expect-error — `request` needs serverRequests()
     ctx.request('x', {});
-    // @ts-expect-error — `broadcastRequest` needs requests()
+    // @ts-expect-error — `broadcastRequest` needs serverRequests()
     ctx.broadcastRequest('x', {});
     // @ts-expect-error — `tags` needs tags()
     ctx.tags;
@@ -113,11 +106,10 @@ bareBase.on('bare', {
 });
 
 // A server that lists every gating capability: each arm is present.
-const fullBase = define({
-  env: t<{}>(),
+const fullBase = server({
   capabilities: [
     emits({ e: t<{}>() }),
-    requests({
+    serverRequests({
       r: { out: t<{}>(), in: v.object({ ok: v.boolean() }) },
       br: { out: t<{}>(), in: v.object({ ok: v.boolean() }) },
     }),
@@ -135,6 +127,7 @@ fullBase.on('full', {
     expectTypeOf(ctx.tags).not.toBeUndefined();
     expectTypeOf(ctx.channels).not.toBeUndefined();
     expectTypeOf(ctx.schedule).toBeFunction();
+
     expectTypeOf(ctx.plugin).toBeFunction();
     expectTypeOf(ctx.latency).toEqualTypeOf<number | null>();
     expectTypeOf(ctx.quality).toEqualTypeOf<'excellent' | 'good' | 'degraded' | 'poor' | null>();

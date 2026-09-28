@@ -6,7 +6,7 @@ const dedupPrimitive = dedup();
 const _dedupType: DedupPrimitive = dedupPrimitive;
 void _dedupType;
 
-const _tag: 'dedup' = dedupPrimitive.__wskit;
+const _tag: 'dedup' = dedupPrimitive.__livething;
 const _kind: PrimitiveKind = dedupPrimitive.__kind;
 void [_tag, _kind];
 

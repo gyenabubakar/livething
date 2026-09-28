@@ -22,6 +22,7 @@ test.describe('admin() over the Worker→DO stub', () => {
       await fetch(`/ws/admin/purge?room=${encodeURIComponent(currentRoom)}&userId=alice`, {
         method: 'POST',
       });
+
       return closed;
     }, room);
 
@@ -38,9 +39,15 @@ test.describe('admin() over the Worker→DO stub', () => {
       const ws = new WebSocket(
         `ws://${location.host}/ws/admin?username=bob&room=${encodeURIComponent(currentRoom)}`,
       );
-      const frames: string[] = [];
+      const frames: Array<{ event: string; payload: unknown; metadata: unknown }> = [];
       ws.addEventListener('message', (event) => {
-        if (typeof event.data === 'string') frames.push(event.data);
+        if (typeof event.data !== 'string') return;
+
+        try {
+          frames.push(window.__livethingDecode(event.data));
+        } catch {
+          // Ignore bare control frames; this test only needs application tuples.
+        }
       });
       await new Promise<void>((resolve, reject) => {
         ws.onopen = () => resolve();
@@ -49,13 +56,13 @@ test.describe('admin() over the Worker→DO stub', () => {
       await fetch(`/ws/admin/announce?room=${encodeURIComponent(currentRoom)}&text=hello`, {
         method: 'POST',
       });
+
       await new Promise((resolve) => setTimeout(resolve, 500));
+
       return frames;
     }, room);
 
-    const announced = received
-      .map((raw) => JSON.parse(raw) as { event: string; payload: unknown })
-      .find((frame) => frame.event === 'announced');
+    const announced = received.find((frame) => frame.event === 'announced');
     expect(announced?.payload).toEqual({ text: 'hello' });
   });
 });

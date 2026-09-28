@@ -9,6 +9,7 @@ test.describe('ctx-channels', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
     await page.getByTestId('subscribe-room').click();
+
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
 
     await page.getByTestId('get-members').click();
@@ -23,16 +24,19 @@ test.describe('ctx-channels', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await a.goto(`/ctx-channels?room=${room}`);
     await b.goto(`/ctx-channels?room=${room}`);
     await a.getByTestId('username').fill('user1');
     await b.getByTestId('username').fill('user2');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
+
     await expect(a.getByTestId('subscribed')).toHaveText('yes');
     await expect(b.getByTestId('subscribed')).toHaveText('yes');
 
@@ -52,11 +56,13 @@ test.describe('ctx-channels', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await a.goto(`/ctx-channels?room=${room}`);
     await b.goto(`/ctx-channels?room=${room}`);
     await a.getByTestId('username').fill('user1');
     await b.getByTestId('username').fill('user2');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     // Must wait for both sockets to be OPEN before sending subscribe frames,
     // otherwise ws.send() during CONNECTING throws and the subscribe is lost.
@@ -65,6 +71,7 @@ test.describe('ctx-channels', () => {
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(b.getByTestId('subscribed')).toHaveText('yes');
 
     await a.getByTestId('get-members').click();
@@ -110,21 +117,25 @@ test.describe('ctx-channels', () => {
     const ctxB = await browser.newContext();
     const ctxC = await browser.newContext();
     const a = await ctxA.newPage();
+
     const b = await ctxB.newPage();
     const c = await ctxC.newPage();
     await a.goto(`/ctx-channels?room=${room}`);
     await b.goto(`/ctx-channels?room=${room}`);
     await c.goto(`/ctx-channels?room=${room}`);
+
     await a.getByTestId('connect').click();
     await b.getByTestId('connect').click();
     await c.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
+
     await expect(c.getByTestId('status')).toHaveText('connected');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await c.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(b.getByTestId('subscribed')).toHaveText('yes');
     await expect(c.getByTestId('subscribed')).toHaveText('yes');
 
@@ -144,6 +155,7 @@ test.describe('ctx-channels', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
     await page.getByTestId('subscribe-room').click();
+
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
 
     await page.getByTestId('get-member-id').click();
@@ -158,16 +170,19 @@ test.describe('ctx-channels', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await a.goto(`/ctx-channels?room=${room}`);
     await b.goto(`/ctx-channels?room=${room}`);
     await a.getByTestId('username').fill('user1');
     await b.getByTestId('username').fill('user2');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
+
     await expect(a.getByTestId('subscribed')).toHaveText('yes');
     await expect(b.getByTestId('subscribed')).toHaveText('yes');
 
@@ -193,13 +208,14 @@ test.describe('ctx-channels', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
     await page.getByTestId('subscribe-room').click();
+
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
 
     await page.getByTestId('kick-self-by-ref').click();
     await expect(page.getByTestId('kicked-result')).toContainText('self kick by ref');
   });
 
-  test('ctx.channel.send({ to }) reaches only the member holding the tag', async ({
+  test('ctx.channel.broadcastTo(...) reaches only the member holding the tag', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -207,16 +223,19 @@ test.describe('ctx-channels', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await a.goto(`/ctx-channels?room=${room}`);
     await b.goto(`/ctx-channels?room=${room}`);
     await a.getByTestId('username').fill('user1');
     await b.getByTestId('username').fill('user2');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
+
     await expect(a.getByTestId('subscribed')).toHaveText('yes');
     await expect(b.getByTestId('subscribed')).toHaveText('yes');
 
