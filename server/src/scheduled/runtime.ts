@@ -457,7 +457,7 @@ function clearTaskStopped(runtime: ScheduledRuntimeAccess, taskId: string): bool
  * interval but does not already have one queued. A task stopped by
  * `ctx.cancelScheduled(taskId)` is not seeded.
  *
- * Called at boot so that recurring tasks resume even after a restart or
+ * Called at boot so that recurring tasks continue even after a restart or
  * hibernation wake.
  */
 function ensureRecurringRuns(runtime: ScheduledRuntimeAccess, stopped: ReadonlySet<string>): void {

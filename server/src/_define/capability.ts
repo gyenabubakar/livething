@@ -11,7 +11,7 @@ import type { Primitive } from '~/primitive.ts';
  * `InferClient` reads back.
  *
  * The slot keys mirror the client contract: `incoming`, `outgoing`, `requests`,
- * `streams`, `resumableStreams`, `recordedStreams`, `channels`, `scheduled`,
+ * `streams`, `cursorStreams`, `recordedStreams`, `channels`, `scheduled`,
  * `errors`, plus `ephemeralTags` / `persistentTags` for tag groups.
  */
 export interface Contribution<TSlots = {}> {

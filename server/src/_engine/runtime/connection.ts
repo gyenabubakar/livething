@@ -602,7 +602,7 @@ export async function runConnectionLifecycle(
  * Stop and forget any active streams owned by a connection that is going away.
  *
  * Streams declared with `onDisconnect: 'keep-running'` are left alone — the
- * generator continues producing into storage and a later `__resumeStream__` from
+ * generator continues producing into storage and a later `__continueStream__` from
  * the same user (or any broadcast subscriber) catches up from the buffer.
  */
 export async function cancelActiveStreamsForConnection(

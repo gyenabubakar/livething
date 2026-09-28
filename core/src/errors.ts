@@ -372,14 +372,14 @@ export const ValidationFailed = /* @__PURE__ */ buildErrorFactory(
  */
 export const ChannelNotFound = /* @__PURE__ */ buildErrorFactory('channel-not-found');
 
-const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist(['__replay__', '__resumeStream__']);
+const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist(['__replay__', '__continueStream__']);
 
 export type UnsupportedProtocolEvent = v.InferInput<typeof UNSUPPORTED_PROTOCOL_EVENTS>;
 
 /**
  * Sent to the client when it uses a protocol feature the server doesn't
  * support. LiveThing's client may send protocol frames like `__replay__` or
- * `__resumeStream__` on reconnect; if the server never enabled the matching
+ * `__continueStream__` on reconnect; if the server never enabled the matching
  * feature (no `replay`, or no durable streams because the adapter has no
  * storage), it replies with this code instead of silently ignoring the frame.
  * `detail.event` is the protocol event that was rejected.
@@ -587,24 +587,24 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  *   The framework throws this into the generator's `yield` so handler code can
  *   catch and decide; if uncaught it surfaces on the wire.
  * - `'expired'` — a suspended durable stream aged out of its retention window before the client returned.
- * - `'not-found'` — a `__resumeStream__` request named a stream id the server doesn't recognise.
+ * - `'not-found'` — a `__continueStream__` request named a stream id the server doesn't recognise.
  * - `'hibernation-wake'` — a running stream was lost because the server
  *   dropped in-memory state on a runtime with hibernation (e.g. a Cloudflare
  *   Durable Object waking from hibernation). Runtimes without hibernation never
  *   emit this reason. The wire-level connection is still alive; only the
- *   in-flight stream is gone. The LiveThing client resumes a durable stream on
+ *   in-flight stream is gone. The LiveThing client continues a durable stream on
  *   its own, so only a plain stream reports this reason to your code.
  * - `'unsubscribed'` — the client previously sent `__streamCancel__` on this
  *   broadcast stream's id, so the server has stopped fanning chunks to that
  *   identity. The stream itself stays running for everyone else.
- * - `'cursor-invalid'` — on resume, the stored cursor failed the validator
- *   declared on the `resumableStream`. The row stays in place; the resuming
+ * - `'cursor-invalid'` — on reconnect, the stored cursor failed the validator
+ *   declared on the `cursorStream`. The row stays in place; the continuing
  *   client gets this signal so it can pick a recovery strategy (drop the
  *   stream, start fresh, surface the bug).
  * - `'aborted'` — catch-all when the framework had to tear the stream down
  *   for an internal reason that does not match any of the above.
  *
- * Distinct from `InternalError` so a client SDK can fast-resume the affected
+ * Distinct from `InternalError` so a client SDK can retry the affected
  * streams (with backoff) instead of treating the signal as a server crash.
  *
  * @example
@@ -690,9 +690,9 @@ export const StreamIdCollision = /* @__PURE__ */ buildErrorFactory('stream-id-co
 
 /**
  * Sent to the client when an anonymous connection (one whose `upgrade` returned
- * no `userId`) tries to start a durable, resumable, or recorded stream. Those
- * streams key their stored state by the user id so a later reconnect can resume
- * them — an anonymous connection has no stable id to resume against, so the
+ * no `userId`) tries to start a durable stream. Those
+ * streams key their stored state by the user id so a later reconnect can continue
+ * them — an anonymous connection has no stable id to continue against, so the
  * server refuses rather than write state that can never be reached again. Give
  * the connection a `userId` in `upgrade`, or use a plain (non-durable) stream.
  *
@@ -702,7 +702,7 @@ export const StreamIdCollision = /* @__PURE__ */ buildErrorFactory('stream-id-co
  *   await socket.stream('start-tokens', { prompt });
  * } catch (err) {
  *   if (DurableStreamRequiresUser.matches(err)) {
- *     // sign the user in (assign a userId) before starting a resumable stream
+ *     // sign the user in (assign a userId) before starting a durable stream
  *   }
  * }
  * ```

@@ -49,7 +49,7 @@ interface ChannelOnlyBuilder {
 /** The capability name a channel stream of each kind needs listed. */
 const CHANNEL_STREAM_CAPABILITY = {
   plain: 'stream()',
-  resumable: 'resumableStream()',
+  cursor: 'cursorStream()',
   recorded: 'recordedStream()',
 } as const;
 
@@ -63,7 +63,7 @@ export interface ChannelDeps {
   /** Stream builders by kind, present only for the stream capabilities that are listed. */
   readonly streamBuilders: {
     plain?: StreamBuild;
-    resumable?: StreamBuild;
+    cursor?: StreamBuild;
     recorded?: StreamBuild;
   };
   /** Custom-replay builder, present only when `replay.custom()` is listed. */
@@ -242,8 +242,8 @@ export class ChannelBuilder {
     return this.delegateStream('plain', event, config);
   }
 
-  resumableStream(event: string, config: any): ChannelHandlerValue {
-    return this.delegateStream('resumable', event, config);
+  cursorStream(event: string, config: any): ChannelHandlerValue {
+    return this.delegateStream('cursor', event, config);
   }
 
   recordedStream(event: string, config: any): ChannelHandlerValue {
@@ -293,7 +293,7 @@ export class ChannelBuilder {
 
   /** Borrow a stream capability's builder, adapting the generator to the channel ctx. */
   private delegateStream(
-    kind: 'plain' | 'resumable' | 'recorded',
+    kind: 'plain' | 'cursor' | 'recorded',
     event: string,
     config: any,
   ): ChannelHandlerValue {

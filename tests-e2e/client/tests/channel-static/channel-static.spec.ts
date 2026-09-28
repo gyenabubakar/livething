@@ -113,7 +113,7 @@ test.describe('channel-static (conformance)', () => {
     await bob.close();
   });
 
-  test('background resume restores an ephemeral channel before sends continue', async ({
+  test('background resume restores an ephemeral channel before sends resume', async ({
     browser,
   }, testInfo) => {
     const room = `ch-background-resume-${testInfo.testId}`;

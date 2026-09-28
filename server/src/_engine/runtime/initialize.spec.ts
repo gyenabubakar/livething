@@ -31,8 +31,8 @@ import { replay } from '~/replay/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
+import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import { insertTag } from '~/tags/storage.ts';
@@ -187,7 +187,7 @@ const heavyBase = server({
     replay.history(),
     clientRequests(),
     stream(),
-    resumableStream(),
+    cursorStream(),
     recordedStream(),
     channels(),
     emits({ 'o-a': EmptyOut, 'o-b': EmptyOut, 'o-c': EmptyOut, 'o-d': EmptyOut, 'o-e': EmptyOut }),
@@ -223,7 +223,7 @@ for (const name of ['s-a', 's-b']) {
 }
 
 heavyHandlers.push(
-  heavyBase.resumableStream('rs-a', {
+  heavyBase.cursorStream('rs-a', {
     input: Empty,
     chunk: NumChunk,
     async *run() {
@@ -328,7 +328,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // purgeUser delete stream rows on a server whose streams have never run —
     // the tables exist either way.
     //
-    // The resumableStream()/recordedStream() capabilities install an internal
+    // The cursorStream()/recordedStream() capabilities install an internal
     // recurring '__livething:stream-durable-sweep' task whenever a server declares a
     // durable stream. That task boots the scheduled engine, which adds the schema
     // hook (#8), the bootstrap loads (#14-16), and the one persist-after-restore

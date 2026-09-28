@@ -60,7 +60,7 @@ test.describe('group full surface', () => {
     expect(chunks).toEqual([1, 2, 3]);
   });
 
-  test('group.resumableStream and group.recordedStream both work', async ({ page }, testInfo) => {
+  test('group.cursorStream and group.recordedStream both work', async ({ page }, testInfo) => {
     const room = `gfs-streams-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });

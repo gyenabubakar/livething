@@ -4,7 +4,7 @@ import { StreamIdCollision } from '@livething/core';
 /**
  * Storage layer for durable streams. `__livething_streams` has one row per stream.
  * `__livething_stream_chunks` stores recorded-stream payloads and
- * `__livething_stream_checkpoints` stores resumable-stream cursors. Both child
+ * `__livething_stream_checkpoints` stores cursor-stream cursors. Both child
  * tables cascade when their stream row is deleted.
  */
 
@@ -66,7 +66,7 @@ const CREATE_STREAM_CHECKPOINTS_TABLE_SQL = `
   )
 `;
 
-// One row per subscriber of a broadcast stream: how far a resume has caught
+// One row per subscriber of a broadcast stream: how far a reconnect has caught
 // them up, and when they opted out (null while subscribed).
 const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __livething_stream_subscribers (
@@ -83,7 +83,7 @@ const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
 `;
 
 /** Which durable-stream primitive owns the row. */
-export type DurableStreamDurability = 'resumable' | 'recorded';
+export type DurableStreamDurability = 'cursor' | 'recorded';
 
 /** Lifecycle state of a durable stream row. */
 export type DurableStreamStatus = 'active' | 'suspended' | 'ended';
@@ -99,7 +99,7 @@ export interface DurableStreamRow {
 
   lastSeq: number;
 
-  /** How many times the generator has run: 1 on the first run, +1 on every resume that re-runs it. */
+  /** How many times the generator has run: 1 on the first run, +1 on every reconnect that re-runs it. */
   attempt: number;
 
   channelKey: string | null;
@@ -306,11 +306,11 @@ export function updateLastSeq(
 }
 
 /**
- * Rewind a resumable stream to the cursor the reconnecting client confirmed,
+ * Rewind a cursor stream to the cursor the reconnecting client confirmed,
  * mark it active for the re-run, and count that run. Returns the new attempt
  * number.
  */
-export function rewindResumableStream(
+export function rewindCursorStream(
   sql: SqlExec,
   opts: StreamRef & { lastSeq: number; now: number },
 ): number {
@@ -342,7 +342,7 @@ export function markSuspended(sql: SqlExec, opts: StreamRef & { now: number }): 
 /**
  * Suspend every row still marked active. Called when a new process starts: no
  * generator can be running yet, so an active row was left by a process that
- * stopped mid-stream. Once suspended, a client can still resume it and the
+ * stopped mid-stream. Once suspended, a client can still continue it and the
  * sweep expires it after `maxAgeMs`.
  */
 export function suspendOrphanedStreams(sql: SqlExec, now: number): void {
@@ -383,7 +383,7 @@ export interface AppendChunkInput {
   now: number;
 }
 
-/** Append one chunk to the buffer for replay on resume. */
+/** Append one chunk to the buffer for replay on reconnect. */
 export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
   sql.exec(
     `INSERT INTO __livething_stream_chunks (user_id, stream_id, seq, message_id, payload, emitted_at)
@@ -397,7 +397,7 @@ export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
   );
 }
 
-/** Read chunks with `seq > since`, ordered ascending. Used by resume to replay the tail. */
+/** Read chunks with `seq > since`, ordered ascending. Used by continue to replay the tail. */
 export function readChunksSince(
   sql: SqlExec,
   opts: StreamRef & { since: number },
@@ -466,7 +466,7 @@ export interface AppendCursorCheckpointInput {
   now: number;
 }
 
-/** Save the cursor that can restart a resumable stream after `seq`. */
+/** Save the cursor that can restart a cursor stream after `seq`. */
 export function appendCursorCheckpoint(sql: SqlExec, input: AppendCursorCheckpointInput): void {
   sql.exec(
     `INSERT INTO __livething_stream_checkpoints (user_id, stream_id, seq, cursor, saved_at)
@@ -479,7 +479,7 @@ export function appendCursorCheckpoint(sql: SqlExec, input: AppendCursorCheckpoi
   );
 }
 
-/** Read the newest resumable cursor checkpoint at or before a client sequence. */
+/** Read the newest cursor checkpoint at or before a client sequence. */
 export function readCursorCheckpointAtOrBefore(
   sql: SqlExec,
   opts: StreamRef & { seq: number },
@@ -523,7 +523,7 @@ export function deleteCursorCheckpointsAfter(
 
 /** One subscriber's standing in a broadcast stream. */
 export interface StreamSubscriber {
-  /** Highest chunk seq a resume has caught this subscriber up to. */
+  /** Highest chunk seq a reconnect has caught this subscriber up to. */
   caughtUpSeq: number;
 
   /** When the subscriber opted out, or `null` while subscribed. */
@@ -543,7 +543,7 @@ export function seedSubscriber(sql: SqlExec, opts: SubscriberRef): void {
   );
 }
 
-/** Record how far a resume caught a subscriber up. Upserts the row. */
+/** Record how far a reconnect caught a subscriber up. Upserts the row. */
 export function setCaughtUpSeq(sql: SqlExec, opts: SubscriberRef & { caughtUpSeq: number }): void {
   const { storageUserId, streamId, subscriberUserId, caughtUpSeq } = opts;
   sql.exec(

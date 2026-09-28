@@ -73,14 +73,14 @@ async function main() {
     },
   });
 
-  const resumed = socket.resumeStream('ask-ai', 'stream-1');
-  for await (const chunk of resumed) {
+  const continued = socket.continueStream('ask-ai', 'stream-1');
+  for await (const chunk of continued) {
     const _t: string = chunk.text;
     void _t;
   }
 
   // @ts-expect-error — 'nope' is not a declared stream
-  void socket.resumeStream('nope', 'stream-1');
+  void socket.continueStream('nope', 'stream-1');
 
   const withChannels = client<C>()(connect('wss://x'), stream(), channels());
   const room = withChannels.channel('rooms', 'r1');
@@ -90,8 +90,8 @@ async function main() {
     void _t;
   }
 
-  const roomResumed = room.resumeStream('ask-ai', 'stream-2');
-  for await (const chunk of roomResumed) {
+  const roomContinued = room.continueStream('ask-ai', 'stream-2');
+  for await (const chunk of roomContinued) {
     const _t: string = chunk.text;
     void _t;
   }

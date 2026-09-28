@@ -46,9 +46,9 @@ interface RecordedStreamConfig<
 
 /**
  * Declare a server-pushed stream whose chunks are buffered in storage so a
- * reconnecting client can replay what it missed. Unlike `resumableStream`,
- * the generator does NOT re-run on resume — the client just receives the
- * chunks it missed from the buffer. Best for non-resumable sources (LLM
+ * reconnecting client can replay what it missed. Unlike `cursorStream`,
+ * the generator does NOT re-run on reconnect — the client just receives the
+ * chunks it missed from the buffer. Best for one-shot sources (LLM
  * tokens, third-party APIs).
  *
  * If the buffer hits `maxChunks` the framework throws `StreamAborted` with

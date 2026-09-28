@@ -13,8 +13,8 @@ import { emits } from '~/emits/emits.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
+import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
@@ -87,7 +87,7 @@ expectTypeOf<SelectedClient['channels']['selected']['outgoing']>().not.toHavePro
 // Gap 8 — stream `kind` discriminator.
 // ---------------------------------------------------------------------------
 const streamBase = server({
-  capabilities: [emits({ noop: t<{}>() }), stream(), resumableStream(), recordedStream()],
+  capabilities: [emits({ noop: t<{}>() }), stream(), cursorStream(), recordedStream()],
 });
 
 const plainStream = streamBase.stream('plain', {
@@ -95,7 +95,7 @@ const plainStream = streamBase.stream('plain', {
   run: async function* () {},
 });
 
-const resumable = streamBase.resumableStream('resume', {
+const cursor = streamBase.cursorStream('cursor', {
   chunk: t<{ tick: number }>(),
   cursor: t<{ at: number }>(),
   nudges: { faster: v.object({ by: v.number() }) },
@@ -107,7 +107,7 @@ const recorded = streamBase.recordedStream('record', {
   run: async function* () {},
 });
 
-const streamDef = streamBase.assemble({ handlers: [plainStream, resumable, recorded] });
+const streamDef = streamBase.assemble({ handlers: [plainStream, cursor, recorded] });
 type StreamClient = InferClient<typeof streamDef>;
 
 // A plain stream is ephemeral and carries no cursor (tidied away).
@@ -115,11 +115,11 @@ expectTypeOf<StreamClient['streams']['plain']['kind']>().toEqualTypeOf<'ephemera
 expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('cursor');
 expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('nudges');
 
-// A resumable stream is persistent and keeps its nudges. Its cursor is
+// A cursor stream is persistent and keeps its nudges. Its cursor is
 // server-only, so the client entry has no cursor even when one is declared.
-expectTypeOf<StreamClient['streams']['resume']['kind']>().toEqualTypeOf<'persistent'>();
-expectTypeOf<StreamClient['streams']['resume']>().not.toHaveProperty('cursor');
-expectTypeOf<StreamClient['streams']['resume']['nudges']>().toHaveProperty('faster');
+expectTypeOf<StreamClient['streams']['cursor']['kind']>().toEqualTypeOf<'persistent'>();
+expectTypeOf<StreamClient['streams']['cursor']>().not.toHaveProperty('cursor');
+expectTypeOf<StreamClient['streams']['cursor']['nudges']>().toHaveProperty('faster');
 
 // A recorded stream is persistent and has no cursor either.
 expectTypeOf<StreamClient['streams']['record']['kind']>().toEqualTypeOf<'persistent'>();

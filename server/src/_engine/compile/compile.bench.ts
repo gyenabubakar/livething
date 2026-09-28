@@ -17,8 +17,8 @@ import { emits } from '~/emits/emits.ts';
 import { replay } from '~/replay/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
+import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { bench, describe } from 'vitest';
@@ -91,7 +91,7 @@ const heavyBase = server({
     replay.history(),
     clientRequests(),
     stream(),
-    resumableStream(),
+    cursorStream(),
     recordedStream(),
     channels(),
     emits({ 'o-a': EmptyOut, 'o-b': EmptyOut, 'o-c': EmptyOut, 'o-d': EmptyOut, 'o-e': EmptyOut }),
@@ -127,7 +127,7 @@ for (const name of ['s-a', 's-b']) {
 }
 
 heavyHandlers.push(
-  heavyBase.resumableStream('rs-a', {
+  heavyBase.cursorStream('rs-a', {
     input: Empty,
     chunk: NumChunk,
     async *run() {

@@ -619,7 +619,7 @@ test.describe('persistence', () => {
   test('an anonymous connection cannot start a durable stream', async ({ page }, testInfo) => {
     // Anonymous upgrade (`&anon`, no username) yields an empty identity. A
     // durable stream keys its stored state by that identity so a reconnect can
-    // resume it — with no stable identity, the engine rejects the start with
+    // continue it — with no stable identity, the engine rejects the start with
     // `durable-stream-requires-user` instead of writing unreachable state.
     //
     // Inline raw WebSocket via page.evaluate because the shared local rig

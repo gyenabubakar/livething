@@ -39,7 +39,7 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
     compiled: {
       outgoing: new Map([['foo', { event: 'foo' }]]),
       streams: new Map(),
-      resumableStreams: new Map(),
+      cursorStreams: new Map(),
       recordedStreams: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
@@ -320,7 +320,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       compiled: {
         outgoing: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         channels: new Map(),
         channelFamilies: new Map([
@@ -329,7 +329,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
             {
               outgoing: new Map([['room-event', { event: 'room-event' }]]),
               streams: new Map(),
-              resumableStreams: new Map(),
+              cursorStreams: new Map(),
               recordedStreams: new Map(),
             },
           ],
@@ -352,7 +352,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       compiled: {
         outgoing: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         channels: new Map([
           [
@@ -360,7 +360,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
             {
               outgoing: new Map([['chat-msg', { event: 'chat-msg' }]]),
               streams: new Map(),
-              resumableStreams: new Map(),
+              cursorStreams: new Map(),
               recordedStreams: new Map(),
             },
           ],
@@ -620,7 +620,7 @@ describe('broadcastToChannel — fanout resilience', () => {
         compiled: {
           outgoing: new Map([['msg', { event: 'msg' }]]),
           streams: new Map(),
-          resumableStreams: new Map(),
+          cursorStreams: new Map(),
           recordedStreams: new Map(),
           channels: new Map([['general', { outgoing: new Map([['msg', { event: 'msg' }]]) }]]),
           channelFamilies: new Map(),
@@ -707,7 +707,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
         compiled: {
           outgoing: new Map([['msg', { event: 'msg' }]]),
           streams: new Map(),
-          resumableStreams: new Map(),
+          cursorStreams: new Map(),
           recordedStreams: new Map(),
           channels: new Map([['general', { outgoing: new Map([['msg', { event: 'msg' }]]) }]]),
           channelFamilies: new Map(),
@@ -958,7 +958,7 @@ describe('broadcast hooks — one call per broadcast', () => {
         compiled: {
           outgoing: new Map(),
           streams: new Map(),
-          resumableStreams: new Map(),
+          cursorStreams: new Map(),
           recordedStreams: new Map(),
           channels: new Map([
             [
@@ -966,7 +966,7 @@ describe('broadcast hooks — one call per broadcast', () => {
               {
                 outgoing: new Map([['foo', { event: 'foo' }]]),
                 streams: new Map(),
-                resumableStreams: new Map(),
+                cursorStreams: new Map(),
                 recordedStreams: new Map(),
               },
             ],

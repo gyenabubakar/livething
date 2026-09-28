@@ -267,7 +267,7 @@ describe('replay — per-channel scope catch-up', () => {
       socket.onServerError(() => {});
       ws.emit({
         event: '__error__',
-        payload: { code: 'unsupported-protocol', detail: { event: '__resumeStream__' } },
+        payload: { code: 'unsupported-protocol', detail: { event: '__continueStream__' } },
         metadata: { stream: { id: 's-1' } },
       });
 

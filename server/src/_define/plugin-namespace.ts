@@ -20,7 +20,7 @@ const EVENT_KINDS = new Set([
   'request',
   'outgoing',
   'stream-generate',
-  'resumable-stream-generate',
+  'cursor-stream-generate',
   'recorded-stream-generate',
 ]);
 

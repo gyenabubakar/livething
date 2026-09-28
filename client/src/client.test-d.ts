@@ -35,7 +35,7 @@ interface Full {
       kind: 'ephemeral';
       nudges: { stop: { now: boolean } };
     };
-    resumable: { payload: {}; chunk: { row: number }; kind: 'persistent' };
+    durable: { payload: {}; chunk: { row: number }; kind: 'persistent' };
     recorded: { payload: {}; chunk: { token: string }; kind: 'persistent' };
   };
   channels: {
@@ -113,14 +113,14 @@ void nudgedTrigger.then((handle) => {
   handle.nudge('go', {});
 });
 
-expectTypeOf(socket.resumeStream('resumable', 'id')).toEqualTypeOf<
+expectTypeOf(socket.continueStream('durable', 'id')).toEqualTypeOf<
   StreamHandle<{ row: number }, {}>
 >();
-socket.resumeStream('recorded', 'id');
-// @ts-expect-error — 'plain-stream' is ephemeral, not resumable
-socket.resumeStream('plain-stream', 'id');
-// @ts-expect-error — 'nudged-stream' is ephemeral, not resumable
-socket.resumeStream('nudged-stream', 'id');
+socket.continueStream('recorded', 'id');
+// @ts-expect-error — 'plain-stream' is ephemeral, not durable
+socket.continueStream('plain-stream', 'id');
+// @ts-expect-error — 'nudged-stream' is ephemeral, not durable
+socket.continueStream('nudged-stream', 'id');
 
 const room = socket.channel('room');
 room.on('ch-push', (data) => expectTypeOf(data).toEqualTypeOf<{ value: number }>());
@@ -188,8 +188,8 @@ onlyRoom.onRequest('ch-ask', () => ({ ok: true }));
 onlyRoom.onStream('ch-stream', { onChunk: () => {} });
 // @ts-expect-error — channel.stream needs the stream() primitive
 onlyRoom.stream('ch-stream', {});
-// @ts-expect-error — channel.resumeStream needs the stream() primitive
-onlyRoom.resumeStream('ch-stream', 'id');
+// @ts-expect-error — channel.continueStream needs the stream() primitive
+onlyRoom.continueStream('ch-stream', 'id');
 
 const replayOnly = client<Full>()(connect('wss://example.com'), replay());
 // @ts-expect-error — replay() tracks cursors; gaps() owns the listener API

@@ -3,8 +3,8 @@ import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
-const RESUMABLE_STREAM_KEY = Symbol('resumable-stream');
-const RESUMABLE_STREAM_GENERATE_KEY = Symbol('resumable-stream-generate');
+const CURSOR_STREAM_KEY = Symbol('cursor-stream');
+const CURSOR_STREAM_GENERATE_KEY = Symbol('cursor-stream-generate');
 
 /** One declared nudge on a durable stream — wire event name + payload validator. */
 export interface DurableNudgeDeclaration {
@@ -13,11 +13,11 @@ export interface DurableNudgeDeclaration {
 }
 
 /**
- * Compiled resumable-stream primitive — the contract declaration plus the
+ * Compiled cursor-stream primitive — the contract declaration plus the
  * generator function, ready for the engine to mount. Produced by
- * `compileResumableStreamDef`. Library users do not touch this directly.
+ * `compileCursorStreamDef`. Library users do not touch this directly.
  */
-export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-stream-generate'> {
+export interface CursorStreamGeneratePrimitive extends Primitive<'cursor-stream-generate'> {
   readonly event: string;
   readonly validator?: Validator<unknown>;
   readonly cursor?: Validator<unknown>;
@@ -32,8 +32,8 @@ export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-s
   readonly highWaterMark?: number;
 }
 
-/** Inputs accepted by `resumableGenerateFactory`. */
-export interface BuildResumableStreamGenerateInput {
+/** Inputs accepted by `cursorGenerateFactory`. */
+export interface BuildCursorStreamGenerateInput {
   event: string;
   validator?: Validator<unknown>;
   cursor?: Validator<unknown>;
@@ -47,14 +47,14 @@ export interface BuildResumableStreamGenerateInput {
   highWaterMark?: number;
 }
 
-/** Build the runtime primitive used by the engine to mount one resumable stream. */
-export function resumableGenerateFactory(
-  input: BuildResumableStreamGenerateInput,
-): ResumableStreamGeneratePrimitive {
+/** Build the runtime primitive used by the engine to mount one cursor stream. */
+export function cursorGenerateFactory(
+  input: BuildCursorStreamGenerateInput,
+): CursorStreamGeneratePrimitive {
   return {
-    __livething: 'resumable-stream-generate',
+    __livething: 'cursor-stream-generate',
     __kind: 'handler',
-    __identity: [RESUMABLE_STREAM_GENERATE_KEY, input.event],
+    __identity: [CURSOR_STREAM_GENERATE_KEY, input.event],
     __requires: {},
     event: input.event,
     validator: input.validator,
@@ -70,9 +70,9 @@ export function resumableGenerateFactory(
   };
 }
 
-resumableGenerateFactory.__key = RESUMABLE_STREAM_GENERATE_KEY;
+cursorGenerateFactory.__key = CURSOR_STREAM_GENERATE_KEY;
 
-/** Identity-only handle for `dependencies: [resumableStreamFactory]` on plugins. */
-export const resumableStreamFactory = {
-  __key: RESUMABLE_STREAM_KEY,
+/** Identity-only handle for `dependencies: [cursorStreamFactory]` on plugins. */
+export const cursorStreamFactory = {
+  __key: CURSOR_STREAM_KEY,
 } as const;

@@ -111,7 +111,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       });
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageB, b, {
-        event: '__resumeStream__',
+        event: '__continueStream__',
         payload: { lastKnownSeq: 0 },
         metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
@@ -129,7 +129,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
     }
   });
 
-  test('broadcast resumableStream — late joiner is live: only the tail after it joined, no catch-up', async ({
+  test('broadcast cursorStream — late joiner is live: only the tail after it joined, no catch-up', async ({
     browser,
   }, testInfo) => {
     const room = `sdbc-${testInfo.testId}-${Date.now()}`;
@@ -167,7 +167,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       });
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageB, b, {
-        event: '__resumeStream__',
+        event: '__continueStream__',
         payload: { lastKnownSeq: 0 },
         metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
@@ -180,7 +180,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
         .filter((f) => f.event === 'paginate' && f.metadata?.channel?.name === 'rooms')
         .map((f) => f.payload.row as number);
 
-      // Resumable broadcast is live: the peer never gets the rows produced
+      // Cursor broadcast is live: the peer never gets the rows produced
       // before it joined (no replay), but it does get a contiguous tail that
       // ends at the final row 10.
       expect(rowsB.length).toBeGreaterThan(0);
@@ -254,7 +254,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       // Both the peer AND the creator see not-found — the row is gone for
       // everyone, not just unsubscribed for one peer.
       await send(pageB, b, {
-        event: '__resumeStream__',
+        event: '__continueStream__',
         payload: { lastKnownSeq: 0 },
         metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
@@ -263,7 +263,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       expect((errB.payload.detail as { reason: string }).reason).toBe('not-found');
 
       await send(pageA, a, {
-        event: '__resumeStream__',
+        event: '__continueStream__',
         payload: { lastKnownSeq: 0 },
         metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
@@ -338,7 +338,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       expect(bTokensBefore).toBeGreaterThanOrEqual(1);
 
       await send(pageB, b, {
-        event: '__resumeStream__',
+        event: '__continueStream__',
         payload: { lastKnownSeq: 0 },
         metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });

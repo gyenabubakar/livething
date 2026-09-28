@@ -74,7 +74,7 @@ function parseKey(key: string): ParsedKey {
 function lookupValidator(
   source: Pick<
     EngineCompileTypes.CompiledServer,
-    'incoming' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
+    'incoming' | 'requests' | 'streams' | 'cursorStreams' | 'recordedStreams'
   >,
   event: string,
 ): { found: boolean; validator: unknown } {
@@ -82,7 +82,7 @@ function lookupValidator(
     source.incoming.get(event) ??
     source.requests.get(event) ??
     source.streams.get(event) ??
-    source.resumableStreams.get(event) ??
+    source.cursorStreams.get(event) ??
     source.recordedStreams.get(event);
   if (!primitive) return { found: false, validator: undefined };
 

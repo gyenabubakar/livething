@@ -369,7 +369,7 @@ type StreamHandleBase = {
    */
   readonly signal: AbortSignal;
   /**
-   * Pause the generator until the outbound buffer is healthy, then resume.
+   * Pause the generator until the outbound buffer is healthy, then continue.
    * Resolves immediately when the buffered amount is below the stream's
    * `highWaterMark` (default 256 KB). For a broadcast stream it paces against
    * the healthiest client, never the slowest. On Cloudflare, which does not
@@ -446,12 +446,12 @@ interface DurableStreamOptions {
   readonly onDisconnect?: 'cancel-but-buffer' | 'keep-running';
   /** How long a suspended stream is kept after the client drops. */
   readonly maxAgeMs?: number;
-  /** How long an ended stream is kept so a quick reconnect can still resume. */
+  /** How long an ended stream is kept so a quick reconnect can still continue. */
   readonly retentionAfterEndMs?: number;
 }
 
-/** The `ctx` a resumable stream generator receives — `ctx.stream` adds cursor controls. */
-type ResumableStreamCtx<
+/** The `ctx` a cursor stream generator receives — `ctx.stream` adds cursor controls. */
+type CursorStreamCtx<
   TSlots,
   TMeta,
   TChunk,
@@ -463,15 +463,15 @@ type ResumableStreamCtx<
     NudgesHandle<TNudges> & {
       /** The cursor recorded on the last run, or `null` on the first run. */
       cursor: TCursor | null;
-      /** 1 on the first run, then one higher on every resume (2, 3, ...). */
+      /** 1 on the first run, then one higher on every reconnect (2, 3, ...). */
       attempt: number;
-      /** Attach a cursor to a chunk so the framework can resume from it. */
+      /** Attach a cursor to a chunk so the framework can continue from it. */
       withCursor(chunk: TChunk, cursor: TCursor): TChunk;
     };
 };
 
-/** Configuration object for `base.resumableStream(...)`. */
-export interface ResumableStreamConfig<
+/** Configuration object for `base.cursorStream(...)`. */
+export interface CursorStreamConfig<
   TSlots,
   TMeta,
   TInput extends Validator | undefined,
@@ -491,15 +491,15 @@ export interface ResumableStreamConfig<
   /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
   readonly highWaterMark?: number;
   run(
-    ctx: ResumableStreamCtx<TSlots, TMeta, TChunk, TCursor, TNudges, TCaps>,
+    ctx: CursorStreamCtx<TSlots, TMeta, TChunk, TCursor, TNudges, TCaps>,
     input: InferInput<TInput>,
   ): AsyncGenerator<TChunk, void, unknown>;
 }
 
-/** Builder method granted by the `resumableStream()` capability. */
-export interface ResumableStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
-  /** Create a resumable server-pushed stream handler value. Pass it to `assemble()` to activate it. */
-  resumableStream<
+/** Builder method granted by the `cursorStream()` capability. */
+export interface CursorStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+  /** Create a cursor server-pushed stream handler value. Pass it to `assemble()` to activate it. */
+  cursorStream<
     TEvent extends string,
     TChunk = unknown,
     TCursor = unknown,
@@ -507,7 +507,7 @@ export interface ResumableStreamMethods<TSlots, TMeta, TCaps extends readonly An
     const TNudges extends StreamNudgeMap = {},
   >(
     event: TEvent,
-    config: ResumableStreamConfig<TSlots, TMeta, TInput, TChunk, TCursor, TNudges, TCaps>,
+    config: CursorStreamConfig<TSlots, TMeta, TInput, TChunk, TCursor, TNudges, TCaps>,
   ): StreamHandlerValue<
     TEvent,
     {
@@ -516,7 +516,7 @@ export interface ResumableStreamMethods<TSlots, TMeta, TCaps extends readonly An
       cursor: TCursor;
       nudges: NudgesContract<TNudges>;
     },
-    'resumableStreams'
+    'cursorStreams'
   >;
 }
 
@@ -935,8 +935,8 @@ type ChannelRecordedStreamConfig<
   ): AsyncGenerator<TChunk, void, unknown>;
 } & RateLimitField<TCaps>;
 
-/** Configuration object for a channel `resumableStream` — adds cursor controls and retention. */
-type ChannelResumableStreamConfig<
+/** Configuration object for a channel `cursorStream` — adds cursor controls and retention. */
+type ChannelCursorStreamConfig<
   TSlots,
   TMeta,
   TParams,
@@ -964,9 +964,9 @@ type ChannelResumableStreamConfig<
         NudgesHandle<TNudges> & {
           /** The cursor recorded on the last run, or `null` on the first run. */
           cursor: TCursor | null;
-          /** 1 on the first run, then one higher on every resume (2, 3, ...). */
+          /** 1 on the first run, then one higher on every reconnect (2, 3, ...). */
           attempt: number;
-          /** Attach a cursor to a chunk so the framework can resume from it. */
+          /** Attach a cursor to a chunk so the framework can continue from it. */
           withCursor(chunk: TChunk, cursor: TCursor): TChunk;
         };
     },
@@ -1026,7 +1026,7 @@ interface ChannelStreamMethod<
   >;
 }
 
-interface ChannelResumableStreamMethod<
+interface ChannelCursorStreamMethod<
   TSlots,
   TMeta,
   TKey extends string,
@@ -1038,8 +1038,8 @@ interface ChannelResumableStreamMethod<
   TServerRequests = {},
   TChannelBrand extends string = never,
 > {
-  /** Create a resumable stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
-  resumableStream<
+  /** Create a cursor stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
+  cursorStream<
     TEvent extends string,
     TChunk = unknown,
     TCursor = unknown,
@@ -1047,7 +1047,7 @@ interface ChannelResumableStreamMethod<
     const TNudges extends StreamNudgeMap = {},
   >(
     event: TEvent,
-    config: ChannelResumableStreamConfig<
+    config: ChannelCursorStreamConfig<
       TSlots,
       TMeta,
       TParams,
@@ -1064,7 +1064,7 @@ interface ChannelResumableStreamMethod<
     TKey,
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
     {
-      resumableStreams: Record<
+      cursorStreams: Record<
         TEvent,
         {
           payload: InferInput<TInput>;
@@ -1151,8 +1151,8 @@ export type ChannelStreamMethods<
       TChannelBrand
     >
   : {}) &
-  ('resumableStream' extends TBrand
-    ? ChannelResumableStreamMethod<
+  ('cursorStream' extends TBrand
+    ? ChannelCursorStreamMethod<
         TSlots,
         TMeta,
         TKey,
@@ -1256,7 +1256,7 @@ export type ChannelObjectCore<
   | 'on'
   | 'request'
   | 'stream'
-  | 'resumableStream'
+  | 'cursorStream'
   | 'recordedStream'
   | 'subscribe'
   | 'unsubscribe'
@@ -1541,7 +1541,7 @@ export type CapabilityMethods<
   ('replay-custom' extends TBrand ? ReplayMethods : {}) &
   ('intercepts' extends TBrand ? InterceptMethods<TSlots, TMeta, TCaps> : {}) &
   ('stream' extends TBrand ? StreamMethods<TSlots, TMeta, TCaps> : {}) &
-  ('resumableStream' extends TBrand ? ResumableStreamMethods<TSlots, TMeta, TCaps> : {}) &
+  ('cursorStream' extends TBrand ? CursorStreamMethods<TSlots, TMeta, TCaps> : {}) &
   ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TMeta, TCaps> : {}) &
   ('channels' extends TBrand ? ChannelMethods<TSlots, TMeta, TCaps> : {});
 
@@ -1714,7 +1714,7 @@ const ROUTING_KINDS = new Set([
   'incoming',
   'request',
   'stream-generate',
-  'resumable-stream-generate',
+  'cursor-stream-generate',
   'recorded-stream-generate',
 ]);
 
@@ -1959,7 +1959,7 @@ export function server(config: any): any {
   type StreamBuild = (event: string, streamConfig: unknown) => Primitive;
 
   function streamBuilder(
-    kind: 'plain' | 'resumable' | 'recorded',
+    kind: 'plain' | 'cursor' | 'recorded',
     method: string,
     capabilityName: string,
   ): StreamBuild {
@@ -2085,12 +2085,8 @@ export function server(config: any): any {
     stream(event: string, streamConfig: unknown) {
       return streamBuilder('plain', 'stream', 'stream()')(event, streamConfig);
     },
-    resumableStream(event: string, streamConfig: unknown) {
-      return streamBuilder(
-        'resumable',
-        'resumableStream',
-        'resumableStream()',
-      )(event, streamConfig);
+    cursorStream(event: string, streamConfig: unknown) {
+      return streamBuilder('cursor', 'cursorStream', 'cursorStream()')(event, streamConfig);
     },
     recordedStream(event: string, streamConfig: unknown) {
       return streamBuilder('recorded', 'recordedStream', 'recordedStream()')(event, streamConfig);
@@ -2318,8 +2314,7 @@ export function server(config: any): any {
 
       function isDurableGenerate(p: Primitive): boolean {
         return (
-          p.__livething === 'resumable-stream-generate' ||
-          p.__livething === 'recorded-stream-generate'
+          p.__livething === 'cursor-stream-generate' || p.__livething === 'recorded-stream-generate'
         );
       }
 
@@ -2335,7 +2330,7 @@ export function server(config: any): any {
             )),
       );
 
-      // Install the durable-stream retention sweep only when a resumable/recorded
+      // Install the durable-stream retention sweep only when a cursor/recorded
       // stream handler actually exists — not merely because the capability is
       // listed. Both stream capabilities carry the same sweep builder, and the
       // engine rejects duplicate scheduled task names, so register exactly one.

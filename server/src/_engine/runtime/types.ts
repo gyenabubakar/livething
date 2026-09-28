@@ -434,7 +434,7 @@ export interface RuntimeConnection {
   activeStreamIds?: Set<string>;
 
   /**
-   * `__streamCancel__` frames still running, by stream ID. A resume for the
+   * `__streamCancel__` frames still running, by stream ID. A reconnect for the
    * same stream waits for its cancel, so it cannot restart a cancelled stream.
    */
   cancellingStreams?: Map<string, Promise<void>>;
@@ -489,7 +489,7 @@ export interface ConnectionWorkQueue {
  * connection drops.
  *
  * - `'cancel-but-buffer'` (default) — stop the generator; keep the cursor /
- *   buffered chunks for resume.
+ *   buffered chunks for reconnect.
  * - `'keep-running'` — leave the generator producing into storage with no
  *   client attached. Server resources stay open until it ends on its own.
  */
@@ -537,7 +537,7 @@ export interface ActiveStream {
 
   /**
    * The live connection the generator should send chunks to. Mutated when a
-   * resuming client adopts a previously-detached `keep-running` stream so the
+   * continuing client adopts a previously-detached `keep-running` stream so the
    * generator's next yield lands on the new wire.
    */
   connection?: RuntimeConnection;
@@ -551,7 +551,7 @@ export interface ActiveStream {
 
   /**
    * In-memory chunk count for a recorded stream with a `maxChunks` cap. Seeded
-   * from storage on the first chunk (so a resume stays correct) and incremented
+   * from storage on the first chunk (so a reconnect stays correct) and incremented
    * per append, so the cap check skips a `COUNT(*)` on every chunk.
    */
   recordedChunkCount?: number;
@@ -580,7 +580,7 @@ export interface ActiveStream {
   broadcast?: boolean;
 
   /**
-   * True for a resumable or recorded stream. Leaving the stream's channel hands
+   * True for a durable stream. Leaving the stream's channel hands
    * it to the durable runtime so its stored row is removed too.
    */
   durable?: boolean;
@@ -622,13 +622,13 @@ export interface RoutingTarget {
    */
   deliverySeq?: number;
 
-  /** Stream chunk/end sequence number used by resume and replay. */
+  /** Stream chunk/end sequence number used by continue and replay. */
   streamSeq?: number;
 
   /**
    * Stamped on a stream's outgoing frames as `__livething.streamDurability`: `ephemeral`
    * for a plain stream, `persistent` for a durable one. Lets a subscriber know
-   * whether the stream is resumable regardless of when it joined.
+   * whether the stream is durable regardless of when it joined.
    */
   streamDurability?: 'ephemeral' | 'persistent';
 }

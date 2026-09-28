@@ -4,16 +4,16 @@ import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
-import { resumableStream } from './capability.ts';
-import { compileResumableStreamDef } from './compile.ts';
-import { resumableStream as resumableStreamDef } from './definition.ts';
+import { cursorStream } from './capability.ts';
+import { compileCursorStreamDef } from './compile.ts';
+import { cursorStream as cursorStreamDef } from './definition.ts';
 
-describe('resumableStream build-time validation', () => {
+describe('cursorStream build-time validation', () => {
   it('builds when the stream is top-level', () => {
     const base = server({
-      capabilities: [resumableStream()],
+      capabilities: [cursorStream()],
     });
-    const handle = base.resumableStream('feed', {
+    const handle = base.cursorStream('feed', {
       input: v.object({}),
       chunk: t<{ idx: number }>(),
       async *run() {
@@ -25,10 +25,10 @@ describe('resumableStream build-time validation', () => {
 
   it('builds when declared inside a channel', () => {
     const base = server({
-      capabilities: [channels(), resumableStream()],
+      capabilities: [channels(), cursorStream()],
     });
     const rooms = base.channel('rooms');
-    const handle = rooms.resumableStream('feed', {
+    const handle = rooms.cursorStream('feed', {
       input: v.object({}),
       chunk: t<{ idx: number }>(),
       async *run() {
@@ -39,25 +39,25 @@ describe('resumableStream build-time validation', () => {
   });
 
   // FLAGGED: the new API has no "declaration without a handler" state — a
-  // base.resumableStream(...) call always carries its generator, so the missing-
+  // base.cursorStream(...) call always carries its generator, so the missing-
   // generator path in compile.ts is unreachable through server()/assemble(). The
-  // assertion is preserved by driving compileResumableStreamDef directly with an
+  // assertion is preserved by driving compileCursorStreamDef directly with an
   // empty handler map, the same path the capability builder feeds.
-  it('throws when a resumableStream handler is not assembled', () => {
-    const def = resumableStreamDef('feed', {
+  it('throws when a cursorStream handler is not assembled', () => {
+    const def = cursorStreamDef('feed', {
       payload: v.object({}),
     });
-    expect(() => compileResumableStreamDef(def, new Map())).toThrow(
-      /No handler assembled for resumableStream/,
+    expect(() => compileCursorStreamDef(def, new Map())).toThrow(
+      /No handler assembled for cursorStream/,
     );
   });
 
-  it('throws at build when keep-running is used on a non-broadcast resumableStream', () => {
+  it('throws at build when keep-running is used on a non-broadcast cursorStream', () => {
     const base = server({
-      capabilities: [resumableStream()],
+      capabilities: [cursorStream()],
     });
     expect(() =>
-      base.resumableStream('feed', {
+      base.cursorStream('feed', {
         input: v.object({}),
         chunk: t<{ idx: number }>(),
         onDisconnect: 'keep-running',
@@ -68,11 +68,11 @@ describe('resumableStream build-time validation', () => {
     ).toThrow(/keep-running.*broadcast/);
   });
 
-  it('allows keep-running on a broadcast resumableStream', () => {
+  it('allows keep-running on a broadcast cursorStream', () => {
     const base = server({
-      capabilities: [resumableStream()],
+      capabilities: [cursorStream()],
     });
-    const handle = base.resumableStream('feed', {
+    const handle = base.cursorStream('feed', {
       input: v.object({}),
       chunk: t<{ idx: number }>(),
       broadcast: true,

@@ -5,7 +5,7 @@
  * `assertPluginDependencies`) — can match a referenced capability to a listed
  * one by identity, without calling the factory and without colliding on shape.
  *
- * The three stream variants get distinct kinds so a recorded/resumable
+ * The three stream variants get distinct kinds so a recorded/cursor
  * requirement is never satisfied by a plain `stream()`. Replay uses a single
  * `replay` kind for history and snapshot (they are the same engine);
  * `replay.custom` is a distinct engine and gets its own `replay-custom` kind.
@@ -29,7 +29,7 @@ export const CAPABILITY_KIND = {
   errors: 'errors',
   intercepts: 'intercepts',
   stream: 'stream',
-  resumableStream: 'resumable-stream',
+  cursorStream: 'cursor-stream',
   recordedStream: 'recorded-stream',
 } as const;
 

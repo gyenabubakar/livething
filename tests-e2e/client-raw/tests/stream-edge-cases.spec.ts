@@ -41,7 +41,7 @@ test.describe('stream edge cases', () => {
     expect(err.payload.code).toBe('internal-error');
   });
 
-  test('ctx.stream.attempt on a broadcast resumable creator-resume equals 2 on the second run', async ({
+  test('ctx.stream.attempt on a broadcast cursor creator-continue equals 2 on the second run', async ({
     page,
   }, testInfo) => {
     const room = `sec-${testInfo.testId}-${Date.now()}`;
@@ -87,12 +87,12 @@ test.describe('stream edge cases', () => {
     await waitForFrame(page, b, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, b, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 1 },
       metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
 
-    // Resumable is live (no replay): the creator-resume re-runs the generator
+    // Cursor is live (no replay): the creator-continue re-runs the generator
     // from the latest cursor with attempt=2, producing a brand-new chunk.
     const next = await waitForFrame(page, b, {
       match: (f) =>
@@ -104,7 +104,7 @@ test.describe('stream edge cases', () => {
     expect(next.payload.attempt).toBe(2);
   });
 
-  test('a supplied metadata.stream.id pins a channel-scoped durable stream resume key', async ({
+  test('a supplied metadata.stream.id pins a channel-scoped durable stream continue key', async ({
     page,
   }, testInfo) => {
     const room = `sec-${testInfo.testId}-${Date.now()}`;
@@ -154,7 +154,7 @@ test.describe('stream edge cases', () => {
     await waitForFrame(page, b, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, b, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });

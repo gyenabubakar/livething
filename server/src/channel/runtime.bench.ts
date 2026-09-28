@@ -42,7 +42,7 @@ function createRuntime(memberCount: number) {
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    resumableStreams: new Map(),
+    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
   };

@@ -5,7 +5,7 @@ export {
   outgoing,
   recordedStream,
   request,
-  resumableStream,
+  cursorStream,
   stream,
   t,
 } from './definitions.ts';
@@ -27,7 +27,7 @@ export type {
   OutgoingDef,
   RecordedStreamDef,
   RequestDef,
-  ResumableStreamDef,
+  CursorStreamDef,
   StreamDef,
   TypeMarker,
 } from './definitions.ts';

@@ -48,7 +48,7 @@ type OptsParameter2 = { routing: RoutingTarget | undefined; event: string; paylo
 type OptionsParameter = { force?: boolean };
 type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
 type EnsureUniqueStreamIdOptsParameter = { streamId: string; storageUserId: string };
-type FindResumeRowOptsParameter = { resumeScope: ResolvedChannel; streamId: string };
+type FindContinueRowOptsParameter = { continueScope: ResolvedChannel; streamId: string };
 type SweepDurableStreamsRuntimeParameter = { sql: DurableStreamRuntime['sql'] };
 type CancelDurableStreamOptsParameter = { streamId: string; cancelScope: ResolvedChannel };
 
@@ -140,7 +140,7 @@ export interface DurableStreamRuntimeDef {
 
   readonly retentionAfterEndMs?: number;
 
-  /** Validator for a restored checkpoint cursor (resumable streams only). */
+  /** Validator for a restored checkpoint cursor (cursor streams only). */
   readonly cursor?: unknown;
 
   /** Disconnect policy — drives whether the generator survives the drop. */
@@ -243,7 +243,7 @@ export async function runDurableStream(
   const { scope, def, payload, livething } = opts;
 
   // A durable stream keys its stored state by the user id so a reconnect can
-  // resume it. An anonymous connection has no stable id to resume against, so
+  // continue it. An anonymous connection has no stable id to continue against, so
   // refuse rather than write state that can never be reached again.
   if (!connection.userId) throw DurableStreamRequiresUser();
 
@@ -282,7 +282,7 @@ export async function runDurableStream(
     retentionAfterEndMs: def.retentionAfterEndMs,
   });
 
-  // Seed everyone already in the scope; a late joiner gets its row on resume.
+  // Seed everyone already in the scope; a late joiner gets its row on reconnect.
 
   if (def.broadcast) {
     for (const member of resolveBroadcastTargets({
@@ -327,28 +327,28 @@ export async function runDurableStream(
 }
 
 /**
- * Look up the durable-stream row for a `__resumeStream__` frame. Tries the
+ * Look up the durable-stream row for a `__continueStream__` frame. Tries the
  * connection's own user id first, then the broadcast channel key. Returns null
  * when nothing matches.
  */
-export function findResumeRow(
+export function findContinueRow(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  opts: FindResumeRowOptsParameter,
+  opts: FindContinueRowOptsParameter,
 ): Storage.DurableStreamRow | null {
-  const { resumeScope, streamId } = opts;
+  const { continueScope, streamId } = opts;
 
   const realUserId = connectionStorageKeyOf(connection);
 
   const single = Storage.readStream(runtime.sql, realUserId, streamId);
   if (single) return single;
 
-  const scopeKey = computeBroadcastKey(resumeScope);
+  const scopeKey = computeBroadcastKey(continueScope);
 
   return Storage.readStream(runtime.sql, scopeKey, streamId);
 }
 
-export interface ResumeDurableStreamOptions {
+export interface ContinueDurableStreamOptions {
   resolveDef: (
     row: Storage.DurableStreamRow,
   ) => { def: DurableStreamRuntimeDef; scope: ResolvedChannel } | undefined;
@@ -357,17 +357,17 @@ export interface ResumeDurableStreamOptions {
   lastKnownSeq: number;
 }
 
-/** Handle a client `__resumeStream__` frame for a suspended or ended durable stream. */
-export async function resumeDurableStream(
+/** Handle a client `__continueStream__` frame for a suspended or ended durable stream. */
+export async function continueDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  opts: ResumeDurableStreamOptions,
+  opts: ContinueDurableStreamOptions,
 ): Promise<void> {
   const { resolveDef, streamId, lastKnownSeq } = opts;
   let { row } = opts;
   const cancelling = connection.cancellingStreams?.get(streamId);
   if (cancelling) {
-    // A cancel sent before this resume is still stopping the generator. Wait
+    // A cancel sent before this continue is still stopping the generator. Wait
     // for it, then read the row again: a finished cancel has deleted it.
     await cancelling;
     row = row && Storage.readStream(runtime.sql, row.userId, streamId);
@@ -382,11 +382,11 @@ export async function resumeDurableStream(
     return;
   }
 
-  const nowAtResume = Date.now();
+  const nowAtContinue = Date.now();
   if (
     row.status === 'suspended' &&
     row.maxAgeMs != null &&
-    row.lastActivityAt + row.maxAgeMs < nowAtResume
+    row.lastActivityAt + row.maxAgeMs < nowAtContinue
   ) {
     Storage.deleteStream(runtime.sql, row.userId, streamId);
     runtime.sendProtocolMessage(connection, {
@@ -401,7 +401,7 @@ export async function resumeDurableStream(
     row.status === 'ended' &&
     row.endedAt != null &&
     row.retentionAfterEndMs != null &&
-    row.endedAt + row.retentionAfterEndMs < nowAtResume
+    row.endedAt + row.retentionAfterEndMs < nowAtContinue
   ) {
     Storage.deleteStream(runtime.sql, row.userId, streamId);
     runtime.sendProtocolMessage(connection, {
@@ -453,7 +453,7 @@ export async function resumeDurableStream(
   // point it at the new connection and replay buffered chunks.
   if (!isPeerSubscriber && row.status === 'active') {
     const live = runtime.activeStreams.get(streamId);
-    if (live && live.detached && row.kind !== 'resumable') {
+    if (live && live.detached && row.kind !== 'cursor') {
       const detachedStream = live;
       const previousConnection = detachedStream.connection;
       const previousConnectionId = detachedStream.connectionId;
@@ -468,11 +468,11 @@ export async function resumeDurableStream(
       try {
         runtime.persistAttachment(connection);
       } catch (error) {
-        rollbackResumeAttachment(false);
+        rollbackContinueAttachment(false);
         throw error;
       }
 
-      function rollbackResumeAttachment(persist = true): void {
+      function rollbackContinueAttachment(persist = true): void {
         detachedStream.connection = previousConnection;
         detachedStream.connectionId = previousConnectionId;
         detachedStream.detached = true;
@@ -487,12 +487,12 @@ export async function resumeDurableStream(
           livething: { ...scopeMarkers, streamId, streamDurability: 'persistent' },
         });
       } catch (error) {
-        rollbackResumeAttachment();
+        rollbackContinueAttachment();
         throw error;
       }
 
       if (connection.closing) {
-        rollbackResumeAttachment();
+        rollbackContinueAttachment();
         return;
       }
 
@@ -506,10 +506,10 @@ export async function resumeDurableStream(
         if (
           !sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })
         ) {
-          rollbackResumeAttachment();
+          rollbackContinueAttachment();
         }
       } catch (error) {
-        rollbackResumeAttachment();
+        rollbackContinueAttachment();
         throw error;
       }
 
@@ -537,7 +537,7 @@ export async function resumeDurableStream(
     }
   }
 
-  if (isPeerSubscriber && row.kind === 'resumable') {
+  if (isPeerSubscriber && row.kind === 'cursor') {
     if (row.status === 'ended') {
       runtime.sendProtocolMessage(connection, {
         event: '__streamEnd__',
@@ -599,7 +599,7 @@ export async function resumeDurableStream(
   if (isPeerSubscriber) return;
 
   if (row.kind === 'recorded') {
-    // Recorded streams have no cursor — they can't resume, so end the stream.
+    // Recorded streams have no cursor — the generator can't re-run, so end the stream.
     Storage.markEnded(runtime.sql, { userId: storageUserId, streamId, now: Date.now() });
 
     runtime.sendProtocolMessage(connection, {
@@ -619,7 +619,7 @@ export async function resumeDurableStream(
   // Parse and validate everything the re-run needs before touching the row. A
   // stored cursor or payload that cannot be restored never will be, so the row
   // is deleted: leaving it would strand it with no generator and no sweep.
-  const restored = restoreResumableInputs(def, { cursorRaw: checkpoint?.cursor ?? null, row });
+  const restored = restoreCursorInputs(def, { cursorRaw: checkpoint?.cursor ?? null, row });
   if (!restored) {
     Storage.deleteStream(runtime.sql, storageUserId, streamId);
     runtime.sendProtocolMessage(connection, {
@@ -645,7 +645,7 @@ export async function resumeDurableStream(
       streamId,
       seq: lastKnownSeq,
     });
-    return Storage.rewindResumableStream(sql, {
+    return Storage.rewindCursorStream(sql, {
       userId: storageUserId,
       streamId,
       lastSeq: startSeq,
@@ -665,22 +665,22 @@ export async function resumeDurableStream(
   });
 }
 
-interface RestoreResumableInputsOptions {
+interface RestoreCursorInputsOptions {
   cursorRaw: string | null;
   row: Storage.DurableStreamRow;
 }
 
 /** Parse the stored cursor and trigger payload, or `null` when either cannot be restored. */
-function restoreResumableInputs(
+function restoreCursorInputs(
   def: DurableStreamRuntimeDef,
-  opts: RestoreResumableInputsOptions,
+  opts: RestoreCursorInputsOptions,
 ): { cursor: unknown; payload: unknown } | null {
   const { cursorRaw, row } = opts;
   try {
     let cursor: unknown = null;
     if (cursorRaw) {
       const raw = JSON.parse(cursorRaw);
-      cursor = def.cursor ? validateValue(def.cursor, raw, '__resumeStream__') : raw;
+      cursor = def.cursor ? validateValue(def.cursor, raw, '__continueStream__') : raw;
     }
 
     return { cursor, payload: JSON.parse(row.payload) };
@@ -717,7 +717,7 @@ interface RunGeneratorOptions {
   startSeq: number;
 }
 
-interface ResumableCheckpointOptions {
+interface CursorCheckpointOptions {
   def: DurableStreamRuntimeDef;
   userId: string;
   streamId: string;
@@ -726,12 +726,12 @@ interface ResumableCheckpointOptions {
   now: number;
 }
 
-function appendResumableCursorCheckpoint(
+function appendCursorCheckpoint(
   runtime: DurableStreamRuntime,
-  opts: ResumableCheckpointOptions,
+  opts: CursorCheckpointOptions,
 ): void {
   const { def, userId, streamId, seq, cursorValue, now } = opts;
-  if (def.kind !== 'resumable' || cursorValue === undefined) return;
+  if (def.kind !== 'cursor' || cursorValue === undefined) return;
 
   Storage.appendCursorCheckpoint(runtime.sql, {
     userId,
@@ -756,7 +756,7 @@ async function runGenerator(
     withCursor: (chunk: unknown, cursor: unknown) => makeCursorChunk(chunk, cursor),
   };
   installCtxNudges(ctx);
-  // A fresh controller per run/attempt — a resume gets its own stop signal.
+  // A fresh controller per run/attempt — a reconnect gets its own stop signal.
   const abortController = new AbortController();
   installCtxSignal(ctx, abortController);
 
@@ -787,7 +787,7 @@ async function runGenerator(
   );
 
   // A run "owns the slot" while no *other* ActiveStream holds this streamId. A
-  // resume/replace with the same streamId swaps in a new ActiveStream; once
+  // continue/replace with the same streamId swaps in a new ActiveStream; once
   // that happens the superseded run must not touch the shared row, attachment, or
   // wire — doing so would corrupt the replacement. Before this run registers
   // (activeStream undefined) the slot is its own to manage.
@@ -837,17 +837,17 @@ async function runGenerator(
       );
       if (result.done) break;
 
-      // A resume/replace took over this streamId while next() was pending. This
+      // A reconnect/replace took over this streamId while next() was pending. This
       // superseded run no longer owns the slot, so it must stop before persisting or
       // sending — its work would corrupt the replacement's shared state.
       if (!stillOwnsSlot()) return;
 
-      // Connection closed mid-advance: dropping this chunk keeps a resumable
+      // Connection closed mid-advance: dropping this chunk keeps a cursor
       // cursor from moving past a row the client never received. A stream
       // stopped because its connection left the channel keeps nothing.
       if (
         activeStream.closed &&
-        (def.kind === 'resumable' || abortController.signal.reason === 'unsubscribed')
+        (def.kind === 'cursor' || abortController.signal.reason === 'unsubscribed')
       ) {
         break;
       }
@@ -858,7 +858,7 @@ async function runGenerator(
       const now = Date.now();
 
       const recordsChunks = def.kind === 'recorded';
-      appendResumableCursorCheckpoint(runtime, {
+      appendCursorCheckpoint(runtime, {
         def,
         userId,
         streamId,
@@ -881,7 +881,7 @@ async function runGenerator(
         });
 
         if (def.maxChunks !== undefined) {
-          // Seed from storage once (covers a resumed stream's existing rows),
+          // Seed from storage once (covers a continued stream's existing rows),
           // then count in memory instead of a COUNT(*) per chunk.
           if (activeStream.recordedChunkCount === undefined) {
             activeStream.recordedChunkCount = Storage.countChunks(runtime.sql, userId, streamId);
@@ -913,7 +913,7 @@ async function runGenerator(
         Storage.updateLastSeq(runtime.sql, { userId, streamId, lastSeq: seq, now });
       }
 
-      if (def.kind !== 'resumable') persistDelivery();
+      if (def.kind !== 'cursor') persistDelivery();
 
       const wirePayload = chunkToPayload(chunkValue);
 
@@ -926,8 +926,8 @@ async function runGenerator(
           runtime,
           excludeConnectionId: connection.id,
           scope,
-          // A late joiner has no row until it resumes, so it gets nothing live
-          // until then — the resume backfill and the live tail never overlap.
+          // A late joiner has no row until it continues, so it gets nothing live
+          // until then — the reconnect backfill and the live tail never overlap.
           extraFilter: (candidate) => {
             const sub = Storage.getSubscriber(runtime.sql, {
               storageUserId: userId,
@@ -977,7 +977,7 @@ async function runGenerator(
         }
       }
 
-      if (def.kind === 'resumable') persistDelivery();
+      if (def.kind === 'cursor') persistDelivery();
 
       if (hasNudges) {
         nextInput = [...nudgeBuffer];
@@ -1045,7 +1045,7 @@ async function runGenerator(
     }
   } catch (error) {
     // A config error must propagate, but the row still has to leave 'active' or
-    // it blocks every future start/resume — mark it ended before rethrowing.
+    // it blocks every future start/continue — mark it ended before rethrowing.
     // Only when this run still owns the slot; a replacement manages its own row.
     if (isLiveThingConfigError(error)) {
       if (stillOwnsSlot()) {
@@ -1107,7 +1107,7 @@ async function runGenerator(
       Storage.markEnded(runtime.sql, { userId, streamId, now: Date.now() });
     }
   } finally {
-    // A resume run may have already taken over this streamId. Only the run that
+    // A reconnect run may have already taken over this streamId. Only the run that
     // still owns the slot may tear down the shared connection/attachment state;
     // otherwise the superseded run would delete the replacement's activeStreamIds entry
     // and persist a stale attachment.
@@ -1147,7 +1147,7 @@ export async function cancelDurableStream(
 ): Promise<void> {
   const { streamId, cancelScope } = opts;
   const realUserId = connectionStorageKeyOf(connection);
-  const row = findResumeRow(runtime, connection, { resumeScope: cancelScope, streamId });
+  const row = findContinueRow(runtime, connection, { continueScope: cancelScope, streamId });
   if (!row) return;
 
   if (row.broadcast && row.creatorUserId && row.creatorUserId !== realUserId) {
@@ -1242,7 +1242,7 @@ export interface EndDurableStreamOnLeaveOptions {
 /**
  * Remove the stored row of a durable stream whose creator left the stream's
  * channel. The generator is already stopped by the caller. A non-member can
- * never resume it, so the row is deleted rather than suspended.
+ * never continue it, so the row is deleted rather than suspended.
  */
 export function endDurableStreamOnLeave(
   runtime: DurableStreamRuntime,
@@ -1250,7 +1250,7 @@ export function endDurableStreamOnLeave(
   opts: EndDurableStreamOnLeaveOptions,
 ): void {
   const { streamId, scope } = opts;
-  const row = findResumeRow(runtime, connection, { resumeScope: scope, streamId });
+  const row = findContinueRow(runtime, connection, { continueScope: scope, streamId });
   if (!row) return;
 
   endDurableStreamForEveryone(runtime, connection, { row, scope });

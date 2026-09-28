@@ -204,7 +204,7 @@ type AnyChannelSectionDeclared<TContract, Section extends string> = TContract ex
 /**
  * The channel-handle methods to replace with a `NeedsPrimitive` stub, given the
  * installed top-level `Api` and the contract's channel sections. A channel's
- * `request`/`onRequest`/`stream`/`onStream`/`resumeStream` route through the
+ * `request`/`onRequest`/`stream`/`onStream`/`continueStream` route through the
  * SAME top-level primitive as their socket-level twins, so we key off the same
  * presence check (`'request' extends keyof Api`, etc.) used at the top level —
  * mirroring it one level down into the channel.
@@ -232,7 +232,7 @@ type ChannelHandleStubs<TContract, Api> = (AnyChannelSectionDeclared<
       : {
           stream: NeedsPrimitive<'[livething] channel.stream needs the stream() primitive — add stream() to client()'>;
           onStream: NeedsPrimitive<'[livething] channel.onStream needs the stream() primitive — add stream() to client()'>;
-          resumeStream: NeedsPrimitive<'[livething] channel.resumeStream needs the stream() primitive — add stream() to client()'>;
+          continueStream: NeedsPrimitive<'[livething] channel.continueStream needs the stream() primitive — add stream() to client()'>;
         }
     : {});
 
@@ -291,7 +291,7 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
               : {
                   stream: NeedsPrimitive<'[livething] socket.stream needs the stream() primitive — add stream() to client()'>;
                   onStream: NeedsPrimitive<'[livething] socket.onStream needs the stream() primitive — add stream() to client()'>;
-                  resumeStream: NeedsPrimitive<'[livething] socket.resumeStream needs the stream() primitive — add stream() to client()'>;
+                  continueStream: NeedsPrimitive<'[livething] socket.continueStream needs the stream() primitive — add stream() to client()'>;
                 }
             : {})
       : {};

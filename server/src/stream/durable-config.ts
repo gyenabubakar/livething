@@ -5,7 +5,7 @@ import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 type ValidateDurableStreamConfigOptsParameter = { maxChunks?: boolean };
 
 /**
- * Fields shared by every durable (resumable + recorded) stream config. Both
+ * Fields shared by every durable (cursor + recorded) stream config. Both
  * stream kinds keep a chunk alive across a disconnect and differ only in how
  * they replay it, so the disconnect/retention/broadcast knobs live here once and
  * each kind adds only what is unique to it (a `cursor`, a `maxChunks`).
@@ -15,7 +15,7 @@ export interface CommonDurableStreamConfig {
   onDisconnect?: OnDisconnect;
   /** How long a suspended stream is kept after the owning connection drops. Default: 5 minutes. */
   maxAgeMs?: number;
-  /** How long an ended stream is kept after `__streamEnd__` so a quick reconnect can still resume. Default: 30 seconds. */
+  /** How long an ended stream is kept after `__streamEnd__` so a quick reconnect can still continue. Default: 30 seconds. */
   retentionAfterEndMs?: number;
   /**
    * One generator, many subscribers. The creator runs the generator once and

@@ -6,8 +6,8 @@ import type { ErrorContractDef } from '~/errors/definition.ts';
 import type { IncomingDef } from '~/incoming/definition.ts';
 import type { OutgoingDef } from '~/outgoing/definition.ts';
 import type { RequestDef } from '~/request/definition.ts';
+import type { CursorStreamDef } from '~/stream-cursor/definition.ts';
 import type { RecordedStreamDef } from '~/stream-recorded/definition.ts';
-import type { ResumableStreamDef } from '~/stream-resumable/definition.ts';
 import type { NudgeDef, StreamDef } from '~/stream/definition.ts';
 
 export type {
@@ -18,13 +18,13 @@ export type {
   OutgoingDef,
   RecordedStreamDef,
   RequestDef,
-  ResumableStreamDef,
+  CursorStreamDef,
   StreamDef,
 };
 
 export { channel } from '~/channel/definition.ts';
 export { recordedStream } from '~/stream-recorded/definition.ts';
-export { resumableStream } from '~/stream-resumable/definition.ts';
+export { cursorStream } from '~/stream-cursor/definition.ts';
 export { outgoing } from '~/outgoing/definition.ts';
 export { request } from '~/request/definition.ts';
 export { nudge, stream } from '~/stream/definition.ts';
@@ -47,7 +47,7 @@ export type Definition =
   | OutgoingDef<string, any>
   | RequestDef<string, any, any>
   | StreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
-  | ResumableStreamDef<string, unknown, unknown, unknown, readonly NudgeDef<string, unknown>[]>
+  | CursorStreamDef<string, unknown, unknown, unknown, readonly NudgeDef<string, unknown>[]>
   | RecordedStreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
   | ChannelDef<string | ScopeDeclaration<string>, readonly Definition[]>;
 

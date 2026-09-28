@@ -2,17 +2,17 @@ import { client, connect, reconnection, stream } from '@livething/client';
 import type { StreamDurableClient } from '@livething/tests-e2e-handlers/stream-durable';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @livething/client's stream() + resumeStream() against the real
-// `stream-durable` server definition. Proves durable streams auto-resume across an
-// unexpected drop (close 4900) and that manual resume of an unknown id aborts
+// Drives @livething/client's stream() + continueStream() against the real
+// `stream-durable` server definition. Proves durable streams auto-continue across an
+// unexpected drop (close 4900) and that manual continue of an unknown id aborts
 // with reason not-found.
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
     <button data-testid="start-paginate">start-paginate</button>
     <button data-testid="drop-socket">drop-socket</button>
-    <button data-testid="resume-paginate">resume-paginate</button>
-    <button data-testid="resume-unknown">resume-unknown</button>
+    <button data-testid="continue-paginate">continue-paginate</button>
+    <button data-testid="continue-unknown">continue-unknown</button>
     <span data-testid="status"></span>
     <span data-testid="rows"></span>
     <span data-testid="row-count"></span>
@@ -66,17 +66,17 @@ export function setup(): void {
     socket.send('server-drop', {});
   });
 
-  button('resume-paginate', () => {
-    // Clear the first run's result, so the spec waits for the resume to end.
+  button('continue-paginate', () => {
+    // Clear the first run's result, so the spec waits for the reconnect to end.
     el('ended').textContent = '';
-    const handle = socket.resumeStream('paginate', 'pages-1', {
+    const handle = socket.continueStream('paginate', 'pages-1', {
       lastKnownSeq: rows.length,
     });
     void drain(handle);
   });
 
-  button('resume-unknown', () => {
-    const handle = socket.resumeStream('paginate', 'does-not-exist');
+  button('continue-unknown', () => {
+    const handle = socket.continueStream('paginate', 'does-not-exist');
     void drain(handle);
   });
 

@@ -2,15 +2,15 @@ import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 
 /**
  * Phase 5 — `ctx.stream.signal` is an `AbortSignal` in every stream run
- * generator: plain, resumable, recorded, and channel-scoped.
+ * generator: plain, cursor, recorded, and channel-scoped.
  */
 describe('ctx.stream.signal type', () => {
   it('is an AbortSignal in a plain stream run', () => {
@@ -24,11 +24,11 @@ describe('ctx.stream.signal type', () => {
     });
   });
 
-  it('is an AbortSignal in a resumable stream run (alongside cursor)', () => {
+  it('is an AbortSignal in a cursor stream run (alongside cursor)', () => {
     const base = server({
-      capabilities: [resumableStream()],
+      capabilities: [cursorStream()],
     });
-    base.resumableStream('paginate', {
+    base.cursorStream('paginate', {
       input: v.object({}),
       cursor: t<{ row: number }>(),
       async *run(ctx) {

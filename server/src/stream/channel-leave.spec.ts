@@ -6,8 +6,8 @@ import { readStream } from '~/_engine/stream-durable/storage.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
+import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
@@ -34,7 +34,7 @@ function buildDefinition(runs: Map<string, Run>) {
     capabilities: [
       channels(),
       stream(),
-      resumableStream(),
+      cursorStream(),
       recordedStream(),
       tags((ephemeral) => [ephemeral('role', t<string>())]),
     ],
@@ -67,12 +67,12 @@ function buildDefinition(runs: Map<string, Run>) {
       broadcast: true,
       run: ticks('broadcast-ticks'),
     }),
-    room.resumableStream('resumable-ticks', {
+    room.cursorStream('cursor-ticks', {
       input: Empty,
       chunk: Tick,
       maxAgeMs: 60_000,
       retentionAfterEndMs: 60_000,
-      run: ticks('resumable-ticks'),
+      run: ticks('cursor-ticks'),
     }),
     room.recordedStream('recorded-ticks', {
       input: Empty,
@@ -286,19 +286,19 @@ describe('leaving a channel stops the streams scoped to it', () => {
     await expectNoMoreChunks(bob, 's-bcast');
   });
 
-  it('stops a resumable channel stream and deletes it so it cannot be resumed', async () => {
+  it('stops a cursor channel stream and deletes it so it cannot be continued', async () => {
     const runs = new Map<string, Run>();
     const engine = await buildEngine(runs);
     const alice = await connect(engine, 'alice');
     await subscribe(alice);
-    await startStream(alice, 'resumable-ticks', 's-resumable');
+    await startStream(alice, 'cursor-ticks', 's-cursor');
 
     await unsubscribe(alice);
 
-    expect(runs.get('resumable-ticks')).toEqual({ reason: 'unsubscribed', finished: true });
-    expect(abortedFrame(alice, 's-resumable')).toBeDefined();
-    await expectNoMoreChunks(alice, 's-resumable');
-    expect(readStream(engine.core.storage.sql, 'alice', 's-resumable')).toBeNull();
+    expect(runs.get('cursor-ticks')).toEqual({ reason: 'unsubscribed', finished: true });
+    expect(abortedFrame(alice, 's-cursor')).toBeDefined();
+    await expectNoMoreChunks(alice, 's-cursor');
+    expect(readStream(engine.core.storage.sql, 'alice', 's-cursor')).toBeNull();
   });
 
   it('stops a keep-running stream of a dropped tab once the user has no tab left in the channel', async () => {
@@ -339,7 +339,7 @@ describe('leaving a channel stops the streams scoped to it', () => {
     expect(runs.get('detached-ticks')?.finished).toBe(true);
   });
 
-  it('stops a recorded channel stream and deletes it so it cannot be resumed', async () => {
+  it('stops a recorded channel stream and deletes it so it cannot be continued', async () => {
     const runs = new Map<string, Run>();
     const engine = await buildEngine(runs);
     const alice = await connect(engine, 'alice');
@@ -355,14 +355,14 @@ describe('leaving a channel stops the streams scoped to it', () => {
 
     await subscribe(alice);
     await alice.send([
-      '__resumeStream__',
+      '__continueStream__',
       { lastKnownSeq: 0 },
       { channel: { name: 'room' }, stream: { id: 's-recorded' } },
     ]);
-    const resumeErrors = alice.frames.filter(
+    const continueErrors = alice.frames.filter(
       ([event, , meta]) => event === '__error__' && meta?.stream?.id === 's-recorded',
     );
-    const resumeError = resumeErrors[resumeErrors.length - 1];
-    expect(resumeError?.[1]).toEqual({ code: 'stream-aborted', detail: { reason: 'not-found' } });
+    const continueError = continueErrors[continueErrors.length - 1];
+    expect(continueError?.[1]).toEqual({ code: 'stream-aborted', detail: { reason: 'not-found' } });
   });
 });

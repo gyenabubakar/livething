@@ -39,7 +39,7 @@ describe('resolveChannel', () => {
             incoming: new Map(),
             requests: new Map(),
             streams: new Map(),
-            resumableStreams: new Map(),
+            cursorStreams: new Map(),
             recordedStreams: new Map(),
             intercepts: [],
           },
@@ -61,7 +61,7 @@ describe('resolveChannel', () => {
       incoming: new Map(),
       requests: new Map(),
       streams: new Map(),
-      resumableStreams: new Map(),
+      cursorStreams: new Map(),
       recordedStreams: new Map(),
       intercepts: [],
     };

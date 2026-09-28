@@ -189,7 +189,7 @@ export interface StopChannelStreamsOptions {
   /**
    * True when the user has no connection left in the channel. A stream of that
    * user that kept running after its connection dropped (`keep-running`) is
-   * then stopped too, since no member can resume it.
+   * then stopped too, since no member can continue it.
    */
   userGone: boolean;
 }
@@ -229,8 +229,8 @@ function belongsToLeaver(
  * kick, or server-side removal). Each stream's signal aborts with reason
  * `'unsubscribed'` and its generator's `return()` runs. The owning client gets
  * a terminal `stream-aborted` error with reason `'unsubscribed'`, and the peers
- * of a broadcast stream get `__streamEnd__`. A resumable or recorded stream is
- * also deleted from storage, so nobody can resume it later.
+ * of a broadcast stream get `__streamEnd__`. A durable stream is
+ * also deleted from storage, so nobody can continue it later.
  */
 export async function stopChannelStreams(
   runtime: StopChannelStreamsRuntime,

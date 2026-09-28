@@ -54,7 +54,7 @@ export interface PluginDef<P extends SocketContract, TApi> {
   /**
    * Primitives the host must register for this plugin to work. Any scoped verb
    * that comes from a primitive needs its primitive listed here: `request` needs
-   * `clientRequests`, `stream`/`onStream`/`resumeStream` need `stream`,
+   * `clientRequests`, `stream`/`onStream`/`continueStream` need `stream`,
    * `channel` needs `channels`, `onRequest` needs `serverRequests`. The scoped
    * socket types these verbs from the plugin's contract, not from this list, so
    * calling one whose primitive is neither listed here nor registered by the app

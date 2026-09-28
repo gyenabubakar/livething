@@ -88,7 +88,7 @@ export function isDeclaredOutgoingEvent(
     return (
       (channel?.outgoing.has(event) ?? false) ||
       (channel?.streams.has(event) ?? false) ||
-      (channel?.resumableStreams.has(event) ?? false) ||
+      (channel?.cursorStreams.has(event) ?? false) ||
       (channel?.recordedStreams.has(event) ?? false)
     );
   }
@@ -96,7 +96,7 @@ export function isDeclaredOutgoingEvent(
   return (
     compiled.outgoing.has(event) ||
     compiled.streams.has(event) ||
-    compiled.resumableStreams.has(event) ||
+    compiled.cursorStreams.has(event) ||
     compiled.recordedStreams.has(event)
   );
 }

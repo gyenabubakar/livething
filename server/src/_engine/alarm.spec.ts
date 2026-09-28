@@ -277,17 +277,17 @@ describe('framework alarm multiplexer', () => {
       await expect(rescheduleAlarm(failedCore)).rejects.toThrow('provider unavailable');
 
       const setAlarm = vi.fn(async () => {});
-      const resumedCore = {
+      const restartedCore = {
         alarmSources: new Map<symbol, () => number | null>(),
         timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
         storage,
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       };
 
-      ensureAlarmCoordinatorSchema(resumedCore);
-      restoreAlarmCoordinator(resumedCore);
+      ensureAlarmCoordinatorSchema(restartedCore);
+      restoreAlarmCoordinator(restartedCore);
 
-      await rescheduleAlarm(resumedCore);
+      await rescheduleAlarm(restartedCore);
 
       expect(setAlarm).toHaveBeenCalledWith(101_000);
     } finally {
@@ -324,11 +324,11 @@ describe('framework alarm multiplexer', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(firstSetAlarm).toHaveBeenLastCalledWith(200_000);
 
-      const resumedSetAlarm = vi.fn(async () => {});
-      const resumedCore = {
+      const restartedSetAlarm = vi.fn(async () => {});
+      const restartedCore = {
         alarmSources: new Map<symbol, () => number | null>(),
         timers: {
-          setAlarm: resumedSetAlarm,
+          setAlarm: restartedSetAlarm,
           deleteAlarm: vi.fn(async () => {}),
           getAlarm: vi.fn(async () => null),
         },
@@ -336,13 +336,13 @@ describe('framework alarm multiplexer', () => {
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       };
 
-      ensureAlarmCoordinatorSchema(resumedCore);
-      restoreAlarmCoordinator(resumedCore);
-      registerAlarmSource(resumedCore, Symbol('scheduled work'), () => 200_000);
+      ensureAlarmCoordinatorSchema(restartedCore);
+      restoreAlarmCoordinator(restartedCore);
+      registerAlarmSource(restartedCore, Symbol('scheduled work'), () => 200_000);
 
-      await rescheduleAlarm(resumedCore);
+      await rescheduleAlarm(restartedCore);
 
-      expect(resumedSetAlarm).toHaveBeenLastCalledWith(200_000);
+      expect(restartedSetAlarm).toHaveBeenLastCalledWith(200_000);
     } finally {
       vi.useRealTimers();
     }

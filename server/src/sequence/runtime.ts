@@ -74,7 +74,7 @@ export function allocatePersistentSequence(sql: SQLProvider): number {
  *
  * Monotonic-and-unique guarantees still hold: the SQL row is bumped by the
  * full batch size before any number in the batch is returned, so a restart
- * always resumes above the reserved range.
+ * always continues above the reserved range.
  */
 export function createPersistentSequenceAllocator(
   sql: SQLProvider,

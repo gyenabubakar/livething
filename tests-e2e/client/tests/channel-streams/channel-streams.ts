@@ -2,18 +2,18 @@ import { channels, client, connect, stream } from '@livething/client';
 import type { StreamDurableScopedClient } from '@livething/tests-e2e-handlers/stream-durable-scoped';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @livething/client's channel-scoped stream() / resumeStream() against the
+// Drives @livething/client's channel-scoped stream() / continueStream() against the
 // real `stream-durable-scoped` server definition, typed by the same contract the server
 // implements (StreamDurableScopedClient = InferClient<definition>). The `rooms`
-// channel exposes a resumable cursor stream (`paginate`) and a recorded stream
+// channel exposes a cursor stream (`paginate`) and a recorded stream
 // (`history`); this proves both flow through the channel handle and that a
-// resumable stream resumes from its cursor over the real wire.
+// cursor stream continues from its cursor over the real wire.
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
     <button data-testid="subscribe">subscribe</button>
     <button data-testid="start-paginate">start-paginate</button>
-    <button data-testid="resume-paginate">resume-paginate</button>
+    <button data-testid="continue-paginate">continue-paginate</button>
     <button data-testid="start-history">start-history</button>
     <span data-testid="status"></span>
     <span data-testid="subscribed"></span>
@@ -66,11 +66,11 @@ export function setup(): void {
     void drainRows(handle);
   });
 
-  // After the resumable stream ends, its cursor is retained. A manual resume
+  // After the cursor stream ends, its cursor is retained. A manual continue
   // from the saved cursor reattaches on the channel handle and ends cleanly.
-  button('resume-paginate', () => {
+  button('continue-paginate', () => {
     el('rows-ended').textContent = 'no';
-    const handle = rooms.resumeStream('paginate', 'pages-1', { lastKnownSeq: rows.length });
+    const handle = rooms.continueStream('paginate', 'pages-1', { lastKnownSeq: rows.length });
     void drainRows(handle);
   });
 

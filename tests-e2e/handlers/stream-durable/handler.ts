@@ -1,6 +1,6 @@
 import { server, t } from '@livething/server';
 import { Disconnect, StreamAborted } from '@livething/server/errors';
-import { recordedStream, resumableStream } from '@livething/server/streams';
+import { cursorStream, recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -19,7 +19,7 @@ const overflowGates = new Map<string, () => void>();
 
 const base = server({
   upgrade: (request) => requireUsername(request),
-  capabilities: [recordedStream(), resumableStream()],
+  capabilities: [recordedStream(), cursorStream()],
 });
 
 const handleReleaseOverflow = base.on('release-overflow', {
@@ -43,7 +43,7 @@ const handleCountTokens = base.recordedStream('count-tokens', {
   },
 });
 
-const handlePaginate = base.resumableStream('paginate', {
+const handlePaginate = base.cursorStream('paginate', {
   input: PaginatePayload,
   chunk: RowChunk,
   maxAgeMs: 60_000,
@@ -57,7 +57,7 @@ const handlePaginate = base.resumableStream('paginate', {
   },
 });
 
-const handlePaginateBare = base.resumableStream('paginate-bare', {
+const handlePaginateBare = base.cursorStream('paginate-bare', {
   input: PaginatePayload,
   chunk: RowChunk,
   maxAgeMs: 60_000,
@@ -71,7 +71,7 @@ const handlePaginateBare = base.resumableStream('paginate-bare', {
   },
 });
 
-const handleAttemptStream = base.resumableStream('attempt-stream', {
+const handleAttemptStream = base.cursorStream('attempt-stream', {
   input: AttemptPayload,
   chunk: AttemptChunk,
   maxAgeMs: 60_000,
@@ -145,7 +145,7 @@ const handleCountTokensNudged = base.recordedStream('count-tokens-nudged', {
   },
 });
 
-const handlePaginateNudged = base.resumableStream('paginate-nudged', {
+const handlePaginateNudged = base.cursorStream('paginate-nudged', {
   input: PaginatePayload,
   chunk: RowChunk,
   nudges: { stop: StopPayload },
@@ -163,7 +163,7 @@ const handlePaginateNudged = base.resumableStream('paginate-nudged', {
 });
 
 // Test support: a client triggers a server-initiated close with a retryable
-// code so it reconnects in-session and a durable stream auto-resumes.
+// code so it reconnects in-session and a durable stream auto-continues.
 const handleServerDrop = base.on('server-drop', {
   input: v.object({}),
   run() {

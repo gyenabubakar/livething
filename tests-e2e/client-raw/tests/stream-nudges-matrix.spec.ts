@@ -154,7 +154,7 @@ test.describe('stream-nudges matrix', () => {
     );
   });
 
-  test('resumableStream in a channel — nudge stops the generator mid-flight', async ({
+  test('cursorStream in a channel — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
     const room = `snm-res-ch-${testInfo.testId}-${Date.now()}`;
@@ -228,7 +228,7 @@ test.describe('stream-nudges matrix', () => {
     expect(chunks).toBeGreaterThanOrEqual(1);
   });
 
-  test('top-level resumableStream — nudge stops the generator mid-flight', async ({
+  test('top-level cursorStream — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
     const room = `snm-res-top-${testInfo.testId}-${Date.now()}`;

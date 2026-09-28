@@ -7,8 +7,8 @@ import { emits } from '~/emits/emits.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
+import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -33,25 +33,25 @@ function serverDef(
 }
 
 describe('boot-time cross-primitive collision guard', () => {
-  it('rejects the same event used as both stream and resumableStream at top level', () => {
+  it('rejects the same event used as both stream and cursorStream at top level', () => {
     const base = server({
-      capabilities: [stream(), resumableStream()],
+      capabilities: [stream(), cursorStream()],
     });
     const asStream = base.stream('feed', { async *run() {} });
-    const asResumable = base.resumableStream('feed', { async *run() {} });
-    expect(() => compileServerDefinition(serverDef([asStream, asResumable]))).toThrow(
-      /Event name 'feed' is registered as both 'stream' and 'resumableStream'/,
+    const asCursor = base.cursorStream('feed', { async *run() {} });
+    expect(() => compileServerDefinition(serverDef([asStream, asCursor]))).toThrow(
+      /Event name 'feed' is registered as both 'stream' and 'cursorStream'/,
     );
   });
 
-  it('rejects the same event used as both resumableStream and recordedStream', () => {
+  it('rejects the same event used as both cursorStream and recordedStream', () => {
     const base = server({
-      capabilities: [resumableStream(), recordedStream()],
+      capabilities: [cursorStream(), recordedStream()],
     });
-    const asResumable = base.resumableStream('feed', { async *run() {} });
+    const asCursor = base.cursorStream('feed', { async *run() {} });
     const asRecorded = base.recordedStream('feed', { async *run() {} });
-    expect(() => compileServerDefinition(serverDef([asResumable, asRecorded]))).toThrow(
-      /Event name 'feed' is registered as both 'resumableStream' and 'recordedStream'/,
+    expect(() => compileServerDefinition(serverDef([asCursor, asRecorded]))).toThrow(
+      /Event name 'feed' is registered as both 'cursorStream' and 'recordedStream'/,
     );
   });
 
@@ -78,13 +78,13 @@ describe('boot-time cross-primitive collision guard', () => {
 
   it('rejects the collision inside a channel-family scope', () => {
     const base = server({
-      capabilities: [channels(), stream(), resumableStream()],
+      capabilities: [channels(), stream(), cursorStream()],
     });
     const rooms = base.channel(['rooms', 'room:{id}'], {});
     const plain = rooms.stream('feed', { async *run() {} });
-    const resumable = rooms.resumableStream('feed', { async *run() {} });
-    expect(() => compileServerDefinition(base.assemble({ handlers: [plain, resumable] }))).toThrow(
-      /Event name 'feed' is registered as both 'stream' and 'resumableStream' in channel family 'rooms'/,
+    const cursor = rooms.cursorStream('feed', { async *run() {} });
+    expect(() => compileServerDefinition(base.assemble({ handlers: [plain, cursor] }))).toThrow(
+      /Event name 'feed' is registered as both 'stream' and 'cursorStream' in channel family 'rooms'/,
     );
   });
 
@@ -252,10 +252,10 @@ describe('scope and event name syntax — reserved characters', () => {
     );
   });
 
-  it('rejects a resumable stream nudge name over the wire limit', () => {
+  it('rejects a cursor stream nudge name over the wire limit', () => {
     const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
-    const base = server({ capabilities: [resumableStream()] });
-    const handle = base.resumableStream('feed', {
+    const base = server({ capabilities: [cursorStream()] });
+    const handle = base.cursorStream('feed', {
       nudges: { [tooLong]: v.object({}) },
       async *run() {},
     });

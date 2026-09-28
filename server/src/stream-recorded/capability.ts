@@ -39,7 +39,7 @@ function buildDurableSweep(): Primitive {
  * Enable recorded server-pushed streams. Listing this lets you register
  * `base.recordedStream(name, { input, run })`. Chunks are buffered as they
  * emit; on reconnect the client receives the chunks it missed — the generator
- * does not re-run. Best for non-resumable sources such as model tokens.
+ * does not re-run. Best for one-shot sources such as model tokens.
  *
  * @example
  * ```ts

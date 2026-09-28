@@ -25,7 +25,7 @@ export type SendResult = 'sent' | 'buffered' | 'connecting' | 'closed' | 'blocke
 
 /**
  * The pending operation that owns a buffered or outboxed frame. A request,
- * subscribe, stream trigger, resume, or nudge whose frame is held off-wire keeps
+ * subscribe, stream trigger, continue, or nudge whose frame is held off-wire keeps
  * an owner so the holding layer can settle it: skip its frame once it has already
  * settled (timed out, disconnected, resolved), and reject it if the frame can
  * never be delivered (eviction, TTL expiry, clear, or a serialization failure on
@@ -129,7 +129,7 @@ export interface PrimitiveRuntime {
    * Runs when reconnection is permanently abandoned — out of retries, or the
    * close was non-retryable. The socket is settling on `closed` for good, so a
    * primitive must finish anything it kept alive across the drop expecting a
-   * reconnect: `stream` ends resumable streams with `Disconnected`, `channels`
+   * reconnect: `stream` ends durable streams with `Disconnected`, `channels`
    * releases the idle-prevention holds it held for active channels.
    */
   onReconnectFailed?(): void;

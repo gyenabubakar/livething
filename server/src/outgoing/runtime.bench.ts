@@ -50,7 +50,7 @@ function createRuntime(
     compiled: {
       outgoing: new Map(),
       streams: new Map(),
-      resumableStreams: new Map(),
+      cursorStreams: new Map(),
       recordedStreams: new Map(),
       channels: new Map([
         [
@@ -58,7 +58,7 @@ function createRuntime(
           {
             outgoing: new Map([['chat', { event: 'chat' }]]),
             streams: new Map(),
-            resumableStreams: new Map(),
+            cursorStreams: new Map(),
             recordedStreams: new Map(),
           },
         ],

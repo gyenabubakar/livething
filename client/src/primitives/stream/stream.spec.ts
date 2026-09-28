@@ -294,24 +294,24 @@ describe('onStream (broadcast)', () => {
   });
 });
 
-describe('durable resume', () => {
-  it('sends a lazy resume only after the socket opens', () => {
+describe('durable continue', () => {
+  it('sends a lazy continue only after the socket opens', () => {
     const socket = client<C>()(connect('wss://test', { lazy: true }), stream());
 
-    socket.resumeStream('ask-ai', 'feed-lazy', { lastKnownSeq: 4 });
+    socket.continueStream('ask-ai', 'feed-lazy', { lastKnownSeq: 4 });
     const ws = MockWebSocket.last();
     expect(ws.sentFrames()).toEqual([]);
 
     ws.open();
     expect(ws.sentFrames()).toContainEqual({
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 4 },
       metadata: { stream: { id: 'feed-lazy' } },
     });
     socket.disconnect();
   });
 
-  it('sends __resumeStream__ with lastKnownSeq after a reconnect', async () => {
+  it('sends __continueStream__ with lastKnownSeq after a reconnect', async () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(connect('wss://test'), stream(), reconnection());
@@ -331,7 +331,7 @@ describe('durable resume', () => {
       second.open();
 
       expect(second.sentFrames()).toContainEqual({
-        event: '__resumeStream__',
+        event: '__continueStream__',
         payload: { lastKnownSeq: 7 },
         metadata: { stream: { id: sid } },
       });
@@ -340,11 +340,11 @@ describe('durable resume', () => {
     }
   });
 
-  it('resumeStream replays chunks into the returned handle and ends on __streamEnd__', async () => {
+  it('continueStream replays chunks into the returned handle and ends on __streamEnd__', async () => {
     const { socket, ws } = buildStream();
-    const handle = socket.resumeStream('ask-ai', 'feed-1', { lastKnownSeq: 0 });
+    const handle = socket.continueStream('ask-ai', 'feed-1', { lastKnownSeq: 0 });
     expect(ws.sentFrames().at(-1)).toEqual({
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { stream: { id: 'feed-1' } },
     });
@@ -363,7 +363,7 @@ describe('durable resume', () => {
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
   });
 
-  it('scoped resumeStream carries the channel markers', async () => {
+  it('scoped continueStream carries the channel markers', async () => {
     const { socket, ws } = buildStreamChannels();
     const room = socket.channel('rooms', 'r1');
     const sub = room.subscribe();
@@ -374,9 +374,9 @@ describe('durable resume', () => {
     });
     await sub;
 
-    const handle = room.resumeStream('ask-ai', 'feed-2', { lastKnownSeq: 0 });
+    const handle = room.continueStream('ask-ai', 'feed-2', { lastKnownSeq: 0 });
     expect(ws.sentFrames().at(-1)).toEqual({
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { channel: { name: 'r1', family: 'rooms' }, stream: { id: 'feed-2' } },
     });
@@ -601,11 +601,11 @@ describe('stream control frames while not open (#24)', () => {
     socket.disconnect();
   });
 
-  it('resumeStream on a closed non-lazy socket settles the handle with Disconnected', async () => {
+  it('continueStream on a closed non-lazy socket settles the handle with Disconnected', async () => {
     const socket = client<C>()(connect('wss://test'), stream());
-    // Never connected: closed, non-lazy. The resume frame can't go out and no
+    // Never connected: closed, non-lazy. The continue frame can't go out and no
     // reconnect is coming, so the handle must settle rather than hang.
-    const handle = socket.resumeStream('ask-ai', 'feed-x', { lastKnownSeq: 0 });
+    const handle = socket.continueStream('ask-ai', 'feed-x', { lastKnownSeq: 0 });
     await expect(collect(handle)).rejects.toMatchObject({ code: 'disconnected' });
   });
 });
@@ -623,9 +623,9 @@ describe('stream wire-id and nudge validation', () => {
     handle.cancel();
   });
 
-  it('resumeStream with an empty id settles the handle with validation-failed (#3)', async () => {
+  it('continueStream with an empty id settles the handle with validation-failed (#3)', async () => {
     const { socket } = buildStream();
-    const handle = socket.resumeStream('ask-ai', '', { lastKnownSeq: 0 });
+    const handle = socket.continueStream('ask-ai', '', { lastKnownSeq: 0 });
     await expect(collect(handle)).rejects.toMatchObject({ code: 'validation-failed' });
   });
 

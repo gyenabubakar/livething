@@ -4,8 +4,8 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @livething/client against the real `stream-durable` server definition to prove a
 // cancel() issued while the socket is reconnecting is not lost: the client holds
-// __streamCancel__ until reopen, suppresses the durable stream's auto-resume, and
-// the server deletes the durable row. A later resumeStream() of that id then
+// __streamCancel__ until reopen, suppresses the durable stream's auto-continue, and
+// the server deletes the durable row. A later continueStream() of that id then
 // aborts with reason not-found — proof the row is gone.
 export function setup(): void {
   mount(`
@@ -13,14 +13,14 @@ export function setup(): void {
     <button data-testid="start-paginate">start-paginate</button>
     <button data-testid="server-drop">server-drop</button>
     <button data-testid="cancel">cancel</button>
-    <button data-testid="resume-paginate">resume-paginate</button>
+    <button data-testid="continue-paginate">continue-paginate</button>
     <span data-testid="status"></span>
     <span data-testid="rows"></span>
     <span data-testid="ended"></span>
     <span data-testid="error-code"></span>
     <span data-testid="error-reason"></span>
-    <span data-testid="resume-error-code"></span>
-    <span data-testid="resume-error-reason"></span>
+    <span data-testid="continue-error-code"></span>
+    <span data-testid="continue-error-reason"></span>
   `);
 
   const socket = client<StreamDurableClient>()(
@@ -38,7 +38,7 @@ export function setup(): void {
 
   async function drain(
     iterable: AsyncIterable<{ row: number }>,
-    errId: 'error' | 'resume-error',
+    errId: 'error' | 'continue-error',
   ): Promise<void> {
     try {
       for await (const chunk of iterable) {
@@ -71,10 +71,10 @@ export function setup(): void {
     handle?.cancel();
   });
 
-  // After the cancel deleted the durable row, resuming that id must abort not-found.
-  button('resume-paginate', () => {
-    const resumed = socket.resumeStream('paginate', 'pages-cancel');
-    void drain(resumed, 'resume-error');
+  // After the cancel deleted the durable row, continuing that id must abort not-found.
+  button('continue-paginate', () => {
+    const continued = socket.continueStream('paginate', 'pages-cancel');
+    void drain(continued, 'continue-error');
   });
 
   ready();

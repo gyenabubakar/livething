@@ -173,7 +173,7 @@ interface DispatchRuntime
 
   /**
    * Tracks whether the durable-stream schema has already run in this engine
-   * instance lifetime. Flipped to `true` on first stream start or resume so
+   * instance lifetime. Flipped to `true` on first stream start or continue so
    * subsequent operations skip the redundant DDL check.
    */
   durableStreamSchemaReady: boolean;
@@ -374,9 +374,9 @@ export async function dispatchIncoming(
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
   const stream = scoped ? scoped.streams.get(event) : runtime.compiled.streams.get(event);
 
-  const resumableStream = scoped
-    ? scoped.resumableStreams.get(event)
-    : runtime.compiled.resumableStreams.get(event);
+  const cursorStream = scoped
+    ? scoped.cursorStreams.get(event)
+    : runtime.compiled.cursorStreams.get(event);
 
   const recordedStream = scoped
     ? scoped.recordedStreams.get(event)
@@ -405,7 +405,7 @@ export async function dispatchIncoming(
       let interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = 'unknown';
       if (incoming) interceptKind = 'incoming';
       else if (request) interceptKind = 'request';
-      else if (stream || resumableStream || recordedStream) interceptKind = 'stream';
+      else if (stream || cursorStream || recordedStream) interceptKind = 'stream';
       const interceptRouting = buildInterceptRouting(livething);
       let frame: InterceptPrimitive.InterceptFrame = {
         event,
@@ -432,7 +432,7 @@ export async function dispatchIncoming(
       message = { event: frame.event, payload: frame.payload };
     }
 
-    const primitive = incoming ?? request ?? stream ?? resumableStream ?? recordedStream;
+    const primitive = incoming ?? request ?? stream ?? cursorStream ?? recordedStream;
     if (!primitive) return;
 
     let payloadValue: unknown;
@@ -494,12 +494,12 @@ export async function dispatchIncoming(
         payload: payloadValue,
         livething,
       });
-    } else if (resumableStream || recordedStream) {
-      const durable = resumableStream ?? recordedStream!;
+    } else if (cursorStream || recordedStream) {
+      const durable = cursorStream ?? recordedStream!;
       await runtime.durableStream?.trigger(runtime, connection, {
         scope,
         durable,
-        kind: resumableStream ? 'resumable' : 'recorded',
+        kind: cursorStream ? 'cursor' : 'recorded',
         payload: payloadValue,
         livething,
       });
@@ -612,11 +612,11 @@ async function handleDispatchError(
   });
 }
 
-/** Handle a client `__resumeStream__` frame for a suspended or ended durable stream. */
-async function handleResumeStream(
+/** Handle a client `__continueStream__` frame for a suspended or ended durable stream. */
+async function handleContinueStream(
   runtime: DispatchRuntime,
   connection: RuntimeConnection,
-  frame: Protocol.ResumeStreamFrame,
+  frame: Protocol.ContinueStreamFrame,
 ): Promise<void> {
   const streamId = frame.__livething.streamId;
   const lastKnownSeq = frame.payload.lastKnownSeq ?? 0;
@@ -624,15 +624,15 @@ async function handleResumeStream(
   if (!runtime.durableStream) {
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
-      payload: { code: UnsupportedProtocol.code, detail: { event: '__resumeStream__' } },
+      payload: { code: UnsupportedProtocol.code, detail: { event: '__continueStream__' } },
       livething: { streamId },
     });
     return;
   }
 
-  let resumeScope: EngineRuntimeTypes.ResolvedChannel;
+  let continueScope: EngineRuntimeTypes.ResolvedChannel;
   try {
-    resumeScope = resolveChannel(runtime.compiled, frame.__livething);
+    continueScope = resolveChannel(runtime.compiled, frame.__livething);
   } catch (error) {
     await runtime.handleRuntimeError(connection, {
       error,
@@ -642,7 +642,11 @@ async function handleResumeStream(
     return;
   }
 
-  await runtime.durableStream.resume(runtime, connection, { resumeScope, streamId, lastKnownSeq });
+  await runtime.durableStream.continue(runtime, connection, {
+    continueScope,
+    streamId,
+    lastKnownSeq,
+  });
 }
 
 /** Cancel a stream for a client `__streamCancel__` frame: the live side, then the durable row. */
@@ -725,8 +729,8 @@ async function dispatchProtocolFrame(
         return;
       }
 
-      case '__resumeStream__':
-        await handleResumeStream(runtime, connection, frame);
+      case '__continueStream__':
+        await handleContinueStream(runtime, connection, frame);
         return;
 
       case '__replay__': {
@@ -1111,10 +1115,10 @@ export async function processTextMessage(
     const triggerScoped = triggerScope.channel;
     const isStreamTrigger = triggerScoped
       ? triggerScoped.streams.has(event) ||
-        triggerScoped.resumableStreams.has(event) ||
+        triggerScoped.cursorStreams.has(event) ||
         triggerScoped.recordedStreams.has(event)
       : runtime.compiled.streams.has(event) ||
-        runtime.compiled.resumableStreams.has(event) ||
+        runtime.compiled.cursorStreams.has(event) ||
         runtime.compiled.recordedStreams.has(event);
     if (
       !isStreamTrigger &&

@@ -193,7 +193,7 @@ describe('manual connect while already hidden', () => {
 });
 
 describe('network-aware reconnection (reconnection + platform online signal)', () => {
-  it('pauses reconnect while offline, resumes immediately on online', () => {
+  it('pauses reconnect while offline, retries immediately on online', () => {
     const m = mockEnvironment();
     const { ws, socket } = build(platform({ environment: m.environment }), reconnection());
 

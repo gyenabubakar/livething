@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /**
- * Helpers shared by the plain-stream, resumable-stream, and recorded-stream
+ * Helpers shared by the plain-stream, cursor-stream, and recorded-stream
  * runtimes. They all build the same `ActiveStream` shape, install the same
  * `ctx.nudges()` helper, and resolve the same broadcast target list.
  */
@@ -58,7 +58,7 @@ export interface BuildActiveStreamInput {
   /** True for a broadcast stream — recorded so cancel can notify fan-out peers. */
   broadcast?: boolean;
 
-  /** True for a resumable or recorded stream. */
+  /** True for a durable stream. */
   durable?: boolean;
 }
 

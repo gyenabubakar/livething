@@ -1,14 +1,14 @@
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
+import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
 import { stream } from './capability.ts';
 
 const base = server({
-  capabilities: [stream(), resumableStream(), recordedStream()],
+  capabilities: [stream(), cursorStream(), recordedStream()],
 });
 
 const feed = base.stream('feed', {
@@ -18,9 +18,9 @@ const feed = base.stream('feed', {
   },
 });
 
-const paginate = base.resumableStream('paginate', {
+const paginate = base.cursorStream('paginate', {
   input: v.object({}),
-  // Resumable chunk type comes from an explicit `chunk` — `withCursor` makes
+  // Cursor chunk type comes from an explicit `chunk` — `withCursor` makes
   // yield-inference circular, so it cannot be inferred from what is yielded.
   chunk: t<{ row: number }>(),
   cursor: t<{ row: number }>(),

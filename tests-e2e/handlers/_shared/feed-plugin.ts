@@ -4,7 +4,7 @@ import { clientRequests } from '@livething/server/client-requests';
 import { error } from '@livething/server/errors';
 import { inbox } from '@livething/server/inbox';
 import { plugin } from '@livething/server/plugins';
-import { recordedStream, resumableStream, stream } from '@livething/server/streams';
+import { cursorStream, recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 
 // A plugin-declared error. It leaves the server namespaced as `__e2e:feed::room-full`;
@@ -25,7 +25,7 @@ const PluginFailure = error('plugin-failure', v.object({ reason: v.string() }));
 const h = server({
   scope: 'plugin',
   capabilities: [
-    resumableStream(),
+    cursorStream(),
     recordedStream(),
     stream(),
     clientRequests(),
@@ -151,8 +151,8 @@ const triggerRoomFullError = h.on('trigger-room-full-error', {
   },
 });
 
-// Resumable (durable, cursor) stream.
-const feed = h.resumableStream('feed', {
+// Cursor stream.
+const feed = h.cursorStream('feed', {
   input: v.object({ from: v.number() }),
   chunk: t<{ row: number }>(),
   maxAgeMs: 60_000,

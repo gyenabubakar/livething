@@ -37,8 +37,8 @@ async function countChunks(page: Page, socket: string, event: string): Promise<n
 /**
  * Leaving a channel stops every stream the connection runs in that channel.
  * The client gets a terminal `stream-aborted` error with reason `unsubscribed`,
- * and no chunk follows it. A resumable or recorded stream is deleted too, so it
- * cannot be resumed after joining again.
+ * and no chunk follows it. A durable stream is deleted too, so it
+ * cannot be continued after joining again.
  */
 test.describe('stream stops when its connection leaves the channel', () => {
   test.beforeEach(async ({ page }) => {
@@ -89,7 +89,7 @@ test.describe('stream stops when its connection leaves the channel', () => {
     expect(await countChunks(page, a, 'channel-tokens')).toBe(count);
   });
 
-  test('a recorded channel stream is stopped and deleted, so resuming after joining again fails', async ({
+  test('a recorded channel stream is stopped and deleted, so continuing after joining again fails', async ({
     page,
   }, testInfo) => {
     const room = `scl-recorded-${testInfo.testId}-${Date.now()}`;
@@ -120,16 +120,16 @@ test.describe('stream stops when its connection leaves the channel', () => {
 
     await joinRooms(page, a);
     await send(page, a, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
-    const resumeError = await waitForFrame(page, a, {
+    const continueError = await waitForFrame(page, a, {
       match: (f) =>
         f.event === '__error__' &&
         f.metadata?.stream?.id === streamId &&
         (f.payload?.detail as { reason?: string } | undefined)?.reason === 'not-found',
     });
-    expect(resumeError.payload?.code).toBe('stream-aborted');
+    expect(continueError.payload?.code).toBe('stream-aborted');
   });
 });

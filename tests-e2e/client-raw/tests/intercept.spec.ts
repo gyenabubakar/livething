@@ -89,7 +89,7 @@ test.describe('intercept', () => {
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     // 'hint-block' triggers a Block in the intercept — nudge is dropped before
-    // reaching the buffer. The generator resumes with an empty nudge list and
+    // reaching the buffer. The generator continues with an empty nudge list and
     // yields 'no-hint'.
     await page.getByTestId('start-nudge-stream-block').click();
     await expect(page.getByTestId('nudge-stream-end')).toHaveText('yes');

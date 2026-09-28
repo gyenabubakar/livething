@@ -20,7 +20,7 @@ export interface StreamTriggerOptions {
 }
 
 /**
- * Adds `socket.stream(...)`, `socket.onStream(...)` and `socket.resumeStream(...)`,
+ * Adds `socket.stream(...)`, `socket.onStream(...)` and `socket.continueStream(...)`,
  * typed from the contract's `streams`.
  */
 export interface StreamTypeFn extends TypeFn {
@@ -37,7 +37,7 @@ export interface StreamTypeFn extends TypeFn {
           event: K,
           handlers: StreamHandlers<S[K]['chunk']>,
         ): () => void;
-        resumeStream<K extends PersistentStreamKeys<S> & string>(
+        continueStream<K extends PersistentStreamKeys<S> & string>(
           event: K,
           streamId: string,
           options?: { lastKnownSeq?: number },

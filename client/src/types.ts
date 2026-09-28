@@ -61,7 +61,7 @@ export interface RequestContract {
 /**
  * One streaming definition: `payload` starts the stream, `chunk` is the shape
  * of each piece you receive, `kind` marks a durable (`'persistent'`) stream you
- * can resume versus a plain (`'ephemeral'`) one, and `nudges` (optional) are
+ * can continue versus a plain (`'ephemeral'`) one, and `nudges` (optional) are
  * messages you can send to a running stream.
  */
 export interface StreamContract {
@@ -175,7 +175,7 @@ export type NudgesOf<S> = S extends { nudges: infer N } ? N : {};
 
 /**
  * The stream names whose `kind` is `'persistent'` — the only streams you can
- * resume. A plain (`'ephemeral'`) stream is not a valid `resumeStream()` argument.
+ * continue. A plain (`'ephemeral'`) stream is not a valid `continueStream()` argument.
  */
 export type PersistentStreamKeys<S> = {
   [K in keyof S]: S[K] extends { kind: 'persistent' } ? K : never;
@@ -241,7 +241,7 @@ export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C>
           event: E,
           handlers: StreamHandlers<S[E]['chunk']>,
         ): () => void;
-        resumeStream<E extends PersistentStreamKeys<S> & string>(
+        continueStream<E extends PersistentStreamKeys<S> & string>(
           event: E,
           streamId: string,
           options?: { lastKnownSeq?: number },

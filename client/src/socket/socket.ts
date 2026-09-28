@@ -453,7 +453,7 @@ export class LiveThingSocket {
 
       // Resuming a suspended transport is exactly a fresh connect: the session
       // was never reset (suspend keeps it), so `_openConnection` treats it as a
-      // reconnect and primitives rejoin/resume as usual.
+      // reconnect and primitives rejoin and continue their streams as usual.
       resume: () => this.connect(),
     };
   }
@@ -465,7 +465,7 @@ export class LiveThingSocket {
   /**
    * Reconnection has permanently given up — a non-retryable close, or out of
    * retries. Notify primitives so they can finish state they kept alive for a
-   * reconnect that will never come; otherwise a resumable stream's loop hangs
+   * reconnect that will never come; otherwise a durable stream's loop hangs
    * forever and an active channel's idle hold leaks. Then settle on 'closed'.
    * Only the out-of-retries path emits the public `reconnectFailed` event, to
    * keep its existing meaning.
@@ -589,9 +589,9 @@ export class LiveThingSocket {
         this._isFirstConnect = false;
 
         // On a reconnect, restore membership state BEFORE flushing queued ops:
-        // channels rejoin and durable streams resume in onReconnect, so a request,
+        // channels rejoin and durable streams continue in onReconnect, so a request,
         // ack, scoped send, stream trigger, or nudge queued during the drop reaches
-        // the server only after its channel is rejoined and its stream resumed.
+        // the server only after its channel is rejoined and its stream continued.
         // Otherwise a queued channel op races ahead of the rejoin and the server
         // answers ChannelNotSubscribed or it times out.
         if (isReconnect) {
@@ -606,7 +606,7 @@ export class LiveThingSocket {
 
         // Then the flush phase: replay, the request/ack/stream outboxes, the
         // subscribe/unsubscribe flush, and the buffered messages — now ordered
-        // after the rejoin/resume above.
+        // after the rejoin/continue above.
         for (const primitive of this._primitives) {
           try {
             this._flushPrimitiveFrames(primitive.onOpen?.());

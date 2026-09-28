@@ -2,8 +2,8 @@ import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
@@ -26,11 +26,11 @@ describe('ctx.stream.drain type + highWaterMark config', () => {
     });
   });
 
-  it('drain() is present in a resumable stream and highWaterMark is accepted', () => {
+  it('drain() is present in a cursor stream and highWaterMark is accepted', () => {
     const base = server({
-      capabilities: [resumableStream()],
+      capabilities: [cursorStream()],
     });
-    base.resumableStream('paginate', {
+    base.cursorStream('paginate', {
       input: v.object({}),
       cursor: t<{ row: number }>(),
       highWaterMark: 128 * 1024,

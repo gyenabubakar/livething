@@ -18,7 +18,7 @@ function tockSeqs(
 }
 
 test.describe('durable-config', () => {
-  test('persistent sequence resumes above its prior value after a restart', async ({
+  test('persistent sequence continues above its prior value after a restart', async ({
     page,
     request,
   }, testInfo) => {
@@ -44,7 +44,7 @@ test.describe('durable-config', () => {
     const res = await request.get(`${WS_PATH}/restart?room=${room}`);
     expect(res.status()).toBe(204);
 
-    // Reconnect and tick once. A persistent counter resumes ABOVE its prior
+    // Reconnect and tick once. A persistent counter continues ABOVE its prior
     // value (a non-persistent one would reset back to 1).
     const b = await connect(page, { path: WS_PATH, username: 'alice', room });
     await send(page, b, { event: 'tick', payload: {} });

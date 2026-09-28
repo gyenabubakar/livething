@@ -98,7 +98,7 @@ type BuiltInErrorUnion =
 /**
  * Read one slot off a contract type, falling back to `{}` when the contract
  * does not declare it. Going through this helper instead of a direct index
- * lets `InferClient` reach slots — like `resumableStreams` — that are not part
+ * lets `InferClient` reach slots — like `cursorStreams` — that are not part
  * of the loose `ServerContract` constraint.
  */
 type Slot<TContract, TKey extends string> = TKey extends keyof TContract ? TContract[TKey] : {};
@@ -125,9 +125,9 @@ type TidyStreamEntry<TEntry> = Omit<
 /**
  * Map every entry of one server-side stream slot into its client shape:
  * tidied, and stamped with a `kind`. `kind` is `'persistent'` for the durable
- * kinds (`resumableStream` / `recordedStream`) that survive a reconnect, and
+ * kinds (`cursorStream` / `recordedStream`) that survive a reconnect, and
  * `'ephemeral'` for a plain `stream`. It mirrors the runtime `__livething.streamDurability`
- * on the wire, and the client reads it to gate resume-only methods at the type level.
+ * on the wire, and the client reads it to gate continue-only methods at the type level.
  */
 type ClientStreamSlot<TSlot, TKind extends 'ephemeral' | 'persistent'> = {
   [TName in keyof TSlot]: TidyStreamEntry<TSlot[TName]> & { kind: TKind };
@@ -135,12 +135,12 @@ type ClientStreamSlot<TSlot, TKind extends 'ephemeral' | 'persistent'> = {
 
 /**
  * The client's flat view of every server-pushed stream. The contract keeps
- * `stream(...)`, `resumableStream(...)`, and `recordedStream(...)` in three
+ * `stream(...)`, `cursorStream(...)`, and `recordedStream(...)` in three
  * separate slots; the client sees one merged map. Undeclared `cursor` /
  * `nudges` fields are omitted, and each entry carries a `kind` discriminator.
  */
 type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, 'ephemeral'> &
-  ClientStreamSlot<Slot<TContract, 'resumableStreams'>, 'persistent'> &
+  ClientStreamSlot<Slot<TContract, 'cursorStreams'>, 'persistent'> &
   ClientStreamSlot<Slot<TContract, 'recordedStreams'>, 'persistent'>;
 
 /**
@@ -318,10 +318,10 @@ type InferClientFor<TContract, TPlugins> = SimplifyDeep<{
   serverRequests: Slot<TContract, 'serverRequests'> & PluginMapOf<TPlugins, 'serverRequests'>;
   /**
    * Every server-pushed stream the client can subscribe to. Plain `stream(...)`,
-   * `resumableStream(...)`, and `recordedStream(...)` all show up under this
+   * `cursorStream(...)`, and `recordedStream(...)` all show up under this
    * single slot, plus plugin streams under `__id::name`. Each entry carries a
    * `kind` — `'persistent'` for the durable kinds that survive a reconnect,
-   * `'ephemeral'` for a plain stream — so the client can gate resume-only
+   * `'ephemeral'` for a plain stream — so the client can gate continue-only
    * methods at the type level.
    */
   streams: ClientStreams<TContract> & PluginMapOf<TPlugins, 'streams'>;

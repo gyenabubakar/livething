@@ -30,7 +30,7 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
     compiled: {
       outgoing: new Map([['foo', { event: 'foo' }]]),
       streams: new Map(),
-      resumableStreams: new Map(),
+      cursorStreams: new Map(),
       recordedStreams: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
@@ -106,7 +106,7 @@ describe('broadcastToChannel — includeSelf (replaces excludeSelf, default flip
         compiled: {
           outgoing: new Map([['foo', { event: 'foo' }]]),
           streams: new Map(),
-          resumableStreams: new Map(),
+          cursorStreams: new Map(),
           recordedStreams: new Map(),
           channels: new Map([['room', { outgoing: new Map([['foo', { event: 'foo' }]]) }]]),
           channelFamilies: new Map(),
@@ -146,7 +146,7 @@ describe('broadcastToChannel — includeSelf (replaces excludeSelf, default flip
         compiled: {
           outgoing: new Map([['foo', { event: 'foo' }]]),
           streams: new Map(),
-          resumableStreams: new Map(),
+          cursorStreams: new Map(),
           recordedStreams: new Map(),
           channels: new Map([['room', { outgoing: new Map([['foo', { event: 'foo' }]]) }]]),
           channelFamilies: new Map(),

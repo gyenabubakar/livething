@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { buildActiveStream } from '~/_engine/stream-common/active-stream.ts';
+import { cursorStream } from '~/stream-cursor/definition.ts';
 import { recordedStream } from '~/stream-recorded/definition.ts';
-import { resumableStream } from '~/stream-resumable/definition.ts';
 import { stream } from '~/stream/definition.ts';
 import { describe, expect, it } from 'vitest';
 
@@ -14,8 +14,8 @@ describe('highWaterMark validation (Major 7)', () => {
     );
   });
 
-  it('rejects it on resumable and recorded streams too', () => {
-    expect(() => resumableStream('paginate', { highWaterMark: 0 })).toThrow(
+  it('rejects it on cursor and recorded streams too', () => {
+    expect(() => cursorStream('paginate', { highWaterMark: 0 })).toThrow(
       /highWaterMark must be a positive/,
     );
     expect(() => recordedStream('history', { highWaterMark: -5 })).toThrow(

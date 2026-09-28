@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 /**
  * Shared raw-WebSocket rig used by tests that need direct wire access
  * (subscribing to channels, sending control frames, dropping the socket,
- * resuming streams). Each spec installs the rig onto a Playwright Page,
+ * continuing streams). Each spec installs the rig onto a Playwright Page,
  * then talks to one or more sockets by id.
  */
 

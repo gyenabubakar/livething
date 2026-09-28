@@ -5,7 +5,7 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 // Drives a recorded broadcast stream (`feed`, 5 chunks 250 ms apart) in the
 // 'rooms' channel across a peer's reconnect. The peer listens with onStream,
 // drops its socket mid-stream, reconnects (persistent channel rejoin), then
-// resumes the stream by ID. Every chunk each surface receives is logged, so the
+// continues the stream by ID. Every chunk each surface receives is logged, so the
 // spec can prove whether any chunk reaches the same listener twice.
 export function setup(): void {
   mount(`
@@ -14,15 +14,15 @@ export function setup(): void {
     <button data-testid="listen">listen</button>
     <button data-testid="start">start</button>
     <button data-testid="drop">drop</button>
-    <button data-testid="resume">resume</button>
+    <button data-testid="continue">continue</button>
     <span data-testid="status"></span>
     <span data-testid="sub-ok"></span>
     <span data-testid="trigger-chunks"></span>
     <span data-testid="trigger-end"></span>
     <span data-testid="peer-chunks"></span>
     <span data-testid="peer-end"></span>
-    <span data-testid="resume-chunks"></span>
-    <span data-testid="resume-end"></span>
+    <span data-testid="continue-chunks"></span>
+    <span data-testid="continue-end"></span>
   `);
 
   const socket = client<StreamDurableBroadcastClient>()(
@@ -74,12 +74,12 @@ export function setup(): void {
     socket.ws?.close(4000, 'test drop');
   });
 
-  button('resume', async () => {
+  button('continue', async () => {
     if (!streamId) return;
 
-    const handle = room.resumeStream('feed', streamId);
-    for await (const chunk of handle) append('resume-chunks', chunk.token);
-    el('resume-end').textContent = 'yes';
+    const handle = room.continueStream('feed', streamId);
+    for await (const chunk of handle) append('continue-chunks', chunk.token);
+    el('continue-end').textContent = 'yes';
   });
 
   ready();

@@ -218,8 +218,8 @@ export const ReplayFrame = frame(
   Metadata,
 );
 export const StreamCancelFrame = frame('__streamCancel__', NoPayload, streamMeta);
-export const ResumeStreamFrame = frame(
-  '__resumeStream__',
+export const ContinueStreamFrame = frame(
+  '__continueStream__',
   v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
   streamMeta,
 );
@@ -253,7 +253,7 @@ export const IncomingProtocolFrame = v.union([
   UnsubscribeFrame,
   ReplayFrame,
   StreamCancelFrame,
-  ResumeStreamFrame,
+  ContinueStreamFrame,
   MemberSyncRequestFrame,
   ReceivedFrame,
   ReadFrame,
@@ -484,7 +484,7 @@ export type SubscribeFrame = v.InferOutput<typeof SubscribeFrame>;
 export type UnsubscribeFrame = v.InferOutput<typeof UnsubscribeFrame>;
 export type ReplayFrame = v.InferOutput<typeof ReplayFrame>;
 export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
-export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
+export type ContinueStreamFrame = v.InferOutput<typeof ContinueStreamFrame>;
 export type MemberSyncRequestFrame = v.InferOutput<typeof MemberSyncRequestFrame>;
 export type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
 export type ReadFrame = v.InferOutput<typeof ReadFrame>;
@@ -513,7 +513,7 @@ const INCOMING_NAMES = [
   '__unsubscribe__',
   '__replay__',
   '__streamCancel__',
-  '__resumeStream__',
+  '__continueStream__',
   '__memberSync__',
   '__received__',
   '__read__',
