@@ -1,129 +1,40 @@
 <script setup lang="ts">
-import { Motion } from 'motion-v'
+defineProps<{ link?: string, linkLabel?: string }>()
 
-// Features that don't get their own section above — the rest of what you'd
-// otherwise hand-roll to ship a websocket-first realtime app. No animation:
-// this is a reference wall, read at a glance. Sizes vary (bento).
 const features = [
-  {
-    title: 'Typed errors',
-    icon: 'i-ph-warning-octagon-duotone',
-    desc: 'Register errors on the server and they land in the client contract. Catch them by type and narrow with .matches() — no string-sniffing, no guessing what failed.',
-    code: 'if (NotFound.matches(err)) …',
-    size: 'hero',
-  },
-  { title: 'Auth on connect', icon: 'i-ph-key-duotone', desc: 'The upgrade gate runs during the handshake — reject a connection before the socket ever opens.' },
-  { title: 'Scheduled work', icon: 'i-ph-clock-duotone', desc: 'Run server-side tasks on a timer or interval — cleanup, heartbeats, deferred jobs, no connection needed.' },
-  { title: 'Rate limiting', icon: 'i-ph-gauge-duotone', desc: 'Cap how fast any one connection can send, so a flood never takes the server down.' },
-  { title: 'Tags', icon: 'i-ph-tag-duotone', desc: 'Label connections by user, role, or team, then address everyone sharing a label as one group.' },
-  { title: 'Plugins', icon: 'i-ph-puzzle-piece-duotone', desc: 'Package your own capabilities as self-contained, typed add-ons — extra handlers, context, and wire messages that compose like the built-ins.' },
-  { title: 'Durable state', icon: 'i-ph-database-duotone', desc: 'Channel memberships, tags, and streams survive a restart or redeploy — flip on durable storage and the room is still there when the server comes back.' },
-  { title: 'Inbox', icon: 'i-ph-tray-duotone', desc: 'Guaranteed per-member delivery: every member gets a durable copy of every message, held until they acknowledge it and re-delivered on reconnect — nothing dropped because someone was offline.' },
-  { title: 'Connection quality', icon: 'i-ph-cell-signal-high-duotone', desc: 'A live quality tier from round-trip latency, so your UI can react the moment the connection degrades.' },
+  { title: 'Typed errors', icon: 'i-ph-warning-octagon-duotone', desc: 'Catch server errors by type on the client' },
+  { title: 'Auth on connect', icon: 'i-ph-key-duotone', desc: 'Refuse a connection before it opens' },
+  { title: 'Scheduled work', icon: 'i-ph-clock-duotone', desc: 'Run tasks on a timer, no client needed' },
+  { title: 'Rate limiting', icon: 'i-ph-gauge-duotone', desc: 'Cap how fast one connection can send' },
+  { title: 'Tags', icon: 'i-ph-tag-duotone', desc: 'Reach every connection with one label' },
+  { title: 'Plugins', icon: 'i-ph-puzzle-piece-duotone', desc: 'Package your own typed capabilities' },
+  { title: 'Durable state', icon: 'i-ph-database-duotone', desc: 'Rooms and streams survive a redeploy' },
+  { title: 'Inbox', icon: 'i-ph-tray-duotone', desc: 'Each member gets every message, once' },
+  { title: 'Connection quality', icon: 'i-ph-cell-signal-high-duotone', desc: 'Know when the connection gets slow' },
 ]
 </script>
 
 <template>
-  <section class="deferred-section pt-16 md:pt-20 pb-24 md:pb-32">
-    <Motion
-      :initial="false"
-      :while-in-view="{ opacity: 1, y: 0 }"
-      :transition="{ duration: 0.5 }"
-      :in-view-options="{ once: true }"
-    >
-      <div class="mx-auto mb-10 max-w-2xl text-center">
-        <p v-if="$slots.headline" class="section-label justify-center">
-          <slot name="headline" mdc-unwrap="p" />
-        </p>
-        <div class="relative mb-5 mt-1">
-          <h2 class="section-title">
-            <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
-          </h2>
-          <div aria-hidden="true" v-play-when-visible class="absolute inset-0 section-title blur-xs animate-pulse pointer-events-none">
-            <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
-          </div>
-        </div>
-        <p v-if="$slots.description" class="mx-auto max-w-xl text-sm leading-relaxed text-toned [&_code]:font-mono [&_code]:text-primary [&_code]:bg-elevated/60 [&_code]:border [&_code]:border-muted [&_code]:px-1 [&_code]:py-0.5">
-          <slot name="description" mdc-unwrap="p" />
-        </p>
-      </div>
-    </Motion>
-
-    <!-- bento mosaic: one hero tile, one wide tile, the rest a uniform wall -->
-    <Motion
-      :initial="false"
-      :while-in-view="{ opacity: 1, y: 0 }"
-      :transition="{ duration: 0.5, delay: 0.1 }"
-      :in-view-options="{ once: true }"
-      class="block"
-    >
-      <div class="bento">
+  <LandingFeatureCell :link :link-label wide>
+    <template #headline><slot name="headline" mdc-unwrap="p" /></template>
+    <template #title><slot name="title" mdc-unwrap="p" /></template>
+    <template #description><slot name="description" mdc-unwrap="p" /></template>
+    <template #art>
+      <div class="grid h-full grid-cols-2 sm:grid-cols-3 content-center gap-3 p-6 sm:p-10">
         <div
-          v-for="f in features"
-          :key="f.title"
-          class="group relative flex flex-col overflow-hidden border border-muted bg-gradient-to-b from-elevated/25 to-default p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_10px_34px] hover:shadow-black/40"
-          :class="{ 'bento-hero': f.size === 'hero', 'bento-wide': f.size === 'wide' }"
+          v-for="feature in features"
+          :key="feature.title"
+          class="wl-tile border border-[rgba(128,128,128,0.2)] p-4"
         >
-          <span
-            aria-hidden="true"
-            class="pointer-events-none absolute -right-10 -top-10 size-28 rounded-full bg-primary/[0.06] blur-2xl transition-opacity duration-300 group-hover:bg-primary/[0.12]"
-          />
-          <span
-            class="inline-flex items-center justify-center border border-primary/25 bg-primary/[0.08] text-primary transition-colors group-hover:border-primary/50"
-            :class="f.size === 'hero' ? 'size-12' : 'size-10'"
-          >
-            <UIcon :name="f.icon" :class="f.size === 'hero' ? 'size-6' : 'size-5'" />
-          </span>
-          <h3
-            class="mt-4 font-semibold tracking-tight text-highlighted"
-            :class="f.size === 'hero' ? 'text-xl md:text-2xl' : 'text-base'"
-          >
-            {{ f.title }}
-          </h3>
-          <p
-            class="mt-2 leading-relaxed text-toned"
-            :class="f.size === 'hero' ? 'text-sm max-w-md' : 'text-[13px]'"
-          >
-            {{ f.desc }}
+          <UIcon :name="feature.icon" class="size-5 text-primary" />
+          <p class="mt-3 text-sm font-medium text-highlighted">
+            {{ feature.title }}
           </p>
-          <code
-            v-if="f.code"
-            class="mt-auto inline-block w-fit border border-muted bg-elevated/50 px-2 py-1 font-mono text-xs text-primary"
-          >{{ f.code }}</code>
+          <p class="mt-1 text-xs text-muted">
+            {{ feature.desc }}
+          </p>
         </div>
       </div>
-    </Motion>
-  </section>
+    </template>
+  </LandingFeatureCell>
 </template>
-
-<style scoped>
-.bento {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.75rem;
-}
-
-@media (min-width: 640px) {
-  .bento {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .bento-hero,
-  .bento-wide {
-    grid-column: span 2;
-  }
-}
-
-@media (min-width: 1024px) {
-  .bento {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    grid-auto-rows: 1fr;
-  }
-  .bento-hero {
-    grid-column: span 2;
-    grid-row: span 2;
-  }
-  .bento-wide {
-    grid-column: span 2;
-  }
-}
-</style>

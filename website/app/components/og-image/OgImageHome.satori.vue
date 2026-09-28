@@ -39,8 +39,8 @@ const frames = [
           </defs>
         </svg>
         <div
-          class="flex font-medium text-[46px] leading-none tracking-tight"
-          :style="{ fontFamily: 'Geist Pixel Line', color: '#f5f5f5', textShadow: '0 0 10px rgba(255,255,255,0.3), 0 0 26px rgba(255,255,255,0.12)' }"
+          class="flex font-semibold text-[46px] leading-none tracking-tight"
+          :style="{ fontFamily: 'Geist', color: '#f5f5f5', textShadow: '0 0 10px rgba(255,255,255,0.3), 0 0 26px rgba(255,255,255,0.12)' }"
         >
           LiveThing
         </div>

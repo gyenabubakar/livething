@@ -17,12 +17,12 @@
 @theme {
   --font-sans: "Geist", sans-serif;
   --font-mono: "DM Mono", monospace;
-  --font-pixel: "Geist Pixel Line", monospace;
-  --font-pixel-square: "Geist Pixel Line", monospace;
 }
 
 :root {
   --ui-radius: 0;
+  /* A soft off-white instead of pure #fff in light mode. */
+  --ui-bg: #f7f7f5;
 }
 
 .dark {
@@ -38,22 +38,21 @@
   html, body {
     @apply bg-default text-default;
   }
-}
 
-/* Skip rendering a landing section while it is far off screen, so its blurred
-   layers and looping demos are not composited until the reader scrolls near.
-   The `auto` intrinsic size lets the browser remember each section's real
-   height after first paint, so the scrollbar does not jump. */
-.deferred-section {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 700px;
+  /* Keep the scrollbar's space when a modal locks scrolling. The modal also
+     pads the body by the scrollbar width, which would then shift the page, so
+     cancel that padding. Without this, the fixed header jumps on open. */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    padding-right: 0 !important;
+  }
 }
 
 .section-label {
-  @apply font-pixel text-[13px] uppercase tracking-wider text-highlighted mb-4 flex items-center;
-  /* The pixel font is a hairline at one weight — a tight currentColor glow
-     thickens the strokes so the small label reads on the dark background. */
-  text-shadow: 0 0 1px currentColor;
+  @apply text-xs font-medium uppercase tracking-widest text-zinc-500 mb-4 flex items-center;
 }
 
 .section-label::before {
@@ -67,8 +66,104 @@
 }
 
 .section-title {
-  @apply font-pixel text-4xl md:text-5xl lg:text-6xl tracking-tight text-highlighted;
-  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  @apply font-sans font-semibold text-4xl md:text-5xl lg:text-6xl tracking-tight text-highlighted;
+}
+
+.feature-title {
+  @apply font-sans font-semibold text-3xl tracking-tight text-highlighted;
+}
+
+:root:not(.dark) .section-title,
+:root:not(.dark) .feature-title {
+  color: #000;
+}
+
+/* The landing sits in one bordered column; every row is split by a hairline
+   with a small square marking each corner where the lines cross. */
+.landing-frame {
+  @apply mx-auto max-w-[1360px] border-x border-default;
+}
+
+.frame-row {
+  @apply relative border-b border-default;
+}
+
+.frame-row::before,
+.frame-row::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--ui-border-accented);
+  background: var(--ui-bg);
+  z-index: 1;
+}
+
+.frame-row::before { left: -4px; }
+.frame-row::after { right: -4px; }
+
+/* Faces and lines of the landing illustrations, per theme. */
+:root {
+  --art-top: #fbfbfa;
+  --art-left: #d4d4d8;
+  --art-right: #a1a1aa;
+  --art-line: rgb(0 0 0 / 0.18);
+  --art-grid: rgb(0 0 0 / 0.04);
+  --art-glow: rgb(244 97 15 / 0.18);
+}
+
+.dark {
+  --art-top: #18181b;
+  --art-left: #18181b;
+  --art-right: #09090b;
+  --art-line: rgb(255 255 255 / 0.22);
+  --art-grid: rgb(255 255 255 / 0.04);
+  --art-glow: rgb(244 97 15 / 0.12);
+}
+
+/* Logos drawn in white for dark backgrounds (Deno, Astro): flip their lightness
+   in light mode and keep their hue. */
+.logo-white {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.dark .logo-white {
+  filter: none;
+}
+/* A dashed line whose dashes flow from its start point to its end point.
+   The offset travels one full dash period (6 + 4) so the loop has no jump. */
+.dash-flow {
+  stroke-dasharray: 6 4;
+  animation: dash-flow 0.8s linear infinite;
+}
+
+@keyframes dash-flow {
+  from { stroke-dashoffset: 10; }
+  to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-flow {
+    animation: none;
+  }
+}
+
+/* Scale and rotate SVG parts around their own centre, not the SVG origin. */
+.art-origin * {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Illustrations don't animate under reduced motion; these parts are their final picture. */
+@media (prefers-reduced-motion: reduce) {
+  .rm-show {
+    opacity: 1 !important;
+  }
+}
+
+.glow-button {
+  @apply bg-orange-600 text-white hover:bg-orange-500 dark:bg-primary dark:text-zinc-950 dark:hover:bg-orange-400;
 }
 
 .landing-code pre[style] {

@@ -42,3 +42,5 @@ AUDIT.md
 .pnpm-store
 
 /ignore-this.ts
+
+.playwright-mcp
