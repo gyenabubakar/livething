@@ -61,7 +61,7 @@ test.describe('stream-cancel matrix', () => {
     expect(ended).toBe(false);
   });
 
-  test('recordedStream in a channel — _streamCancel deletes the row, resume returns not-found', async ({
+  test('recordedStream in a channel — _streamCancel deletes the row, continue returns not-found', async ({
     page,
   }, testInfo) => {
     const room = `scm-${testInfo.testId}-${Date.now()}`;
@@ -98,9 +98,9 @@ test.describe('stream-cancel matrix', () => {
       payload: null,
       metadata: { stream: { id: streamId } },
     });
-    // No wait: the resume must see the cancel even when it arrives right after it.
+    // No wait: the reconnect must see the cancel even when it arrives right after it.
     await send(page, a, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
@@ -109,7 +109,7 @@ test.describe('stream-cancel matrix', () => {
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });
 
-  test('resumableStream in a channel — _streamCancel deletes the row, resume returns not-found', async ({
+  test('cursorStream in a channel — _streamCancel deletes the row, continue returns not-found', async ({
     page,
   }, testInfo) => {
     const room = `scm-${testInfo.testId}-${Date.now()}`;
@@ -146,9 +146,9 @@ test.describe('stream-cancel matrix', () => {
       payload: null,
       metadata: { stream: { id: streamId } },
     });
-    // No wait: the resume must see the cancel even when it arrives right after it.
+    // No wait: the reconnect must see the cancel even when it arrives right after it.
     await send(page, a, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });

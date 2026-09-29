@@ -53,13 +53,13 @@ describe('durable-stream/storage', () => {
     expect(chunks.map((c) => c.seq)).toEqual([3, 4, 5]);
   });
 
-  it('keeps the resumable cursor checkpoint the client confirmed and drops later attempts', () => {
+  it('keeps the cursor checkpoint the client confirmed and drops later attempts', () => {
     Storage.insertStream(sql, {
       userId: 'u-1',
       streamId: 's-checkpoints',
       event: 'paginate',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: 1_000,
     });
 
@@ -102,7 +102,7 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: 1_000,
     });
     Storage.markSuspended(sql, { userId: 'u-1', streamId: 's-1', now: 2_000 });
@@ -117,7 +117,7 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: 1_000,
     });
     Storage.markEnded(sql, { userId: 'u-1', streamId: 's-1', now: 5_000 });
@@ -165,7 +165,7 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: 1_000,
       maxAgeMs: 5_000,
     });

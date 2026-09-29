@@ -9,7 +9,7 @@ const parts: { text: string, accent?: boolean }[] = [
   { text: 'your own servers,', accent: true },
   { text: 'and it comes' },
   { text: 'batteries included:', accent: true },
-  { text: 'reconnection, presence, auth, rate limits and more.' },
+  { text: 'channels, requests, streaming, reliability and more.' },
 ]
 
 const words = parts.flatMap(part => part.text.split(' ').map(word => ({ word, accent: part.accent })))
@@ -17,7 +17,7 @@ const words = parts.flatMap(part => part.text.split(' ').map(word => ({ word, ac
 
 <template>
   <section class="frame-row px-6 sm:px-10 py-24 md:py-36">
-    <p class="statement mx-auto max-w-5xl text-3xl/tight font-semibold tracking-tight sm:text-4xl/tight lg:text-5xl/tight">
+    <p class="statement mx-auto max-w-5xl font-serif text-3xl/tight font-semibold tracking-tight sm:text-4xl/tight lg:text-5xl/tight">
       <template v-for="(item, index) in words" :key="index">
         <span
           class="statement-word"

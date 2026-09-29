@@ -2,7 +2,7 @@ import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { Disconnect } from '@livething/server/errors';
-import { resumableStream } from '@livething/server/streams';
+import { cursorStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { allowAnonymous, requireUsername } from '../_shared/upgrade.ts';
@@ -24,7 +24,7 @@ const base = server({
   capabilities: [
     channels(),
     clientRequests(),
-    resumableStream(),
+    cursorStream(),
     emits({
       'true-leave': t<v.InferOutput<typeof TrueLeavePayload>>(),
       // Test support: a per-subscribe-flow ack so a test can count how many times
@@ -92,10 +92,10 @@ const handleReadExecCount = base.request('read-exec-count', {
   },
 });
 
-// Anonymous connections (`upgrade` returned no `userId`) cannot resume a
-// stream on reconnect — they have no stable id to key the resume against. The
+// Anonymous connections (`upgrade` returned no `userId`) cannot continue a
+// stream on reconnect — they have no stable id to key the reconnect against. The
 // engine rejects the start with `DurableStreamRequiresUser` before this runs.
-const handleAnonStream = base.resumableStream('anon-stream', {
+const handleAnonStream = base.cursorStream('anon-stream', {
   input: v.object({}),
   chunk: t<{ n: number }>(),
   async *run() {

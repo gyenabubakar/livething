@@ -180,7 +180,7 @@ export const handleFeed = base.stream('feed', {
   },
 });
 
-export const handlePaginate = base.resumableStream('paginate', {
+export const handlePaginate = base.cursorStream('paginate', {
   input: v.object({}),
   chunk: PaginateChunk,
   async *run(ctx) {

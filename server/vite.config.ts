@@ -36,7 +36,7 @@ export default defineConfig({
         // one of them from `@livething/server/streams` does not pull the engines of
         // the others — the barrel re-exports these separable chunks.
         'stream/capability': resolve(__dirname, 'src/stream/capability.ts'),
-        'stream-resumable/capability': resolve(__dirname, 'src/stream-resumable/capability.ts'),
+        'stream-cursor/capability': resolve(__dirname, 'src/stream-cursor/capability.ts'),
         'stream-recorded/capability': resolve(__dirname, 'src/stream-recorded/capability.ts'),
         channels: resolve(__dirname, 'src/channel/index.ts'),
         tags: resolve(__dirname, 'src/tags/capability.ts'),

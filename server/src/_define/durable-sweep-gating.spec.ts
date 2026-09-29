@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
+import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
 import { describe, expect, it } from 'vitest';
 
 const SWEEP_TASK = '__livething:stream-durable-sweep';
@@ -36,11 +36,11 @@ describe('durable-stream retention sweep gating (Minor 1)', () => {
     expect(sweepCount(def)).toBe(1);
   });
 
-  it('installs exactly one sweep when both resumable and recorded are used (dedup)', () => {
+  it('installs exactly one sweep when both cursor and recorded are used (dedup)', () => {
     const base = server({
-      capabilities: [resumableStream(), recordedStream()],
+      capabilities: [cursorStream(), recordedStream()],
     });
-    const r = base.resumableStream('rs', { async *run() {} } as any);
+    const r = base.cursorStream('rs', { async *run() {} } as any);
     const c = base.recordedStream('rc', { async *run() {} } as any);
     const def = base.assemble({ handlers: [r, c] });
     expect(sweepCount(def)).toBe(1);

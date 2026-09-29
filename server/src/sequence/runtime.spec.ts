@@ -40,7 +40,7 @@ describe('sequence/runtime', () => {
     expect(allocatePersistentSequence(sql)).toBe(3);
   });
 
-  it('resumes from a pre-existing sequence row after a restart', () => {
+  it('continues from a pre-existing sequence row after a restart', () => {
     const { calls, sql } = sequenceDb();
     sql.exec('INSERT INTO __livething_sequence (scope, nextSeq) VALUES (?, ?)', 'global', 42);
     calls.length = 0;
@@ -84,7 +84,7 @@ describe('createPersistentSequenceAllocator (batched)', () => {
     expect(writeCount(calls)).toBe(2);
   });
 
-  it('a restart resumes above the reserved range — monotonic with a gap (crash safety)', () => {
+  it('a restart continues above the reserved range — monotonic with a gap (crash safety)', () => {
     const { sql } = sequenceDb();
     const before = createPersistentSequenceAllocator(sql, 100);
 

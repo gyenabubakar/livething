@@ -67,7 +67,7 @@ afterEach(() => {
 });
 
 describe('durable stream survives unexpected drop', () => {
-  it('does not throw Disconnected on an unexpected drop and resumes after reconnect', async () => {
+  it('does not throw Disconnected on an unexpected drop and continues after reconnect', async () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(connect('wss://test'), stream(), reconnection());
@@ -104,7 +104,7 @@ describe('durable stream survives unexpected drop', () => {
 });
 
 describe('cancel during reconnect', () => {
-  it('holds the cancel until reconnect, then sends it and suppresses resume', async () => {
+  it('holds the cancel until reconnect, then sends it and suppresses continue', async () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(connect('wss://test'), stream(), reconnection());
@@ -129,7 +129,7 @@ describe('cancel during reconnect', () => {
         sent.some((f) => f.event === '__streamCancel__' && f.metadata.stream?.id === sid),
       ).toBe(true);
       expect(
-        sent.some((f) => f.event === '__resumeStream__' && f.metadata.stream?.id === sid),
+        sent.some((f) => f.event === '__continueStream__' && f.metadata.stream?.id === sid),
       ).toBe(false);
 
       expect(await collect(handle)).toEqual([]);
@@ -166,7 +166,7 @@ describe('cancel during reconnect', () => {
   });
 });
 
-describe('resumable stream lazy hold across failed reconnects', () => {
+describe('durable stream lazy hold across failed reconnects', () => {
   it('releases exactly the hold it owns once, leaving unrelated consumers untouched', async () => {
     vi.useFakeTimers();
     try {
@@ -207,8 +207,8 @@ describe('resumable stream lazy hold across failed reconnects', () => {
   });
 });
 
-describe('hibernation-wake resume', () => {
-  it('re-sends __resumeStream__ on stream-aborted/hibernation-wake without ending the stream', async () => {
+describe('hibernation-wake continue', () => {
+  it('re-sends __continueStream__ on stream-aborted/hibernation-wake without ending the stream', async () => {
     const { socket, ws } = build();
     const { handle, sid } = await start(socket, ws, { streamDurability: 'persistent' });
 
@@ -222,10 +222,10 @@ describe('hibernation-wake resume', () => {
     });
 
     const frames = ws.sentFrames();
-    const resumeFrame = frames.find(
-      (f) => f.event === '__resumeStream__' && f.metadata.stream?.id === sid,
+    const continueFrame = frames.find(
+      (f) => f.event === '__continueStream__' && f.metadata.stream?.id === sid,
     );
-    expect(resumeFrame).toBeDefined();
+    expect(continueFrame).toBeDefined();
 
     ws.emit({ event: 'ask-ai', payload: { text: 'b' }, metadata: { stream: { id: sid, seq: 2 } } });
     ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
@@ -233,7 +233,7 @@ describe('hibernation-wake resume', () => {
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
   });
 
-  it('hibernation-wake resume frame uses the last delivered seq', async () => {
+  it('hibernation-wake continue frame uses the last delivered seq', async () => {
     const { socket, ws } = build();
     const { sid } = await start(socket, ws, { streamDurability: 'persistent' });
 
@@ -246,11 +246,11 @@ describe('hibernation-wake resume', () => {
     });
 
     const frames = ws.sentFrames();
-    const resumeFrame = frames.find(
-      (f) => f.event === '__resumeStream__' && f.metadata.stream?.id === sid,
+    const continueFrame = frames.find(
+      (f) => f.event === '__continueStream__' && f.metadata.stream?.id === sid,
     );
-    expect(resumeFrame).toMatchObject({
-      event: '__resumeStream__',
+    expect(continueFrame).toMatchObject({
+      event: '__continueStream__',
       payload: { lastKnownSeq: 5 },
       metadata: { stream: { id: sid } },
     });
@@ -258,8 +258,8 @@ describe('hibernation-wake resume', () => {
   });
 });
 
-describe('ephemeral stream not resumed on reconnect', () => {
-  it('throws Disconnected on unexpected drop and sends no __resumeStream__ on reopen', async () => {
+describe('ephemeral stream not continued on reconnect', () => {
+  it('throws Disconnected on unexpected drop and sends no __continueStream__ on reopen', async () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(connect('wss://test'), stream(), reconnection());
@@ -279,10 +279,10 @@ describe('ephemeral stream not resumed on reconnect', () => {
       const second = MockWebSocket.last();
       second.open();
 
-      const resumeFrames = second
+      const continueFrames = second
         .sentFrames()
-        .filter((f) => f.event === '__resumeStream__' && f.metadata?.stream?.id === sid);
-      expect(resumeFrames).toHaveLength(0);
+        .filter((f) => f.event === '__continueStream__' && f.metadata?.stream?.id === sid);
+      expect(continueFrames).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
@@ -308,13 +308,13 @@ describe('__error__ with correlationId passthrough', () => {
   });
 });
 
-describe('resumeStream reuse branch', () => {
-  it('reuses existing state when resumeStream is called twice for the same id', async () => {
+describe('continueStream reuse branch', () => {
+  it('reuses existing state when continueStream is called twice for the same id', async () => {
     const { socket, ws } = build();
 
-    const handleA = socket.resumeStream('ask-ai', 'feed-1', { lastKnownSeq: 0 });
+    const handleA = socket.continueStream('ask-ai', 'feed-1', { lastKnownSeq: 0 });
 
-    socket.resumeStream('ask-ai', 'feed-1', { lastKnownSeq: 0 });
+    socket.continueStream('ask-ai', 'feed-1', { lastKnownSeq: 0 });
 
     expect((socket as unknown as LiveThingSocket)._lazyConsumers).toBe(1);
 
@@ -334,7 +334,7 @@ describe('resumeStream reuse branch', () => {
 
     const consumersAfterStart = (socket as unknown as LiveThingSocket)._lazyConsumers;
 
-    socket.resumeStream('ask-ai', sid, { lastKnownSeq: 0 });
+    socket.continueStream('ask-ai', sid, { lastKnownSeq: 0 });
 
     // lazyAcquire must NOT have been called again; the consumer count stays the same.
     expect((socket as unknown as LiveThingSocket)._lazyConsumers).toBe(consumersAfterStart);
@@ -346,22 +346,22 @@ describe('resumeStream reuse branch', () => {
   });
 });
 
-describe('resumeStream default lastKnownSeq from state', () => {
+describe('continueStream default lastKnownSeq from state', () => {
   it('sends payload {} when no chunk has been delivered and no lastKnownSeq is given', () => {
     const { socket, ws } = build();
 
-    socket.resumeStream('ask-ai', 'feed-fresh');
+    socket.continueStream('ask-ai', 'feed-fresh');
 
     const frame = ws.sentFrames().at(-1);
     expect(frame).toEqual({
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: {},
       metadata: { stream: { id: 'feed-fresh' } },
     });
     socket.disconnect();
   });
 
-  it('uses the state-derived seq when reconnect-resume omits an explicit lastKnownSeq', async () => {
+  it('uses the state-derived seq when reconnect-continue omits an explicit lastKnownSeq', async () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(connect('wss://test'), stream(), reconnection());
@@ -382,7 +382,7 @@ describe('resumeStream default lastKnownSeq from state', () => {
       second.open();
 
       expect(second.sentFrames()).toContainEqual({
-        event: '__resumeStream__',
+        event: '__continueStream__',
         payload: { lastKnownSeq: 3 },
         metadata: { stream: { id: sid } },
       });
@@ -392,7 +392,7 @@ describe('resumeStream default lastKnownSeq from state', () => {
   });
 });
 
-describe('resumable stream releases lazy hold when socket closes with no reconnect', () => {
+describe('durable stream releases lazy hold when socket closes with no reconnect', () => {
   it('drops _lazyConsumers to 0 after a persistent stream on a lazy socket closes permanently (code 1006, no reconnect)', async () => {
     const socket = client<C>()(connect('wss://test', { lazy: true }), stream());
     socket.connect();
@@ -409,8 +409,8 @@ describe('resumable stream releases lazy hold when socket closes with no reconne
   });
 });
 
-describe('per-chunk timeout must not start at reconnect for a resumed stream', () => {
-  it('does not abort a resumable stream with Timeout while waiting for the first resumed chunk after reconnect', async () => {
+describe('per-chunk timeout must not start at reconnect for a continued stream', () => {
+  it('does not abort a durable stream with Timeout while waiting for the first continued chunk after reconnect', async () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(connect('wss://test'), stream({ timeout: 1000 }), reconnection());
@@ -431,12 +431,12 @@ describe('per-chunk timeout must not start at reconnect for a resumed stream', (
       const second = MockWebSocket.last();
       second.open();
 
-      // The reconnect sends a __resumeStream__ frame. We have NOT yet received
-      // the first resumed chunk. Advance past the full per-chunk timeout — the
-      // stream is still waiting for its first resumed chunk and must NOT be aborted.
+      // The reconnect sends a __continueStream__ frame. We have NOT yet received
+      // the first continued chunk. Advance past the full per-chunk timeout — the
+      // stream is still waiting for its first continued chunk and must NOT be aborted.
       // If the timer started at reconnect (the bug), advancing past 1000ms fires
       // Timeout before the first chunk arrives. Correct behavior: the timer should
-      // only start when the first resumed chunk is received.
+      // only start when the first continued chunk is received.
       vi.advanceTimersByTime(1100);
 
       second.emit({
@@ -447,7 +447,7 @@ describe('per-chunk timeout must not start at reconnect for a resumed stream', (
       second.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: sid } } });
 
       // Both chunks must arrive — the stream must NOT have been aborted by a
-      // premature Timeout while waiting for the first resumed chunk.
+      // premature Timeout while waiting for the first continued chunk.
       await expect(collect(handle)).resolves.toEqual([{ text: 'a' }, { text: 'b' }]);
     } finally {
       vi.useRealTimers();
@@ -455,7 +455,7 @@ describe('per-chunk timeout must not start at reconnect for a resumed stream', (
   });
 });
 
-describe('resumable stream finishes when reconnection permanently gives up', () => {
+describe('durable stream finishes when reconnection permanently gives up', () => {
   it('ends a kept persistent stream with Disconnected when retries are exhausted', async () => {
     vi.useFakeTimers();
     try {
@@ -514,8 +514,8 @@ describe('resumable stream finishes when reconnection permanently gives up', () 
   });
 });
 
-describe('stream teardown, pre-open triggers, and resume deadline', () => {
-  it('a resumable stream ends with Disconnected on an unexpected drop when no reconnection is installed', async () => {
+describe('stream teardown, pre-open triggers, and continue deadline', () => {
+  it('a durable stream ends with Disconnected on an unexpected drop when no reconnection is installed', async () => {
     const { socket, ws } = build();
     const { handle } = await start(socket, ws, { streamDurability: 'persistent' });
 
@@ -546,7 +546,7 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
     await expect(promise).resolves.toBeDefined();
   });
 
-  it('aborts a resumed stream with Timeout if the server never sends a resumed chunk', async () => {
+  it('aborts a continued stream with Timeout if the server never sends a continued chunk', async () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(connect('wss://test'), stream({ timeout: 1000 }), reconnection());
@@ -572,7 +572,7 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
     }
   });
 
-  it('keeps a resumed stream alive after a resume __streamOk__ even when the first chunk is slow', async () => {
+  it('keeps a continued stream alive after a reconnect __streamOk__ even when the first chunk is slow', async () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(connect('wss://test'), stream({ timeout: 1000 }), reconnection());
@@ -592,7 +592,7 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
         metadata: { stream: { id: sid, durability: 'persistent' } },
       });
 
-      // Advance well past the 30s resume deadline with no chunk: the acked stream
+      // Advance well past the 30s continue deadline with no chunk: the acked stream
       // must NOT be aborted by the now-stale deadline.
       await vi.advanceTimersByTimeAsync(31_000);
 
@@ -610,7 +610,7 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
   });
 });
 
-describe('resumable stream without keepalive warns in debug mode', () => {
+describe('durable stream without keepalive warns in debug mode', () => {
   function warnedAboutKeepalive(warn: ReturnType<typeof vi.spyOn>): boolean {
     return warn.mock.calls.some((args: unknown[]) =>
       args.some((a: unknown) => String(a).includes('keepalive')),
@@ -651,7 +651,7 @@ describe('resumable stream without keepalive warns in debug mode', () => {
     }
   });
 
-  it('does not warn for an ephemeral (non-resumable) stream', async () => {
+  it('does not warn for an ephemeral (non-durable) stream', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const socket = client<C>()(connect('wss://test'), stream());

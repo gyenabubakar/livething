@@ -12,14 +12,14 @@ type CheckEventsInScopeScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-  resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+  cursorStreams?: ReadonlyMap<string, EngineCompileTypes.AnyCursorStream>;
   recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
 };
 type CheckScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, unknown>;
-  resumableStreams?: ReadonlyMap<string, unknown>;
+  cursorStreams?: ReadonlyMap<string, unknown>;
   recordedStreams?: ReadonlyMap<string, unknown>;
 };
 type CollectFromScopeScopeParameter = {
@@ -27,7 +27,7 @@ type CollectFromScopeScopeParameter = {
   requests: ReadonlyMap<string, unknown>;
   outgoing: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-  resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+  cursorStreams?: ReadonlyMap<string, EngineCompileTypes.AnyCursorStream>;
   recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
 };
 type CheckScopeScopeParameter = {
@@ -35,7 +35,7 @@ type CheckScopeScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-  resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+  cursorStreams?: ReadonlyMap<string, EngineCompileTypes.AnyCursorStream>;
   recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
 };
 
@@ -97,11 +97,11 @@ function visitCompiledPrimitives(
         continue;
       }
 
-      case 'resumable-stream-generate': {
-        const p = primitive as EngineCompileTypes.AnyResumableStream;
-        EngineCompileUtils.setUniqueOrThrow(compiled.resumableStreams, p.event, {
+      case 'cursor-stream-generate': {
+        const p = primitive as EngineCompileTypes.AnyCursorStream;
+        EngineCompileUtils.setUniqueOrThrow(compiled.cursorStreams, p.event, {
           value: p,
-          kind: 'resumableStream',
+          kind: 'cursorStream',
         });
         continue;
       }
@@ -178,7 +178,7 @@ export function compileServerDefinition(
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    resumableStreams: new Map(),
+    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
     channels: new Map(),
@@ -378,8 +378,8 @@ function validateScopeAndEventNameSyntax(
       for (const nudge of generate.stream.nudges) checkEventName(nudge.event, scopeLabel);
     }
 
-    if (scope.resumableStreams) {
-      for (const [event, generate] of scope.resumableStreams) {
+    if (scope.cursorStreams) {
+      for (const [event, generate] of scope.cursorStreams) {
         checkEventName(event, scopeLabel);
         for (const nudge of generate.nudges) checkEventName(nudge.event, scopeLabel);
       }
@@ -408,7 +408,7 @@ function validateScopeAndEventNameSyntax(
 
 /**
  * Refuse to boot when an event name is registered as more than one of
- * `incoming` / `request` / `stream` / `resumableStream` / `recordedStream`
+ * `incoming` / `request` / `stream` / `cursorStream` / `recordedStream`
  * within the same scope. The dispatcher picks the first match in that order,
  * so the loser is unreachable — a client `request(...)` against a shadowed
  * name hangs forever, and a stream trigger against a recorded-stream name
@@ -421,13 +421,13 @@ function validateNoCrossPrimitiveEventCollisions(
   compiled: EngineCompileTypes.CompiledServer,
 ): void {
   function check(scope: CheckScopeParameter, label: string): void {
-    const resumable = scope.resumableStreams ?? (new Map() as ReadonlyMap<string, unknown>);
+    const cursor = scope.cursorStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const recorded = scope.recordedStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const allNames = new Set<string>([
       ...scope.incoming.keys(),
       ...scope.requests.keys(),
       ...scope.streams.keys(),
-      ...resumable.keys(),
+      ...cursor.keys(),
       ...recorded.keys(),
     ]);
 
@@ -438,13 +438,13 @@ function validateNoCrossPrimitiveEventCollisions(
       if (scope.requests.has(event)) where.push('request');
       if (scope.streams.has(event)) where.push('stream');
 
-      if (resumable.has(event)) where.push('resumableStream');
+      if (cursor.has(event)) where.push('cursorStream');
       if (recorded.has(event)) where.push('recordedStream');
 
       if (where.length > 1) {
         throw new Error(
           `[livething] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
-            `An event name can only belong to one of incoming/request/stream/resumableStream/recordedStream within a scope — pick a different name.`,
+            `An event name can only belong to one of incoming/request/stream/cursorStream/recordedStream within a scope — pick a different name.`,
         );
       }
     }
@@ -500,7 +500,7 @@ function collectFromScope(scope: CollectFromScopeScopeParameter, names: Set<stri
     for (const nudge of generate.stream.nudges) names.add(nudge.event);
   }
 
-  for (const [event, generate] of scope.resumableStreams ?? []) {
+  for (const [event, generate] of scope.cursorStreams ?? []) {
     if (!(generate as { __plugin?: string }).__plugin) continue;
 
     names.add(event);
@@ -569,11 +569,11 @@ function validateNoReservedEventNames(
       }
     }
 
-    if (scope.resumableStreams) {
-      for (const [streamEvent, primitive] of scope.resumableStreams) {
-        check(streamEvent, `${label} resumableStream`);
+    if (scope.cursorStreams) {
+      for (const [streamEvent, primitive] of scope.cursorStreams) {
+        check(streamEvent, `${label} cursorStream`);
         for (const nudge of primitive.nudges) {
-          check(nudge.event, `${label} resumableStream '${streamEvent}' nudge`);
+          check(nudge.event, `${label} cursorStream '${streamEvent}' nudge`);
         }
       }
     }

@@ -30,7 +30,7 @@ import type {
 } from '~/stream/runtime.ts';
 import type { TagsApi } from '~/tags/types.ts';
 
-type OptionsParameter = { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
+type OptionsParameter = { continueScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
 type OptionsParameter2 = { streamId: string; cancelScope: ResolvedChannel };
 type OptionsParameter3 = {
   connection: RuntimeConnection;
@@ -96,19 +96,19 @@ export type StreamChannelLeave = (
   options: StopChannelStreamsOptions,
 ) => Promise<void>;
 
-/** Options the durable trigger needs to start a resumable/recorded stream. */
+/** Options the durable trigger needs to start a durable stream. */
 export interface DurableTriggerOptions {
   scope: ResolvedChannel;
-  /** The compiled resumable/recorded stream the durable runtime builds its def from. */
+  /** The compiled durable stream the durable runtime builds its def from. */
   durable: any;
-  kind: 'resumable' | 'recorded';
+  kind: 'cursor' | 'recorded';
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
 }
 
 /**
  * The durable-stream dispatch surface. Set once (idempotently) when either the
- * `resumableStream()` or `recordedStream()` capability is listed.
+ * `cursorStream()` or `recordedStream()` capability is listed.
  */
 export interface DurableStreamService {
   /** Create the durable-stream tables if this engine has not done so yet. */
@@ -119,8 +119,8 @@ export interface DurableStreamService {
     connection: RuntimeConnection,
     options: DurableTriggerOptions,
   ): Promise<void>;
-  /** Handle a client `__resumeStream__` frame. */
-  resume(runtime: any, connection: RuntimeConnection, options: OptionsParameter): Promise<void>;
+  /** Handle a client `__continueStream__` frame. */
+  continue(runtime: any, connection: RuntimeConnection, options: OptionsParameter): Promise<void>;
   /** Handle the durable side of a `__streamCancel__` frame. */
   cancel(runtime: any, connection: RuntimeConnection, options: OptionsParameter2): Promise<void>;
   /**

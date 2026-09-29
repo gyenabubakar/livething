@@ -3,8 +3,8 @@ import type { Page } from '@playwright/test';
 
 // Conformance: a cancel() issued while the socket is reconnecting must not be
 // lost. The client holds __streamCancel__ until reopen, suppresses the durable
-// stream's auto-resume, and the server deletes the durable row — proven by a
-// later resumeStream() of the same id aborting with not-found. Talks to the real
+// stream's auto-reconnect, and the server deletes the durable row — proven by a
+// later continueStream() of the same id aborting with not-found. Talks to the real
 // `stream-durable` server definition over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/stream-cancel-reconnect/index.html?room=${room}&username=alice`);
@@ -31,13 +31,13 @@ test.describe('stream cancel during reconnect (conformance)', () => {
     await expect(page.getByTestId('status')).toHaveText('open');
     await expect(page.getByTestId('error-code')).toHaveText('');
 
-    // Resuming the cancelled id now aborts not-found — the durable row is gone.
-    await page.getByTestId('resume-paginate').click();
+    // Continuing the cancelled id now aborts not-found — the durable row is gone.
+    await page.getByTestId('continue-paginate').click();
     await expect
-      .poll(() => page.getByTestId('resume-error-code').textContent())
+      .poll(() => page.getByTestId('continue-error-code').textContent())
       .toBe('stream-aborted');
     await expect
-      .poll(() => page.getByTestId('resume-error-reason').textContent())
+      .poll(() => page.getByTestId('continue-error-reason').textContent())
       .toBe('not-found');
   });
 });

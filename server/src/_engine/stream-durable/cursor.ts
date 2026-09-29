@@ -4,7 +4,7 @@ const CURSOR_MARK = Symbol('livething:cursor');
 
 /**
  * Internal envelope produced by `ctx.stream.withCursor(chunk, cursor)` so the
- * resumable-stream runtime can split the chunk from the cursor before sending.
+ * cursor-stream runtime can split the chunk from the cursor before sending.
  */
 export interface CursorChunk<TChunk = unknown, TCursor = unknown> {
   readonly [CURSOR_MARK]: true;

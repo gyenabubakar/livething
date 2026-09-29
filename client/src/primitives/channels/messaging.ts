@@ -262,7 +262,7 @@ export function buildChannelMessaging(
   applyAugmenters(context.socket, messaging, {
     markers,
     assertReady,
-    // On a plugin channel the request/stream/onStream/resumeStream augmenters
+    // On a plugin channel the request/stream/onStream/continueStream augmenters
     // namespace their event names too, symmetric with `send`; a plain app channel
     // gets no prefixName and leaves names bare.
     prefixName: eventPrefix ? (name) => eventPrefix + name : undefined,

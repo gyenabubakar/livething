@@ -1,6 +1,6 @@
 import { server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
-import { recordedStream, resumableStream } from '@livething/server/streams';
+import { cursorStream, recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -12,7 +12,7 @@ const AttemptChunk = t<{ attempt: number }>();
 
 const base = server({
   upgrade: (request) => requireUsername(request),
-  capabilities: [channels(), recordedStream(), resumableStream()],
+  capabilities: [channels(), recordedStream(), cursorStream()],
 });
 
 const rooms = base.channel('rooms', {});
@@ -32,7 +32,7 @@ const handleFeed = rooms.recordedStream('feed', {
   },
 });
 
-const handlePaginate = rooms.resumableStream('paginate', {
+const handlePaginate = rooms.cursorStream('paginate', {
   input: Empty,
   chunk: RowChunk,
   broadcast: true,
@@ -47,7 +47,7 @@ const handlePaginate = rooms.resumableStream('paginate', {
   },
 });
 
-const handleAttemptBroadcast = rooms.resumableStream('attempt-broadcast', {
+const handleAttemptBroadcast = rooms.cursorStream('attempt-broadcast', {
   input: Empty,
   chunk: AttemptChunk,
   broadcast: true,

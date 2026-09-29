@@ -19,7 +19,7 @@ describe('wireIdError', () => {
   });
 
   it('rejects reserved protocol names as event names', () => {
-    expect(wireIdError('e', '__resumeStream__', 'event')).toMatchObject({
+    expect(wireIdError('e', '__continueStream__', 'event')).toMatchObject({
       code: 'validation-failed',
     });
     expect(wireIdError('e', '__custom', 'event')).toMatchObject({ code: 'validation-failed' });

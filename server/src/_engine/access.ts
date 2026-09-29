@@ -783,8 +783,8 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Register the durable-stream dispatch surface (trigger, resume, cancel,
-   * schema). Set once when either `resumableStream()` or `recordedStream()` is
+   * Register the durable-stream dispatch surface (trigger, continue, cancel,
+   * schema). Set once when either `cursorStream()` or `recordedStream()` is
    * listed.
    *
    * @internal

@@ -59,7 +59,7 @@ test.describe('stream config options', () => {
     expect(chunksCc2.length).toBeGreaterThanOrEqual(1);
   });
 
-  test('onDisconnect: keep-running — generator keeps producing after drop, resume catches up from the buffer', async ({
+  test('onDisconnect: keep-running — generator keeps producing after drop, continue catches up from the buffer', async ({
     page,
   }, testInfo) => {
     const room = `sco-${testInfo.testId}-${Date.now()}`;
@@ -95,7 +95,7 @@ test.describe('stream config options', () => {
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, b, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { stream: { id: streamId } },
     });
@@ -118,7 +118,7 @@ test.describe('stream config options', () => {
     expect(indices).toEqual([...indices].sort((x, y) => x - y));
   });
 
-  test('custom maxAgeMs — suspended row past the window surfaces stream-aborted expired on resume', async ({
+  test('custom maxAgeMs — suspended row past the window surfaces stream-aborted expired on reconnect', async ({
     page,
   }, testInfo) => {
     const room = `sco-${testInfo.testId}-${Date.now()}`;
@@ -148,13 +148,13 @@ test.describe('stream config options', () => {
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
-    // The resume frame can occasionally not land under load (the reconnect
+    // The continue frame can occasionally not land under load (the reconnect
     // racing the worker), leaving no response at all. Re-send it until the
     // terminal __error__ for this `metadata.stream.id` comes back.
     let err: WireFrame | undefined;
     for (let attempt = 0; attempt < 3 && !err; attempt++) {
       await send(page, b, {
-        event: '__resumeStream__',
+        event: '__continueStream__',
         payload: { lastKnownSeq: 0 },
         metadata: { stream: { id: streamId } },
       });
@@ -164,16 +164,16 @@ test.describe('stream config options', () => {
           timeoutMs: 4000,
         });
       } catch {
-        // no frame yet — the loop re-sends the resume
+        // no frame yet — the loop re-sends the continue frame
       }
     }
 
-    expect(err, 'resume did not surface a stream-aborted error after retries').toBeTruthy();
+    expect(err, 'continue did not surface a stream-aborted error after retries').toBeTruthy();
     expect(err!.payload.code).toBe('stream-aborted');
     expect((err!.payload.detail as { reason: string }).reason).toBe('expired');
   });
 
-  test('custom retentionAfterEndMs — ended row past the window surfaces stream-aborted not-found on resume', async ({
+  test('custom retentionAfterEndMs — ended row past the window surfaces stream-aborted not-found on reconnect', async ({
     page,
   }, testInfo) => {
     const room = `sco-${testInfo.testId}-${Date.now()}`;
@@ -196,7 +196,7 @@ test.describe('stream config options', () => {
     await page.waitForTimeout(800);
 
     await send(page, a, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { stream: { id: streamId } },
     });

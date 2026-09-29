@@ -121,8 +121,8 @@
 		}
 	}
 
-	function sendResume() {
-		send('__resumeStream__', { lastKnownSeq: Number(sinceInput) || 0 }, { stream: { id: streamIdInput } });
+	function sendContinue() {
+		send('__continueStream__', { lastKnownSeq: Number(sinceInput) || 0 }, { stream: { id: streamIdInput } });
 	}
 </script>
 
@@ -137,7 +137,7 @@
 <button data-testid="start-attempt" onclick={startAttemptStream}>Start attempt-stream</button>
 <button data-testid="start-buffer-full" onclick={startBufferFullDemo}>Start buffer-full-demo</button>
 <button data-testid="drop-socket" onclick={dropSocket}>Drop socket</button>
-<button data-testid="send-resume" onclick={sendResume}>Send resume</button>
+<button data-testid="send-continue" onclick={sendContinue}>Send continue</button>
 <button data-testid="send-cancel" onclick={sendCancel}>Cancel stream</button>
 
 <span data-testid="status">{status}</span>

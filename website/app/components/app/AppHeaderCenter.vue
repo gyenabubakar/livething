@@ -172,7 +172,7 @@ const landingItems = [
       {
         label: 'Streams',
         icon: 'i-ph-waveform-duotone',
-        description: 'Consume, nudge, resume, broadcast',
+        description: 'Consume, nudge, continue, broadcast',
         to: '/client/streams/overview'
       },
       {

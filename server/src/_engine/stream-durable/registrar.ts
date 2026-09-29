@@ -11,7 +11,7 @@ import {
 } from './storage.ts';
 
 /**
- * Both `resumableStream()` and `recordedStream()` share one durable-stream
+ * Both `cursorStream()` and `recordedStream()` share one durable-stream
  * runtime, so the service is registered through `installOnce` and lands a single
  * time even when both capabilities are listed. Each capability still gets its own
  * registrar primitive (distinct keys) so listing both never collides.
@@ -43,9 +43,9 @@ function makeDurableRegistrar(tag: string, key: symbol) {
   });
 }
 
-export const resumableDurableRegistrar = makeDurableRegistrar(
-  'resumable-stream-runtime',
-  Symbol('resumable-stream-runtime'),
+export const cursorDurableRegistrar = makeDurableRegistrar(
+  'cursor-stream-runtime',
+  Symbol('cursor-stream-runtime'),
 );
 
 export const recordedDurableRegistrar = makeDurableRegistrar(

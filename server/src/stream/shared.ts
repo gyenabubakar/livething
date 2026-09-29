@@ -5,8 +5,8 @@ import type { NudgeDef } from '~/stream/definition.ts';
 import type { Validator } from '~/types.ts';
 
 /**
- * Helpers shared by every stream capability (plain, resumable, recorded). They
- * live apart from the plain-stream engine so that listing only `resumableStream`
+ * Helpers shared by every stream capability (plain, cursor, recorded). They
+ * live apart from the plain-stream engine so that listing only `cursorStream`
  * or `recordedStream` does not pull the plain stream engine into the bundle.
  */
 

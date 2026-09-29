@@ -1,6 +1,6 @@
 import { server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
-import { recordedStream, resumableStream, stream } from '@livething/server/streams';
+import { cursorStream, recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -14,7 +14,7 @@ const StopPayload = v.object({});
 
 const base = server({
   upgrade: (request) => requireUsername(request),
-  capabilities: [channels(), stream(), resumableStream(), recordedStream()],
+  capabilities: [channels(), stream(), cursorStream(), recordedStream()],
 });
 
 const handleStartConcurrent = base.stream('start-concurrent', {
@@ -29,7 +29,7 @@ const handleStartConcurrent = base.stream('start-concurrent', {
   },
 });
 
-const handleShortWindow = base.resumableStream('short-window', {
+const handleShortWindow = base.cursorStream('short-window', {
   input: Empty,
   chunk: RowChunk,
   maxAgeMs: 300,
@@ -87,7 +87,7 @@ const handleKeepRunningFeed = base.recordedStream('keep-running-feed', {
 
 const rooms = base.channel('rooms', {});
 
-const handlePaginate = rooms.resumableStream('paginate', {
+const handlePaginate = rooms.cursorStream('paginate', {
   input: Empty,
   chunk: RowChunk,
   maxAgeMs: 60_000,
@@ -115,7 +115,7 @@ const handleHistory = rooms.recordedStream('history', {
   },
 });
 
-const handlePausedFeed = rooms.resumableStream('paused-feed', {
+const handlePausedFeed = rooms.cursorStream('paused-feed', {
   input: Empty,
   chunk: RowChunk,
   nudges: { pause: PausePayload },

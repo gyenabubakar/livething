@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ActiveStream, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { SendThroughPipelineOptions } from '~/outgoing/runtime.ts';
-import { cancelDurableStream, resumeDurableStream, runDurableStream } from './runtime.ts';
+import { cancelDurableStream, continueDurableStream, runDurableStream } from './runtime.ts';
 import * as Storage from './storage.ts';
 import type { DurableStreamRuntimeDef } from './runtime.ts';
 
@@ -190,7 +190,7 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, 'u1', 'gen-1')?.status).toBe('suspended');
   });
 
-  it('saves a resumable checkpoint before a chunk is handed to the socket', async () => {
+  it('saves a cursor checkpoint before a chunk is handed to the socket', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -200,7 +200,7 @@ describe('durable stream runtime', () => {
     await runDurableStream(runtime as never, connection, {
       scope: {},
       def: baseDef({
-        kind: 'resumable',
+        kind: 'cursor',
         generator: async function* (ctx: any) {
           yield ctx.stream.withCursor({ row: 1 }, { idx: 1 });
         },
@@ -216,7 +216,7 @@ describe('durable stream runtime', () => {
     ).toMatchObject({ seq: 1, cursor: JSON.stringify({ idx: 1 }) });
   });
 
-  it('does not send a resumable chunk when its cursor cannot be serialized', async () => {
+  it('does not send a cursor chunk when its cursor cannot be serialized', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
@@ -225,7 +225,7 @@ describe('durable stream runtime', () => {
     await runDurableStream(runtime as never, connection, {
       scope: {},
       def: baseDef({
-        kind: 'resumable',
+        kind: 'cursor',
         generator: async function* (ctx: any) {
           yield ctx.stream.withCursor({ row: 1 }, { toJSON: () => undefined });
         },
@@ -332,7 +332,7 @@ describe('durable stream runtime', () => {
     expect(Storage.readChunksSince(sql, { userId: 'u1', streamId: 's-1', since: 0 })).toEqual([]);
   });
 
-  it('a resume that arrives while a cancel is still running gets not-found', async () => {
+  it('a reconnect that arrives while a cancel is still running gets not-found', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -343,7 +343,7 @@ describe('durable stream runtime', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
 
@@ -368,14 +368,14 @@ describe('durable stream runtime', () => {
       cancelScope: {},
     });
     connection.cancellingStreams = new Map([['s-1', cancelling]]);
-    const resuming = resumeDurableStream(runtime as never, connection, {
-      resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'resumable', generator }) }),
+    const continuing = continueDurableStream(runtime as never, connection, {
+      resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'cursor', generator }) }),
       row: Storage.readStream(sql, 'u1', 's-1'),
       streamId: 's-1',
       lastKnownSeq: 0,
     });
     finishCleanup();
-    await Promise.all([cancelling, resuming]);
+    await Promise.all([cancelling, continuing]);
 
     const err = protocolMessages.find((m) => m.event === '__error__');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('not-found');
@@ -384,13 +384,13 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, 'u1', 's-1')).toBeNull();
   });
 
-  it('resumeDurableStream — unknown stream id surfaces stream-aborted not-found', async () => {
+  it('continueDurableStream — unknown stream id surfaces stream-aborted not-found', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
     const connection = createConnection();
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => undefined,
       row: null,
       streamId: 'missing',
@@ -403,7 +403,7 @@ describe('durable stream runtime', () => {
     expect(err?.livething.streamId).toBe('missing');
   });
 
-  it('resumeDurableStream — closes any in-flight generator for the same id and proceeds', async () => {
+  it('continueDurableStream — closes any in-flight generator for the same id and proceeds', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -414,7 +414,7 @@ describe('durable stream runtime', () => {
       streamId: 'busy',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
 
@@ -428,11 +428,11 @@ describe('durable stream runtime', () => {
       generator: { return: returnSpy } as never,
     } as unknown as ActiveStream);
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           generator: async function* (ctx: any) {
             yield ctx.stream.withCursor({ idx: 1 }, { idx: 1 });
           },
@@ -443,7 +443,7 @@ describe('durable stream runtime', () => {
       lastKnownSeq: 0,
     });
 
-    // The stale entry was asked to close; resume continued with a fresh
+    // The stale entry was asked to close; the continue request ran with a fresh
     // generator run. No __error__ frame, and a __streamOk__ was sent for the
     // re-invocation.
     expect(protocolMessages.find((m) => m.event === '__error__')).toBeUndefined();
@@ -471,7 +471,7 @@ describe('durable stream runtime', () => {
     const run = runDurableStream(runtime as never, connection, {
       scope: {},
       def: baseDef({
-        kind: 'resumable',
+        kind: 'cursor',
         generator: async function* (ctx: any) {
           yield ctx.stream.withCursor({ i: 1 }, { idx: 1 });
           yielded();
@@ -485,7 +485,7 @@ describe('durable stream runtime', () => {
 
     await firstYield;
 
-    // A resume swaps the live ActiveStream for this streamId and re-attaches it
+    // A reconnect swaps the live ActiveStream for this streamId and re-attaches it
     // to the same connection. The parked run must not touch it afterward.
     const replacement = { id: 'shared', closed: false } as unknown as ActiveStream;
     runtime.activeStreams.set('shared', replacement);
@@ -517,7 +517,7 @@ describe('durable stream runtime', () => {
     const run = runDurableStream(runtime as never, connection, {
       scope: {},
       def: baseDef({
-        kind: 'resumable',
+        kind: 'cursor',
         generator: async function* (ctx: any) {
           yield ctx.stream.withCursor({ i: 1 }, { idx: 1 });
           yielded();
@@ -588,7 +588,7 @@ describe('durable stream runtime', () => {
     expect(sentValues).toEqual([1]);
   });
 
-  it('resumeDurableStream — a corrupt stored payload sends cursor-invalid instead of throwing', async () => {
+  it('continueDurableStream — a corrupt stored payload sends cursor-invalid instead of throwing', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -600,16 +600,16 @@ describe('durable stream runtime', () => {
       streamId: 'corrupt',
       event: 'e',
       payload: '{not valid json',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
 
     await expect(
-      resumeDurableStream(runtime as never, connection, {
+      continueDurableStream(runtime as never, connection, {
         resolveDef: () => ({
           scope: {},
           def: baseDef({
-            kind: 'resumable',
+            kind: 'cursor',
             generator: async function* () {
               /* never reached — the payload parse fails first */
             },
@@ -628,7 +628,7 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, 'u1', 'corrupt')).toBeNull();
   });
 
-  it('resumeDurableStream — recorded stream replays missed chunks since `since` then _streamEnd', async () => {
+  it('continueDurableStream — recorded stream replays missed chunks since `since` then _streamEnd', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -656,7 +656,7 @@ describe('durable stream runtime', () => {
 
     Storage.markEnded(sql, { userId: 'u1', streamId: 's-replay', now: Date.now() });
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
       row: Storage.readStream(sql, 'u1', 's-replay'),
       streamId: 's-replay',
@@ -668,7 +668,7 @@ describe('durable stream runtime', () => {
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeDefined();
   });
 
-  it('resumeDurableStream — resumable stream re-invokes the generator with the saved cursor', async () => {
+  it('continueDurableStream — cursor stream re-invokes the generator with the saved cursor', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
@@ -679,7 +679,7 @@ describe('durable stream runtime', () => {
       streamId: 's-cursor',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
     Storage.updateLastSeq(sql, { userId: 'u1', streamId: 's-cursor', lastSeq: 4, now: Date.now() });
@@ -692,11 +692,11 @@ describe('durable stream runtime', () => {
     });
     Storage.markSuspended(sql, { userId: 'u1', streamId: 's-cursor', now: Date.now() });
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           generator: async function* (ctx: any) {
             const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
             for (let i = startAt + 1; i <= 6; i += 1) {
@@ -716,7 +716,7 @@ describe('durable stream runtime', () => {
     expect(sent[1]).toMatchObject({ i: 6 });
   });
 
-  it('resumeDurableStream — restarts from the last cursor the client confirms receiving', async () => {
+  it('continueDurableStream — restarts from the last cursor the client confirms receiving', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
@@ -727,7 +727,7 @@ describe('durable stream runtime', () => {
       streamId: 's-confirmed-cursor',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
     for (let seq = 1; seq <= 4; seq += 1) {
@@ -752,11 +752,11 @@ describe('durable stream runtime', () => {
       now: Date.now(),
     });
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           generator: async function* (ctx: any) {
             const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
             for (let i = startAt + 1; i <= 5; i += 1) {
@@ -781,7 +781,7 @@ describe('durable stream runtime', () => {
     ).toMatchObject({ seq: 5, cursor: JSON.stringify({ idx: 5 }) });
   });
 
-  it('resumeDurableStream — re-runs an ended resumable stream for chunks the client missed', async () => {
+  it('continueDurableStream — re-runs an ended cursor stream for chunks the client missed', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends, protocolMessages } = createRuntime(sql);
@@ -792,7 +792,7 @@ describe('durable stream runtime', () => {
       streamId: 's-ended-checkpoint',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
     for (let seq = 1; seq <= 4; seq += 1) {
@@ -813,11 +813,11 @@ describe('durable stream runtime', () => {
     });
     Storage.markEnded(sql, { userId: 'u1', streamId: 's-ended-checkpoint', now: Date.now() });
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           generator: async function* (ctx: any) {
             const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
             for (let i = startAt + 1; i <= 4; i += 1) {
@@ -835,19 +835,19 @@ describe('durable stream runtime', () => {
     expect(protocolMessages.filter((m) => m.event === '__streamEnd__')).toHaveLength(1);
   });
 
-  it('resumeDurableStream — replaces a detached resumable generator from the confirmed checkpoint', async () => {
+  it('continueDurableStream — replaces a detached cursor generator from the confirmed checkpoint', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
     const previousConnection = createConnection('c-previous');
-    const connection = createConnection('c-resumed');
+    const connection = createConnection('c-continued');
 
     Storage.insertStream(sql, {
       userId: 'u1',
       streamId: 's-detached-checkpoint',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
     for (let seq = 1; seq <= 4; seq += 1) {
@@ -885,11 +885,11 @@ describe('durable stream runtime', () => {
     } as ActiveStream;
     runtime.activeStreams.set(detached.id, detached);
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           onDisconnect: 'keep-running',
           generator: async function* (ctx: any) {
             const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
@@ -907,7 +907,7 @@ describe('durable stream runtime', () => {
     expect(pipelineSends.filter((m) => m.event === 'e').map((m) => m.payload)).toEqual([{ i: 4 }]);
   });
 
-  it('resumeDurableStream — resumed run continues seq from row.lastSeq, not from 1', async () => {
+  it('continueDurableStream — the new run continues seq from row.lastSeq, not from 1', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
@@ -918,7 +918,7 @@ describe('durable stream runtime', () => {
       streamId: 's-seq',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
     Storage.updateLastSeq(sql, { userId: 'u1', streamId: 's-seq', lastSeq: 3, now: Date.now() });
@@ -931,11 +931,11 @@ describe('durable stream runtime', () => {
     });
     Storage.markSuspended(sql, { userId: 'u1', streamId: 's-seq', now: Date.now() });
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           generator: async function* (ctx: any) {
             const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
             for (let i = startAt + 1; i <= 5; i += 1) {
@@ -955,7 +955,7 @@ describe('durable stream runtime', () => {
     expect(seqs).toEqual([4, 5]);
   });
 
-  it('resumeDurableStream — suspended row past maxAgeMs surfaces stream-aborted expired and deletes the row', async () => {
+  it('continueDurableStream — suspended row past maxAgeMs surfaces stream-aborted expired and deletes the row', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -967,14 +967,14 @@ describe('durable stream runtime', () => {
       streamId: 's-old',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: longAgo,
       maxAgeMs: 1_000,
     });
     Storage.markSuspended(sql, { userId: 'u1', streamId: 's-old', now: longAgo });
 
-    await resumeDurableStream(runtime as never, connection, {
-      resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'resumable' }) }),
+    await continueDurableStream(runtime as never, connection, {
+      resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'cursor' }) }),
       row: Storage.readStream(sql, 'u1', 's-old'),
       streamId: 's-old',
       lastKnownSeq: 0,
@@ -986,7 +986,7 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, 'u1', 's-old')).toBeNull();
   });
 
-  it('resumeDurableStream — ended row past retentionAfterEndMs surfaces stream-aborted not-found and deletes the row', async () => {
+  it('continueDurableStream — ended row past retentionAfterEndMs surfaces stream-aborted not-found and deletes the row', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -1004,7 +1004,7 @@ describe('durable stream runtime', () => {
     });
     Storage.markEnded(sql, { userId: 'u1', streamId: 's-ended-old', now: longAgo });
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
       row: Storage.readStream(sql, 'u1', 's-ended-old'),
       streamId: 's-ended-old',
@@ -1017,7 +1017,7 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, 'u1', 's-ended-old')).toBeNull();
   });
 
-  it('resumeDurableStream — saved cursor passes the def.cursor validator and reaches the generator', async () => {
+  it('continueDurableStream — saved cursor passes the def.cursor validator and reaches the generator', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
@@ -1028,7 +1028,7 @@ describe('durable stream runtime', () => {
       streamId: 's-valid',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
     Storage.updateLastSeq(sql, { userId: 'u1', streamId: 's-valid', lastSeq: 7, now: Date.now() });
@@ -1048,11 +1048,11 @@ describe('durable stream runtime', () => {
       return { idx: obj.idx };
     }
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           cursor: cursorValidator,
           generator: async function* (ctx: any) {
             const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
@@ -1070,7 +1070,7 @@ describe('durable stream runtime', () => {
     expect(sent[0]).toMatchObject({ i: 8 });
   });
 
-  it('resumeDurableStream — cursor that fails the validator surfaces stream-aborted cursor-invalid', async () => {
+  it('continueDurableStream — cursor that fails the validator surfaces stream-aborted cursor-invalid', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
@@ -1081,7 +1081,7 @@ describe('durable stream runtime', () => {
       streamId: 's-bad',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
     // Stamp a cursor shape the validator will reject (idx is a string).
@@ -1102,11 +1102,11 @@ describe('durable stream runtime', () => {
       yield { i: 1 };
     });
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           cursor: cursorValidator,
           generator: generatorSpy as never,
         }),
@@ -1140,7 +1140,7 @@ describe('durable stream runtime', () => {
     await runDurableStream(runtime as never, connection, {
       scope: {},
       def: baseDef({
-        kind: 'resumable',
+        kind: 'cursor',
         generator: async function* (ctx: any) {
           yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
         },
@@ -1152,7 +1152,7 @@ describe('durable stream runtime', () => {
     expect((pipelineSends[0]!.payload as { attempt: number }).attempt).toBe(1);
   });
 
-  it('ctx.stream.attempt — is 2 on resume', async () => {
+  it('ctx.stream.attempt — is 2 on reconnect', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
@@ -1163,16 +1163,16 @@ describe('durable stream runtime', () => {
       streamId: 'a',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
     Storage.markSuspended(sql, { userId: 'u1', streamId: 'a', now: Date.now() });
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           generator: async function* (ctx: any) {
             yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
           },
@@ -1186,13 +1186,13 @@ describe('durable stream runtime', () => {
     expect((pipelineSends[0]!.payload as { attempt: number }).attempt).toBe(2);
   });
 
-  it('ctx.stream.attempt — goes up by one on every resume and is stored on the row', async () => {
+  it('ctx.stream.attempt — goes up by one on every reconnect and is stored on the row', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
 
     const def = baseDef({
-      kind: 'resumable',
+      kind: 'cursor',
       generator: async function* (ctx: any) {
         yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
       },
@@ -1206,7 +1206,7 @@ describe('durable stream runtime', () => {
     });
 
     for (const connectionId of ['c2', 'c3', 'c4']) {
-      await resumeDurableStream(runtime as never, createConnection(connectionId), {
+      await continueDurableStream(runtime as never, createConnection(connectionId), {
         resolveDef: () => ({ scope: {}, def }),
         row: Storage.readStream(sql, 'u1', 'multi'),
         streamId: 'multi',
@@ -1219,7 +1219,7 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, 'u1', 'multi')?.attempt).toBe(4);
   });
 
-  it('resumeDurableStream — a resume whose connection closes on the ok frame leaves the row and attempt untouched', async () => {
+  it('continueDurableStream — a reconnect whose connection closes on the ok frame leaves the row and attempt untouched', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -1233,16 +1233,16 @@ describe('durable stream runtime', () => {
       streamId: 'closing',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
     Storage.markSuspended(sql, { userId: 'u1', streamId: 'closing', now: Date.now() });
     const generatorSpy = vi.fn(async function* () {});
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
-        def: baseDef({ kind: 'resumable', generator: generatorSpy as never }),
+        def: baseDef({ kind: 'cursor', generator: generatorSpy as never }),
       }),
       row: Storage.readStream(sql, 'u1', 'closing'),
       streamId: 'closing',
@@ -1418,7 +1418,7 @@ describe('durable stream runtime', () => {
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
   });
 
-  it('broadcast recordedStream — late joiner resume replays from the scope-keyed buffer', async () => {
+  it('broadcast recordedStream — late joiner continue replays from the scope-keyed buffer', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -1460,7 +1460,7 @@ describe('durable stream runtime', () => {
         }
       ).sql && Storage.readStream(sql, '__bcast:top__', 'b-1');
 
-    await resumeDurableStream(runtime as never, peer, {
+    await continueDurableStream(runtime as never, peer, {
       resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded', broadcast: true }) }),
       row,
       streamId: 'b-1',
@@ -1469,12 +1469,12 @@ describe('durable stream runtime', () => {
 
     const replayed = wireChunks(peer).filter((f) => f.event === 'e');
     expect(replayed.map((f) => f.__livething.streamSeq)).toEqual([2, 3]);
-    // Active broadcast — no __streamEnd__ from the resumer (the generator is
+    // Active broadcast — no __streamEnd__ from the continuer (the generator is
     // still running on the creator's connection in a real run).
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
   });
 
-  it('broadcast resumableStream — cursor advances on each yield, no chunks buffered (live)', async () => {
+  it('broadcast cursorStream — cursor advances on each yield, no chunks buffered (live)', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -1484,7 +1484,7 @@ describe('durable stream runtime', () => {
     await runDurableStream(runtime as never, creator, {
       scope: {},
       def: baseDef({
-        kind: 'resumable',
+        kind: 'cursor',
         broadcast: true,
         maxChunks: 10,
         generator: async function* (ctx: any) {
@@ -1512,7 +1512,7 @@ describe('durable stream runtime', () => {
     ).toHaveLength(0);
   });
 
-  it('resumableStream — cursor does not advance for a chunk produced after the connection closed', async () => {
+  it('cursorStream — cursor does not advance for a chunk produced after the connection closed', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -1521,7 +1521,7 @@ describe('durable stream runtime', () => {
     await runDurableStream(runtime as never, connection, {
       scope: {},
       def: baseDef({
-        kind: 'resumable',
+        kind: 'cursor',
         generator: async function* (ctx: any) {
           yield ctx.stream.withCursor({ row: 1 }, { idx: 1 });
           // The owning connection drops after row 1.
@@ -1538,7 +1538,7 @@ describe('durable stream runtime', () => {
     ).toMatchObject({ seq: 1, cursor: JSON.stringify({ idx: 1 }) });
   });
 
-  it('resumableStream — a plain yield advances lastSeq without creating a checkpoint', async () => {
+  it('cursorStream — a plain yield advances lastSeq without creating a checkpoint', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -1548,7 +1548,7 @@ describe('durable stream runtime', () => {
     await runDurableStream(runtime as never, connection, {
       scope: {},
       def: baseDef({
-        kind: 'resumable',
+        kind: 'cursor',
         generator: async function* (ctx: any) {
           seenCursors.push(ctx.stream.cursor);
           for (let i = 1; i <= 3; i += 1) {
@@ -1571,7 +1571,7 @@ describe('durable stream runtime', () => {
     ).toHaveLength(0);
   });
 
-  it('broadcast resumableStream — peer-subscriber resume goes live, no replay and no generator re-run', async () => {
+  it('broadcast cursorStream — peer-subscriber continue goes live, no replay and no generator re-run', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
@@ -1582,7 +1582,7 @@ describe('durable stream runtime', () => {
       streamId: 's-b',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
       broadcast: true,
       creatorUserId: 'u-creator',
@@ -1597,11 +1597,11 @@ describe('durable stream runtime', () => {
 
     const row = Storage.readStream(sql, '__bcast:top__', 's-b');
 
-    await resumeDurableStream(runtime as never, peer, {
+    await continueDurableStream(runtime as never, peer, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           broadcast: true,
           // oxlint-disable-next-line require-yield -- stub asserts it is never invoked
           generator: async function* () {
@@ -1627,7 +1627,7 @@ describe('durable stream runtime', () => {
     ).toBe(2);
   });
 
-  it('does not advance a peer cursor when translated resume confirmation closes the connection', async () => {
+  it('does not advance a peer cursor when translated continue confirmation closes the connection', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -1641,7 +1641,7 @@ describe('durable stream runtime', () => {
       streamId: 's-b',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
       broadcast: true,
       creatorUserId: 'u-creator',
@@ -1654,8 +1654,8 @@ describe('durable stream runtime', () => {
       now: Date.now(),
     });
 
-    await resumeDurableStream(runtime as never, peer, {
-      resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'resumable', broadcast: true }) }),
+    await continueDurableStream(runtime as never, peer, {
+      resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'cursor', broadcast: true }) }),
       row: Storage.readStream(sql, '__bcast:top__', 's-b'),
       streamId: 's-b',
       lastKnownSeq: 0,
@@ -1670,7 +1670,7 @@ describe('durable stream runtime', () => {
     ).toBeNull();
   });
 
-  it('broadcast resumableStream — a late-joining peer only gets chunks produced after it joined', async () => {
+  it('broadcast cursorStream — a late-joining peer only gets chunks produced after it joined', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
@@ -1682,7 +1682,7 @@ describe('durable stream runtime', () => {
     await runDurableStream(runtime as never, creator, {
       scope: {},
       def: baseDef({
-        kind: 'resumable',
+        kind: 'cursor',
         broadcast: true,
         maxChunks: 10,
         generator: async function* (ctx: any) {
@@ -1711,7 +1711,7 @@ describe('durable stream runtime', () => {
     expect(peerSeqs).toEqual([3, 4]);
   });
 
-  it('broadcast resumableStream — creator restarts from its confirmed checkpoint with no payload buffer', async () => {
+  it('broadcast cursorStream — creator restarts from its confirmed checkpoint with no payload buffer', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
@@ -1723,7 +1723,7 @@ describe('durable stream runtime', () => {
       streamId: 's-bc',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
       broadcast: true,
       creatorUserId: 'u-creator',
@@ -1753,11 +1753,11 @@ describe('durable stream runtime', () => {
     const row = Storage.readStream(sql, '__bcast:top__', 's-bc');
 
     await expect(
-      resumeDurableStream(runtime as never, creator, {
+      continueDurableStream(runtime as never, creator, {
         resolveDef: () => ({
           scope: {},
           def: baseDef({
-            kind: 'resumable',
+            kind: 'cursor',
             broadcast: true,
             maxChunks: 10,
             generator: async function* (ctx: any) {
@@ -1843,7 +1843,7 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, '__bcast:top__', 's-d')).toBeNull();
   });
 
-  it('broadcast resume — unsubscribed user gets stream-aborted unsubscribed', async () => {
+  it('broadcast continue — unsubscribed user gets stream-aborted unsubscribed', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -1868,7 +1868,7 @@ describe('durable stream runtime', () => {
     });
 
     const row = Storage.readStream(sql, '__bcast:top__', 's-e');
-    await resumeDurableStream(runtime as never, peer, {
+    await continueDurableStream(runtime as never, peer, {
       resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded', broadcast: true }) }),
       row,
       streamId: 's-e',
@@ -1965,7 +1965,7 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, 'u1', live.id)?.status).toBe('ended');
   });
 
-  it('keep-running — resume from a fresh connection swaps the wire target and replays the buffer', async () => {
+  it('keep-running — continue from a fresh connection swaps the wire target and replays the buffer', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
@@ -2002,9 +2002,9 @@ describe('durable stream runtime', () => {
     await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, original.id);
     expect(live.detached).toBe(true);
 
-    const sentBeforeResume = pipelineSends.length;
+    const sentBeforeContinue = pipelineSends.length;
 
-    await resumeDurableStream(runtime as never, reconnect, {
+    await continueDurableStream(runtime as never, reconnect, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
@@ -2033,13 +2033,13 @@ describe('durable stream runtime', () => {
     release();
     await run;
 
-    // The third chunk produced after resume goes through sendThroughPipeline
+    // The third chunk produced after continue goes through sendThroughPipeline
     // (wireTarget = live.connection = c-new), not the stale c-orig.
-    const sentAfterResume = pipelineSends.length;
-    expect(sentAfterResume).toBeGreaterThan(sentBeforeResume);
+    const sentAfterContinue = pipelineSends.length;
+    expect(sentAfterContinue).toBeGreaterThan(sentBeforeContinue);
   });
 
-  it('keeps a stream detached when translated replay chunks fail during creator resume', async () => {
+  it('keeps a stream detached when translated replay chunks fail during creator continue', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -2070,7 +2070,7 @@ describe('durable stream runtime', () => {
     const live = [...runtime.activeStreams.values()][0]!;
     await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, original.id);
 
-    await resumeDurableStream(runtime as never, reconnect, {
+    await continueDurableStream(runtime as never, reconnect, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({ kind: 'recorded', onDisconnect: 'keep-running' }),
@@ -2088,7 +2088,7 @@ describe('durable stream runtime', () => {
     await run;
   });
 
-  it('keeps a stream detached when translated creator resume confirmation throws', async () => {
+  it('keeps a stream detached when translated creator continue confirmation throws', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -2101,7 +2101,7 @@ describe('durable stream runtime', () => {
 
     Storage.insertStream(sql, {
       userId: 'u1',
-      streamId: 'resume-failure',
+      streamId: 'continue-failure',
       event: 'e',
       payload: '{}',
       kind: 'recorded',
@@ -2109,7 +2109,7 @@ describe('durable stream runtime', () => {
       maxChunks: 10,
     });
     const live = {
-      id: 'resume-failure',
+      id: 'continue-failure',
       connection: original,
       connectionId: original.id,
       detached: true,
@@ -2117,7 +2117,7 @@ describe('durable stream runtime', () => {
     runtime.activeStreams.set(live.id, live);
 
     await expect(
-      resumeDurableStream(runtime as never, reconnect, {
+      continueDurableStream(runtime as never, reconnect, {
         resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
         row: Storage.readStream(sql, 'u1', live.id),
         streamId: live.id,
@@ -2131,7 +2131,7 @@ describe('durable stream runtime', () => {
     expect(runtime.persistAttachment).toHaveBeenLastCalledWith(reconnect, { force: true });
   });
 
-  it('keep-running — after resume, final __streamEnd__ targets the fresh connection and clears its attachment', async () => {
+  it('keep-running — after continue, final __streamEnd__ targets the fresh connection and clears its attachment', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -2166,7 +2166,7 @@ describe('durable stream runtime', () => {
     await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, original.id);
     original.closing = true;
 
-    await resumeDurableStream(runtime as never, reconnect, {
+    await continueDurableStream(runtime as never, reconnect, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
@@ -2240,7 +2240,7 @@ describe('durable stream runtime', () => {
     expect(runtime.activeStreams.has('gen-1')).toBe(false);
   });
 
-  it('stale-generator cleanup on resume reports a rejected return() instead of leaking it', async () => {
+  it('stale-generator cleanup on reconnect reports a rejected return() instead of leaking it', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -2251,7 +2251,7 @@ describe('durable stream runtime', () => {
       streamId: 'a',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
 
@@ -2275,11 +2275,11 @@ describe('durable stream runtime', () => {
     } as unknown as ActiveStream;
     runtime.activeStreams.set('a', stale);
 
-    await resumeDurableStream(runtime as never, connection, {
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
         def: baseDef({
-          kind: 'resumable',
+          kind: 'cursor',
           generator: async function* () {},
         }),
       }),
@@ -2296,7 +2296,7 @@ describe('durable stream runtime', () => {
     );
   });
 
-  it('stale-generator cleanup tolerates a synchronous return() throw on resume (#5)', async () => {
+  it('stale-generator cleanup tolerates a synchronous return() throw on reconnect (#5)', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -2307,7 +2307,7 @@ describe('durable stream runtime', () => {
       streamId: 'a',
       event: 'e',
       payload: '{}',
-      kind: 'resumable',
+      kind: 'cursor',
       now: Date.now(),
     });
 
@@ -2326,11 +2326,11 @@ describe('durable stream runtime', () => {
     } as unknown as ActiveStream;
     runtime.activeStreams.set('a', stale);
 
-    // The synchronous throw must not abort the resume — it resolves normally.
-    await resumeDurableStream(runtime as never, connection, {
+    // The synchronous throw must not abort the reconnect — it resolves normally.
+    await continueDurableStream(runtime as never, connection, {
       resolveDef: () => ({
         scope: {},
-        def: baseDef({ kind: 'resumable', generator: async function* () {} }),
+        def: baseDef({ kind: 'cursor', generator: async function* () {} }),
       }),
       row: Storage.readStream(sql, 'u1', 'a'),
       streamId: 'a',
@@ -2506,7 +2506,7 @@ describe('durable stream runtime', () => {
     ).rejects.toThrow();
   });
 
-  it('an identified connection resuming after a reconnect (new connection id, same user id) still finds its own row', async () => {
+  it('an identified connection continuing after a reconnect (new connection id, same user id) still finds its own row', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime: creatorRuntime } = createRuntime(sql);
@@ -2526,12 +2526,12 @@ describe('durable stream runtime', () => {
       livething: { streamId: 'reconnect-1', channelFamily: null },
     });
 
-    const { runtime: resumeRuntime, protocolMessages } = createRuntime(sql);
+    const { runtime: continueRuntime, protocolMessages } = createRuntime(sql);
     const reconnected = createConnection('c-reconnected', 'u-alice');
-    resumeRuntime.connections.set(reconnected.id, reconnected);
+    continueRuntime.connections.set(reconnected.id, reconnected);
 
     const row = Storage.readStream(sql, 'u-alice', 'reconnect-1');
-    await resumeDurableStream(resumeRuntime as never, reconnected, {
+    await continueDurableStream(continueRuntime as never, reconnected, {
       resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
       row,
       streamId: 'reconnect-1',

@@ -44,7 +44,7 @@ test.describe('stream-durable', () => {
     expect(liveChunks.map((frame) => frame.payload)).toEqual([{ value: 1 }, { value: 2 }]);
 
     await send(page, socket, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { stream: { id: streamId } },
     });
@@ -66,7 +66,7 @@ test.describe('stream-durable', () => {
     ]);
   });
 
-  test('recorded stream: chunks buffered in storage replay on resume', async ({
+  test('recorded stream: chunks buffered in storage replay on reconnect', async ({
     page,
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}-${Date.now()}`;
@@ -78,7 +78,7 @@ test.describe('stream-durable', () => {
     await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('1');
     await expect.poll(() => page.getByTestId('token-chunk-count').textContent()).toBe('5');
 
-    // Drop the socket, reconnect, and resume claiming we only saw chunks 1..2.
+    // Drop the socket, reconnect, and continue claiming we only saw chunks 1..2.
     // Server replays chunks 3..5 from the durable buffer, then sends _streamEnd.
     await page.getByTestId('drop-socket').click();
     await expect(page.getByTestId('status')).toHaveText('disconnected');
@@ -86,7 +86,7 @@ test.describe('stream-durable', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
     await page.getByTestId('since').fill('2');
-    await page.getByTestId('send-resume').click();
+    await page.getByTestId('send-continue').click();
 
     // The page state was reset on reconnect (token-chunks not auto-cleared by
     // the page; we want to verify NEW chunks arrive). The replayed chunks
@@ -98,7 +98,7 @@ test.describe('stream-durable', () => {
     await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('2');
   });
 
-  test('resumable stream: generator re-runs from saved cursor on resume', async ({
+  test('cursor stream: generator re-runs from saved cursor on reconnect', async ({
     page,
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}-${Date.now()}`;
@@ -119,7 +119,7 @@ test.describe('stream-durable', () => {
     await page.getByTestId('since').fill(String(seenBeforeDrop));
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
-    await page.getByTestId('send-resume').click();
+    await page.getByTestId('send-continue').click();
 
     await expect
       .poll(() => page.getByTestId('paginate-row-count').textContent(), { timeout: 10_000 })
@@ -132,7 +132,7 @@ test.describe('stream-durable', () => {
     expect(order).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  test('resumable bare yield (no withCursor): resume restarts from a null cursor', async ({
+  test('cursor bare yield (no withCursor): continue restarts from a null cursor', async ({
     page,
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}-${Date.now()}`;
@@ -152,7 +152,7 @@ test.describe('stream-durable', () => {
     await page.getByTestId('since').fill(String(seenBeforeDrop));
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
-    await page.getByTestId('send-resume').click();
+    await page.getByTestId('send-continue').click();
 
     await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('1');
 
@@ -163,13 +163,13 @@ test.describe('stream-durable', () => {
     expect(rows.slice(-4)).toEqual([1, 2, 3, 4]);
   });
 
-  test('resume of an unknown stream id surfaces stream-aborted not-found', async ({
+  test('continue of an unknown stream id surfaces stream-aborted not-found', async ({
     page,
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}-${Date.now()}`;
     await goConnect(page, { room: room, streamId: 'does-not-exist' });
 
-    await page.getByTestId('send-resume').click();
+    await page.getByTestId('send-continue').click();
 
     await expect
       .poll(() => page.getByTestId('last-error-code').textContent())
@@ -180,7 +180,7 @@ test.describe('stream-durable', () => {
       .toBe('does-not-exist');
   });
 
-  test('ctx.stream.attempt — 1 on first run, then one higher on every resume', async ({
+  test('ctx.stream.attempt — 1 on first run, then one higher on every reconnect', async ({
     page,
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}-${Date.now()}`;
@@ -191,14 +191,14 @@ test.describe('stream-durable', () => {
     await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe('1');
 
     // Generator is parked in an await on the server. Drop the socket so the
-    // stream goes `suspended`, then reconnect and resume — each resume re-runs
+    // stream goes `suspended`, then reconnect and continue — each reconnect re-runs
     // the generator with the next attempt number.
     for (const expected of ['2', '3', '4']) {
       await page.getByTestId('drop-socket').click();
       await expect(page.getByTestId('status')).toHaveText('disconnected');
       await page.getByTestId('connect').click();
       await expect(page.getByTestId('status')).toHaveText('connected');
-      await page.getByTestId('send-resume').click();
+      await page.getByTestId('send-continue').click();
 
       await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe(expected);
     }
@@ -280,7 +280,7 @@ test.describe('stream-durable', () => {
     }
   });
 
-  test('cancel deletes the durable row — subsequent resume returns not-found', async ({
+  test('cancel deletes the durable row — subsequent continue returns not-found', async ({
     page,
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}-${Date.now()}`;
@@ -296,7 +296,7 @@ test.describe('stream-durable', () => {
 
     // Give the server a beat to process cancel + delete the row.
     await page.waitForTimeout(800);
-    await page.getByTestId('send-resume').click();
+    await page.getByTestId('send-continue').click();
 
     await expect
       .poll(() => page.getByTestId('last-error-code').textContent())

@@ -137,7 +137,7 @@ describe('frameMatches — plugin intercept on its own event (S3)', () => {
     incoming: new Map([['__acme:feed::ping', { validator: undefined }]]),
     requests: new Map(),
     streams: new Map(),
-    resumableStreams: new Map(),
+    cursorStreams: new Map(),
     recordedStreams: new Map(),
     channels: new Map(),
     channelFamilies: new Map(),

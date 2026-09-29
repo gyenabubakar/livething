@@ -465,24 +465,26 @@ describe('scoped stream and onRequest', () => {
     expect(ends).toEqual(['bs1']);
   });
 
-  it('resumeStream() resumes a namespaced durable stream and replays its chunks', async () => {
-    const Feed = plugin<FeedWire, { resume: () => StreamHandle<{ row: number }> }>()({
+  it('continueStream() continues a namespaced durable stream and replays its chunks', async () => {
+    const Feed = plugin<FeedWire, { continue: () => StreamHandle<{ row: number }> }>()({
       id: 'acme:feed',
       dependencies: [stream],
       setup(socket) {
         return {
-          api: () => ({ resume: () => socket.resumeStream('feed', 'feed-1', { lastKnownSeq: 0 }) }),
+          api: () => ({
+            continue: () => socket.continueStream('feed', 'feed-1', { lastKnownSeq: 0 }),
+          }),
         };
       },
     });
 
     const { socket, ws } = build(stream(), Feed());
-    const handle = Feed.use(socket).resume();
+    const handle = Feed.use(socket).continue();
 
-    // The resume frame is a reserved control frame keyed by streamId; chunks then
+    // The continue frame is a reserved control frame keyed by streamId; chunks then
     // arrive on the plugin's wire event and replay into the returned handle.
     expect(ws.sentFrames().at(-1)).toEqual({
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { stream: { id: 'feed-1' } },
     });

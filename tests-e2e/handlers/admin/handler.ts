@@ -1,7 +1,7 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { scheduled } from '@livething/server/scheduled';
-import { resumableStream } from '@livething/server/streams';
+import { cursorStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -14,7 +14,7 @@ const base = server({
     // Listed but never used: this server declares a durable stream and no test
     // ever starts one. `purgeUser` must still delete stream rows, which means
     // the stream tables have to exist from boot rather than from first use.
-    resumableStream(),
+    cursorStream(),
     emits({
       announced: t<{ text: string }>(),
       poked: t<{ text: string }>(),

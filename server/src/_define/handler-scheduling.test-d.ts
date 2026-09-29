@@ -2,10 +2,10 @@
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
-import { recordedStream, resumableStream, stream } from '~/streams.ts';
+import { cursorStream, recordedStream, stream } from '~/streams.ts';
 
 const base = server({
-  capabilities: [channels(), clientRequests(), stream(), resumableStream(), recordedStream()],
+  capabilities: [channels(), clientRequests(), stream(), cursorStream(), recordedStream()],
 });
 
 base.on('ordered', {
@@ -43,7 +43,7 @@ base.stream('plain', {
   },
 });
 
-base.resumableStream('resumable', {
+base.cursorStream('cursor', {
   allowConcurrent: true,
   async *run() {
     yield true;

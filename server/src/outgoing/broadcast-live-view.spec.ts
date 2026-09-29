@@ -30,7 +30,7 @@ function createRuntime(): Parameters<typeof broadcastToConnections>[0] {
     compiled: {
       outgoing: new Map([['tick', { event: 'tick' }]]),
       streams: new Map(),
-      resumableStreams: new Map(),
+      cursorStreams: new Map(),
       recordedStreams: new Map(),
       channels: new Map(),
     },

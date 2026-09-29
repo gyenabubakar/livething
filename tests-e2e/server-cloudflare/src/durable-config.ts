@@ -4,7 +4,7 @@ import { durableConfigDefinition } from '@livething/tests-e2e-handlers/durable-c
 const Base = bind(durableConfigDefinition);
 
 // Adds the test-harness restart() (ctx.abort discards in-memory state while
-// durable storage survives) so persistent-sequence resume is observable.
+// durable storage survives) so persistent-sequence continue is observable.
 export class DurableConfigServer extends Base {
   #ctx: DurableObjectState;
 

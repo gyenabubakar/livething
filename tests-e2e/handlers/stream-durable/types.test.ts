@@ -36,7 +36,7 @@ describe('StreamDurableClient — streams', () => {
     expectTypeOf<StreamDurableClient['streams']['count-tokens']>().not.toHaveProperty('broadcast');
   });
 
-  it('has paginate (resumableStream)', () => {
+  it('has paginate (cursorStream)', () => {
     expectTypeOf<StreamDurableClient['streams']>().toHaveProperty('paginate');
   });
 
@@ -47,11 +47,11 @@ describe('StreamDurableClient — streams', () => {
     }>();
   });
 
-  it('paginate has no cursor (no cursor validator declared in resumableStream config)', () => {
+  it('paginate has no cursor (no cursor validator declared in cursorStream config)', () => {
     expectTypeOf<StreamDurableClient['streams']['paginate']>().not.toHaveProperty('cursor');
   });
 
-  it('has attempt-stream (resumableStream)', () => {
+  it('has attempt-stream (cursorStream)', () => {
     expectTypeOf<StreamDurableClient['streams']>().toHaveProperty('attempt-stream');
   });
 

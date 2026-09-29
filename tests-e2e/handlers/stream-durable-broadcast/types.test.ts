@@ -53,7 +53,7 @@ describe('StreamDurableBroadcastClient — channels', () => {
     >().not.toHaveProperty('broadcast');
   });
 
-  it('rooms streams has paginate (resumableStream)', () => {
+  it('rooms streams has paginate (cursorStream)', () => {
     expectTypeOf<StreamDurableBroadcastClient['channels']['rooms']['streams']>().toHaveProperty(
       'paginate',
     );
@@ -73,7 +73,7 @@ describe('StreamDurableBroadcastClient — channels', () => {
     >().not.toHaveProperty('cursor');
   });
 
-  it('rooms streams has attempt-broadcast (resumableStream)', () => {
+  it('rooms streams has attempt-broadcast (cursorStream)', () => {
     expectTypeOf<StreamDurableBroadcastClient['channels']['rooms']['streams']>().toHaveProperty(
       'attempt-broadcast',
     );

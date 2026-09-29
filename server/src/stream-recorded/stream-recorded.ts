@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { DurableNudgeDeclaration } from '~/stream-resumable/stream-resumable.ts';
+import type { DurableNudgeDeclaration } from '~/stream-cursor/stream-cursor.ts';
 import type { Validator } from '~/types.ts';
 
 const RECORDED_STREAM_KEY = Symbol('recorded-stream');

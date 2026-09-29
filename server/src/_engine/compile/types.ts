@@ -6,8 +6,8 @@ import type * as OutgoingPrimitive from '~/outgoing/index.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as RequestPrimitive from '~/request/request.ts';
 import type * as ScheduledPrimitive from '~/scheduled/scheduled.ts';
+import type * as CursorStreamPrimitive from '~/stream-cursor/stream-cursor.ts';
 import type * as RecordedStreamPrimitive from '~/stream-recorded/stream-recorded.ts';
-import type * as ResumableStreamPrimitive from '~/stream-resumable/stream-resumable.ts';
 import type * as StreamPrimitive from '~/stream/stream.ts';
 
 // Widened type aliases — used throughout the compile and runtime layers so
@@ -27,8 +27,8 @@ export type AnyGenerate = StreamPrimitive.GeneratePrimitive<
   any,
   any
 >;
-/** Compiled resumable stream handler (`resumableStream(...)` after compile). */
-export type AnyResumableStream = ResumableStreamPrimitive.ResumableStreamGeneratePrimitive;
+/** Compiled cursor stream handler (`cursorStream(...)` after compile). */
+export type AnyCursorStream = CursorStreamPrimitive.CursorStreamGeneratePrimitive;
 /** Compiled recorded stream handler (`recordedStream(...)` after compile). */
 export type AnyRecordedStream = RecordedStreamPrimitive.RecordedStreamGeneratePrimitive;
 /** Any `.intercept()` primitive. */
@@ -58,7 +58,7 @@ export interface CompiledChannel {
 
   streams: Map<string, AnyGenerate>;
 
-  resumableStreams: Map<string, AnyResumableStream>;
+  cursorStreams: Map<string, AnyCursorStream>;
 
   recordedStreams: Map<string, AnyRecordedStream>;
 
@@ -99,7 +99,7 @@ export interface CompiledServer {
 
   streams: Map<string, AnyGenerate>;
 
-  resumableStreams: Map<string, AnyResumableStream>;
+  cursorStreams: Map<string, AnyCursorStream>;
 
   recordedStreams: Map<string, AnyRecordedStream>;
 

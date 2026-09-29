@@ -132,7 +132,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
 
           // Back online — reset the backoff and retry now if we were waiting.
           if (helpers.getState() === 'reconnecting') {
-            helpers.log.info('back online — resuming reconnection');
+            helpers.log.info('back online — retrying reconnection');
             attempt = 0;
             clearTimer();
             helpers.reopen();

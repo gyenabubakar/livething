@@ -48,7 +48,7 @@ describe('StreamDurableScopedClient — top-level streams', () => {
     }>();
   });
 
-  it('has short-window (resumableStream — no cursor validator)', () => {
+  it('has short-window (cursorStream — no cursor validator)', () => {
     expectTypeOf<StreamDurableScopedClient['streams']>().toHaveProperty('short-window');
   });
 
@@ -80,7 +80,7 @@ describe('StreamDurableScopedClient — channels.rooms streams', () => {
     >().toEqualTypeOf<'static'>();
   });
 
-  it('rooms has paginate (resumableStream — no cursor)', () => {
+  it('rooms has paginate (cursorStream — no cursor)', () => {
     expectTypeOf<StreamDurableScopedClient['channels']['rooms']['streams']>().toHaveProperty(
       'paginate',
     );
@@ -103,7 +103,7 @@ describe('StreamDurableScopedClient — channels.rooms streams', () => {
     }>();
   });
 
-  it('rooms has paused-feed (resumableStream with nudges)', () => {
+  it('rooms has paused-feed (cursorStream with nudges)', () => {
     expectTypeOf<StreamDurableScopedClient['channels']['rooms']['streams']>().toHaveProperty(
       'paused-feed',
     );
@@ -162,7 +162,7 @@ describe('StreamDurableScopedClient — channels.rooms streams', () => {
 });
 
 describe('StreamDurableScopedClient — stream kind', () => {
-  it('top-level streams have correct resumable flags', () => {
+  it('top-level streams have correct persistence kinds', () => {
     expectTypeOf<
       StreamDurableScopedClient['streams']['start-concurrent']['kind']
     >().toEqualTypeOf<'ephemeral'>();
@@ -180,7 +180,7 @@ describe('StreamDurableScopedClient — stream kind', () => {
     >().toEqualTypeOf<'persistent'>();
   });
 
-  it('channel streams have correct resumable flags', () => {
+  it('channel streams have correct persistence kinds', () => {
     expectTypeOf<
       StreamDurableScopedClient['channels']['rooms']['streams']['channel-tokens']['kind']
     >().toEqualTypeOf<'ephemeral'>();

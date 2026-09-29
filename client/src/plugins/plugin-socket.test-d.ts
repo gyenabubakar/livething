@@ -56,7 +56,7 @@ chat.channel.family('room');
 expectTypeOf<ChatSocket['stream']>().toBeFunction();
 expectTypeOf<Parameters<ChatSocket['stream']>[0]>().toEqualTypeOf<'feed'>();
 expectTypeOf<ChatSocket['onStream']>().toBeFunction();
-expectTypeOf<ChatSocket['resumeStream']>().toBeFunction();
+expectTypeOf<ChatSocket['continueStream']>().toBeFunction();
 
 // Typed server→client request handler.
 expectTypeOf<ChatSocket['onRequest']>().toBeFunction();

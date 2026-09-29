@@ -24,7 +24,7 @@ import type { PluginCapability } from '~/_define/plugins.ts';
  * `stampKind`). The matcher reads the token off each `dependsOn` factory WITHOUT
  * calling it — so an arg-requiring factory such as `keepalive` never crashes —
  * and compares against the tokens of the host's listed capabilities. Distinct
- * tokens per stream variant mean `dependsOn: [resumableStream]` is never
+ * tokens per stream variant mean `dependsOn: [cursorStream]` is never
  * satisfied by a host that lists only `stream()`.
  */
 export function assertPluginDependencies(capabilities: readonly AnyCapability[]): void {

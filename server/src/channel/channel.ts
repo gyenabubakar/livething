@@ -19,8 +19,8 @@ import type { Primitive } from '~/primitive.ts';
 import type { CustomReplayPrimitive } from '~/replay/custom/custom.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
+import type { CursorStreamGeneratePrimitive } from '~/stream-cursor/stream-cursor.ts';
 import type { RecordedStreamGeneratePrimitive } from '~/stream-recorded/stream-recorded.ts';
-import type { ResumableStreamGeneratePrimitive } from '~/stream-resumable/stream-resumable.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
 
 type AnyOutgoing = OutgoingPrimitive<string, any>;
@@ -46,7 +46,7 @@ type ChannelStatePrimitive =
   | AnyIncoming
   | AnyRequest
   | AnyGenerate
-  | ResumableStreamGeneratePrimitive
+  | CursorStreamGeneratePrimitive
   | RecordedStreamGeneratePrimitive;
 
 /**

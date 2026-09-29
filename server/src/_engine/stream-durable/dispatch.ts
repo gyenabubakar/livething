@@ -4,7 +4,7 @@
  * Durable-stream dispatch surface.
  *
  * This is the seam the engine's message hub talks to instead of importing the
- * durable-stream runtime directly. The `resumableStream()` / `recordedStream()`
+ * durable-stream runtime directly. The `cursorStream()` / `recordedStream()`
  * capabilities register `durableStreamService` during `__setup`, so a handler
  * that lists neither never pulls the durable runtime, its storage layer, or the
  * cursor codec into its bundle.
@@ -21,7 +21,7 @@ import * as DurableStreamRuntime from './runtime.ts';
 import { ensureDurableStreamSchema } from './storage.ts';
 import type * as DurableStreamStorage from './storage.ts';
 
-type OptionsParameter = { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
+type OptionsParameter = { continueScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
 type OptionsParameter2 = { streamId: string; cancelScope: ResolvedChannel };
 
 /**
@@ -37,12 +37,12 @@ function ensureSchemaOnce(runtime: any): void {
 
 /**
  * Build the runtime def the durable engine consumes from a compiled
- * resumable/recorded stream. `maxChunks` is recorded-only and `cursor` is
- * resumable-only.
+ * durable stream. `maxChunks` is recorded-only and `cursor` is
+ * cursor-only.
  */
 function buildRuntimeDef(
   durable: any,
-  kind: 'resumable' | 'recorded',
+  kind: 'cursor' | 'recorded',
 ): DurableStreamRuntime.DurableStreamRuntimeDef {
   return {
     event: durable.event,
@@ -54,7 +54,7 @@ function buildRuntimeDef(
     maxChunks: kind === 'recorded' ? durable.maxChunks : undefined,
     maxAgeMs: durable.maxAgeMs,
     retentionAfterEndMs: durable.retentionAfterEndMs,
-    cursor: kind === 'resumable' ? durable.cursor : undefined,
+    cursor: kind === 'cursor' ? durable.cursor : undefined,
     onDisconnect: durable.onDisconnect,
     highWaterMark: durable.highWaterMark,
   };
@@ -63,7 +63,7 @@ function buildRuntimeDef(
 /**
  * Find the compiled durable-stream def for a stored row, in the scope the row
  * was started in. Returns undefined if the def or scope is gone, or the
- * resuming connection is not a member of the stream's channel.
+ * continuing connection is not a member of the stream's channel.
  */
 function resolveDurableDefForRow(
   runtime: any,
@@ -71,7 +71,7 @@ function resolveDurableDefForRow(
   row: DurableStreamStorage.DurableStreamRow,
 ): { def: DurableStreamRuntime.DurableStreamRuntimeDef; scope: ResolvedChannel } | undefined {
   let scope: ResolvedChannel = {};
-  let resumable: EngineCompileTypes.AnyResumableStream | undefined;
+  let cursor: EngineCompileTypes.AnyCursorStream | undefined;
   let recorded: EngineCompileTypes.AnyRecordedStream | undefined;
 
   if (row.channelKey) {
@@ -86,16 +86,16 @@ function resolveDurableDefForRow(
     }
 
     scope = { channel, channelName: row.channelKey, channelFamily: row.channelFamily };
-    resumable = channel.resumableStreams.get(row.event);
+    cursor = channel.cursorStreams.get(row.event);
 
     recorded = channel.recordedStreams.get(row.event);
   } else {
-    resumable = runtime.compiled.resumableStreams.get(row.event);
+    cursor = runtime.compiled.cursorStreams.get(row.event);
     recorded = runtime.compiled.recordedStreams.get(row.event);
   }
 
-  if (resumable) {
-    return { scope, def: buildRuntimeDef(resumable, 'resumable') };
+  if (cursor) {
+    return { scope, def: buildRuntimeDef(cursor, 'cursor') };
   }
 
   if (recorded) {
@@ -126,15 +126,18 @@ export const durableStreamService: DurableStreamService = {
     });
   },
 
-  async resume(
+  async continue(
     runtime: any,
     connection: RuntimeConnection,
     options: OptionsParameter,
   ): Promise<void> {
-    const { resumeScope, streamId, lastKnownSeq } = options;
+    const { continueScope, streamId, lastKnownSeq } = options;
     ensureSchemaOnce(runtime);
-    const row = DurableStreamRuntime.findResumeRow(runtime, connection, { resumeScope, streamId });
-    await DurableStreamRuntime.resumeDurableStream(runtime, connection, {
+    const row = DurableStreamRuntime.findContinueRow(runtime, connection, {
+      continueScope,
+      streamId,
+    });
+    await DurableStreamRuntime.continueDurableStream(runtime, connection, {
       resolveDef: (matched) => resolveDurableDefForRow(runtime, connection, matched),
       row,
       streamId,

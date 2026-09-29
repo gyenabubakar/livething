@@ -264,7 +264,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     request: missing('request', 'clientRequests'),
     stream: missing('stream', 'stream'),
     onStream: missing('onStream', 'stream'),
-    resumeStream: missing('resumeStream', 'stream'),
+    continueStream: missing('continueStream', 'stream'),
     onRequest: missing('onRequest', 'serverRequests'),
     channel: missing('channel', 'channels'),
   };

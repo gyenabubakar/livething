@@ -147,7 +147,7 @@ describe('GroupFullSurfaceClient — streams', () => {
     expectTypeOf<GroupFullSurfaceClient['streams']['feed']>().not.toHaveProperty('cursor');
   });
 
-  it('has paginate resumable stream', () => {
+  it('has paginate cursor stream', () => {
     expectTypeOf<GroupFullSurfaceClient['streams']>().toHaveProperty('paginate');
   });
 

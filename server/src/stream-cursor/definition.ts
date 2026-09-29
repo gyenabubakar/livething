@@ -12,16 +12,16 @@ export type { OnDisconnect };
 
 /**
  * Contract-side declaration produced internally when you register a stream with
- * `base.resumableStream(...)`.
+ * `base.cursorStream(...)`.
  */
-export interface ResumableStreamDef<
+export interface CursorStreamDef<
   TName extends string = string,
   TPayload = unknown,
   TChunk = unknown,
   TCursor = unknown,
   TNudges extends readonly NudgeDef<string, any>[] = readonly NudgeDef<string, any>[],
 > extends CommonDurableStreamConfig {
-  readonly _: 'resumable-stream';
+  readonly _: 'cursor-stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
   readonly chunk?: TypeMarker<TChunk>;
@@ -31,7 +31,7 @@ export interface ResumableStreamDef<
   readonly broadcast: boolean;
 }
 
-interface ResumableStreamConfig<
+interface CursorStreamConfig<
   TPayload,
   TChunk,
   TCursor,
@@ -44,8 +44,8 @@ interface ResumableStreamConfig<
   /**
    * Validator for the cursor value. The framework parses every cursor it
    * restores from storage through this validator before handing it to the
-   * generator on resume — if the stored value no longer matches the shape
-   * (older deploy, tampered row), the resuming client gets
+   * generator on reconnect — if the stored value no longer matches the shape
+   * (older deploy, tampered row), the continuing client gets
    * `StreamAborted({ reason: 'cursor-invalid' })`. Omit it and `TCursor`
    * stays `unknown` and no runtime check runs.
    */
@@ -59,7 +59,7 @@ interface ResumableStreamConfig<
  *
  * Inside the generator, `ctx.stream.cursor` holds the last confirmed cursor
  * checkpoint (`null` on first run). `ctx.stream.attempt` is `1` on the first
- * run and goes up by one on every resume that re-runs the generator (`2`,
+ * run and goes up by one on every reconnect that re-runs the generator (`2`,
  * `3`, ...). Yield chunks via
  * `ctx.stream.withCursor(chunk, cursor)` so the framework saves a checkpoint
  * alongside the chunk — on reconnect the generator restarts and
@@ -68,23 +68,23 @@ interface ResumableStreamConfig<
  * Nudges declared here behave exactly like nudges on a plain `stream(...)`:
  * the client pushes a typed message into the running generator and the
  * generator reads them via `ctx.nudges(yield ...)`. Nudges live only in the
- * running generator: a resume starts a new run with no nudges, and nudges
+ * running generator: a reconnect starts a new run with no nudges, and nudges
  * the old run had not read yet are dropped. State that a nudge changes (for
- * example "paused") must go in the cursor if it has to survive a resume.
+ * example "paused") must go in the cursor if it has to survive a reconnect.
  *
- * If the stored cursor or trigger payload cannot be restored on resume, the
- * stored stream is deleted and the resuming client gets
+ * If the stored cursor or trigger payload cannot be restored on reconnect, the
+ * stored stream is deleted and the continuing client gets
  * `StreamAborted({ reason: 'cursor-invalid' })`.
  *
  * Pass a `cursor` validator to pin the cursor type and have the framework
  * runtime-check every checkpoint cursor it restores from storage. A stored
  * cursor that fails the validator surfaces on the wire as
- * `StreamAborted({ reason: 'cursor-invalid' })` on the resuming client.
+ * `StreamAborted({ reason: 'cursor-invalid' })` on the continuing client.
  *
  * @example
  * ```ts
  * import { server, t } from '@livething/server';
- * import { resumableStream } from '@livething/server/streams';
+ * import { cursorStream } from '@livething/server/streams';
  * import * as v from 'valibot';
  *
  * const PaginatePayload = v.object({});
@@ -92,10 +92,10 @@ interface ResumableStreamConfig<
  * const PaginateCursor = v.object({ idx: v.number() });
  *
  * const base = server({
- *   capabilities: [resumableStream()],
+ *   capabilities: [cursorStream()],
  * });
  *
- * const handlePaginate = base.resumableStream('paginate', {
+ * const handlePaginate = base.cursorStream('paginate', {
  *   input: PaginatePayload,
  *   chunk: RowChunk,
  *   cursor: PaginateCursor,
@@ -110,7 +110,7 @@ interface ResumableStreamConfig<
  * });
  * ```
  */
-export function resumableStream<
+export function cursorStream<
   TName extends string,
   TPayload = unknown,
   TChunk = unknown,
@@ -118,17 +118,17 @@ export function resumableStream<
   const TNudges extends readonly NudgeDef<string, any>[] = readonly [],
 >(
   name: TName,
-  config?: ResumableStreamConfig<TPayload, TChunk, TCursor, TNudges>,
-): ResumableStreamDef<TName, TPayload, TChunk, TCursor, TNudges> {
-  assertNonReservedEventName(name, 'resumableStream');
-  const context = `resumableStream("${name}")`;
+  config?: CursorStreamConfig<TPayload, TChunk, TCursor, TNudges>,
+): CursorStreamDef<TName, TPayload, TChunk, TCursor, TNudges> {
+  assertNonReservedEventName(name, 'cursorStream');
+  const context = `cursorStream("${name}")`;
   validateDurableStreamConfig(config, context);
 
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context });
 
   return {
-    _: 'resumable-stream',
+    _: 'cursor-stream',
     name,
     payload: config?.payload,
     chunk: config?.chunk,

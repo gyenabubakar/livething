@@ -18,12 +18,12 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
  * | `base.request('r', …)`      | `clientRequests`     | `clientRequests`          |
  * | `serverRequests({...})`     | `serverRequests`     | `serverRequests`          |
  * | `base.stream('s', …)`       | `streams`            | `streams`                 |
- * | `base.resumableStream('s', …)` | `streams`         | `streams`                 |
+ * | `base.cursorStream('s', …)` | `streams`         | `streams`                 |
  * | `base.recordedStream('s', …)`  | `streams`         | `streams`                 |
  * | `errors([...])`             | `errors`             | `errors`                  |
  * | `base.channel('x', …)`      | `channels`           | `channels` (each flipped) |
  *
- * `resumableStream` and `recordedStream` collapse into the same client
+ * `cursorStream` and `recordedStream` collapse into the same client
  * `streams` slot as plain `stream` — the durability mechanism is a server
  * concern and does not change the client's wire surface.
  *
@@ -65,7 +65,7 @@ export interface ServerContract {
   /**
    * Server-sent streams the client subscribes to. From the client's
    * perspective every server-pushed stream lives here regardless of
-   * whether the server declared it with `stream(...)`, `resumableStream(...)`,
+   * whether the server declared it with `stream(...)`, `cursorStream(...)`,
    * or `recordedStream(...)` — the durability mechanism is a server-side
    * concern.
    */

@@ -119,7 +119,7 @@ type PluginErrorHandling<P extends SocketContract> = WhenPresent<
 
 /**
  * The socket a plugin's `setup` receives. It has the same verbs as the app socket
- * — `on`, `send`, `request`, `channel`, `stream`, `onStream`, `resumeStream`,
+ * — `on`, `send`, `request`, `channel`, `stream`, `onStream`, `continueStream`,
  * `onRequest` — but typed to the plugin's own contract and scoped to its
  * namespace: you use plain names and the socket writes `__<id>::<name>` on the
  * wire for you. A verb only appears when the contract has that section, so a

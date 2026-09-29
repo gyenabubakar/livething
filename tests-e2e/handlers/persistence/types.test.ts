@@ -107,7 +107,7 @@ describe('PersistenceClient — empty slots', () => {
     >();
   });
 
-  it('exposes only the anon-stream resumable stream', () => {
+  it('exposes only the anon-stream cursor stream', () => {
     expectTypeOf<keyof PersistenceClient['streams']>().toEqualTypeOf<'anon-stream'>();
   });
 });

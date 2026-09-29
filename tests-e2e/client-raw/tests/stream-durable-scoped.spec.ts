@@ -10,7 +10,7 @@ test.describe('stream-durable scoped (channel)', () => {
     await installRig(page);
   });
 
-  test('channel-scoped resumableStream survives reconnect via persistence auto-rejoin', async ({
+  test('channel-scoped cursorStream survives reconnect via persistence auto-rejoin', async ({
     page,
   }, testInfo) => {
     const room = `sds-${testInfo.testId}-${Date.now()}`;
@@ -56,7 +56,7 @@ test.describe('stream-durable scoped (channel)', () => {
     expect(rejoin.metadata?.exchange?.source).toBe('server');
 
     await send(page, b, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 0 },
       metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
@@ -78,7 +78,7 @@ test.describe('stream-durable scoped (channel)', () => {
     expect([...combined].sort((x, y) => x - y)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  test('channel-scoped resumableStream resume is live: continues from the latest cursor, no replay of seen rows', async ({
+  test('channel-scoped cursorStream continue is live: continues from the latest cursor, no replay of seen rows', async ({
     page,
   }, testInfo) => {
     const room = `sds-${testInfo.testId}-${Date.now()}`;
@@ -112,13 +112,13 @@ test.describe('stream-durable scoped (channel)', () => {
     // with the same identity (auto-rejoin depends on it).
     await page.waitForTimeout(300);
 
-    // Reconnect and resume claiming seq 2 — the highest seq this client got.
+    // Reconnect and continue claiming seq 2 — the highest seq this client got.
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, b, {
       match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'rooms',
     });
     await send(page, b, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 2 },
       metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
@@ -129,23 +129,23 @@ test.describe('stream-durable scoped (channel)', () => {
         f.metadata?.channel?.name === 'rooms',
     });
 
-    const resumedRows = (await frames(page, b))
+    const continuedRows = (await frames(page, b))
       .filter((f) => f.event === 'paginate' && f.metadata?.channel?.name === 'rooms')
       .map((f) => f.payload.row as number);
 
-    // The client confirmed rows 1 and 2, so the resumed socket does not receive
+    // The client confirmed rows 1 and 2, so the continued socket does not receive
     // them again. It gets the contiguous tail through row 10.
-    expect(resumedRows.length).toBeGreaterThan(0);
-    expect(resumedRows).not.toContain(1);
-    expect(resumedRows).not.toContain(2);
-    expect(resumedRows[0]).toBeGreaterThanOrEqual(3);
-    expect(resumedRows[resumedRows.length - 1]).toBe(10);
+    expect(continuedRows.length).toBeGreaterThan(0);
+    expect(continuedRows).not.toContain(1);
+    expect(continuedRows).not.toContain(2);
+    expect(continuedRows[0]).toBeGreaterThanOrEqual(3);
+    expect(continuedRows[continuedRows.length - 1]).toBe(10);
 
     const expectedTail = Array.from(
-      { length: resumedRows.length },
-      (_, i) => 10 - resumedRows.length + 1 + i,
+      { length: continuedRows.length },
+      (_, i) => 10 - continuedRows.length + 1 + i,
     );
-    expect(resumedRows).toEqual(expectedTail);
+    expect(continuedRows).toEqual(expectedTail);
   });
 
   test('channel-scoped recordedStream replays missed chunks from the buffer', async ({
@@ -182,7 +182,7 @@ test.describe('stream-durable scoped (channel)', () => {
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, b, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq: 2 },
       metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
@@ -200,7 +200,7 @@ test.describe('stream-durable scoped (channel)', () => {
     expect(replayed).toEqual([3, 4, 5]);
   });
 
-  test('non-member resume of a channel-scoped stream returns not-found', async ({
+  test('non-member continue of a channel-scoped stream returns not-found', async ({
     browser,
   }, testInfo) => {
     const room = `sds-${testInfo.testId}-${Date.now()}`;
@@ -235,7 +235,7 @@ test.describe('stream-durable scoped (channel)', () => {
 
       const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
       await send(pageB, b, {
-        event: '__resumeStream__',
+        event: '__continueStream__',
         payload: { lastKnownSeq: 0 },
         metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
       });
@@ -249,7 +249,7 @@ test.describe('stream-durable scoped (channel)', () => {
     }
   });
 
-  test('nudge on a channel-scoped resumable stream pauses the generator', async ({
+  test('nudge on a channel-scoped cursor stream pauses the generator', async ({
     page,
   }, testInfo) => {
     const room = `sds-${testInfo.testId}-${Date.now()}`;
@@ -304,11 +304,11 @@ test.describe('stream-durable scoped (channel)', () => {
   // A pause nudge ends this generator attempt. A reconnect must still start a
   // new attempt from the last row this client confirmed, because the browser
   // may have missed items before it saw the old end frame.
-  test('an ended resumable stream restarts from the client-confirmed row on resume', async ({
+  test('an ended cursor stream restarts from the client-confirmed row on reconnect', async ({
     page,
   }, testInfo) => {
     const room = `sds-${testInfo.testId}-${Date.now()}`;
-    const streamId = 'paused-resume-1';
+    const streamId = 'paused-continue-1';
 
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, a, {
@@ -367,7 +367,7 @@ test.describe('stream-durable scoped (channel)', () => {
     expect(rejoin.metadata?.exchange?.source).toBe('server');
 
     await send(page, b, {
-      event: '__resumeStream__',
+      event: '__continueStream__',
       payload: { lastKnownSeq },
       metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
     });
@@ -379,11 +379,11 @@ test.describe('stream-durable scoped (channel)', () => {
         f.metadata?.channel?.name === 'rooms',
     });
 
-    const rowsAfterResume = (await frames(page, b))
+    const rowsAfterContinue = (await frames(page, b))
       .filter((f) => f.event === 'paused-feed' && typeof f.payload.row === 'number')
       .map((f) => f.payload.row as number);
 
-    expect(rowsAfterResume).toEqual(
+    expect(rowsAfterContinue).toEqual(
       Array.from({ length: 20 - lastKnownSeq }, (_, i) => lastKnownSeq + i + 1),
     );
     expect(rowsBeforeDrop.length).toBeLessThan(20);

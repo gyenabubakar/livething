@@ -7,7 +7,7 @@ import { rateLimit } from '@livething/server/rate-limit';
 import { replay } from '@livething/server/replay';
 import { scheduled } from '@livething/server/scheduled';
 import { sequence } from '@livething/server/sequence';
-import { recordedStream, resumableStream, stream } from '@livething/server/streams';
+import { cursorStream, recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -33,7 +33,7 @@ export const base = server({
     channels(),
     scheduled({ tick: null }),
     stream(),
-    resumableStream(),
+    cursorStream(),
     recordedStream(),
     replay.custom(),
     intercepts(),

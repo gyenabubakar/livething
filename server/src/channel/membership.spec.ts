@@ -118,7 +118,7 @@ describe('kick(userRef, { revoke: true })', () => {
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    resumableStreams: new Map(),
+    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
   };

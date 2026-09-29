@@ -7,7 +7,7 @@ export type { DurableStreamDurability, OnDisconnect };
 
 /**
  * Engine-side config for one durable stream definition. Built by the compile
- * step from the contract-level `ResumableStreamDef` / `RecordedStreamDef`.
+ * step from the contract-level `CursorStreamDef` / `RecordedStreamDef`.
  */
 export interface DurableStreamConfig {
   readonly kind: DurableStreamDurability;

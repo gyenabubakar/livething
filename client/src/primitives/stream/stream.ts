@@ -54,13 +54,13 @@ interface StreamContext {
   options?: StreamTriggerOptions;
 }
 
-interface ResumeStreamOptions {
+interface ContinueStreamOptions {
   lastKnownSeq?: number;
 }
 
-interface ResumeContext {
+interface ContinueContext {
   markers: ScopeMarkers;
-  options?: ResumeStreamOptions;
+  options?: ContinueStreamOptions;
 }
 
 /** True if a chunk's scope markers match what an `onStream` subscriber asked for. */
@@ -91,9 +91,9 @@ function callStreamHandler(log: PrimitiveLogger, run: () => void): void {
  * Streaming / chunked messages. `socket.stream()` starts a stream and returns
  * an async iterable of chunks; `socket.onStream()` subscribes to server-pushed
  * broadcast streams. Chunks are matched by `streamId`, duplicates are dropped
- * by `seq`, and resumable streams restart automatically on reconnect.
+ * by `seq`, and durable streams restart automatically on reconnect.
  *
- * Pair resumable streams with `keepalive()` (and `reconnection()`): a resumable
+ * Pair durable streams with `keepalive()` (and `reconnection()`): a durable
  * stream waits for the next chunk, so on a half-open connection — one that died
  * with no close frame — only keepalive's pings can notice and force a reconnect.
  * Without it the stream can wait indefinitely (in debug mode this warns).
@@ -105,15 +105,15 @@ function callStreamHandler(log: PrimitiveLogger, run: () => void): void {
 export function stream(options: StreamOptions = {}): StreamPrimitive {
   const timeout = options.timeout ?? 30_000;
   const nudgeTimeout = options.nudgeTimeout ?? 10_000;
-  // A resume can legitimately take longer than a single chunk gap (the server may
-  // be replaying a buffer), so the resume deadline is more generous than the
-  // per-chunk timeout. It only bounds the wait so a server that never resumes
+  // A reconnect can legitimately take longer than a single chunk gap (the server may
+  // be replaying a buffer), so the reconnect deadline is more generous than the
+  // per-chunk timeout. It only bounds the wait so a server that never continues
   // can't hang the iterator forever. Disabled when per-chunk timeouts are off.
-  const resumeDeadline = timeout <= 0 ? 0 : Math.max(timeout, 30_000);
+  const continueDeadline = timeout <= 0 ? 0 : Math.max(timeout, 30_000);
 
   return {
     _tag: 'stream',
-    // A channel-scoped resume frame requires channel membership to be set up
+    // A channel-scoped continue frame requires channel membership to be set up
     // first (same as replaying missed messages). Run after channels when present.
     optionalAfter: ['channels'],
     setup(helpers) {
@@ -128,13 +128,13 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // stream would never start (and with timeout 0 the promise would never
       // settle, leaking the lazy hold).
       const triggerOutbox = new Map<string, { message: Message; owner: FrameOwner }>();
-      const resumeOutbox = new Map<string, Message>();
+      const continueOutbox = new Map<string, Message>();
       // Cancel frames for streams cancelled while the socket was connecting/
       // reconnecting (rawSend can't send them yet), keyed by streamId. Held here
       // and flushed on open; the stream stays alive until then so its durable row
-      // isn't left orphaned server-side, and a pending cancel suppresses resume.
+      // isn't left orphaned server-side, and a pending cancel suppresses continue.
       const cancelOutbox = new Map<string, Message>();
-      // Warn at most once: a resumable stream relies on detecting a dead socket,
+      // Warn at most once: a durable stream relies on detecting a dead socket,
       // which only keepalive can do for a half-open connection (no close event).
       let warnedNoKeepalive = false;
 
@@ -157,11 +157,11 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         state.active = false;
         if (state.timer) clearTimeout(state.timer);
         state.timer = null;
-        if (state.resumeTimer) clearTimeout(state.resumeTimer);
+        if (state.continueTimer) clearTimeout(state.continueTimer);
 
-        state.resumeTimer = null;
+        state.continueTimer = null;
         streams.delete(state.streamId);
-        resumeOutbox.delete(state.streamId);
+        continueOutbox.delete(state.streamId);
         cancelOutbox.delete(state.streamId);
         releaseStreamHold(state);
 
@@ -182,8 +182,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         }
       }
 
-      // Idempotent per-stream lazy hold. A resumable stream releases its hold on a
-      // drop and re-acquires on resume; if several failed reconnect attempts each
+      // Idempotent per-stream lazy hold. A durable stream releases its hold on a
+      // drop and re-acquires on reconnect; if several failed reconnect attempts each
       // fire onClose, only the first release counts, so the global lazy count can't
       // be corrupted for unrelated consumers.
       function acquireStreamHold(state: StreamState): void {
@@ -227,10 +227,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         run(pending);
       }
 
-      function resumeFrame(state: StreamState, lastKnownSeq?: number): Message {
+      function continueFrame(state: StreamState, lastKnownSeq?: number): Message {
         const seq = lastKnownSeq ?? (Number.isFinite(state.lastSeq) ? state.lastSeq : undefined);
         return {
-          event: '__resumeStream__',
+          event: '__continueStream__',
           payload: seq !== undefined ? { lastKnownSeq: seq } : {},
           metadata: {
             stream: { id: state.streamId },
@@ -394,14 +394,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         });
       }
 
-      function resumeStream(
+      function continueStream(
         event: string,
         streamId: string,
-        context: ResumeContext,
+        context: ContinueContext,
       ): StreamHandle<unknown> {
         const idError = wireIdError(event, streamId, 'streamId');
         if (idError) {
-          // Can't resume an unroutable id — settle the handle instead of sending
+          // Can't continue an unroutable id — settle the handle instead of sending
           // a frame the server rejects before it can route the error back.
           const errored = new StreamState(streamId, event, context.markers);
           finishStream(errored, idError);
@@ -411,27 +411,27 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         let state = streams.get(streamId);
         if (!state) {
           state = new StreamState(streamId, event, context.markers);
-          state.resumable = true;
+          state.durable = true;
           streams.set(streamId, state);
           acquireStreamHold(state);
         }
 
         startChunkTimer(state);
 
-        const frame = resumeFrame(state, context.options?.lastKnownSeq);
+        const frame = continueFrame(state, context.options?.lastKnownSeq);
         let result: SendResult;
         try {
           result = helpers.rawSend(frame);
         } catch (error) {
-          // A resume frame that can't serialize ends the stream with the error
+          // A reconnect frame that can't serialize ends the stream with the error
           // (the queue buffers it for a late iterator) rather than throwing out of
-          // resumeStream — its contract is to always return a handle.
+          // continueStream — its contract is to always return a handle.
           finishStream(state, error);
           return buildStreamHandle(state, handleDependencies);
         }
 
         if (result === 'connecting') {
-          resumeOutbox.set(streamId, frame);
+          continueOutbox.set(streamId, frame);
         } else if (result === 'closed') {
           // Closed, non-lazy: settle now; the queue buffers the abort for a late iterator.
           finishStream(state, Disconnected());
@@ -529,10 +529,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function handleStreamOk(streamId: string, envelope: LiveThingMetadata | null): null {
         const trigger = triggers.get(streamId);
         if (!trigger) {
-          const resumed = streams.get(streamId);
-          if (resumed?.resumeTimer) {
-            clearTimeout(resumed.resumeTimer);
-            resumed.resumeTimer = null;
+          const continued = streams.get(streamId);
+          if (continued?.continueTimer) {
+            clearTimeout(continued.continueTimer);
+            continued.continueTimer = null;
           }
 
           return null;
@@ -544,11 +544,11 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
         const state = new StreamState(streamId, trigger.event, trigger.markers);
         state.hasLazyHold = true;
-        state.resumable = envelope?.stream?.durability === 'persistent';
-        if (state.resumable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
+        state.durable = envelope?.stream?.durability === 'persistent';
+        if (state.durable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
           warnedNoKeepalive = true;
           helpers.log.warn(
-            'a resumable stream is active without keepalive() — if the connection half-dies (no close frame) the stream cannot tell and will wait forever. Add keepalive() so a dead connection is detected and the stream resumes.',
+            'a durable stream is active without keepalive() — if the connection half-dies (no close frame) the stream cannot tell and will wait forever. Add keepalive() so a dead connection is detected and the stream continues.',
           );
         }
 
@@ -587,20 +587,20 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         }
 
         const state = streams.get(streamId);
-        if (state) finishOrResumeAfterError(state, error);
+        if (state) finishOrContinueAfterError(state, error);
         endBroadcast(streamId, envelope, (handlers) => handlers.onError?.(error, streamId));
 
         return null;
       }
 
-      function finishOrResumeAfterError(state: StreamState, error: LiveThingError): void {
+      function finishOrContinueAfterError(state: StreamState, error: LiveThingError): void {
         if (
-          state.resumable &&
+          state.durable &&
           error.code === 'stream-aborted' &&
           abortReason(error) === 'hibernation-wake'
         ) {
           startChunkTimer(state);
-          helpers.rawSend(resumeFrame(state));
+          helpers.rawSend(continueFrame(state));
           return;
         }
 
@@ -617,9 +617,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         const seq = envelope?.stream?.seq ?? envelope?.delivery?.seq;
         const state = streams.get(streamId);
         if (state && (seq === undefined || seq > state.lastSeq)) {
-          if (state.resumeTimer) {
-            clearTimeout(state.resumeTimer);
-            state.resumeTimer = null;
+          if (state.continueTimer) {
+            clearTimeout(state.continueTimer);
+            state.continueTimer = null;
           }
 
           if (seq !== undefined) state.lastSeq = seq;
@@ -671,7 +671,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         onOpen() {
           // Flush held cancels first and finish those streams — a cancel queued
           // during reconnect must reach the server (deleting its durable row) and
-          // wins over any resume.
+          // wins over any continue.
           const cancelled = [...cancelOutbox.entries()];
           cancelOutbox.clear();
           for (const [streamId, frame] of cancelled) {
@@ -691,10 +691,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             if (owner.isPending()) helpers.rawSend(message, owner);
           }
 
-          if (resumeOutbox.size === 0) return null;
+          if (continueOutbox.size === 0) return null;
 
-          const frames = [...resumeOutbox.values()];
-          resumeOutbox.clear();
+          const frames = [...continueOutbox.values()];
+          continueOutbox.clear();
 
           return frames;
         },
@@ -702,23 +702,23 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         onReconnect() {
           const frames: Message[] = [];
           for (const state of streams.values()) {
-            // A queued cancel wins over resume — don't revive a stream the user
+            // A queued cancel wins over continue — don't revive a stream the user
             // already asked to cancel; onOpen flushes the cancel instead.
             if (cancelOutbox.has(state.streamId)) continue;
 
-            if (state.active && state.resumable) {
+            if (state.active && state.durable) {
               acquireStreamHold(state);
-              frames.push(resumeFrame(state));
-              // Bound the resume: if no resumed chunk arrives, the deadline ends
+              frames.push(continueFrame(state));
+              // Bound the reconnect: if no continued chunk arrives, the deadline ends
               // the stream rather than leaving it (and its lazy hold) hung. The
               // per-chunk timer is intentionally NOT started here — it begins only
-              // when the first resumed chunk lands.
-              if (resumeDeadline > 0) {
-                if (state.resumeTimer) clearTimeout(state.resumeTimer);
-                state.resumeTimer = setTimeout(() => {
-                  state.resumeTimer = null;
+              // when the first continued chunk lands.
+              if (continueDeadline > 0) {
+                if (state.continueTimer) clearTimeout(state.continueTimer);
+                state.continueTimer = setTimeout(() => {
+                  state.continueTimer = null;
                   finishStream(state, Timeout());
-                }, resumeDeadline);
+                }, continueDeadline);
               }
             }
           }
@@ -736,7 +736,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
           triggers.clear();
           triggerOutbox.clear();
-          resumeOutbox.clear();
+          continueOutbox.clear();
 
           for (const pending of pendingNudges.values()) {
             if (pending.timer) clearTimeout(pending.timer);
@@ -748,14 +748,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           for (const state of [...streams.values()]) {
             if (state.timer) clearTimeout(state.timer);
             state.timer = null;
-            if (state.resumeTimer) clearTimeout(state.resumeTimer);
-            state.resumeTimer = null;
+            if (state.continueTimer) clearTimeout(state.continueTimer);
+            state.continueTimer = null;
             // A durable stream survives an unexpected drop only if the socket can
-            // actually reconnect; otherwise the resume that would revive its queue
+            // actually reconnect; otherwise the reconnect that would revive its queue
             // never comes, so finish it (the for-await loop throws Disconnected
             // instead of hanging forever).
             if (
-              state.resumable &&
+              state.durable &&
               !intentional &&
               (suspended || helpers.willReconnect(code, reason))
             ) {
@@ -773,7 +773,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             run.timer = null;
           }
 
-          // Keep each run's last seq across a drop that will reconnect: a resume
+          // Keep each run's last seq across a drop that will reconnect: a reconnect
           // resends stored chunks, and onChunk must not see those twice.
           if (intentional || !(suspended || helpers.willReconnect(code, reason))) {
             broadcastRuns.clear();
@@ -791,7 +791,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           triggers.clear();
           triggerOutbox.clear();
 
-          // Reconnection is abandoned — the resume that would revive a kept stream
+          // Reconnection is abandoned — the reconnect that would revive a kept stream
           // never comes. finishStream releases the hold idempotently, so a stream
           // that already released on the drop won't release twice; the for-await
           // loop throws Disconnected instead of hanging forever.
@@ -808,12 +808,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           // @ts-expect-error — install adds onStream() to the socket dynamically
           socket.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
             subscribeBroadcast(event, handlers, undefined);
-          // @ts-expect-error — install adds resumeStream() to the socket dynamically
-          socket.resumeStream = (
+          // @ts-expect-error — install adds continueStream() to the socket dynamically
+          socket.continueStream = (
             event: string,
             streamId: string,
-            resumeOptions?: ResumeStreamOptions,
-          ) => resumeStream(event, streamId, { markers: {}, options: resumeOptions });
+            continueOptions?: ContinueStreamOptions,
+          ) => continueStream(event, streamId, { markers: {}, options: continueOptions });
 
           getAugmenters(socket).push((messaging, scope) => {
             messaging.stream = (
@@ -829,15 +829,15 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             };
             messaging.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
               subscribeBroadcast(scopedName(scope, event), handlers, scope.markers());
-            messaging.resumeStream = (
+            messaging.continueStream = (
               event: string,
               streamId: string,
-              resumeOptions?: ResumeStreamOptions,
+              continueOptions?: ContinueStreamOptions,
             ) => {
               scope.assertReady?.();
-              return resumeStream(scopedName(scope, event), streamId, {
+              return continueStream(scopedName(scope, event), streamId, {
                 markers: scope.markers(),
-                options: resumeOptions,
+                options: continueOptions,
               });
             };
           });

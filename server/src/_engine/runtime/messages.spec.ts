@@ -91,7 +91,7 @@ describe('message runtime', () => {
       compiled: {
         outgoing: new Map([['message', { event: 'message' }]]),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         channels: new Map(),
         channelFamilies: new Map([
@@ -105,7 +105,7 @@ describe('message runtime', () => {
               incoming: new Map(),
               requests: new Map(),
               streams: new Map(),
-              resumableStreams: new Map(),
+              cursorStreams: new Map(),
               recordedStreams: new Map(),
               intercepts: [],
             },
@@ -156,7 +156,7 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -171,7 +171,7 @@ describe('message runtime', () => {
               incoming: new Map([['message', { event: 'message', handler, validator: undefined }]]),
               requests: new Map(),
               streams: new Map(),
-              resumableStreams: new Map(),
+              cursorStreams: new Map(),
               recordedStreams: new Map(),
               intercepts: [],
             },
@@ -264,7 +264,7 @@ describe('message runtime', () => {
         ]),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -332,7 +332,7 @@ describe('message runtime', () => {
         ]),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -399,7 +399,7 @@ describe('message runtime', () => {
         ]),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -478,7 +478,7 @@ describe('message runtime', () => {
       ]),
       requests: new Map(),
       streams: new Map(),
-      resumableStreams: new Map(),
+      cursorStreams: new Map(),
       recordedStreams: new Map(),
       intercepts: [],
     };
@@ -489,7 +489,7 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map([['room', channel]]),
@@ -562,7 +562,7 @@ describe('message runtime', () => {
           ],
         ]),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -635,7 +635,7 @@ describe('message runtime', () => {
           ],
         ]),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -719,7 +719,7 @@ describe('message runtime', () => {
           ],
         ]),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [
           {
@@ -799,7 +799,7 @@ describe('message runtime', () => {
         ]),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map([
@@ -813,7 +813,7 @@ describe('message runtime', () => {
               incoming: new Map(), // channel does NOT register 'top-only'
               requests: new Map(),
               streams: new Map(),
-              resumableStreams: new Map(),
+              cursorStreams: new Map(),
               recordedStreams: new Map(),
               intercepts: [],
             },
@@ -867,7 +867,7 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -885,7 +885,7 @@ describe('message runtime', () => {
               incoming: new Map(),
               requests: new Map(),
               streams: new Map(),
-              resumableStreams: new Map(),
+              cursorStreams: new Map(),
               recordedStreams: new Map(),
               intercepts: [],
             },
@@ -952,7 +952,7 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -1020,7 +1020,7 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -1079,7 +1079,7 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -1140,7 +1140,7 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -1185,10 +1185,10 @@ describe('message runtime', () => {
     expect((error as { detail?: { event?: string } }).detail?.event).toBe('__replay__');
   });
 
-  it('replies UnsupportedProtocol for a __resumeStream__ frame when the adapter has no storage', async () => {
+  it('replies UnsupportedProtocol for a __continueStream__ frame when the adapter has no storage', async () => {
     // No storage means durable streams aren't supported at all. The reply names
     // the unsupported protocol event and keeps the streamId so the client's
-    // stream layer surfaces it to the resuming consumer.
+    // stream layer surfaces it to the continuing consumer.
     const connection = createConnection('conn_1');
     const sent: Array<{
       event: string;
@@ -1202,7 +1202,7 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -1240,13 +1240,13 @@ describe('message runtime', () => {
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
-      JSON.stringify(['__resumeStream__', {}, { stream: { id: 's-1' } }]),
+      JSON.stringify(['__continueStream__', {}, { stream: { id: 's-1' } }]),
     );
 
     expect(sent).toHaveLength(1);
     expect(sent[0]!.event).toBe('__error__');
     expect(sent[0]!.payload.code).toBe('unsupported-protocol');
-    expect((sent[0]!.payload.detail as { event?: string }).event).toBe('__resumeStream__');
+    expect((sent[0]!.payload.detail as { event?: string }).event).toBe('__continueStream__');
     expect(sent[0]!.livething.streamId).toBe('s-1');
   });
 });
@@ -1255,7 +1255,7 @@ function makeScopedNode(intercepts: unknown[] = []) {
   return {
     intercepts,
     streams: new Map(),
-    resumableStreams: new Map(),
+    cursorStreams: new Map(),
     recordedStreams: new Map(),
   };
 }
@@ -1277,7 +1277,7 @@ function makeNudgeRuntime(
       incoming: new Map(),
       requests: new Map(),
       streams: new Map(),
-      resumableStreams: new Map(),
+      cursorStreams: new Map(),
       recordedStreams: new Map(),
       intercepts,
       channels,
@@ -1524,7 +1524,7 @@ describe('Defer retry hook isolation', () => {
           ]),
           requests: new Map(),
           streams: new Map(),
-          resumableStreams: new Map(),
+          cursorStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
           channels: new Map(),
@@ -1608,7 +1608,7 @@ describe('Defer retry hook isolation', () => {
         ]),
         requests: new Map(),
         streams: new Map(),
-        resumableStreams: new Map(),
+        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
       };
@@ -1621,7 +1621,7 @@ describe('Defer retry hook isolation', () => {
           incoming: new Map(),
           requests: new Map(),
           streams: new Map(),
-          resumableStreams: new Map(),
+          cursorStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
           channels: new Map([['room', channel]]),
