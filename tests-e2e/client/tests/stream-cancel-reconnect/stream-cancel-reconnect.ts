@@ -4,7 +4,7 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @livething/client against the real `stream-durable` server definition to prove a
 // cancel() issued while the socket is reconnecting is not lost: the client holds
-// __streamCancel__ until reopen, suppresses the durable stream's auto-continue, and
+// __streamCancel__ until reopen, suppresses the durable stream's auto-reconnect, and
 // the server deletes the durable row. A later continueStream() of that id then
 // aborts with reason not-found — proof the row is gone.
 export function setup(): void {

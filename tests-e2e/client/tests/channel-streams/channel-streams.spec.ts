@@ -34,7 +34,7 @@ test.describe('channel-streams (conformance)', () => {
     await expect.poll(() => page.getByTestId('rows-ended').textContent()).toBe('yes');
     await expect(page.getByTestId('rows')).toHaveText('1,2,3,4,5,6,7,8,9,10');
 
-    // The cursor is retained after the stream ends. A manual continue from the saved
+    // The cursor is retained after the stream ends. A manual `continueStream` from the saved
     // cursor reattaches and ends cleanly with no new rows.
     await page.getByTestId('continue-paginate').click();
     await expect.poll(() => page.getByTestId('rows-ended').textContent()).toBe('yes');

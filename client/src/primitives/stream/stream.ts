@@ -106,7 +106,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
   const timeout = options.timeout ?? 30_000;
   const nudgeTimeout = options.nudgeTimeout ?? 10_000;
   // A reconnect can legitimately take longer than a single chunk gap (the server may
-  // be replaying a buffer), so the continue deadline is more generous than the
+  // be replaying a buffer), so the reconnect deadline is more generous than the
   // per-chunk timeout. It only bounds the wait so a server that never continues
   // can't hang the iterator forever. Disabled when per-chunk timeouts are off.
   const continueDeadline = timeout <= 0 ? 0 : Math.max(timeout, 30_000);

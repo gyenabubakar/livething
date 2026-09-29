@@ -12,7 +12,7 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('stream-durable (conformance)', () => {
-  test('a durable stream auto-continues on the same handle after an unexpected drop', async ({
+  test('a durable stream auto-reconnects on the same handle after an unexpected drop', async ({
     page,
   }, testInfo) => {
     await open(page, `sd-continue-${testInfo.testId}`);
@@ -42,7 +42,7 @@ test.describe('stream-durable (conformance)', () => {
     await expect.poll(() => page.getByTestId('ended').textContent()).toBe('yes');
     await expect.poll(() => page.getByTestId('row-count').textContent()).toBe('10');
 
-    // The durable row is retained after the stream ends. A manual continue from the
+    // The durable row is retained after the stream ends. A manual `continueStream` from the
     // saved cursor reattaches and ends cleanly with no remaining chunks.
     await page.getByTestId('continue-paginate').click();
     await expect.poll(() => page.getByTestId('ended').textContent()).toBe('yes');

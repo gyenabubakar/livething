@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 
 // Conformance: a cancel() issued while the socket is reconnecting must not be
 // lost. The client holds __streamCancel__ until reopen, suppresses the durable
-// stream's auto-continue, and the server deletes the durable row — proven by a
+// stream's auto-reconnect, and the server deletes the durable row — proven by a
 // later continueStream() of the same id aborting with not-found. Talks to the real
 // `stream-durable` server definition over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {

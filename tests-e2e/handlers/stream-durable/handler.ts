@@ -163,7 +163,7 @@ const handlePaginateNudged = base.cursorStream('paginate-nudged', {
 });
 
 // Test support: a client triggers a server-initiated close with a retryable
-// code so it reconnects in-session and a durable stream auto-continues.
+// code so it reconnects in-session and a durable stream auto-reconnects.
 const handleServerDrop = base.on('server-drop', {
   input: v.object({}),
   run() {

@@ -86,7 +86,7 @@ test.describe('channel-static (conformance)', () => {
     await bob.close();
   });
 
-  test('manual reconnect needs a fresh ephemeral channel subscribe', async ({
+  test('manual `continueStream` needs a fresh ephemeral channel subscribe', async ({
     browser,
   }, testInfo) => {
     const room = `ch-manual-reconnect-${testInfo.testId}`;

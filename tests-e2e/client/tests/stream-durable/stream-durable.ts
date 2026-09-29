@@ -3,8 +3,8 @@ import type { StreamDurableClient } from '@livething/tests-e2e-handlers/stream-d
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @livething/client's stream() + continueStream() against the real
-// `stream-durable` server definition. Proves durable streams auto-continue across an
-// unexpected drop (close 4900) and that manual continue of an unknown id aborts
+// `stream-durable` server definition. Proves durable streams auto-reconnect across an
+// unexpected drop (close 4900) and that manual `continueStream` of an unknown id aborts
 // with reason not-found.
 export function setup(): void {
   mount(`

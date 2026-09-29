@@ -66,7 +66,7 @@ export function setup(): void {
     void drainRows(handle);
   });
 
-  // After the cursor stream ends, its cursor is retained. A manual continue
+  // After the cursor stream ends, its cursor is retained. A manual `continueStream`
   // from the saved cursor reattaches on the channel handle and ends cleanly.
   button('continue-paginate', () => {
     el('rows-ended').textContent = 'no';
