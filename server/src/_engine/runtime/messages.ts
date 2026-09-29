@@ -7,7 +7,7 @@ import {
   UnsupportedProtocol,
   ValidationFailed,
 } from '@livething/core';
-import { withConnectionContext } from '~/_engine/async-context.ts';
+import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -419,6 +419,7 @@ export async function dispatchIncoming(
         intercepts: runtime.compiled.intercepts,
         frame,
         getCtx,
+        call: { kind: 'connection', getCtx },
       });
 
       if (scope.channel) {
@@ -426,6 +427,7 @@ export async function dispatchIncoming(
           intercepts: scope.channel.intercepts,
           frame,
           getCtx,
+          call: connectionCall(connection.id, scope, getCtx),
         });
       }
 
@@ -462,8 +464,10 @@ export async function dispatchIncoming(
       await runConnectionWork(connection, incoming.allowInterleaving ?? false, () => {
         if (connection.closing) return;
 
-        return withConnectionContext(runtime.asyncContext, connection.id, () =>
-          incoming.handler(getCtx(), payloadValue),
+        return withConnectionCall(
+          runtime.asyncContext,
+          connectionCall(connection.id, scope, getCtx),
+          () => incoming.handler(getCtx(), payloadValue),
         );
       });
       return;
@@ -582,7 +586,14 @@ async function handleDispatchError(
       // unhandled rejection — this code runs inside `void dispatchIncoming`.
       await forEachIsolatedAsync(
         runtime.errorHooks,
-        (hook) => hook(runtime.buildConnectionContext(connection, scope), exhausted, event),
+        (hook) => {
+          const ctx = runtime.buildConnectionContext(connection, scope);
+          return withConnectionCall(
+            runtime.asyncContext,
+            connectionCall(connection.id, undefined, () => ctx),
+            () => hook(ctx, exhausted, event),
+          );
+        },
         { context: `onError hook (DeferExhausted) event="${event}"` },
       );
       return;
@@ -902,12 +913,14 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
         intercepts: topIntercepts,
         frame: intercepted,
         getCtx,
+        call: { kind: 'connection', getCtx },
       });
       if (channelIntercepts) {
         intercepted = await runtime.runIntercepts(runtime, connection, {
           intercepts: channelIntercepts,
           frame: intercepted,
           getCtx,
+          call: connectionCall(connection.id, interceptScope, getCtx),
         });
       }
 

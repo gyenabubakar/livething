@@ -127,8 +127,18 @@ export interface UpgradeReturn<TMeta, TEphemeralGroups extends string = string> 
   readonly tags?: { readonly ephemeral?: Partial<Record<TEphemeralGroups, string>> };
 }
 
-/** The `upgrade(...)` function shape. Receives the raw upgrade request. */
+/**
+ * The `upgrade(...)` function shape. Receives the raw upgrade request and a
+ * `ctx` with storage, a logger and the platform. The same shape as the `onInit`
+ * context: no connection exists yet, so there is no user, `meta` or `send`.
+ */
 export type UpgradeFn<TMeta, TEphemeralGroups extends string = string> = (
+  request: Request,
+  ctx: InitContext,
+) => UpgradeReturn<TMeta, TEphemeralGroups> | Promise<UpgradeReturn<TMeta, TEphemeralGroups>>;
+
+/** A plugin's `upgrade(...)`. It sees only the raw request, never the app's storage. */
+export type ScopedUpgradeFn<TMeta, TEphemeralGroups extends string = string> = (
   request: Request,
 ) => UpgradeReturn<TMeta, TEphemeralGroups> | Promise<UpgradeReturn<TMeta, TEphemeralGroups>>;
 
@@ -216,7 +226,7 @@ export interface ScopedServerConfig<
    * may own `userId` — but only one upgrade hook (the app's or one plugin's)
    * may return it, or the build/runtime errors.
    */
-  readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
+  readonly upgrade?: ScopedUpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** The features this plugin uses. Host-owned capabilities are a compile error here. */
   readonly capabilities?: TCaps & UniqueCapabilityKinds<TCaps>;
 }
@@ -1590,6 +1600,13 @@ export interface CoreBase<
   TScoped extends boolean = false,
 > {
   /**
+   * Unique id of this `base`, copied onto every definition it assembles. The
+   * `context.*` accessors compare it against the running definition.
+   * @internal
+   */
+  readonly __baseId: symbol;
+
+  /**
    * Create a handler value for one client→server event. Pass it to `assemble(...)`
    * to activate it. Exactly one assembled handler per event name is allowed in one
    * server definition.
@@ -1850,8 +1867,8 @@ function toEphemeralTagRefs(ephemeral: Record<string, string | undefined> | unde
 
 /** Wrap a bootstrap `upgrade(...)` function as the engine's builder upgrade hook. */
 function adaptUpgrade(fn: UpgradeFn<any>): UpgradeHandler {
-  return async (request: Request): Promise<UpgradeResult> => {
-    const result = await fn(request);
+  return async (request, helpers): Promise<UpgradeResult> => {
+    const result = await fn(request, helpers.ctx);
     const tags = toEphemeralTagRefs(result.tags?.ephemeral);
     return {
       // An anonymous upgrade omits userId; the engine keys it by connection id.
@@ -2034,7 +2051,10 @@ export function server(config: any): any {
     return buildRateLimit ? buildRateLimit({ overrides, channelRules, channelKeys }) : null;
   }
 
+  const baseId = Symbol('livething.base');
+
   const base = {
+    __baseId: baseId,
     on(event: string, config: OnConfig<any, any, any, any> & { rateLimit?: RateLimitConfig }) {
       const primitive = incomingFactory(event, config.run as any, {
         validator: config.input,
@@ -2126,6 +2146,7 @@ export function server(config: any): any {
       }
 
       return factory(pattern, channelConfig, {
+        baseId,
         streamBuilders,
         buildCustomReplay,
         buildBuiltinReplay,
@@ -2264,7 +2285,7 @@ export function server(config: any): any {
       if (config.upgrade) {
         primitives.push(
           scoped
-            ? scopedUpgradePrimitive(adaptUpgrade(config.upgrade))
+            ? scopedUpgradePrimitive(adaptUpgrade((request) => config.upgrade(request)))
             : onUpgrade(adaptUpgrade(config.upgrade)),
         );
       }
@@ -2363,6 +2384,7 @@ export function server(config: any): any {
 
       return Object.freeze({
         __livething: 'server' as const,
+        __baseId: baseId,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
         ...(config.translate ? { __translate: config.translate } : {}),

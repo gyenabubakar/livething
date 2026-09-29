@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rethrowIfConfigError } from '@livething/core';
+import { runOutsideCall } from '~/_engine/call-context.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
@@ -127,7 +128,9 @@ function runOutgoingHooks(
     const ownFrame =
       hookOwner.kind === 'plugin' && owner.kind === 'plugin' && hookOwner.id === owner.id;
     const event = ownFrame && parsed ? parsed.name : current.event;
-    const next = handler({ event, payload: current.payload, owner });
+    // The hook sees a frame, not a connection's ctx. The sender's call context
+    // would name the wrong connection when one connection broadcasts to another.
+    const next = runOutsideCall(() => handler({ event, payload: current.payload, owner }));
     if (next !== undefined) current = { event: current.event, payload: next };
   }
 

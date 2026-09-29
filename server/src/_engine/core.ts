@@ -268,7 +268,7 @@ export class EngineCore {
     this.timers = options.timers;
     this.platform = options.platform;
     this.logger = options.logger;
-    this.asyncContext = createAsyncContext(options.asyncContextFactory);
+    this.asyncContext = createAsyncContext(options.asyncContextFactory, definition.__baseId);
 
     this.hooks.ping.push((connectionId) => this.replyPong(connectionId));
   }

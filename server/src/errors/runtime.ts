@@ -1,5 +1,7 @@
 import { InternalError, LiveThingError } from '@livething/core';
+import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
+import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
@@ -28,6 +30,9 @@ interface RuntimeErrorDeps {
 
   declaredErrorCodes: ReadonlySet<string>;
 
+  /** Lets `context.connection(base)` reach the hook's `ctx`. */
+  asyncContext?: EngineAsyncContext;
+
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
 
   logger: Pick<Logger, 'warn' | 'error'>;
@@ -43,6 +48,9 @@ interface ValidationErrorDeps {
     connection: RuntimeConnection,
     scope?: ResolvedChannel,
   ): Record<PropertyKey, unknown>;
+
+  /** Lets `context.connection(base)` reach the hook's `ctx`. */
+  asyncContext?: EngineAsyncContext;
 
   validationErrorHooks: readonly ((
     ctx: unknown,
@@ -112,7 +120,11 @@ export async function sendRuntimeError(
   for (const hook of deps.errorHooks) {
     const ctx = deps.buildConnectionContext(connection, scope);
     try {
-      await hook(ctx, error, event);
+      await withConnectionCall(
+        deps.asyncContext,
+        connectionCall(connection.id, undefined, () => ctx),
+        () => hook(ctx, error, event),
+      );
     } catch (hookError) {
       // A throwing hook must never block the `__error__` frame from reaching
       // the client — otherwise request Promises hang and stream onError
@@ -155,7 +167,12 @@ export async function notifyValidationError(
 
   await forEachIsolatedAsync(
     deps.validationErrorHooks,
-    (hook) => hook(ctx, event, validationError),
+    (hook) =>
+      withConnectionCall(
+        deps.asyncContext,
+        connectionCall(connection.id, undefined, () => ctx),
+        () => hook(ctx, event, validationError),
+      ),
     { context: `onValidationError hook event="${event}"` },
   );
 }

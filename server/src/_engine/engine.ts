@@ -11,7 +11,7 @@ import {
 } from '~/_engine/runtime/invocation-scope.ts';
 import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
 import { createAdminContext, RESERVED_ADMIN_API_NAMES } from '~/admin/context.ts';
-import { createShutdownContext } from '~/lifecycle/context.ts';
+import { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
@@ -120,6 +120,7 @@ export class Engine<TApi = unknown> {
         pluginUpgradeHooks: this.core.hooks.pluginUpgrade,
         builderUpgradeHook: this.core.hooks.builderUpgrade,
         upgradeHelpers: this.buildUpgradeHelpers(),
+        asyncContext: this.core.asyncContext,
         logger: this.core.logger,
         isTagGroupDeclared: (kind, group) => this.core.isTagGroupDeclared(kind, group),
         getTagGroupSchema: (kind, group) => this.core.getTagGroupSchema(kind, group),
@@ -161,6 +162,7 @@ export class Engine<TApi = unknown> {
           }),
 
         logger: core.logger,
+        asyncContext: core.asyncContext,
       });
     } finally {
       if (options.terminal) await core.drainBackgroundWork();
@@ -210,7 +212,12 @@ export class Engine<TApi = unknown> {
 
   /** Build the helper bag passed to every `onUpgrade` hook. @internal */
   private buildUpgradeHelpers(): LifecycleTypes.UpgradeHelpers {
-    if (!this.core.usesTags()) return {};
+    const ctx = createInitContext({
+      logger: this.core.logger,
+      platform: this.core.platform,
+      getStorageView: EngineDeps.commonDeps(this.core).getStorageView,
+    });
+    if (!this.core.usesTags()) return { ctx };
 
     const isDeclared = (kind: 'ephemeral' | 'persistent', group: string) =>
       this.core.declaredTagGroups[kind].has(group);
@@ -235,6 +242,7 @@ export class Engine<TApi = unknown> {
     }
 
     return {
+      ctx,
       tags: {
         ephemeral: buildRefFactory('ephemeral'),
         persistent: buildRefFactory('persistent'),

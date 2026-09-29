@@ -1,7 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { withConnectionContext } from '~/_engine/async-context.ts';
+import { withConnectionCall, withConnectionContext } from '~/_engine/async-context.ts';
 import { parsePluginWireName } from '~/plugin-scope.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
+import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { APP_HOOK_OWNER } from './intercept.ts';
 import type { FrameOwner, InterceptFrame, InterceptPrimitive } from './intercept.ts';
@@ -19,6 +20,9 @@ export interface RunInterceptsOptions {
   frame: InterceptFrame;
 
   getCtx: GetContext;
+
+  /** How `context.*` should describe the `ctx` these intercepts receive. */
+  call?: CallDescriptor;
 }
 
 /**
@@ -36,7 +40,7 @@ export async function runIntercepts(
   connection: RuntimeConnection,
   options: RunInterceptsOptions,
 ): Promise<InterceptFrame> {
-  const { intercepts, frame, getCtx } = options;
+  const { intercepts, frame, getCtx, call } = options;
   if (intercepts.length === 0) return frame;
 
   const ctx = getCtx();
@@ -52,9 +56,13 @@ export async function runIntercepts(
       hookOwner.id === nextFrame.owner.id;
     const presented = ownFrame && parsed ? { ...nextFrame, event: parsed.name } : nextFrame;
 
-    const next = await withConnectionContext(runtime.asyncContext, connection.id, () =>
-      intercept.handler(ctx, presented),
-    );
+    const next = await (call
+      ? withConnectionCall(runtime.asyncContext, { ...call, connectionId: connection.id }, () =>
+          intercept.handler(ctx, presented),
+        )
+      : withConnectionContext(runtime.asyncContext, connection.id, () =>
+          intercept.handler(ctx, presented),
+        ));
 
     if (next !== undefined) {
       nextFrame = {

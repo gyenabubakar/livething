@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CloseCodes } from '@livething/core';
-import { getInvocationScope } from '~/_engine/async-context.ts';
+import { getInvocationScope, withConnectionCall } from '~/_engine/async-context.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as InboxRuntime from '~/inbox/runtime.ts';
 import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
@@ -312,6 +312,12 @@ export function createEngineAccess(
       connection.quality = quality;
     },
     getConnectionContext: (connectionId) => deps.buildContextForConnection(connectionId),
+    runInConnectionCall: (connectionId, ctx, fn) =>
+      withConnectionCall(
+        core.asyncContext,
+        { kind: 'connection', getCtx: () => ctx, connectionId },
+        fn,
+      ),
     onPing: (handler) => {
       core.hooks.ping.push(handler);
     },

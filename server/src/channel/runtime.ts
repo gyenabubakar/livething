@@ -6,8 +6,11 @@ import {
   RejoinRejected,
   rethrowIfConfigError,
 } from '@livething/core';
+import { withCallContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { userKeyOf } from '~/_engine/runtime/user-key.ts';
+import type { EngineAsyncContext } from '~/_engine/async-context.ts';
+import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ChannelHooks, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -174,6 +177,9 @@ export interface BroadcastToChannelOptions {
  * the subscribe and unsubscribe protocol behavior built on top of that state.
  */
 interface ChannelRuntime extends ChannelHooks {
+  /** Lets `context.channelGate(channel)` reach the gate and lifecycle hooks' `ctx`. */
+  asyncContext?: EngineAsyncContext;
+
   compiled: {
     channels: Map<string, CompiledChannel>;
     channelFamilies: Map<string, CompiledChannel>;
@@ -363,6 +369,26 @@ function holdsUserSeat(connection: RuntimeConnection, isDurable: boolean | undef
   return isDurable === true && connection.userId !== '';
 }
 
+interface GateHookTarget {
+  channelKey: string;
+  ctx: unknown;
+}
+
+/** Run one gate or lifecycle hook so `context.channelGate(channel)` can reach its `ctx`. */
+function runGateHook<T>(
+  runtime: Pick<ChannelRuntime, 'asyncContext'>,
+  gate: GateHookTarget,
+  run: () => T,
+): T {
+  const call: CallDescriptor = {
+    kind: 'channelGate',
+    getCtx: () => gate.ctx,
+    channelKey: gate.channelKey,
+  };
+
+  return withCallContext(runtime.asyncContext, call, run);
+}
+
 /**
  * The id peers see for this member in presence frames: the user id for a
  * per-user seat, so it stays the same across reconnects and tabs, and the
@@ -491,7 +517,7 @@ export async function leaveChannel(
   if (isTrueLeave) {
     for (const hook of runtime.unsubscribeHooks.get(channelKey) ?? []) {
       try {
-        await hook(ctx);
+        await runGateHook(runtime, { channelKey, ctx }, () => hook(ctx));
       } catch (error) {
         runtime.logger?.error('[livething] onUnsubscribe hook threw', {
           connectionId: connection.id,
@@ -536,7 +562,7 @@ export async function leaveChannel(
 
   for (const hook of runtime.sessionEndHooks.get(channelKey) ?? []) {
     try {
-      await hook(ctx);
+      await runGateHook(runtime, { channelKey, ctx }, () => hook(ctx));
     } catch (error) {
       runtime.logger?.error('[livething] onSessionEnd hook threw', {
         connectionId: connection.id,
@@ -603,7 +629,9 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<() => void
     const revalidateHook = runtime.revalidateHooks.get(scope.channel.key)?.[0];
     if (revalidateHook) {
       try {
-        await revalidateHook(getGateCtx());
+        await runGateHook(runtime, { channelKey: scope.channel.key, ctx: getGateCtx() }, () =>
+          revalidateHook(getGateCtx()),
+        );
       } catch (error) {
         rethrowIfConfigError(error);
         throw RejoinRejected({ message: error instanceof Error ? error.message : String(error) });
@@ -627,7 +655,11 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<() => void
         }
       }
 
-      checkResult = await checkHook.handler(getGateCtx(), validatedData);
+      checkResult = await runGateHook(
+        runtime,
+        { channelKey: scope.channel.key, ctx: getGateCtx() },
+        () => checkHook.handler(getGateCtx(), validatedData),
+      );
     }
   }
 
@@ -636,7 +668,11 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<() => void
   return function runCommitGate(): void {
     if (!commitHook) return;
 
-    const result: unknown = commitHook.handler(getGateCtx(), checkResult);
+    const result: unknown = runGateHook(
+      runtime,
+      { channelKey: scope.channel.key, ctx: getGateCtx() },
+      () => commitHook.handler(getGateCtx(), checkResult),
+    );
     if (
       result !== null &&
       (typeof result === 'object' || typeof result === 'function') &&
@@ -787,7 +823,7 @@ async function runSubscribeFlow(
   if (!rejoining) {
     for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
       try {
-        await hook(ctx);
+        await runGateHook(runtime, { channelKey: scope.channel.key, ctx }, () => hook(ctx));
       } catch (error) {
         const routing: Protocol.LiveThingRouting = { channel: scope.channelName };
         if (scope.channelFamily !== null) routing.channelFamily = scope.channelFamily;

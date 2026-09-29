@@ -120,7 +120,7 @@ describe('handleUpgrade', () => {
             throw RejectUpgrade(4002, 'nope');
           },
         ],
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -139,7 +139,7 @@ describe('handleUpgrade', () => {
             throw new Error('boom');
           },
         ],
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
         logger,
@@ -162,7 +162,7 @@ describe('handleUpgrade', () => {
         builderUpgradeHook: async () => ({
           tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
         }),
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => false,
         getTagGroupSchema: () => undefined,
         logger,
@@ -187,7 +187,7 @@ describe('handleUpgrade', () => {
             throw RejectUpgrade(4002, 'nope');
           },
         ],
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
         logger,
@@ -208,7 +208,7 @@ describe('handleUpgrade', () => {
         {
           upgradeHooks: [],
           builderUpgradeHook: async () => ({ tags: [roleRef(key)] }),
-          upgradeHelpers: {},
+          upgradeHelpers: { ctx: {} as never },
           isTagGroupDeclared: () => true,
           getTagGroupSchema: () => v.picklist(['admin', 'member']),
           logger,
@@ -246,7 +246,7 @@ describe('handleUpgrade', () => {
     const result = await handleUpgrade(
       {
         upgradeHooks: [],
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -265,7 +265,7 @@ describe('handleUpgrade', () => {
         builderUpgradeHook: async () => ({
           meta: { region: 'ap', user_id: 'u_42' },
         }),
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -289,7 +289,7 @@ describe('handleUpgrade', () => {
           async () => ({ tags: [ref('beta'), ref('eu-west')] }),
         ],
         builderUpgradeHook: async () => ({ tags: [ref('user-tag')] }),
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -310,7 +310,7 @@ describe('handleUpgrade', () => {
       {
         upgradeHooks: [],
         builderUpgradeHook: async () => ({ meta: { user_id: 'u_42' }, tags: [ref('authed')] }),
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -326,7 +326,7 @@ describe('handleUpgrade', () => {
       {
         upgradeHooks: [async () => ({})],
         builderUpgradeHook: async () => ({}),
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -344,7 +344,7 @@ describe('handleUpgrade', () => {
         builderUpgradeHook: async () => ({
           tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
         }),
-        upgradeHelpers: {},
+        upgradeHelpers: { ctx: {} as never },
         isTagGroupDeclared: (_kind, group) => group === 'role',
         getTagGroupSchema: () => undefined,
       },

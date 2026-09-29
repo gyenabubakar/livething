@@ -1,4 +1,6 @@
-import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import { registerCallContext, runInCall } from '~/_engine/call-context.ts';
+import type { CallDescriptor } from '~/_engine/call-context.ts';
+import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AsyncContext, AsyncContextFactory, SQLProvider } from '~/context.ts';
 
 export const INVOCATION_SCOPE = Symbol('livething.invocationScope');
@@ -23,10 +25,17 @@ export interface EngineAsyncContextStore {
   [INVOCATION_SCOPE]?: InvocationScopeState;
 }
 
-export type EngineAsyncContext = AsyncContext<EngineAsyncContextStore>;
+/** The engine's store, plus the id of the `base` its definition was assembled from. */
+export type EngineAsyncContext = AsyncContext<EngineAsyncContextStore> & {
+  readonly baseId?: symbol;
+};
 
-export function createAsyncContext(factory: AsyncContextFactory): EngineAsyncContext {
-  return factory<EngineAsyncContextStore>();
+export function createAsyncContext(
+  factory: AsyncContextFactory,
+  baseId?: symbol,
+): EngineAsyncContext {
+  registerCallContext(factory);
+  return Object.assign(factory<EngineAsyncContextStore>(), { baseId });
 }
 
 /**
@@ -43,6 +52,45 @@ export function withConnectionContext<T>(
 
   const current = asyncContext.getStore();
   return asyncContext.run({ ...current, connectionId }, fn);
+}
+
+/** A {@link CallDescriptor} for code that runs for one connection. */
+export interface ConnectionCall extends CallDescriptor {
+  readonly connectionId: string;
+}
+
+/**
+ * Like {@link withConnectionContext}, and also makes the running `ctx` reachable
+ * through `context.*`.
+ */
+export function withConnectionCall<T>(
+  asyncContext: EngineAsyncContext | undefined,
+  call: ConnectionCall,
+  fn: () => T,
+): T {
+  return withCallContext(asyncContext, call, () =>
+    withConnectionContext(asyncContext, call.connectionId, fn),
+  );
+}
+
+/** Run `fn` so `context.*` can reach a `ctx`. Used directly for code with no connection (init, task, shutdown, upgrade). */
+export function withCallContext<T>(
+  asyncContext: EngineAsyncContext | undefined,
+  call: CallDescriptor,
+  fn: () => T,
+): T {
+  return runInCall({ ...call, baseId: asyncContext?.baseId }, fn);
+}
+
+/** Describe a connection's `ctx`: a channel `ctx` inside a channel scope, a connection `ctx` outside one. */
+export function connectionCall(
+  connectionId: string,
+  scope: ResolvedChannel | undefined,
+  getCtx: () => unknown,
+): ConnectionCall {
+  return scope?.channel
+    ? { kind: 'channel', getCtx, channelKey: scope.channel.key, connectionId }
+    : { kind: 'connection', getCtx, connectionId };
 }
 
 export function getInvocationScope(

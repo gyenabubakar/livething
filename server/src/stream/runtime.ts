@@ -8,7 +8,7 @@ import {
   StreamIdCollision,
   ValidationFailed,
 } from '@livething/core';
-import { withConnectionContext } from '~/_engine/async-context.ts';
+import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import {
@@ -544,7 +544,11 @@ export async function runStream(
     }),
   );
 
-  const iterator = stream.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
+  const iterator = withConnectionCall(
+    runtime.asyncContext,
+    connectionCall(connection.id, scope, () => ctx),
+    () => stream.generator(ctx, payload),
+  ) as AsyncGenerator<unknown, void, unknown>;
 
   const { active: activeStream } = buildActiveStream({
     streamId,
@@ -574,8 +578,10 @@ export async function runStream(
     while (!activeStream.closed) {
       // Advance the generator inside the connection's async context so plugin
       // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
-      const result = await withConnectionContext(runtime.asyncContext, connection.id, () =>
-        iterator.next(nextInput),
+      const result = await withConnectionCall(
+        runtime.asyncContext,
+        connectionCall(connection.id, scope, () => ctx),
+        () => iterator.next(nextInput),
       );
       if (result.done) break;
 
@@ -683,7 +689,14 @@ export async function runStream(
       // the client is waiting for.
       await forEachIsolatedAsync(
         runtime.errorHooks,
-        (hook) => hook(runtime.buildConnectionContext(connection, scope), internal, event),
+        (hook) => {
+          const hookCtx = runtime.buildConnectionContext(connection, scope);
+          return withConnectionCall(
+            runtime.asyncContext,
+            connectionCall(connection.id, undefined, () => hookCtx),
+            () => hook(hookCtx, internal, event),
+          );
+        },
         { context: `stream onError hook event="${event}"` },
       );
       runtime.sendProtocolMessage(connection, {

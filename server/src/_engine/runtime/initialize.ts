@@ -6,6 +6,7 @@ import {
   rescheduleAlarm,
   restoreAlarmCoordinator,
 } from '~/_engine/alarm.ts';
+import { withCallContext } from '~/_engine/async-context.ts';
 import { commonDeps } from '~/_engine/engine.deps.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
@@ -140,7 +141,9 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   }
 
   for (const hook of core.hooks.init) {
-    await hook(initCtx);
+    await withCallContext(core.asyncContext, { kind: 'init', getCtx: () => initCtx }, () =>
+      hook(initCtx),
+    );
   }
 
   // Boot, init, and any capability setup may have created durable work after

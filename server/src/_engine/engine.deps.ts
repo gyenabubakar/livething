@@ -321,6 +321,7 @@ function buildChannelRuntime(core: EngineCore) {
     subscribeHooks: core.hooks.subscribe,
     unsubscribeHooks: core.hooks.unsubscribe,
     sessionEndHooks: core.hooks.sessionEnd,
+    asyncContext: core.asyncContext,
 
     broadcastToChannel: (opts: ChannelPrimitive.BroadcastToChannelOptions) => {
       OutgoingRuntime.broadcastToChannel(dispatchRuntime(core), opts);

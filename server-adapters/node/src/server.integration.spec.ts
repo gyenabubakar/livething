@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
-import { server as createServerDefinition, emits, t, translator } from '@livething/server';
+import { context, server as createServerDefinition, emits, t, translator } from '@livething/server';
 import { CloseCodes, RejectUpgrade } from '@livething/server/errors';
 import { scheduled } from '@livething/server/scheduled';
 import Database from 'better-sqlite3';
@@ -199,6 +199,39 @@ function buildServerDefinition(state: IntegrationState) {
       },
     }),
   });
+}
+
+function buildContextDefinition() {
+  const base = createServerDefinition({
+    upgrade(request, ctx) {
+      const user = new URL(request.url).searchParams.get('user') ?? 'anonymous';
+      const row = ctx.sql
+        .exec<{ role: string }>('SELECT role FROM context_roles WHERE user = ?', user)
+        .one();
+
+      return { userId: user, meta: { role: row?.role ?? 'guest' } };
+    },
+    capabilities: [emits({ whoami: t<{ user: string; role: string }>() })],
+  });
+
+  base.onInit((ctx) => {
+    ctx.sql.exec('CREATE TABLE IF NOT EXISTS context_roles (user TEXT PRIMARY KEY, role TEXT)');
+    ctx.sql.exec("INSERT OR REPLACE INTO context_roles VALUES ('alice', 'admin')");
+  });
+
+  function describeCaller() {
+    const ctx = context.connection(base);
+    return { user: ctx.user.id, role: ctx.meta.role };
+  }
+
+  const whoami = base.on('whoami', {
+    async run(ctx) {
+      await Promise.resolve();
+      ctx.send('whoami', describeCaller());
+    },
+  });
+
+  return base.assemble({ handlers: [whoami] });
 }
 
 function createTranslatedHandler(state: IntegrationState) {
@@ -591,6 +624,25 @@ describe('Node server integration', () => {
     );
 
     expect(state.upgradeRequest?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('lets upgrade read storage and a helper read ctx through context.connection', async () => {
+    const service = createTestService(buildContextDefinition(), { port: 0 });
+    services.push(service);
+    await service.ready;
+
+    for (const [user, role] of [
+      ['alice', 'admin'],
+      ['bob', 'guest'],
+    ] as const) {
+      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/?user=${user}`);
+      clients.push(socket);
+      await waitForOpen(socket);
+      const reply = waitForMessage(socket);
+      socket.send(JSON.stringify(['whoami', {}, null]));
+
+      await expect(reply).resolves.toEqual(['whoami', { user, role }, null]);
+    }
   });
 
   it('derives the client IP from a trusted proxy during a real upgrade', async () => {

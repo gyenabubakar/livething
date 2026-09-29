@@ -6,7 +6,7 @@ import {
   StreamAborted,
 } from '@livething/core';
 import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
-import { withConnectionContext } from '~/_engine/async-context.ts';
+import { connectionCall, withCallContext, withConnectionCall } from '~/_engine/async-context.ts';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
@@ -16,6 +16,7 @@ import { isTranslatorConfigError, markTranslatorConfigError } from '~/translatio
 import { TranslationInputError } from '~/translation/translator.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
+import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
@@ -106,6 +107,8 @@ type HandleUpgradeRuntimeParameter = {
    * empty object.
    */
   upgradeHelpers: LifecycleTypes.UpgradeHelpers;
+  /** Lets `context.upgrade(base)` reach the upgrade `ctx`. Omitted by test harnesses. */
+  asyncContext?: EngineAsyncContext;
   /**
    * Whether a tag group of the given kind was declared. Guards tag refs an
    * upgrade returns — including the `tags: { ephemeral: { ... } }` sugar,
@@ -574,28 +577,32 @@ export async function runConnectionLifecycle(
   ctx: Record<PropertyKey, unknown>,
 ): Promise<void> {
   const connectionId = (ctx as { connection?: { id?: string } }).connection?.id ?? '';
-  return withConnectionContext(runtime.asyncContext, connectionId, async () => {
-    if (kind === 'connect') {
-      // Inbound onion: new-model plugins see the connection before the app.
-      for (const entry of runtime.pluginConnectHooks ?? []) {
-        await entry.handler(ctx);
-      }
+  return withConnectionCall(
+    runtime.asyncContext,
+    connectionCall(connectionId, undefined, () => ctx),
+    async () => {
+      if (kind === 'connect') {
+        // Inbound onion: new-model plugins see the connection before the app.
+        for (const entry of runtime.pluginConnectHooks ?? []) {
+          await entry.handler(ctx);
+        }
 
-      for (const hook of runtime.connectHooks) {
-        await hook(ctx);
-      }
-    } else {
-      for (const hook of runtime.disconnectHooks) {
-        await hook(ctx);
-      }
+        for (const hook of runtime.connectHooks) {
+          await hook(ctx);
+        }
+      } else {
+        for (const hook of runtime.disconnectHooks) {
+          await hook(ctx);
+        }
 
-      // Outbound onion: the app tears down first, then plugins unwind LIFO.
-      const disconnects = runtime.pluginDisconnectHooks ?? [];
-      for (let i = disconnects.length - 1; i >= 0; i -= 1) {
-        await disconnects[i]!.handler(ctx);
+        // Outbound onion: the app tears down first, then plugins unwind LIFO.
+        const disconnects = runtime.pluginDisconnectHooks ?? [];
+        for (let i = disconnects.length - 1; i >= 0; i -= 1) {
+          await disconnects[i]!.handler(ctx);
+        }
       }
-    }
-  });
+    },
+  );
 }
 
 /**
@@ -1234,8 +1241,13 @@ export async function handleUpgrade(
       apply((await hook(request, runtime.upgradeHelpers)) ?? {}, 'an internal hook');
     }
 
-    if (runtime.builderUpgradeHook) {
-      apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {}, 'the app');
+    const builderUpgradeHook = runtime.builderUpgradeHook;
+    if (builderUpgradeHook) {
+      const call: CallDescriptor = { kind: 'upgrade', getCtx: () => runtime.upgradeHelpers.ctx };
+      const result = await withCallContext(runtime.asyncContext, call, () =>
+        builderUpgradeHook(request, runtime.upgradeHelpers),
+      );
+      apply(result ?? {}, 'the app');
     }
 
     return {
@@ -1304,6 +1316,7 @@ export async function handleShutdown(
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
     logger?: Pick<PublicApi.Logger, 'error'>;
+    asyncContext?: EngineAsyncContext;
   },
 ): Promise<void> {
   // Fire every active stream's stop signal up front — including detached
@@ -1323,7 +1336,10 @@ export async function handleShutdown(
   // with logging; cleanup below always runs.
   for (const hook of runtime.shutdownHooks) {
     try {
-      await hook(runtime.createShutdownContext());
+      const ctx = runtime.createShutdownContext();
+      await withCallContext(runtime.asyncContext, { kind: 'shutdown', getCtx: () => ctx }, () =>
+        hook(ctx),
+      );
     } catch (error) {
       runtime.logger?.error('[livething] shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),

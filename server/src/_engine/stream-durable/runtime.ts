@@ -7,7 +7,7 @@ import {
   StreamAborted,
   StreamIdCollision,
 } from '@livething/core';
-import { withConnectionContext } from '~/_engine/async-context.ts';
+import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
@@ -805,7 +805,11 @@ async function runGenerator(
   }
 
   try {
-    const iterator = def.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
+    const iterator = withConnectionCall(
+      runtime.asyncContext,
+      connectionCall(connection.id, scope, () => ctx),
+      () => def.generator(ctx, payload),
+    ) as AsyncGenerator<unknown, void, unknown>;
     const built = buildActiveStream({
       streamId,
       event: def.event,
@@ -832,8 +836,10 @@ async function runGenerator(
     while (!activeStream.closed) {
       // Advance the generator inside the connection's async context so plugin
       // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
-      const result = await withConnectionContext(runtime.asyncContext, connection.id, () =>
-        iterator.next(nextInput),
+      const result = await withConnectionCall(
+        runtime.asyncContext,
+        connectionCall(connection.id, scope, () => ctx),
+        () => iterator.next(nextInput),
       );
       if (result.done) break;
 
@@ -898,7 +904,11 @@ async function runGenerator(
             });
 
             try {
-              await iterator.throw(StreamAborted({ reason: 'buffer-full' }));
+              await withConnectionCall(
+                runtime.asyncContext,
+                connectionCall(connection.id, scope, () => ctx),
+                () => iterator.throw(StreamAborted({ reason: 'buffer-full' })),
+              );
             } catch (err) {
               rethrowIfConfigError(err);
               throw err;

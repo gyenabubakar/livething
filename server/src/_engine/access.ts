@@ -619,6 +619,14 @@ export interface EngineAccess {
   getConnectionContext(connectionId: string): unknown;
 
   /**
+   * Run `fn` for one connection so `context.connection(base)` inside it returns
+   * `ctx`. Used by hooks that build their own `ctx` from a connection id.
+   *
+   * @internal
+   */
+  runInConnectionCall<T>(connectionId: string, ctx: unknown, fn: () => T): T;
+
+  /**
    * Observe a bare `ping` frame arriving from a client. The engine registers
    * its own reply hook first, so by the time a handler added here runs, the
    * client has already been answered with `pong`.

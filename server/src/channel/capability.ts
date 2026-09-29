@@ -60,6 +60,8 @@ const CHANNEL_STREAM_CAPABILITY = {
  * pays for neither.
  */
 export interface ChannelDeps {
+  /** Id of the `base` this channel is declared on. Read by `context.channel(...)`. */
+  readonly baseId?: symbol;
   /** Stream builders by kind, present only for the stream capabilities that are listed. */
   readonly streamBuilders: {
     plain?: StreamBuild;
@@ -105,6 +107,8 @@ export class ChannelBuilder {
   readonly __channel: ChannelBuilder = this;
   /** The channel's unique key (static name or family key). @internal */
   readonly __key: string;
+  /** Id of the `base` this channel is declared on. @internal */
+  readonly __baseId: symbol | undefined;
   /** The channel-level rate-limit rule, if the config set one. @internal */
   readonly __rateLimit?: RateLimitConfig;
   /** Per-handler rate-limit overrides for this channel. @internal */
@@ -120,6 +124,7 @@ export class ChannelBuilder {
 
   constructor(pattern: unknown, config: any, deps: ChannelDeps) {
     this.deps = deps;
+    this.__baseId = deps.baseId;
     if (Array.isArray(pattern)) {
       const [family, template] = pattern as [string, string];
       this.pattern = scopeFactory(family, template);

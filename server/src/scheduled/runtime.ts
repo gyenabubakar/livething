@@ -670,14 +670,12 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
       const task = runtime.getScheduledTask(run.taskId);
       if (task?.handler) {
         const ctx = runtime.createTaskContext();
-        if (task.hasData) {
-          await (task.handler as (ctx: unknown, data: unknown) => void | Promise<void>)(
-            ctx,
-            run.data,
-          );
-        } else {
-          await (task.handler as (ctx: unknown) => void | Promise<void>)(ctx);
+        const handler = task.handler as (ctx: unknown, data?: unknown) => void | Promise<void>;
+        function invoke() {
+          return task?.hasData ? handler(ctx, run.data) : handler(ctx);
         }
+
+        await (runtime.runInTaskContext ? runtime.runInTaskContext(ctx, invoke) : invoke());
       }
 
       return run;

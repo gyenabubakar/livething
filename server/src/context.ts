@@ -204,7 +204,8 @@ export interface TimerProvider {
  *
  * `AsyncLocalStorage` from `node:async_hooks` satisfies this interface
  * directly. Adapters provide a factory for creating one, and the engine
- * decides the store shape it wants to carry.
+ * decides the store shape it wants to carry. The engine also keeps one more
+ * store for the whole process, which the `context.*` accessors read.
  */
 export interface AsyncContext<TStore = unknown> {
   /** Run `callback` with `store` recorded as the active async state. */
@@ -214,7 +215,11 @@ export interface AsyncContext<TStore = unknown> {
   getStore(): TStore | undefined;
 }
 
-/** Factory the adapter provides so the engine can create its own async context instance. */
+/**
+ * Factory the adapter provides so the engine can create its own async context
+ * instances. It must return a new store on every call: the engine calls it for
+ * each engine's own store, and once more for the shared store behind `context.*`.
+ */
 export type AsyncContextFactory = <TStore>() => AsyncContext<TStore>;
 
 /**
@@ -1005,7 +1010,7 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
 }
 
 /**
- * The context passed to `onInit` handlers.
+ * The context passed to `onInit` handlers and to the app's `upgrade` function.
  *
  * `onInit` runs once during server startup, before any WebSocket connections
  * are accepted. Use it for one-time setup: seeding the database, warming
@@ -1024,7 +1029,7 @@ export interface InitContext<Platform = unknown> {
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
-  /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
+  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
 }
 
@@ -1096,7 +1101,7 @@ export interface ShutdownContext<
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
-  /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
+  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
 }
 
@@ -1142,7 +1147,7 @@ export interface TaskContext<Meta = Record<string, unknown>, Platform = unknown>
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
-  /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
+  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
 }
 
@@ -1264,6 +1269,6 @@ export interface AdminContext<
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
-  /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
+  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
 }

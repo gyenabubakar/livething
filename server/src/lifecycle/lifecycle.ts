@@ -24,9 +24,9 @@ export interface UpgradeResult {
    */
   readonly meta?: Record<string, unknown>;
   /**
-   * Tag refs to attach to this connection. Build them with the helper passed
-   * as the second argument to `onUpgrade`:
-   * `tags: [tags.ephemeral('role').ref('admin')]`. Refs in the ephemeral kind
+   * Tag refs to attach to this connection. Build them with `helpers.tags`, the
+   * second argument to `onUpgrade`:
+   * `tags: [helpers.tags.ephemeral('role').ref('admin')]`. Refs in the ephemeral kind
    * are accepted; refs in the persistent kind must be set at runtime via
    * `ctx.tags.persistent(group).add(key)` and are rejected here.
    */
@@ -67,6 +67,12 @@ export type ErrorHandler<TCtx = any> = (
  * before it opens. Always an object (possibly empty) — safe to destructure.
  */
 export interface UpgradeHelpers {
+  /**
+   * Storage, logger and platform for the upgrade phase. The same shape as the
+   * `onInit` context: no connection exists yet, so there is no user, `meta` or
+   * `send`. The app's `upgrade(request, ctx)` receives this as `ctx`.
+   */
+  readonly ctx: PublicApiTypes.InitContext;
   /**
    * Tag-ref builders available during the upgrade phase. Returns a partial
    * group handle whose only method is `.ref(key)` — `add` / `remove` /
@@ -177,7 +183,7 @@ function intoContextHandler(
 ): (connectionId: string) => Promise<void> {
   return async (connectionId) => {
     const ctx = engine.getConnectionContext(connectionId);
-    if (ctx !== undefined) await handler(ctx);
+    if (ctx !== undefined) await engine.runInConnectionCall(connectionId, ctx, () => handler(ctx));
   };
 }
 
