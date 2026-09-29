@@ -78,7 +78,7 @@ function go(index: number) {
         Speaking of batteries, here are the big ones<span class="text-primary">.</span>
       </h2>
       <p class="mt-5 max-w-xl text-base/7 text-muted">
-        The features you would otherwise pay a hosted service for, built on the same typed contract and running on your own servers.
+        The features you would otherwise pay a hosted service for, typed end to end and running on your own servers.
       </p>
     </div>
 

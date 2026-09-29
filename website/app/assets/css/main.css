@@ -16,7 +16,17 @@
 
 @theme {
   --font-sans: "Geist", sans-serif;
+  --font-serif: "Merriweather", serif;
   --font-mono: "DM Mono", monospace;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-serif);
 }
 
 :root {
@@ -66,11 +76,11 @@
 }
 
 .section-title {
-  @apply font-sans font-semibold text-4xl md:text-5xl lg:text-6xl tracking-tight text-highlighted;
+  @apply font-serif font-semibold text-4xl md:text-5xl lg:text-6xl tracking-tight text-highlighted;
 }
 
 .feature-title {
-  @apply font-sans font-semibold text-3xl tracking-tight text-highlighted;
+  @apply font-serif font-semibold text-3xl tracking-tight text-highlighted;
 }
 
 :root:not(.dark) .section-title,

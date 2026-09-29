@@ -26,7 +26,7 @@
       <div class="flex items-center justify-between">
         <NuxtLink to="/" aria-label="LiveThing home" class="flex items-center gap-1.5 not-italic text-highlighted">
           <AppLogoMark class="h-4 w-auto" />
-          <span class="font-sans text-base font-semibold tracking-tight">livething<span class="text-primary">.</span></span>
+          <span class="font-serif text-base font-semibold tracking-tight">livething<span class="text-primary">.</span></span>
         </NuxtLink>
         <div class="flex items-center gap-3">
           <a href="https://x.com/GyenAbubakar" target="_blank" rel="noopener noreferrer" aria-label="X" class="hover:text-highlighted">

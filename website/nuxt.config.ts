@@ -84,6 +84,7 @@ export default defineNuxtConfig({
 
   fonts: {
     families: [
+      { name: 'Merriweather', weights: [400, 500, 600, 700], global: true },
       { name: 'Geist', weights: [400, 500, 600, 700], global: true },
       { name: 'DM Mono', weights: [400, 500], global: true },
     ],
