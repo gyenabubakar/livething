@@ -3,11 +3,10 @@ import { useSubNavigation } from '#imports'
 
 const appConfig = useAppConfig()
 const site = useSiteConfig()
-const route = useRoute()
 const { isEnabled: isAssistantEnabled } = useAssistant()
 const { subNavigationMode } = useSubNavigation()
 
-const isHome = computed(() => route.path === '/')
+const isHome = useMarketingPage()
 const links = computed(() => appConfig.github?.url
   ? [
     {

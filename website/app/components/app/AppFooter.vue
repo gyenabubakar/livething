@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { FooterColumn } from '@nuxt/ui'
 
-const route = useRoute()
-const isLanding = computed(() => route.path === '/')
+const isLanding = useMarketingPage()
 
 const columns = computed<FooterColumn[]>(() => [
   {

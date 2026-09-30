@@ -48,12 +48,13 @@ export default defineNuxtConfig({
 
   routeRules: {
     '/': { prerender: true },
+    '/cloudflare': { prerender: true },
   },
 
   nitro: {
     prerender: {
       crawlLinks: true,
-      routes: ['/'],
+      routes: ['/', '/cloudflare'],
       // Cap parallelism so the OG-image (satori/resvg) renders don't swamp the
       // worker pool and time out — the heavy OG template needs breathing room.
       concurrency: 3,

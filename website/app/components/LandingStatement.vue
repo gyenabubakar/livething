@@ -1,7 +1,11 @@
 <script setup lang="ts">
 // A text-only statement. Each word starts faint and lights up in reading order
 // as the paragraph scrolls through the screen; `accent` words turn orange.
-const parts: { text: string, accent?: boolean }[] = [
+type Part = { text: string, accent?: boolean }
+
+const props = defineProps<{ parts?: Part[] }>()
+
+const defaultParts: Part[] = [
   { text: 'LiveThing is the realtime layer you would otherwise build yourself.' },
   { text: 'Write your server once, and every event, room, request and stream it declares becomes' },
   { text: 'a typed call on the client.', accent: true },
@@ -12,7 +16,7 @@ const parts: { text: string, accent?: boolean }[] = [
   { text: 'channels, requests, streaming, reliability and more.' },
 ]
 
-const words = parts.flatMap(part => part.text.split(' ').map(word => ({ word, accent: part.accent })))
+const words = (props.parts ?? defaultParts).flatMap(part => part.text.split(' ').map(word => ({ word, accent: part.accent })))
 </script>
 
 <template>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useEventListener } from '@vueuse/core'
+
 // First-party plugins on the roadmap (none ship yet, so each is tagged "coming
 // soon"). A pinned list on the left tracks which row is on screen, and clicking
 // an entry scrolls to its row. The page scrolls normally the whole time.
@@ -49,22 +51,20 @@ const plugins = [
 
 const rows = ref<HTMLElement[]>([])
 const active = ref(0)
-let observer: IntersectionObserver | undefined
+// The current row is the last one whose top has passed a line 30% down the
+// screen, so the highlight follows the row being read, not the one coming up.
+function track() {
+  const line = window.innerHeight * 0.3
+  const passed = rows.value.findLastIndex(row => row.getBoundingClientRect().top <= line)
+  active.value = Math.max(0, passed)
+}
 
-onMounted(() => {
-  // A row counts as current while it crosses the middle band of the screen.
-  observer = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) active.value = rows.value.indexOf(entry.target as HTMLElement)
-    }
-  }, { rootMargin: '-45% 0px -45% 0px' })
-  rows.value.forEach(row => observer!.observe(row))
-})
-onBeforeUnmount(() => observer?.disconnect())
+useEventListener('scroll', track, { passive: true })
+onMounted(track)
 
 function go(index: number) {
   const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  rows.value[index]?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'center' })
+  rows.value[index]?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' })
 }
 </script>
 
@@ -103,7 +103,7 @@ function go(index: number) {
           v-for="(plugin, index) in plugins"
           :key="plugin.key"
           :ref="(el) => { if (el) rows[index] = el as HTMLElement }"
-          class="grid border-b border-default last:border-b-0 lg:grid-cols-2"
+          class="grid scroll-mt-16 border-b border-default last:border-b-0 lg:grid-cols-2"
         >
           <div class="flex flex-col justify-center px-6 sm:px-10 py-12">
             <div class="flex items-center gap-3">

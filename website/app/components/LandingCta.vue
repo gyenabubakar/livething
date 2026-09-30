@@ -3,7 +3,7 @@
     <LandingGrainPanel class="frame-row">
       <div class="mx-auto max-w-2xl px-6 py-24 md:py-32 text-center">
         <h2 class="section-title text-white!">
-          Typed realtime,<br>on your own servers<span class="cta-dot">.</span>
+          <slot name="title">Typed realtime,<br>on your own servers</slot><span class="cta-dot">.</span>
         </h2>
         <p class="mt-6 mb-10 text-base/7 text-white/85">
           <slot name="description" mdc-unwrap="p" />
