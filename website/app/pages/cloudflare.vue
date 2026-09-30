@@ -28,9 +28,9 @@ const statement = [
     <CloudflareProof />
     <LandingStatement :parts="statement" />
     <CloudflareStory />
-    <CloudflareBill />
     <CloudflarePlugins />
     <CloudflareDeploy />
+    <CloudflareBill />
     <CloudflareOwnership />
     <CloudflareExit />
     <LandingCta>

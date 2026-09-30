@@ -54,7 +54,7 @@ onMounted(track)
       </p>
     </div>
 
-    <div class="frame-row grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+    <div class="frame-row grid lg:grid-cols-2">
       <div class="max-lg:order-2 lg:border-r border-default lg:pb-[25vh]">
         <article
           v-for="(step, index) in steps"

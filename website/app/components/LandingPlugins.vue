@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useEventListener } from '@vueuse/core'
 
-// First-party plugins on the roadmap (none ship yet, so each is tagged "coming
-// soon"). A pinned list on the left tracks which row is on screen, and clicking
-// an entry scrolls to its row. The page scrolls normally the whole time.
+// The first-party plugins. A pinned list on the left tracks which row is on
+// screen, and clicking an entry scrolls to its row. The page scrolls normally
+// the whole time.
 const plugins = [
   {
     key: 'chat',
@@ -106,12 +106,9 @@ function go(index: number) {
           class="grid scroll-mt-16 border-b border-default last:border-b-0 lg:grid-cols-2"
         >
           <div class="flex flex-col justify-center px-6 sm:px-10 py-12">
-            <div class="flex items-center gap-3">
-              <p class="text-xs font-medium uppercase tracking-widest text-zinc-500">
-                {{ plugin.name }}
-              </p>
-              <span class="border border-default px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-widest text-zinc-500">Coming soon</span>
-            </div>
+            <p class="text-xs font-medium uppercase tracking-widest text-zinc-500">
+              {{ plugin.name }}
+            </p>
             <h3 class="mt-4 text-3xl font-semibold tracking-tight text-highlighted">
               {{ plugin.title }}
             </h3>
