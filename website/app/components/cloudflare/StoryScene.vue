@@ -17,6 +17,8 @@ const WORKER = { x: 170, y: 232, w: 220, h: 44 }
 const ROOM = { x: 160, y: 330, w: 240, h: 150 }
 const SIDE = { y: 350, w: 110, h: 60 }
 const MID = (DEVICE.y + DEVICE.h + EDGE.y) / 2
+// The push path runs up the left margin, outside the network bar.
+const PUSH_X = 9
 
 const routed = computed(() => props.step >= 1)
 const sleeping = computed(() => props.step === 2)
@@ -26,7 +28,7 @@ const amaraOffline = computed(() => props.step === 4)
 </script>
 
 <template>
-  <svg viewBox="0 0 560 500" class="h-auto w-full cursor-default select-none" role="img" aria-label="People connect to nearby Cloudflare cities, a Worker routes them to one room, and the room is a Durable Object with its sockets, SQLite storage and alarm">
+  <svg viewBox="-4 0 564 500" class="h-auto w-full cursor-default select-none" role="img" aria-label="People connect to nearby Cloudflare cities, a Worker routes them to one room, and the room is a Durable Object with its sockets, SQLite storage and alarm">
     <!-- people and their devices -->
     <g v-for="(person, index) in people" :key="person.name">
       <g class="scene-fade" :class="index === 0 && amaraOffline && 'opacity-45'">
@@ -112,13 +114,18 @@ const amaraOffline = computed(() => props.step === 4)
       </g>
     </g>
 
-    <!-- a mention travels to Amara's object, then out as a push notification -->
+    <!-- a mention travels to Amara's object, then around the network to the
+         closed app as a push notification that lands on Amara's device -->
     <g class="scene-fade" :class="reaching ? 'opacity-100' : 'opacity-0'">
-      <line :x1="ROOM.x" :y1="SIDE.y + SIDE.h / 2" :x2="EDGE.x + SIDE.w" :y2="SIDE.y + SIDE.h / 2" stroke="#ff8a3d" stroke-width="2" class="dash-flow" style="animation-direction: reverse" />
-      <line :x1="EDGE.x + 30" :y1="SIDE.y" :x2="EDGE.x + 30" :y2="DEVICE.y + DEVICE.h + 20" stroke="#ff8a3d" stroke-width="2" class="dash-flow" style="animation-direction: reverse" />
-      <rect :x="EDGE.x + 2" :y="DEVICE.y + DEVICE.h + 20" width="118" height="30" class="fill-zinc-950 stroke-orange-400" />
-      <text :x="EDGE.x + 12" :y="DEVICE.y + DEVICE.h + 33" class="text-[9px] fill-orange-300">push notification</text>
-      <text :x="EDGE.x + 12" :y="DEVICE.y + DEVICE.h + 44" class="text-[9px] fill-zinc-200">kofi mentioned you</text>
+      <line :x1="ROOM.x" :y1="SIDE.y + SIDE.h / 2" :x2="EDGE.x + SIDE.w" :y2="SIDE.y + SIDE.h / 2" stroke="#ff8a3d" stroke-width="2" class="dash-flow" />
+      <polyline
+        :points="`${EDGE.x},${SIDE.y + SIDE.h / 2} ${PUSH_X},${SIDE.y + SIDE.h / 2} ${PUSH_X},${DEVICE.y + DEVICE.h / 2} ${people[0]!.x},${DEVICE.y + DEVICE.h / 2}`"
+        fill="none" stroke="#ff8a3d" stroke-width="2" stroke-linejoin="round" class="dash-flow"
+      />
+      <text :x="PUSH_X + 13" :y="EDGE.y + EDGE.h + 48" class="text-[9px] font-medium uppercase tracking-widest fill-orange-600 dark:fill-orange-300" :transform="`rotate(-90 ${PUSH_X + 13} ${EDGE.y + EDGE.h + 48})`">push</text>
+      <rect :x="people[0]!.x + 3" :y="DEVICE.y + 3" :width="DEVICE.w - 6" :height="DEVICE.h - 6" class="fill-zinc-950 stroke-orange-400" />
+      <text :x="people[0]!.x + 9" :y="DEVICE.y + 18" class="text-[8px] font-medium uppercase tracking-widest fill-orange-300">push · now</text>
+      <text :x="people[0]!.x + 9" :y="DEVICE.y + 32" class="text-[9px] fill-zinc-200">kofi mentioned you</text>
     </g>
   </svg>
 </template>
