@@ -98,9 +98,9 @@ export interface SqlLimits {
  * ctx.sql.exec('INSERT INTO events (type, data) VALUES (?, ?)', 'login', userId);
  *
  * // Atomic multi-step operation:
- * ctx.sql.transaction((tx) => {
- *   tx.exec('UPDATE wallets SET balance = balance - ? WHERE id = ?', amount, from);
- *   tx.exec('UPDATE wallets SET balance = balance + ? WHERE id = ?', amount, to);
+ * ctx.sql.transaction(() => {
+ *   ctx.sql.exec('UPDATE wallets SET balance = balance - ? WHERE id = ?', amount, from);
+ *   ctx.sql.exec('UPDATE wallets SET balance = balance + ? WHERE id = ?', amount, to);
  * });
  * ```
  */
@@ -116,13 +116,15 @@ export interface SQLProvider {
   /**
    * Run multiple queries inside a single atomic transaction.
    *
-   * The callback must be synchronous. If it throws, the transaction is rolled
-   * back and the error propagates to the caller. Run async work before or after
-   * this callback, never inside it.
+   * Every `exec()` call inside the callback joins the transaction. The callback
+   * must be synchronous. If it throws, the transaction is rolled back and the
+   * error propagates to the caller. Run async work before or after this
+   * callback, never inside it.
+   *
+   * Only your own SQL rolls back. Other calls in the callback, such as
+   * `ctx.send()`, `ctx.schedule()` and `ctx.kv.set()`, keep their effect.
    */
-  transaction<T>(
-    fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
-  ): T;
+  transaction<T>(fn: () => T): T;
 
   /** The bind-parameter and payload ceilings of the engine behind this provider. */
   readonly limits: SqlLimits;

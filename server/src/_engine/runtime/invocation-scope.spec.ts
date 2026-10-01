@@ -26,7 +26,7 @@ function createFakeCore(): {
   });
   const sql = {
     exec: sqlExec,
-    transaction: vi.fn(<T>(fn: (tx: unknown) => T) => fn(sql)),
+    transaction: vi.fn(<T>(fn: () => T) => fn()),
   };
 
   const core = {

@@ -1,3 +1,4 @@
+import type { UserTransactionTracker } from '~/_engine/user-transaction.ts';
 import type * as PublicApi from '~/context.ts';
 
 /**
@@ -35,6 +36,21 @@ function isPluginKey(key: string): boolean {
 }
 
 /**
+ * A copy of a kv value, so a change made to the value after `set` does not change what
+ * is written again after a rollback. Binary data is not copied, because copying would
+ * change its type. A value that cannot be copied is used as it is.
+ */
+function snapshotOf(value: unknown): unknown {
+  if (ArrayBuffer.isView(value)) return value;
+
+  try {
+    return structuredClone(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
  * Build the `sql` and `kv` surfaces exposed on handler and lifecycle
  * contexts, backed by one storage provider.
  *
@@ -45,7 +61,10 @@ function isPluginKey(key: string): boolean {
  * its keys are framework-built, so they bypass the app guard without an
  * app-imitatable shape exemption.
  */
-export function createLazyStorageView(storage: PublicApi.StorageProvider): {
+export function createLazyStorageView(
+  storage: PublicApi.StorageProvider,
+  userTransactions: UserTransactionTracker,
+): {
   sql: PublicApi.SQLProvider;
   kv: PublicApi.KVProvider;
 } {
@@ -54,20 +73,43 @@ export function createLazyStorageView(storage: PublicApi.StorageProvider): {
       return storage.sql.exec(query, ...params);
     },
     transaction(fn) {
-      return storage.sql.transaction(fn);
+      return userTransactions.run(storage.sql, fn);
     },
     limits: storage.sql.limits,
   };
+
+  // A kv write is not part of a SQL transaction, but on some adapters kv shares the SQL
+  // connection and would roll back with it, so kv writes are redone like the engine's.
+  function setValue(
+    key: string,
+    value: unknown,
+    options?: Parameters<PublicApi.KVProvider['set']>[2],
+  ): Promise<void> {
+    const outcome = storage.kv.set(key, value, options);
+    if (userTransactions.inTransaction) {
+      const snapshot = snapshotOf(value);
+      userTransactions.recordOperation(() => storage.kv.set(key, snapshot, options), outcome);
+    }
+
+    return outcome;
+  }
+
+  function deleteValue(key: string): Promise<void> {
+    const outcome = storage.kv.delete(key);
+    userTransactions.recordOperation(() => storage.kv.delete(key), outcome);
+
+    return outcome;
+  }
 
   const privilegedKv: PublicApi.KVProvider = {
     async get(key) {
       return storage.kv.get(key);
     },
     async set(key, value, options) {
-      return storage.kv.set(key, value, options);
+      return setValue(key, value, options);
     },
     async delete(key) {
-      return storage.kv.delete(key);
+      return deleteValue(key);
     },
     async list(prefix) {
       return storage.kv.list(prefix);
@@ -81,11 +123,11 @@ export function createLazyStorageView(storage: PublicApi.StorageProvider): {
     },
     async set(key, value, options) {
       assertWritableKvKey(key);
-      return storage.kv.set(key, value, options);
+      return setValue(key, value, options);
     },
     async delete(key) {
       assertWritableKvKey(key);
-      return storage.kv.delete(key);
+      return deleteValue(key);
     },
     async list(prefix) {
       if (prefix !== undefined && prefix !== '') {

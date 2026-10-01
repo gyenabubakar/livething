@@ -6,7 +6,7 @@ import { ensureReplaySchema, persistReplayMessage } from '~/replay/runtime.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { IncomingProtocolEvent } from '~/_engine/runtime/protocol.ts';
-import type { SqlResult, StorageProvider } from '~/context.ts';
+import type { StorageProvider } from '~/context.ts';
 import type { ReplayRow } from '~/replay/types.ts';
 
 function replayDb() {
@@ -444,12 +444,8 @@ describe('replay', () => {
               },
             };
           },
-          transaction<T>(
-            fn: (tx: {
-              exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
-            }) => T,
-          ) {
-            return fn(this);
+          transaction<T>(fn: () => T) {
+            return fn();
           },
           limits: {
             maxBoundParams: 32_766,
@@ -611,12 +607,8 @@ describe('replay', () => {
                 },
               };
             },
-            transaction<T>(
-              fn: (tx: {
-                exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
-              }) => T,
-            ) {
-              return fn(this);
+            transaction<T>(fn: () => T) {
+              return fn();
             },
             limits: {
               maxBoundParams: 32_766,

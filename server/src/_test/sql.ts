@@ -1,6 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { KVProvider, SqlLimits, SQLProvider, SqlResult, StorageProvider } from '~/context.ts';
 
+const ASYNC_TRANSACTION_MESSAGE =
+  '[livething] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.';
+
 /**
  * The real limits of the `node:sqlite` build Node 24 ships. Used as
  * {@link createTestSql}'s default so existing tests keep passing unchanged —
@@ -80,20 +83,44 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
     return emptyResult<TRow>();
   }
 
+  let depth = 0;
+
   return {
     db,
     exec,
     limits,
-    transaction<T>(fn: (tx: { exec: typeof exec }) => T): T {
-      db.exec('BEGIN');
+    // Nested calls become savepoints, like better-sqlite3 does. Async callbacks
+    // are rejected, like the real providers do.
+    transaction<T>(fn: () => T): T {
+      if (fn.constructor.name === 'AsyncFunction') throw new TypeError(ASYNC_TRANSACTION_MESSAGE);
+
+      const outermost = depth === 0;
+      const savepoint = `sp${depth}`;
+      db.exec(outermost ? 'BEGIN' : `SAVEPOINT ${savepoint}`);
+      depth += 1;
+      let result: T;
+
       try {
-        const result = fn({ exec });
-        db.exec('COMMIT');
-        return result;
+        result = fn();
+        if (typeof (result as { then?: unknown } | null)?.then === 'function') {
+          throw new TypeError(ASYNC_TRANSACTION_MESSAGE);
+        }
       } catch (error) {
-        db.exec('ROLLBACK');
+        depth -= 1;
+        db.exec(outermost ? 'ROLLBACK' : `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
         throw error;
       }
+
+      depth -= 1;
+      try {
+        db.exec(outermost ? 'COMMIT' : `RELEASE ${savepoint}`);
+      } catch (error) {
+        // A failed COMMIT (a deferred foreign key, say) leaves the transaction open.
+        if (outermost && db.isTransaction) db.exec('ROLLBACK');
+        throw error;
+      }
+
+      return result;
     },
   };
 }

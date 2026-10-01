@@ -63,12 +63,8 @@ class FakeSqlProvider implements SQLProvider {
     return new FakeSqlResult<TRow>([]);
   }
 
-  transaction<T>(
-    fn: (tx: {
-      exec<TRow = unknown>(query: string, ...params: unknown[]): FakeSqlResult<TRow>;
-    }) => T,
-  ): T {
-    return fn({ exec: this.exec.bind(this) });
+  transaction<T>(fn: () => T): T {
+    return fn();
   }
 }
 

@@ -17,8 +17,8 @@ function makeStorage() {
     exec() {
       return { toArray: () => [], one: () => null, raw: () => [] };
     },
-    transaction<T>(fn: (tx: any) => T): T {
-      return fn(sql);
+    transaction<T>(fn: () => T): T {
+      return fn();
     },
   };
 

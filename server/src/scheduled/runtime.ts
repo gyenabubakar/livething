@@ -296,15 +296,15 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
     deadLetters: summarizeOps(dlqOps),
   });
 
-  storage.sql.transaction((tx) => {
+  storage.sql.transaction(() => {
     for (const op of runOps) {
       if (op.kind === 'delete') {
-        tx.exec('DELETE FROM __livething_scheduled WHERE id = ?', op.id);
+        storage.sql.exec('DELETE FROM __livething_scheduled WHERE id = ?', op.id);
         continue;
       }
 
       if (op.kind === 'insert') {
-        tx.exec(
+        storage.sql.exec(
           `INSERT INTO __livething_scheduled
             (id, taskId, time, data, everyMs, attempts, recurring, retry)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -325,7 +325,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         number,
         number | string,
       ];
-      tx.exec(
+      storage.sql.exec(
         `UPDATE __livething_scheduled
          SET taskId = ?, time = ?, data = ?, everyMs = ?, attempts = ?, recurring = ?, retry = ?
          WHERE id = ?`,
@@ -342,12 +342,12 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
 
     for (const op of dlqOps) {
       if (op.kind === 'delete') {
-        tx.exec('DELETE FROM __livething_scheduled_dlq WHERE id = ?', op.id);
+        storage.sql.exec('DELETE FROM __livething_scheduled_dlq WHERE id = ?', op.id);
         continue;
       }
 
       if (op.kind === 'insert') {
-        tx.exec(
+        storage.sql.exec(
           `INSERT INTO __livething_scheduled_dlq
             (id, taskId, time, failedAt, data, attempts, error)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -365,7 +365,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         number,
         string,
       ];
-      tx.exec(
+      storage.sql.exec(
         `UPDATE __livething_scheduled_dlq
          SET taskId = ?, time = ?, failedAt = ?, data = ?, attempts = ?, error = ?
          WHERE id = ?`,

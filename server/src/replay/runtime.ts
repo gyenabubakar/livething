@@ -495,7 +495,7 @@ export function persistReplayMessage(
     if (queued !== undefined) {
       previousValue = queued.row === null ? null : toReplaySnapshotValue(queued.row);
     } else {
-      const fromDisk = sql.transaction((tx) => getReplayRowByKey(tx, row.rowKey));
+      const fromDisk = getReplayRowByKey(sql, row.rowKey);
       previousValue = fromDisk ? toReplaySnapshotValue(fromDisk) : null;
     }
 
@@ -532,8 +532,8 @@ export function persistReplayMessage(
     return snapshotRow;
   }
 
-  return sql.transaction((tx) => {
-    const previousRow = getReplayRowByKey(tx, row.rowKey);
+  return sql.transaction(() => {
+    const previousRow = getReplayRowByKey(sql, row.rowKey);
     const nextValue: ReplaySnapshotValue = { event, payload };
 
     const reduced = options.reduce
@@ -541,7 +541,7 @@ export function persistReplayMessage(
       : nextValue;
 
     if (!reduced) {
-      deleteReplayRow(tx, row.rowKey);
+      deleteReplayRow(sql, row.rowKey);
       return null;
     }
 
@@ -553,7 +553,7 @@ export function persistReplayMessage(
       payload: JSON.stringify(reduced.payload),
     };
 
-    storeReplayRow(tx, snapshotRow);
+    storeReplayRow(sql, snapshotRow);
 
     return snapshotRow;
   });

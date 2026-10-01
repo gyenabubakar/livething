@@ -36,8 +36,8 @@ declare const _missingLimits: {
 const _notASqlProvider: SQLProvider = _missingLimits;
 void _notASqlProvider;
 
-const _txResult: string = initCtx.sql.transaction((tx) => {
-  tx.exec<{ n: number }>('SELECT COUNT(*) AS n FROM t');
+const _txResult: string = initCtx.sql.transaction(() => {
+  initCtx.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM t');
   return 'done';
 });
 void _txResult;

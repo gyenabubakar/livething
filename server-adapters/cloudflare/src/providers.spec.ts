@@ -255,4 +255,99 @@ describe('createSql.transaction', () => {
     expect(result).toBe(42);
     expect(transactionSync).toHaveBeenCalledTimes(1);
   });
+
+  describe('deferred foreign keys', () => {
+    function stateWith(rowsFor: (query: string) => Record<string, unknown>[]) {
+      const queries: string[] = [];
+      const state = {
+        storage: {
+          sql: {
+            exec: vi.fn((query: string) => {
+              queries.push(query);
+              return fakeCursor(rowsFor(query));
+            }),
+          },
+          transactionSync: <T>(closure: () => T) => closure(),
+        },
+      } as unknown as DurableObjectState;
+
+      return { state, queries };
+    }
+
+    it('throws when the schema has a deferred key and the transaction leaves an orphan row', () => {
+      const { state } = stateWith((query) => {
+        if (query.includes('DEFERRED')) return [{ 1: 1 }];
+
+        if (query === 'PRAGMA foreign_key_check') return [{ table: 'child', rowid: 1 }];
+
+        return [];
+      });
+
+      expect(() => createSql(state).transaction(() => 1)).toThrow(/FOREIGN KEY constraint failed/);
+    });
+
+    it('does not check anything when no key is deferred', () => {
+      const { state, queries } = stateWith(() => []);
+
+      expect(createSql(state).transaction(() => 1)).toBe(1);
+      expect(queries).not.toContain('PRAGMA foreign_key_check');
+    });
+
+    it('names the table and still checks the next transaction after one that threw', () => {
+      const { state, queries } = stateWith((query) => {
+        if (query.includes('DEFERRED')) return [{ 1: 1 }];
+
+        if (query === 'PRAGMA foreign_key_check') return [{ table: 'room_members' }];
+
+        return [];
+      });
+      const sql = createSql(state);
+
+      expect(() =>
+        sql.transaction(() => {
+          throw new Error('handler failed');
+        }),
+      ).toThrow('handler failed');
+      expect(() => sql.transaction(() => 1)).toThrow(/table "room_members"/);
+      expect(queries.filter((query) => query === 'PRAGMA foreign_key_check')).toHaveLength(1);
+    });
+
+    it('checks when the transaction deferred its keys, once, at the end of the outermost one', () => {
+      const { state, queries } = stateWith((query) =>
+        query === 'PRAGMA defer_foreign_keys' ? [{ defer_foreign_keys: 1 }] : [],
+      );
+      const sql = createSql(state);
+
+      sql.transaction(() => sql.transaction(() => 1));
+
+      expect(queries.filter((query) => query === 'PRAGMA foreign_key_check')).toHaveLength(1);
+    });
+  });
+
+  it('rejects an async callback before it runs', () => {
+    const transactionSync = vi.fn(<T>(closure: () => T) => closure());
+    const state = {
+      storage: { sql: { exec: vi.fn(() => fakeCursor()) }, transactionSync },
+    } as unknown as DurableObjectState;
+    let ran = false;
+
+    expect(() =>
+      createSql(state).transaction(async () => {
+        ran = true;
+      }),
+    ).toThrow(/callbacks must be synchronous/);
+    expect(ran).toBe(false);
+    expect(transactionSync).not.toHaveBeenCalled();
+  });
+
+  it('rolls back when a sync callback returns a promise', () => {
+    const transactionSync = vi.fn(<T>(closure: () => T) => closure());
+    const state = {
+      storage: { sql: { exec: vi.fn(() => fakeCursor()) }, transactionSync },
+    } as unknown as DurableObjectState;
+
+    expect(() => createSql(state).transaction(() => Promise.resolve(1))).toThrow(
+      /callbacks must be synchronous/,
+    );
+  });
 });

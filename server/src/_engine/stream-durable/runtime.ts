@@ -104,11 +104,7 @@ export interface DurableStreamRuntime {
   /** SQLite handle. */
   sql: {
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
-    transaction<T>(
-      fn: (sql: {
-        exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
-      }) => T,
-    ): T;
+    transaction<T>(fn: () => T): T;
   };
 
   handleRuntimeError(connection: RuntimeConnection, opts: OptsParameter3): Promise<void>;
@@ -639,13 +635,13 @@ export async function continueDurableStream(
   if (connection.closing) return;
 
   const startSeq = checkpoint?.seq ?? 0;
-  const attempt = runtime.sql.transaction((sql) => {
-    Storage.deleteCursorCheckpointsAfter(sql, {
+  const attempt = runtime.sql.transaction(() => {
+    Storage.deleteCursorCheckpointsAfter(runtime.sql, {
       userId: storageUserId,
       streamId,
       seq: lastKnownSeq,
     });
-    return Storage.rewindCursorStream(sql, {
+    return Storage.rewindCursorStream(runtime.sql, {
       userId: storageUserId,
       streamId,
       lastSeq: startSeq,

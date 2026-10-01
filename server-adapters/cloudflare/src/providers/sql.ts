@@ -13,10 +13,6 @@ const CLOUDFLARE_SQL_LIMITS: SqlLimits = {
   maxValueBytes: 2 * 1024 * 1024,
 };
 
-interface CloudflareTransactionContext {
-  exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
-}
-
 function wrapCursor<TRow = unknown>(
   cursor: SqlStorageCursor<Record<string, SqlStorageValue>>,
 ): SqlResult<TRow> {
@@ -68,12 +64,14 @@ function wrapCursor<TRow = unknown>(
  * contract and leave a partially-executed callback's writes committed.
  */
 export function createSql(state: DurableObjectState): SQLProvider {
+  let depth = 0;
+
   return {
     exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
       return wrapCursor<TRow>(state.storage.sql.exec(query, ...params));
     },
     limits: CLOUDFLARE_SQL_LIMITS,
-    transaction<T>(fn: (tx: CloudflareTransactionContext) => T): T {
+    transaction<T>(fn: () => T): T {
       if (typeof state.storage.transactionSync !== 'function') {
         throw new Error(
           '[livething] this Cloudflare runtime does not support atomic transactions. ' +
@@ -83,13 +81,69 @@ export function createSql(state: DurableObjectState): SQLProvider {
         );
       }
 
-      return state.storage.transactionSync(() =>
-        fn({
-          exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-            return wrapCursor<TRow>(state.storage.sql.exec(query, ...params));
-          },
-        }),
-      );
+      if (isAsyncFunction(fn)) throw synchronousTransactionError();
+
+      const outermost = depth === 0;
+      depth += 1;
+      try {
+        return state.storage.transactionSync(() => {
+          const result = fn();
+          if (isPromiseLike(result)) throw synchronousTransactionError();
+
+          if (outermost) assertDeferredForeignKeysHold(state);
+
+          return result;
+        });
+      } finally {
+        depth -= 1;
+      }
     },
   };
+}
+
+/**
+ * A deferred foreign key is checked when the transaction commits. Durable Objects
+ * reset the whole object when that check fails, and the error cannot be caught.
+ * Checking before the commit turns the reset into an error that rolls back the
+ * transaction. The check reads every table with a foreign key, so it only runs when
+ * the schema has a deferred key or the transaction deferred its keys.
+ */
+function assertDeferredForeignKeysHold(state: DurableObjectState): void {
+  const usesDeferredKeys =
+    state.storage.sql
+      // Only DEFERRED, because the two words can have a line break or more spaces between them.
+      .exec("SELECT 1 FROM sqlite_master WHERE sql LIKE '%DEFERRED%' LIMIT 1")
+      .toArray().length > 0 ||
+    state.storage.sql.exec('PRAGMA defer_foreign_keys').toArray()[0]?.defer_foreign_keys === 1;
+  if (!usesDeferredKeys) return;
+
+  const violations = state.storage.sql.exec('PRAGMA foreign_key_check').toArray();
+  if (violations.length > 0) {
+    throw new Error(
+      `FOREIGN KEY constraint failed: the transaction left ${violations.length} row(s) in ` +
+        `table "${String(violations[0]?.table)}" without a matching parent row, so it was rolled back.`,
+    );
+  }
+}
+
+function isAsyncFunction(value: unknown): boolean {
+  return (
+    typeof value === 'function' &&
+    Object.getPrototypeOf(value)?.constructor?.name === 'AsyncFunction'
+  );
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'then' in value &&
+    typeof value.then === 'function'
+  );
+}
+
+function synchronousTransactionError(): TypeError {
+  return new TypeError(
+    '[livething] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.',
+  );
 }

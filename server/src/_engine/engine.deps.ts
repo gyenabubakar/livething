@@ -141,7 +141,8 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     logger: core.logger,
     platform: core.platform,
     getStorage: () => core.storage,
-    getStorageView: () => (storageView ??= createLazyStorageView(core.storage)),
+    getStorageView: () =>
+      (storageView ??= createLazyStorageView(core.options.storage, core.userTransactions)),
     getTimers: () => core.timers,
     scheduleTask: (taskId, time, data) =>
       core.scheduledService?.scheduleTask(core, commonDeps(core), { taskId, time, data }),

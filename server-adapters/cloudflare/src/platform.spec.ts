@@ -128,7 +128,7 @@ describe('createSql', () => {
     const { state } = fakeState();
     const sql = createSql(state as unknown as DurableObjectState);
 
-    expect(() => sql.transaction((tx) => tx.exec('INSERT ...').toArray().length)).toThrow(
+    expect(() => sql.transaction(() => sql.exec('INSERT ...').toArray().length)).toThrow(
       /\[livething\].*transactionSync/,
     );
   });
@@ -148,7 +148,7 @@ describe('createSql', () => {
       },
     } as unknown as DurableObjectState;
     const sql = createSql(state);
-    sql.transaction((tx) => tx.exec('...'));
+    sql.transaction(() => sql.exec('...'));
     expect(transactionSync).toHaveBeenCalledTimes(1);
   });
 });

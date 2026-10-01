@@ -20,10 +20,6 @@ export interface NodeSqlRuntime {
   close(): void;
 }
 
-interface NodeTransactionContext {
-  exec: SQLProvider['exec'];
-}
-
 /** Creates a SQL provider, using an in-memory database when no source is given. */
 export function createSql(source: NodeSqlSource = ':memory:'): NodeSqlRuntime {
   if (isSqlProvider(source)) {
@@ -88,31 +84,14 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
   return {
     exec,
     limits: BETTER_SQLITE3_LIMITS,
-    transaction<T>(fn: (tx: NodeTransactionContext) => T): T {
+    transaction<T>(fn: () => T): T {
       if (isAsyncFunction(fn)) throw synchronousTransactionError();
 
-      let active = true;
-      const tx: NodeTransactionContext = {
-        exec(...args) {
-          if (!active) {
-            throw new TypeError(
-              '[livething] sql.transaction() callbacks cannot use tx after they return.',
-            );
-          }
-
-          return exec(...args);
-        },
-      };
-
       const runTransaction = database.transaction(() => {
-        try {
-          const result = fn(tx);
-          if (isPromiseLike(result)) throw synchronousTransactionError();
+        const result = fn();
+        if (isPromiseLike(result)) throw synchronousTransactionError();
 
-          return result;
-        } finally {
-          active = false;
-        }
+        return result;
       });
 
       return runTransaction();
