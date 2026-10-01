@@ -311,6 +311,55 @@ describe('UserTransactionTracker', () => {
     expect(engineIds()).toEqual([1]);
   });
 
+  describe('a statement that makes SQLite end the transaction itself', () => {
+    function withCounter() {
+      const setup = tracked();
+      setup.raw.exec('CREATE TABLE counter (n INTEGER)');
+      setup.raw.exec('INSERT INTO counter VALUES (0)');
+      setup.raw.exec('CREATE TABLE unique_rows (id INTEGER PRIMARY KEY)');
+      setup.raw.exec('INSERT INTO unique_rows VALUES (1)');
+
+      function counter(): number {
+        return setup.raw.exec<{ n: number }>('SELECT n FROM counter').one()!.n;
+      }
+
+      return { ...setup, counter };
+    }
+
+    it('redoes an engine write once, and throws the original error', () => {
+      const { raw, tracker, engine, counter } = withCounter();
+
+      expect(() =>
+        tracker.run(raw, () => {
+          engine.exec('UPDATE counter SET n = n + 1');
+          raw.exec('INSERT OR ROLLBACK INTO unique_rows VALUES (1)');
+        }),
+      ).toThrow(/UNIQUE constraint failed/);
+
+      expect(counter()).toBe(1);
+    });
+
+    it('redoes the engine writes of an inner and an outer transaction once each', () => {
+      const { raw, tracker, engine, counter } = withCounter();
+
+      expect(() =>
+        tracker.run(raw, () => {
+          engine.exec('UPDATE counter SET n = n + 10');
+          try {
+            tracker.run(raw, () => {
+              engine.exec('UPDATE counter SET n = n + 1');
+              raw.exec('INSERT OR ROLLBACK INTO unique_rows VALUES (1)');
+            });
+          } catch {
+            // the outer callback carries on, but SQLite has ended the whole transaction
+          }
+        }),
+      ).toThrow();
+
+      expect(counter()).toBe(11);
+    });
+  });
+
   describe('an engine transaction inside a user transaction', () => {
     function failingOnWriteThree() {
       const onRedoError = vi.fn();

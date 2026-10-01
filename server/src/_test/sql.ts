@@ -107,7 +107,11 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
         }
       } catch (error) {
         depth -= 1;
-        db.exec(outermost ? 'ROLLBACK' : `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        // SQLite may have ended the transaction itself, as INSERT OR ROLLBACK does.
+        if (db.isTransaction) {
+          db.exec(outermost ? 'ROLLBACK' : `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        }
+
         throw error;
       }
 

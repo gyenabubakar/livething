@@ -10,6 +10,8 @@ interface RecordedWrite {
 interface Failure {
   happened: boolean;
   error?: unknown;
+  /** SQLite ended the transaction itself, so the writes were redone outside of it and are saved. */
+  redoneOutside: boolean;
 }
 
 const READ_STATEMENT = /^\s*(SELECT|EXPLAIN|PRAGMA\b(?![^;]*=))/i;
@@ -55,7 +57,7 @@ export class UserTransactionTracker {
     const leave = (): void => {
       if (this.levels.at(-1) === writes) this.levels.pop();
     };
-    const failure: Failure = { happened: false };
+    const failure: Failure = { happened: false, redoneOutside: false };
 
     const attempt = (): T | undefined => {
       try {
@@ -64,7 +66,11 @@ export class UserTransactionTracker {
         failure.happened = true;
         failure.error = error;
         leave();
-        pushAll(this.levels.at(-1), this.redoAll(sql, writes));
+        // A statement such as INSERT OR ROLLBACK makes SQLite end the whole transaction itself.
+        // The redo then runs outside of it and is saved at once, so it must not be done again.
+        failure.redoneOutside = !this.transactionIsOpen(sql);
+        const redone = this.redoAll(sql, writes);
+        if (!failure.redoneOutside) pushAll(this.levels.at(-1), redone);
 
         return undefined;
       }
@@ -75,7 +81,7 @@ export class UserTransactionTracker {
       result = nested ? attempt() : sql.transaction(attempt);
     } catch (error) {
       // The commit failed, which undoes the recorded writes along with the user's.
-      if (!nested) this.redoAfterFailedCommit(sql, writes);
+      if (!nested && !failure.redoneOutside) this.redoAfterFailedCommit(sql, writes);
       if (!failure.happened) throw error;
     } finally {
       leave();
@@ -137,6 +143,23 @@ export class UserTransactionTracker {
     }
 
     return result;
+  }
+
+  /**
+   * Whether a transaction is open on the connection. SQLite refuses to start a transaction
+   * inside another one. A provider that refuses to start one for another reason, such as
+   * Durable Objects, counts as open.
+   */
+  private transactionIsOpen(sql: SQLProvider): boolean {
+    try {
+      sql.exec('BEGIN');
+    } catch {
+      return true;
+    }
+
+    sql.exec('ROLLBACK');
+
+    return false;
   }
 
   private report(error: unknown): void {
