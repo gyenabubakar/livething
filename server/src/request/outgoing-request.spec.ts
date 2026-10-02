@@ -923,24 +923,29 @@ describe('server→client broadcast request — self-exclusion (Major 6)', () =>
     );
   }
 
+  /** These tests read only what was sent. Nobody answers, so the request later times out. */
+  function ignoreTimeout(request: Promise<unknown>): void {
+    request.catch(() => {});
+  }
+
   it('ctx.channel.broadcastRequest excludes the caller by default', () => {
     const env = install(channelDeclarations('rooms', VOLUNTEER));
     const ctx = channelCtx(env);
-    void ctx.channel.broadcastRequest('volunteer', { turn: 1 });
+    ignoreTimeout(ctx.channel.broadcastRequest('volunteer', { turn: 1 }));
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
   });
 
   it('ctx.channel.broadcastRequest includes the caller with includeSelf: true', () => {
     const env = install(channelDeclarations('rooms', VOLUNTEER));
     const ctx = channelCtx(env);
-    void ctx.channel.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true });
+    ignoreTimeout(ctx.channel.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true }));
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
   });
 
   it('ctx.broadcastRequest includes the caller with includeSelf: true', () => {
     const env = install(topDeclarations(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { connections: ['c1', 'a', 'b'] });
-    void ctx.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true });
+    ignoreTimeout(ctx.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true }));
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
   });
 });

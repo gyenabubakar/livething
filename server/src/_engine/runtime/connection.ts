@@ -1165,6 +1165,8 @@ export async function handleUpgrade(
     return {};
   }
 
+  // Which hook is running, so the log can name it when the handshake fails.
+  let runningHook = 'none';
   try {
     // Onion order: plugin upgrades first (registration order), then internal
     // primitive hooks, then the app's builder hook last. Each result's meta is
@@ -1228,6 +1230,7 @@ export async function handleUpgrade(
     }
 
     for (const entry of pluginUpgradeHooks) {
+      runningHook = `plugin '${entry.pluginId}'`;
       // The plugin gets its own scoped `ctx`. The same object reaches `context.upgrade(pluginBase)`.
       const helpers = {
         ...runtime.upgradeHelpers,
@@ -1247,11 +1250,13 @@ export async function handleUpgrade(
     }
 
     for (const hook of runtime.upgradeHooks) {
+      runningHook = 'an internal hook';
       apply((await hook(request, runtime.upgradeHelpers)) ?? {}, 'an internal hook');
     }
 
     const builderUpgradeHook = runtime.builderUpgradeHook;
     if (builderUpgradeHook) {
+      runningHook = 'the app';
       const call: CallDescriptor = { kind: 'upgrade', getCtx: () => runtime.upgradeHelpers.ctx };
       const result = await withCallContext(runtime.asyncContext, call, () =>
         builderUpgradeHook(request, runtime.upgradeHelpers),
@@ -1281,6 +1286,7 @@ export async function handleUpgrade(
 
       runtime.logger?.error('[livething] invalid upgrade rejection code; rejecting with HTTP 403', {
         code,
+        hook: runningHook,
       });
       return {
         reject: true,
@@ -1291,6 +1297,7 @@ export async function handleUpgrade(
 
     // The client only sees a generic reason; the real error goes to the log.
     runtime.logger?.error('[livething] upgrade hook threw; rejecting with HTTP 500', {
+      hook: runningHook,
       error: error instanceof Error ? error.message : String(error),
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
       ...(error instanceof Error && error.cause !== undefined

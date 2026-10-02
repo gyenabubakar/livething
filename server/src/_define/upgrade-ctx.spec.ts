@@ -207,7 +207,10 @@ describe('plugin upgrades and the single userId', () => {
     return plugin(id, { definition: scoped.assemble({ handlers: [go] }) });
   }
 
-  async function upgradeWith(base: ReturnType<typeof server>) {
+  async function upgradeWith(
+    base: ReturnType<typeof server>,
+    logged: { message: string; data: Record<string, unknown> }[] = [],
+  ) {
     let captured: Engine | undefined;
     adapter({
       id: 'plugin-user-id',
@@ -217,7 +220,12 @@ describe('plugin upgrades and the single userId', () => {
           storage: createTestStorage(),
           platform: {},
           timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
-          logger: { info() {}, warn() {}, error() {} },
+          logger: {
+            info() {},
+            warn() {},
+            error: (message: string, data?: Record<string, unknown>) =>
+              logged.push({ message, data: data ?? {} }),
+          },
         });
         return {};
       },
@@ -226,6 +234,45 @@ describe('plugin upgrades and the single userId', () => {
 
     return captured!.handleUpgrade(new Request('https://x/'));
   }
+
+  it('names the plugin in the log, and not in the response, when its upgrade throws', async () => {
+    const logged: { message: string; data: Record<string, unknown> }[] = [];
+    const Ok = pluginReturning('acme:first', { meta: { first: 1 } });
+    const failing = server({
+      scope: 'plugin',
+      upgrade: () => {
+        throw new Error('region lookup failed');
+      },
+    });
+    const Failing = plugin('acme:region', {
+      definition: failing.assemble({ handlers: [failing.on('go', { run() {} })] }),
+    });
+    const base = server({ capabilities: [Ok(), Failing()] });
+
+    const decision = await upgradeWith(base, logged);
+
+    expect(decision).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+    expect(logged).toHaveLength(1);
+    expect(logged[0]?.data).toMatchObject({
+      hook: "plugin 'acme:region'",
+      error: 'region lookup failed',
+    });
+  });
+
+  it('names the app in the log when the app upgrade throws', async () => {
+    const logged: { message: string; data: Record<string, unknown> }[] = [];
+    const Plugin = pluginReturning('acme:region', { meta: { region: 'eu' } });
+    const base = server({
+      capabilities: [Plugin()],
+      upgrade: () => {
+        throw new Error('session store down');
+      },
+    });
+
+    await upgradeWith(base, logged);
+
+    expect(logged[0]?.data).toMatchObject({ hook: 'the app', error: 'session store down' });
+  });
 
   it('merges the meta of a plugin that returns no userId with an app upgrade that returns one', async () => {
     const Plugin = pluginReturning('acme:region', { meta: { region: 'eu' } });
