@@ -6,12 +6,13 @@ import {
   StreamAborted,
 } from '@livething/core';
 import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
-import { connectionCall, withCallContext, withConnectionCall } from '~/_engine/async-context.ts';
+import { withCallContext, withConnectionLevelCall } from '~/_engine/async-context.ts';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { scopePluginContext } from '~/plugin-scope.ts';
 import { isTranslatorConfigError, markTranslatorConfigError } from '~/translation/error.ts';
 import { TranslationInputError } from '~/translation/translator.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
@@ -74,6 +75,7 @@ type HandleUpgradeRuntimeParameter = {
    */
   pluginUpgradeHooks?: readonly {
     pluginId: string;
+    baseId?: symbol;
     handler: (
       request: Request,
       helpers: LifecycleTypes.UpgradeHelpers,
@@ -102,9 +104,8 @@ type HandleUpgradeRuntimeParameter = {
           }>)
     | undefined;
   /**
-   * Built once per engine. A contract with `tagGroups` populates the field;
-   * contracts without tag groups pass `undefined` and the helper bag is the
-   * empty object.
+   * Built once per engine. It always has `ctx`. A contract with `tagGroups`
+   * also populates `tags`; contracts without tag groups leave `tags` out.
    */
   upgradeHelpers: LifecycleTypes.UpgradeHelpers;
   /** Lets `context.upgrade(base)` reach the upgrade `ctx`. Omitted by test harnesses. */
@@ -577,32 +578,28 @@ export async function runConnectionLifecycle(
   ctx: Record<PropertyKey, unknown>,
 ): Promise<void> {
   const connectionId = (ctx as { connection?: { id?: string } }).connection?.id ?? '';
-  return withConnectionCall(
-    runtime.asyncContext,
-    connectionCall(connectionId, undefined, () => ctx),
-    async () => {
-      if (kind === 'connect') {
-        // Inbound onion: new-model plugins see the connection before the app.
-        for (const entry of runtime.pluginConnectHooks ?? []) {
-          await entry.handler(ctx);
-        }
-
-        for (const hook of runtime.connectHooks) {
-          await hook(ctx);
-        }
-      } else {
-        for (const hook of runtime.disconnectHooks) {
-          await hook(ctx);
-        }
-
-        // Outbound onion: the app tears down first, then plugins unwind LIFO.
-        const disconnects = runtime.pluginDisconnectHooks ?? [];
-        for (let i = disconnects.length - 1; i >= 0; i -= 1) {
-          await disconnects[i]!.handler(ctx);
-        }
+  return withConnectionLevelCall(runtime.asyncContext, { connectionId, ctx }, async () => {
+    if (kind === 'connect') {
+      // Inbound onion: new-model plugins see the connection before the app.
+      for (const entry of runtime.pluginConnectHooks ?? []) {
+        await entry.handler(ctx);
       }
-    },
-  );
+
+      for (const hook of runtime.connectHooks) {
+        await hook(ctx);
+      }
+    } else {
+      for (const hook of runtime.disconnectHooks) {
+        await hook(ctx);
+      }
+
+      // Outbound onion: the app tears down first, then plugins unwind LIFO.
+      const disconnects = runtime.pluginDisconnectHooks ?? [];
+      for (let i = disconnects.length - 1; i >= 0; i -= 1) {
+        await disconnects[i]!.handler(ctx);
+      }
+    }
+  });
 }
 
 /**
@@ -1231,10 +1228,22 @@ export async function handleUpgrade(
     }
 
     for (const entry of pluginUpgradeHooks) {
-      apply(
-        (await entry.handler(request, runtime.upgradeHelpers)) ?? {},
-        `plugin '${entry.pluginId}'`,
+      // The plugin gets its own scoped `ctx`. The same object reaches `context.upgrade(pluginBase)`.
+      const helpers = {
+        ...runtime.upgradeHelpers,
+        ctx: scopePluginContext(entry.pluginId, runtime.upgradeHelpers.ctx),
+      };
+
+      const call: CallDescriptor = {
+        kind: 'upgrade',
+        getCtx: () => helpers.ctx,
+        baseId: entry.baseId,
+      };
+
+      const result = await withCallContext(runtime.asyncContext, call, () =>
+        entry.handler(request, helpers),
       );
+      apply(result ?? {}, `plugin '${entry.pluginId}'`);
     }
 
     for (const hook of runtime.upgradeHooks) {

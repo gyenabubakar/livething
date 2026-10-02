@@ -121,7 +121,7 @@ export interface SQLProvider {
    * error propagates to the caller. Run async work before or after this
    * callback, never inside it.
    *
-   * Only your own SQL rolls back. Other calls in the callback, such as
+   * Only SQL written through `ctx.sql` rolls back. Other calls in the callback, such as
    * `ctx.send()`, `ctx.schedule()` and `ctx.kv.set()`, keep their effect.
    */
   transaction<T>(fn: () => T): T;
@@ -145,10 +145,14 @@ export interface KVProvider {
   /** Read one value by key. Returns `undefined` when the key does not exist. */
   get(key: string): Promise<unknown>;
 
-  /** Write one value. Optionally set a TTL in milliseconds after which the key expires. */
+  /**
+   * Write one value. Optionally set a TTL in milliseconds after which the key expires.
+   * LiveThing can call it a second time with the same arguments, after a `ctx.sql.transaction`
+   * rolls back, so it must be safe to run twice.
+   */
   set(key: string, value: unknown, options?: OptionsParameter): Promise<void>;
 
-  /** Remove one key. */
+  /** Remove one key. It must be safe to run twice, like `set`. */
   delete(key: string): Promise<void>;
 
   /** List keys that start with the given prefix. */
@@ -189,10 +193,14 @@ export interface StorageProvider {
  * these methods only when you need low-level control.
  */
 export interface TimerProvider {
-  /** Set a durable alarm that fires at an absolute timestamp (ms since epoch). Platform-specific. */
+  /**
+   * Set a durable alarm that fires at an absolute timestamp (ms since epoch). Platform-specific.
+   * LiveThing can call it a second time after a `ctx.sql.transaction` rolls back, so it must be
+   * safe to run twice.
+   */
   setAlarm(timeMs: number): Promise<void>;
 
-  /** Cancel the current durable alarm. */
+  /** Cancel the current durable alarm. It must be safe to run twice, like `setAlarm`. */
   deleteAlarm(): Promise<void>;
 
   /** Read the time of the current durable alarm, or `null` if none is set. */

@@ -134,7 +134,7 @@ describe('UserTransactionTracker', () => {
           throw new Error('inner fails');
         });
       } catch {
-        // the outer callback carries on
+        // the outer callback continues
       }
     });
 
@@ -153,7 +153,7 @@ describe('UserTransactionTracker', () => {
             throw new Error('inner fails');
           });
         } catch {
-          // the outer callback carries on
+          // the outer callback continues
         }
 
         throw new Error('outer fails');
@@ -270,7 +270,7 @@ describe('UserTransactionTracker', () => {
     expect(engineIds()).toEqual([1, 3]);
   });
 
-  it('handles a very large committed inner transaction inside an outer one', () => {
+  it('keeps 150,000 recorded writes of a committed inner transaction without overflowing the stack', () => {
     const { raw, tracker, engine } = tracked();
 
     tracker.run(raw, () => {
@@ -351,7 +351,7 @@ describe('UserTransactionTracker', () => {
               raw.exec('INSERT OR ROLLBACK INTO unique_rows VALUES (1)');
             });
           } catch {
-            // the outer callback carries on, but SQLite has ended the whole transaction
+            // the outer callback continues, but SQLite has ended the whole transaction
           }
         }),
       ).toThrow();
@@ -599,6 +599,36 @@ describe('createEngineTimers', () => {
     expect(calls).toEqual(['set 100', 'delete', 'set 200', 'set 100', 'delete', 'set 200']);
   });
 
+  it('does not report an alarm call that failed the first time as a failed redo', async () => {
+    const errors: unknown[] = [];
+    const timers = {
+      async setAlarm() {
+        throw new Error('alarm storage down');
+      },
+      async deleteAlarm() {
+        throw new Error('alarm storage down');
+      },
+      async getAlarm() {
+        return null;
+      },
+    };
+
+    const raw = createTestSql();
+    const tracker = new UserTransactionTracker((error) => errors.push(error));
+    const engineTimers = createEngineTimers(timers, tracker);
+
+    expect(() =>
+      tracker.run(raw, () => {
+        engineTimers.setAlarm(1).catch(() => {});
+        engineTimers.deleteAlarm().catch(() => {});
+        throw new Error('roll back');
+      }),
+    ).toThrow('roll back');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).toEqual([]);
+  });
+
   it('does not touch the alarm again when the transaction commits or there is none', () => {
     const { calls, raw, tracker, engineTimers } = timersUnderTest();
 
@@ -665,7 +695,7 @@ describe('engine features inside a rolled-back user transaction', () => {
             throw new Error('roll back');
           });
         } catch {
-          // carry on
+          // continue
         }
       },
     });
@@ -716,7 +746,7 @@ describe('engine features inside a rolled-back user transaction', () => {
             throw new Error('roll back');
           });
         } catch {
-          // carry on
+          // continue
         }
       },
     });
@@ -753,7 +783,7 @@ describe('engine features inside a rolled-back user transaction', () => {
             throw new Error('roll back');
           });
         } catch {
-          // carry on
+          // continue
         }
       },
     });

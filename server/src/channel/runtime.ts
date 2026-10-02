@@ -177,7 +177,7 @@ export interface BroadcastToChannelOptions {
  * the subscribe and unsubscribe protocol behavior built on top of that state.
  */
 interface ChannelRuntime extends ChannelHooks {
-  /** Lets `context.channelGate(channel)` reach the gate and lifecycle hooks' `ctx`. */
+  /** Lets `context.channelGate(channel)` and `context.channelLifecycle(channel)` reach a hook's `ctx`. */
   asyncContext?: EngineAsyncContext;
 
   compiled: {
@@ -372,16 +372,21 @@ function holdsUserSeat(connection: RuntimeConnection, isDurable: boolean | undef
 interface GateHookTarget {
   channelKey: string;
   ctx: unknown;
+  /** `channelGate` for `check`, `commit` and `revalidate`, `channelLifecycle` for the other hooks. */
+  kind: 'channelGate' | 'channelLifecycle';
 }
 
-/** Run one gate or lifecycle hook so `context.channelGate(channel)` can reach its `ctx`. */
+/**
+ * Run one gate or lifecycle hook so `context.channelGate(channel)` or
+ * `context.channelLifecycle(channel)` can reach its `ctx`.
+ */
 function runGateHook<T>(
   runtime: Pick<ChannelRuntime, 'asyncContext'>,
   gate: GateHookTarget,
   run: () => T,
 ): T {
   const call: CallDescriptor = {
-    kind: 'channelGate',
+    kind: gate.kind,
     getCtx: () => gate.ctx,
     channelKey: gate.channelKey,
   };
@@ -517,7 +522,7 @@ export async function leaveChannel(
   if (isTrueLeave) {
     for (const hook of runtime.unsubscribeHooks.get(channelKey) ?? []) {
       try {
-        await runGateHook(runtime, { channelKey, ctx }, () => hook(ctx));
+        await runGateHook(runtime, { channelKey, ctx, kind: 'channelLifecycle' }, () => hook(ctx));
       } catch (error) {
         runtime.logger?.error('[livething] onUnsubscribe hook threw', {
           connectionId: connection.id,
@@ -562,7 +567,7 @@ export async function leaveChannel(
 
   for (const hook of runtime.sessionEndHooks.get(channelKey) ?? []) {
     try {
-      await runGateHook(runtime, { channelKey, ctx }, () => hook(ctx));
+      await runGateHook(runtime, { channelKey, ctx, kind: 'channelLifecycle' }, () => hook(ctx));
     } catch (error) {
       runtime.logger?.error('[livething] onSessionEnd hook threw', {
         connectionId: connection.id,
@@ -629,8 +634,10 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<() => void
     const revalidateHook = runtime.revalidateHooks.get(scope.channel.key)?.[0];
     if (revalidateHook) {
       try {
-        await runGateHook(runtime, { channelKey: scope.channel.key, ctx: getGateCtx() }, () =>
-          revalidateHook(getGateCtx()),
+        await runGateHook(
+          runtime,
+          { channelKey: scope.channel.key, ctx: getGateCtx(), kind: 'channelGate' },
+          () => revalidateHook(getGateCtx()),
         );
       } catch (error) {
         rethrowIfConfigError(error);
@@ -657,7 +664,7 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<() => void
 
       checkResult = await runGateHook(
         runtime,
-        { channelKey: scope.channel.key, ctx: getGateCtx() },
+        { channelKey: scope.channel.key, ctx: getGateCtx(), kind: 'channelGate' },
         () => checkHook.handler(getGateCtx(), validatedData),
       );
     }
@@ -670,7 +677,7 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<() => void
 
     const result: unknown = runGateHook(
       runtime,
-      { channelKey: scope.channel.key, ctx: getGateCtx() },
+      { channelKey: scope.channel.key, ctx: getGateCtx(), kind: 'channelGate' },
       () => commitHook.handler(getGateCtx(), checkResult),
     );
     if (
@@ -823,7 +830,11 @@ async function runSubscribeFlow(
   if (!rejoining) {
     for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
       try {
-        await runGateHook(runtime, { channelKey: scope.channel.key, ctx }, () => hook(ctx));
+        await runGateHook(
+          runtime,
+          { channelKey: scope.channel.key, ctx, kind: 'channelLifecycle' },
+          () => hook(ctx),
+        );
       } catch (error) {
         const routing: Protocol.LiveThingRouting = { channel: scope.channelName };
         if (scope.channelFamily !== null) routing.channelFamily = scope.channelFamily;

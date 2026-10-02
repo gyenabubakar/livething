@@ -119,6 +119,8 @@ export interface PluginLifecycleHooks {
  */
 export interface PluginUpgradeEntry {
   readonly pluginId: string;
+  /** The id of the plugin's own `base`, so `context.upgrade(pluginBase)` finds its hook. */
+  readonly baseId?: symbol;
   readonly handler: (
     request: Request,
     helpers: LifecycleTypes.UpgradeHelpers,

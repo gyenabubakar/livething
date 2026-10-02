@@ -37,14 +37,18 @@ function isPluginKey(key: string): boolean {
 
 /**
  * A copy of a kv value, so a change made to the value after `set` does not change what
- * is written again after a rollback. Binary data is not copied, because copying would
- * change its type. A value that cannot be copied is used as it is.
+ * is written again after a rollback. A value that cannot be copied is used as it is.
+ * A binary view keeps its own type only at the top level, and its whole backing buffer is copied.
  */
 function snapshotOf(value: unknown): unknown {
-  if (ArrayBuffer.isView(value)) return value;
-
   try {
-    return structuredClone(value);
+    const copy = structuredClone(value);
+    // structuredClone turns a Node Buffer into a plain Uint8Array. Keep the original type.
+    if (ArrayBuffer.isView(value)) {
+      return Object.setPrototypeOf(copy, Object.getPrototypeOf(value));
+    }
+
+    return copy;
   } catch {
     return value;
   }
@@ -88,7 +92,11 @@ export function createLazyStorageView(
     const outcome = storage.kv.set(key, value, options);
     if (userTransactions.inTransaction) {
       const snapshot = snapshotOf(value);
-      userTransactions.recordOperation(() => storage.kv.set(key, snapshot, options), outcome);
+      const optionsSnapshot = options && { ...options };
+      userTransactions.recordOperation(
+        () => storage.kv.set(key, snapshot, optionsSnapshot),
+        outcome,
+      );
     }
 
     return outcome;

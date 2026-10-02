@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
 import { createTestStorage } from '~/_test/sql.ts';
+import { context } from '~/ambient-context.ts';
 import { describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { InitContext } from '~/context.ts';
@@ -79,27 +80,214 @@ describe('upgrade(request, ctx)', () => {
     expect(typeof seen?.kv.get).toBe('function');
     expect(typeof seen?.sql.transaction).toBe('function');
   });
+});
 
-  it('does not give a plugin upgrade the app storage', async () => {
-    let received: unknown[] = [];
+describe("a plugin's upgrade(request, ctx)", () => {
+  function buildWithStorage(definition: ServerDefinition) {
+    const storage = createTestStorage();
+    let captured: Engine | undefined;
+    adapter({
+      id: 'plugin-upgrade-ctx',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        captured = createEngine({
+          storage,
+          platform: { name: 'test-platform' },
+          timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+          logger: { info() {}, warn() {}, error() {} },
+        });
+        return {};
+      },
+    })(definition, undefined as never);
+    if (!captured) throw new Error('engine not captured');
+
+    return { engine: captured, storage };
+  }
+
+  function authPlugin(seen: Record<string, unknown>) {
     const scoped = server({
       scope: 'plugin',
-      upgrade: (...args: [Request]) => {
-        received = args;
-        return { userId: 'u1' };
+      upgrade: async (_request, ctx) => {
+        seen.ctx = ctx;
+        seen.sameAsAccessor = context.upgrade(scoped) === ctx;
+        try {
+          context.upgrade(app);
+        } catch (error) {
+          seen.appBaseInPlugin = (error as Error).message;
+        }
+
+        await ctx.kv.set('last-seen', 'yes');
+
+        return { meta: { fromPlugin: true } };
       },
     });
     const go = scoped.on('go', { run() {} });
-    const { __primitives } = plugin('acme:auth', {
-      definition: scoped.assemble({ handlers: [go] }),
-    })();
-    const upgradePrimitive = __primitives.find(
-      (primitive) => primitive.__livething === 'onUpgrade',
-    ) as unknown as { handler: (request: Request, helpers: unknown) => Promise<unknown> };
 
-    await upgradePrimitive.handler(new Request('https://x'), { ctx: { sql: 'app storage' } });
+    return plugin('acme:auth', { definition: scoped.assemble({ handlers: [go] }) });
+  }
 
-    expect(received).toHaveLength(1);
-    expect(received[0]).toBeInstanceOf(Request);
+  const app = server({});
+
+  it('receives its own ctx, which context.upgrade(pluginBase) returns', async () => {
+    const seen: Record<string, unknown> = {};
+    const Auth = authPlugin(seen);
+    const base = server({ capabilities: [Auth()] });
+    const { engine } = buildWithStorage(base.assemble({ handlers: [] }));
+    await engine.initialize();
+
+    await engine.handleUpgrade(new Request('https://x/'));
+
+    const ctx = seen.ctx as InitContext;
+    expect(typeof ctx.sql.exec).toBe('function');
+    expect(typeof ctx.log.info).toBe('function');
+    expect(ctx.platform).toEqual({ name: 'test-platform' });
+    expect(seen.sameAsAccessor).toBe(true);
+  });
+
+  it('namespaces the kv keys that the plugin writes, like its handlers', async () => {
+    const Auth = authPlugin({});
+    const base = server({ capabilities: [Auth()] });
+    const { engine, storage } = buildWithStorage(base.assemble({ handlers: [] }));
+    await engine.initialize();
+
+    await engine.handleUpgrade(new Request('https://x/'));
+
+    expect(await storage.kv.get('__acme:auth::last-seen')).toBe('yes');
+    expect(await storage.kv.get('last-seen')).toBeUndefined();
+  });
+
+  it("does not accept the app's base inside a plugin upgrade", async () => {
+    const seen: Record<string, unknown> = {};
+    const Auth = authPlugin(seen);
+    const base = server({ capabilities: [Auth()] });
+    const { engine } = buildWithStorage(base.assemble({ handlers: [] }));
+    await engine.initialize();
+
+    await engine.handleUpgrade(new Request('https://x/'));
+
+    expect(seen.appBaseInPlugin).toMatch(/not the one running now/);
+    expect(seen.appBaseInPlugin).toMatch(/inside that plugin's upgrade/);
+  });
+
+  it("does not accept a plugin's base inside the app's upgrade", async () => {
+    const seen: Record<string, unknown> = {};
+    const Auth = authPlugin({});
+    const pluginBase = server({ scope: 'plugin' });
+    const base = server({
+      capabilities: [Auth()],
+      upgrade: () => {
+        try {
+          context.upgrade(pluginBase);
+        } catch (error) {
+          seen.pluginBaseInApp = (error as Error).message;
+        }
+
+        return { userId: 'u1' };
+      },
+    });
+    const { engine } = buildWithStorage(base.assemble({ handlers: [] }));
+
+    await engine.initialize();
+
+    const decision = await engine.handleUpgrade(new Request('https://x/'));
+
+    expect(seen.pluginBaseInApp).toMatch(/not the one running now/);
+    expect(decision.reject).toBeFalsy();
+  });
+});
+
+describe('plugin upgrades and the single userId', () => {
+  function pluginReturning(
+    id: string,
+    result: { userId?: string; meta?: Record<string, unknown> },
+  ) {
+    const scoped = server({ scope: 'plugin', upgrade: () => result });
+    const go = scoped.on('go', { run() {} });
+
+    return plugin(id, { definition: scoped.assemble({ handlers: [go] }) });
+  }
+
+  async function upgradeWith(base: ReturnType<typeof server>) {
+    let captured: Engine | undefined;
+    adapter({
+      id: 'plugin-user-id',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        captured = createEngine({
+          storage: createTestStorage(),
+          platform: {},
+          timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+          logger: { info() {}, warn() {}, error() {} },
+        });
+        return {};
+      },
+    })(base.assemble({ handlers: [] }), undefined as never);
+    await captured!.initialize();
+
+    return captured!.handleUpgrade(new Request('https://x/'));
+  }
+
+  it('merges the meta of a plugin that returns no userId with an app upgrade that returns one', async () => {
+    const Plugin = pluginReturning('acme:region', { meta: { region: 'eu' } });
+    const base = server({
+      capabilities: [Plugin()],
+      upgrade: () => ({ userId: 'u1', meta: { role: 'admin' } }),
+    });
+
+    const decision = await upgradeWith(base);
+
+    expect(decision.reject).toBeFalsy();
+    expect(decision.userId).toBe('u1');
+    expect(decision.meta).toEqual({ region: 'eu', role: 'admin' });
+  });
+
+  it('merges the meta of two plugins that return no userId', async () => {
+    const First = pluginReturning('acme:first', { meta: { first: 1 } });
+    const Second = pluginReturning('acme:second', { meta: { second: 2 } });
+    const base = server({ capabilities: [First(), Second()] });
+
+    const decision = await upgradeWith(base);
+
+    expect(decision.reject).toBeFalsy();
+    expect(decision.meta).toEqual({ first: 1, second: 2 });
+  });
+
+  it('lets a plugin own the userId when the app upgrade returns none', async () => {
+    const Plugin = pluginReturning('acme:auth', { userId: 'from-plugin' });
+    const base = server({ capabilities: [Plugin()] });
+
+    const decision = await upgradeWith(base);
+
+    expect(decision.reject).toBeFalsy();
+    expect(decision.userId).toBe('from-plugin');
+  });
+
+  it('lets a plugin own the userId when the app upgrade returns only meta', async () => {
+    const Plugin = pluginReturning('acme:auth', { userId: 'from-plugin' });
+    const base = server({ capabilities: [Plugin()], upgrade: () => ({ meta: { role: 'admin' } }) });
+
+    const decision = await upgradeWith(base);
+
+    expect(decision.reject).toBeFalsy();
+    expect(decision.userId).toBe('from-plugin');
+    expect(decision.meta).toEqual({ role: 'admin' });
+  });
+
+  it('leaves the userId out when no upgrade returns one, so the connection stays anonymous', async () => {
+    const base = server({ upgrade: () => ({ meta: { role: 'guest' } }) });
+
+    const decision = await upgradeWith(base);
+
+    expect(decision.reject).toBeFalsy();
+    expect(decision.userId).toBeUndefined();
+  });
+
+  it('still rejects the handshake when a plugin and the app both return a userId', async () => {
+    const Plugin = pluginReturning('acme:auth', { userId: 'from-plugin' });
+    const base = server({ capabilities: [Plugin()], upgrade: () => ({ userId: 'u1' }) });
+
+    const decision = await upgradeWith(base);
+
+    expect(decision.reject).toBe(true);
   });
 });

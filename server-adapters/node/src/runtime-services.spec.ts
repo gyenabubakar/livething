@@ -90,7 +90,7 @@ describe('createSql', () => {
             throw new Error('inner failed');
           });
         } catch {
-          // the outer callback keeps going
+          // the outer callback continues
         }
       });
 
@@ -114,6 +114,25 @@ describe('createSql', () => {
         /transaction\(\) callbacks must be synchronous/,
       );
       expect(ran).toBe(false);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('rejects a callback that returns a function with a then method, and rolls back', () => {
+    const runtime = createSql();
+    const callableThenable = Object.assign(() => {}, { then() {} });
+
+    try {
+      runtime.provider.exec('CREATE TABLE values_table (value TEXT)');
+      expect(() =>
+        runtime.provider.transaction(() => {
+          runtime.provider.exec("INSERT INTO values_table VALUES ('x')");
+
+          return callableThenable;
+        }),
+      ).toThrow(/transaction\(\) callbacks must be synchronous/);
+      expect(runtime.provider.exec('SELECT value FROM values_table').toArray()).toEqual([]);
     } finally {
       runtime.close();
     }

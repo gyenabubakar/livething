@@ -137,9 +137,14 @@ export type UpgradeFn<TMeta, TEphemeralGroups extends string = string> = (
   ctx: InitContext,
 ) => UpgradeReturn<TMeta, TEphemeralGroups> | Promise<UpgradeReturn<TMeta, TEphemeralGroups>>;
 
-/** A plugin's `upgrade(...)`. It sees only the raw request, never the app's storage. */
+/**
+ * A plugin's `upgrade(...)`. Receives the raw upgrade request and the plugin's own scoped
+ * `ctx`: the same shape as the app's, with `ctx.kv` namespaced to the plugin like the `ctx`
+ * of its handlers.
+ */
 export type ScopedUpgradeFn<TMeta, TEphemeralGroups extends string = string> = (
   request: Request,
+  ctx: InitContext,
 ) => UpgradeReturn<TMeta, TEphemeralGroups> | Promise<UpgradeReturn<TMeta, TEphemeralGroups>>;
 
 /** The ephemeral tag-group names declared across a list of capabilities. */
@@ -220,7 +225,8 @@ export interface ScopedServerConfig<
   readonly scope: 'plugin';
   /**
    * The plugin's upgrade gate. Runs before the app's upgrade in the inbound
-   * onion: it sees only the raw request, not the app's identity. Return
+   * onion: it sees the raw request and the plugin's scoped `ctx`, not the app's identity.
+   * `context.upgrade(pluginBase)` returns that `ctx` inside it. Return
    * `meta` (shallow-merged, app wins on key conflict) and/or `tags`
    * (concatenated); throw `RejectUpgrade(...)` to veto the handshake. A plugin
    * may own `userId` — but only one upgrade hook (the app's or one plugin's)
@@ -744,7 +750,8 @@ export type ChannelCtx<
 };
 
 /**
- * The looser `ctx` a channel gate/lifecycle hook receives (sends accept any
+ * The looser `ctx` that a channel's gate hooks (`check`, `commit`, `revalidate`) and lifecycle
+ * hooks (`subscribe`, `unsubscribe`, `sessionEnd`) receive (sends accept any
  * channel event). Replay is exposed, when active, on `ctx.channel.sendReplay`;
  * channel contexts do not expose the root `ctx.sendReplay` method.
  */
@@ -1330,6 +1337,14 @@ export interface ChannelCoreMethods<
   TServerRequests = {},
   TChannelBrand extends string = never,
 > {
+  /**
+   * Type only, never set at runtime. It carries the `ctx` type that this channel's `check`,
+   * `commit` and `revalidate` hooks receive, so `context.channelGate(channel)` can return it.
+   *
+   * @internal
+   */
+  readonly __gateCtx?: ChannelGateCtx<TSlots, TMeta, TCaps, never, TOutgoing, true>;
+
   /** Create a client→server event handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   on<TEvent extends string, TInput extends Validator | undefined = undefined>(
     event: TEvent,
@@ -1871,11 +1886,12 @@ function adaptUpgrade(fn: UpgradeFn<any>): UpgradeHandler {
     const result = await fn(request, helpers.ctx);
     const tags = toEphemeralTagRefs(result.tags?.ephemeral);
     return {
-      // An anonymous upgrade omits userId; the engine keys it by connection id.
-      userId: result.userId ?? '',
+      // An upgrade that omits userId stays anonymous and does not claim the single userId that
+      // the server allows. The adapters key an anonymous connection by its connection id.
+      ...(result.userId === undefined ? {} : { userId: result.userId }),
       meta: result.meta,
       ...(tags.length > 0 ? { tags } : {}),
-    };
+    } as UpgradeResult;
   };
 }
 
@@ -1888,13 +1904,14 @@ const SCOPED_UPGRADE_KEY = Symbol('scopedUpgrade');
  * `namespacePluginPrimitives` reroutes its `__setup` to `registerPluginUpgrade`
  * (bound to the real plugin id) — never the app's single builder slot.
  */
-function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
+function scopedUpgradePrimitive(handler: UpgradeHandler, baseId: symbol): Primitive {
   return {
     __livething: 'onUpgrade',
     __kind: 'lifecycle',
     __identity: [SCOPED_UPGRADE_KEY],
     __requires: {},
     __scopedUpgrade: true,
+    __baseId: baseId,
     handler,
     __setup() {
       // Rewritten by namespacePluginPrimitives to bind the plugin id. Left inert
@@ -2285,7 +2302,7 @@ export function server(config: any): any {
       if (config.upgrade) {
         primitives.push(
           scoped
-            ? scopedUpgradePrimitive(adaptUpgrade((request) => config.upgrade(request)))
+            ? scopedUpgradePrimitive(adaptUpgrade(config.upgrade), baseId)
             : onUpgrade(adaptUpgrade(config.upgrade)),
         );
       }

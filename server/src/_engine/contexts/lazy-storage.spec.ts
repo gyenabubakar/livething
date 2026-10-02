@@ -121,8 +121,8 @@ describe('lazy kv — writes inside a rolled-back sql transaction', () => {
     expect(store.get('key')).toEqual({ count: 1 });
   });
 
-  it('keeps a Buffer as it is and still redoes a value that cannot be cloned', () => {
-    const calls: { key: string; value: unknown }[] = [];
+  it('redoes binary data as it was written and keeps its type', () => {
+    const calls: { key: string; value: any }[] = [];
     const kvImpl: any = {
       async set(key: string, value: unknown) {
         calls.push({ key, value });
@@ -133,20 +133,86 @@ describe('lazy kv — writes inside a rolled-back sql transaction', () => {
       { sql: createTestSql(), kv: kvImpl } as any,
       new UserTransactionTracker(() => {}),
     );
-    const buffer = Buffer.from('abc');
-    const notCloneable = { run() {} };
+    const buffer = Buffer.from([1, 2, 3]);
+    const bytes = new Uint8Array([4, 5, 6]);
+
+    const floats = new Float64Array([1.5, 2.5]);
+    const dataView = new DataView(new Uint8Array([7, 8]).buffer);
 
     expect(() =>
       sql.transaction(() => {
         void kv.set('buffer', buffer);
+        void kv.set('bytes', bytes);
+        void kv.set('floats', floats);
+        void kv.set('view', dataView);
+        buffer[0] = 99;
+
+        bytes[0] = 99;
+        floats[0] = 99;
+        dataView.setUint8(0, 99);
+        throw new Error('roll back');
+      }),
+    ).toThrow('roll back');
+
+    const redone = Object.fromEntries(calls.slice(4).map((call) => [call.key, call.value]));
+    expect(Buffer.isBuffer(redone.buffer)).toBe(true);
+    expect([...redone.buffer]).toEqual([1, 2, 3]);
+    expect(redone.bytes).toBeInstanceOf(Uint8Array);
+    expect([...redone.bytes]).toEqual([4, 5, 6]);
+
+    expect(redone.floats).toBeInstanceOf(Float64Array);
+    expect([...redone.floats]).toEqual([1.5, 2.5]);
+    expect(redone.view).toBeInstanceOf(DataView);
+    expect(redone.view.getUint8(0)).toBe(7);
+  });
+
+  it('redoes the options as they were when the value was written', () => {
+    const calls: { ttl: number | undefined }[] = [];
+    const kvImpl: any = {
+      async set(_key: string, _value: unknown, options?: { ttl?: number }) {
+        calls.push({ ttl: options?.ttl });
+      },
+    };
+
+    const { sql, kv } = createLazyStorageView(
+      { sql: createTestSql(), kv: kvImpl } as any,
+      new UserTransactionTracker(() => {}),
+    );
+    const options = { ttl: 1000 };
+
+    expect(() =>
+      sql.transaction(() => {
+        void kv.set('session', 'x', options);
+        options.ttl = 0;
+        throw new Error('roll back');
+      }),
+    ).toThrow('roll back');
+
+    expect(calls).toEqual([{ ttl: 1000 }, { ttl: 1000 }]);
+  });
+
+  it('redoes a value that cannot be cloned as it is', () => {
+    const calls: unknown[] = [];
+    const kvImpl: any = {
+      async set(_key: string, value: unknown) {
+        calls.push(value);
+      },
+    };
+
+    const { sql, kv } = createLazyStorageView(
+      { sql: createTestSql(), kv: kvImpl } as any,
+      new UserTransactionTracker(() => {}),
+    );
+    const notCloneable = { run() {} };
+
+    expect(() =>
+      sql.transaction(() => {
         void kv.set('function', notCloneable);
         throw new Error('roll back');
       }),
     ).toThrow('roll back');
 
-    expect(calls.map((call) => call.key)).toEqual(['buffer', 'function', 'buffer', 'function']);
-    expect(calls[2]?.value).toBe(buffer);
-    expect(calls[3]?.value).toBe(notCloneable);
+    expect(calls[1]).toBe(notCloneable);
   });
 
   it('does not report a kv write that was rejected the first time', async () => {
@@ -165,6 +231,30 @@ describe('lazy kv — writes inside a rolled-back sql transaction', () => {
     expect(() =>
       sql.transaction(() => {
         kv.set('key', 1).catch(() => {});
+        throw new Error('roll back');
+      }),
+    ).toThrow('roll back');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).toEqual([]);
+  });
+
+  it('does not report a kv delete that was rejected the first time', async () => {
+    const errors: unknown[] = [];
+    const kvImpl: any = {
+      async delete() {
+        throw new Error('kv refused');
+      },
+    };
+
+    const { sql, kv } = createLazyStorageView(
+      { sql: createTestSql(), kv: kvImpl } as any,
+      new UserTransactionTracker((error) => errors.push(error)),
+    );
+
+    expect(() =>
+      sql.transaction(() => {
+        kv.delete('key').catch(() => {});
         throw new Error('roll back');
       }),
     ).toThrow('roll back');

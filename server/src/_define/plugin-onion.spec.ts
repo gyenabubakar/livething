@@ -72,7 +72,7 @@ describe('plugin onion ordering — shutdown', () => {
 });
 
 describe('plugin upgrade — meta merge + user id single owner', () => {
-  const helpers = {};
+  const helpers = { ctx: {} };
 
   function baseRuntime(overrides: Record<string, unknown>) {
     return {

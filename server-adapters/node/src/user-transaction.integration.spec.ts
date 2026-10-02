@@ -24,7 +24,7 @@ function buildDefinition() {
           throw new Error('roll back');
         });
       } catch {
-        // carry on
+        // continue
       }
 
       ctx.send('note', {});
@@ -89,20 +89,36 @@ async function start(sqlFile: string): Promise<Running> {
 async function collect(url: string, event: string, expected: number): Promise<number[]> {
   const socket = new WebSocket(url);
   const seqs: number[] = [];
-  const done = new Promise<void>((resolve) => {
+  const collected = new Promise<number[]>((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `expected ${expected} sequence numbers for "${event}", got ${JSON.stringify(seqs)}`,
+          ),
+        ),
+      2000,
+    );
+    socket.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    socket.on('open', () => socket.send(JSON.stringify([event, {}, null])));
     socket.on('message', (data) => {
       const seq = JSON.parse(data.toString())[2]?.delivery?.seq;
       if (typeof seq === 'number') seqs.push(seq);
-      if (seqs.length === expected) resolve();
+      if (seqs.length === expected) {
+        clearTimeout(timer);
+        resolve(seqs);
+      }
     });
   });
-  await new Promise<void>((resolve) => socket.once('open', () => resolve()));
-  socket.send(JSON.stringify([event, {}, null]));
 
-  await done;
-  socket.close();
-
-  return seqs;
+  try {
+    return await collected;
+  } finally {
+    socket.close();
+  }
 }
 
 describe('a persisted sequence and a rolled-back user transaction, on real better-sqlite3', () => {

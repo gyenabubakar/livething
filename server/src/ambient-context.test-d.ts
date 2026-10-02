@@ -3,9 +3,10 @@ import { t } from '~/_api/index.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { inbox } from '~/inbox/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { expectTypeOf } from 'vitest';
-import type { InitContext } from '~/context.ts';
+import type { InitContext, TaskContext } from '~/context.ts';
 import { context } from './ambient-context.ts';
 
 const base = server({
@@ -38,7 +39,9 @@ plainCtx.send('pong', { ok: true });
 plainCtx.schedule;
 
 // task, init, shutdown, upgrade.
-expectTypeOf(context.task(base)).not.toBeNever();
+expectTypeOf(context.task(base)).toEqualTypeOf<TaskContext<{ role: 'admin' }>>();
+// @ts-expect-error a task ctx has no connection, so no `user`
+context.task(base).user;
 expectTypeOf(context.init(base)).toEqualTypeOf<InitContext>();
 expectTypeOf(context.upgrade(base)).toEqualTypeOf<InitContext>();
 context.shutdown(base).closeAll();
@@ -59,7 +62,23 @@ lobbyCtx.channel.broadcast('hello', { who: 'x' });
 // @ts-expect-error not an event of this channel
 lobbyCtx.channel.broadcast('tick', { n: 1 });
 
+context.channelLifecycle(lobby).channel.broadcast('hello', { who: 'x' });
 context.channelGate(lobby).channel.broadcast('hello', { who: 'x' });
+
+// The accessor returns exactly the `ctx` that a `check` hook of a channel like `lobby` receives.
+base.channel('gated', {
+  capabilities: [emits({ hello: t<{ who: string }>() })],
+  check(ctx) {
+    expectTypeOf(ctx).toEqualTypeOf<ReturnType<typeof context.channelGate<typeof lobby>>>();
+  },
+});
+
+// The lifecycle hooks (subscribe, unsubscribe, sessionEnd) have a channel's own handles. The gate
+// hooks (check, commit, revalidate) do not, so their accessor must not promise them.
+const inboxChannel = base.channel('inboxed', { capabilities: [inbox()] });
+context.channelLifecycle(inboxChannel).channel.inbox;
+// @ts-expect-error check, commit and revalidate have no inbox
+context.channelGate(inboxChannel).channel.inbox;
 
 // @ts-expect-error a bare object is not a base
 context.connection({});
@@ -70,3 +89,5 @@ context.connection({ __baseId: Symbol('x') });
 const pluginBase = server({ scope: 'plugin' });
 // @ts-expect-error a plugin's own base is not accepted
 context.connection(pluginBase);
+// Only context.upgrade accepts it, inside that plugin's own upgrade.
+expectTypeOf(context.upgrade(pluginBase)).toEqualTypeOf<InitContext>();

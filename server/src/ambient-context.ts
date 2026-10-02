@@ -8,6 +8,9 @@ import type { InitContext, ShutdownContext, TaskContext } from '~/context.ts';
 /** What `server(...)` returns for an app. A plugin's `server({ scope: 'plugin' })` base is not accepted. */
 type BaseRef = CoreBase<any, any, any, false>;
 
+/** A plugin's own `server({ scope: 'plugin' })` base. Only `context.upgrade` accepts it. */
+type PluginBaseRef = CoreBase<any, any, any, true>;
+
 /** What `base.channel(...)` returns, as far as the accessors need it. */
 type ChannelRef = { readonly __key: string; readonly __baseId: symbol | undefined };
 
@@ -27,11 +30,14 @@ type ChannelCtxOf<TChannel> = TChannel extends { on: (...args: infer A) => any }
   : never;
 
 /** The `ctx` a channel's `subscribe`, `unsubscribe` and `sessionEnd` hooks receive. */
-type ChannelGateCtxOf<TChannel> = TChannel extends { subscribe: (...args: infer A) => any }
+type ChannelLifecycleCtxOf<TChannel> = TChannel extends { subscribe: (...args: infer A) => any }
   ? A[0] extends (ctx: infer C) => any
     ? C
     : never
   : never;
+
+/** The `ctx` a channel's `check`, `commit` and `revalidate` hooks receive. */
+type ChannelGateCtxOf<TChannel> = TChannel extends { __gateCtx?: infer C } ? NonNullable<C> : never;
 
 interface Expected {
   accessor: string;
@@ -46,7 +52,7 @@ function currentCtx(expected: Expected): unknown {
   if (!call) {
     throw new Error(
       `[livething] context.${accessor}() was called outside a LiveThing handler or hook. ` +
-        'It works only in code that a handler or hook is running, including its async continuations. ' +
+        'It works only in code that runs inside a handler or hook, including its async continuations. ' +
         'Pass ctx down explicitly from code that runs outside an invocation.',
     );
   }
@@ -60,9 +66,9 @@ function currentCtx(expected: Expected): unknown {
 
   if (expected.baseId !== undefined && call.baseId !== expected.baseId) {
     throw new Error(
-      `[livething] context.${accessor}() was given a base that is not the server definition running now. ` +
-        'Pass the `server(...)` result that this definition was assembled from. ' +
-        "A plugin's own base does not work here.",
+      `[livething] context.${accessor}() was given a base that is not the one running now. ` +
+        'Pass the `server(...)` result that the running code belongs to. ' +
+        "A plugin's own base works only in context.upgrade(), inside that plugin's upgrade.",
     );
   }
 
@@ -129,8 +135,11 @@ export const context = {
     }) as ShutdownCtxOf<TBase>;
   },
 
-  /** The `ctx` of the app's `upgrade` function. */
-  upgrade<TBase extends BaseRef>(base: TBase): InitContext {
+  /**
+   * The `ctx` of an `upgrade` function. Pass the app's `base` inside the app's `upgrade`, or a
+   * plugin's own `base` inside that plugin's `upgrade`, where the `ctx` is the plugin's scoped one.
+   */
+  upgrade<TBase extends BaseRef | PluginBaseRef>(base: TBase): InitContext {
     return currentCtx({
       accessor: 'upgrade',
       kind: 'upgrade',
@@ -154,10 +163,27 @@ export const context = {
   },
 
   /**
-   * The `ctx` of a channel's `subscribe`, `unsubscribe`, `sessionEnd`, `check`, `commit` or
-   * `revalidate` hook. Inside `check`, `commit` and `revalidate`, the channel-only handles
-   * (`ctx.channel.inbox`, `readReceipts`, `request` and `broadcastRequest`) are not available
-   * even though the type lists them.
+   * The `ctx` of a channel's `subscribe`, `unsubscribe` or `sessionEnd` hook. It has the
+   * channel-only handles (`ctx.channel.inbox`, `readReceipts`, `request` and
+   * `broadcastRequest`) when the channel has them. Call it in a `check`, `commit` or
+   * `revalidate` hook and it throws; use `context.channelGate(channel)` there.
+   */
+  channelLifecycle<TChannel extends ChannelRef & { subscribe: unknown }>(
+    channel: TChannel,
+  ): ChannelLifecycleCtxOf<TChannel> {
+    return currentCtx({
+      accessor: 'channelLifecycle',
+      kind: 'channelLifecycle',
+      baseId: channel.__baseId,
+      channelKey: channel.__key,
+    }) as ChannelLifecycleCtxOf<TChannel>;
+  },
+
+  /**
+   * The `ctx` of a channel's `check`, `commit` or `revalidate` hook. The type has no
+   * `ctx.channel.inbox`, `readReceipts`, `request` or `broadcastRequest`, because those hooks
+   * do not have them. Call it in a `subscribe`, `unsubscribe` or `sessionEnd` hook and it
+   * throws; use `context.channelLifecycle(channel)` there.
    */
   channelGate<TChannel extends ChannelRef & { subscribe: unknown }>(
     channel: TChannel,

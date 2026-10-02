@@ -7,7 +7,11 @@ import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { Defer } from '~/errors/errors.ts';
+import { intercepts } from '~/intercept/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
+import { recordedStream } from '~/stream-recorded/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -167,7 +171,7 @@ describe('context.connection', () => {
     await engine.initialize();
     await open(engine, 'alice').handleMessage(frame('probe'));
 
-    expect(message).toMatch(/not the server definition running now/);
+    expect(message).toMatch(/not the one running now/);
   });
 
   it('throws once the engine runs with a passthrough async context', async () => {
@@ -257,7 +261,7 @@ describe('context.task', () => {
   });
 });
 
-describe('context.channel and context.channelGate', () => {
+describe('context.channel, context.channelGate and context.channelLifecycle', () => {
   function setup() {
     const base = server({ capabilities: [channels()] });
     const lobby = base.channel('lobby', {});
@@ -265,7 +269,7 @@ describe('context.channel and context.channelGate', () => {
     const seen: Record<string, unknown> = {};
 
     lobby.subscribe((ctx) => {
-      seen.subscribe = context.channelGate(lobby) === ctx;
+      seen.subscribe = context.channelLifecycle(lobby) === ctx;
     });
     const say = lobby.on('say', {
       run(ctx) {
@@ -287,7 +291,7 @@ describe('context.channel and context.channelGate', () => {
     return { base, lobby, say, seen };
   }
 
-  it('returns the channel ctx in handlers and the gate ctx in hooks', async () => {
+  it('returns the channel ctx in handlers and the lifecycle ctx in subscribe', async () => {
     const { base, lobby, say, seen } = setup();
     const engine = buildEngine(base.assemble({ handlers: [lobby, say] }));
     await engine.initialize();
@@ -300,6 +304,66 @@ describe('context.channel and context.channelGate', () => {
     expect(seen.handler).toBe(true);
     expect(seen.wrongChannel).toMatch(/not the one running now \(running: 'lobby'\)/);
     expect(seen.wrongKind).toMatch(/'channel' invocation/);
+  });
+
+  it('gives check and commit the gate accessor and subscribe, unsubscribe and sessionEnd the lifecycle accessor', async () => {
+    const base = server({ capabilities: [channels()] });
+    const seen: Record<string, unknown> = {};
+    // The hooks below run later, after `lobby` is assigned.
+    let lobbyRef = undefined as unknown as Parameters<typeof context.channelGate>[0];
+    const lobby = base.channel('lobby', {
+      check(ctx) {
+        seen.check = context.channelGate(lobbyRef) === ctx;
+        try {
+          context.channelLifecycle(lobbyRef);
+        } catch (error) {
+          seen.lifecycleInCheck = (error as Error).message;
+        }
+      },
+      commit(ctx) {
+        seen.commit = context.channelGate(lobbyRef) === ctx;
+      },
+    });
+    lobbyRef = lobby;
+    lobby.subscribe((ctx) => {
+      seen.subscribe = context.channelLifecycle(lobby) === ctx;
+      try {
+        context.channelGate(lobby);
+      } catch (error) {
+        seen.gateInSubscribe = (error as Error).message;
+      }
+    });
+    lobby.unsubscribe((ctx) => {
+      seen.unsubscribe = context.channelLifecycle(lobby) === ctx;
+    });
+
+    lobby.sessionEnd((ctx) => {
+      seen.sessionEnd = context.channelLifecycle(lobby) === ctx;
+    });
+    const engine = buildEngine(base.assemble({ handlers: [lobby] }));
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+
+    await handle.handleMessage(frame('__subscribe__', { channel: { name: 'lobby' } }));
+    await handle.handleMessage(
+      JSON.stringify([
+        '__unsubscribe__',
+        null,
+        { channel: { name: 'lobby', unsubscribeId: 'u1' } },
+      ]),
+    );
+
+    expect(seen).toMatchObject({
+      check: true,
+      commit: true,
+      subscribe: true,
+      unsubscribe: true,
+      sessionEnd: true,
+    });
+    expect(seen.lifecycleInCheck).toMatch(/'channelGate' invocation[\s\S]*context\.channelGate/);
+    expect(seen.gateInSubscribe).toMatch(
+      /'channelLifecycle' invocation[\s\S]*context\.channelLifecycle/,
+    );
   });
 
   it('reaches the top-level onError and onValidationError hooks for a channel event', async () => {
@@ -352,6 +416,183 @@ describe('context in a stream handler', () => {
     await sleep(10);
 
     expect(seen).toEqual({ beforeGenerator: true, insideGenerator: 'alice' });
+  });
+});
+
+describe('context in the heartbeat hooks', () => {
+  it('returns the connection ctx in onPing and onPong', async () => {
+    const base = server({});
+    const seen: Record<string, boolean> = {};
+    base.onPing((ctx) => {
+      seen.ping = context.connection(base) === ctx;
+    });
+    base.onPong((ctx) => {
+      seen.pong = context.connection(base) === ctx;
+    });
+    const engine = buildEngine(base.assemble({ handlers: [] }));
+
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+
+    await handle.handleMessage('ping');
+    await handle.handleMessage('pong');
+
+    expect(seen).toEqual({ ping: true, pong: true });
+  });
+});
+
+describe('context in the features of a channel', () => {
+  const SUBSCRIBE = JSON.stringify(['__subscribe__', {}, { channel: { name: 'room' } }]);
+
+  it('returns the channel ctx in a channel stream handler and its generator', async () => {
+    const base = server({ capabilities: [channels(), stream()] });
+    const seen: Record<string, boolean> = {};
+    const room = base.channel('room', {});
+    const feed = room.stream('feed', {
+      input: v.object({}),
+      chunk: t<{ n: number }>(),
+      run(ctx) {
+        seen.beforeGenerator = context.channel(room) === ctx;
+        return (async function* () {
+          seen.insideGenerator = context.channel(room).channel.name === 'room';
+          yield { n: 1 };
+        })();
+      },
+    });
+    const engine = buildEngine(base.assemble({ handlers: [room, feed] }));
+
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+
+    await handle.handleMessage(SUBSCRIBE);
+    await handle.handleMessage(
+      JSON.stringify(['feed', {}, { channel: { name: 'room' }, stream: { id: 's1' } }]),
+    );
+    await sleep(10);
+
+    expect(seen).toEqual({ beforeGenerator: true, insideGenerator: true });
+  });
+
+  it('returns the channel ctx in a channel recorded stream handler and its generator', async () => {
+    const base = server({ capabilities: [channels(), recordedStream()] });
+    const seen: Record<string, boolean> = {};
+    const room = base.channel('room', {});
+    const feed = room.recordedStream('feed', {
+      input: v.object({}),
+      chunk: t<{ n: number }>(),
+      maxChunks: 10,
+      run(ctx) {
+        seen.beforeGenerator = context.channel(room) === ctx;
+        return (async function* () {
+          seen.insideGenerator = context.channel(room).channel.name === 'room';
+          yield { n: 1 };
+        })();
+      },
+    });
+    const engine = buildEngine(base.assemble({ handlers: [room, feed] }));
+
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+
+    await handle.handleMessage(SUBSCRIBE);
+    await handle.handleMessage(
+      JSON.stringify(['feed', {}, { channel: { name: 'room' }, stream: { id: 's1' } }]),
+    );
+    await sleep(10);
+
+    expect(seen).toEqual({ beforeGenerator: true, insideGenerator: true });
+  });
+
+  it('returns the channel ctx in a channel request handler', async () => {
+    const base = server({ capabilities: [channels(), clientRequests()] });
+    const seen: Record<string, boolean> = {};
+    const room = base.channel('room', {});
+    const info = room.request('info', {
+      input: v.object({}),
+      run(ctx) {
+        seen.request = context.channel(room) === ctx;
+        return { ok: true };
+      },
+    });
+    const engine = buildEngine(base.assemble({ handlers: [room, info] }));
+
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+
+    await handle.handleMessage(SUBSCRIBE);
+    await handle.handleMessage(
+      JSON.stringify([
+        'info',
+        {},
+        { channel: { name: 'room' }, exchange: { id: 'x1', source: 'client' } },
+      ]),
+    );
+
+    expect(seen).toEqual({ request: true });
+  });
+
+  it('returns the channel ctx in a channel intercept and the connection ctx in a top-level one', async () => {
+    const base = server({ capabilities: [channels(), intercepts()] });
+    const seen: Record<string, boolean> = {};
+    base.intercept((ctx) => {
+      seen.topLevel = context.connection(base) === ctx;
+    });
+    const room = base.channel('room', {});
+    room.intercept((ctx) => {
+      seen.channel = context.channel(room) === ctx;
+    });
+
+    const say = room.on('say', { run() {} });
+    const engine = buildEngine(base.assemble({ handlers: [room, say] }));
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+
+    await handle.handleMessage(SUBSCRIBE);
+    await handle.handleMessage(frame('say', { channel: { name: 'room' } }));
+
+    expect(seen).toEqual({ topLevel: true, channel: true });
+  });
+});
+
+describe('context in the onError hook for a stream that throws', () => {
+  async function runFailingStream(fail: () => never) {
+    const base = server({ capabilities: [stream()] });
+    const seen: Record<string, boolean> = {};
+    base.onError((ctx) => {
+      seen.onError = context.connection(base) === ctx;
+    });
+    const feed = base.stream('feed', {
+      input: v.object({}),
+      chunk: t<{ n: number }>(),
+      async *run() {
+        yield { n: 1 };
+        fail();
+      },
+    });
+    const engine = buildEngine(base.assemble({ handlers: [feed] }));
+
+    await engine.initialize();
+
+    await open(engine, 'alice').handleMessage(frame('feed', { stream: { id: 's1' } }));
+    await sleep(20);
+
+    return seen;
+  }
+
+  it('returns the connection ctx when the stream throws an error', async () => {
+    const seen = await runFailingStream(() => {
+      throw new Error('stream failed');
+    });
+
+    expect(seen).toEqual({ onError: true });
+  });
+
+  it('returns the connection ctx when the stream throws Defer, which a stream cannot retry', async () => {
+    const seen = await runFailingStream(() => {
+      throw Defer(10);
+    });
+
+    expect(seen).toEqual({ onError: true });
   });
 });
 

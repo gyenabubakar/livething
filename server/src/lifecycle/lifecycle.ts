@@ -64,13 +64,14 @@ export type ErrorHandler<TCtx = any> = (
 /**
  * Second argument to `onUpgrade`. When tag groups are declared on the
  * contract, `helpers.tags` lets you attach initial tag refs to the connection
- * before it opens. Always an object (possibly empty) — safe to destructure.
+ * before it opens. `helpers.ctx` is always there.
  */
 export interface UpgradeHelpers {
   /**
    * Storage, logger and platform for the upgrade phase. The same shape as the
    * `onInit` context: no connection exists yet, so there is no user, `meta` or
-   * `send`. The app's `upgrade(request, ctx)` receives this as `ctx`.
+   * `send`. The app's `upgrade(request, ctx)` receives this as `ctx`. A plugin's `upgrade`
+   * receives a copy scoped to the plugin, with its `kv` keys namespaced.
    */
   readonly ctx: PublicApiTypes.InitContext;
   /**

@@ -8,7 +8,12 @@ import {
   StreamIdCollision,
   ValidationFailed,
 } from '@livething/core';
-import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
+import {
+  connectionCall,
+  inConnectionCall,
+  withConnectionCall,
+  withConnectionLevelCall,
+} from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import {
@@ -544,11 +549,14 @@ export async function runStream(
     }),
   );
 
-  const iterator = withConnectionCall(
+  const streamCall = connectionCall(connection.id, scope, () => ctx);
+  const iterator = inConnectionCall(
     runtime.asyncContext,
-    connectionCall(connection.id, scope, () => ctx),
-    () => stream.generator(ctx, payload),
-  ) as AsyncGenerator<unknown, void, unknown>;
+    streamCall,
+    withConnectionCall(runtime.asyncContext, streamCall, () =>
+      stream.generator(ctx, payload),
+    ) as AsyncGenerator<unknown, void, unknown>,
+  );
 
   const { active: activeStream } = buildActiveStream({
     streamId,
@@ -576,19 +584,15 @@ export async function runStream(
     let seq = 0;
 
     while (!activeStream.closed) {
-      // Advance the generator inside the connection's async context so plugin
-      // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
-      const result = await withConnectionCall(
-        runtime.asyncContext,
-        connectionCall(connection.id, scope, () => ctx),
-        () => iterator.next(nextInput),
-      );
+      // The wrapped iterator runs inside the connection's async context, so plugin
+      // APIs the generator calls (e.g. hooks.getState()) resolve to the stream owner.
+      const result = await iterator.next(nextInput);
       if (result.done) break;
 
       // A cancel can land while next() was pending. Drop the resolved value —
       // sending it would emit a chunk (and a later __streamEnd__) after cancel.
       if (activeStream.closed) {
-        await iterator.return?.(undefined);
+        await iterator.return(undefined);
         break;
       }
 
@@ -624,7 +628,7 @@ export async function runStream(
       });
       if (!sent) {
         activeStream.closed = true;
-        await iterator.return?.(undefined);
+        await iterator.return(undefined);
         await sendBroadcastEnd(seq);
         break;
       }
@@ -691,9 +695,9 @@ export async function runStream(
         runtime.errorHooks,
         (hook) => {
           const hookCtx = runtime.buildConnectionContext(connection, scope);
-          return withConnectionCall(
+          return withConnectionLevelCall(
             runtime.asyncContext,
-            connectionCall(connection.id, undefined, () => hookCtx),
+            { connectionId: connection.id, ctx: hookCtx },
             () => hook(hookCtx, internal, event),
           );
         },

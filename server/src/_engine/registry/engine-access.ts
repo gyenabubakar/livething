@@ -256,8 +256,8 @@ export function createEngineAccess(
       const list = core.hooks.pluginLifecycle[kind];
       list.push({ pluginId, order: list.length, handler });
     },
-    registerPluginUpgrade: (pluginId, handler) => {
-      core.hooks.pluginUpgrade.push({ pluginId, handler });
+    registerPluginUpgrade: (pluginId, handler, baseId) => {
+      core.hooks.pluginUpgrade.push({ pluginId, handler, baseId });
     },
     registerTagGroups: (kind, groups) => {
       core.tagGroupsRegistered[kind] = true;

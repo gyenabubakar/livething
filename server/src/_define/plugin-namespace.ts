@@ -458,7 +458,7 @@ function scopeChannelLifecycle(scope: PluginScope, primitive: Primitive): Primit
 /**
  * Rebuild a plugin's `upgrade` carrier so it registers into the plugin upgrade
  * registry (bound to the plugin id) instead of the app's single builder slot.
- * The handler keeps the raw request — a plugin upgrade never sees app identity.
+ * The handler gets the raw request and the plugin's scoped `ctx`. It never sees app identity.
  */
 function namespaceUpgrade(id: string, primitive: Primitive): Primitive {
   const handler = (primitive as unknown as { handler: UpgradeHandler }).handler;
@@ -480,7 +480,7 @@ function namespaceUpgrade(id: string, primitive: Primitive): Primitive {
     __plugin: id,
     handler: scoped,
     __setup(engine: EngineAccess) {
-      engine.registerPluginUpgrade(id, scoped);
+      engine.registerPluginUpgrade(id, scoped, (primitive as { __baseId?: symbol }).__baseId);
     },
   } as unknown as Primitive;
 }

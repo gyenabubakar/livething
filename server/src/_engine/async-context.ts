@@ -25,17 +25,24 @@ export interface EngineAsyncContextStore {
   [INVOCATION_SCOPE]?: InvocationScopeState;
 }
 
-/** The engine's store, plus the id of the `base` its definition was assembled from. */
-export type EngineAsyncContext = AsyncContext<EngineAsyncContextStore> & {
-  readonly baseId?: symbol;
-};
+export type EngineAsyncContext = AsyncContext<EngineAsyncContextStore>;
+
+/**
+ * The id of the `base` each engine's definition was assembled from. It is kept beside the
+ * adapter's context, not written onto it, because the adapter owns that object and may
+ * have frozen it.
+ */
+const baseIds = new WeakMap<EngineAsyncContext, symbol | undefined>();
 
 export function createAsyncContext(
   factory: AsyncContextFactory,
   baseId?: symbol,
 ): EngineAsyncContext {
   registerCallContext(factory);
-  return Object.assign(factory<EngineAsyncContextStore>(), { baseId });
+  const asyncContext = factory<EngineAsyncContextStore>();
+  baseIds.set(asyncContext, baseId);
+
+  return asyncContext;
 }
 
 /**
@@ -60,6 +67,28 @@ export interface ConnectionCall extends CallDescriptor {
 }
 
 /**
+ * Wrap a stream's generator so `next`, `return` and `throw` all run in `call`. A cancel, a
+ * channel leave and a disconnect end the generator with `return()` from outside the loop
+ * that advances it, and its `finally` block can use `context.*` only if that runs in the
+ * stream's call context too.
+ */
+export function inConnectionCall(
+  asyncContext: EngineAsyncContext | undefined,
+  call: ConnectionCall,
+  generator: AsyncGenerator<unknown, void, unknown>,
+): AsyncGenerator<unknown, void, unknown> {
+  const wrapped = {
+    next: (value: unknown) => withConnectionCall(asyncContext, call, () => generator.next(value)),
+    return: (value: void | PromiseLike<void>) =>
+      withConnectionCall(asyncContext, call, () => generator.return(value)),
+    throw: (error: unknown) => withConnectionCall(asyncContext, call, () => generator.throw(error)),
+    [Symbol.asyncIterator]: () => wrapped,
+  } as AsyncGenerator<unknown, void, unknown>;
+
+  return wrapped;
+}
+
+/**
  * Like {@link withConnectionContext}, and also makes the running `ctx` reachable
  * through `context.*`.
  */
@@ -73,13 +102,40 @@ export function withConnectionCall<T>(
   );
 }
 
-/** Run `fn` so `context.*` can reach a `ctx`. Used directly for code with no connection (init, task, shutdown, upgrade). */
+/**
+ * Run `fn` so `context.*` can reach a `ctx`. Used directly for code that has no connection
+ * (init, task, shutdown, upgrade) and for the channel gate and lifecycle hooks.
+ */
 export function withCallContext<T>(
   asyncContext: EngineAsyncContext | undefined,
   call: CallDescriptor,
   fn: () => T,
 ): T {
-  return runInCall({ ...call, baseId: asyncContext?.baseId }, fn);
+  const baseId = call.baseId ?? (asyncContext ? baseIds.get(asyncContext) : undefined);
+
+  return runInCall({ ...call, baseId }, fn);
+}
+
+/** One connection and the `ctx` that code running for it receives. */
+export interface ConnectionCtxTarget {
+  readonly connectionId: string;
+  readonly ctx: unknown;
+}
+
+/**
+ * Run `fn` as code for one connection outside any channel, so `context.connection(base)` returns
+ * that connection's `ctx`. Hooks such as `onError` and `onConnect` run this way.
+ */
+export function withConnectionLevelCall<T>(
+  asyncContext: EngineAsyncContext | undefined,
+  target: ConnectionCtxTarget,
+  fn: () => T,
+): T {
+  return withConnectionCall(
+    asyncContext,
+    connectionCall(target.connectionId, undefined, () => target.ctx),
+    fn,
+  );
 }
 
 /** Describe a connection's `ctx`: a channel `ctx` inside a channel scope, a connection `ctx` outside one. */

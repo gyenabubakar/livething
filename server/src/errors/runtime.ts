@@ -1,5 +1,5 @@
 import { InternalError, LiveThingError } from '@livething/core';
-import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
+import { withConnectionLevelCall } from '~/_engine/async-context.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -120,10 +120,8 @@ export async function sendRuntimeError(
   for (const hook of deps.errorHooks) {
     const ctx = deps.buildConnectionContext(connection, scope);
     try {
-      await withConnectionCall(
-        deps.asyncContext,
-        connectionCall(connection.id, undefined, () => ctx),
-        () => hook(ctx, error, event),
+      await withConnectionLevelCall(deps.asyncContext, { connectionId: connection.id, ctx }, () =>
+        hook(ctx, error, event),
       );
     } catch (hookError) {
       // A throwing hook must never block the `__error__` frame from reaching
@@ -168,10 +166,8 @@ export async function notifyValidationError(
   await forEachIsolatedAsync(
     deps.validationErrorHooks,
     (hook) =>
-      withConnectionCall(
-        deps.asyncContext,
-        connectionCall(connection.id, undefined, () => ctx),
-        () => hook(ctx, event, validationError),
+      withConnectionLevelCall(deps.asyncContext, { connectionId: connection.id, ctx }, () =>
+        hook(ctx, event, validationError),
       ),
     { context: `onValidationError hook event="${event}"` },
   );

@@ -312,6 +312,62 @@ describe('createSql.transaction', () => {
       expect(queries.filter((query) => query === 'PRAGMA foreign_key_check')).toHaveLength(1);
     });
 
+    describe('with a real SQLite schema', () => {
+      // Loaded by name, because this package's tsconfig has no Node types.
+      const sqliteModule = 'node:sqlite';
+
+      async function runWithSchema(schema: string): Promise<string[]> {
+        const { DatabaseSync } = (await import(sqliteModule)) as {
+          DatabaseSync: new (path: string) => {
+            exec(sql: string): void;
+            prepare(sql: string): { all(): unknown[] };
+          };
+        };
+        const database = new DatabaseSync(':memory:');
+        database.exec('CREATE TABLE rooms (id INTEGER PRIMARY KEY)');
+        database.exec(schema);
+        const queries: string[] = [];
+
+        const state = {
+          storage: {
+            sql: {
+              exec: (query: string) => {
+                queries.push(query);
+                return fakeCursor(database.prepare(query).all() as Record<string, unknown>[]);
+              },
+            },
+            transactionSync: <T>(closure: () => T) => closure(),
+          },
+        } as unknown as DurableObjectState;
+
+        createSql(state).transaction(() => 1);
+
+        return queries;
+      }
+
+      const CHECK = 'PRAGMA foreign_key_check';
+
+      it('does not check when only a column name contains the word deferred', async () => {
+        const queries = await runWithSchema(
+          'CREATE TABLE members (roomId INTEGER REFERENCES rooms(id), deferred_at TEXT)',
+        );
+
+        expect(queries).not.toContain(CHECK);
+      });
+
+      it('checks when a key is declared deferred, on one line or across lines', async () => {
+        const oneLine = await runWithSchema(
+          'CREATE TABLE members (roomId INTEGER REFERENCES rooms(id) DEFERRABLE INITIALLY DEFERRED)',
+        );
+        const acrossLines = await runWithSchema(
+          'CREATE TABLE members (roomId INTEGER REFERENCES rooms(id) DEFERRABLE INITIALLY\n    DEFERRED)',
+        );
+
+        expect(oneLine).toContain(CHECK);
+        expect(acrossLines).toContain(CHECK);
+      });
+    });
+
     it('checks when the transaction deferred its keys, once, at the end of the outermost one', () => {
       const { state, queries } = stateWith((query) =>
         query === 'PRAGMA defer_foreign_keys' ? [{ defer_foreign_keys: 1 }] : [],
@@ -340,13 +396,27 @@ describe('createSql.transaction', () => {
     expect(transactionSync).not.toHaveBeenCalled();
   });
 
-  it('rolls back when a sync callback returns a promise', () => {
+  it('rejects a sync callback that returns a promise', () => {
     const transactionSync = vi.fn(<T>(closure: () => T) => closure());
     const state = {
       storage: { sql: { exec: vi.fn(() => fakeCursor()) }, transactionSync },
     } as unknown as DurableObjectState;
 
     expect(() => createSql(state).transaction(() => Promise.resolve(1))).toThrow(
+      /callbacks must be synchronous/,
+    );
+  });
+
+  it('rejects a callback that returns a function with a then method', () => {
+    const state = {
+      storage: {
+        sql: { exec: vi.fn(() => fakeCursor()) },
+        transactionSync: <T>(closure: () => T) => closure(),
+      },
+    } as unknown as DurableObjectState;
+    const callableThenable = Object.assign(() => {}, { then() {} });
+
+    expect(() => createSql(state).transaction(() => callableThenable)).toThrow(
       /callbacks must be synchronous/,
     );
   });

@@ -1,3 +1,7 @@
+import {
+  rejectAsyncTransactionCallback,
+  rejectAsyncTransactionResult,
+} from '@livething/server/adapters';
 import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapters';
 
 /**
@@ -81,14 +85,14 @@ export function createSql(state: DurableObjectState): SQLProvider {
         );
       }
 
-      if (isAsyncFunction(fn)) throw synchronousTransactionError();
+      rejectAsyncTransactionCallback(fn);
 
       const outermost = depth === 0;
       depth += 1;
       try {
         return state.storage.transactionSync(() => {
           const result = fn();
-          if (isPromiseLike(result)) throw synchronousTransactionError();
+          rejectAsyncTransactionResult(result);
 
           if (outermost) assertDeferredForeignKeysHold(state);
 
@@ -111,8 +115,11 @@ export function createSql(state: DurableObjectState): SQLProvider {
 function assertDeferredForeignKeysHold(state: DurableObjectState): void {
   const usesDeferredKeys =
     state.storage.sql
-      // Only DEFERRED, because the two words can have a line break or more spaces between them.
-      .exec("SELECT 1 FROM sqlite_master WHERE sql LIKE '%DEFERRED%' LIMIT 1")
+      // Both words, not the phrase, because a line break or extra spaces can sit between them.
+      // A table or column name that holds only one of the two words does not match.
+      .exec(
+        "SELECT 1 FROM sqlite_master WHERE sql LIKE '%INITIALLY%' AND sql LIKE '%DEFERRED%' LIMIT 1",
+      )
       .toArray().length > 0 ||
     state.storage.sql.exec('PRAGMA defer_foreign_keys').toArray()[0]?.defer_foreign_keys === 1;
   if (!usesDeferredKeys) return;
@@ -124,26 +131,4 @@ function assertDeferredForeignKeysHold(state: DurableObjectState): void {
         `table "${String(violations[0]?.table)}" without a matching parent row, so it was rolled back.`,
     );
   }
-}
-
-function isAsyncFunction(value: unknown): boolean {
-  return (
-    typeof value === 'function' &&
-    Object.getPrototypeOf(value)?.constructor?.name === 'AsyncFunction'
-  );
-}
-
-function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'then' in value &&
-    typeof value.then === 'function'
-  );
-}
-
-function synchronousTransactionError(): TypeError {
-  return new TypeError(
-    '[livething] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.',
-  );
 }

@@ -1,3 +1,7 @@
+import {
+  rejectAsyncTransactionCallback,
+  rejectAsyncTransactionResult,
+} from '@livething/server/adapters';
 import Database from 'better-sqlite3';
 import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapters';
 
@@ -85,11 +89,11 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
     exec,
     limits: BETTER_SQLITE3_LIMITS,
     transaction<T>(fn: () => T): T {
-      if (isAsyncFunction(fn)) throw synchronousTransactionError();
+      rejectAsyncTransactionCallback(fn);
 
       const runTransaction = database.transaction(() => {
         const result = fn();
-        if (isPromiseLike(result)) throw synchronousTransactionError();
+        rejectAsyncTransactionResult(result);
 
         return result;
       });
@@ -97,28 +101,6 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
       return runTransaction();
     },
   };
-}
-
-function isAsyncFunction(value: unknown): boolean {
-  return (
-    typeof value === 'function' &&
-    Object.getPrototypeOf(value)?.constructor?.name === 'AsyncFunction'
-  );
-}
-
-function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'then' in value &&
-    typeof value.then === 'function'
-  );
-}
-
-function synchronousTransactionError(): TypeError {
-  return new TypeError(
-    '[livething] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.',
-  );
 }
 
 function createResult<TRow>(rows: TRow[], rawRows: unknown[][] = []): SqlResult<TRow> {

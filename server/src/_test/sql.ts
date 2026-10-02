@@ -1,8 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
+import {
+  rejectAsyncTransactionCallback,
+  rejectAsyncTransactionResult,
+} from '~/_adapters/sync-transaction.ts';
 import type { KVProvider, SqlLimits, SQLProvider, SqlResult, StorageProvider } from '~/context.ts';
-
-const ASYNC_TRANSACTION_MESSAGE =
-  '[livething] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.';
 
 /**
  * The real limits of the `node:sqlite` build Node 24 ships. Used as
@@ -92,7 +93,7 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
     // Nested calls become savepoints, like better-sqlite3 does. Async callbacks
     // are rejected, like the real providers do.
     transaction<T>(fn: () => T): T {
-      if (fn.constructor.name === 'AsyncFunction') throw new TypeError(ASYNC_TRANSACTION_MESSAGE);
+      rejectAsyncTransactionCallback(fn);
 
       const outermost = depth === 0;
       const savepoint = `sp${depth}`;
@@ -102,9 +103,7 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
 
       try {
         result = fn();
-        if (typeof (result as { then?: unknown } | null)?.then === 'function') {
-          throw new TypeError(ASYNC_TRANSACTION_MESSAGE);
-        }
+        rejectAsyncTransactionResult(result);
       } catch (error) {
         depth -= 1;
         // SQLite may have ended the transaction itself, as INSERT OR ROLLBACK does.

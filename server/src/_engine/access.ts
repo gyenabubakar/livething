@@ -556,7 +556,8 @@ export interface EngineAccess {
   /**
    * Register one new-model plugin `upgrade` hook. Runs before the app's upgrade
    * (inbound onion); it may own `userId`, but the single-owner rule is
-   * enforced at runtime.
+   * enforced at runtime. `baseId` is the id of the plugin's own `base`, so
+   * `context.upgrade(pluginBase)` works inside the hook.
    *
    * @internal
    */
@@ -572,6 +573,7 @@ export interface EngineAccess {
           meta?: Record<string, unknown>;
           tags?: readonly ContextApi.TagRef[];
         }>,
+    baseId?: symbol,
   ): void;
 
   /**

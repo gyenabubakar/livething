@@ -7,6 +7,7 @@ import { channelRuntime, dispatchRuntime } from '~/_engine/engine.deps.ts';
 import { processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
+import { context } from '~/ambient-context.ts';
 import { channels } from '~/channel/capability.ts';
 import { removeChannelMembership } from '~/channel/runtime.ts';
 import * as ChannelRuntime from '~/channel/runtime.ts';
@@ -593,5 +594,62 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasBroadcastRequest: true,
       hasReplay: false,
     });
+  });
+});
+
+describe('context.channelGate and context.channelLifecycle across the subscribe lifecycle', () => {
+  it('serve check, commit and revalidate through channelGate, and subscribe through channelLifecycle', async () => {
+    const base = server({ capabilities: [channels()] });
+    const seen: Record<string, unknown> = {};
+    // The hooks run later, after `chat` is assigned.
+    let chatRef = undefined as unknown as Parameters<typeof context.channelGate>[0];
+    const chat = base.channel('chat', {
+      check(ctx) {
+        seen.check = context.channelGate(chatRef) === ctx;
+      },
+      commit(ctx) {
+        seen.commit = context.channelGate(chatRef) === ctx;
+      },
+      revalidate(ctx) {
+        seen.revalidate = context.channelGate(chatRef) === ctx;
+        try {
+          context.channelLifecycle(chatRef);
+        } catch (error) {
+          seen.lifecycleInRevalidate = (error as Error).message;
+        }
+      },
+    });
+    chatRef = chat;
+    chat.subscribe((ctx) => {
+      seen.subscribe = context.channelLifecycle(chatRef) === ctx;
+    });
+
+    const engine = buildEngine(base.assemble({ handlers: [chat] }));
+    await engine.initialize();
+    const core = engine.core;
+    const connection = fakeConnection('c1', 'alice');
+    core.connections.set(connection.id, connection);
+
+    await processTextMessage(
+      dispatchRuntime(core),
+      connection,
+      JSON.stringify(['__subscribe__', {}, { channel: { name: 'chat' } }]),
+    );
+
+    // A reconnect: drop the live membership, then rejoin. `revalidate` runs instead of `check`.
+    removeChannelMembership(core.channelMembers, connection, {
+      channelName: 'chat',
+      channelFamily: null,
+    });
+    connection.channelMemberships.delete(ChannelRuntime.createChannelMembershipKey('chat', null));
+    await ChannelRuntime.subscribeConnectionAsServer(channelRuntime(core), connection, {
+      channelName: 'chat',
+      channelFamily: null,
+      payload: undefined,
+      rejoining: true,
+    });
+
+    expect(seen).toMatchObject({ check: true, commit: true, subscribe: true, revalidate: true });
+    expect(seen.lifecycleInRevalidate).toMatch(/'channelGate' invocation/);
   });
 });

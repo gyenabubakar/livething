@@ -3,7 +3,7 @@ import type { SQLProvider, StorageProvider, TimerProvider } from '~/context.ts';
 interface RecordedWrite {
   /** Runs the write again. A SQL write gets the provider to run it on. */
   redo(sql: SQLProvider): unknown;
-  /** Set when the first attempt at this write was rejected, so a rejected redo is not news. */
+  /** Set when the first attempt at this write was rejected, so a redo that is rejected again is not reported. */
   originalFailed?: boolean;
 }
 
@@ -39,7 +39,6 @@ export class UserTransactionTracker {
 
   constructor(private readonly onRedoError: (error: unknown) => void) {}
 
-  /** Whether a user transaction is open right now. */
   get inTransaction(): boolean {
     return this.levels.length > 0;
   }
@@ -48,7 +47,7 @@ export class UserTransactionTracker {
    * Run a user's transaction callback and repair the recorded writes if it rolls back.
    *
    * The outermost user transaction runs inside one more transaction, so the rollback
-   * and the redo end in a single commit and a crash cannot fall between them.
+   * and the redo end in a single commit. The storage never keeps the rollback without the redo.
    */
   run<T>(sql: SQLProvider, fn: () => T): T {
     const writes: RecordedWrite[] = [];
@@ -67,7 +66,9 @@ export class UserTransactionTracker {
         failure.error = error;
         leave();
         // A statement such as INSERT OR ROLLBACK makes SQLite end the whole transaction itself.
-        // The redo then runs outside of it and is saved at once, so it must not be done again.
+        // The redo then runs outside of it and is saved at once, so it is not done again.
+        // Known limit: an engine write made after the transaction ended, by a callback that
+        // caught the error and went on, was saved at once and is redone with the rest.
         failure.redoneOutside = !this.transactionIsOpen(sql);
         const redone = this.redoAll(sql, writes);
         if (!failure.redoneOutside) pushAll(this.levels.at(-1), redone);
@@ -237,12 +238,12 @@ export function createEngineTimers(
   return {
     setAlarm(timeMs) {
       const outcome = timers.setAlarm(timeMs);
-      tracker.recordOperation(() => timers.setAlarm(timeMs));
+      tracker.recordOperation(() => timers.setAlarm(timeMs), outcome);
       return outcome;
     },
     deleteAlarm() {
       const outcome = timers.deleteAlarm();
-      tracker.recordOperation(() => timers.deleteAlarm());
+      tracker.recordOperation(() => timers.deleteAlarm(), outcome);
       return outcome;
     },
     getAlarm: () => timers.getAlarm(),

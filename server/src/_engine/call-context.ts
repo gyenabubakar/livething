@@ -5,6 +5,7 @@ export type CallKind =
   | 'connection'
   | 'channel'
   | 'channelGate'
+  | 'channelLifecycle'
   | 'task'
   | 'init'
   | 'shutdown'
@@ -15,8 +16,10 @@ export interface CallDescriptor {
   readonly kind: CallKind;
   /** Builds (once) the same `ctx` the running handler or hook receives. */
   readonly getCtx: () => unknown;
-  /** The channel's key, for the `channel` and `channelGate` kinds. */
+  /** The channel's key, for the `channel`, `channelGate` and `channelLifecycle` kinds. */
   readonly channelKey?: string;
+  /** The `base` this code belongs to, when it is not the app's own (a plugin's `upgrade` hook). */
+  readonly baseId?: symbol;
 }
 
 export interface CallContext extends CallDescriptor {

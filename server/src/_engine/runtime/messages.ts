@@ -7,7 +7,11 @@ import {
   UnsupportedProtocol,
   ValidationFailed,
 } from '@livething/core';
-import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
+import {
+  connectionCall,
+  withConnectionCall,
+  withConnectionLevelCall,
+} from '~/_engine/async-context.ts';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -588,9 +592,9 @@ async function handleDispatchError(
         runtime.errorHooks,
         (hook) => {
           const ctx = runtime.buildConnectionContext(connection, scope);
-          return withConnectionCall(
+          return withConnectionLevelCall(
             runtime.asyncContext,
-            connectionCall(connection.id, undefined, () => ctx),
+            { connectionId: connection.id, ctx },
             () => hook(ctx, exhausted, event),
           );
         },

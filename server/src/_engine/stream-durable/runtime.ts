@@ -7,7 +7,7 @@ import {
   StreamAborted,
   StreamIdCollision,
 } from '@livething/core';
-import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
+import { connectionCall, inConnectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
@@ -801,11 +801,14 @@ async function runGenerator(
   }
 
   try {
-    const iterator = withConnectionCall(
+    const streamCall = connectionCall(connection.id, scope, () => ctx);
+    const iterator = inConnectionCall(
       runtime.asyncContext,
-      connectionCall(connection.id, scope, () => ctx),
-      () => def.generator(ctx, payload),
-    ) as AsyncGenerator<unknown, void, unknown>;
+      streamCall,
+      withConnectionCall(runtime.asyncContext, streamCall, () =>
+        def.generator(ctx, payload),
+      ) as AsyncGenerator<unknown, void, unknown>,
+    );
     const built = buildActiveStream({
       streamId,
       event: def.event,
@@ -830,13 +833,9 @@ async function runGenerator(
     let nextInput: unknown = hasNudges ? [] : undefined;
 
     while (!activeStream.closed) {
-      // Advance the generator inside the connection's async context so plugin
-      // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
-      const result = await withConnectionCall(
-        runtime.asyncContext,
-        connectionCall(connection.id, scope, () => ctx),
-        () => iterator.next(nextInput),
-      );
+      // The wrapped iterator runs inside the connection's async context, so plugin
+      // APIs the generator calls (e.g. hooks.getState()) resolve to the stream owner.
+      const result = await iterator.next(nextInput);
       if (result.done) break;
 
       // A reconnect/replace took over this streamId while next() was pending. This
@@ -900,11 +899,7 @@ async function runGenerator(
             });
 
             try {
-              await withConnectionCall(
-                runtime.asyncContext,
-                connectionCall(connection.id, scope, () => ctx),
-                () => iterator.throw(StreamAborted({ reason: 'buffer-full' })),
-              );
+              await iterator.throw(StreamAborted({ reason: 'buffer-full' }));
             } catch (err) {
               rethrowIfConfigError(err);
               throw err;
