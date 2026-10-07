@@ -166,7 +166,7 @@ describe("a plugin's upgrade(request, ctx)", () => {
     await engine.handleUpgrade(new Request('https://x/'));
 
     expect(seen.appBaseInPlugin).toMatch(/not the one running now/);
-    expect(seen.appBaseInPlugin).toMatch(/inside that plugin's upgrade/);
+    expect(seen.appBaseInPlugin).toMatch(/a plugin's own base in that plugin's code/);
   });
 
   it("does not accept a plugin's base inside the app's upgrade", async () => {

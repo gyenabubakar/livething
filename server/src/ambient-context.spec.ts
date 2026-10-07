@@ -1,13 +1,16 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
+import { plugin } from '~/_define/plugins.ts';
 import { server } from '~/_define/server.ts';
 import { resetCallContextForTests } from '~/_engine/call-context.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { errors } from '~/errors/capability.ts';
 import { Defer } from '~/errors/errors.ts';
+import { error as defineError } from '~/index.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -618,5 +621,322 @@ describe('context inside onOutgoing', () => {
     await open(engine, 'alice').handleMessage(frame('send'));
 
     expect(message).toMatch(/outside a LiveThing handler or hook/);
+  });
+});
+
+describe('an async commit hook', () => {
+  it('is rejected without leaving an unhandled rejection behind', async () => {
+    const base = server({ capabilities: [channels()] });
+    const room = base.channel('room', {
+      async commit() {
+        await sleep(1);
+        throw new Error('room is full');
+      },
+    });
+    const unhandled: unknown[] = [];
+    function record(reason: unknown) {
+      unhandled.push(reason);
+    }
+
+    process.on('unhandledRejection', record);
+    try {
+      const engine = buildEngine(base.assemble({ handlers: [room] }));
+      await engine.initialize();
+      await open(engine, 'alice').handleMessage(
+        JSON.stringify(['__subscribe__', {}, { channel: { name: 'room' } }]),
+      );
+      await sleep(20);
+
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', record);
+    }
+  });
+});
+
+describe('context inside a plugin', () => {
+  function rooms() {
+    const h = server({
+      scope: 'plugin',
+      capabilities: [
+        channels(),
+        stream(),
+        scheduled({ sweep: null }),
+        emits({ tick: t<{ n: number }>() }),
+      ],
+    });
+    const room = h.channel('room', {});
+    const seen: Record<string, unknown> = {};
+    function attempt(key: string, read: () => unknown, ctx: unknown) {
+      try {
+        seen[key] = read() === ctx;
+      } catch (error) {
+        seen[key] = (error as Error).message;
+      }
+    }
+
+    room.subscribe((ctx) => attempt('lifecycle', () => context.channelLifecycle(room), ctx));
+    const say = room.on('say', {
+      run: (ctx) => attempt('channel', () => context.channel(room), ctx),
+    });
+    const hello = h.on('hello', {
+      run(ctx) {
+        attempt('connection', () => context.connection(h), ctx);
+        ctx.schedule('sweep', { time: Date.now() - 1 });
+      },
+    });
+    h.scheduled('sweep', { run: (ctx) => attempt('task', () => context.task(h), ctx) });
+    const ticks = h.stream('ticks', {
+      async *run(ctx) {
+        await sleep(1);
+        attempt('stream', () => context.connection(h), ctx);
+        ctx.send('tick', { n: 1 });
+        yield null;
+      },
+    });
+
+    const Rooms = plugin('acme:rooms', {
+      definition: h.assemble({ handlers: [room, say, hello, ticks] }),
+    });
+
+    return { Rooms, seen };
+  }
+
+  it("returns the plugin's scoped ctx for the plugin's own base and channels", async () => {
+    const { Rooms, seen } = rooms();
+    const engine = buildEngine(server({ capabilities: [Rooms()] }).assemble({ handlers: [] }));
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+    const room = { channel: { name: '__acme:rooms::room' } };
+
+    await handle.handleMessage(JSON.stringify(['__subscribe__', {}, room]));
+    await handle.handleMessage(JSON.stringify(['__acme:rooms::say', {}, room]));
+    await handle.handleMessage(frame('__acme:rooms::hello'));
+    await engine.handleAlarm();
+    await handle.handleMessage(frame('__acme:rooms::ticks', { stream: { id: 's1' } }));
+
+    await sleep(20);
+
+    expect(seen).toEqual({
+      lifecycle: true,
+      channel: true,
+      connection: true,
+      task: true,
+      stream: true,
+    });
+  });
+
+  it("gives a plugin's stream the scoped ctx, so its sends carry the plugin prefix", async () => {
+    const { Rooms } = rooms();
+    const engine = buildEngine(server({ capabilities: [Rooms()] }).assemble({ handlers: [] }));
+    await engine.initialize();
+    const sent: string[] = [];
+    const handle = engine.accept(Symbol('alice'), {
+      send: (message: string) => sent.push(message),
+      close() {},
+      bufferedAmount: () => 0,
+      userId: 'alice',
+    } as never);
+
+    await handle.handleMessage(frame('__acme:rooms::ticks', { stream: { id: 's1' } }));
+    await sleep(20);
+
+    expect(sent.filter((message) => message.includes('tick"'))).toEqual([
+      expect.stringMatching(/^\["__acme:rooms::tick",\{"n":1\}/),
+    ]);
+  });
+
+  it("returns the plugin's ctx in every plugin hook, and none in its outgoing hook", async () => {
+    const h = server({
+      scope: 'plugin',
+      capabilities: [intercepts(), emits({ failing: t<{ reason: string }>() })],
+    });
+    const seen: Record<string, unknown> = {};
+    function check(key: string, read: () => unknown, ctx: unknown) {
+      try {
+        seen[key] = read() === ctx;
+      } catch (error) {
+        seen[key] = (error as Error).message;
+      }
+    }
+
+    h.onInit((ctx) => check('init', () => context.init(h), ctx));
+    h.onConnect((ctx) => check('connect', () => context.connection(h), ctx));
+    h.onPing((ctx) => check('ping', () => context.connection(h), ctx));
+    h.onPong((ctx) => check('pong', () => context.connection(h), ctx));
+    h.onError((ctx) => check('error', () => context.connection(h), ctx));
+
+    h.onDisconnect((ctx) => check('disconnect', () => context.connection(h), ctx));
+    h.onShutdown((ctx) => check('shutdown', () => context.shutdown(h), ctx));
+    h.intercept((ctx) => check('intercept', () => context.connection(h), ctx));
+    h.onOutgoing(() => check('outgoing', () => context.connection(h), undefined));
+    const fail = h.on('fail', {
+      run(ctx) {
+        ctx.send('failing', { reason: 'on purpose' });
+        throw new Error('failed on purpose');
+      },
+    });
+
+    const Audit = plugin('acme:audit', { definition: h.assemble({ handlers: [fail] }) });
+
+    const engine = buildEngine(server({ capabilities: [Audit()] }).assemble({ handlers: [] }));
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+    await handle.handleMessage('ping');
+    await handle.handleMessage('pong');
+
+    await handle.handleMessage(frame('__acme:audit::fail'));
+    await handle.handleClose(1000, 'bye');
+    await engine.handleShutdown();
+
+    expect(seen).toEqual({
+      init: true,
+      connect: true,
+      ping: true,
+      pong: true,
+      intercept: true,
+      outgoing: expect.stringMatching(/outside a LiveThing handler or hook/),
+      error: true,
+      disconnect: true,
+      shutdown: true,
+    });
+  });
+
+  it("returns the plugin's scoped ctx for a channel family that the plugin declares", async () => {
+    const h = server({ scope: 'plugin', capabilities: [channels()] });
+    const rooms = h.channel(['rooms', 'room:{id}']);
+    const seen: Record<string, unknown> = {};
+    const say = rooms.on('say', {
+      run(ctx) {
+        seen.same = context.channel(rooms) === ctx;
+        seen.id = ctx.channel.params.id;
+      },
+    });
+    const Rooms = plugin('acme:rooms', { definition: h.assemble({ handlers: [rooms, say] }) });
+
+    const engine = buildEngine(server({ capabilities: [Rooms()] }).assemble({ handlers: [] }));
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+    const room = { channel: { name: 'room:42', family: '__acme:rooms::rooms' } };
+    await handle.handleMessage(JSON.stringify(['__subscribe__', {}, room]));
+
+    await handle.handleMessage(JSON.stringify(['__acme:rooms::say', {}, room]));
+
+    expect(seen).toEqual({ same: true, id: '42' });
+  });
+
+  it("returns the plugin's scoped ctx in a plugin's recorded stream", async () => {
+    const h = server({ scope: 'plugin', capabilities: [channels(), recordedStream()] });
+    const room = h.channel('room', {});
+    const seen: Record<string, unknown> = {};
+    const feed = room.recordedStream('feed', {
+      input: v.object({}),
+      chunk: t<{ n: number }>(),
+      maxChunks: 10,
+      async *run(ctx) {
+        await sleep(1);
+        seen.same = context.channel(room) === ctx;
+        yield { n: 1 };
+      },
+    });
+    const Feeds = plugin('acme:feeds', { definition: h.assemble({ handlers: [room, feed] }) });
+
+    const engine = buildEngine(server({ capabilities: [Feeds()] }).assemble({ handlers: [] }));
+    await engine.initialize();
+    const handle = open(engine, 'alice');
+    const channel = { name: '__acme:feeds::room' };
+    await handle.handleMessage(JSON.stringify(['__subscribe__', {}, { channel }]));
+
+    await handle.handleMessage(
+      JSON.stringify(['__acme:feeds::feed', {}, { channel, stream: { id: 's1' } }]),
+    );
+    await sleep(20);
+
+    expect(seen).toEqual({ same: true });
+  });
+
+  it("sends an error that a plugin's stream throws with the plugin's error code", async () => {
+    const Denied = defineError('denied', v.object({ why: v.string() }));
+    const h = server({ scope: 'plugin', capabilities: [stream(), errors([Denied])] });
+    const feed = h.stream('feed', {
+      async *run() {
+        yield { joined: true };
+        await sleep(1);
+        throw Denied({ why: 'not a member' });
+      },
+    });
+    const Feeds = plugin('acme:feeds', { definition: h.assemble({ handlers: [feed] }) });
+
+    const engine = buildEngine(server({ capabilities: [Feeds()] }).assemble({ handlers: [] }));
+    await engine.initialize();
+    const sent: string[] = [];
+    const handle = engine.accept(Symbol('alice'), {
+      send: (message: string) => sent.push(message),
+      close() {},
+      bufferedAmount: () => 0,
+      userId: 'alice',
+    } as never);
+    await handle.handleMessage(frame('__acme:feeds::feed', { stream: { id: 's1' } }));
+
+    await sleep(20);
+
+    const codes = sent.flatMap((message) => message.match(/"code":"[^"]*"/g) ?? []);
+    expect(codes).toEqual(['"code":"__acme:feeds::denied"']);
+  });
+
+  it("runs a plugin's api methods as the app handler that calls them", async () => {
+    const h = server({ scope: 'plugin' });
+    const seen: Record<string, unknown> = {};
+    const Audit = plugin('acme:audit', {
+      definition: h.assemble({
+        handlers: [],
+        api: () => ({
+          record() {
+            seen.appBase = context.connection(app) === seen.appCtx;
+            try {
+              context.connection(h);
+            } catch (error) {
+              seen.pluginBase = (error as Error).message;
+            }
+          },
+        }),
+      }),
+    });
+    const app = server({ capabilities: [Audit()] });
+    const save = app.on('save', {
+      run(ctx) {
+        seen.appCtx = ctx;
+        ctx.plugin('acme:audit').record();
+      },
+    });
+
+    const engine = buildEngine(app.assemble({ handlers: [save] }));
+    await engine.initialize();
+    await open(engine, 'alice').handleMessage(frame('save'));
+
+    expect(seen.appBase).toBe(true);
+    expect(seen.pluginBase).toMatch(/not the one running now/);
+  });
+
+  it("throws for the app's base inside plugin code", async () => {
+    const h = server({ scope: 'plugin' });
+    let message = '';
+    const hello = h.on('hello', {
+      run() {
+        try {
+          context.connection(app);
+        } catch (error) {
+          message = (error as Error).message;
+        }
+      },
+    });
+    const Greeter = plugin('acme:greeter', { definition: h.assemble({ handlers: [hello] }) });
+    const app = server({ capabilities: [Greeter()] });
+
+    const engine = buildEngine(app.assemble({ handlers: [] }));
+    await engine.initialize();
+    await open(engine, 'alice').handleMessage(frame('__acme:greeter::hello'));
+
+    expect(message).toMatch(/a plugin's own base in that plugin's code/);
   });
 });

@@ -1367,7 +1367,10 @@ export async function handleShutdown(
   const pluginShutdowns = runtime.pluginShutdownHooks ?? [];
   for (let i = pluginShutdowns.length - 1; i >= 0; i -= 1) {
     try {
-      await pluginShutdowns[i]!.handler(runtime.createShutdownContext());
+      const ctx = runtime.createShutdownContext();
+      await withCallContext(runtime.asyncContext, { kind: 'shutdown', getCtx: () => ctx }, () =>
+        pluginShutdowns[i]!.handler(ctx),
+      );
     } catch (error) {
       runtime.logger?.error('[livething] plugin shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),

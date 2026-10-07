@@ -315,7 +315,11 @@ export function plugin<
 
   for (const primitive of manifest.definition.primitives) assertSupported(id, primitive);
 
-  const namespaced = namespacePluginPrimitives(id, manifest.definition.primitives);
+  const namespaced = namespacePluginPrimitives(
+    id,
+    manifest.definition.primitives,
+    manifest.definition.__baseId,
+  );
   const primitives: Primitive[] = [...namespaced, pluginSurfacePrimitive()];
   const apiFactory = (manifest.definition as { __apiFactory?: (ctx: unknown) => unknown })
     .__apiFactory;

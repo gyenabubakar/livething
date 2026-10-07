@@ -137,7 +137,9 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   // Inbound onion: new-model plugin inits run before the app's. Their
   // handlers are already wrapped in a plugin-scoped context.
   for (const entry of core.hooks.pluginLifecycle.init) {
-    await entry.handler(initCtx);
+    await withCallContext(core.asyncContext, { kind: 'init', getCtx: () => initCtx }, () =>
+      entry.handler(initCtx),
+    );
   }
 
   for (const hook of core.hooks.init) {

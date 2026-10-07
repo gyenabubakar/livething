@@ -87,7 +87,7 @@ context.connection({});
 context.connection({ __baseId: Symbol('x') });
 
 const pluginBase = server({ scope: 'plugin' });
-// @ts-expect-error a plugin's own base is not accepted
+// A plugin's own base works in every accessor, inside that plugin's code.
 context.connection(pluginBase);
-// Only context.upgrade accepts it, inside that plugin's own upgrade.
+context.task(pluginBase);
 expectTypeOf(context.upgrade(pluginBase)).toEqualTypeOf<InitContext>();

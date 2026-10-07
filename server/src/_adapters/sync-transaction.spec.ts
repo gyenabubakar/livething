@@ -35,6 +35,42 @@ describe('rejectAsyncTransactionResult', () => {
     );
   });
 
+  it('handles a promise that rejects later, so Node does not report an unhandled rejection', async () => {
+    const unhandled: unknown[] = [];
+    function record(reason: unknown) {
+      unhandled.push(reason);
+    }
+
+    process.on('unhandledRejection', record);
+
+    try {
+      let reject!: (error: Error) => void;
+      const pending = new Promise((_resolve, rejectPending) => (reject = rejectPending));
+
+      expect(() => rejectAsyncTransactionResult(pending)).toThrow(/callbacks must be synchronous/);
+      reject(new Error('write failed'));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', record);
+    }
+  });
+
+  it('does not call then on a thenable that is not a promise, so a query builder never runs', () => {
+    let ran = false;
+    const queryBuilder = {
+      then() {
+        ran = true;
+      },
+    };
+
+    expect(() => rejectAsyncTransactionResult(queryBuilder)).toThrow(
+      /callbacks must be synchronous/,
+    );
+    expect(ran).toBe(false);
+  });
+
   it('accepts plain values and objects whose then is not a function', () => {
     for (const value of [undefined, null, 0, 'text', { id: 1 }, { then: 5 }, () => 1]) {
       expect(() => rejectAsyncTransactionResult(value)).not.toThrow();

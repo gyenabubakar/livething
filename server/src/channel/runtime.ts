@@ -6,6 +6,7 @@ import {
   RejoinRejected,
   rethrowIfConfigError,
 } from '@livething/core';
+import { markPromiseHandled } from '~/_adapters/sync-transaction.ts';
 import { withCallContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { userKeyOf } from '~/_engine/runtime/user-key.ts';
@@ -685,6 +686,7 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<() => void
       (typeof result === 'object' || typeof result === 'function') &&
       typeof (result as { then?: unknown }).then === 'function'
     ) {
+      markPromiseHandled(result);
       throw new LiveThingConfigError('commit() must be synchronous.');
     }
   };

@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { namespaceError } from '@livething/core';
+import { getCurrentCall, runInCall } from '~/_engine/call-context.ts';
 import {
   pluginWireName,
   scopePluginContext,
@@ -67,6 +68,8 @@ type PluginLifecycleKind =
 interface PluginScope {
   id: string;
   shortCodes: Set<string>;
+  /** The plugin's own `base`, which `context.*` accepts inside the plugin's code. */
+  baseId: symbol | undefined;
 }
 
 /**
@@ -125,16 +128,19 @@ function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
   const handler = (primitive as { handler?: (ctx: any, payload: any) => unknown }).handler;
   if (handler) {
     copy.handler = scopePluginThrow(id, shortCodes, (ctx: any, payload: any) =>
-      handler(scopePluginContext(id, ctx), payload),
+      runAsPlugin(scope, ctx, (scoped) => handler(scoped, payload)),
     );
   }
 
   const run = (primitive as { run?: (ctx: any, ...rest: any[]) => unknown }).run;
   if (run) {
     copy.run = scopePluginThrow(id, shortCodes, (ctx: any, ...rest: any[]) =>
-      run(scopePluginContext(id, ctx), ...rest),
+      runAsPlugin(scope, ctx, (scoped) => run(scoped, ...rest)),
     );
   }
+
+  const generator = (primitive as { generator?: PluginGenerator }).generator;
+  if (generator) copy.generator = generatorAsPlugin(scope, generator);
 
   return copy as unknown as Primitive;
 }
@@ -157,7 +163,7 @@ function namespaceLifecycle(
     id,
     shortCodes,
     (ctx: any, ...rest: any[]): void | Promise<void> =>
-      handler(scopePluginContext(id, ctx), ...rest) as void | Promise<void>,
+      runAsPlugin(scope, ctx, (scoped) => handler(scoped, ...rest)) as void | Promise<void>,
   );
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
@@ -230,8 +236,9 @@ function renamedServerRequests(
 export function namespacePluginPrimitives(
   id: string,
   primitives: readonly Primitive[],
+  baseId?: symbol,
 ): Primitive[] {
-  const scope: PluginScope = { id, shortCodes: collectShortErrorCodes(primitives) };
+  const scope: PluginScope = { id, shortCodes: collectShortErrorCodes(primitives), baseId };
   const serverRequests = renamedServerRequests(id, primitives);
   return primitives.map((primitive) => {
     const declarations = serverRequests.get(primitive);
@@ -278,6 +285,53 @@ function scopeHookCtx(id: string, ctx: any): any {
 }
 
 /**
+ * Run plugin code as the plugin's own: `context.*` then takes the plugin's `base` and channels,
+ * and returns the same scoped ctx that the code receives. The running channel key loses its
+ * `__<id>::` prefix, because the plugin's channel handles carry the short key.
+ */
+function asPlugin<T>(scope: PluginScope, scoped: any, fn: () => T): T {
+  const call = getCurrentCall();
+  if (!call || scoped == null || scope.baseId === undefined) return fn();
+
+  const prefix = pluginWireName(scope.id, '');
+  const channelKey = call.channelKey?.startsWith(prefix)
+    ? call.channelKey.slice(prefix.length)
+    : call.channelKey;
+
+  return runInCall({ ...call, baseId: scope.baseId, channelKey, getCtx: () => scoped }, fn);
+}
+
+function runAsPlugin<T>(scope: PluginScope, ctx: any, fn: (scoped: any) => T): T {
+  const scoped = scopeHookCtx(scope.id, ctx);
+  return asPlugin(scope, scoped, () => fn(scoped));
+}
+
+type PluginGenerator = (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
+
+/**
+ * A plugin stream's generator, given the plugin's scoped ctx. The engine advances the
+ * generator from its own call, so each step runs as the plugin again, and an error the
+ * plugin declared leaves with its namespaced code, as it does from a handler.
+ */
+function generatorAsPlugin(scope: PluginScope, generator: PluginGenerator): PluginGenerator {
+  return (ctx, payload) => {
+    const scoped = scopeHookCtx(scope.id, ctx);
+    const step = scopePluginThrow(scope.id, scope.shortCodes, <T>(fn: () => T) =>
+      asPlugin(scope, scoped, fn),
+    );
+    const inner = step(() => generator(scoped, payload));
+    const wrapped = {
+      next: (value: unknown) => step(() => inner.next(value)),
+      return: (value: void) => step(() => inner.return(value)),
+      throw: (error: unknown) => step(() => inner.throw(error)),
+      [Symbol.asyncIterator]: () => wrapped,
+    } as AsyncGenerator<unknown, void, unknown>;
+
+    return wrapped;
+  };
+}
+
+/**
  * Stamp an intercept with its plugin owner and run it against a plugin-scoped
  * ctx. An intercept declares no event, so its event is not rewritten; its ctx
  * is namespaced so a hook can emit the plugin's own events and write its own kv.
@@ -288,7 +342,7 @@ function ownHook(scope: PluginScope, primitive: Primitive): Primitive {
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     handler: scopePluginThrow(id, shortCodes, (ctx: any, frame: any) =>
-      handler(scopeHookCtx(id, ctx), frame),
+      runAsPlugin(scope, ctx, (scoped) => handler(scoped, frame)),
     ),
     __owner: { kind: 'plugin', id },
   } as unknown as Primitive;
@@ -304,7 +358,7 @@ function ownOutgoingHook(scope: PluginScope, primitive: Primitive): Primitive {
   const origHandler = (primitive as unknown as { handler: (ctx: any, frame: any) => unknown })
     .handler;
   const handler = scopePluginThrow(id, shortCodes, (ctx: any, frame: any) =>
-    origHandler(scopeHookCtx(id, ctx), frame),
+    runAsPlugin(scope, ctx, (scoped) => origHandler(scoped, frame)),
   );
   const owner = { kind: 'plugin' as const, id };
 
@@ -335,7 +389,7 @@ function namespaceScheduled(scope: PluginScope, primitive: Primitive): Primitive
     __identity: [key, wireTask],
     __plugin: id,
     handler: scopePluginThrow(id, shortCodes, (ctx: any, data?: any) =>
-      handler(scopePluginContext(id, ctx), data),
+      runAsPlugin(scope, ctx, (scoped) => handler(scoped, data)),
     ),
   } as unknown as Primitive;
 }
@@ -442,7 +496,7 @@ function scopeChannelLifecycle(scope: PluginScope, primitive: Primitive): Primit
   const handler = (primitive as unknown as { handler: (ctx: any, ...rest: any[]) => unknown })
     .handler;
   const scoped = scopePluginThrow(id, shortCodes, (ctx: any, ...rest: any[]) =>
-    handler(scopePluginContext(id, ctx), ...rest),
+    runAsPlugin(scope, ctx, (pluginCtx) => handler(pluginCtx, ...rest)),
   );
 
   return {

@@ -97,6 +97,52 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+  # The repo's tools need Node 24, but the Node adapter supports Node 22. This job
+  # installs and builds on Node 24, then runs the server and Node adapter tests on
+  # Node 22, with the native SQLite driver rebuilt for it.
+  node-22:
+    name: Unit tests on Node 22
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Node 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
+      - name: Rebuild the SQLite driver for Node 22
+        working-directory: server-adapters/node
+        run: |
+          cd "$(node -p "require('path').dirname(require.resolve('better-sqlite3/package.json'))")"
+          npm run install
+
+      - name: Server unit tests
+        working-directory: server
+        run: pnpm test
+
+      - name: Node adapter unit tests
+        working-directory: server-adapters/node
+        run: pnpm test
+
   # Architecture guards, kept separate from the fast checks so a tree-shaking
   # regression is easy to spot. `depcruise` reads source; `dup` scans source;
   # `bundle-check` inspects the built server/client dist, so this job builds the

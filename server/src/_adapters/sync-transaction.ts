@@ -17,14 +17,30 @@ export function rejectAsyncTransactionCallback(fn: unknown): void {
 /**
  * Throw if a transaction callback returned a promise, or any object or function with a `then`
  * method. Call it before the transaction commits, so the transaction rolls back.
+ *
+ * The thrown error replaces the promise, so nobody else will wait for it. If a native promise
+ * rejects later, Node treats that as an unhandled rejection and stops the process, so a
+ * handler is attached to it first. Another thenable is left alone: calling its `then` can
+ * start work, as a query builder runs its query when awaited.
  */
 export function rejectAsyncTransactionResult(result: unknown): void {
   const isObjectLike = typeof result === 'object' || typeof result === 'function';
-  if (
-    isObjectLike &&
-    result !== null &&
-    typeof (result as { then?: unknown }).then === 'function'
-  ) {
-    throw new TypeError(ASYNC_TRANSACTION_MESSAGE);
+  if (!isObjectLike || result === null) return;
+
+  if (typeof (result as { then?: unknown }).then !== 'function') return;
+
+  markPromiseHandled(result);
+  throw new TypeError(ASYNC_TRANSACTION_MESSAGE);
+}
+
+/**
+ * Attach a no-op rejection handler to a native promise that LiveThing refuses and throws away,
+ * so a later rejection does not stop a Node process. Any other value is left alone, because
+ * calling a custom thenable's `then` can start work.
+ */
+export function markPromiseHandled(value: unknown): void {
+  // Checks the internal tag, so a promise from another realm counts too.
+  if (Object.prototype.toString.call(value) === '[object Promise]') {
+    Promise.prototype.catch.call(value, () => {});
   }
 }

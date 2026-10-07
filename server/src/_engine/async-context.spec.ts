@@ -8,10 +8,15 @@ beforeEach(() => resetCallContextForTests());
 describe('createAsyncContext', () => {
   it('works with a context object that the adapter froze, and still reports the base id', () => {
     const baseId = Symbol('base');
-    const asyncContext = createAsyncContext(
-      <TStore>() => Object.freeze(new AsyncLocalStorage<TStore>()),
-      baseId,
-    );
+    // Freeze a wrapper, not Node's own storage: before Node 24, `run()` writes to the storage
+    // object itself, so freezing that breaks Node, not LiveThing.
+    const asyncContext = createAsyncContext(<TStore>() => {
+      const storage = new AsyncLocalStorage<TStore>();
+      return Object.freeze({
+        run: <R>(store: TStore, fn: () => R) => storage.run(store, fn),
+        getStore: () => storage.getStore(),
+      });
+    }, baseId);
     let seen: symbol | undefined;
 
     withCallContext(asyncContext, { kind: 'init', getCtx: () => ({}) }, () => {

@@ -828,6 +828,7 @@ interface ConnectionHookObservation {
 
 interface PluginConnectionHookObservation extends ConnectionHookObservation {
   ctx: unknown;
+  asyncContext: EngineAsyncContext | undefined;
 }
 
 interface StreamNudgeBufferInput {
@@ -851,7 +852,11 @@ async function runPluginConnectionHooks(
 ): Promise<void> {
   for (const entry of hooks) {
     try {
-      await entry.handler(observed.ctx);
+      await withConnectionLevelCall(
+        observed.asyncContext,
+        { connectionId: observed.connectionId, ctx: observed.ctx },
+        () => entry.handler(observed.ctx),
+      );
     } catch (error) {
       observed.logger.error(`[livething] ${hookName} hook threw`, {
         connectionId: observed.connectionId,
@@ -997,6 +1002,7 @@ export async function processTextMessage(
       await runPluginConnectionHooks(runtime.pluginPingHooks, 'ping', {
         ...observed,
         ctx: runtime.buildConnectionContext(connection),
+        asyncContext: runtime.asyncContext,
       });
     }
 
@@ -1010,6 +1016,7 @@ export async function processTextMessage(
       await runPluginConnectionHooks(runtime.pluginPongHooks, 'pong', {
         ...observed,
         ctx: runtime.buildConnectionContext(connection),
+        asyncContext: runtime.asyncContext,
       });
     }
 

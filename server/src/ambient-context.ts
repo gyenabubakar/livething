@@ -5,11 +5,8 @@ import type { CoreBase } from '~/_define/server.ts';
 import type { CallKind } from '~/_engine/call-context.ts';
 import type { InitContext, ShutdownContext, TaskContext } from '~/context.ts';
 
-/** What `server(...)` returns for an app. A plugin's `server({ scope: 'plugin' })` base is not accepted. */
-type BaseRef = CoreBase<any, any, any, false>;
-
-/** A plugin's own `server({ scope: 'plugin' })` base. Only `context.upgrade` accepts it. */
-type PluginBaseRef = CoreBase<any, any, any, true>;
+/** What `server(...)` returns: the app's base, or a plugin's own `server({ scope: 'plugin' })` base. */
+type BaseRef = CoreBase<any, any, any, any>;
 
 /** What `base.channel(...)` returns, as far as the accessors need it. */
 type ChannelRef = { readonly __key: string; readonly __baseId: symbol | undefined };
@@ -67,8 +64,8 @@ function currentCtx(expected: Expected): unknown {
   if (expected.baseId !== undefined && call.baseId !== expected.baseId) {
     throw new Error(
       `[livething] context.${accessor}() was given a base that is not the one running now. ` +
-        'Pass the `server(...)` result that the running code belongs to. ' +
-        "A plugin's own base works only in context.upgrade(), inside that plugin's upgrade.",
+        "Pass the `server(...)` result that the running code belongs to: the app's base in the app's code, " +
+        "or a plugin's own base in that plugin's code.",
     );
   }
 
@@ -90,6 +87,9 @@ function currentCtx(expected: Expected): unknown {
  *
  * An accessor throws when it is called outside an invocation, during a different
  * kind of invocation, or with a `base` that belongs to another server.
+ *
+ * Inside a plugin's own code, pass the plugin's `base` and channels. The accessor then
+ * returns the plugin's scoped `ctx`, the same one its handlers and hooks receive.
  *
  * ```ts
  * function requireAdmin() {
@@ -136,10 +136,9 @@ export const context = {
   },
 
   /**
-   * The `ctx` of an `upgrade` function. Pass the app's `base` inside the app's `upgrade`, or a
-   * plugin's own `base` inside that plugin's `upgrade`, where the `ctx` is the plugin's scoped one.
+   * The `ctx` of an `upgrade` function.
    */
-  upgrade<TBase extends BaseRef | PluginBaseRef>(base: TBase): InitContext {
+  upgrade<TBase extends BaseRef>(base: TBase): InitContext {
     return currentCtx({
       accessor: 'upgrade',
       kind: 'upgrade',
