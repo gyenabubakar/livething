@@ -35,3 +35,16 @@ export type Validator<T = any> = StandardSchemaV1<unknown, T>;
  * `Symbol.iterator`, which is how the type tells it apart from a plain object.
  */
 export type PayloadObject = object & { readonly [Symbol.iterator]?: never };
+
+/**
+ * What a client receives for one chunk of a cursor or recorded stream. Those streams send a
+ * plain object chunk as it is, and wrap any other chunk (a primitive, `null`, an array) as
+ * `{ value: chunk }`. It applies to each member of a union, as the runtime decides per chunk.
+ */
+export type DurableWireChunk<T> = unknown extends T
+  ? T
+  : T extends readonly unknown[]
+    ? { value: T }
+    : T extends object
+      ? T
+      : { value: T };

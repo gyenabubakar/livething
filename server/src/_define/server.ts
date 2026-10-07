@@ -52,7 +52,7 @@ import type { ResolvedServerRequest, ServerRequestsCapability } from '~/request/
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
-import type { PayloadObject, Validator } from '~/types.ts';
+import type { DurableWireChunk, PayloadObject, Validator } from '~/types.ts';
 import { assertUniqueCapabilityKinds } from './capability-checks.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugins.ts` — it is a package entry, so a
@@ -528,7 +528,7 @@ export interface CursorStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCa
     TEvent,
     {
       payload: InferInput<TInput>;
-      chunk: TChunk;
+      chunk: DurableWireChunk<TChunk>;
       cursor: TCursor;
       nudges: NudgesContract<TNudges>;
     },
@@ -574,7 +574,11 @@ export interface RecordedStreamMethods<TSlots, TMeta, TCaps extends readonly Any
     config: RecordedStreamConfig<TSlots, TMeta, TInput, TChunk, TNudges, TCaps>,
   ): StreamHandlerValue<
     TEvent,
-    { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> },
+    {
+      payload: InferInput<TInput>;
+      chunk: DurableWireChunk<TChunk>;
+      nudges: NudgesContract<TNudges>;
+    },
     'recordedStreams'
   >;
 }
@@ -1085,7 +1089,7 @@ interface ChannelCursorStreamMethod<
         TEvent,
         {
           payload: InferInput<TInput>;
-          chunk: TChunk;
+          chunk: DurableWireChunk<TChunk>;
           cursor: TCursor;
           nudges: NudgesContract<TNudges>;
         }
@@ -1132,7 +1136,11 @@ interface ChannelRecordedStreamMethod<
     {
       recordedStreams: Record<
         TEvent,
-        { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> }
+        {
+          payload: InferInput<TInput>;
+          chunk: DurableWireChunk<TChunk>;
+          nudges: NudgesContract<TNudges>;
+        }
       >;
     }
   >;
