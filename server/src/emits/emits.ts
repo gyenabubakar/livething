@@ -4,14 +4,15 @@ import { capability, stampKind, withCapabilityKind } from '~/_define/capability.
 import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
+import type { PayloadObject } from '~/types.ts';
 
 /** The payload type a single emit declaration carries. */
 type EmitPayload<T> = T extends TypeMarker<infer U> ? U : unknown;
 
 /** The map of event name → payload type passed to `emits(...)`. Outgoing events
  * are server-produced and never validated, so the value is a `t<…>()` marker
- * (type only), not a schema. */
-export type EmitDefs = Record<string, TypeMarker<any>>;
+ * (type only), not a schema. Each payload must be a plain object. */
+export type EmitDefs = Record<string, TypeMarker<PayloadObject>>;
 
 /** The contract slot `emits(...)` declares — server→client events the client receives. */
 export type EmitSlot<TDefs extends EmitDefs> = {

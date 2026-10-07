@@ -52,7 +52,7 @@ import type { ResolvedServerRequest, ServerRequestsCapability } from '~/request/
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
-import type { Validator } from '~/types.ts';
+import type { PayloadObject, Validator } from '~/types.ts';
 import { assertUniqueCapabilityKinds } from './capability-checks.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugins.ts` — it is a package entry, so a
@@ -325,7 +325,7 @@ export interface RequestMethods<TSlots, TMeta, TCaps extends readonly AnyCapabil
   request<
     TEvent extends string,
     TSchema extends Validator | undefined = undefined,
-    TResponse = void,
+    TResponse extends PayloadObject | null | void = void,
   >(
     event: TEvent,
     config: RequestConfig<TSlots, TMeta, TSchema, TResponse, TCaps>,
@@ -443,7 +443,7 @@ export interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapabili
   /** Create a plain server-pushed stream handler value. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
-    TChunk = unknown,
+    TChunk extends PayloadObject = Record<string, unknown>,
     TInput extends Validator | undefined = undefined,
     const TNudges extends StreamNudgeMap = {},
   >(
@@ -1014,7 +1014,7 @@ interface ChannelStreamMethod<
   /** Create a plain stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
-    TChunk = unknown,
+    TChunk extends PayloadObject = Record<string, unknown>,
     TInput extends Validator | undefined = undefined,
     const TNudges extends StreamNudgeMap = {},
   >(
@@ -1402,7 +1402,7 @@ export interface ChannelRequestMethods<
   request<
     TEvent extends string,
     TInput extends Validator | undefined = undefined,
-    TResponse = void,
+    TResponse extends PayloadObject | null | void = void,
   >(
     event: TEvent,
     config: {

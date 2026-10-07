@@ -624,6 +624,52 @@ describe('context inside onOutgoing', () => {
   });
 });
 
+describe('a stream that yields a value that is not an object', () => {
+  it('ends with internal-error and logs which stream broke the payload rule', async () => {
+    const base = server({ capabilities: [stream()] });
+    const feed = base.stream('feed', {
+      async *run() {
+        // The types refuse null; this checks the runtime refuses it too.
+        yield null as never;
+      },
+    });
+    const logged: unknown[][] = [];
+    let engine: Engine | undefined;
+    adapter({
+      id: 'null-chunk',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        engine = createEngine({
+          storage: createTestStorage(),
+          platform: {},
+          timers: createTestTimers(),
+          logger: { info() {}, warn() {}, error: (...args: unknown[]) => logged.push(args) },
+        });
+        return {};
+      },
+    })(base.assemble({ handlers: [feed] }), undefined as never);
+
+    await engine!.initialize();
+    const sent: string[] = [];
+    const handle = engine!.accept(Symbol('alice'), {
+      send: (message: string) => sent.push(message),
+      close() {},
+      bufferedAmount: () => 0,
+      userId: 'alice',
+    } as never);
+
+    await handle.handleMessage(frame('feed', { stream: { id: 's1' } }));
+    await sleep(20);
+
+    expect(sent.at(-1)).toMatch(/"code":"internal-error"/);
+    const meta = logged[0]?.[1] as { error: Error } | undefined;
+    expect(meta?.error.message).toBe(
+      `[livething] The payload for "feed" must be a plain object, such as { text: 'hi' }, ` +
+        'but it was null. A stream chunk is a payload too, so yield an object.',
+    );
+  });
+});
+
 describe('an async commit hook', () => {
   it('is rejected without leaving an unhandled rejection behind', async () => {
     const base = server({ capabilities: [channels()] });
@@ -691,7 +737,7 @@ describe('context inside a plugin', () => {
         await sleep(1);
         attempt('stream', () => context.connection(h), ctx);
         ctx.send('tick', { n: 1 });
-        yield null;
+        yield { n: 1 };
       },
     });
 

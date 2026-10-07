@@ -116,6 +116,17 @@ export async function sendRuntimeError(
     );
   }
 
+  // The client only sees `internal-error`, so with no hook to see it the real error would be
+  // lost. An `onError` hook replaces this log, as it owns the error from then on.
+  const isSignal = typeof error === 'object' && error !== null && '__livething' in error;
+  if (!(error instanceof LiveThingError) && !isSignal && deps.errorHooks.length === 0) {
+    deps.logger.error(
+      '[livething] A handler threw an unexpected error, and the client got internal-error. ' +
+        'Add an onError hook to handle such errors yourself.',
+      { event, error },
+    );
+  }
+
   const scope = routing ? deps.resolveScopeFromRouting?.(routing) : undefined;
   for (const hook of deps.errorHooks) {
     const ctx = deps.buildConnectionContext(connection, scope);

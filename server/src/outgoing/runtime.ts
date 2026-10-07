@@ -102,11 +102,24 @@ export function isDeclaredOutgoingEvent(
   );
 }
 
-/** Throw if the payload is not a plain object — arrays and primitives are rejected. */
-export function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('[livething] Outgoing payload must be a plain object.');
-  }
+/**
+ * Throw if the payload is not a plain object — arrays and primitives are rejected. A stream
+ * chunk is a payload too, so a generator that yields `null` lands here.
+ */
+export function assertPayloadRecord(
+  event: string,
+  payload: unknown,
+): asserts payload is Record<string, unknown> {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) return;
+
+  let got: string = typeof payload;
+  if (payload === null) got = 'null';
+  if (Array.isArray(payload)) got = 'an array';
+
+  throw new Error(
+    `[livething] The payload for "${event}" must be a plain object, such as { text: 'hi' }, ` +
+      `but it was ${got}. A stream chunk is a payload too, so yield an object.`,
+  );
 }
 
 function serializePayloadOrThrow(event: string, payload: Record<string, unknown>): string {
@@ -134,7 +147,7 @@ function runOutgoingHooks(
     if (next !== undefined) current = { event: current.event, payload: next };
   }
 
-  assertPayloadRecord(current.payload);
+  assertPayloadRecord(current.event, current.payload);
 
   return current;
 }
@@ -248,7 +261,7 @@ export function sendThroughPipeline(
   // off the wire entirely so the caller resolves with nothing rather than `{}`.
   const isVoidResponse = opts.payload === undefined && isRequestResponse;
   const payload = isVoidResponse ? {} : opts.payload;
-  assertPayloadRecord(payload);
+  assertPayloadRecord(event, payload);
 
   const message = runOutgoingHooks(runtime.outgoingHooks, { event, payload });
 
@@ -412,7 +425,7 @@ function prepareBroadcast(
   opts: PrepareBroadcastOptions,
 ): PreparedBroadcast {
   const { routing, event, payload } = opts;
-  assertPayloadRecord(payload);
+  assertPayloadRecord(event, payload);
 
   const message = runOutgoingHooks(runtime.outgoingHooks, {
     event,

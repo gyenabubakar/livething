@@ -105,9 +105,8 @@ export async function handleRequest(
     event,
     // A nullish answer (no response, or a `null`/`undefined` one) is a void
     // acknowledgement: send an undefined payload so the client resolves with
-    // no value. A real falsy answer (0, false, '') is preserved as-is —
-    // `response` is already `undefined` for both `null` and `undefined`
-    // inputs and unchanged for everything else.
+    // no value. Any other answer must be a plain object; the pipeline refuses
+    // a primitive or an array, and the request types refuse them too.
     payload: response ?? undefined,
   });
 }

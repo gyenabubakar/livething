@@ -353,7 +353,7 @@ export function createEngineAccess(
       sendGap(core, connection, options);
     },
     assertReplaySendContract: (event, payload, routing) => {
-      OutgoingRuntime.assertPayloadRecord(payload);
+      OutgoingRuntime.assertPayloadRecord(event, payload);
       if (!OutgoingRuntime.isDeclaredOutgoingEvent(core.compiled, event, routing)) {
         throw new Error(
           `[livething] Outgoing event "${event}" was not declared in the active scope.`,

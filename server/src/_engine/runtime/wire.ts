@@ -1,6 +1,7 @@
 import { InternalError } from '@livething/core';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
+import { assertPayloadRecord } from '~/outgoing/runtime.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
@@ -100,9 +101,7 @@ export function sendReplay(
   options: SendReplayOptions,
 ): void {
   const { channelName, channelFamily, event, payload, wire } = options;
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('[livething] Outgoing payload must be a plain object.');
-  }
+  assertPayloadRecord(event, payload);
 
   const resolvedChannel = channelName ?? wire.channel ?? null;
   const livething: Record<string, unknown> = {

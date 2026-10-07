@@ -27,3 +27,11 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
  * ```
  */
 export type Validator<T = any> = StandardSchemaV1<unknown, T>;
+
+/**
+ * What LiveThing sends to a client as an event payload, a stream chunk, a server request or a
+ * reply: a plain object, such as `{ text: 'hi' }`. LiveThing refuses `null`, a primitive and
+ * an array when it sends, so the types refuse them too. An array, a `Map` or a `Set` has
+ * `Symbol.iterator`, which is how the type tells it apart from a plain object.
+ */
+export type PayloadObject = object & { readonly [Symbol.iterator]?: never };

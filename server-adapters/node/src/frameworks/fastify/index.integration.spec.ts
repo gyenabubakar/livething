@@ -31,14 +31,14 @@ const base = server({
   capabilities: [
     emits({
       connected: t<{ clientIp: string | null }>(),
-      echoed: t(),
+      echoed: t<{ text?: string }>(),
     }),
   ],
 });
 
 const echo = base.on('echo', {
   run(ctx, input) {
-    ctx.send('echoed', input);
+    ctx.send('echoed', input as { text?: string });
   },
 });
 
