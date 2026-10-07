@@ -88,12 +88,12 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       },
     };
 
+    function userHandle(ids: string[]) {
+      return { id: ids[0], connections: () => ids.map(member) };
+    }
+
     if (opts?.user) {
       for (const id of opts.user) live.add(id);
-      function userHandle(ids: string[]) {
-        return { id: ids[0], connections: () => ids.map(member) };
-      }
-
       ctx.user = userHandle(opts.user);
       ctx.users = { get: (_id: string) => userHandle(opts!.user!) };
     }
@@ -117,16 +117,16 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       };
     }
 
-    if (opts?.tags) {
-      function makeGroup() {
-        return {
-          connections: () => (opts!.tags!.group ?? []).map(member),
-          ref: (key: string) => ({
-            connections: () => (opts!.tags!.refs?.[key] ?? []).map(member),
-          }),
-        };
-      }
+    function makeGroup() {
+      return {
+        connections: () => (opts!.tags!.group ?? []).map(member),
+        ref: (key: string) => ({
+          connections: () => (opts!.tags!.refs?.[key] ?? []).map(member),
+        }),
+      };
+    }
 
+    if (opts?.tags) {
       ctx.tags = { ephemeral: makeGroup, persistent: makeGroup };
     }
 

@@ -628,6 +628,16 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
  * Failed runs are retried with backoff or moved into the internal dead-letter
  * queue, depending on the task's retry policy.
  */
+interface RunnableTask {
+  handler: (ctx: unknown, data?: unknown) => void | Promise<void>;
+  hasData: boolean;
+}
+
+/** Call a task's handler, with its data only when the task declares data. */
+function invokeTask(task: RunnableTask, ctx: unknown, data: unknown): void | Promise<void> {
+  return task.hasData ? task.handler(ctx, data) : task.handler(ctx);
+}
+
 export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Promise<void> {
   const now = Date.now();
   const scheduledRuns = runtime.getScheduledRuns();
@@ -670,12 +680,14 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
       const task = runtime.getScheduledTask(run.taskId);
       if (task?.handler) {
         const ctx = runtime.createTaskContext();
-        const handler = task.handler as (ctx: unknown, data?: unknown) => void | Promise<void>;
-        function invoke() {
-          return task?.hasData ? handler(ctx, run.data) : handler(ctx);
-        }
+        const runnable: RunnableTask = {
+          handler: task.handler as RunnableTask['handler'],
+          hasData: task.hasData === true,
+        };
 
-        await (runtime.runInTaskContext ? runtime.runInTaskContext(ctx, invoke) : invoke());
+        await (runtime.runInTaskContext
+          ? runtime.runInTaskContext(ctx, () => invokeTask(runnable, ctx, run.data))
+          : invokeTask(runnable, ctx, run.data));
       }
 
       return run;

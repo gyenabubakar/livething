@@ -10,7 +10,11 @@ import {
 import { connectionCall, inConnectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
-import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import {
+  isPayloadObject,
+  jsonShapeOf,
+  serializeJsonOrThrow,
+} from '~/_engine/runtime/json-guard.ts';
 import { connectionStorageKeyOf, RESERVED_USER_ID_PREFIX } from '~/_engine/runtime/user-key.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import {
@@ -25,7 +29,6 @@ import {
   resolveBroadcastTargets,
 } from '~/_engine/stream-common/active-stream.ts';
 import { normalizeRuntimeError } from '~/errors/runtime.ts';
-import { isPayloadObject, jsonShapeOf } from '~/outgoing/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type {
@@ -359,6 +362,26 @@ export interface ContinueDurableStreamOptions {
 }
 
 /** Handle a client `__continueStream__` frame for a suspended or ended durable stream. */
+/** What a creator's reconnect changed on a detached stream, so a failed reattach can undo it. */
+interface ContinueAttachment {
+  runtime: DurableStreamRuntime;
+  connection: RuntimeConnection;
+  stream: ActiveStream;
+  streamId: string;
+  previousConnection: ActiveStream['connection'];
+  previousConnectionId: ActiveStream['connectionId'];
+}
+
+function rollbackContinueAttachment(attachment: ContinueAttachment, persist = true): void {
+  const { runtime, connection, stream, streamId } = attachment;
+  stream.connection = attachment.previousConnection;
+  stream.connectionId = attachment.previousConnectionId;
+  stream.detached = true;
+  connection.activeStreamIds?.delete(streamId);
+
+  if (persist) runtime.persistAttachment(connection, { force: true });
+}
+
 export async function continueDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
@@ -466,19 +489,20 @@ export async function continueDurableStream(
       if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
 
       connection.activeStreamIds.add(streamId);
+      const attachment: ContinueAttachment = {
+        runtime,
+        connection,
+        stream: detachedStream,
+        streamId,
+        previousConnection,
+        previousConnectionId,
+      };
+
       try {
         runtime.persistAttachment(connection);
       } catch (error) {
-        rollbackContinueAttachment(false);
+        rollbackContinueAttachment(attachment, false);
         throw error;
-      }
-
-      function rollbackContinueAttachment(persist = true): void {
-        detachedStream.connection = previousConnection;
-        detachedStream.connectionId = previousConnectionId;
-        detachedStream.detached = true;
-        connection.activeStreamIds?.delete(streamId);
-        if (persist) runtime.persistAttachment(connection, { force: true });
       }
 
       try {
@@ -488,12 +512,12 @@ export async function continueDurableStream(
           livething: { ...scopeMarkers, streamId, streamDurability: 'persistent' },
         });
       } catch (error) {
-        rollbackContinueAttachment();
+        rollbackContinueAttachment(attachment);
         throw error;
       }
 
       if (connection.closing) {
-        rollbackContinueAttachment();
+        rollbackContinueAttachment(attachment);
         return;
       }
 
@@ -507,10 +531,10 @@ export async function continueDurableStream(
         if (
           !sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })
         ) {
-          rollbackContinueAttachment();
+          rollbackContinueAttachment(attachment);
         }
       } catch (error) {
-        rollbackContinueAttachment();
+        rollbackContinueAttachment(attachment);
         throw error;
       }
 
@@ -864,6 +888,7 @@ async function runGenerator(
       const now = Date.now();
 
       const recordsChunks = def.kind === 'recorded';
+      const wirePayload = chunkToPayload(chunkValue);
       appendCursorCheckpoint(runtime, {
         def,
         userId,
@@ -879,10 +904,7 @@ async function runGenerator(
           streamId,
           seq,
           messageId: null,
-          payload: serializeJsonOrThrow(
-            chunkToPayload(chunkValue),
-            `Durable stream chunk for "${def.event}"`,
-          ),
+          payload: serializeJsonOrThrow(wirePayload, `Durable stream chunk for "${def.event}"`),
           now,
         });
 
@@ -915,13 +937,10 @@ async function runGenerator(
         }
       }
 
-      function persistDelivery(): void {
-        Storage.updateLastSeq(runtime.sql, { userId, streamId, lastSeq: seq, now });
-      }
-
-      if (def.kind !== 'cursor') persistDelivery();
-
-      const wirePayload = chunkToPayload(chunkValue);
+      // No function is declared inside this loop: the Cloudflare bundle hoisted one out of the
+      // block, and its minified name hid the imported `buildActiveStream`.
+      const delivery = { userId, streamId, lastSeq: seq, now };
+      if (def.kind !== 'cursor') Storage.updateLastSeq(runtime.sql, delivery);
 
       // A replacement may have taken the slot during the maxChunks iterator.throw
       // above; never send a chunk once this run no longer owns the stream.
@@ -983,7 +1002,7 @@ async function runGenerator(
         }
       }
 
-      if (def.kind === 'cursor') persistDelivery();
+      if (def.kind === 'cursor') Storage.updateLastSeq(runtime.sql, delivery);
 
       if (hasNudges) {
         nextInput = [...nudgeBuffer];

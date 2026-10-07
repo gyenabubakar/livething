@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rethrowIfConfigError } from '@livething/core';
 import { runOutsideCall } from '~/_engine/call-context.ts';
-import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { assertPayloadRecord, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
@@ -99,49 +99,6 @@ export function isDeclaredOutgoingEvent(
     compiled.streams.has(event) ||
     compiled.cursorStreams.has(event) ||
     compiled.recordedStreams.has(event)
-  );
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * What JSON writes for a value: the result of its `toJSON()` when it has one (a `Date` gives a
- * string, an ORM record gives an object), else the value itself.
- */
-export function jsonShapeOf(value: unknown): unknown {
-  const toJSON = (value as { toJSON?: unknown } | null | undefined)?.toJSON;
-  return typeof toJSON === 'function' ? toJSON.call(value) : value;
-}
-
-/** Whether a value stays an object in JSON, the `PayloadObject` rule at runtime. */
-export function isPayloadObject(value: unknown): value is Record<string, unknown> {
-  return isJsonObject(value) && isJsonObject(jsonShapeOf(value));
-}
-
-/**
- * Throw unless the payload stays an object in JSON — `null`, primitives, arrays, functions and
- * objects whose `toJSON()` gives something else (a `Date` gives a string) are rejected. A stream
- * chunk is a payload too, so a generator that yields `null` lands here.
- */
-export function assertPayloadRecord(
-  event: string,
-  payload: unknown,
-): asserts payload is Record<string, unknown> {
-  if (isPayloadObject(payload)) return;
-
-  let got: string = typeof payload;
-  if (payload === null) got = 'null';
-  if (Array.isArray(payload)) got = 'an array';
-  if (isJsonObject(payload)) {
-    got =
-      'an object whose toJSON() does not return an object, such as a Date, which JSON turns into a string';
-  }
-
-  throw new Error(
-    `[livething] The payload for "${event}" must be a plain object, such as { text: 'hi' }, ` +
-      `but it was ${got}. A stream chunk is a payload too, so yield an object.`,
   );
 }
 

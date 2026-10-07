@@ -1,7 +1,6 @@
 import { InternalError } from '@livething/core';
-import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { assertPayloadRecord, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
-import { assertPayloadRecord } from '~/outgoing/runtime.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 

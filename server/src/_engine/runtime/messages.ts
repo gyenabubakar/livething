@@ -903,12 +903,13 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
   const interceptScope = activeStream?.scope ?? triggerScope;
   const topIntercepts = runtime.compiled.intercepts;
   const channelIntercepts = interceptScope.channel?.intercepts;
-  if (runtime.runIntercepts && (topIntercepts.length > 0 || (channelIntercepts?.length ?? 0) > 0)) {
-    let sharedCtx: Record<PropertyKey, unknown> | undefined;
-    function getCtx(): Record<PropertyKey, unknown> {
-      return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
-    }
+  let sharedCtx: Record<PropertyKey, unknown> | undefined;
 
+  function getCtx(): Record<PropertyKey, unknown> {
+    return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
+  }
+
+  if (runtime.runIntercepts && (topIntercepts.length > 0 || (channelIntercepts?.length ?? 0) > 0)) {
     try {
       let intercepted: InterceptPrimitive.InterceptFrame = {
         event,

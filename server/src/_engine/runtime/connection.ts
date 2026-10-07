@@ -1167,68 +1167,68 @@ export async function handleUpgrade(
 
   // Which hook is running, so the log can name it when the handshake fails.
   let runningHook = 'none';
-  try {
-    // Onion order: plugin upgrades first (registration order), then internal
-    // primitive hooks, then the app's builder hook last. Each result's meta is
-    // shallow-merged into the running total — since the app applies last it
-    // wins on key conflict; tags are concatenated (TagRef equality is by
-    // identity). At most one hook may own `userId`.
-    let mergedMeta: Record<string, unknown> | undefined;
-    let resolvedUserId: string | undefined;
-    let userIdOwner: string | undefined;
-    const mergedTags: PublicApi.TagRef[] = [];
-    function apply(result: ApplyResultParameter, owner: string): void {
-      if (result.userId !== undefined) {
-        if (userIdOwner !== undefined) {
+  // Onion order: plugin upgrades first (registration order), then internal
+  // primitive hooks, then the app's builder hook last. Each result's meta is
+  // shallow-merged into the running total — since the app applies last it
+  // wins on key conflict; tags are concatenated (TagRef equality is by
+  // identity). At most one hook may own `userId`.
+  let mergedMeta: Record<string, unknown> | undefined;
+  let resolvedUserId: string | undefined;
+  let userIdOwner: string | undefined;
+  const mergedTags: PublicApi.TagRef[] = [];
+  function apply(result: ApplyResultParameter, owner: string): void {
+    if (result.userId !== undefined) {
+      if (userIdOwner !== undefined) {
+        throw new Error(
+          `[livething] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
+            'A user id has exactly one owner per connection — the app or one plugin, never both.',
+        );
+      }
+
+      userIdOwner = owner;
+      resolvedUserId = result.userId;
+    }
+
+    if (result.meta) {
+      mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
+    }
+
+    if (result.tags) {
+      for (const ref of result.tags) {
+        if (ref.kind === 'persistent') {
           throw new Error(
-            `[livething] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
-              'A user id has exactly one owner per connection — the app or one plugin, never both.',
+            `[livething] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
           );
         }
 
-        userIdOwner = owner;
-        resolvedUserId = result.userId;
-      }
-
-      if (result.meta) {
-        mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
-      }
-
-      if (result.tags) {
-        for (const ref of result.tags) {
-          if (ref.kind === 'persistent') {
-            throw new Error(
-              `[livething] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
-            );
-          }
-
-          if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
-            throw new Error(
-              `[livething] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
-            );
-          }
-
-          // Same rules as `add()`: an empty key is a no-op, and a group with a
-          // schema must accept the key.
-          if (ref.key.length === 0) continue;
-
-          const schema = runtime.getTagGroupSchema('ephemeral', ref.group);
-          if (schema) {
-            try {
-              validateValue(schema, ref.key, `tag ephemeral:${ref.group}`);
-            } catch (error) {
-              throw new Error(
-                `[livething] onUpgrade returned the ephemeral tag key '${ref.key}' for group '${ref.group}', which the group's schema rejects.`,
-                { cause: error },
-              );
-            }
-          }
-
-          mergedTags.push(ref);
+        if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
+          throw new Error(
+            `[livething] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
+          );
         }
+
+        // Same rules as `add()`: an empty key is a no-op, and a group with a
+        // schema must accept the key.
+        if (ref.key.length === 0) continue;
+
+        const schema = runtime.getTagGroupSchema('ephemeral', ref.group);
+        if (schema) {
+          try {
+            validateValue(schema, ref.key, `tag ephemeral:${ref.group}`);
+          } catch (error) {
+            throw new Error(
+              `[livething] onUpgrade returned the ephemeral tag key '${ref.key}' for group '${ref.group}', which the group's schema rejects.`,
+              { cause: error },
+            );
+          }
+        }
+
+        mergedTags.push(ref);
       }
     }
+  }
 
+  try {
     for (const entry of pluginUpgradeHooks) {
       runningHook = `plugin '${entry.pluginId}'`;
       // The plugin gets its own scoped `ctx`. The same object reaches `context.upgrade(pluginBase)`.
