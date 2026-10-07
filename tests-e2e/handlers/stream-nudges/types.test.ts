@@ -27,7 +27,9 @@ describe('StreamNudgesClient — incoming (server outgoing)', () => {
   });
 
   it('has held-stream-released', () => {
-    expectTypeOf<StreamNudgesClient['incoming']['held-stream-released']>().toEqualTypeOf<{}>();
+    expectTypeOf<StreamNudgesClient['incoming']['held-stream-released']>().toEqualTypeOf<
+      Record<string, never>
+    >();
   });
 
   it('has exactly the declared incoming events', () => {

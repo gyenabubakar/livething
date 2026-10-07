@@ -379,25 +379,36 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).not.toThrow();
   });
 
-  it('throws a clear error when the payload serializes to undefined (toJSON returns undefined)', () => {
-    // assertPayloadRecord only checks the in-memory shape, so an object whose
-    // toJSON returns undefined passes that gate. Without the serialize-time
-    // guard the unicast wire frame silently drops its payload key — the
-    // client receives `{"event":"foo","__livething":{...}}` and has no signal
-    // that the payload was lost. The guard turns it into a loud server-side
-    // error pointing at the offending event name.
+  it('refuses an object whose toJSON gives something else, such as a Date', () => {
+    // A Date passes a plain "is it an object" check, but JSON turns it into a string, so the
+    // client would get a string payload. A toJSON that returns undefined would drop the payload.
     const runtime = createRuntime();
     const connection = createConnection();
-    const bad = { toJSON: () => undefined } as unknown as Record<string, unknown>;
 
-    expect(() =>
-      sendThroughPipeline(runtime, connection, {
-        routing: undefined,
-        event: 'foo',
-        payload: bad,
-      }),
-    ).toThrow(/did not serialize to JSON/);
+    for (const payload of [new Date(0), { toJSON: () => undefined }]) {
+      expect(() =>
+        sendThroughPipeline(runtime, connection, {
+          routing: undefined,
+          event: 'foo',
+          payload: payload as unknown as Record<string, unknown>,
+        }),
+      ).toThrow(
+        /The payload for "foo" must be a plain object.*toJSON\(\) does not return an object/,
+      );
+    }
+
     expect(connection.descriptor.send).not.toHaveBeenCalled();
+  });
+
+  it('sends an object whose toJSON gives an object, such as an ORM record, as that object', () => {
+    const runtime = createRuntime();
+    const connection = createConnection();
+    const record = { id: 'm1', secret: 'hidden', toJSON: () => ({ id: 'm1' }) };
+
+    sendThroughPipeline(runtime, connection, { routing: undefined, event: 'foo', payload: record });
+
+    const [frame] = vi.mocked(connection.descriptor.send).mock.calls[0]!;
+    expect(JSON.parse(frame as string)[1]).toEqual({ id: 'm1' });
   });
 });
 
@@ -513,9 +524,8 @@ describe('broadcastToConnections — fanout resilience', () => {
     expect(errorLogs).toHaveLength(1);
   });
 
-  it('drops the broadcast and logs once when the payload serializes to undefined (toJSON returns undefined)', () => {
-    // The serialization guard rejects an undefined JSON result, logs one
-    // error, and sends no frame to any peer.
+  it('drops the broadcast and logs once when the payload has toJSON (it would not stay an object)', () => {
+    // The payload check rejects it, logs one error, and sends no frame to any peer.
     const errorLogs: Array<{ message: string; data?: unknown }> = [];
     const runtime = createRuntime({
       logger: {
@@ -537,7 +547,9 @@ describe('broadcastToConnections — fanout resilience', () => {
 
     expect(sent).toEqual([]);
     expect(errorLogs).toHaveLength(1);
-    expect((errorLogs[0]!.data as { error: string }).error).toMatch(/did not serialize to JSON/);
+    expect((errorLogs[0]!.data as { error: string }).error).toMatch(
+      /toJSON\(\) does not return an object/,
+    );
   });
 
   it('produces a wire frame that parses to event, payload, and __livething', () => {

@@ -15,7 +15,7 @@ describe('SequenceClient — no-any guard', () => {
 
 describe('SequenceClient — incoming (server outgoing)', () => {
   it('has tock with empty payload', () => {
-    expectTypeOf<SequenceClient['incoming']['tock']>().toEqualTypeOf<{}>();
+    expectTypeOf<SequenceClient['incoming']['tock']>().toEqualTypeOf<Record<string, never>>();
   });
 
   it('only tock in incoming', () => {

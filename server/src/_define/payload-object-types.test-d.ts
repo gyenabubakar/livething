@@ -7,25 +7,67 @@ import { cursorStream, recordedStream, stream } from '~/streams.ts';
 import { expectTypeOf } from 'vitest';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { InferClient } from '~/infer-client.ts';
+import type { ContractPayload, DurableWireChunk } from '~/types.ts';
 
 // `t()` itself takes any type. The places that send a payload refuse what LiveThing refuses
-// at runtime: null, a primitive and an array.
+// at runtime: null, a primitive, an array, a function and an object with toJSON.
 expectTypeOf(t<null>()).toEqualTypeOf<TypeMarker<null>>();
 
-emits({ message: t<{ text: string }>() });
+class Room {
+  name = 'general';
+}
+
+// An ORM record whose toJSON() gives an object is fine: JSON keeps it an object.
+interface MemberRecord {
+  id: string;
+  toJSON(): { id: string; joinedAt: string };
+}
+
+emits({ joined: t<MemberRecord>() });
+expectTypeOf<DurableWireChunk<MemberRecord>>().toEqualTypeOf<{ id: string; joinedAt: string }>();
+
+emits({ message: t<{ text: string }>(), room: t<Room>(), cleared: t<{}>() });
 // @ts-expect-error an event payload must be a plain object
 emits({ ping: t<null>() });
 // @ts-expect-error an event payload must be a plain object
 emits({ word: t<string>() });
 // @ts-expect-error an event payload must be a plain object
 emits({ list: t<string[]>() });
+// @ts-expect-error a function is not a payload
+emits({ callback: t<() => void>() });
+// @ts-expect-error JSON turns a Date into a string
+emits({ at: t<Date>() });
 
 serverRequests({ confirm: { out: t<{ question: string }>() } });
 // @ts-expect-error a server request payload must be a plain object
 serverRequests({ confirm: { out: t<boolean>() } });
 
 const base = server({
-  capabilities: [stream(), recordedStream(), cursorStream(), clientRequests()],
+  capabilities: [
+    stream(),
+    recordedStream(),
+    cursorStream(),
+    clientRequests(),
+    emits({ cleared: t<{}>() }),
+    serverRequests({ refresh: { out: t<{}>() } }),
+  ],
+});
+
+// `t<object>()` keeps meaning any object; only `{}` becomes the empty object.
+expectTypeOf<ContractPayload<object>>().toEqualTypeOf<object>();
+expectTypeOf<ContractPayload<{}>>().toEqualTypeOf<Record<string, never>>();
+expectTypeOf<ContractPayload<{ id?: string }>>().toEqualTypeOf<{ id?: string }>();
+
+// `t<{}>()` means an empty object where a payload is sent, not "anything but null".
+base.on('clear', {
+  run(ctx) {
+    ctx.send('cleared', {});
+    // @ts-expect-error a string is not an empty object
+    ctx.send('cleared', 'text');
+    void ctx.request('refresh', {});
+    // @ts-expect-error a number is not an empty object
+    void ctx.request('refresh', 42);
+  },
 });
 
 base.stream('typing', {
@@ -70,6 +112,9 @@ expectTypeOf<DurableClient['streams']['mixed']['chunk']>().toEqualTypeOf<
   { text: string } | { value: string[] } | { value: null }
 >();
 expectTypeOf<DurableClient['streams']['pages']['chunk']>().toEqualTypeOf<{ value: number }>();
+expectTypeOf<DurableWireChunk<() => void>>().toEqualTypeOf<{ value: () => void }>();
+expectTypeOf<DurableWireChunk<Date>>().toEqualTypeOf<{ value: Date }>();
+expectTypeOf<DurableWireChunk<Room>>().toEqualTypeOf<Room>();
 
 base.request('get-room', {
   run: () => ({ name: 'general' }),

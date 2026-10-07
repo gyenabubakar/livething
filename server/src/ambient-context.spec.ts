@@ -624,6 +624,39 @@ describe('context inside onOutgoing', () => {
   });
 });
 
+describe('a recorded stream chunk that does not stay an object in JSON', () => {
+  it('is wrapped as { value }, a Date included', async () => {
+    const base = server({ capabilities: [recordedStream()] });
+    const progress = base.recordedStream('progress', {
+      chunk: t<number | Date>(),
+      maxChunks: 10,
+      async *run() {
+        yield 1;
+        yield new Date(0);
+      },
+    });
+    const engine = buildEngine(base.assemble({ handlers: [progress] }));
+    await engine.initialize();
+    const sent: string[] = [];
+
+    const handle = engine.accept(Symbol('alice'), {
+      send: (message: string) => sent.push(message),
+      close() {},
+      bufferedAmount: () => 0,
+      userId: 'alice',
+    } as never);
+
+    await handle.handleMessage(frame('progress', { stream: { id: 's1' } }));
+    await sleep(20);
+
+    const chunks = sent
+      .map((message) => JSON.parse(message) as [string, unknown])
+      .filter(([event]) => event === 'progress')
+      .map(([, payload]) => payload);
+    expect(chunks).toEqual([{ value: 1 }, { value: '1970-01-01T00:00:00.000Z' }]);
+  });
+});
+
 describe('a stream that yields a value that is not an object', () => {
   it('ends with internal-error and logs which stream broke the payload rule', async () => {
     const base = server({ capabilities: [stream()] });

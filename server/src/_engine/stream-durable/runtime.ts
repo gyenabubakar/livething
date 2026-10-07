@@ -25,6 +25,7 @@ import {
   resolveBroadcastTargets,
 } from '~/_engine/stream-common/active-stream.ts';
 import { normalizeRuntimeError } from '~/errors/runtime.ts';
+import { isPayloadObject, jsonShapeOf } from '~/outgoing/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type {
@@ -164,10 +165,14 @@ function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.LiveTh
   return livething;
 }
 
-/** A stream chunk becomes the frame payload; a non-object chunk is wrapped in `{ value }`. */
+/**
+ * A stream chunk becomes the frame payload: what JSON writes for it, when that is an object. A
+ * chunk that does not stay an object in JSON (a primitive, `null`, an array, a function, a
+ * `Date`) is wrapped in `{ value }`.
+ */
 function chunkToPayload(chunkValue: unknown): Record<string, unknown> {
-  return typeof chunkValue === 'object' && chunkValue !== null && !Array.isArray(chunkValue)
-    ? { ...(chunkValue as Record<string, unknown>) }
+  return isPayloadObject(chunkValue)
+    ? { ...(jsonShapeOf(chunkValue) as Record<string, unknown>) }
     : { value: chunkValue };
 }
 

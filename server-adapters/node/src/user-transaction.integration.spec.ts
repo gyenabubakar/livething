@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { server as createServerDefinition, emits, t } from '@livething/server';
 import { sequence } from '@livething/server/sequence';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { Server } from 'node:http';
@@ -140,6 +141,12 @@ describe('a persisted sequence and a rolled-back user transaction, on real bette
     const beforeRestart = await collect(first.url, 'rolled-back', 3);
     await first.shutdown();
     running.pop();
+
+    // The user's own write rolled back, while the sequence numbers it caused stayed used.
+    const database = new Database(sqlFile, { readonly: true });
+    const marks = database.prepare('SELECT COUNT(*) AS n FROM marks').get() as { n: number };
+    database.close();
+    expect(marks.n).toBe(0);
 
     const second = await start(sqlFile);
     running.push(second);
