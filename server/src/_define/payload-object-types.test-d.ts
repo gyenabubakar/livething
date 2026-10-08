@@ -26,6 +26,41 @@ interface MemberRecord {
 emits({ joined: t<MemberRecord>() });
 expectTypeOf<DurableWireChunk<MemberRecord>>().toEqualTypeOf<{ id: string; joinedAt: string }>();
 
+// toJSON() must return a plain object, not an array or a function.
+interface TagList {
+  toJSON(): string[];
+}
+
+interface LazyRecord {
+  toJSON(): () => void;
+}
+
+// @ts-expect-error JSON would send an array
+emits({ tags: t<TagList>() });
+// @ts-expect-error JSON would send nothing
+emits({ lazy: t<LazyRecord>() });
+
+// An iterable is refused (a Map or a Set becomes {} in JSON), unless its toJSON() returns a
+// plain object, which is what JSON sends.
+class Roster {
+  names = ['ada'];
+  *[Symbol.iterator]() {
+    yield* this.names;
+  }
+}
+
+class RosterRecord extends Roster {
+  toJSON() {
+    return { names: this.names };
+  }
+}
+
+// @ts-expect-error an iterable without toJSON()
+emits({ roster: t<Roster>() });
+// @ts-expect-error a Map becomes {} in JSON
+emits({ scores: t<Map<string, number>>() });
+emits({ roster: t<RosterRecord>() });
+
 emits({ message: t<{ text: string }>(), room: t<Room>(), cleared: t<{}>() });
 // @ts-expect-error an event payload must be a plain object
 emits({ ping: t<null>() });

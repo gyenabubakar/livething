@@ -1,5 +1,5 @@
 import { InternalError } from '@livething/core';
-import { assertPayloadRecord, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { assertPayloadRecord, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -113,7 +113,7 @@ export function sendReplay(
 
   let frame: string;
   try {
-    const payloadJson = serializeJsonOrThrow(payload, `Replay payload for "${event}"`);
+    const payloadJson = serializePayload(event, payload);
     frame = serializeWireFrame(event, JSON.parse(payloadJson), livething);
   } catch (error) {
     core.logger.error('[livething] Failed to serialize replay frame; sending fallback __error__', {

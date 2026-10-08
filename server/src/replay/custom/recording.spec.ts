@@ -144,6 +144,17 @@ function buildDefinition(harness: Omit<Harness, 'engine'>, options: HarnessOptio
     },
   });
 
+  // A Date is an object in memory but a string in JSON, so the call itself throws.
+  const resendDate = base.on('resend-date', {
+    run(ctx) {
+      try {
+        ctx.sendReplay('news', new Date(0) as never, { deliverySeq: 8, messageId: 'm-8' });
+      } catch (error) {
+        ctx.send('news', { text: `refused:${(error as Error).message.includes('JSON')}` });
+      }
+    },
+  });
+
   const room = base.channel('room', {
     capabilities: [emits({ 'room-news': Text, whisper: Text })],
   });
@@ -191,6 +202,7 @@ function buildDefinition(harness: Omit<Harness, 'engine'>, options: HarnessOptio
       sendToSelfUser,
       shout,
       resend,
+      resendDate,
       room,
       roomShout,
       roomWhisper,
@@ -440,6 +452,14 @@ describe('ctx.sendReplay with replay.custom()', () => {
     await alice.send(['room-resend', {}, { channel: { name: 'room' } }]);
 
     expect(texts(alice.frames)).toEqual(['room-news:room-resent']);
+  });
+
+  it('throws at the call for a payload that is not an object in JSON, such as a Date', async () => {
+    const { engine } = await buildEngine();
+    const alice = await connect(engine, 'alice');
+    await alice.send(['resend-date', {}]);
+
+    expect(texts(alice.frames)).toEqual(['news:refused:true']);
   });
 
   it('works when replay.custom() is listed without base.replay()', async () => {

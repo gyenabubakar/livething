@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CloseCodes } from '@livething/core';
 import { getInvocationScope, withConnectionCall } from '~/_engine/async-context.ts';
-import { assertPayloadRecord } from '~/_engine/runtime/json-guard.ts';
+import { serializePayload } from '~/_engine/runtime/json-guard.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as InboxRuntime from '~/inbox/runtime.ts';
 import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
@@ -354,7 +354,8 @@ export function createEngineAccess(
       sendGap(core, connection, options);
     },
     assertReplaySendContract: (event, payload, routing) => {
-      assertPayloadRecord(event, payload);
+      // Serialize to check, so a Date or a boxed value throws here, at the ctx.sendReplay call.
+      serializePayload(event, payload);
       if (!OutgoingRuntime.isDeclaredOutgoingEvent(core.compiled, event, routing)) {
         throw new Error(
           `[livething] Outgoing event "${event}" was not declared in the active scope.`,

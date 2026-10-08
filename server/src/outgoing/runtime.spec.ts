@@ -379,36 +379,57 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).not.toThrow();
   });
 
-  it('refuses an object whose toJSON gives something else, such as a Date', () => {
-    // A Date passes a plain "is it an object" check, but JSON turns it into a string, so the
-    // client would get a string payload. A toJSON that returns undefined would drop the payload.
+  it('refuses a payload whose JSON is not an object, judged on the JSON that is sent', () => {
+    // A Date and a boxed number are objects in memory, but JSON turns them into a string and a
+    // number. A Map becomes {} and loses its data. A toJSON that returns undefined sends nothing.
     const runtime = createRuntime();
     const connection = createConnection();
+    const cases: [unknown, RegExp][] = [
+      [new Date(0), /JSON turned into "1970/],
+      [new Number(7), /JSON turned into 7/],
+      [new Map([['ada', 1]]), /an iterable such as a Map or a Set/],
+      [{ toJSON: () => undefined }, /did not serialize to JSON/],
+    ];
 
-    for (const payload of [new Date(0), { toJSON: () => undefined }]) {
+    for (const [payload, message] of cases) {
       expect(() =>
         sendThroughPipeline(runtime, connection, {
           routing: undefined,
           event: 'foo',
-          payload: payload as unknown as Record<string, unknown>,
+          payload: payload as Record<string, unknown>,
         }),
-      ).toThrow(
-        /The payload for "foo" must be a plain object.*toJSON\(\) does not return an object/,
-      );
+      ).toThrow(message);
     }
 
     expect(connection.descriptor.send).not.toHaveBeenCalled();
   });
 
-  it('sends an object whose toJSON gives an object, such as an ORM record, as that object', () => {
+  it('sends what toJSON returns, calling it once with the root key, as JSON does', () => {
     const runtime = createRuntime();
     const connection = createConnection();
-    const record = { id: 'm1', secret: 'hidden', toJSON: () => ({ id: 'm1' }) };
+    const keys: unknown[] = [];
+    // An ORM record: toJSON gives an object. A second call would give something else.
+    const record = {
+      id: 'm1',
+      secret: 'hidden',
+      toJSON(key: unknown) {
+        keys.push(key);
+        return keys.length === 1 ? { id: 'm1' } : 'changed';
+      },
+    };
+
+    // An iterable is fine when its toJSON() decides what is sent.
+    const roster = { *[Symbol.iterator]() {}, toJSON: () => ({ names: ['ada'] }) };
 
     sendThroughPipeline(runtime, connection, { routing: undefined, event: 'foo', payload: record });
+    sendThroughPipeline(runtime, connection, { routing: undefined, event: 'foo', payload: roster });
 
-    const [frame] = vi.mocked(connection.descriptor.send).mock.calls[0]!;
-    expect(JSON.parse(frame as string)[1]).toEqual({ id: 'm1' });
+    const frames = vi.mocked(connection.descriptor.send).mock.calls.map(([frame]) => frame);
+    expect(frames.map((frame) => JSON.parse(frame as string)[1])).toEqual([
+      { id: 'm1' },
+      { names: ['ada'] },
+    ]);
+    expect(keys).toEqual(['']);
   });
 });
 
@@ -524,7 +545,27 @@ describe('broadcastToConnections — fanout resilience', () => {
     expect(errorLogs).toHaveLength(1);
   });
 
-  it('drops the broadcast and logs once when the payload has toJSON (it would not stay an object)', () => {
+  it('calls toJSON once for the whole broadcast, so every peer gets the same payload', () => {
+    const runtime = createRuntime();
+    const sent: string[] = [];
+    const a = peer('A', (frame) => sent.push(frame));
+    const b = peer('B', (frame) => sent.push(frame));
+    let calls = 0;
+
+    const record = {
+      toJSON() {
+        calls += 1;
+        return { version: calls };
+      },
+    };
+
+    broadcastToConnections(runtime, [a, b], { event: 'foo', payload: record });
+
+    expect(calls).toBe(1);
+    expect(sent.map((frame) => JSON.parse(frame)[1])).toEqual([{ version: 1 }, { version: 1 }]);
+  });
+
+  it('drops the broadcast and logs once when the payload serializes to nothing', () => {
     // The payload check rejects it, logs one error, and sends no frame to any peer.
     const errorLogs: Array<{ message: string; data?: unknown }> = [];
     const runtime = createRuntime({
@@ -547,9 +588,7 @@ describe('broadcastToConnections — fanout resilience', () => {
 
     expect(sent).toEqual([]);
     expect(errorLogs).toHaveLength(1);
-    expect((errorLogs[0]!.data as { error: string }).error).toMatch(
-      /toJSON\(\) does not return an object/,
-    );
+    expect((errorLogs[0]!.data as { error: string }).error).toMatch(/did not serialize to JSON/);
   });
 
   it('produces a wire frame that parses to event, payload, and __livething', () => {

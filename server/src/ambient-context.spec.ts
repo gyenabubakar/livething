@@ -625,18 +625,29 @@ describe('context inside onOutgoing', () => {
 });
 
 describe('a recorded stream chunk that does not stay an object in JSON', () => {
-  it('is wrapped as { value }, a Date included', async () => {
+  it('is wrapped as { value }, a Date included, from one toJSON() call', async () => {
+    let calls = 0;
+    // A second toJSON() call would give a string; only one call may decide the chunk.
+    const record = {
+      toJSON() {
+        calls += 1;
+        return calls === 1 ? { id: 'm1' } : 'changed';
+      },
+    };
+
     const base = server({ capabilities: [recordedStream()] });
     const progress = base.recordedStream('progress', {
-      chunk: t<number | Date>(),
+      chunk: t<number | Date | typeof record>(),
       maxChunks: 10,
       async *run() {
         yield 1;
         yield new Date(0);
+        yield record;
       },
     });
     const engine = buildEngine(base.assemble({ handlers: [progress] }));
     await engine.initialize();
+
     const sent: string[] = [];
 
     const handle = engine.accept(Symbol('alice'), {
@@ -653,7 +664,8 @@ describe('a recorded stream chunk that does not stay an object in JSON', () => {
       .map((message) => JSON.parse(message) as [string, unknown])
       .filter(([event]) => event === 'progress')
       .map(([, payload]) => payload);
-    expect(chunks).toEqual([{ value: 1 }, { value: '1970-01-01T00:00:00.000Z' }]);
+    expect(chunks).toEqual([{ value: 1 }, { value: '1970-01-01T00:00:00.000Z' }, { id: 'm1' }]);
+    expect(calls).toBe(1);
   });
 });
 

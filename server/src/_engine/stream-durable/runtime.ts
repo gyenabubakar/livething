@@ -10,11 +10,7 @@ import {
 import { connectionCall, inConnectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
-import {
-  isPayloadObject,
-  jsonShapeOf,
-  serializeJsonOrThrow,
-} from '~/_engine/runtime/json-guard.ts';
+import { serializeDurableChunk, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { connectionStorageKeyOf, RESERVED_USER_ID_PREFIX } from '~/_engine/runtime/user-key.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import {
@@ -166,17 +162,6 @@ function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.LiveTh
   if (row.channelFamily) livething.channelFamily = row.channelFamily;
 
   return livething;
-}
-
-/**
- * A stream chunk becomes the frame payload: what JSON writes for it, when that is an object. A
- * chunk that does not stay an object in JSON (a primitive, `null`, an array, a function, a
- * `Date`) is wrapped in `{ value }`.
- */
-function chunkToPayload(chunkValue: unknown): Record<string, unknown> {
-  return isPayloadObject(chunkValue)
-    ? { ...(jsonShapeOf(chunkValue) as Record<string, unknown>) }
-    : { value: chunkValue };
 }
 
 /**
@@ -888,7 +873,9 @@ async function runGenerator(
       const now = Date.now();
 
       const recordsChunks = def.kind === 'recorded';
-      const wirePayload = chunkToPayload(chunkValue);
+      // One serialization: stored as is, and parsed once for the live frames.
+      const chunkJson = serializeDurableChunk(def.event, chunkValue);
+      const wirePayload = JSON.parse(chunkJson) as Record<string, unknown>;
       appendCursorCheckpoint(runtime, {
         def,
         userId,
@@ -904,7 +891,7 @@ async function runGenerator(
           streamId,
           seq,
           messageId: null,
-          payload: serializeJsonOrThrow(wirePayload, `Durable stream chunk for "${def.event}"`),
+          payload: chunkJson,
           now,
         });
 

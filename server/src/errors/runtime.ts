@@ -117,9 +117,14 @@ export async function sendRuntimeError(
   }
 
   // The client only sees `internal-error`, so with no hook to see it the real error would be
-  // lost. An `onError` hook replaces this log, as it owns the error from then on.
-  const isSignal = typeof error === 'object' && error !== null && '__livething' in error;
-  if (!(error instanceof LiveThingError) && !isSignal && deps.errorHooks.length === 0) {
+  // lost. An `onError` hook replaces this log, as it owns the error from then on. The only signal
+  // that reaches here is a `Defer` thrown outside an on() handler, which already logged why.
+  // Any other signal here, such as `RejectUpgrade` outside `upgrade`, is a mistake and is logged.
+  const isLoggedDefer =
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { __livething?: unknown }).__livething === 'defer';
+  if (!(error instanceof LiveThingError) && !isLoggedDefer && deps.errorHooks.length === 0) {
     deps.logger.error(
       '[livething] A handler threw an unexpected error, and the client got internal-error. ' +
         'Add an onError hook to handle such errors yourself.',

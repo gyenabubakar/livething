@@ -102,7 +102,11 @@ describe('errors runtime', () => {
     ]);
     expect(await send(boom, [() => {}])).toEqual([]);
     expect(await send(new LiveThingError('forbidden', {}), [])).toEqual([]);
-    expect(await send(Object.freeze({ __livething: 'block' }), [])).toEqual([]);
+    // A misplaced Defer already logged why; RejectUpgrade outside `upgrade` is a mistake to log.
+    expect(await send(Object.freeze({ __livething: 'defer', delay: 10 }), [])).toEqual([]);
+    expect(await send(Object.freeze({ __livething: 'reject-upgrade', code: 4001 }), [])).toEqual([
+      [expect.stringMatching(/unexpected error/), expect.anything()],
+    ]);
   });
 
   it('runs error hooks for LiveThingError values too', async () => {

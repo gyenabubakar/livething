@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rethrowIfConfigError } from '@livething/core';
 import { runOutsideCall } from '~/_engine/call-context.ts';
-import { assertPayloadRecord, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { assertPayloadRecord, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
@@ -100,10 +100,6 @@ export function isDeclaredOutgoingEvent(
     compiled.cursorStreams.has(event) ||
     compiled.recordedStreams.has(event)
   );
-}
-
-function serializePayloadOrThrow(event: string, payload: Record<string, unknown>): string {
-  return serializeJsonOrThrow(payload, `Outgoing payload for "${event}"`);
 }
 
 /** Run the owner-tagged outgoing hooks and return the (possibly rewritten) message. */
@@ -262,12 +258,15 @@ export function sendThroughPipeline(
   const payloadJson =
     isVoidResponse && Object.keys(finalPayload).length === 0
       ? undefined
-      : serializePayloadOrThrow(message.event, finalPayload);
+      : serializePayload(message.event, finalPayload);
 
+  const hasSendHooks = runtime.beforeSendHooks.length > 0 || runtime.afterSendHooks.length > 0;
   const wireMessage: EngineRuntimeTypes.WireOutgoingMessage = {
     connectionId: connection.id,
     event: message.event,
-    payload: finalPayload,
+    // Hooks (inbox, replay) get the payload as sent, so a toJSON() runs once and what they
+    // store matches the frame.
+    payload: hasSendHooks && payloadJson !== undefined ? JSON.parse(payloadJson) : finalPayload,
     livething,
     meta: connection.meta,
   };
@@ -418,8 +417,10 @@ function prepareBroadcast(
     );
   }
 
-  const finalPayload = message.payload as Record<string, unknown>;
-  const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
+  const payloadJson = serializePayload(message.event, message.payload);
+  // From here every frame, recipient and hook uses this plain copy of what was serialized, so a
+  // toJSON() runs once for the whole broadcast and every peer gets the same payload.
+  const finalPayload = JSON.parse(payloadJson) as Record<string, unknown>;
 
   // Stamp once for the whole broadcast: all recipients share one deliverySeq/messageId, so replay stores one row, not one per member.
   const baseLiveThing = buildLiveThing(routing) as Record<string, unknown>;

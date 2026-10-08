@@ -31,15 +31,26 @@ export type Validator<T = any> = StandardSchemaV1<unknown, T>;
 /**
  * What LiveThing sends to a client as an event payload, a stream chunk, a server request or a
  * reply: an object that stays an object in JSON, such as `{ text: 'hi' }`. LiveThing refuses
- * `null`, a primitive, an array, a function and an object whose `toJSON()` gives something else
- * (a `Date` gives a string) when it sends, so the types refuse them too. An array and a function
- * have a key that a plain object lacks: `Symbol.iterator` or `Symbol.hasInstance`.
+ * `null`, a primitive, an array, a function, an iterable such as a `Map` (JSON gives `{}`) and an
+ * object whose `toJSON()` gives something else (a `Date` gives a string) when it sends, so the
+ * types refuse them too. An object with a `toJSON()` that returns a plain object is accepted,
+ * iterable or not, because JSON sends what that returns.
  */
-export type PayloadObject = object & {
+export type PayloadObject =
+  | (PlainObject & { readonly toJSON?: JsonToObject })
+  | { toJSON: JsonToObject };
+
+/**
+ * An object that is not an iterable (arrays, `Map`, `Set`) and not a function. Each of those has
+ * a key that a plain object lacks: `Symbol.iterator` or `Symbol.hasInstance`.
+ */
+type PlainObject = object & {
   readonly [Symbol.iterator]?: never;
   readonly [Symbol.hasInstance]?: never;
-  readonly toJSON?: (key?: never) => object;
 };
+
+/** A `toJSON()` that JSON calls with the root key `""` and that returns a plain object. */
+type JsonToObject = (key: string) => PlainObject;
 
 /**
  * A declared payload type as the contract records it. TypeScript's `{}` means "anything but
