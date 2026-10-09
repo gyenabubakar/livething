@@ -93,10 +93,17 @@ export function createLazyStorageView(
     if (userTransactions.inTransaction) {
       const snapshot = snapshotOf(value);
       const optionsSnapshot = options && { ...options };
-      userTransactions.recordOperation(
-        () => storage.kv.set(key, snapshot, optionsSnapshot),
-        outcome,
-      );
+      // Providers count a ttl from the moment of each set, so the redo passes only what is left,
+      // and the key still expires when it would have.
+      const expiresAt = options?.ttl ? Date.now() + options.ttl : undefined;
+      userTransactions.recordOperation(() => {
+        if (expiresAt === undefined) return storage.kv.set(key, snapshot, optionsSnapshot);
+
+        const remaining = expiresAt - Date.now();
+        if (remaining <= 0) return storage.kv.delete(key);
+
+        return storage.kv.set(key, snapshot, { ...optionsSnapshot, ttl: remaining });
+      }, outcome);
     }
 
     return outcome;

@@ -109,8 +109,13 @@ export function createSql(state: DurableObjectState): SQLProvider {
  * A deferred foreign key is checked when the transaction commits. Durable Objects
  * reset the whole object when that check fails, and the error cannot be caught.
  * Checking before the commit turns the reset into an error that rolls back the
- * transaction. The check reads every table with a foreign key, so it only runs when
- * the schema has a deferred key or the transaction deferred its keys.
+ * transaction.
+ *
+ * Every outermost transaction reads the schema table to find a deferred key. That read is
+ * small, and it is not cached: a Durable Object refuses `PRAGMA schema_version`
+ * (SQLITE_AUTH), so there is no cheaper way to know the schema did not change. The full
+ * `PRAGMA foreign_key_check`, which reads every table with a foreign key, only runs when the
+ * schema has a deferred key or the transaction deferred its keys.
  */
 function assertDeferredForeignKeysHold(state: DurableObjectState): void {
   const usesDeferredKeys =

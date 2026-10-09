@@ -37,7 +37,8 @@ const base = createServerDefinition({
 
 const echo = base.on('echo', {
   run(ctx, input) {
-    ctx.send('echoed', input as { text?: string });
+    const text = (input as { text?: unknown } | null)?.text;
+    ctx.send('echoed', typeof text === 'string' ? { text } : {});
   },
 });
 

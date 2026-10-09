@@ -166,29 +166,72 @@ describe('lazy kv — writes inside a rolled-back sql transaction', () => {
     expect(redone.view.getUint8(0)).toBe(7);
   });
 
-  it('redoes the options as they were when the value was written', () => {
-    const calls: { ttl: number | undefined }[] = [];
+  function recordingKv() {
+    const calls: { op: string; ttl?: number }[] = [];
     const kvImpl: any = {
       async set(_key: string, _value: unknown, options?: { ttl?: number }) {
-        calls.push({ ttl: options?.ttl });
+        calls.push({ op: 'set', ttl: options?.ttl });
+      },
+      async delete() {
+        calls.push({ op: 'delete' });
       },
     };
 
-    const { sql, kv } = createLazyStorageView(
+    const view = createLazyStorageView(
       { sql: createTestSql(), kv: kvImpl } as any,
       new UserTransactionTracker(() => {}),
     );
-    const options = { ttl: 1000 };
 
-    expect(() =>
-      sql.transaction(() => {
-        void kv.set('session', 'x', options);
-        options.ttl = 0;
-        throw new Error('roll back');
-      }),
-    ).toThrow('roll back');
+    return { ...view, calls };
+  }
 
-    expect(calls).toEqual([{ ttl: 1000 }, { ttl: 1000 }]);
+  it('redoes the options as they were when the value was written', () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    try {
+      const { sql, kv, calls } = recordingKv();
+      const options = { ttl: 1000 };
+
+      expect(() =>
+        sql.transaction(() => {
+          void kv.set('session', 'x', options);
+          options.ttl = 0;
+          throw new Error('roll back');
+        }),
+      ).toThrow('roll back');
+
+      expect(calls).toEqual([
+        { op: 'set', ttl: 1000 },
+        { op: 'set', ttl: 1000 },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('redoes a ttl with only the time that is left, so the key expires when it would have', () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    try {
+      const { sql, kv, calls } = recordingKv();
+
+      expect(() =>
+        sql.transaction(() => {
+          void kv.set('presence:ada', { online: true }, { ttl: 60_000 });
+          void kv.set('typing:ada', true, { ttl: 2_000 });
+          vi.setSystemTime(1_000_000 + 5_000);
+          throw new Error('roll back');
+        }),
+      ).toThrow('roll back');
+
+      expect(calls).toEqual([
+        { op: 'set', ttl: 60_000 },
+        { op: 'set', ttl: 2_000 },
+        { op: 'set', ttl: 55_000 },
+        // Its ttl ran out during the transaction, so it is gone, as it would have been.
+        { op: 'delete' },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('redoes a value that cannot be cloned as it is', () => {

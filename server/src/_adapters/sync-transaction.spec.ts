@@ -65,9 +65,18 @@ describe('rejectAsyncTransactionResult', () => {
       },
     };
 
-    expect(() => rejectAsyncTransactionResult(queryBuilder)).toThrow(
-      /callbacks must be synchronous/,
-    );
+    // One that claims to be a Promise through Symbol.toStringTag must not run either.
+    const taggedBuilder = {
+      [Symbol.toStringTag]: 'Promise',
+      then() {
+        ran = true;
+      },
+    };
+
+    for (const builder of [queryBuilder, taggedBuilder]) {
+      expect(() => rejectAsyncTransactionResult(builder)).toThrow(/callbacks must be synchronous/);
+    }
+
     expect(ran).toBe(false);
   });
 

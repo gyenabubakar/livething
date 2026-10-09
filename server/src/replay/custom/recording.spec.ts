@@ -144,14 +144,12 @@ function buildDefinition(harness: Omit<Harness, 'engine'>, options: HarnessOptio
     },
   });
 
-  // A Date is an object in memory but a string in JSON, so the call itself throws.
+  // A Date is an object in memory but a string in JSON. Like any row that fails to serialize, it
+  // becomes an __error__ for that row, and the replay keeps going.
   const resendDate = base.on('resend-date', {
     run(ctx) {
-      try {
-        ctx.sendReplay('news', new Date(0) as never, { deliverySeq: 8, messageId: 'm-8' });
-      } catch (error) {
-        ctx.send('news', { text: `refused:${(error as Error).message.includes('JSON')}` });
-      }
+      ctx.sendReplay('news', new Date(0) as never, { deliverySeq: 8, messageId: 'm-8' });
+      ctx.sendReplay('news', { text: 'after' }, { deliverySeq: 9, messageId: 'm-9' });
     },
   });
 
@@ -454,12 +452,16 @@ describe('ctx.sendReplay with replay.custom()', () => {
     expect(texts(alice.frames)).toEqual(['room-news:room-resent']);
   });
 
-  it('throws at the call for a payload that is not an object in JSON, such as a Date', async () => {
+  it('sends __error__ for a row that is not an object in JSON, such as a Date, and keeps going', async () => {
     const { engine } = await buildEngine();
     const alice = await connect(engine, 'alice');
     await alice.send(['resend-date', {}]);
 
-    expect(texts(alice.frames)).toEqual(['news:refused:true']);
+    const errors = alice.frames.filter(([event]) => event === '__error__');
+    expect(errors).toEqual([
+      ['__error__', { code: 'internal-error' }, { delivery: { id: 'm-8', seq: 8 } }],
+    ]);
+    expect(texts(alice.frames)).toEqual(['news:after']);
   });
 
   it('works when replay.custom() is listed without base.replay()', async () => {

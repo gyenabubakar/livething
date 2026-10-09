@@ -39,8 +39,12 @@ export function rejectAsyncTransactionResult(result: unknown): void {
  * calling a custom thenable's `then` can start work.
  */
 export function markPromiseHandled(value: unknown): void {
-  // Checks the internal tag, so a promise from another realm counts too.
-  if (Object.prototype.toString.call(value) === '[object Promise]') {
-    Promise.prototype.catch.call(value, () => {});
+  // The built-in then() never calls the object's own then(), so a custom thenable (even one
+  // tagged 'Promise' with Symbol.toStringTag) runs no code: then() throws on anything that is not
+  // a real promise, from any realm.
+  try {
+    Promise.prototype.then.call(value, undefined, () => {});
+  } catch {
+    // Not a native promise: nothing to mark.
   }
 }

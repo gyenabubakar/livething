@@ -87,18 +87,21 @@ export function serializePayload(event: string, payload: unknown): string {
 /**
  * The JSON of one cursor or recorded stream chunk: an object chunk as its own JSON, and any other
  * chunk (a primitive, `null`, an array, a `Date`) wrapped as `{ "value": ... }`. It is built
- * from one `JSON.stringify` call. A function or `undefined` chunk has no JSON, so it is `{}`.
+ * from one `JSON.stringify` call. A chunk with no JSON (a function without `toJSON()`, or
+ * `undefined`) and an iterable without `toJSON()` (a `Map`) are refused.
  */
 export function serializeDurableChunk(event: string, chunk: unknown): string {
-  if (typeof chunk === 'function' || chunk === undefined) return '{}';
-
-  if (typeof chunk === 'object' && chunk !== null && isIterableWithoutToJSON(chunk)) {
-    if (!Array.isArray(chunk)) {
-      throw payloadError(event, 'an iterable such as a Map or a Set, which JSON turns into {}');
-    }
+  const isObjectLike = (typeof chunk === 'object' && chunk !== null) || typeof chunk === 'function';
+  if (isObjectLike && !Array.isArray(chunk) && isIterableWithoutToJSON(chunk)) {
+    throw payloadError(event, 'an iterable such as a Map or a Set, which JSON turns into {}');
   }
 
-  const json = serializeJsonOrThrow(chunk, `Durable stream chunk for "${event}"`);
+  // A function without toJSON(), or undefined, has no JSON at all.
+  const json = JSON.stringify(chunk) as string | undefined;
+  if (json === undefined) {
+    throw payloadError(event, `${typeof chunk}, which has no JSON`);
+  }
+
   return json.startsWith('{') ? json : `{"value":${json}}`;
 }
 

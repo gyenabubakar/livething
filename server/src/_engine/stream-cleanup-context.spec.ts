@@ -5,11 +5,11 @@ import { connectionCall, createAsyncContext, inConnectionCall } from '~/_engine/
 import { getCurrentCall, resetCallContextForTests } from '~/_engine/call-context.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
-import { context } from '~/ambient-context.ts';
+import { context } from '~/index.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 
@@ -85,8 +85,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** A stream iterator that stays parked at a yield while its consumer is slow. */
-function slowConsumerIterator(inner: AsyncGenerator<unknown, void, unknown>) {
+/**
+ * A stream iterator that stays parked at a yield while its consumer is slow. `onParked` runs once
+ * the generator is parked, so a test can cancel exactly then instead of after a guessed delay.
+ */
+function slowConsumerIterator(inner: AsyncGenerator<unknown, void, unknown>, onParked: () => void) {
   let first = true;
 
   return {
@@ -97,6 +100,7 @@ function slowConsumerIterator(inner: AsyncGenerator<unknown, void, unknown>) {
       const result = await inner.next(value);
       if (first) {
         first = false;
+        onParked();
         await sleep(200);
       }
 
@@ -117,10 +121,18 @@ function userInCleanup(base: Parameters<typeof context.connection>[0]): string {
 
 const CANCEL_FRAME = JSON.stringify(['__streamCancel__', null, { stream: { id: 's1' } }]);
 
+function parkedSignal() {
+  let markParked!: () => void;
+  const parked = new Promise<void>((resolve) => (markParked = resolve));
+
+  return { parked, markParked };
+}
+
 describe('context.* in the finally block of a stream that is cancelled while parked at a yield', () => {
   it('works for an ephemeral stream', async () => {
     const base = server({ capabilities: [stream()] });
     const seen: { user?: string } = {};
+    const { parked, markParked } = parkedSignal();
     const feed = base.stream('feed', {
       run() {
         return slowConsumerIterator(
@@ -132,10 +144,12 @@ describe('context.* in the finally block of a stream that is cancelled while par
               seen.user = userInCleanup(base);
             }
           })(),
+          markParked,
         ) as never;
       },
     } as never);
     const engine = buildEngine(base.assemble({ handlers: [feed] }));
+
     await engine.initialize();
 
     const connection = engine.accept(Symbol('alice'), {
@@ -146,16 +160,16 @@ describe('context.* in the finally block of a stream that is cancelled while par
     } as never);
 
     void connection.handleMessage(JSON.stringify(['feed', {}, { stream: { id: 's1' } }]));
-    await sleep(30);
+    await parked;
     await connection.handleMessage(CANCEL_FRAME);
-    await sleep(30);
 
-    expect(seen.user).toBe('alice');
+    await vi.waitFor(() => expect(seen.user).toBe('alice'));
   });
 
   it('works for a durable stream', async () => {
     const base = server({ capabilities: [recordedStream()] });
     const seen: { user?: string } = {};
+    const { parked, markParked } = parkedSignal();
     const feed = base.recordedStream('feed', {
       input: v.object({}),
       maxChunks: 100,
@@ -169,10 +183,12 @@ describe('context.* in the finally block of a stream that is cancelled while par
               seen.user = userInCleanup(base);
             }
           })(),
+          markParked,
         ) as never;
       },
     } as never);
     const engine = buildEngine(base.assemble({ handlers: [feed] }));
+
     await engine.initialize();
 
     const connection = engine.accept(Symbol('alice'), {
@@ -183,10 +199,9 @@ describe('context.* in the finally block of a stream that is cancelled while par
     } as never);
 
     void connection.handleMessage(JSON.stringify(['feed', {}, { stream: { id: 's1' } }]));
-    await sleep(30);
+    await parked;
     await connection.handleMessage(CANCEL_FRAME);
-    await sleep(30);
 
-    expect(seen.user).toBe('alice');
+    await vi.waitFor(() => expect(seen.user).toBe('alice'));
   });
 });

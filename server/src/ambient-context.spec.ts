@@ -10,7 +10,8 @@ import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { Defer } from '~/errors/errors.ts';
-import { error as defineError } from '~/index.ts';
+// From the package entry, so these tests also fail if `context` stops being exported.
+import { context, error as defineError } from '~/index.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -20,7 +21,6 @@ import * as v from 'valibot';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
-import { context } from './ambient-context.ts';
 
 beforeEach(() => {
   resetCallContextForTests();

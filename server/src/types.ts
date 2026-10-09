@@ -38,16 +38,24 @@ export type Validator<T = any> = StandardSchemaV1<unknown, T>;
  */
 export type PayloadObject =
   | (PlainObject & { readonly toJSON?: JsonToObject })
-  | { toJSON: JsonToObject };
+  | (NotCallableOrBoxed & { toJSON: JsonToObject });
 
 /**
- * An object that is not an iterable (arrays, `Map`, `Set`) and not a function. Each of those has
- * a key that a plain object lacks: `Symbol.iterator` or `Symbol.hasInstance`.
+ * Not a function, and not a boxed `Number` or `String` (JSON unboxes `new Number(7)` to `7`).
+ * Each has a key that a plain object lacks: `Symbol.hasInstance`, `toFixed` or `charAt`. A
+ * boxed `Boolean` has no such key, so the runtime check is what refuses it.
  */
-type PlainObject = object & {
-  readonly [Symbol.iterator]?: never;
+type NotCallableOrBoxed = object & {
   readonly [Symbol.hasInstance]?: never;
+  readonly toFixed?: never;
+  readonly charAt?: never;
 };
+
+/**
+ * An object that is not an iterable (arrays, `Map`, `Set`), a function or a boxed value. An
+ * iterable has `Symbol.iterator`, which a plain object lacks.
+ */
+type PlainObject = NotCallableOrBoxed & { readonly [Symbol.iterator]?: never };
 
 /** A `toJSON()` that JSON calls with the root key `""` and that returns a plain object. */
 type JsonToObject = (key: string) => PlainObject;
@@ -64,20 +72,31 @@ export type ContractPayload<T> = [keyof T] extends [never]
   : T;
 
 /**
- * What a client receives for one chunk of a cursor or recorded stream. Those streams send a
- * plain object chunk as it is (an object with `toJSON()` as what that returns), and wrap any
- * other chunk (a primitive, `null`, an array, a function, a `Date`) as `{ value: chunk }`. It applies to each member of a union, as the runtime decides per chunk.
+ * What a client receives for one chunk of a cursor or recorded stream, decided on the chunk's
+ * JSON (what its `toJSON()` returns, if it has one), per member of a union as the runtime does:
+ * - a plain object is sent as it is;
+ * - a primitive, `null`, an array or a boxed value is wrapped as `{ value: json }` (a `Date`
+ *   arrives as `{ value: string }`);
+ * - a value with no JSON (a function, `undefined`) or an iterable without `toJSON()` (a `Map`) is
+ *   refused at runtime, so it is `never`.
  */
-export type DurableWireChunk<T> = unknown extends T
-  ? T
-  : T extends readonly unknown[] | ((...args: never[]) => unknown)
-    ? { value: T }
-    : T extends { toJSON(...args: never[]): infer TJson }
-      ? TJson extends object
-        ? TJson extends readonly unknown[]
-          ? { value: T }
-          : TJson
-        : { value: T }
-      : T extends object
-        ? T
-        : { value: T };
+export type DurableWireChunk<T> = unknown extends T ? T : WireChunkOf<JsonOf<T>>;
+
+type JsonOf<T> = T extends { toJSON(...args: never[]): infer TJson } ? TJson : T;
+
+type WireChunkOf<TJson> = TJson extends undefined | ((...args: never[]) => unknown)
+  ? never
+  : TJson extends readonly unknown[]
+    ? { value: TJson }
+    : // A boxed Number or String (JSON unboxes it), found by a method only it has.
+      TJson extends number | { toFixed: unknown }
+      ? { value: number }
+      : TJson extends string | { charAt: unknown }
+        ? { value: string }
+        : TJson extends boolean
+          ? { value: boolean }
+          : TJson extends object
+            ? TJson extends Iterable<unknown>
+              ? never
+              : TJson
+            : { value: TJson };

@@ -147,9 +147,34 @@ expectTypeOf<DurableClient['streams']['mixed']['chunk']>().toEqualTypeOf<
   { text: string } | { value: string[] } | { value: null }
 >();
 expectTypeOf<DurableClient['streams']['pages']['chunk']>().toEqualTypeOf<{ value: number }>();
-expectTypeOf<DurableWireChunk<() => void>>().toEqualTypeOf<{ value: () => void }>();
-expectTypeOf<DurableWireChunk<Date>>().toEqualTypeOf<{ value: Date }>();
+// Decided on the chunk's JSON: a Date arrives as its string.
+expectTypeOf<DurableWireChunk<Date>>().toEqualTypeOf<{ value: string }>();
 expectTypeOf<DurableWireChunk<Room>>().toEqualTypeOf<Room>();
+// The runtime refuses a chunk with no JSON and an iterable without toJSON(), so they are never.
+expectTypeOf<DurableWireChunk<() => void>>().toEqualTypeOf<never>();
+expectTypeOf<DurableWireChunk<undefined>>().toEqualTypeOf<never>();
+expectTypeOf<DurableWireChunk<Map<string, number>>>().toEqualTypeOf<never>();
+expectTypeOf<DurableWireChunk<number | undefined>>().toEqualTypeOf<{ value: number }>();
+// oxlint-disable-next-line typescript/no-wrapper-object-types -- the boxed type is what is tested
+expectTypeOf<DurableWireChunk<Number>>().toEqualTypeOf<{ value: number }>();
+expectTypeOf<DurableWireChunk<boolean>>().toEqualTypeOf<{ value: boolean }>();
+
+// PayloadObject refuses a boxed Number or String, and a function even with toJSON().
+interface CallableRecord {
+  (): void;
+  toJSON(): { id: number };
+}
+
+// oxlint-disable-next-line typescript/no-wrapper-object-types -- the boxed type is what is tested
+type BoxedNumber = Number;
+// oxlint-disable-next-line typescript/no-wrapper-object-types -- the boxed type is what is tested
+type BoxedString = String;
+// @ts-expect-error JSON unboxes it to 7
+emits({ count: t<BoxedNumber>() });
+// @ts-expect-error JSON unboxes it to a string
+emits({ label: t<BoxedString>() });
+// @ts-expect-error a function is not a payload
+emits({ callable: t<CallableRecord>() });
 
 base.request('get-room', {
   run: () => ({ name: 'general' }),
