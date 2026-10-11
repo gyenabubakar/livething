@@ -100,8 +100,8 @@ export class UserTransactionTracker {
     const leave = (): void => {
       if (this.levels.at(-1) === writes) this.levels.pop();
     };
-    
-const failure: Failure = { happened: false, redoneOutside: false };
+
+    const failure: Failure = { happened: false, redoneOutside: false };
 
     const attempt = (): T | undefined => {
       try {
