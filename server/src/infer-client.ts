@@ -20,6 +20,7 @@ import type {
   ValidationFailed,
 } from '~/errors/errors.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
+import type { JsonOf } from '~/types.ts';
 
 /**
  * Recursively expand all intersections and mapped types into their final
@@ -104,6 +105,23 @@ type BuiltInErrorUnion =
 type Slot<TContract, TKey extends string> = TKey extends keyof TContract ? TContract[TKey] : {};
 
 /**
+ * The server's events as the client receives them. The contract keeps the type that `ctx.send`
+ * accepts, and the client gets its JSON: what a `toJSON()` returns, if the payload has one.
+ */
+type ReceivedEvents<TContract> = {
+  [K in keyof Slot<TContract, 'outgoing'>]: JsonOf<Slot<TContract, 'outgoing'>[K]>;
+};
+
+/** The server→client requests, with each payload as the client receives it. */
+type ReceivedServerRequests<TContract> = {
+  [K in keyof Slot<TContract, 'serverRequests'>]: Slot<TContract, 'serverRequests'>[K] extends {
+    payload: infer TPayload;
+  }
+    ? Omit<Slot<TContract, 'serverRequests'>[K], 'payload'> & { payload: JsonOf<TPayload> }
+    : Slot<TContract, 'serverRequests'>[K];
+};
+
+/**
  * Drop fields the client has no use for. `cursor` is server-only: it never
  * goes on the wire, so the client entry never has it. A stream with no nudges
  * leaves `nudges` as either an open `{ [name: string]: unknown }` map or an
@@ -150,10 +168,10 @@ type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, 'ep
  * `subscribePayload` field showing what the client must pass when subscribing.
  */
 type ClientFamily<TFamily> = {
-  incoming: Slot<TFamily, 'outgoing'>;
+  incoming: ReceivedEvents<TFamily>;
   outgoing: Slot<TFamily, 'incoming'>;
   clientRequests: Slot<TFamily, 'clientRequests'>;
-  serverRequests: Slot<TFamily, 'serverRequests'>;
+  serverRequests: ReceivedServerRequests<TFamily>;
   streams: ClientStreams<TFamily>;
 } & ('subscribePayload' extends keyof TFamily
   ? { subscribePayload: TFamily['subscribePayload'] }
@@ -194,10 +212,10 @@ type PrefixKeys<TId extends string, TMap> = {
  * contract, so a plugin author reads it with `InferPluginClient`.
  */
 export type ClientPluginContract<TContract> = {
-  incoming: Slot<TContract, 'outgoing'>;
+  incoming: ReceivedEvents<TContract>;
   outgoing: Slot<TContract, 'incoming'>;
   clientRequests: Slot<TContract, 'clientRequests'>;
-  serverRequests: Slot<TContract, 'serverRequests'>;
+  serverRequests: ReceivedServerRequests<TContract>;
   streams: ClientStreams<TContract>;
   channels: ClientChannelMap<Slot<TContract, 'channels'>>;
   errors: Slot<TContract, 'errors'>;
@@ -309,13 +327,13 @@ export type InferClient<TServer extends ServerDefinition> = InferClientFor<
  */
 type InferClientFor<TContract, TPlugins> = SimplifyDeep<{
   /** Events the client receives — server `emits({...})` plus plugin emits under `__id::name`. */
-  incoming: Slot<TContract, 'outgoing'> & PluginMapOf<TPlugins, 'incoming'>;
+  incoming: ReceivedEvents<TContract> & PluginMapOf<TPlugins, 'incoming'>;
   /** Events the client sends — server `base.on(...)` plus plugin handlers under `__id::name`. */
   outgoing: Slot<TContract, 'incoming'> & PluginMapOf<TPlugins, 'outgoing'>;
   /** Request/response pairs the client can invoke, plus plugin requests under `__id::name`. */
   clientRequests: Slot<TContract, 'clientRequests'> & PluginMapOf<TPlugins, 'clientRequests'>;
   /** Server→client request/response pairs the client answers, plus plugin ones under `__id::name`. */
-  serverRequests: Slot<TContract, 'serverRequests'> & PluginMapOf<TPlugins, 'serverRequests'>;
+  serverRequests: ReceivedServerRequests<TContract> & PluginMapOf<TPlugins, 'serverRequests'>;
   /**
    * Every server-pushed stream the client can subscribe to. Plain `stream(...)`,
    * `cursorStream(...)`, and `recordedStream(...)` all show up under this

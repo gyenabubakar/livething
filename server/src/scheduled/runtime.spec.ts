@@ -773,6 +773,21 @@ describe('scheduled/runtime', () => {
     expect(scheduledTableRows(sql).map((r) => r.taskId)).toEqual(['flush']);
   });
 
+  it('keeps scheduling after a ctx.schedule call whose data cannot be stored as JSON', () => {
+    const { runtime, scheduledRuns, sql } = createScheduledRuntime([
+      { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },
+    ]);
+
+    expect(() =>
+      scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { size: 1n } }),
+    ).toThrow(/did not serialize|BigInt/);
+
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 200, data: { size: 2 } });
+
+    expect(scheduledTableRows(sql).map((row) => row.data)).toEqual(['{"size":2}']);
+    expect([...scheduledRuns.values()].map((run) => run.data)).toEqual([{ size: 2 }]);
+  });
+
   it('dead-letters a task whose rejected value cannot be JSON-stringified', async () => {
     // A handler that throws a BigInt would have crashed the alarm path
     // before — JSON.stringify(1n) throws TypeError. The run is already

@@ -121,9 +121,10 @@ function assertDeferredForeignKeysHold(state: DurableObjectState): void {
   const usesDeferredKeys =
     state.storage.sql
       // Both words, not the phrase, because a line break or extra spaces can sit between them.
-      // A table or column name that holds only one of the two words does not match.
+      // A table or column name that holds only one of the two words does not match. upper()
+      // instead of LIKE, which `PRAGMA case_sensitive_like` can make miss a lowercase key.
       .exec(
-        "SELECT 1 FROM sqlite_master WHERE sql LIKE '%INITIALLY%' AND sql LIKE '%DEFERRED%' LIMIT 1",
+        "SELECT 1 FROM sqlite_master WHERE instr(upper(sql), 'INITIALLY') > 0 AND instr(upper(sql), 'DEFERRED') > 0 LIMIT 1",
       )
       .toArray().length > 0 ||
     state.storage.sql.exec('PRAGMA defer_foreign_keys').toArray()[0]?.defer_foreign_keys === 1;

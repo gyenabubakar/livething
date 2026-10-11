@@ -41,13 +41,27 @@ function payloadError(event: string, got: string): Error {
   );
 }
 
+function durableChunkError(event: string, got: string): Error {
+  return new Error(
+    `[livething] A chunk of "${event}" must have a JSON value, such as { text: 'hi' }, 42 or ` +
+      `'hi', but it was ${got}.`,
+  );
+}
+
 /**
- * An iterable such as a `Map` or a `Set` becomes `{}` in JSON and loses its data, so it is
- * refused, unless its own `toJSON()` decides what is sent.
+ * An iterable such as a `Map`, a `Set` or an async generator becomes `{}` in JSON and loses its
+ * data, so it is refused, unless its own `toJSON()` decides what is sent.
  */
 function isIterableWithoutToJSON(value: object): boolean {
-  const candidate = value as { [Symbol.iterator]?: unknown; toJSON?: unknown };
-  return typeof candidate[Symbol.iterator] === 'function' && typeof candidate.toJSON !== 'function';
+  const candidate = value as {
+    [Symbol.iterator]?: unknown;
+    [Symbol.asyncIterator]?: unknown;
+    toJSON?: unknown;
+  };
+  const iterable =
+    typeof candidate[Symbol.iterator] === 'function' ||
+    typeof candidate[Symbol.asyncIterator] === 'function';
+  return iterable && typeof candidate.toJSON !== 'function';
 }
 
 /**
@@ -85,6 +99,15 @@ export function serializePayload(event: string, payload: unknown): string {
 }
 
 /**
+ * The payload as every recipient of one fan-out gets it: checked and turned into JSON once, so a
+ * `toJSON()` runs once and every recipient gets the same payload.
+ */
+export function payloadForFanOut(event: string, payload: unknown): Record<string, unknown> {
+  assertPayloadRecord(event, payload);
+  return JSON.parse(serializePayload(event, payload)) as Record<string, unknown>;
+}
+
+/**
  * The JSON of one cursor or recorded stream chunk: an object chunk as its own JSON, and any other
  * chunk (a primitive, `null`, an array, a `Date`) wrapped as `{ "value": ... }`. It is built
  * from one `JSON.stringify` call. A chunk with no JSON (a function without `toJSON()`, or
@@ -93,13 +116,13 @@ export function serializePayload(event: string, payload: unknown): string {
 export function serializeDurableChunk(event: string, chunk: unknown): string {
   const isObjectLike = (typeof chunk === 'object' && chunk !== null) || typeof chunk === 'function';
   if (isObjectLike && !Array.isArray(chunk) && isIterableWithoutToJSON(chunk)) {
-    throw payloadError(event, 'an iterable such as a Map or a Set, which JSON turns into {}');
+    throw durableChunkError(event, 'an iterable such as a Map or a Set, which JSON turns into {}');
   }
 
-  // A function without toJSON(), or undefined, has no JSON at all.
+  // A function without toJSON(), a symbol, or undefined, has no JSON at all.
   const json = JSON.stringify(chunk) as string | undefined;
   if (json === undefined) {
-    throw payloadError(event, `${typeof chunk}, which has no JSON`);
+    throw durableChunkError(event, `${typeof chunk}, which has no JSON`);
   }
 
   return json.startsWith('{') ? json : `{"value":${json}}`;

@@ -2,14 +2,14 @@ const ASYNC_TRANSACTION_MESSAGE =
   '[livething] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.';
 
 /**
- * Throw if `fn` is an `async` function. Call it before a transaction starts, so the callback
- * never runs and writes nothing outside the transaction.
+ * Throw if `fn` is an `async` function or an `async function*`. Call it before a transaction
+ * starts, so the callback never runs and writes nothing outside the transaction. An async
+ * generator returns an iterator, not a promise, so the result check would let it commit with
+ * none of its body run.
  */
 export function rejectAsyncTransactionCallback(fn: unknown): void {
-  if (
-    typeof fn === 'function' &&
-    Object.getPrototypeOf(fn)?.constructor?.name === 'AsyncFunction'
-  ) {
+  const kind = typeof fn === 'function' ? Object.getPrototypeOf(fn)?.constructor?.name : undefined;
+  if (kind === 'AsyncFunction' || kind === 'AsyncGeneratorFunction') {
     throw new TypeError(ASYNC_TRANSACTION_MESSAGE);
   }
 }

@@ -142,11 +142,15 @@ const durableDefinition = base.assemble({ handlers: [progress, mixed, pages] });
 type DurableClient = InferClient<typeof durableDefinition>;
 
 // The client sees what the wire carries: the object as it is, anything else inside `{ value }`.
-expectTypeOf<DurableClient['streams']['progress']['chunk']>().toEqualTypeOf<{ value: number }>();
+expectTypeOf<DurableClient['streams']['progress']['chunk']>().toEqualTypeOf<{
+  value: number | null;
+}>();
 expectTypeOf<DurableClient['streams']['mixed']['chunk']>().toEqualTypeOf<
   { text: string } | { value: string[] } | { value: null }
 >();
-expectTypeOf<DurableClient['streams']['pages']['chunk']>().toEqualTypeOf<{ value: number }>();
+expectTypeOf<DurableClient['streams']['pages']['chunk']>().toEqualTypeOf<{
+  value: number | null;
+}>();
 // Decided on the chunk's JSON: a Date arrives as its string.
 expectTypeOf<DurableWireChunk<Date>>().toEqualTypeOf<{ value: string }>();
 expectTypeOf<DurableWireChunk<Room>>().toEqualTypeOf<Room>();
@@ -154,10 +158,16 @@ expectTypeOf<DurableWireChunk<Room>>().toEqualTypeOf<Room>();
 expectTypeOf<DurableWireChunk<() => void>>().toEqualTypeOf<never>();
 expectTypeOf<DurableWireChunk<undefined>>().toEqualTypeOf<never>();
 expectTypeOf<DurableWireChunk<Map<string, number>>>().toEqualTypeOf<never>();
-expectTypeOf<DurableWireChunk<number | undefined>>().toEqualTypeOf<{ value: number }>();
+expectTypeOf<DurableWireChunk<symbol>>().toEqualTypeOf<never>();
+expectTypeOf<DurableWireChunk<bigint>>().toEqualTypeOf<never>();
+expectTypeOf<DurableWireChunk<{ toJSON(): void }>>().toEqualTypeOf<never>();
+// JSON turns NaN and Infinity into null.
+expectTypeOf<DurableWireChunk<number | undefined>>().toEqualTypeOf<{ value: number | null }>();
 // oxlint-disable-next-line typescript/no-wrapper-object-types -- the boxed type is what is tested
-expectTypeOf<DurableWireChunk<Number>>().toEqualTypeOf<{ value: number }>();
+expectTypeOf<DurableWireChunk<Number>>().toEqualTypeOf<{ value: number | null }>();
 expectTypeOf<DurableWireChunk<boolean>>().toEqualTypeOf<{ value: boolean }>();
+expectTypeOf<DurableWireChunk<BoxedBoolean>>().toEqualTypeOf<{ value: boolean }>();
+expectTypeOf<DurableWireChunk<{ total: number }>>().toEqualTypeOf<{ total: number }>();
 
 // PayloadObject refuses a boxed Number or String, and a function even with toJSON().
 interface CallableRecord {
@@ -169,10 +179,24 @@ interface CallableRecord {
 type BoxedNumber = Number;
 // oxlint-disable-next-line typescript/no-wrapper-object-types -- the boxed type is what is tested
 type BoxedString = String;
+// oxlint-disable-next-line typescript/no-wrapper-object-types -- the boxed type is what is tested
+type BoxedBoolean = Boolean;
 // @ts-expect-error JSON unboxes it to 7
 emits({ count: t<BoxedNumber>() });
 // @ts-expect-error JSON unboxes it to a string
 emits({ label: t<BoxedString>() });
+// @ts-expect-error JSON unboxes it to true
+emits({ flag: t<BoxedBoolean>() });
+// A class may have its own valueOf(); JSON ignores it.
+emits({ price: t<{ cents: number; valueOf(): number }>() });
+// Data fields named like a boxed value's methods are plain data.
+emits({
+  quote: t<{ valueOf: string; charAt: number; toFixed: number; toJSON: string }>(),
+});
+expectTypeOf<DurableWireChunk<{ toFixed: number; charAt: string }>>().toEqualTypeOf<{
+  toFixed: number;
+  charAt: string;
+}>();
 // @ts-expect-error a function is not a payload
 emits({ callable: t<CallableRecord>() });
 
@@ -189,3 +213,28 @@ base.request('count', {
   // @ts-expect-error a reply must be a plain object, null or nothing
   run: () => 0,
 });
+
+// The client receives the JSON of a payload, so an event whose payload has a toJSON() is typed
+// as that JSON, as a durable stream chunk is. It has no toJSON() method on the client.
+const recordBase = server({ capabilities: [emits({ joined: t<MemberRecord>() })] });
+const recordDefinition = recordBase.assemble({
+  handlers: [recordBase.on('noop', { run() {} })],
+});
+type RecordClient = InferClient<typeof recordDefinition>;
+expectTypeOf<RecordClient['incoming']['joined']>().toEqualTypeOf<{
+  id: string;
+  joinedAt: string;
+}>();
+
+// A reply of null is a void acknowledgement: the server sends no payload and the client's
+// request() resolves with undefined, so the client's type must not promise null.
+const nullReply = base.request('null-reply', { run: () => null });
+const maybeReply = base.request('maybe-reply', {
+  run: (): { ok: true } | null => null,
+});
+const replyDefinition = base.assemble({ handlers: [nullReply, maybeReply] });
+type ReplyClient = InferClient<typeof replyDefinition>;
+expectTypeOf<ReplyClient['clientRequests']['null-reply']['response']>().toEqualTypeOf<void>();
+expectTypeOf<ReplyClient['clientRequests']['maybe-reply']['response']>().toEqualTypeOf<
+  { ok: true } | undefined
+>();

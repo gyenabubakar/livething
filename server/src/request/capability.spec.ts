@@ -69,6 +69,21 @@ describe('clientRequests() capability', () => {
     expect(respond).toHaveBeenCalledWith({});
   });
 
+  it('responds with a falsy value cast past the types, so the payload check refuses it', async () => {
+    const base = server({ capabilities: [clientRequests()] });
+    const handleCount = base.request('count', {
+      run() {
+        return 0 as never;
+      },
+    });
+    const respond = vi.fn();
+    await requestPrimitive(base.assemble({ handlers: [handleCount] }).primitives).handler(
+      { respond } as never,
+      {},
+    );
+    expect(respond).toHaveBeenCalledWith(0);
+  });
+
   it('treats an explicit null as a void ack, not a response value', async () => {
     const base = server({ capabilities: [clientRequests()] });
     const handleFind = base.request('find', {

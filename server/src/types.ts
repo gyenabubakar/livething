@@ -37,19 +37,34 @@ export type Validator<T = any> = StandardSchemaV1<unknown, T>;
  * iterable or not, because JSON sends what that returns.
  */
 export type PayloadObject =
-  | (PlainObject & { readonly toJSON?: JsonToObject })
+  | (PlainObject & { readonly toJSON?: JsonToObject | NotAFunction })
   | (NotCallableOrBoxed & { toJSON: JsonToObject });
 
 /**
- * Not a function, and not a boxed `Number` or `String` (JSON unboxes `new Number(7)` to `7`).
- * Each has a key that a plain object lacks: `Symbol.hasInstance`, `toFixed` or `charAt`. A
- * boxed `Boolean` has no such key, so the runtime check is what refuses it.
+ * Not a function, and not a boxed `Number`, `String` or `Boolean` (JSON unboxes `new Number(7)`
+ * to `7`). Each has a method that a plain object lacks: `Symbol.hasInstance`, `toFixed`,
+ * `charAt`, or a `valueOf()` that returns a boolean. A data field with one of these names is
+ * fine, because only the method marks a function or a boxed value.
  */
 type NotCallableOrBoxed = object & {
   readonly [Symbol.hasInstance]?: never;
-  readonly toFixed?: never;
-  readonly charAt?: never;
+  readonly toFixed?: NotAFunction;
+  readonly charAt?: NotAFunction;
+  readonly valueOf?:
+    | NotAFunction
+    | (() => object | string | number | bigint | symbol | null | undefined);
 };
+
+/** Any value but a function. A function has `Symbol.hasInstance`, which no other value has. */
+type NotAFunction =
+  | string
+  | number
+  | boolean
+  | bigint
+  | symbol
+  | null
+  | undefined
+  | { readonly [Symbol.hasInstance]?: never };
 
 /**
  * An object that is not an iterable (arrays, `Map`, `Set`), a function or a boxed value. An
@@ -76,24 +91,45 @@ export type ContractPayload<T> = [keyof T] extends [never]
  * JSON (what its `toJSON()` returns, if it has one), per member of a union as the runtime does:
  * - a plain object is sent as it is;
  * - a primitive, `null`, an array or a boxed value is wrapped as `{ value: json }` (a `Date`
- *   arrives as `{ value: string }`);
- * - a value with no JSON (a function, `undefined`) or an iterable without `toJSON()` (a `Map`) is
- *   refused at runtime, so it is `never`.
+ *   arrives as `{ value: string }`). A number arrives as `number | null`, because JSON turns
+ *   `NaN` and `Infinity` into `null`;
+ * - a value with no JSON (a function, `undefined`, a `symbol`, a `toJSON()` that returns
+ *   nothing), a `bigint` (JSON throws) or an iterable without `toJSON()` (a `Map`) is refused at
+ *   runtime, so it is `never`.
  */
 export type DurableWireChunk<T> = unknown extends T ? T : WireChunkOf<JsonOf<T>>;
 
-type JsonOf<T> = T extends { toJSON(...args: never[]): infer TJson } ? TJson : T;
+/**
+ * What a client receives for a value the server sends: what its `toJSON()` returns, if it has
+ * one, as the runtime sends it.
+ */
+export type JsonOf<T> = T extends { toJSON(...args: never[]): infer TJson } ? TJson : T;
 
-type WireChunkOf<TJson> = TJson extends undefined | ((...args: never[]) => unknown)
+/**
+ * A request reply as the client's `request()` resolves it. A reply of `null` sends no payload,
+ * so the client gets `undefined`.
+ */
+export type ClientResponse<T> = 0 extends 1 & T
+  ? T
+  : [T] extends [null]
+    ? void
+    : JsonOf<Exclude<T, null>> | (null extends T ? undefined : never);
+
+type WireChunkOf<TJson> = TJson extends
+  | undefined
+  | void
+  | symbol
+  | bigint
+  | ((...args: never[]) => unknown)
   ? never
   : TJson extends readonly unknown[]
     ? { value: TJson }
-    : // A boxed Number or String (JSON unboxes it), found by a method only it has.
-      TJson extends number | { toFixed: unknown }
-      ? { value: number }
-      : TJson extends string | { charAt: unknown }
+    : // A boxed Number, String or Boolean (JSON unboxes it), found by a method only it has.
+      TJson extends number | { toFixed(...args: never[]): string }
+      ? { value: number | null }
+      : TJson extends string | { charAt(...args: never[]): string }
         ? { value: string }
-        : TJson extends boolean
+        : TJson extends boolean | { valueOf(): boolean }
           ? { value: boolean }
           : TJson extends object
             ? TJson extends Iterable<unknown>

@@ -1,3 +1,4 @@
+import { serializePayload } from '~/_engine/runtime/json-guard.ts';
 import { loadInboxBacklog } from '~/inbox/backlog.ts';
 import { listReceivers } from '~/inbox/receipts-storage.ts';
 import { backfillInbox, channelKeyFor } from '~/inbox/runtime.ts';
@@ -26,7 +27,11 @@ export function buildInboxSurface<
         deliverySeq: message.__livething.deliverySeq,
         messageId: message.__livething.messageId,
         event: message.event,
-        payload: assertRecord(message.payload as Record<string, unknown>),
+        // The same rule as every payload that is sent: an object in JSON, stored as that JSON.
+        payload: JSON.parse(serializePayload(message.event, message.payload)) as Record<
+          string,
+          unknown
+        >,
       }));
       const config = engine.getInboxChannel(channelKeyFor(channelName, channelFamily));
       backfillInbox(engine.storage.sql, {
@@ -63,17 +68,4 @@ export function buildInboxSurface<
       });
     },
   };
-}
-
-function assertRecord(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('[livething] inbox backfill payload must be a plain object.');
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new Error('[livething] inbox backfill payload must be a plain object.');
-  }
-
-  return value as Record<string, unknown>;
 }

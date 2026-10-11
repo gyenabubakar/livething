@@ -949,3 +949,36 @@ describe('server→client broadcast request — self-exclusion (Major 6)', () =>
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
   });
 });
+
+describe('server→client request — a payload the engine refuses to send', () => {
+  it('leaves no timer behind when ctx.request rejects because sending threw', async () => {
+    vi.useFakeTimers();
+    try {
+      let extender!: (ctx: any) => Record<string, unknown>;
+      const engine = {
+        generateId: (prefix?: string) => `${prefix}_1`,
+        onAnswerFrame() {},
+        onDisconnect() {},
+        extendContext: (factory: any) => (extender = factory),
+        sendServerRequest() {
+          throw new Error('[livething] The payload for "ask" must be a plain object');
+        },
+      };
+
+      makeServerRequestsPrimitive(topDeclarations(PERMISSION)).__setup!(engine as any);
+      const ctx: any = {
+        connection: { __livething: 'connection-ref', id: 'c1', instance: undefined, userId: 'i' },
+        [ENGINE_CHANNEL_META]: {},
+        connections: { get: () => ({ send: () => true }), all: () => [] },
+      };
+
+      Object.assign(ctx, extender(ctx));
+
+      await expect(ctx.request('ask', 'not an object')).rejects.toThrow(/plain object/);
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

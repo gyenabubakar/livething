@@ -74,12 +74,6 @@ describe('inbox surface — backfill()', () => {
   it.each([
     ['a Date', new Date(0)],
     ['a Map', new Map([['key', 'value']])],
-    [
-      'a class instance',
-      new (class Payload {
-        value = 1;
-      })(),
-    ],
   ])('throws on %s payload', (_label, payload) => {
     const { sql, surface } = harness();
     const bad = {
@@ -90,6 +84,34 @@ describe('inbox surface — backfill()', () => {
 
     expect(() => surface.backfill('newcomer', [bad])).toThrow(/plain object/);
     expect(loadUndeliveredRows(sql, 'newcomer')).toEqual([]);
+  });
+
+  it('throws on a payload whose toJSON() gives a string, like ctx.send does, instead of writing a broken row', () => {
+    const { sql, surface } = harness();
+    const bad = {
+      event: 'msg',
+      payload: { toJSON: () => 'not-an-object' },
+      __livething: { deliverySeq: 1, messageId: 'm1' },
+    } as unknown as BackfillMessage;
+
+    expect(() => surface.backfill('newcomer', [bad])).toThrow(/must be a plain object/);
+    expect(loadUndeliveredRows(sql, 'newcomer')).toEqual([]);
+  });
+
+  it('accepts a class instance and stores its JSON, as ctx.send would send it', () => {
+    const { sql, surface } = harness();
+    class Draft {
+      constructor(readonly text: string) {}
+      toJSON() {
+        return { draft: this.text };
+      }
+    }
+
+    surface.backfill('newcomer', [backfillFrame(1, { payload: new Draft('hi') as never })]);
+
+    expect(loadUndeliveredRows(sql, 'newcomer').map((row) => JSON.parse(row.payload))).toEqual([
+      { draft: 'hi' },
+    ]);
   });
 
   it('accepts normal and null-prototype objects', () => {

@@ -352,13 +352,23 @@ function createOutgoingRequestRuntime(
         responseValidator: declaration?.responseValidator,
       });
 
-      const sent = engine.sendServerRequest(target.connectionId, {
-        event,
-        payload,
-        correlationId,
-        channel: target.channel,
-        channelFamily: target.channelFamily,
-      });
+      let sent: boolean;
+      try {
+        sent = engine.sendServerRequest(target.connectionId, {
+          event,
+          payload,
+          correlationId,
+          channel: target.channel,
+          channelFamily: target.channelFamily,
+        });
+      } catch (error) {
+        // A payload that cannot be sent: no answer can come, so nothing is left waiting.
+        pending.delete(correlationId);
+        clearTimeout(timer);
+        reject(error);
+        return;
+      }
+
       if (!sent) {
         // No live socket for this connection — fail fast instead of waiting out
         // the timeout for an answer that can never come.
@@ -404,13 +414,21 @@ function createOutgoingRequestRuntime(
 
       for (const target of targets) {
         const correlationId = engine.generateId('breq');
-        const sent = engine.sendServerRequest(target.connectionId, {
-          event,
-          payload,
-          correlationId,
-          channel: routing?.channel,
-          channelFamily: routing?.channelFamily,
-        });
+        let sent: boolean;
+        try {
+          sent = engine.sendServerRequest(target.connectionId, {
+            event,
+            payload,
+            correlationId,
+            channel: routing?.channel,
+            channelFamily: routing?.channelFamily,
+          });
+        } catch (error) {
+          // Every target gets the same payload, so none of them can be sent.
+          finishBroadcast(group, () => group.reject(error));
+          return;
+        }
+
         // A target whose socket is already gone simply contributes no leg —
         // others may still answer; if none remain the timer rejects.
         if (!sent) continue;

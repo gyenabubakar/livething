@@ -814,9 +814,10 @@ async function runGenerator(
     return activeStream?.connection ?? connection;
   }
 
+  let iterator: AsyncGenerator<unknown, void, unknown> | undefined;
   try {
     const streamCall = connectionCall(connection.id, scope, () => ctx);
-    const iterator = inConnectionCall(
+    iterator = inConnectionCall(
       runtime.asyncContext,
       streamCall,
       withConnectionCall(runtime.asyncContext, streamCall, () =>
@@ -1056,6 +1057,10 @@ async function runGenerator(
       );
     }
   } catch (error) {
+    // When LiveThing refused a chunk, the generator still waits at its yield. Close it, so its
+    // finally blocks run. A generator that threw has already finished, so this does nothing.
+    await iterator?.return(undefined).catch(() => {});
+
     // A config error must propagate, but the row still has to leave 'active' or
     // it blocks every future start/continue — mark it ended before rethrowing.
     // Only when this run still owns the slot; a replacement manages its own row.

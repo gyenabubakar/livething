@@ -65,5 +65,24 @@ describe('serializeDurableChunk', () => {
     expect(() => serializeDurableChunk('feed', new Map([['a', 1]]))).toThrow(
       /an iterable such as a Map or a Set/,
     );
+    async function* pages() {
+      yield 1;
+    }
+
+    expect(() => serializeDurableChunk('feed', pages())).toThrow(
+      /an iterable such as a Map or a Set/,
+    );
+  });
+
+  it('does not tell the developer that a recorded or cursor chunk must be a plain object', () => {
+    let message = '';
+    try {
+      serializeDurableChunk('feed', undefined);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    // A number, a string, null and an array are valid chunks here: they are wrapped as { value }.
+    expect(message).not.toMatch(/must be a plain object|yield an object/);
   });
 });

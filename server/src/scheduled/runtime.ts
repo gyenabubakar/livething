@@ -814,6 +814,13 @@ export function scheduleTaskRun(
     );
   }
 
+  // The task gets the data as it is stored, so it is the same before and after a restart. Data
+  // that has no JSON throws here, before the run joins the queue.
+  const storedData =
+    normalizedData === undefined
+      ? undefined
+      : JSON.parse(serializeJsonOrThrow(normalizedData, `ctx.schedule("${taskId}", ...) data`));
+
   const every = task.options?.every;
   const restartsRecurring = every !== undefined && clearTaskStopped(runtime, taskId);
 
@@ -821,7 +828,7 @@ export function scheduleTaskRun(
     id,
     taskId,
     time,
-    data: normalizedData,
+    data: storedData,
     ...(restartsRecurring ? { every } : {}),
     attempts: 0,
     recurring: restartsRecurring,

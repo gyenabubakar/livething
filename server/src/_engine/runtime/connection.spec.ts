@@ -60,6 +60,7 @@ describe('connection runtime', () => {
       async processTextMessage() {},
       async handleConnectionClose() {},
       async handleRuntimeError() {},
+      async handleSocketError() {},
     };
 
     acceptConnection(runtime as never, Symbol('ws'), {
@@ -179,6 +180,9 @@ describe('connection runtime', () => {
         async handleRuntimeError() {
           events.push('error');
         },
+        async handleSocketError() {
+          events.push('error');
+        },
       },
       Symbol('ws'),
       {
@@ -246,6 +250,9 @@ describe('connection runtime', () => {
           events.push('close');
         },
         async handleRuntimeError() {
+          events.push('error');
+        },
+        async handleSocketError() {
           events.push('error');
         },
       },
@@ -325,6 +332,9 @@ describe('connection runtime', () => {
         async handleRuntimeError() {
           events.push('error');
         },
+        async handleSocketError() {
+          events.push('error');
+        },
       },
       Symbol('ws'),
       {
@@ -389,6 +399,7 @@ describe('connection runtime', () => {
         async processTextMessage() {},
         async handleConnectionClose() {},
         async handleRuntimeError() {},
+        async handleSocketError() {},
       },
       Symbol('ws-a'),
       {
@@ -457,6 +468,7 @@ describe('connection runtime', () => {
           async processTextMessage() {},
           async handleConnectionClose() {},
           async handleRuntimeError() {},
+          async handleSocketError() {},
         },
         wsKey,
         {
@@ -527,6 +539,7 @@ describe('connection runtime', () => {
         async processTextMessage() {},
         async handleConnectionClose() {},
         async handleRuntimeError() {},
+        async handleSocketError() {},
       },
       wsKey,
     );
@@ -586,6 +599,7 @@ describe('connection runtime', () => {
         async processTextMessage() {},
         async handleConnectionClose() {},
         async handleRuntimeError() {},
+        async handleSocketError() {},
       },
       wsKey,
     );
@@ -650,6 +664,7 @@ describe('connection runtime', () => {
         async processTextMessage() {},
         async handleConnectionClose() {},
         async handleRuntimeError() {},
+        async handleSocketError() {},
       },
       wsKey,
     );
@@ -720,6 +735,7 @@ describe('connection runtime', () => {
           async processTextMessage() {},
           async handleConnectionClose() {},
           async handleRuntimeError() {},
+          async handleSocketError() {},
         },
         wsKey,
       ),
@@ -790,6 +806,7 @@ describe('connection runtime', () => {
           async processTextMessage() {},
           async handleConnectionClose() {},
           async handleRuntimeError() {},
+          async handleSocketError() {},
         },
         wsKey,
       );

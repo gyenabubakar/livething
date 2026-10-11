@@ -61,7 +61,8 @@ export interface SqlResult<T = unknown> {
  * `node:sqlite` allows 32,766. LiveThing does not pick a number for you: each
  * adapter states its engine's real numbers here, and code that builds
  * variable-length SQL (batched inserts, `WHERE id IN (...)`, and similar)
- * reads `limits` to stay under them instead of assuming one shared ceiling.
+ * reads `maxBoundParams` to stay under it instead of assuming one shared ceiling.
+ * The two byte limits describe the rest of the engine; LiveThing does not read them.
  *
  * Authoring a custom adapter? Find your engine's real numbers from its own
  * documentation — do not guess. See
@@ -147,8 +148,10 @@ export interface KVProvider {
 
   /**
    * Write one value. Optionally set a TTL in milliseconds after which the key expires.
-   * LiveThing can call it a second time with the same arguments, after a `ctx.sql.transaction`
-   * rolls back, so it must be safe to run twice.
+   * LiveThing can write a key a second time, after a `ctx.sql.transaction` rolls back, so it
+   * must be safe to run twice. The second call passes the same value and only the TTL that is
+   * left, so the key still expires when it first would have. If that time has passed, LiveThing
+   * calls `delete` instead. Count the TTL from the moment of each call.
    */
   set(key: string, value: unknown, options?: OptionsParameter): Promise<void>;
 
@@ -227,8 +230,8 @@ export interface AsyncContext<TStore = unknown> {
 
 /**
  * Factory the adapter provides so the engine can create its own async context
- * instances. It must return a new store on every call: the engine calls it for
- * each engine's own store, and once more for the shared store behind `context.*`.
+ * instances. It must return a new store on every call, because the engine keeps
+ * several stores apart, such as the one behind `context.*`.
  */
 export type AsyncContextFactory = <TStore>() => AsyncContext<TStore>;
 

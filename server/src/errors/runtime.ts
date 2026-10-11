@@ -94,6 +94,9 @@ export interface SendRuntimeErrorOptions {
   event?: string;
 
   routing?: Protocol.LiveThingRouting;
+
+  /** The socket itself failed, such as a reset connection. No handler threw. */
+  fromSocket?: boolean;
 }
 
 /**
@@ -124,7 +127,11 @@ export async function sendRuntimeError(
     typeof error === 'object' &&
     error !== null &&
     (error as { __livething?: unknown }).__livething === 'defer';
-  if (!(error instanceof LiveThingError) && !isLoggedDefer && deps.errorHooks.length === 0) {
+  if (options.fromSocket) {
+    if (deps.errorHooks.length === 0) {
+      deps.logger.warn('[livething] A connection reported a socket error.', { error });
+    }
+  } else if (!(error instanceof LiveThingError) && !isLoggedDefer && deps.errorHooks.length === 0) {
     deps.logger.error(
       '[livething] A handler threw an unexpected error, and the client got internal-error. ' +
         'Add an onError hook to handle such errors yourself.',

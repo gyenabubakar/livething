@@ -14,6 +14,12 @@ describe('rejectAsyncTransactionCallback', () => {
     );
   });
 
+  it('throws for an async generator, which returns an iterator instead of a promise', () => {
+    expect(() => rejectAsyncTransactionCallback(async function* work() {})).toThrow(
+      /callbacks must be synchronous/,
+    );
+  });
+
   it('accepts a plain function and a function that returns a promise', () => {
     expect(() => rejectAsyncTransactionCallback(() => 1)).not.toThrow();
     expect(() => rejectAsyncTransactionCallback(() => Promise.resolve(1))).not.toThrow();

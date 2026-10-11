@@ -16,6 +16,7 @@ import {
 } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
+import { payloadForFanOut } from '~/_engine/runtime/json-guard.ts';
 import {
   abortActiveStream,
   assertNoConcurrentStream,
@@ -605,6 +606,8 @@ export async function runStream(
         streamSeq: seq,
       };
 
+      // A broadcast chunk is turned into JSON once, so the creator and every peer get the same one.
+      const chunk = stream.stream.broadcast ? payloadForFanOut(event, result.value) : result.value;
       if (stream.stream.broadcast) {
         // Fan out per-target so each peer chunk carries streamId + seq + streamDurability
         // (same as the creator's), which onStream needs to group and complete it.
@@ -614,7 +617,7 @@ export async function runStream(
             runtime.sendThroughPipeline(target, {
               routing: chunkRouting,
               event,
-              payload: result.value,
+              payload: chunk,
             });
           },
           { context: `stream broadcast fan-out streamId="${streamId}" event="${event}"` },
@@ -624,7 +627,7 @@ export async function runStream(
       const sent = runtime.sendThroughPipeline(connection, {
         routing: chunkRouting,
         event,
-        payload: result.value,
+        payload: chunk,
       });
       if (!sent) {
         activeStream.closed = true;
@@ -647,6 +650,10 @@ export async function runStream(
       await sendBroadcastEnd(seq);
     }
   } catch (streamError) {
+    // When LiveThing refused a chunk, the generator still waits at its yield. Close it, so its
+    // finally blocks run. A generator that threw has already finished, so this does nothing.
+    await iterator.return(undefined).catch(() => {});
+
     const routing: Protocol.LiveThingRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelFamily) routing.channelFamily = scope.channelFamily;

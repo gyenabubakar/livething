@@ -52,7 +52,13 @@ import type { ResolvedServerRequest, ServerRequestsCapability } from '~/request/
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
-import type { DurableWireChunk, PayloadObject, Validator } from '~/types.ts';
+import type {
+  ClientResponse,
+  DurableWireChunk,
+  JsonOf,
+  PayloadObject,
+  Validator,
+} from '~/types.ts';
 import { assertUniqueCapabilityKinds } from './capability-checks.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugins.ts` — it is a package entry, so a
@@ -293,7 +299,9 @@ export type RequestHandlerValue<TEvent extends string, TPayload, TResponse> = Re
   TPayload,
   TResponse
 > &
-  Contribution<{ clientRequests: Record<TEvent, { payload: TPayload; response: TResponse }> }>;
+  Contribution<{
+    clientRequests: Record<TEvent, { payload: TPayload; response: ClientResponse<TResponse> }>;
+  }>;
 
 /** Configuration object for `base.request(...)`. */
 export type RequestConfig<
@@ -451,7 +459,7 @@ export interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapabili
     config: StreamConfig<TSlots, TMeta, TInput, TChunk, TNudges, TCaps>,
   ): StreamHandlerValue<
     TEvent,
-    { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> },
+    { payload: InferInput<TInput>; chunk: JsonOf<TChunk>; nudges: NudgesContract<TNudges> },
     'streams'
   >;
 }
@@ -1041,7 +1049,7 @@ interface ChannelStreamMethod<
     {
       streams: Record<
         TEvent,
-        { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> }
+        { payload: InferInput<TInput>; chunk: JsonOf<TChunk>; nudges: NudgesContract<TNudges> }
       >;
     }
   >;
@@ -1426,7 +1434,10 @@ export interface ChannelRequestMethods<
     TKey,
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
     {
-      clientRequests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }>;
+      clientRequests: Record<
+        TEvent,
+        { payload: InferInput<TInput>; response: ClientResponse<Awaited<TResponse>> }
+      >;
     }
   >;
 }

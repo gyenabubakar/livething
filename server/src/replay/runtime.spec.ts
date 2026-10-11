@@ -900,3 +900,29 @@ describe('ReplayFrame schema', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('replay retention on an engine with a bound-parameter cap', () => {
+  it('prunes the server store when many channels have a replay of their own', () => {
+    const maxBoundParams = 100;
+    const sql = createTestSql({
+      limits: { maxBoundParams },
+      onExec(_query, params) {
+        if (params.length > maxBoundParams) {
+          throw new Error(`too many SQL variables: ${params.length} for ${maxBoundParams}`);
+        }
+      },
+    });
+    ensureReplaySchema(sql);
+    const claimedChannelKeys = new Set(
+      Array.from({ length: 60 }, (_, index) => `channel-${index}`),
+    );
+
+    expect(() =>
+      pruneExpiredReplayRows(sql, {
+        retention: { maxAgeMs: 50 },
+        now: 100,
+        owner: { channelKey: undefined, claimedChannelKeys },
+      }),
+    ).not.toThrow();
+  });
+});

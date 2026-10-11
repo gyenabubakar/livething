@@ -1,3 +1,4 @@
+import { rejectAsyncTransactionCallback } from '~/_adapters/sync-transaction.ts';
 import type {
   AsyncContext,
   AsyncContextFactory,
@@ -93,10 +94,14 @@ export class UserTransactionTracker {
    * and the redo end in a single commit. The storage never keeps the rollback without the redo.
    */
   run<T>(sql: SQLProvider, userFn: () => T): T {
+    // The scope wrapper below is a plain function, so the provider could no longer see an async
+    // callback and refuse it before it runs.
+    rejectAsyncTransactionCallback(userFn);
     const fn = this.inCallbackScope(userFn);
     const writes: RecordedWrite[] = [];
     const nested = this.levels.length > 0;
     this.levels.push(writes);
+
     const leave = (): void => {
       if (this.levels.at(-1) === writes) this.levels.pop();
     };

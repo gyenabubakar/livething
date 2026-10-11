@@ -39,6 +39,8 @@ function isPluginKey(key: string): boolean {
  * A copy of a kv value, so a change made to the value after `set` does not change what
  * is written again after a rollback. A value that cannot be copied is used as it is.
  * A binary view keeps its own type only at the top level, and its whole backing buffer is copied.
+ * A value holding a class instance, at any depth, is used as it is: a copy would lose the class,
+ * and with it a `toJSON()` that a provider may call.
  */
 function snapshotOf(value: unknown): unknown {
   try {
@@ -48,9 +50,26 @@ function snapshotOf(value: unknown): unknown {
       return Object.setPrototypeOf(copy, Object.getPrototypeOf(value));
     }
 
-    return copy;
+    if (Object(copy) === copy && Object.getPrototypeOf(copy) !== Object.getPrototypeOf(value)) {
+      // A null-prototype object is plain data, so its copy keeps the null prototype.
+      return Object.getPrototypeOf(value) === null ? Object.setPrototypeOf(copy, null) : value;
+    }
+
+    return sameJson(copy, value) ? copy : value;
   } catch {
     return value;
+  }
+}
+
+/**
+ * Whether the copy has the same JSON as the original. A nested class instance whose `toJSON()`
+ * the copy lost gives different JSON. A value with no JSON (a BigInt, a cycle) counts as the same.
+ */
+function sameJson(copy: unknown, value: unknown): boolean {
+  try {
+    return JSON.stringify(copy) === JSON.stringify(value);
+  } catch {
+    return true;
   }
 }
 

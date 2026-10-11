@@ -1,5 +1,6 @@
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
+import { payloadForFanOut } from '~/_engine/runtime/json-guard.ts';
 import {
   addConnectionTag,
   connectionTagRefs,
@@ -54,6 +55,36 @@ function readBag(connection: RuntimeConnection, kind: TagKind): Map<string, Set<
   return connection.tags[kind];
 }
 
+interface MemberBroadcast {
+  event: string;
+  payload: unknown;
+  /** The label that a failure is logged under. */
+  context: string;
+}
+
+/**
+ * Send one payload to every member. It is turned into JSON once, so a `toJSON()` runs once and
+ * every member gets the same payload. A payload that cannot be sent is logged, like a send that
+ * fails for one member.
+ */
+function broadcastToMembers(
+  runtime: Pick<TagsRuntime, 'sendThroughPipeline'>,
+  members: Iterable<EngineRuntimeTypes.RuntimeConnection>,
+  opts: MemberBroadcast,
+): void {
+  const { event, context } = opts;
+  forEachIsolated(
+    [opts.payload],
+    (payload) => {
+      const shared = payloadForFanOut(event, payload);
+      forEachIsolated(members, (target) => runtime.sendThroughPipeline(target, event, shared), {
+        context,
+      });
+    },
+    { context },
+  );
+}
+
 function makeRefHandle(
   runtime: Pick<TagsRuntime, 'tagMembers' | 'toConnectionInfo' | 'sendThroughPipeline'>,
   tag: TagKey,
@@ -68,7 +99,9 @@ function makeRefHandle(
       const members = runtime.tagMembers.get(tagRefIndexKey(kind, group, key));
       if (!members) return;
 
-      forEachIsolated(members, (target) => runtime.sendThroughPipeline(target, event, payload), {
+      broadcastToMembers(runtime, members, {
+        event,
+        payload,
         context: `tag ref broadcast '${kind}:${group}/${key}' event="${event}"`,
       });
     },
@@ -181,7 +214,9 @@ export function buildGroupHandle(
       const members = runtime.tagMembers.get(tagGroupIndexKey(kind, group));
       if (!members) return;
 
-      forEachIsolated(members, (target) => runtime.sendThroughPipeline(target, event, payload), {
+      broadcastToMembers(runtime, members, {
+        event,
+        payload,
         context: `tag group broadcast '${kind}:${group}' event="${event}"`,
       });
     },

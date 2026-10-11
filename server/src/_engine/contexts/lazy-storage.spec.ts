@@ -122,6 +122,91 @@ describe('lazy kv — writes inside a rolled-back sql transaction', () => {
     expect(store.get('key')).toEqual({ count: 1 });
   });
 
+  it('redoes a null-prototype object as it was when it was written, not as it was changed later', () => {
+    const written: string[] = [];
+    const kvImpl: any = {
+      async set(_key: string, value: unknown) {
+        written.push(JSON.stringify(value));
+      },
+    };
+
+    const { sql, kv } = createLazyStorageView(
+      { sql: createTestSql(), kv: kvImpl } as any,
+      new UserTransactionTracker(() => {}),
+    );
+    const value: Record<string, number> = Object.assign(Object.create(null), { count: 1 });
+
+    expect(() =>
+      sql.transaction(() => {
+        void kv.set('key', value);
+        value.count = 999;
+        throw new Error('roll back');
+      }),
+    ).toThrow('roll back');
+
+    expect(written).toEqual(['{"count":1}', '{"count":1}']);
+  });
+
+  it('redoes a class instance as it is, so a provider that calls its toJSON() writes the same data', () => {
+    const written: string[] = [];
+    const kvImpl: any = {
+      async set(_key: string, value: unknown) {
+        written.push(JSON.stringify(value));
+      },
+    };
+
+    class Draft {
+      constructor(private readonly text: string) {}
+      toJSON() {
+        return { draft: this.text };
+      }
+    }
+
+    const { sql, kv } = createLazyStorageView(
+      { sql: createTestSql(), kv: kvImpl } as any,
+      new UserTransactionTracker(() => {}),
+    );
+
+    expect(() =>
+      sql.transaction(() => {
+        void kv.set('draft', new Draft('hi'));
+        throw new Error('roll back');
+      }),
+    ).toThrow('roll back');
+
+    expect(written).toEqual(['{"draft":"hi"}', '{"draft":"hi"}']);
+  });
+
+  it('redoes a class instance inside a plain object as it was first written', () => {
+    const written: string[] = [];
+    const kvImpl: any = {
+      async set(_key: string, value: unknown) {
+        written.push(JSON.stringify(value));
+      },
+    };
+
+    class Draft {
+      constructor(private readonly text: string) {}
+      toJSON() {
+        return { draft: this.text };
+      }
+    }
+
+    const { sql, kv } = createLazyStorageView(
+      { sql: createTestSql(), kv: kvImpl } as any,
+      new UserTransactionTracker(() => {}),
+    );
+
+    expect(() =>
+      sql.transaction(() => {
+        void kv.set('doc', { body: new Draft('hi') });
+        throw new Error('roll back');
+      }),
+    ).toThrow('roll back');
+
+    expect(written[1]).toBe(written[0]);
+  });
+
   it('redoes binary data as it was written and keeps its type', () => {
     const calls: { key: string; value: any }[] = [];
     const kvImpl: any = {
@@ -362,6 +447,20 @@ describe('ctx.sql after a transaction callback that returned a promise', () => {
     ).toThrow(/callbacks must be synchronous/);
 
     await expect(leftover).rejects.toThrow(/was refused because it returned a promise/);
+  });
+
+  it('never runs an async function callback, so its first statements have no effect outside SQL', () => {
+    const { sql } = sqlView();
+    const ran: string[] = [];
+
+    expect(() =>
+      sql.transaction(async () => {
+        ran.push('first statement');
+        await Promise.resolve();
+      }),
+    ).toThrow(/callbacks must be synchronous/);
+
+    expect(ran).toEqual([]);
   });
 
   it('leaves the code after the transaction call, and later work of a good callback, alone', async () => {

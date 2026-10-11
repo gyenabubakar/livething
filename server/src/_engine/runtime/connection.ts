@@ -284,6 +284,12 @@ interface ConnectionRuntime {
     event?: string,
   ): Promise<void>;
 
+  /** Report an error that the socket raised, not one that a handler threw. */
+  handleSocketError(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    error: unknown,
+  ): Promise<void>;
+
   /**
    * Re-subscribe a fresh connection to every persistent channel its user id
    * was in. Called from `acceptConnection` between the initial row write and
@@ -344,7 +350,7 @@ function createHandle(
     handleError: async (error) => {
       try {
         await waitForLifecycle();
-        await runtime.handleRuntimeError(connection, error, undefined);
+        await runtime.handleSocketError(connection, error);
       } catch (handlerError) {
         runtime.logger?.error('[livething] connection error handler failed', {
           error: handlerError instanceof Error ? handlerError.message : String(handlerError),
