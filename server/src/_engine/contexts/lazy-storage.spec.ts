@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createLazyStorageView, PRIVILEGED_KV } from '~/_engine/contexts/lazy-storage.ts';
 import { UserTransactionTracker } from '~/_engine/user-transaction.ts';
 import { createTestSql } from '~/_test/sql.ts';
@@ -304,6 +305,81 @@ describe('lazy kv — writes inside a rolled-back sql transaction', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(errors).toEqual([]);
+  });
+});
+
+describe('ctx.sql after a transaction callback that returned a promise', () => {
+  function sqlView() {
+    const sql = createTestSql();
+    sql.exec('CREATE TABLE messages (id TEXT, read INTEGER)');
+    sql.exec("INSERT INTO messages VALUES ('m1', 0)");
+    const reported: string[] = [];
+    const tracker = new UserTransactionTracker(
+      () => {},
+      <TStore>() => new AsyncLocalStorage<TStore>(),
+      (error) => reported.push(error.message),
+    );
+
+    return { ...createLazyStorageView({ sql, kv: {} } as any, tracker), raw: sql, reported };
+  }
+
+  function readFlag(raw: ReturnType<typeof createTestSql>): number | undefined {
+    return raw.exec<{ read: number }>("SELECT read FROM messages WHERE id = 'm1'").one()?.read;
+  }
+
+  it('refuses the writes that run after the await, so nothing is saved, and reports it', async () => {
+    const { sql, raw, reported } = sqlView();
+    let leftover: Promise<void> | undefined;
+
+    expect(() =>
+      sql.transaction(() => {
+        leftover = (async () => {
+          await Promise.resolve();
+          sql.exec("UPDATE messages SET read = 1 WHERE id = 'm1'");
+        })();
+        return leftover;
+      }),
+    ).toThrow(/callbacks must be synchronous/);
+
+    await expect(leftover).rejects.toThrow(/was refused because it returned a promise/);
+    expect(readFlag(raw)).toBe(0);
+    // The refused promise is marked handled, so the report is how a developer sees this.
+    expect(reported).toEqual([expect.stringMatching(/was refused because it returned a promise/)]);
+  });
+
+  it('refuses a new transaction from that leftover work too', async () => {
+    const { sql } = sqlView();
+    let leftover: Promise<void> | undefined;
+
+    expect(() =>
+      sql.transaction(() => {
+        leftover = (async () => {
+          await Promise.resolve();
+          sql.transaction(() => sql.exec("UPDATE messages SET read = 1 WHERE id = 'm1'"));
+        })();
+        return leftover;
+      }),
+    ).toThrow(/callbacks must be synchronous/);
+
+    await expect(leftover).rejects.toThrow(/was refused because it returned a promise/);
+  });
+
+  it('leaves the code after the transaction call, and later work of a good callback, alone', async () => {
+    const { sql, raw } = sqlView();
+    let later: Promise<void> | undefined;
+
+    expect(() => sql.transaction(() => Promise.resolve())).toThrow(/must be synchronous/);
+    sql.exec("UPDATE messages SET read = 1 WHERE id = 'm1'");
+    expect(readFlag(raw)).toBe(1);
+
+    sql.transaction(() => {
+      later = (async () => {
+        await Promise.resolve();
+        sql.exec("UPDATE messages SET read = 2 WHERE id = 'm1'");
+      })();
+    });
+    await later;
+    expect(readFlag(raw)).toBe(2);
   });
 });
 

@@ -1,4 +1,20 @@
-import type { SQLProvider, StorageProvider, TimerProvider } from '~/context.ts';
+import type {
+  AsyncContext,
+  AsyncContextFactory,
+  SQLProvider,
+  StorageProvider,
+  TimerProvider,
+} from '~/context.ts';
+
+/** The scope that one user transaction callback, and the async work it starts, runs in. */
+interface CallbackScope {
+  refused: boolean;
+}
+
+const REFUSED_CALLBACK_MESSAGE =
+  '[livething] This ctx.sql call comes from a sql.transaction() callback that was refused ' +
+  'because it returned a promise. Its writes would be saved one by one, outside any ' +
+  'transaction. Move the await before or after the transaction.';
 
 interface RecordedWrite {
   /** Runs the write again. A SQL write gets the provider to run it on. */
@@ -37,7 +53,34 @@ export class UserTransactionTracker {
   /** One list of writes per open user transaction, outermost first. */
   private readonly levels: RecordedWrite[][] = [];
 
-  constructor(private readonly onRedoError: (error: unknown) => void) {}
+  /**
+   * Follows the async work that each user transaction callback starts. A callback that returns
+   * a promise is refused, but the code after its `await` still runs later, outside any
+   * transaction. Its scope is then marked refused, so that code's `ctx.sql` calls throw
+   * instead of saving writes one by one.
+   */
+  private readonly callbackScopes: AsyncContext<CallbackScope> | undefined;
+
+  constructor(
+    private readonly onRedoError: (error: unknown) => void,
+    asyncContextFactory?: AsyncContextFactory,
+    private readonly onRefusedSql: (error: Error) => void = () => {},
+  ) {
+    this.callbackScopes = asyncContextFactory?.<CallbackScope>();
+  }
+
+  /**
+   * Throw if this code was started by a transaction callback that was refused for returning a
+   * promise. `ctx.sql.exec` and `ctx.sql.transaction` call it first. The error is also reported,
+   * because it rejects the refused promise, which LiveThing already marked as handled.
+   */
+  assertNotFromRefusedCallback(): void {
+    if (this.callbackScopes?.getStore()?.refused) {
+      const error = new Error(REFUSED_CALLBACK_MESSAGE);
+      this.onRefusedSql(error);
+      throw error;
+    }
+  }
 
   get inTransaction(): boolean {
     return this.levels.length > 0;
@@ -49,14 +92,16 @@ export class UserTransactionTracker {
    * The outermost user transaction runs inside one more transaction, so the rollback
    * and the redo end in a single commit. The storage never keeps the rollback without the redo.
    */
-  run<T>(sql: SQLProvider, fn: () => T): T {
+  run<T>(sql: SQLProvider, userFn: () => T): T {
+    const fn = this.inCallbackScope(userFn);
     const writes: RecordedWrite[] = [];
     const nested = this.levels.length > 0;
     this.levels.push(writes);
     const leave = (): void => {
       if (this.levels.at(-1) === writes) this.levels.pop();
     };
-    const failure: Failure = { happened: false, redoneOutside: false };
+    
+const failure: Failure = { happened: false, redoneOutside: false };
 
     const attempt = (): T | undefined => {
       try {
@@ -93,6 +138,30 @@ export class UserTransactionTracker {
     pushAll(this.levels.at(-1), writes);
 
     return result as T;
+  }
+
+  /**
+   * Run the user's callback in its own scope. When it returns a promise, the provider refuses
+   * the transaction, and the scope is marked so the work left after the callback's `await`
+   * cannot use `ctx.sql`.
+   */
+  private inCallbackScope<T>(userFn: () => T): () => T {
+    const scopes = this.callbackScopes;
+    if (!scopes) return userFn;
+
+    return () => {
+      const scope: CallbackScope = { refused: false };
+      return scopes.run(scope, () => {
+        const result = userFn();
+        const isThenable =
+          (typeof result === 'object' || typeof result === 'function') &&
+          result !== null &&
+          typeof (result as { then?: unknown }).then === 'function';
+        if (isThenable) scope.refused = true;
+
+        return result;
+      });
+    };
   }
 
   /** Note one engine statement that ran while a user transaction was open. */

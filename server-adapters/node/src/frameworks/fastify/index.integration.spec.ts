@@ -61,7 +61,7 @@ const assembled = base.assemble({ handlers: [echo] });
 interface TestClient {
   incoming: {
     connected: { clientIp: string | null };
-    echoed: { text: string };
+    echoed: { text?: string };
   };
   outgoing: { echo: { text: string } };
 }
@@ -416,7 +416,7 @@ describe('Fastify binding', () => {
     const connected = new Promise<{ clientIp: string | null }>((resolve) =>
       socket.on('connected', resolve),
     );
-    const echoed = new Promise<{ text: string }>((resolve) => socket.on('echoed', resolve));
+    const echoed = new Promise<{ text?: string }>((resolve) => socket.on('echoed', resolve));
 
     try {
       socket.connect();

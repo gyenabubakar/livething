@@ -74,9 +74,11 @@ export function createLazyStorageView(
 } {
   const sql: PublicApi.SQLProvider = {
     exec(query, ...params) {
+      userTransactions.assertNotFromRefusedCallback();
       return storage.sql.exec(query, ...params);
     },
     transaction(fn) {
+      userTransactions.assertNotFromRefusedCallback();
       return userTransactions.run(storage.sql, fn);
     },
     limits: storage.sql.limits,

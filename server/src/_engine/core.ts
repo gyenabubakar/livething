@@ -275,11 +275,15 @@ export class EngineCore {
 
     this.platform = options.platform;
     this.logger = options.logger;
-    this.userTransactions = new UserTransactionTracker((error) => {
-      this.logger.error('[livething] could not redo a storage write after a rollback', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+    this.userTransactions = new UserTransactionTracker(
+      (error) => {
+        this.logger.error('[livething] could not redo a storage write after a rollback', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+      options.asyncContextFactory,
+      (error) => this.logger.error(error.message),
+    );
     this.storage = createEngineStorage(options.storage, this.userTransactions);
     this.timers = createEngineTimers(options.timers, this.userTransactions);
 

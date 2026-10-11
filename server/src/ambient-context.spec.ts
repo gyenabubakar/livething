@@ -18,7 +18,7 @@ import { scheduled } from '~/scheduled/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 
@@ -416,9 +416,9 @@ describe('context in a stream handler', () => {
     const engine = buildEngine(base.assemble({ handlers: [feed] }));
     await engine.initialize();
     await open(engine, 'alice').handleMessage(frame('feed', { stream: { id: 's1' } }));
-    await sleep(10);
-
-    expect(seen).toEqual({ beforeGenerator: true, insideGenerator: 'alice' });
+    await vi.waitFor(() =>
+      expect(seen).toEqual({ beforeGenerator: true, insideGenerator: 'alice' }),
+    );
   });
 });
 
@@ -471,9 +471,7 @@ describe('context in the features of a channel', () => {
     await handle.handleMessage(
       JSON.stringify(['feed', {}, { channel: { name: 'room' }, stream: { id: 's1' } }]),
     );
-    await sleep(10);
-
-    expect(seen).toEqual({ beforeGenerator: true, insideGenerator: true });
+    await vi.waitFor(() => expect(seen).toEqual({ beforeGenerator: true, insideGenerator: true }));
   });
 
   it('returns the channel ctx in a channel recorded stream handler and its generator', async () => {
@@ -501,9 +499,7 @@ describe('context in the features of a channel', () => {
     await handle.handleMessage(
       JSON.stringify(['feed', {}, { channel: { name: 'room' }, stream: { id: 's1' } }]),
     );
-    await sleep(10);
-
-    expect(seen).toEqual({ beforeGenerator: true, insideGenerator: true });
+    await vi.waitFor(() => expect(seen).toEqual({ beforeGenerator: true, insideGenerator: true }));
   });
 
   it('returns the channel ctx in a channel request handler', async () => {
@@ -577,7 +573,7 @@ describe('context in the onError hook for a stream that throws', () => {
     await engine.initialize();
 
     await open(engine, 'alice').handleMessage(frame('feed', { stream: { id: 's1' } }));
-    await sleep(20);
+    await vi.waitFor(() => expect(seen.onError).toBeDefined());
 
     return seen;
   }
@@ -658,13 +654,14 @@ describe('a recorded stream chunk that does not stay an object in JSON', () => {
     } as never);
 
     await handle.handleMessage(frame('progress', { stream: { id: 's1' } }));
-    await sleep(20);
 
-    const chunks = sent
-      .map((message) => JSON.parse(message) as [string, unknown])
-      .filter(([event]) => event === 'progress')
-      .map(([, payload]) => payload);
-    expect(chunks).toEqual([{ value: 1 }, { value: '1970-01-01T00:00:00.000Z' }, { id: 'm1' }]);
+    await vi.waitFor(() => {
+      const chunks = sent
+        .map((message) => JSON.parse(message) as [string, unknown])
+        .filter(([event]) => event === 'progress')
+        .map(([, payload]) => payload);
+      expect(chunks).toEqual([{ value: 1 }, { value: '1970-01-01T00:00:00.000Z' }, { id: 'm1' }]);
+    });
     expect(calls).toBe(1);
   });
 });
@@ -704,9 +701,8 @@ describe('a stream that yields a value that is not an object', () => {
     } as never);
 
     await handle.handleMessage(frame('feed', { stream: { id: 's1' } }));
-    await sleep(20);
 
-    expect(sent.at(-1)).toMatch(/"code":"internal-error"/);
+    await vi.waitFor(() => expect(sent.at(-1)).toMatch(/"code":"internal-error"/));
     const meta = logged[0]?.[1] as { error: Error } | undefined;
     expect(meta?.error.message).toBe(
       `[livething] The payload for "feed" must be a plain object, such as { text: 'hi' }, ` +
@@ -718,9 +714,11 @@ describe('a stream that yields a value that is not an object', () => {
 describe('an async commit hook', () => {
   it('is rejected without leaving an unhandled rejection behind', async () => {
     const base = server({ capabilities: [channels()] });
+    let rejected = false;
     const room = base.channel('room', {
       async commit() {
         await sleep(1);
+        rejected = true;
         throw new Error('room is full');
       },
     });
@@ -736,7 +734,9 @@ describe('an async commit hook', () => {
       await open(engine, 'alice').handleMessage(
         JSON.stringify(['__subscribe__', {}, { channel: { name: 'room' } }]),
       );
-      await sleep(20);
+      // Wait until the commit has thrown, then one turn for Node to report an unhandled rejection.
+      await vi.waitFor(() => expect(rejected).toBe(true));
+      await new Promise((resolve) => setImmediate(resolve));
 
       expect(unhandled).toEqual([]);
     } finally {
@@ -806,15 +806,15 @@ describe('context inside a plugin', () => {
     await engine.handleAlarm();
     await handle.handleMessage(frame('__acme:rooms::ticks', { stream: { id: 's1' } }));
 
-    await sleep(20);
-
-    expect(seen).toEqual({
-      lifecycle: true,
-      channel: true,
-      connection: true,
-      task: true,
-      stream: true,
-    });
+    await vi.waitFor(() =>
+      expect(seen).toEqual({
+        lifecycle: true,
+        channel: true,
+        connection: true,
+        task: true,
+        stream: true,
+      }),
+    );
   });
 
   it("gives a plugin's stream the scoped ctx, so its sends carry the plugin prefix", async () => {
@@ -830,11 +830,11 @@ describe('context inside a plugin', () => {
     } as never);
 
     await handle.handleMessage(frame('__acme:rooms::ticks', { stream: { id: 's1' } }));
-    await sleep(20);
-
-    expect(sent.filter((message) => message.includes('tick"'))).toEqual([
-      expect.stringMatching(/^\["__acme:rooms::tick",\{"n":1\}/),
-    ]);
+    await vi.waitFor(() =>
+      expect(sent.filter((message) => message.includes('tick"'))).toEqual([
+        expect.stringMatching(/^\["__acme:rooms::tick",\{"n":1\}/),
+      ]),
+    );
   });
 
   it("returns the plugin's ctx in every plugin hook, and none in its outgoing hook", async () => {
@@ -941,9 +941,7 @@ describe('context inside a plugin', () => {
     await handle.handleMessage(
       JSON.stringify(['__acme:feeds::feed', {}, { channel, stream: { id: 's1' } }]),
     );
-    await sleep(20);
-
-    expect(seen).toEqual({ same: true });
+    await vi.waitFor(() => expect(seen).toEqual({ same: true }));
   });
 
   it("sends an error that a plugin's stream throws with the plugin's error code", async () => {
@@ -969,10 +967,10 @@ describe('context inside a plugin', () => {
     } as never);
     await handle.handleMessage(frame('__acme:feeds::feed', { stream: { id: 's1' } }));
 
-    await sleep(20);
-
-    const codes = sent.flatMap((message) => message.match(/"code":"[^"]*"/g) ?? []);
-    expect(codes).toEqual(['"code":"__acme:feeds::denied"']);
+    await vi.waitFor(() => {
+      const codes = sent.flatMap((message) => message.match(/"code":"[^"]*"/g) ?? []);
+      expect(codes).toEqual(['"code":"__acme:feeds::denied"']);
+    });
   });
 
   it("runs a plugin's api methods as the app handler that calls them", async () => {
