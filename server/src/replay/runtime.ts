@@ -921,7 +921,14 @@ export function minReplayCreatedAt(
     )
     .toArray()
     .filter((scope) => ownsRow(owner, scope));
-  return scopes.length === 0 ? null : Math.min(...scopes.map((scope) => Number(scope.m)));
+  // A loop, not Math.min(...), which throws when there are too many scopes to pass as arguments.
+  let oldest: number | null = null;
+  for (const scope of scopes) {
+    const createdAt = Number(scope.m);
+    if (oldest === null || createdAt < oldest) oldest = createdAt;
+  }
+
+  return oldest;
 }
 
 /**

@@ -69,7 +69,7 @@ describe('clientRequests() capability', () => {
     expect(respond).toHaveBeenCalledWith({});
   });
 
-  it('responds with a falsy value cast past the types, so the payload check refuses it', async () => {
+  it('responds with a falsy value cast past the types, not a void ack', async () => {
     const base = server({ capabilities: [clientRequests()] });
     const handleCount = base.request('count', {
       run() {

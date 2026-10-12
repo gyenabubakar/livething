@@ -55,7 +55,7 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
 import type {
   ClientResponse,
   DurableWireChunk,
-  JsonOf,
+  Jsonify,
   PayloadObject,
   Validator,
 } from '~/types.ts';
@@ -348,7 +348,8 @@ export interface ScheduledConfig<TMeta, TData> {
   /** Runs when the task fires. Receives the typed payload for tasks that declare one. */
   run: TData extends undefined
     ? (ctx: TaskContext<TMeta>) => void | Promise<void>
-    : (ctx: TaskContext<TMeta>, data: TData) => void | Promise<void>;
+    : // The task gets the data back from its stored JSON, so a Date field arrives as a string.
+      (ctx: TaskContext<TMeta>, data: Jsonify<TData>) => void | Promise<void>;
 }
 
 /** Builder method granted by the `scheduled()` capability. */
@@ -459,7 +460,7 @@ export interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapabili
     config: StreamConfig<TSlots, TMeta, TInput, TChunk, TNudges, TCaps>,
   ): StreamHandlerValue<
     TEvent,
-    { payload: InferInput<TInput>; chunk: JsonOf<TChunk>; nudges: NudgesContract<TNudges> },
+    { payload: InferInput<TInput>; chunk: Jsonify<TChunk>; nudges: NudgesContract<TNudges> },
     'streams'
   >;
 }
@@ -1049,7 +1050,7 @@ interface ChannelStreamMethod<
     {
       streams: Record<
         TEvent,
-        { payload: InferInput<TInput>; chunk: JsonOf<TChunk>; nudges: NudgesContract<TNudges> }
+        { payload: InferInput<TInput>; chunk: Jsonify<TChunk>; nudges: NudgesContract<TNudges> }
       >;
     }
   >;

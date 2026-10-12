@@ -34,11 +34,12 @@ export type Validator<T = any> = StandardSchemaV1<unknown, T>;
  * `null`, a primitive, an array, a function, an iterable such as a `Map` (JSON gives `{}`) and an
  * object whose `toJSON()` gives something else (a `Date` gives a string) when it sends, so the
  * types refuse them too. An object with a `toJSON()` that returns a plain object is accepted,
- * iterable or not, because JSON sends what that returns.
+ * iterable or not, because JSON sends what that returns. An array is refused even with a
+ * `toJSON()`.
  */
 export type PayloadObject =
   | (PlainObject & { readonly toJSON?: JsonToObject | NotAFunction })
-  | (NotCallableOrBoxed & { toJSON: JsonToObject });
+  | (NotCallableOrBoxed & NotArray & { toJSON: JsonToObject });
 
 /**
  * Not a function, and not a boxed `Number`, `String` or `Boolean` (JSON unboxes `new Number(7)`
@@ -67,10 +68,17 @@ type NotAFunction =
   | { readonly [Symbol.hasInstance]?: never };
 
 /**
- * An object that is not an iterable (arrays, `Map`, `Set`), a function or a boxed value. An
- * iterable has `Symbol.iterator`, which a plain object lacks.
+ * An object that is not an iterable (arrays, `Map`, `Set`, async generators), a function or a
+ * boxed value. An iterable has `Symbol.iterator` or `Symbol.asyncIterator`, which a plain object
+ * lacks.
  */
-type PlainObject = NotCallableOrBoxed & { readonly [Symbol.iterator]?: never };
+type PlainObject = NotCallableOrBoxed & {
+  readonly [Symbol.iterator]?: never;
+  readonly [Symbol.asyncIterator]?: never;
+};
+
+/** Not an array. The runtime refuses every array, even one with a `toJSON()`. */
+type NotArray = { readonly [Symbol.unscopables]?: never };
 
 /** A `toJSON()` that JSON calls with the root key `""` and that returns a plain object. */
 type JsonToObject = (key: string) => PlainObject;
@@ -99,11 +107,46 @@ export type ContractPayload<T> = [keyof T] extends [never]
  */
 export type DurableWireChunk<T> = unknown extends T ? T : WireChunkOf<JsonOf<T>>;
 
+/** What a value's `toJSON()` returns, if it has one. JSON sends that instead of the value. */
+type JsonOf<T> = T extends { toJSON(...args: never[]): infer TJson } ? TJson : T;
+
 /**
- * What a client receives for a value the server sends: what its `toJSON()` returns, if it has
- * one, as the runtime sends it.
+ * A value as it comes back from JSON, at every depth: what a `toJSON()` returns (a `Date` becomes
+ * a `string`), with no methods, functions, `symbol` keys or `undefined` fields. In an array, a
+ * value with no JSON becomes `null`. A `Map` or a `Set` becomes `{}`. A number stays `number`,
+ * although JSON sends `NaN` and `Infinity` as `null`.
  */
-export type JsonOf<T> = T extends { toJSON(...args: never[]): infer TJson } ? TJson : T;
+export type Jsonify<T> = unknown extends T
+  ? T
+  : T extends { toJSON(...args: never[]): infer TJson }
+    ? Jsonify<TJson>
+    : T extends string | number | boolean | null | undefined | void
+      ? T
+      : T extends ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
+        ? Record<string, never>
+        : T extends readonly unknown[]
+          ? { -readonly [K in keyof T]: JsonifyItem<T[K]> }
+          : T extends object
+            ? {
+                [K in keyof T as K extends symbol
+                  ? never
+                  : HasNoJson<T[K]> extends true
+                    ? never
+                    : K]: Jsonify<T[K]>;
+              }
+            : never;
+
+/** An array item as JSON: one with no JSON becomes `null`, for each member of a union. */
+type JsonifyItem<T> = T extends ((...args: never[]) => unknown) | symbol | undefined
+  ? null
+  : Jsonify<T>;
+
+/** A value that JSON leaves out of an object: a function, a `symbol` or `undefined`. */
+type HasNoJson<T> = [T] extends [never]
+  ? false
+  : [T] extends [((...args: never[]) => unknown) | symbol | undefined]
+    ? true
+    : false;
 
 /**
  * A request reply as the client's `request()` resolves it. A reply of `null` sends no payload,
@@ -113,7 +156,7 @@ export type ClientResponse<T> = 0 extends 1 & T
   ? T
   : [T] extends [null]
     ? void
-    : JsonOf<Exclude<T, null>> | (null extends T ? undefined : never);
+    : Jsonify<Exclude<T, null>> | (null extends T ? undefined : never);
 
 type WireChunkOf<TJson> = TJson extends
   | undefined
@@ -123,7 +166,7 @@ type WireChunkOf<TJson> = TJson extends
   | ((...args: never[]) => unknown)
   ? never
   : TJson extends readonly unknown[]
-    ? { value: TJson }
+    ? { value: Jsonify<TJson> }
     : // A boxed Number, String or Boolean (JSON unboxes it), found by a method only it has.
       TJson extends number | { toFixed(...args: never[]): string }
       ? { value: number | null }
@@ -134,5 +177,5 @@ type WireChunkOf<TJson> = TJson extends
           : TJson extends object
             ? TJson extends Iterable<unknown>
               ? never
-              : TJson
+              : Jsonify<TJson>
             : { value: TJson };

@@ -3,6 +3,7 @@ import { server } from '~/_define/server.ts';
 import { emits } from '~/emits/emits.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { serverRequests } from '~/request/server-requests.ts';
+import { scheduled } from '~/scheduled/capability.ts';
 import { cursorStream, recordedStream, stream } from '~/streams.ts';
 import { expectTypeOf } from 'vitest';
 import type { TypeMarker } from '~/_api/definitions.ts';
@@ -238,3 +239,41 @@ expectTypeOf<ReplyClient['clientRequests']['null-reply']['response']>().toEqualT
 expectTypeOf<ReplyClient['clientRequests']['maybe-reply']['response']>().toEqualTypeOf<
   { ok: true } | undefined
 >();
+
+// The client gets JSON at every depth: a nested Date is a string, a method is gone, an undefined
+// item in an array is null.
+const nestedBase = server({
+  capabilities: [
+    emits({
+      posted: t<{
+        at: Date;
+        tags: (string | undefined)[];
+        author: { name: string; greet(): void };
+      }>(),
+    }),
+  ],
+});
+const nestedDefinition = nestedBase.assemble({
+  handlers: [nestedBase.on('noop', { run() {} })],
+});
+expectTypeOf<InferClient<typeof nestedDefinition>['incoming']['posted']>().toEqualTypeOf<{
+  at: string;
+  tags: (string | null)[];
+  author: { name: string };
+}>();
+
+// A scheduled task gets its data back from the stored JSON, so a Date field is a string.
+const taskBase = server({ capabilities: [scheduled({ remind: { data: t<{ at: Date }>() } })] });
+taskBase.scheduled('remind', {
+  run(_ctx, data) {
+    expectTypeOf(data).toEqualTypeOf<{ at: string }>();
+  },
+});
+
+// The runtime refuses an async iterable and an array, even one with a toJSON(), so the types do.
+emits({
+  // @ts-expect-error an async iterable becomes {} in JSON
+  feed: t<{ id: string; [Symbol.asyncIterator](): AsyncIterator<number> }>(),
+});
+// @ts-expect-error an array is refused, even with a toJSON()
+emits({ list: t<string[] & { toJSON(key: string): { items: string[] } }>() });

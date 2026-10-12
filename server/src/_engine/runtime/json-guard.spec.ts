@@ -59,6 +59,11 @@ describe('serializeDurableChunk', () => {
     expect(serializeDurableChunk('feed', callable)).toBe('{"id":1}');
   });
 
+  it('wraps a boxed String as its string, although it is iterable', () => {
+    // oxlint-disable-next-line no-new-wrappers -- the boxed value is what is tested
+    expect(serializeDurableChunk('feed', new String('hi'))).toBe('{"value":"hi"}');
+  });
+
   it('refuses a chunk with no JSON and an iterable without toJSON()', () => {
     expect(() => serializeDurableChunk('feed', () => {})).toThrow(/function, which has no JSON/);
     expect(() => serializeDurableChunk('feed', undefined)).toThrow(/undefined, which has no JSON/);

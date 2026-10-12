@@ -35,6 +35,7 @@ describe('a snapshot reducer that returns a payload JSON turns into a string', (
       },
     });
 
+    const logged: string[] = [];
     let captured: Engine | undefined;
     const runAdapter = adapter({
       id: 'reduced-payload-spec',
@@ -44,13 +45,20 @@ describe('a snapshot reducer that returns a payload JSON turns into a string', (
           storage: createTestStorage(),
           platform: {},
           timers: createTestTimers(),
-          logger: { info() {}, warn() {}, error() {} },
+          logger: {
+            info() {},
+            warn() {},
+            error(...args: unknown[]) {
+              logged.push(JSON.stringify(args));
+            },
+          },
         });
         return {};
       },
     });
     runAdapter(base.assemble({ handlers: [shout] }), undefined as never);
     const engine = captured!;
+
     await engine.initialize();
 
     async function connect(userId: string) {
@@ -72,6 +80,8 @@ describe('a snapshot reducer that returns a payload JSON turns into a string', (
 
     const alice = await connect('alice');
     await alice.send(['shout', {}, null]);
+    // The reducer ran and its payload was refused, so nothing was stored.
+    expect(logged.join('\n')).toMatch(/must be a plain object/);
 
     const bob = await connect('bob');
     await bob.send(['__replay__', { lastKnownSeq: 0 }, null]);

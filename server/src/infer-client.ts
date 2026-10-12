@@ -20,7 +20,7 @@ import type {
   ValidationFailed,
 } from '~/errors/errors.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
-import type { JsonOf } from '~/types.ts';
+import type { Jsonify } from '~/types.ts';
 
 /**
  * Recursively expand all intersections and mapped types into their final
@@ -109,7 +109,7 @@ type Slot<TContract, TKey extends string> = TKey extends keyof TContract ? TCont
  * accepts, and the client gets its JSON: what a `toJSON()` returns, if the payload has one.
  */
 type ReceivedEvents<TContract> = {
-  [K in keyof Slot<TContract, 'outgoing'>]: JsonOf<Slot<TContract, 'outgoing'>[K]>;
+  [K in keyof Slot<TContract, 'outgoing'>]: Jsonify<Slot<TContract, 'outgoing'>[K]>;
 };
 
 /** The server→client requests, with each payload as the client receives it. */
@@ -117,7 +117,7 @@ type ReceivedServerRequests<TContract> = {
   [K in keyof Slot<TContract, 'serverRequests'>]: Slot<TContract, 'serverRequests'>[K] extends {
     payload: infer TPayload;
   }
-    ? Omit<Slot<TContract, 'serverRequests'>[K], 'payload'> & { payload: JsonOf<TPayload> }
+    ? Omit<Slot<TContract, 'serverRequests'>[K], 'payload'> & { payload: Jsonify<TPayload> }
     : Slot<TContract, 'serverRequests'>[K];
 };
 

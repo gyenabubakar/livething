@@ -61,7 +61,8 @@ function isIterableWithoutToJSON(value: object): boolean {
   const iterable =
     typeof candidate[Symbol.iterator] === 'function' ||
     typeof candidate[Symbol.asyncIterator] === 'function';
-  return iterable && typeof candidate.toJSON !== 'function';
+  // A boxed String is iterable too, but JSON unboxes it to its string.
+  return iterable && typeof candidate.toJSON !== 'function' && !(value instanceof String);
 }
 
 /**
