@@ -2,8 +2,31 @@ import {
   parseJsonOrUndefined,
   serializeDurableChunk,
   serializeJsonOrThrow,
+  serializePayload,
 } from '~/_engine/runtime/json-guard.ts';
 import { describe, expect, it } from 'vitest';
+
+describe('serializePayload', () => {
+  it('refuses a toJSON() that returns an iterable, which JSON turns into {}', () => {
+    async function* pages() {
+      yield 1;
+    }
+
+    expect(() => serializePayload('news', { toJSON: () => new Map([['a', 1]]) })).toThrow(
+      /an iterable such as a Map or a Set/,
+    );
+    expect(() => serializePayload('news', { toJSON: () => new Set([1]) })).toThrow(
+      /an iterable such as a Map or a Set/,
+    );
+    expect(() => serializePayload('news', { toJSON: () => pages() })).toThrow(
+      /an iterable such as a Map or a Set/,
+    );
+  });
+
+  it('accepts a toJSON() that returns a plain object', () => {
+    expect(serializePayload('news', { toJSON: () => ({ text: 'hi' }) })).toBe('{"text":"hi"}');
+  });
+});
 
 describe('serializeJsonOrThrow', () => {
   it('returns the JSON string for a plain object', () => {
@@ -57,6 +80,12 @@ describe('serializeDurableChunk', () => {
     const callable = Object.assign(() => {}, { toJSON: () => ({ id: 1 }) });
 
     expect(serializeDurableChunk('feed', callable)).toBe('{"id":1}');
+  });
+
+  it('refuses a toJSON() that returns an iterable, which JSON turns into {}', () => {
+    expect(() => serializeDurableChunk('feed', { toJSON: () => new Map([['a', 1]]) })).toThrow(
+      /an iterable such as a Map or a Set/,
+    );
   });
 
   it('wraps a boxed String as its string, although it is iterable', () => {

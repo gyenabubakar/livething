@@ -925,4 +925,40 @@ describe('replay retention on an engine with a bound-parameter cap', () => {
       }),
     ).not.toThrow();
   });
+
+  it('deletes expired rows of many channel scopes in a few statements, and keeps claimed ones', () => {
+    const maxBoundParams = 100;
+    let deletes = 0;
+    const sql = createTestSql({
+      limits: { maxBoundParams },
+      onExec(query, params) {
+        if (params.length > maxBoundParams) {
+          throw new Error(`too many SQL variables: ${params.length} for ${maxBoundParams}`);
+        }
+
+        if (/^\s*DELETE FROM __livething_replay\b/.test(query)) deletes += 1;
+      },
+    });
+    ensureReplaySchema(sql);
+    for (let index = 0; index < 500; index += 1) {
+      sql.exec(
+        `INSERT INTO __livething_replay (rowKey, messageId, seq, event, payload, channel, createdAt)
+         VALUES (?, ?, ?, 'news', '{}', ?, 1)`,
+        `row-${index}`,
+        `m-${index}`,
+        index + 1,
+        `room-${index}`,
+      );
+    }
+
+    pruneExpiredReplayRows(sql, {
+      retention: { maxAgeMs: 50 },
+      now: 100,
+      owner: { channelKey: undefined, claimedChannelKeys: new Set(['room-0']) },
+    });
+
+    const left = sql.exec<{ channel: string }>('SELECT channel FROM __livething_replay').toArray();
+    expect(left.map((row) => row.channel)).toEqual(['room-0']);
+    expect(deletes).toBeLessThanOrEqual(20);
+  });
 });

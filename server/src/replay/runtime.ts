@@ -1,6 +1,7 @@
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { serializePayload } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
+import { chunkForBind } from '~/_engine/sql-batch.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -407,7 +408,7 @@ export function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
  */
 export interface ReplaySnapshotEntry {
   row: ReplayRow | null;
-  flush: (sql: Pick<SQLProvider, 'exec'>) => void;
+  flush: (sql: Pick<SQLProvider, 'exec' | 'limits'>) => void;
 }
 
 export interface PersistReplayMessageOptions {
@@ -448,7 +449,7 @@ export interface PersistReplayMessageOptions {
    * counting, so the scope flusher saves the row first and only then calls
    * this callback.
    */
-  postFlush?: (sql: Pick<SQLProvider, 'exec'>) => void;
+  postFlush?: (sql: Pick<SQLProvider, 'exec' | 'limits'>) => void;
 
   /**
    * Validate the value a `reduce` produced against the public contract before
@@ -744,7 +745,7 @@ export interface PruneExpiredReplayRowsOptions {
 }
 
 export function pruneExpiredReplayRows(
-  sql: Pick<SQLProvider, 'exec'>,
+  sql: Pick<SQLProvider, 'exec' | 'limits'>,
   opts: PruneExpiredReplayRowsOptions,
 ): void {
   const { retention, now, owner } = opts;
@@ -800,17 +801,20 @@ export function pruneExpiredReplayRows(
     return;
   }
 
-  const deleted = new Set<string>();
+  // One DELETE per batch of scopes, as many as the engine's bound-parameter limit allows. The
+  // cutoff takes one of the parameters, and each scope takes two.
+  const scopes = new Map<string, ReplayRowScope>();
   for (const scope of evicted) {
-    const key = JSON.stringify([scope.channel, scope.channelFamily]);
-    if (deleted.has(key)) continue;
+    scopes.set(JSON.stringify([scope.channel, scope.channelFamily]), scope);
+  }
 
-    deleted.add(key);
+  const limits = { ...sql.limits, maxBoundParams: sql.limits.maxBoundParams - 1 };
+  for (const batch of chunkForBind([...scopes.values()], 2, limits)) {
+    const matches = batch.map(() => '(channel IS ? AND channelFamily IS ?)').join(' OR ');
     sql.exec(
-      'DELETE FROM __livething_replay WHERE createdAt < ? AND channel IS ? AND channelFamily IS ?',
+      `DELETE FROM __livething_replay WHERE createdAt < ? AND (${matches})`,
       cutoff,
-      scope.channel,
-      scope.channelFamily,
+      ...batch.flatMap((scope) => [scope.channel, scope.channelFamily]),
     );
   }
 }
@@ -944,7 +948,7 @@ export class ReplayPruneGate {
   private minSeeded = false;
   private readonly scopeCounts = new Map<string, number>();
 
-  prune(sql: Pick<SQLProvider, 'exec'>, opts: ReplayPruneOptions): void {
+  prune(sql: Pick<SQLProvider, 'exec' | 'limits'>, opts: ReplayPruneOptions): void {
     const { retention, scope, owner, stamp } = opts;
     if (retention?.maxAgeMs !== undefined) {
       if (!this.minSeeded) {

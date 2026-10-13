@@ -48,6 +48,8 @@ function durableChunkError(event: string, got: string): Error {
   );
 }
 
+const ITERABLE_GOT = 'an iterable such as a Map or a Set, which JSON turns into {}';
+
 /**
  * An iterable such as a `Map`, a `Set` or an async generator becomes `{}` in JSON and loses its
  * data, so it is refused, unless its own `toJSON()` decides what is sent.
@@ -81,14 +83,60 @@ export function assertPayloadRecord(
   if (Array.isArray(payload)) throw payloadError(event, 'an array');
 
   if (isIterableWithoutToJSON(payload)) {
-    throw payloadError(event, 'an iterable such as a Map or a Set, which JSON turns into {}');
+    throw payloadError(event, ITERABLE_GOT);
   }
+}
+
+/**
+ * `JSON.stringify` once, and the value it serialized at the root: what `toJSON()` returned, if
+ * the value has one. JSON does not call `toJSON()` on that result, so an iterable there would
+ * become `{}`. Only a value with a `toJSON()` pays for the replacer that reads the root.
+ */
+function stringifyReadingRoot(value: unknown): { json: string | undefined; root: unknown } {
+  const toJSON = (value as { toJSON?: unknown } | null | undefined)?.toJSON;
+  if (typeof toJSON !== 'function') return { json: JSON.stringify(value), root: value };
+
+  let root: unknown;
+  let rootSeen = false;
+  const json = JSON.stringify(value, (_key, item: unknown) => {
+    // The replacer sees the root first, under the key "".
+    if (!rootSeen) {
+      rootSeen = true;
+      root = item;
+    }
+
+    return item;
+  });
+
+  return { json, root };
+}
+
+/** Whether what `toJSON()` returned is an iterable (not an array) that JSON turns into `{}`. */
+function toJsonGaveIterable(value: unknown, root: unknown): boolean {
+  if (root === value || typeof root !== 'object' || root === null || Array.isArray(root)) {
+    return false;
+  }
+
+  const candidate = root as { [Symbol.iterator]?: unknown; [Symbol.asyncIterator]?: unknown };
+  const iterable =
+    typeof candidate[Symbol.iterator] === 'function' ||
+    typeof candidate[Symbol.asyncIterator] === 'function';
+  return iterable && !(root instanceof String);
 }
 
 /** Serialize a payload once, and require the JSON to be an object. */
 export function serializePayload(event: string, payload: unknown): string {
   assertPayloadRecord(event, payload);
-  const json = serializeJsonOrThrow(payload, `Outgoing payload for "${event}"`);
+  const { json, root } = stringifyReadingRoot(payload);
+  if (json === undefined) {
+    throw new Error(
+      `[livething] Outgoing payload for "${event}" did not serialize to JSON. ` +
+        `A toJSON() method that returns undefined is the usual cause.`,
+    );
+  }
+
+  if (toJsonGaveIterable(payload, root)) throw payloadError(event, ITERABLE_GOT);
+
   if (!json.startsWith('{')) {
     throw payloadError(
       event,
@@ -117,14 +165,16 @@ export function payloadForFanOut(event: string, payload: unknown): Record<string
 export function serializeDurableChunk(event: string, chunk: unknown): string {
   const isObjectLike = (typeof chunk === 'object' && chunk !== null) || typeof chunk === 'function';
   if (isObjectLike && !Array.isArray(chunk) && isIterableWithoutToJSON(chunk)) {
-    throw durableChunkError(event, 'an iterable such as a Map or a Set, which JSON turns into {}');
+    throw durableChunkError(event, ITERABLE_GOT);
   }
 
   // A function without toJSON(), a symbol, or undefined, has no JSON at all.
-  const json = JSON.stringify(chunk) as string | undefined;
+  const { json, root } = stringifyReadingRoot(chunk);
   if (json === undefined) {
     throw durableChunkError(event, `${typeof chunk}, which has no JSON`);
   }
+
+  if (toJsonGaveIterable(chunk, root)) throw durableChunkError(event, ITERABLE_GOT);
 
   return json.startsWith('{') ? json : `{"value":${json}}`;
 }
