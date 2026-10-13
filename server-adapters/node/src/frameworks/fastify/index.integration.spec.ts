@@ -31,14 +31,15 @@ const base = server({
   capabilities: [
     emits({
       connected: t<{ clientIp: string | null }>(),
-      echoed: t(),
+      echoed: t<{ text?: string }>(),
     }),
   ],
 });
 
 const echo = base.on('echo', {
   run(ctx, input) {
-    ctx.send('echoed', input);
+    const text = (input as { text?: unknown } | null)?.text;
+    ctx.send('echoed', typeof text === 'string' ? { text } : {});
   },
 });
 
@@ -60,7 +61,7 @@ const assembled = base.assemble({ handlers: [echo] });
 interface TestClient {
   incoming: {
     connected: { clientIp: string | null };
-    echoed: { text: string };
+    echoed: { text?: string };
   };
   outgoing: { echo: { text: string } };
 }
@@ -415,7 +416,7 @@ describe('Fastify binding', () => {
     const connected = new Promise<{ clientIp: string | null }>((resolve) =>
       socket.on('connected', resolve),
     );
-    const echoed = new Promise<{ text: string }>((resolve) => socket.on('echoed', resolve));
+    const echoed = new Promise<{ text?: string }>((resolve) => socket.on('echoed', resolve));
 
     try {
       socket.connect();

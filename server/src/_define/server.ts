@@ -52,7 +52,13 @@ import type { ResolvedServerRequest, ServerRequestsCapability } from '~/request/
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
-import type { Validator } from '~/types.ts';
+import type {
+  ClientResponse,
+  DurableWireChunk,
+  Jsonify,
+  PayloadObject,
+  Validator,
+} from '~/types.ts';
 import { assertUniqueCapabilityKinds } from './capability-checks.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugins.ts` — it is a package entry, so a
@@ -127,9 +133,24 @@ export interface UpgradeReturn<TMeta, TEphemeralGroups extends string = string> 
   readonly tags?: { readonly ephemeral?: Partial<Record<TEphemeralGroups, string>> };
 }
 
-/** The `upgrade(...)` function shape. Receives the raw upgrade request. */
+/**
+ * The `upgrade(...)` function shape. Receives the raw upgrade request and a
+ * `ctx` with storage, a logger and the platform. The same shape as the `onInit`
+ * context: no connection exists yet, so there is no user, `meta` or `send`.
+ */
 export type UpgradeFn<TMeta, TEphemeralGroups extends string = string> = (
   request: Request,
+  ctx: InitContext,
+) => UpgradeReturn<TMeta, TEphemeralGroups> | Promise<UpgradeReturn<TMeta, TEphemeralGroups>>;
+
+/**
+ * A plugin's `upgrade(...)`. Receives the raw upgrade request and the plugin's own scoped
+ * `ctx`: the same shape as the app's, with `ctx.kv` namespaced to the plugin like the `ctx`
+ * of its handlers.
+ */
+export type ScopedUpgradeFn<TMeta, TEphemeralGroups extends string = string> = (
+  request: Request,
+  ctx: InitContext,
 ) => UpgradeReturn<TMeta, TEphemeralGroups> | Promise<UpgradeReturn<TMeta, TEphemeralGroups>>;
 
 /** The ephemeral tag-group names declared across a list of capabilities. */
@@ -210,13 +231,14 @@ export interface ScopedServerConfig<
   readonly scope: 'plugin';
   /**
    * The plugin's upgrade gate. Runs before the app's upgrade in the inbound
-   * onion: it sees only the raw request, not the app's identity. Return
+   * onion: it sees the raw request and the plugin's scoped `ctx`, not the app's identity.
+   * `context.upgrade(pluginBase)` returns that `ctx` inside it. Return
    * `meta` (shallow-merged, app wins on key conflict) and/or `tags`
    * (concatenated); throw `RejectUpgrade(...)` to veto the handshake. A plugin
    * may own `userId` — but only one upgrade hook (the app's or one plugin's)
    * may return it, or the build/runtime errors.
    */
-  readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
+  readonly upgrade?: ScopedUpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** The features this plugin uses. Host-owned capabilities are a compile error here. */
   readonly capabilities?: TCaps & UniqueCapabilityKinds<TCaps>;
 }
@@ -277,7 +299,9 @@ export type RequestHandlerValue<TEvent extends string, TPayload, TResponse> = Re
   TPayload,
   TResponse
 > &
-  Contribution<{ clientRequests: Record<TEvent, { payload: TPayload; response: TResponse }> }>;
+  Contribution<{
+    clientRequests: Record<TEvent, { payload: TPayload; response: ClientResponse<TResponse> }>;
+  }>;
 
 /** Configuration object for `base.request(...)`. */
 export type RequestConfig<
@@ -309,7 +333,7 @@ export interface RequestMethods<TSlots, TMeta, TCaps extends readonly AnyCapabil
   request<
     TEvent extends string,
     TSchema extends Validator | undefined = undefined,
-    TResponse = void,
+    TResponse extends PayloadObject | null | void = void,
   >(
     event: TEvent,
     config: RequestConfig<TSlots, TMeta, TSchema, TResponse, TCaps>,
@@ -324,7 +348,8 @@ export interface ScheduledConfig<TMeta, TData> {
   /** Runs when the task fires. Receives the typed payload for tasks that declare one. */
   run: TData extends undefined
     ? (ctx: TaskContext<TMeta>) => void | Promise<void>
-    : (ctx: TaskContext<TMeta>, data: TData) => void | Promise<void>;
+    : // The task gets the data back from its stored JSON, so a Date field arrives as a string.
+      (ctx: TaskContext<TMeta>, data: Jsonify<TData>) => void | Promise<void>;
 }
 
 /** Builder method granted by the `scheduled()` capability. */
@@ -427,7 +452,7 @@ export interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapabili
   /** Create a plain server-pushed stream handler value. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
-    TChunk = unknown,
+    TChunk extends PayloadObject = Record<string, unknown>,
     TInput extends Validator | undefined = undefined,
     const TNudges extends StreamNudgeMap = {},
   >(
@@ -435,7 +460,7 @@ export interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapabili
     config: StreamConfig<TSlots, TMeta, TInput, TChunk, TNudges, TCaps>,
   ): StreamHandlerValue<
     TEvent,
-    { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> },
+    { payload: InferInput<TInput>; chunk: Jsonify<TChunk>; nudges: NudgesContract<TNudges> },
     'streams'
   >;
 }
@@ -512,7 +537,7 @@ export interface CursorStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCa
     TEvent,
     {
       payload: InferInput<TInput>;
-      chunk: TChunk;
+      chunk: DurableWireChunk<TChunk>;
       cursor: TCursor;
       nudges: NudgesContract<TNudges>;
     },
@@ -558,7 +583,11 @@ export interface RecordedStreamMethods<TSlots, TMeta, TCaps extends readonly Any
     config: RecordedStreamConfig<TSlots, TMeta, TInput, TChunk, TNudges, TCaps>,
   ): StreamHandlerValue<
     TEvent,
-    { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> },
+    {
+      payload: InferInput<TInput>;
+      chunk: DurableWireChunk<TChunk>;
+      nudges: NudgesContract<TNudges>;
+    },
     'recordedStreams'
   >;
 }
@@ -734,7 +763,8 @@ export type ChannelCtx<
 };
 
 /**
- * The looser `ctx` a channel gate/lifecycle hook receives (sends accept any
+ * The looser `ctx` that a channel's gate hooks (`check`, `commit`, `revalidate`) and lifecycle
+ * hooks (`subscribe`, `unsubscribe`, `sessionEnd`) receive (sends accept any
  * channel event). Replay is exposed, when active, on `ctx.channel.sendReplay`;
  * channel contexts do not expose the root `ctx.sendReplay` method.
  */
@@ -997,7 +1027,7 @@ interface ChannelStreamMethod<
   /** Create a plain stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
-    TChunk = unknown,
+    TChunk extends PayloadObject = Record<string, unknown>,
     TInput extends Validator | undefined = undefined,
     const TNudges extends StreamNudgeMap = {},
   >(
@@ -1020,7 +1050,7 @@ interface ChannelStreamMethod<
     {
       streams: Record<
         TEvent,
-        { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> }
+        { payload: InferInput<TInput>; chunk: Jsonify<TChunk>; nudges: NudgesContract<TNudges> }
       >;
     }
   >;
@@ -1068,7 +1098,7 @@ interface ChannelCursorStreamMethod<
         TEvent,
         {
           payload: InferInput<TInput>;
-          chunk: TChunk;
+          chunk: DurableWireChunk<TChunk>;
           cursor: TCursor;
           nudges: NudgesContract<TNudges>;
         }
@@ -1115,7 +1145,11 @@ interface ChannelRecordedStreamMethod<
     {
       recordedStreams: Record<
         TEvent,
-        { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> }
+        {
+          payload: InferInput<TInput>;
+          chunk: DurableWireChunk<TChunk>;
+          nudges: NudgesContract<TNudges>;
+        }
       >;
     }
   >;
@@ -1320,6 +1354,14 @@ export interface ChannelCoreMethods<
   TServerRequests = {},
   TChannelBrand extends string = never,
 > {
+  /**
+   * Type only, never set at runtime. It carries the `ctx` type that this channel's `check`,
+   * `commit` and `revalidate` hooks receive, so `context.channelGate(channel)` can return it.
+   *
+   * @internal
+   */
+  readonly __gateCtx?: ChannelGateCtx<TSlots, TMeta, TCaps, never, TOutgoing, true>;
+
   /** Create a client→server event handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   on<TEvent extends string, TInput extends Validator | undefined = undefined>(
     event: TEvent,
@@ -1377,7 +1419,7 @@ export interface ChannelRequestMethods<
   request<
     TEvent extends string,
     TInput extends Validator | undefined = undefined,
-    TResponse = void,
+    TResponse extends PayloadObject | null | void = void,
   >(
     event: TEvent,
     config: {
@@ -1393,7 +1435,10 @@ export interface ChannelRequestMethods<
     TKey,
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
     {
-      clientRequests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }>;
+      clientRequests: Record<
+        TEvent,
+        { payload: InferInput<TInput>; response: ClientResponse<Awaited<TResponse>> }
+      >;
     }
   >;
 }
@@ -1589,6 +1634,13 @@ export interface CoreBase<
   TCaps extends readonly AnyCapability[],
   TScoped extends boolean = false,
 > {
+  /**
+   * Unique id of this `base`, copied onto every definition it assembles. The
+   * `context.*` accessors compare it against the running definition.
+   * @internal
+   */
+  readonly __baseId: symbol;
+
   /**
    * Create a handler value for one client→server event. Pass it to `assemble(...)`
    * to activate it. Exactly one assembled handler per event name is allowed in one
@@ -1850,15 +1902,16 @@ function toEphemeralTagRefs(ephemeral: Record<string, string | undefined> | unde
 
 /** Wrap a bootstrap `upgrade(...)` function as the engine's builder upgrade hook. */
 function adaptUpgrade(fn: UpgradeFn<any>): UpgradeHandler {
-  return async (request: Request): Promise<UpgradeResult> => {
-    const result = await fn(request);
+  return async (request, helpers): Promise<UpgradeResult> => {
+    const result = await fn(request, helpers.ctx);
     const tags = toEphemeralTagRefs(result.tags?.ephemeral);
     return {
-      // An anonymous upgrade omits userId; the engine keys it by connection id.
-      userId: result.userId ?? '',
+      // An upgrade that omits userId stays anonymous and does not claim the single userId that
+      // the server allows. The adapters key an anonymous connection by its connection id.
+      ...(result.userId === undefined ? {} : { userId: result.userId }),
       meta: result.meta,
       ...(tags.length > 0 ? { tags } : {}),
-    };
+    } as UpgradeResult;
   };
 }
 
@@ -1871,13 +1924,14 @@ const SCOPED_UPGRADE_KEY = Symbol('scopedUpgrade');
  * `namespacePluginPrimitives` reroutes its `__setup` to `registerPluginUpgrade`
  * (bound to the real plugin id) — never the app's single builder slot.
  */
-function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
+function scopedUpgradePrimitive(handler: UpgradeHandler, baseId: symbol): Primitive {
   return {
     __livething: 'onUpgrade',
     __kind: 'lifecycle',
     __identity: [SCOPED_UPGRADE_KEY],
     __requires: {},
     __scopedUpgrade: true,
+    __baseId: baseId,
     handler,
     __setup() {
       // Rewritten by namespacePluginPrimitives to bind the plugin id. Left inert
@@ -2034,7 +2088,10 @@ export function server(config: any): any {
     return buildRateLimit ? buildRateLimit({ overrides, channelRules, channelKeys }) : null;
   }
 
+  const baseId = Symbol('livething.base');
+
   const base = {
+    __baseId: baseId,
     on(event: string, config: OnConfig<any, any, any, any> & { rateLimit?: RateLimitConfig }) {
       const primitive = incomingFactory(event, config.run as any, {
         validator: config.input,
@@ -2126,6 +2183,7 @@ export function server(config: any): any {
       }
 
       return factory(pattern, channelConfig, {
+        baseId,
         streamBuilders,
         buildCustomReplay,
         buildBuiltinReplay,
@@ -2264,7 +2322,7 @@ export function server(config: any): any {
       if (config.upgrade) {
         primitives.push(
           scoped
-            ? scopedUpgradePrimitive(adaptUpgrade(config.upgrade))
+            ? scopedUpgradePrimitive(adaptUpgrade(config.upgrade), baseId)
             : onUpgrade(adaptUpgrade(config.upgrade)),
         );
       }
@@ -2363,6 +2421,7 @@ export function server(config: any): any {
 
       return Object.freeze({
         __livething: 'server' as const,
+        __baseId: baseId,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
         ...(config.translate ? { __translate: config.translate } : {}),

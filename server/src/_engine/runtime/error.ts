@@ -95,6 +95,7 @@ export async function handleRuntimeError(
   return ErrorsPrimitive.sendRuntimeError(
     {
       buildConnectionContext,
+      asyncContext: core.asyncContext,
       resolveScopeFromRouting: (errorRouting) => resolveScopeFromRouting(core, errorRouting),
       declaredErrorCodes: core.declaredErrorCodes,
       // Inbound onion: the owning plugin's error hooks observe before the app's.
@@ -130,6 +131,7 @@ export async function handleValidationError(
   return ErrorsPrimitive.notifyValidationError(
     {
       buildConnectionContext,
+      asyncContext: core.asyncContext,
       validationErrorHooks: [...pluginHooks, ...core.hooks.validationError],
     },
     connection,

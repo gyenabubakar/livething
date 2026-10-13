@@ -6,16 +6,18 @@ import {
   StreamAborted,
 } from '@livething/core';
 import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
-import { withConnectionContext } from '~/_engine/async-context.ts';
+import { withCallContext, withConnectionLevelCall } from '~/_engine/async-context.ts';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { scopePluginContext } from '~/plugin-scope.ts';
 import { isTranslatorConfigError, markTranslatorConfigError } from '~/translation/error.ts';
 import { TranslationInputError } from '~/translation/translator.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
+import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
@@ -73,6 +75,7 @@ type HandleUpgradeRuntimeParameter = {
    */
   pluginUpgradeHooks?: readonly {
     pluginId: string;
+    baseId?: symbol;
     handler: (
       request: Request,
       helpers: LifecycleTypes.UpgradeHelpers,
@@ -101,11 +104,12 @@ type HandleUpgradeRuntimeParameter = {
           }>)
     | undefined;
   /**
-   * Built once per engine. A contract with `tagGroups` populates the field;
-   * contracts without tag groups pass `undefined` and the helper bag is the
-   * empty object.
+   * Built once per engine. It always has `ctx`. A contract with `tagGroups`
+   * also populates `tags`; contracts without tag groups leave `tags` out.
    */
   upgradeHelpers: LifecycleTypes.UpgradeHelpers;
+  /** Lets `context.upgrade(base)` reach the upgrade `ctx`. Omitted by test harnesses. */
+  asyncContext?: EngineAsyncContext;
   /**
    * Whether a tag group of the given kind was declared. Guards tag refs an
    * upgrade returns — including the `tags: { ephemeral: { ... } }` sugar,
@@ -280,6 +284,12 @@ interface ConnectionRuntime {
     event?: string,
   ): Promise<void>;
 
+  /** Report an error that the socket raised, not one that a handler threw. */
+  handleSocketError(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    error: unknown,
+  ): Promise<void>;
+
   /**
    * Re-subscribe a fresh connection to every persistent channel its user id
    * was in. Called from `acceptConnection` between the initial row write and
@@ -340,7 +350,7 @@ function createHandle(
     handleError: async (error) => {
       try {
         await waitForLifecycle();
-        await runtime.handleRuntimeError(connection, error, undefined);
+        await runtime.handleSocketError(connection, error);
       } catch (handlerError) {
         runtime.logger?.error('[livething] connection error handler failed', {
           error: handlerError instanceof Error ? handlerError.message : String(handlerError),
@@ -574,7 +584,7 @@ export async function runConnectionLifecycle(
   ctx: Record<PropertyKey, unknown>,
 ): Promise<void> {
   const connectionId = (ctx as { connection?: { id?: string } }).connection?.id ?? '';
-  return withConnectionContext(runtime.asyncContext, connectionId, async () => {
+  return withConnectionLevelCall(runtime.asyncContext, { connectionId, ctx }, async () => {
     if (kind === 'connect') {
       // Inbound onion: new-model plugins see the connection before the app.
       for (const entry of runtime.pluginConnectHooks ?? []) {
@@ -1161,81 +1171,103 @@ export async function handleUpgrade(
     return {};
   }
 
-  try {
-    // Onion order: plugin upgrades first (registration order), then internal
-    // primitive hooks, then the app's builder hook last. Each result's meta is
-    // shallow-merged into the running total — since the app applies last it
-    // wins on key conflict; tags are concatenated (TagRef equality is by
-    // identity). At most one hook may own `userId`.
-    let mergedMeta: Record<string, unknown> | undefined;
-    let resolvedUserId: string | undefined;
-    let userIdOwner: string | undefined;
-    const mergedTags: PublicApi.TagRef[] = [];
-    function apply(result: ApplyResultParameter, owner: string): void {
-      if (result.userId !== undefined) {
-        if (userIdOwner !== undefined) {
+  // Which hook is running, so the log can name it when the handshake fails.
+  let runningHook = 'none';
+  // Onion order: plugin upgrades first (registration order), then internal
+  // primitive hooks, then the app's builder hook last. Each result's meta is
+  // shallow-merged into the running total — since the app applies last it
+  // wins on key conflict; tags are concatenated (TagRef equality is by
+  // identity). At most one hook may own `userId`.
+  let mergedMeta: Record<string, unknown> | undefined;
+  let resolvedUserId: string | undefined;
+  let userIdOwner: string | undefined;
+  const mergedTags: PublicApi.TagRef[] = [];
+  function apply(result: ApplyResultParameter, owner: string): void {
+    if (result.userId !== undefined) {
+      if (userIdOwner !== undefined) {
+        throw new Error(
+          `[livething] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
+            'A user id has exactly one owner per connection — the app or one plugin, never both.',
+        );
+      }
+
+      userIdOwner = owner;
+      resolvedUserId = result.userId;
+    }
+
+    if (result.meta) {
+      mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
+    }
+
+    if (result.tags) {
+      for (const ref of result.tags) {
+        if (ref.kind === 'persistent') {
           throw new Error(
-            `[livething] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
-              'A user id has exactly one owner per connection — the app or one plugin, never both.',
+            `[livething] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
           );
         }
 
-        userIdOwner = owner;
-        resolvedUserId = result.userId;
-      }
-
-      if (result.meta) {
-        mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
-      }
-
-      if (result.tags) {
-        for (const ref of result.tags) {
-          if (ref.kind === 'persistent') {
-            throw new Error(
-              `[livething] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
-            );
-          }
-
-          if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
-            throw new Error(
-              `[livething] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
-            );
-          }
-
-          // Same rules as `add()`: an empty key is a no-op, and a group with a
-          // schema must accept the key.
-          if (ref.key.length === 0) continue;
-
-          const schema = runtime.getTagGroupSchema('ephemeral', ref.group);
-          if (schema) {
-            try {
-              validateValue(schema, ref.key, `tag ephemeral:${ref.group}`);
-            } catch (error) {
-              throw new Error(
-                `[livething] onUpgrade returned the ephemeral tag key '${ref.key}' for group '${ref.group}', which the group's schema rejects.`,
-                { cause: error },
-              );
-            }
-          }
-
-          mergedTags.push(ref);
+        if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
+          throw new Error(
+            `[livething] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
+          );
         }
+
+        // Same rules as `add()`: an empty key is a no-op, and a group with a
+        // schema must accept the key.
+        if (ref.key.length === 0) continue;
+
+        const schema = runtime.getTagGroupSchema('ephemeral', ref.group);
+        if (schema) {
+          try {
+            validateValue(schema, ref.key, `tag ephemeral:${ref.group}`);
+          } catch (error) {
+            throw new Error(
+              `[livething] onUpgrade returned the ephemeral tag key '${ref.key}' for group '${ref.group}', which the group's schema rejects.`,
+              { cause: error },
+            );
+          }
+        }
+
+        mergedTags.push(ref);
       }
     }
+  }
 
+  try {
     for (const entry of pluginUpgradeHooks) {
-      apply(
-        (await entry.handler(request, runtime.upgradeHelpers)) ?? {},
-        `plugin '${entry.pluginId}'`,
+      runningHook = `plugin '${entry.pluginId}'`;
+      // The plugin gets its own scoped `ctx`. The same object reaches `context.upgrade(pluginBase)`.
+      const helpers = {
+        ...runtime.upgradeHelpers,
+        ctx: scopePluginContext(entry.pluginId, runtime.upgradeHelpers.ctx),
+      };
+
+      const call: CallDescriptor = {
+        kind: 'upgrade',
+        getCtx: () => helpers.ctx,
+        baseId: entry.baseId,
+      };
+
+      const result = await withCallContext(runtime.asyncContext, call, () =>
+        entry.handler(request, helpers),
       );
+      apply(result ?? {}, `plugin '${entry.pluginId}'`);
     }
 
     for (const hook of runtime.upgradeHooks) {
+      runningHook = 'an internal hook';
       apply((await hook(request, runtime.upgradeHelpers)) ?? {}, 'an internal hook');
     }
 
-    if (runtime.builderUpgradeHook) {
-      apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {}, 'the app');
+    const builderUpgradeHook = runtime.builderUpgradeHook;
+    if (builderUpgradeHook) {
+      runningHook = 'the app';
+      const call: CallDescriptor = { kind: 'upgrade', getCtx: () => runtime.upgradeHelpers.ctx };
+      const result = await withCallContext(runtime.asyncContext, call, () =>
+        builderUpgradeHook(request, runtime.upgradeHelpers),
+      );
+      apply(result ?? {}, 'the app');
     }
 
     return {
@@ -1260,6 +1292,7 @@ export async function handleUpgrade(
 
       runtime.logger?.error('[livething] invalid upgrade rejection code; rejecting with HTTP 403', {
         code,
+        hook: runningHook,
       });
       return {
         reject: true,
@@ -1270,6 +1303,7 @@ export async function handleUpgrade(
 
     // The client only sees a generic reason; the real error goes to the log.
     runtime.logger?.error('[livething] upgrade hook threw; rejecting with HTTP 500', {
+      hook: runningHook,
       error: error instanceof Error ? error.message : String(error),
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
       ...(error instanceof Error && error.cause !== undefined
@@ -1304,6 +1338,7 @@ export async function handleShutdown(
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
     logger?: Pick<PublicApi.Logger, 'error'>;
+    asyncContext?: EngineAsyncContext;
   },
 ): Promise<void> {
   // Fire every active stream's stop signal up front — including detached
@@ -1323,7 +1358,10 @@ export async function handleShutdown(
   // with logging; cleanup below always runs.
   for (const hook of runtime.shutdownHooks) {
     try {
-      await hook(runtime.createShutdownContext());
+      const ctx = runtime.createShutdownContext();
+      await withCallContext(runtime.asyncContext, { kind: 'shutdown', getCtx: () => ctx }, () =>
+        hook(ctx),
+      );
     } catch (error) {
       runtime.logger?.error('[livething] shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),
@@ -1335,7 +1373,10 @@ export async function handleShutdown(
   const pluginShutdowns = runtime.pluginShutdownHooks ?? [];
   for (let i = pluginShutdowns.length - 1; i >= 0; i -= 1) {
     try {
-      await pluginShutdowns[i]!.handler(runtime.createShutdownContext());
+      const ctx = runtime.createShutdownContext();
+      await withCallContext(runtime.asyncContext, { kind: 'shutdown', getCtx: () => ctx }, () =>
+        pluginShutdowns[i]!.handler(ctx),
+      );
     } catch (error) {
       runtime.logger?.error('[livething] plugin shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),

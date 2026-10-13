@@ -248,7 +248,7 @@ class ReplayInstaller {
     const retention = this.opts.retention;
     const owner = this.owner();
 
-    function runPrune(sqlForPrune: Pick<SQLProvider, 'exec'>): void {
+    function runPrune(sqlForPrune: Pick<SQLProvider, 'exec' | 'limits'>): void {
       pruneExpiredReplayRows(sqlForPrune, { retention, now: Date.now(), owner });
       pruneReplayScopeRows(sqlForPrune, retention, replayScope);
     }

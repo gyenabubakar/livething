@@ -61,7 +61,8 @@ export interface SqlResult<T = unknown> {
  * `node:sqlite` allows 32,766. LiveThing does not pick a number for you: each
  * adapter states its engine's real numbers here, and code that builds
  * variable-length SQL (batched inserts, `WHERE id IN (...)`, and similar)
- * reads `limits` to stay under them instead of assuming one shared ceiling.
+ * reads `maxBoundParams` to stay under it instead of assuming one shared ceiling.
+ * The two byte limits describe the rest of the engine; LiveThing does not read them.
  *
  * Authoring a custom adapter? Find your engine's real numbers from its own
  * documentation — do not guess. See
@@ -98,9 +99,9 @@ export interface SqlLimits {
  * ctx.sql.exec('INSERT INTO events (type, data) VALUES (?, ?)', 'login', userId);
  *
  * // Atomic multi-step operation:
- * ctx.sql.transaction((tx) => {
- *   tx.exec('UPDATE wallets SET balance = balance - ? WHERE id = ?', amount, from);
- *   tx.exec('UPDATE wallets SET balance = balance + ? WHERE id = ?', amount, to);
+ * ctx.sql.transaction(() => {
+ *   ctx.sql.exec('UPDATE wallets SET balance = balance - ? WHERE id = ?', amount, from);
+ *   ctx.sql.exec('UPDATE wallets SET balance = balance + ? WHERE id = ?', amount, to);
  * });
  * ```
  */
@@ -116,13 +117,15 @@ export interface SQLProvider {
   /**
    * Run multiple queries inside a single atomic transaction.
    *
-   * The callback must be synchronous. If it throws, the transaction is rolled
-   * back and the error propagates to the caller. Run async work before or after
-   * this callback, never inside it.
+   * Every `exec()` call inside the callback joins the transaction. The callback
+   * must be synchronous. If it throws, the transaction is rolled back and the
+   * error propagates to the caller. Run async work before or after this
+   * callback, never inside it.
+   *
+   * Only SQL written through `ctx.sql` rolls back. Other calls in the callback, such as
+   * `ctx.send()`, `ctx.schedule()` and `ctx.kv.set()`, keep their effect.
    */
-  transaction<T>(
-    fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
-  ): T;
+  transaction<T>(fn: () => T): T;
 
   /** The bind-parameter and payload ceilings of the engine behind this provider. */
   readonly limits: SqlLimits;
@@ -143,10 +146,16 @@ export interface KVProvider {
   /** Read one value by key. Returns `undefined` when the key does not exist. */
   get(key: string): Promise<unknown>;
 
-  /** Write one value. Optionally set a TTL in milliseconds after which the key expires. */
+  /**
+   * Write one value. Optionally set a TTL in milliseconds after which the key expires.
+   * LiveThing can write a key a second time, after a `ctx.sql.transaction` rolls back, so it
+   * must be safe to run twice. The second call passes the same value and only the TTL that is
+   * left, so the key still expires when it first would have. If that time has passed, LiveThing
+   * calls `delete` instead. Count the TTL from the moment of each call.
+   */
   set(key: string, value: unknown, options?: OptionsParameter): Promise<void>;
 
-  /** Remove one key. */
+  /** Remove one key. It must be safe to run twice, like `set`. */
   delete(key: string): Promise<void>;
 
   /** List keys that start with the given prefix. */
@@ -187,10 +196,14 @@ export interface StorageProvider {
  * these methods only when you need low-level control.
  */
 export interface TimerProvider {
-  /** Set a durable alarm that fires at an absolute timestamp (ms since epoch). Platform-specific. */
+  /**
+   * Set a durable alarm that fires at an absolute timestamp (ms since epoch). Platform-specific.
+   * LiveThing can call it a second time after a `ctx.sql.transaction` rolls back, so it must be
+   * safe to run twice.
+   */
   setAlarm(timeMs: number): Promise<void>;
 
-  /** Cancel the current durable alarm. */
+  /** Cancel the current durable alarm. It must be safe to run twice, like `setAlarm`. */
   deleteAlarm(): Promise<void>;
 
   /** Read the time of the current durable alarm, or `null` if none is set. */
@@ -204,7 +217,8 @@ export interface TimerProvider {
  *
  * `AsyncLocalStorage` from `node:async_hooks` satisfies this interface
  * directly. Adapters provide a factory for creating one, and the engine
- * decides the store shape it wants to carry.
+ * decides the store shape it wants to carry. The engine also keeps one more
+ * store for the whole process, which the `context.*` accessors read.
  */
 export interface AsyncContext<TStore = unknown> {
   /** Run `callback` with `store` recorded as the active async state. */
@@ -214,7 +228,11 @@ export interface AsyncContext<TStore = unknown> {
   getStore(): TStore | undefined;
 }
 
-/** Factory the adapter provides so the engine can create its own async context instance. */
+/**
+ * Factory the adapter provides so the engine can create its own async context
+ * instances. It must return a new store on every call, because the engine keeps
+ * several stores apart, such as the one behind `context.*`.
+ */
 export type AsyncContextFactory = <TStore>() => AsyncContext<TStore>;
 
 /**
@@ -1005,7 +1023,7 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
 }
 
 /**
- * The context passed to `onInit` handlers.
+ * The context passed to `onInit` handlers and to the app's `upgrade` function.
  *
  * `onInit` runs once during server startup, before any WebSocket connections
  * are accepted. Use it for one-time setup: seeding the database, warming
@@ -1024,7 +1042,7 @@ export interface InitContext<Platform = unknown> {
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
-  /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
+  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
 }
 
@@ -1096,7 +1114,7 @@ export interface ShutdownContext<
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
-  /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
+  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
 }
 
@@ -1142,7 +1160,7 @@ export interface TaskContext<Meta = Record<string, unknown>, Platform = unknown>
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
-  /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
+  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
 }
 
@@ -1264,6 +1282,6 @@ export interface AdminContext<
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
-  /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
+  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
 }

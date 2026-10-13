@@ -33,15 +33,15 @@ export const DEFAULT_SEQUENCE_BATCH_SIZE = 100;
  * amortises the SQL write across a whole batch.
  */
 export function allocatePersistentSequence(sql: SQLProvider): number {
-  return sql.transaction((tx) => {
-    const row = tx
+  return sql.transaction(() => {
+    const row = sql
       .exec<{
         nextSeq: number;
       }>('SELECT nextSeq FROM __livething_sequence WHERE scope = ?', GLOBAL_SEQUENCE_SCOPE)
       .one();
 
     if (!row) {
-      tx.exec(
+      sql.exec(
         'INSERT INTO __livething_sequence (scope, nextSeq) VALUES (?, ?)',
         GLOBAL_SEQUENCE_SCOPE,
         2,
@@ -52,7 +52,7 @@ export function allocatePersistentSequence(sql: SQLProvider): number {
 
     const nextSeq = Number(row.nextSeq);
 
-    tx.exec(
+    sql.exec(
       'UPDATE __livething_sequence SET nextSeq = ? WHERE scope = ?',
       nextSeq + 1,
       GLOBAL_SEQUENCE_SCOPE,
@@ -88,8 +88,8 @@ export function createPersistentSequenceAllocator(
   let ceiling = 0;
 
   function reserveNextBatch(): void {
-    const reserved = sql.transaction((tx) => {
-      const row = tx
+    const reserved = sql.transaction(() => {
+      const row = sql
         .exec<{
           nextSeq: number;
         }>('SELECT nextSeq FROM __livething_sequence WHERE scope = ?', GLOBAL_SEQUENCE_SCOPE)
@@ -99,13 +99,13 @@ export function createPersistentSequenceAllocator(
       const end = start + batchSize;
 
       if (!row) {
-        tx.exec(
+        sql.exec(
           'INSERT INTO __livething_sequence (scope, nextSeq) VALUES (?, ?)',
           GLOBAL_SEQUENCE_SCOPE,
           end,
         );
       } else {
-        tx.exec(
+        sql.exec(
           'UPDATE __livething_sequence SET nextSeq = ? WHERE scope = ?',
           end,
           GLOBAL_SEQUENCE_SCOPE,

@@ -19,6 +19,7 @@ export type { Translator, TranslatorFactory } from './translation/translator.ts'
 
 export type { ScopeDeclaration } from './channel/channel.ts';
 
+export { context } from './ambient-context.ts';
 export { server } from './_define/server.ts';
 export type {
   Base,
@@ -29,6 +30,7 @@ export type {
   RequestConfig,
   RequestHandlerValue,
   ScopedServerConfig,
+  ScopedUpgradeFn,
   UpgradeFn,
   UpgradeReturn,
 } from './_define/server.ts';
@@ -55,6 +57,8 @@ export type {
   ReplayScopeSendApi,
   ScopeSendApi,
   ShutdownContext,
+  SQLProvider,
+  SqlResult,
   TagRef,
   TaskContext,
   UserHandle,

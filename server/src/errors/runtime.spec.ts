@@ -78,6 +78,37 @@ describe('errors runtime', () => {
     expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
+  it('logs an unexpected error only when no onError hook will see it', async () => {
+    function send(error: unknown, errorHooks: (() => void)[]) {
+      const logged: unknown[][] = [];
+      const done = sendRuntimeError(
+        {
+          buildConnectionContext: () => ({ id: 'c1' }),
+          declaredErrorCodes: new Set(['forbidden']),
+          errorHooks,
+          logger: { warn() {}, error: (...args: unknown[]) => logged.push(args) },
+          sendProtocolMessage() {},
+        },
+        { id: 'c1' } as never,
+        { error, event: 'echo' },
+      );
+
+      return done.then(() => logged);
+    }
+
+    const boom = new Error('boom');
+    expect(await send(boom, [])).toEqual([
+      [expect.stringMatching(/unexpected error.*internal-error/), { event: 'echo', error: boom }],
+    ]);
+    expect(await send(boom, [() => {}])).toEqual([]);
+    expect(await send(new LiveThingError('forbidden', {}), [])).toEqual([]);
+    // A misplaced Defer already logged why; RejectUpgrade outside `upgrade` is a mistake to log.
+    expect(await send(Object.freeze({ __livething: 'defer', delay: 10 }), [])).toEqual([]);
+    expect(await send(Object.freeze({ __livething: 'reject-upgrade', code: 4001 }), [])).toEqual([
+      [expect.stringMatching(/unexpected error/), expect.anything()],
+    ]);
+  });
+
   it('runs error hooks for LiveThingError values too', async () => {
     const observed: string[] = [];
 

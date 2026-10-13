@@ -15,7 +15,9 @@ describe('ScheduledClient — no-any guard', () => {
 
 describe('ScheduledClient — incoming (server outgoing)', () => {
   it('has cleanup-scheduled with empty payload', () => {
-    expectTypeOf<ScheduledClient['incoming']['cleanup-scheduled']>().toEqualTypeOf<{}>();
+    expectTypeOf<ScheduledClient['incoming']['cleanup-scheduled']>().toEqualTypeOf<
+      Record<string, never>
+    >();
   });
 
   it('has cleanup-done', () => {
@@ -29,7 +31,9 @@ describe('ScheduledClient — incoming (server outgoing)', () => {
   });
 
   it('has cleanup-cancelled with empty payload', () => {
-    expectTypeOf<ScheduledClient['incoming']['cleanup-cancelled']>().toEqualTypeOf<{}>();
+    expectTypeOf<ScheduledClient['incoming']['cleanup-cancelled']>().toEqualTypeOf<
+      Record<string, never>
+    >();
   });
 
   it('has heartbeat-tick', () => {
@@ -65,7 +69,9 @@ describe('ScheduledClient — incoming (server outgoing)', () => {
   });
 
   it('has cancel-nothing-ok with empty payload', () => {
-    expectTypeOf<ScheduledClient['incoming']['cancel-nothing-ok']>().toEqualTypeOf<{}>();
+    expectTypeOf<ScheduledClient['incoming']['cancel-nothing-ok']>().toEqualTypeOf<
+      Record<string, never>
+    >();
   });
 
   it('has schedule-guard-error', () => {
@@ -93,7 +99,9 @@ describe('ScheduledClient — incoming (server outgoing)', () => {
   });
 
   it('has cancel-nonexistent-ok with empty payload', () => {
-    expectTypeOf<ScheduledClient['incoming']['cancel-nonexistent-ok']>().toEqualTypeOf<{}>();
+    expectTypeOf<ScheduledClient['incoming']['cancel-nonexistent-ok']>().toEqualTypeOf<
+      Record<string, never>
+    >();
   });
 
   it('has schedule-unknown-task-result', () => {

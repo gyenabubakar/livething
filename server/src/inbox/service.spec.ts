@@ -9,7 +9,6 @@ import { dedup } from '~/dedup/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
-import type { SQLProvider } from '~/context.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { inbox } from './capability.ts';
 import { advanceReceivedThrough, listReceivers } from './receipts-storage.ts';
@@ -104,13 +103,13 @@ describe('inbox runtime install', () => {
     });
     const runTransaction = storage.sql.transaction.bind(storage.sql);
 
-    storage.sql.transaction = <T>(fn: (tx: Pick<SQLProvider, 'exec'>) => T): T => {
+    storage.sql.transaction = <T>(fn: () => T): T => {
       const transactionId = ++transactionCalls;
-      return runTransaction((tx) => {
+      return runTransaction(() => {
         const previous = activeTransaction;
         activeTransaction = transactionId;
         try {
-          return fn(tx);
+          return fn();
         } finally {
           activeTransaction = previous;
         }

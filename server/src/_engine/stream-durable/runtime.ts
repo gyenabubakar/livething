@@ -7,10 +7,10 @@ import {
   StreamAborted,
   StreamIdCollision,
 } from '@livething/core';
-import { withConnectionContext } from '~/_engine/async-context.ts';
+import { connectionCall, inConnectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
-import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { serializeDurableChunk, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { connectionStorageKeyOf, RESERVED_USER_ID_PREFIX } from '~/_engine/runtime/user-key.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import {
@@ -104,11 +104,7 @@ export interface DurableStreamRuntime {
   /** SQLite handle. */
   sql: {
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
-    transaction<T>(
-      fn: (sql: {
-        exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
-      }) => T,
-    ): T;
+    transaction<T>(fn: () => T): T;
   };
 
   handleRuntimeError(connection: RuntimeConnection, opts: OptsParameter3): Promise<void>;
@@ -166,13 +162,6 @@ function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.LiveTh
   if (row.channelFamily) livething.channelFamily = row.channelFamily;
 
   return livething;
-}
-
-/** A stream chunk becomes the frame payload; a non-object chunk is wrapped in `{ value }`. */
-function chunkToPayload(chunkValue: unknown): Record<string, unknown> {
-  return typeof chunkValue === 'object' && chunkValue !== null && !Array.isArray(chunkValue)
-    ? { ...(chunkValue as Record<string, unknown>) }
-    : { value: chunkValue };
 }
 
 /**
@@ -358,6 +347,26 @@ export interface ContinueDurableStreamOptions {
 }
 
 /** Handle a client `__continueStream__` frame for a suspended or ended durable stream. */
+/** What a creator's reconnect changed on a detached stream, so a failed reattach can undo it. */
+interface ContinueAttachment {
+  runtime: DurableStreamRuntime;
+  connection: RuntimeConnection;
+  stream: ActiveStream;
+  streamId: string;
+  previousConnection: ActiveStream['connection'];
+  previousConnectionId: ActiveStream['connectionId'];
+}
+
+function rollbackContinueAttachment(attachment: ContinueAttachment, persist = true): void {
+  const { runtime, connection, stream, streamId } = attachment;
+  stream.connection = attachment.previousConnection;
+  stream.connectionId = attachment.previousConnectionId;
+  stream.detached = true;
+  connection.activeStreamIds?.delete(streamId);
+
+  if (persist) runtime.persistAttachment(connection, { force: true });
+}
+
 export async function continueDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
@@ -465,19 +474,20 @@ export async function continueDurableStream(
       if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
 
       connection.activeStreamIds.add(streamId);
+      const attachment: ContinueAttachment = {
+        runtime,
+        connection,
+        stream: detachedStream,
+        streamId,
+        previousConnection,
+        previousConnectionId,
+      };
+
       try {
         runtime.persistAttachment(connection);
       } catch (error) {
-        rollbackContinueAttachment(false);
+        rollbackContinueAttachment(attachment, false);
         throw error;
-      }
-
-      function rollbackContinueAttachment(persist = true): void {
-        detachedStream.connection = previousConnection;
-        detachedStream.connectionId = previousConnectionId;
-        detachedStream.detached = true;
-        connection.activeStreamIds?.delete(streamId);
-        if (persist) runtime.persistAttachment(connection, { force: true });
       }
 
       try {
@@ -487,12 +497,12 @@ export async function continueDurableStream(
           livething: { ...scopeMarkers, streamId, streamDurability: 'persistent' },
         });
       } catch (error) {
-        rollbackContinueAttachment();
+        rollbackContinueAttachment(attachment);
         throw error;
       }
 
       if (connection.closing) {
-        rollbackContinueAttachment();
+        rollbackContinueAttachment(attachment);
         return;
       }
 
@@ -506,10 +516,10 @@ export async function continueDurableStream(
         if (
           !sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })
         ) {
-          rollbackContinueAttachment();
+          rollbackContinueAttachment(attachment);
         }
       } catch (error) {
-        rollbackContinueAttachment();
+        rollbackContinueAttachment(attachment);
         throw error;
       }
 
@@ -639,13 +649,13 @@ export async function continueDurableStream(
   if (connection.closing) return;
 
   const startSeq = checkpoint?.seq ?? 0;
-  const attempt = runtime.sql.transaction((sql) => {
-    Storage.deleteCursorCheckpointsAfter(sql, {
+  const attempt = runtime.sql.transaction(() => {
+    Storage.deleteCursorCheckpointsAfter(runtime.sql, {
       userId: storageUserId,
       streamId,
       seq: lastKnownSeq,
     });
-    return Storage.rewindCursorStream(sql, {
+    return Storage.rewindCursorStream(runtime.sql, {
       userId: storageUserId,
       streamId,
       lastSeq: startSeq,
@@ -804,8 +814,16 @@ async function runGenerator(
     return activeStream?.connection ?? connection;
   }
 
+  let iterator: AsyncGenerator<unknown, void, unknown> | undefined;
   try {
-    const iterator = def.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
+    const streamCall = connectionCall(connection.id, scope, () => ctx);
+    iterator = inConnectionCall(
+      runtime.asyncContext,
+      streamCall,
+      withConnectionCall(runtime.asyncContext, streamCall, () =>
+        def.generator(ctx, payload),
+      ) as AsyncGenerator<unknown, void, unknown>,
+    );
     const built = buildActiveStream({
       streamId,
       event: def.event,
@@ -830,11 +848,9 @@ async function runGenerator(
     let nextInput: unknown = hasNudges ? [] : undefined;
 
     while (!activeStream.closed) {
-      // Advance the generator inside the connection's async context so plugin
-      // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
-      const result = await withConnectionContext(runtime.asyncContext, connection.id, () =>
-        iterator.next(nextInput),
-      );
+      // The wrapped iterator runs inside the connection's async context, so plugin
+      // APIs the generator calls (e.g. hooks.getState()) resolve to the stream owner.
+      const result = await iterator.next(nextInput);
       if (result.done) break;
 
       // A reconnect/replace took over this streamId while next() was pending. This
@@ -858,6 +874,9 @@ async function runGenerator(
       const now = Date.now();
 
       const recordsChunks = def.kind === 'recorded';
+      // One serialization: stored as is, and parsed once for the live frames.
+      const chunkJson = serializeDurableChunk(def.event, chunkValue);
+      const wirePayload = JSON.parse(chunkJson) as Record<string, unknown>;
       appendCursorCheckpoint(runtime, {
         def,
         userId,
@@ -873,10 +892,7 @@ async function runGenerator(
           streamId,
           seq,
           messageId: null,
-          payload: serializeJsonOrThrow(
-            chunkToPayload(chunkValue),
-            `Durable stream chunk for "${def.event}"`,
-          ),
+          payload: chunkJson,
           now,
         });
 
@@ -909,13 +925,10 @@ async function runGenerator(
         }
       }
 
-      function persistDelivery(): void {
-        Storage.updateLastSeq(runtime.sql, { userId, streamId, lastSeq: seq, now });
-      }
-
-      if (def.kind !== 'cursor') persistDelivery();
-
-      const wirePayload = chunkToPayload(chunkValue);
+      // No function is declared inside this loop: the Cloudflare bundle hoisted one out of the
+      // block, and its minified name hid the imported `buildActiveStream`.
+      const delivery = { userId, streamId, lastSeq: seq, now };
+      if (def.kind !== 'cursor') Storage.updateLastSeq(runtime.sql, delivery);
 
       // A replacement may have taken the slot during the maxChunks iterator.throw
       // above; never send a chunk once this run no longer owns the stream.
@@ -977,7 +990,7 @@ async function runGenerator(
         }
       }
 
-      if (def.kind === 'cursor') persistDelivery();
+      if (def.kind === 'cursor') Storage.updateLastSeq(runtime.sql, delivery);
 
       if (hasNudges) {
         nextInput = [...nudgeBuffer];
@@ -1044,6 +1057,10 @@ async function runGenerator(
       );
     }
   } catch (error) {
+    // When LiveThing refused a chunk, the generator still waits at its yield. Close it, so its
+    // finally blocks run. A generator that threw has already finished, so this does nothing.
+    await iterator?.return(undefined).catch(() => {});
+
     // A config error must propagate, but the row still has to leave 'active' or
     // it blocks every future start/continue — mark it ended before rethrowing.
     // Only when this run still owns the slot; a replacement manages its own row.

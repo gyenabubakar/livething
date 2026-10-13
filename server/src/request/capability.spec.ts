@@ -54,11 +54,26 @@ describe('clientRequests() capability', () => {
     expect(respond).not.toHaveBeenCalled();
   });
 
-  it('responds with falsy non-null values', async () => {
+  it('responds with an empty object, which is not a void ack', async () => {
     const base = server({ capabilities: [clientRequests()] });
     const handleCount = base.request('count', {
       run() {
-        return 0;
+        return {};
+      },
+    });
+    const respond = vi.fn();
+    await requestPrimitive(base.assemble({ handlers: [handleCount] }).primitives).handler(
+      { respond } as never,
+      {},
+    );
+    expect(respond).toHaveBeenCalledWith({});
+  });
+
+  it('responds with a falsy value cast past the types, not a void ack', async () => {
+    const base = server({ capabilities: [clientRequests()] });
+    const handleCount = base.request('count', {
+      run() {
+        return 0 as never;
       },
     });
     const respond = vi.fn();

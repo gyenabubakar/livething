@@ -18,6 +18,11 @@ import {
 import { createAsyncContext } from '~/_engine/async-context.ts';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
+import {
+  createEngineStorage,
+  createEngineTimers,
+  UserTransactionTracker,
+} from '~/_engine/user-transaction.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext, PendingScopeFlush } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -56,6 +61,10 @@ export class EngineCore {
 
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
 
+  /** Redoes the engine's own writes, alarm changes and `ctx.kv` writes when a user's `ctx.sql.transaction(...)` rolls back. */
+  readonly userTransactions: UserTransactionTracker;
+
+  /** The storage engine code uses. `ctx.sql` uses `options.storage` directly. */
   storage: PublicApi.StorageProvider;
   timers: PublicApi.TimerProvider;
   platform: unknown;
@@ -264,11 +273,21 @@ export class EngineCore {
     this.translatorFactory = definition.__translate;
     this.compiled = EngineCompile.compileServerDefinition(definition);
 
-    this.storage = options.storage;
-    this.timers = options.timers;
     this.platform = options.platform;
     this.logger = options.logger;
-    this.asyncContext = createAsyncContext(options.asyncContextFactory);
+    this.userTransactions = new UserTransactionTracker(
+      (error) => {
+        this.logger.error('[livething] could not redo a storage write after a rollback', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+      options.asyncContextFactory,
+      (error) => this.logger.error(error.message),
+    );
+    this.storage = createEngineStorage(options.storage, this.userTransactions);
+    this.timers = createEngineTimers(options.timers, this.userTransactions);
+
+    this.asyncContext = createAsyncContext(options.asyncContextFactory, definition.__baseId);
 
     this.hooks.ping.push((connectionId) => this.replyPong(connectionId));
   }

@@ -5,14 +5,17 @@ import { capability, stampKind, withCapabilityKind } from '~/_define/capability.
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
-import type { Validator } from '~/types.ts';
+import type { ContractPayload, PayloadObject, Validator } from '~/types.ts';
 
 export type ServerRequestDeclaration = {
-  readonly out: TypeMarker<any>;
+  /** The payload sent to the client, which must be a plain object. */
+  readonly out: TypeMarker<PayloadObject>;
   readonly in?: Validator;
 };
 
-type PayloadOf<TDeclaration> = TDeclaration extends { out: TypeMarker<infer U> } ? U : unknown;
+type PayloadOf<TDeclaration> = TDeclaration extends { out: TypeMarker<infer U> }
+  ? ContractPayload<U>
+  : unknown;
 type ResponseOf<TDeclaration> = TDeclaration extends { in: Validator<infer U> } ? U : void;
 
 export type ServerRequestsSlot<TDeclarations extends Record<string, ServerRequestDeclaration>> = {

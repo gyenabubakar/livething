@@ -556,7 +556,8 @@ export interface EngineAccess {
   /**
    * Register one new-model plugin `upgrade` hook. Runs before the app's upgrade
    * (inbound onion); it may own `userId`, but the single-owner rule is
-   * enforced at runtime.
+   * enforced at runtime. `baseId` is the id of the plugin's own `base`, so
+   * `context.upgrade(pluginBase)` works inside the hook.
    *
    * @internal
    */
@@ -572,6 +573,7 @@ export interface EngineAccess {
           meta?: Record<string, unknown>;
           tags?: readonly ContextApi.TagRef[];
         }>,
+    baseId?: symbol,
   ): void;
 
   /**
@@ -617,6 +619,14 @@ export interface EngineAccess {
    * @internal
    */
   getConnectionContext(connectionId: string): unknown;
+
+  /**
+   * Run `fn` for one connection so `context.connection(base)` inside it returns
+   * `ctx`. Used by hooks that build their own `ctx` from a connection id.
+   *
+   * @internal
+   */
+  runInConnectionCall<T>(connectionId: string, ctx: unknown, fn: () => T): T;
 
   /**
    * Observe a bare `ping` frame arriving from a client. The engine registers

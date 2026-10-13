@@ -1,5 +1,9 @@
 export { adapter } from './adapter.ts';
 export { normalizeCloseReason } from './close.ts';
+export {
+  rejectAsyncTransactionCallback,
+  rejectAsyncTransactionResult,
+} from './sync-transaction.ts';
 export type {
   AdapterConfig,
   ConnectionDescriptor,

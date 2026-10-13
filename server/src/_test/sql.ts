@@ -1,4 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
+import {
+  rejectAsyncTransactionCallback,
+  rejectAsyncTransactionResult,
+} from '~/_adapters/sync-transaction.ts';
 import type { KVProvider, SqlLimits, SQLProvider, SqlResult, StorageProvider } from '~/context.ts';
 
 /**
@@ -80,20 +84,46 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
     return emptyResult<TRow>();
   }
 
+  let depth = 0;
+
   return {
     db,
     exec,
     limits,
-    transaction<T>(fn: (tx: { exec: typeof exec }) => T): T {
-      db.exec('BEGIN');
+    // Nested calls become savepoints, like better-sqlite3 does. Async callbacks
+    // are rejected, like the real providers do.
+    transaction<T>(fn: () => T): T {
+      rejectAsyncTransactionCallback(fn);
+
+      const outermost = depth === 0;
+      const savepoint = `sp${depth}`;
+      db.exec(outermost ? 'BEGIN' : `SAVEPOINT ${savepoint}`);
+      depth += 1;
+      let result: T;
+
       try {
-        const result = fn({ exec });
-        db.exec('COMMIT');
-        return result;
+        result = fn();
+        rejectAsyncTransactionResult(result);
       } catch (error) {
-        db.exec('ROLLBACK');
+        depth -= 1;
+        // SQLite may have ended the transaction itself, as INSERT OR ROLLBACK does.
+        if (db.isTransaction) {
+          db.exec(outermost ? 'ROLLBACK' : `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        }
+
         throw error;
       }
+
+      depth -= 1;
+      try {
+        db.exec(outermost ? 'COMMIT' : `RELEASE ${savepoint}`);
+      } catch (error) {
+        // A failed COMMIT (a deferred foreign key, say) leaves the transaction open.
+        if (outermost && db.isTransaction) db.exec('ROLLBACK');
+        throw error;
+      }
+
+      return result;
     },
   };
 }

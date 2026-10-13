@@ -64,13 +64,39 @@ describe('createSql', () => {
       runtime.provider.exec('CREATE TABLE values_table (value TEXT)');
 
       expect(() =>
-        runtime.provider.transaction((tx) => {
-          tx.exec('INSERT INTO values_table (value) VALUES (?)', 'kept out');
+        runtime.provider.transaction(() => {
+          runtime.provider.exec('INSERT INTO values_table (value) VALUES (?)', 'kept out');
           throw new Error('stop');
         }),
       ).toThrow('stop');
 
       expect(runtime.provider.exec('SELECT value FROM values_table').toArray()).toEqual([]);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('undoes only the inner writes when an outer callback catches an inner failure', () => {
+    const runtime = createSql();
+    try {
+      const { provider } = runtime;
+      provider.exec('CREATE TABLE values_table (value TEXT)');
+
+      provider.transaction(() => {
+        provider.exec('INSERT INTO values_table (value) VALUES (?)', 'outer');
+        try {
+          provider.transaction(() => {
+            provider.exec('INSERT INTO values_table (value) VALUES (?)', 'inner');
+            throw new Error('inner failed');
+          });
+        } catch {
+          // the outer callback continues
+        }
+      });
+
+      expect(provider.exec('SELECT value FROM values_table').toArray()).toEqual([
+        { value: 'outer' },
+      ]);
     } finally {
       runtime.close();
     }
@@ -88,6 +114,25 @@ describe('createSql', () => {
         /transaction\(\) callbacks must be synchronous/,
       );
       expect(ran).toBe(false);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('rejects a callback that returns a function with a then method, and rolls back', () => {
+    const runtime = createSql();
+    const callableThenable = Object.assign(() => {}, { then() {} });
+
+    try {
+      runtime.provider.exec('CREATE TABLE values_table (value TEXT)');
+      expect(() =>
+        runtime.provider.transaction(() => {
+          runtime.provider.exec("INSERT INTO values_table VALUES ('x')");
+
+          return callableThenable;
+        }),
+      ).toThrow(/transaction\(\) callbacks must be synchronous/);
+      expect(runtime.provider.exec('SELECT value FROM values_table').toArray()).toEqual([]);
     } finally {
       runtime.close();
     }
@@ -756,12 +801,8 @@ function createFakeSqlProvider(): SQLProvider {
     exec<TRow = unknown>() {
       return result as SqlResult<TRow>;
     },
-    transaction<T>(fn: (tx: { exec<TRow = unknown>(): SqlResult<TRow> }) => T): T {
-      return fn({
-        exec<TRow = unknown>() {
-          return result as SqlResult<TRow>;
-        },
-      });
+    transaction<T>(fn: () => T): T {
+      return fn();
     },
     limits,
   };

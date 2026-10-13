@@ -86,6 +86,9 @@ export interface ScheduledRuntimeAccess {
   /** Build the context object passed to a scheduled task handler. */
   createTaskContext(): unknown;
 
+  /** Run a task handler so `context.task(base)` can reach `ctx`. Omitted by test harnesses. */
+  runInTaskContext?<T>(ctx: unknown, fn: () => T): T;
+
   /** Ask the engine to recompute when the next alarm should fire. */
   rescheduleAlarm(): void;
 

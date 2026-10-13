@@ -143,7 +143,10 @@ export interface EngineOptions extends EngineRuntimeOptions {
    */
   hibernation?: HibernationApi;
 
-  /** Factory for the async-context implementation used by this runtime. */
+  /**
+   * Factory for the async-context implementation used by this runtime. It must
+   * return a new store on every call.
+   */
   asyncContextFactory: AsyncContextFactory;
 }
 
@@ -177,6 +180,8 @@ export interface AdapterConfig<TOptions, TService> {
    * here, alongside `hibernation`, because it is a static capability of the
    * adapter — it does not depend on any per-instance state, so it is set once
    * at definition time rather than rebuilt inside every `createEngine` call.
+   * It must return a new store on every call: the engine also calls it once for
+   * the store that the `context.*` accessors share across the process.
    */
   asyncContextFactory: AsyncContextFactory;
 

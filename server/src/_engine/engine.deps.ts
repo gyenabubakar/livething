@@ -5,6 +5,7 @@ import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
+import { payloadForFanOut } from '~/_engine/runtime/json-guard.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
@@ -141,7 +142,8 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     logger: core.logger,
     platform: core.platform,
     getStorage: () => core.storage,
-    getStorageView: () => (storageView ??= createLazyStorageView(core.storage)),
+    getStorageView: () =>
+      (storageView ??= createLazyStorageView(core.options.storage, core.userTransactions)),
     getTimers: () => core.timers,
     scheduleTask: (taskId, time, data) =>
       core.scheduledService?.scheduleTask(core, commonDeps(core), { taskId, time, data }),
@@ -185,11 +187,14 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       }
 
       let delivered = 0;
+      if (targets.length === 0) return delivered;
+
+      const payload = payloadForFanOut(opts.event, opts.payload);
       for (const target of targets) {
         const sent = OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), target, {
           routing: { channel: opts.channelName, channelFamily: opts.channelFamily },
           event: opts.event,
-          payload: opts.payload,
+          payload,
         });
         if (sent) delivered += 1;
       }
@@ -321,6 +326,7 @@ function buildChannelRuntime(core: EngineCore) {
     subscribeHooks: core.hooks.subscribe,
     unsubscribeHooks: core.hooks.unsubscribe,
     sessionEndHooks: core.hooks.sessionEnd,
+    asyncContext: core.asyncContext,
 
     broadcastToChannel: (opts: ChannelPrimitive.BroadcastToChannelOptions) => {
       OutgoingRuntime.broadcastToChannel(dispatchRuntime(core), opts);
@@ -550,6 +556,12 @@ function buildConnectionRuntime(core: EngineCore) {
         { core, buildConnectionContext: buildCtx },
         connection,
         { error, event },
+      ),
+    handleSocketError: (connection: RuntimeConnection, error: unknown) =>
+      EngineErrorRuntime.handleRuntimeError(
+        { core, buildConnectionContext: buildCtx },
+        connection,
+        { error, fromSocket: true },
       ),
     autoRejoinIdentity: (connection: RuntimeConnection) => {
       if (core.freshBoot) {

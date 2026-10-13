@@ -34,7 +34,7 @@ describe('plugin namespacing — streams', () => {
       input: v.object({}),
       nudges: { faster: null },
       async *run() {
-        yield 1;
+        yield { tick: 1 };
       },
     });
     const Plug = plugin('acme:ticker', { definition: h.assemble({ handlers: [ticker] }) });
@@ -770,7 +770,7 @@ describe('plugin namespacing — names a plugin declares may not contain ::', ()
     const ticks = h.stream('ticks', {
       nudges: { 'go::faster': null },
       async *run() {
-        yield 1;
+        yield { tick: 1 };
       },
     });
     expect(compileWith(h.assemble({ handlers: [ticks] }))).toThrow(

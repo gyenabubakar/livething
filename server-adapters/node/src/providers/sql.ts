@@ -1,3 +1,7 @@
+import {
+  rejectAsyncTransactionCallback,
+  rejectAsyncTransactionResult,
+} from '@livething/server/adapters';
 import Database from 'better-sqlite3';
 import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapters';
 
@@ -18,10 +22,6 @@ export interface NodeSqlRuntime {
   provider: SQLProvider;
   database?: NodeSqlDatabase;
   close(): void;
-}
-
-interface NodeTransactionContext {
-  exec: SQLProvider['exec'];
 }
 
 /** Creates a SQL provider, using an in-memory database when no source is given. */
@@ -88,58 +88,19 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
   return {
     exec,
     limits: BETTER_SQLITE3_LIMITS,
-    transaction<T>(fn: (tx: NodeTransactionContext) => T): T {
-      if (isAsyncFunction(fn)) throw synchronousTransactionError();
-
-      let active = true;
-      const tx: NodeTransactionContext = {
-        exec(...args) {
-          if (!active) {
-            throw new TypeError(
-              '[livething] sql.transaction() callbacks cannot use tx after they return.',
-            );
-          }
-
-          return exec(...args);
-        },
-      };
+    transaction<T>(fn: () => T): T {
+      rejectAsyncTransactionCallback(fn);
 
       const runTransaction = database.transaction(() => {
-        try {
-          const result = fn(tx);
-          if (isPromiseLike(result)) throw synchronousTransactionError();
+        const result = fn();
+        rejectAsyncTransactionResult(result);
 
-          return result;
-        } finally {
-          active = false;
-        }
+        return result;
       });
 
       return runTransaction();
     },
   };
-}
-
-function isAsyncFunction(value: unknown): boolean {
-  return (
-    typeof value === 'function' &&
-    Object.getPrototypeOf(value)?.constructor?.name === 'AsyncFunction'
-  );
-}
-
-function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'then' in value &&
-    typeof value.then === 'function'
-  );
-}
-
-function synchronousTransactionError(): TypeError {
-  return new TypeError(
-    '[livething] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.',
-  );
 }
 
 function createResult<TRow>(rows: TRow[], rawRows: unknown[][] = []): SqlResult<TRow> {

@@ -117,6 +117,8 @@ export interface ServerDefinition<
   TApi = unknown,
 > {
   readonly __livething: 'server';
+  /** Id of the `base` that assembled this definition. Read by the `context.*` accessors. @internal */
+  readonly __baseId?: symbol;
   readonly primitives: TPrimitives;
   /**
    * Type-only field — never set at runtime.

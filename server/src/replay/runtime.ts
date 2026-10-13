@@ -1,5 +1,7 @@
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
+import { serializePayload } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
+import { chunkForBind } from '~/_engine/sql-batch.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -406,7 +408,7 @@ export function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
  */
 export interface ReplaySnapshotEntry {
   row: ReplayRow | null;
-  flush: (sql: Pick<SQLProvider, 'exec'>) => void;
+  flush: (sql: Pick<SQLProvider, 'exec' | 'limits'>) => void;
 }
 
 export interface PersistReplayMessageOptions {
@@ -447,7 +449,7 @@ export interface PersistReplayMessageOptions {
    * counting, so the scope flusher saves the row first and only then calls
    * this callback.
    */
-  postFlush?: (sql: Pick<SQLProvider, 'exec'>) => void;
+  postFlush?: (sql: Pick<SQLProvider, 'exec' | 'limits'>) => void;
 
   /**
    * Validate the value a `reduce` produced against the public contract before
@@ -495,7 +497,7 @@ export function persistReplayMessage(
     if (queued !== undefined) {
       previousValue = queued.row === null ? null : toReplaySnapshotValue(queued.row);
     } else {
-      const fromDisk = sql.transaction((tx) => getReplayRowByKey(tx, row.rowKey));
+      const fromDisk = getReplayRowByKey(sql, row.rowKey);
       previousValue = fromDisk ? toReplaySnapshotValue(fromDisk) : null;
     }
 
@@ -518,7 +520,9 @@ export function persistReplayMessage(
     const snapshotRow: ReplayRow = {
       ...row,
       event: reduced.event,
-      payload: JSON.stringify(reduced.payload),
+      // A reducer's result is user code, so it gets the full payload rule: a payload whose JSON
+      // is not an object is refused now, instead of breaking every later replay.
+      payload: options.reduce ? serializePayload(reduced.event, reduced.payload) : row.payload,
     };
 
     scope.pendingSnapshotFlushes.set(row.rowKey, {
@@ -532,8 +536,8 @@ export function persistReplayMessage(
     return snapshotRow;
   }
 
-  return sql.transaction((tx) => {
-    const previousRow = getReplayRowByKey(tx, row.rowKey);
+  return sql.transaction(() => {
+    const previousRow = getReplayRowByKey(sql, row.rowKey);
     const nextValue: ReplaySnapshotValue = { event, payload };
 
     const reduced = options.reduce
@@ -541,7 +545,7 @@ export function persistReplayMessage(
       : nextValue;
 
     if (!reduced) {
-      deleteReplayRow(tx, row.rowKey);
+      deleteReplayRow(sql, row.rowKey);
       return null;
     }
 
@@ -550,10 +554,12 @@ export function persistReplayMessage(
     const snapshotRow: ReplayRow = {
       ...row,
       event: reduced.event,
-      payload: JSON.stringify(reduced.payload),
+      // A reducer's result is user code, so it gets the full payload rule: a payload whose JSON
+      // is not an object is refused now, instead of breaking every later replay.
+      payload: options.reduce ? serializePayload(reduced.event, reduced.payload) : row.payload,
     };
 
-    storeReplayRow(tx, snapshotRow);
+    storeReplayRow(sql, snapshotRow);
 
     return snapshotRow;
   });
@@ -690,9 +696,10 @@ export function readReplayGapWatermark(
 }
 
 /**
- * The SQL condition (and its bound params) matching the rows one replay
- * instance owns. `COALESCE` keeps a NULL `channel`/`channelFamily` (a top-level
- * row) from turning the whole `NOT (...)` into NULL.
+ * The SQL condition (and its bound params) that narrows the rows to the ones one replay instance
+ * may own. A channel's store is matched in SQL. The server-level store owns every row except
+ * those of the channels with their own `replay`. That list can be longer than an engine's
+ * bound-parameter limit, so `ownsRow` leaves those rows out after the read.
  */
 function ownedRowsFilter(owner: ReplayStoreOwner): { where: string; params: unknown[] } {
   if (owner.channelKey) {
@@ -702,15 +709,27 @@ function ownedRowsFilter(owner: ReplayStoreOwner): { where: string; params: unkn
     };
   }
 
-  const claimed = [...owner.claimedChannelKeys];
-  if (claimed.length === 0) return { where: '1 = 1', params: [] };
+  return { where: '1 = 1', params: [] };
+}
 
-  const marks = claimed.map(() => '?').join(', ');
+interface ReplayRowScope {
+  channel: string | null;
+  channelFamily: string | null;
+}
 
-  return {
-    where: `NOT (COALESCE(channelFamily IN (${marks}), 0) OR COALESCE(channel IN (${marks}), 0))`,
-    params: [...claimed, ...claimed],
-  };
+function ownsRow(owner: ReplayStoreOwner, row: ReplayRowScope): boolean {
+  if (owner.channelKey) return true;
+
+  const claimed = owner.claimedChannelKeys;
+  return !(
+    (row.channelFamily !== null && claimed.has(row.channelFamily)) ||
+    (row.channel !== null && claimed.has(row.channel))
+  );
+}
+
+/** Whether the server-level store must leave out some channels' rows. */
+function skipsClaimedRows(owner: ReplayStoreOwner): boolean {
+  return !owner.channelKey && owner.claimedChannelKeys.size > 0;
 }
 
 /**
@@ -726,7 +745,7 @@ export interface PruneExpiredReplayRowsOptions {
 }
 
 export function pruneExpiredReplayRows(
-  sql: Pick<SQLProvider, 'exec'>,
+  sql: Pick<SQLProvider, 'exec' | 'limits'>,
   opts: PruneExpiredReplayRowsOptions,
 ): void {
   const { retention, now, owner } = opts;
@@ -752,7 +771,8 @@ export function pruneExpiredReplayRows(
       cutoff,
       ...owned.params,
     )
-    .toArray();
+    .toArray()
+    .filter((scope) => ownsRow(owner, scope));
 
   for (const scope of evicted) {
     bumpReplayWatermark(
@@ -768,15 +788,35 @@ export function pruneExpiredReplayRows(
     );
   }
 
-  sql.exec(
-    `
-      DELETE FROM __livething_replay
-      WHERE createdAt < ?
-        AND ${owned.where}
-    `,
-    cutoff,
-    ...owned.params,
-  );
+  if (!skipsClaimedRows(owner)) {
+    sql.exec(
+      `
+        DELETE FROM __livething_replay
+        WHERE createdAt < ?
+          AND ${owned.where}
+      `,
+      cutoff,
+      ...owned.params,
+    );
+    return;
+  }
+
+  // One DELETE per batch of scopes, as many as the engine's bound-parameter limit allows. The
+  // cutoff takes one of the parameters, and each scope takes two.
+  const scopes = new Map<string, ReplayRowScope>();
+  for (const scope of evicted) {
+    scopes.set(JSON.stringify([scope.channel, scope.channelFamily]), scope);
+  }
+
+  const limits = { ...sql.limits, maxBoundParams: sql.limits.maxBoundParams - 1 };
+  for (const batch of chunkForBind([...scopes.values()], 2, limits)) {
+    const matches = batch.map(() => '(channel IS ? AND channelFamily IS ?)').join(' OR ');
+    sql.exec(
+      `DELETE FROM __livething_replay WHERE createdAt < ? AND (${matches})`,
+      cutoff,
+      ...batch.flatMap((scope) => [scope.channel, scope.channelFamily]),
+    );
+  }
 }
 
 /**
@@ -870,12 +910,29 @@ export function minReplayCreatedAt(
   owner: ReplayStoreOwner,
 ): number | null {
   const owned = ownedRowsFilter(owner);
-  const row = sql
-    .exec<{
-      m: number | null;
-    }>(`SELECT MIN(createdAt) AS m FROM __livething_replay WHERE ${owned.where}`, ...owned.params)
-    .one();
-  return row?.m == null ? null : Number(row.m);
+  if (!skipsClaimedRows(owner)) {
+    const row = sql
+      .exec<{
+        m: number | null;
+      }>(`SELECT MIN(createdAt) AS m FROM __livething_replay WHERE ${owned.where}`, ...owned.params)
+      .one();
+    return row?.m == null ? null : Number(row.m);
+  }
+
+  const scopes = sql
+    .exec<{ channel: string | null; channelFamily: string | null; m: number }>(
+      'SELECT channel, channelFamily, MIN(createdAt) AS m FROM __livething_replay GROUP BY channel, channelFamily',
+    )
+    .toArray()
+    .filter((scope) => ownsRow(owner, scope));
+  // A loop, not Math.min(...), which throws when there are too many scopes to pass as arguments.
+  let oldest: number | null = null;
+  for (const scope of scopes) {
+    const createdAt = Number(scope.m);
+    if (oldest === null || createdAt < oldest) oldest = createdAt;
+  }
+
+  return oldest;
 }
 
 /**
@@ -891,7 +948,7 @@ export class ReplayPruneGate {
   private minSeeded = false;
   private readonly scopeCounts = new Map<string, number>();
 
-  prune(sql: Pick<SQLProvider, 'exec'>, opts: ReplayPruneOptions): void {
+  prune(sql: Pick<SQLProvider, 'exec' | 'limits'>, opts: ReplayPruneOptions): void {
     const { retention, scope, owner, stamp } = opts;
     if (retention?.maxAgeMs !== undefined) {
       if (!this.minSeeded) {

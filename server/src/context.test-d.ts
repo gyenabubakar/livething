@@ -36,11 +36,16 @@ declare const _missingLimits: {
 const _notASqlProvider: SQLProvider = _missingLimits;
 void _notASqlProvider;
 
-const _txResult: string = initCtx.sql.transaction((tx) => {
-  tx.exec<{ n: number }>('SELECT COUNT(*) AS n FROM t');
+const _txResult: string = initCtx.sql.transaction(() => {
+  initCtx.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM t');
   return 'done';
 });
 void _txResult;
+
+// The callback takes no `tx` argument: queries inside it use `ctx.sql`, so a callback that
+// requires one must not type-check.
+// @ts-expect-error — transaction() passes no argument to its callback
+initCtx.sql.transaction((tx: SQLProvider) => tx.exec('SELECT 1'));
 
 const _kv: KVProvider = initCtx.kv;
 void _kv;

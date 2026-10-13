@@ -54,8 +54,9 @@ expectTypeOf<ReqClient['serverRequests']['ask']>().toEqualTypeOf<{
   response: { ok: boolean };
 }>();
 
+// `t<{}>()` is recorded as an empty object, so a primitive cannot pass as the payload.
 expectTypeOf<ReqClient['serverRequests']['vol']>().toEqualTypeOf<{
-  payload: {};
+  payload: Record<string, never>;
   response: { r: boolean };
 }>();
 
@@ -64,7 +65,7 @@ expectTypeOf<ReqClient['channels']['room']['serverRequests']['confirm-kick']>().
   response: { ok: boolean };
 }>();
 expectTypeOf<ReqClient['channels']['room']['serverRequests']['vol']>().toEqualTypeOf<{
-  payload: {};
+  payload: Record<string, never>;
   response: { r: boolean };
 }>();
 

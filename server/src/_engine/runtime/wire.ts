@@ -1,5 +1,5 @@
 import { InternalError } from '@livething/core';
-import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { assertPayloadRecord, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -100,9 +100,7 @@ export function sendReplay(
   options: SendReplayOptions,
 ): void {
   const { channelName, channelFamily, event, payload, wire } = options;
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('[livething] Outgoing payload must be a plain object.');
-  }
+  assertPayloadRecord(event, payload);
 
   const resolvedChannel = channelName ?? wire.channel ?? null;
   const livething: Record<string, unknown> = {
@@ -115,7 +113,7 @@ export function sendReplay(
 
   let frame: string;
   try {
-    const payloadJson = serializeJsonOrThrow(payload, `Replay payload for "${event}"`);
+    const payloadJson = serializePayload(event, payload);
     frame = serializeWireFrame(event, JSON.parse(payloadJson), livething);
   } catch (error) {
     core.logger.error('[livething] Failed to serialize replay frame; sending fallback __error__', {

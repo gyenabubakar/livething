@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { RequestNoCorrelation } from '@livething/core';
-import { withConnectionContext } from '~/_engine/async-context.ts';
+import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -67,28 +67,32 @@ export async function handleRequest(
   let response: unknown;
   let responded = false;
 
-  await withConnectionContext(runtime.asyncContext, connection.id, () => {
-    const ctx = options.ctx;
-    ctx.respond = (value: unknown) => {
-      if (responded) {
-        // Calling respond() twice is a server-side programming mistake, not
-        // something the client did. The first response already settled the
-        // client's promise, so swallow the extra call and log it instead of
-        // throwing — a throw here would surface a spurious `internal-error`
-        // to a client that already got its answer.
-        runtime.logger.error(
-          '[livething] ctx.respond() was already called for this request invocation; ignoring the extra call',
-          { event },
-        );
-        return;
-      }
+  await withConnectionCall(
+    runtime.asyncContext,
+    connectionCall(connection.id, scope, () => options.ctx),
+    () => {
+      const ctx = options.ctx;
+      ctx.respond = (value: unknown) => {
+        if (responded) {
+          // Calling respond() twice is a server-side programming mistake, not
+          // something the client did. The first response already settled the
+          // client's promise, so swallow the extra call and log it instead of
+          // throwing — a throw here would surface a spurious `internal-error`
+          // to a client that already got its answer.
+          runtime.logger.error(
+            '[livething] ctx.respond() was already called for this request invocation; ignoring the extra call',
+            { event },
+          );
+          return;
+        }
 
-      responded = true;
-      response = value;
-    };
+        responded = true;
+        response = value;
+      };
 
-    return request.handler(ctx, payload);
-  });
+      return request.handler(ctx, payload);
+    },
+  );
 
   runtime.sendThroughPipeline(connection, {
     routing: {
@@ -101,9 +105,8 @@ export async function handleRequest(
     event,
     // A nullish answer (no response, or a `null`/`undefined` one) is a void
     // acknowledgement: send an undefined payload so the client resolves with
-    // no value. A real falsy answer (0, false, '') is preserved as-is —
-    // `response` is already `undefined` for both `null` and `undefined`
-    // inputs and unchanged for everything else.
+    // no value. Any other answer must be a plain object; the pipeline refuses
+    // a primitive or an array, and the request types refuse them too.
     payload: response ?? undefined,
   });
 }

@@ -1,4 +1,5 @@
 import { registerAlarmSource, rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
+import { withCallContext } from '~/_engine/async-context.ts';
 import * as ScheduledContext from '~/scheduled/context.ts';
 import * as Scheduled from '~/scheduled/runtime.ts';
 import { SCHEDULED_RUNTIME_KEY } from '~/scheduled/scheduled.ts';
@@ -24,6 +25,8 @@ function buildAccess(
     getScheduledTask: (taskId) => core.compiled.scheduled.get(taskId),
     getScheduledTasks: () => core.compiled.scheduled.values(),
     createTaskContext,
+    runInTaskContext: (ctx, fn) =>
+      withCallContext(core.asyncContext, { kind: 'task', getCtx: () => ctx }, fn),
     rescheduleAlarm: () => rescheduleAlarm(core),
     logger: core.logger,
   };

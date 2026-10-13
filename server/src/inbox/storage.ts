@@ -207,10 +207,10 @@ export function insertInboxRows(
   ]);
 
   const batches = chunkForBind(rows, INBOX_ROW_PARAMS, sql.limits);
-  sql.transaction((tx) => {
+  sql.transaction(() => {
     for (const batch of batches) {
       const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
-      tx.exec(
+      sql.exec(
         `
           INSERT OR IGNORE INTO __livething_inbox
             (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
@@ -253,10 +253,10 @@ export function insertInboxRowsForUserId(
   ]);
 
   const batches = chunkForBind(rows, INBOX_ROW_PARAMS, sql.limits);
-  sql.transaction((tx) => {
+  sql.transaction(() => {
     for (const batch of batches) {
       const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
-      tx.exec(
+      sql.exec(
         `
           INSERT OR IGNORE INTO __livething_inbox
             (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
@@ -537,12 +537,12 @@ export function pruneInboxRetentionAndBumpWatermark(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
   params: PruneInboxRetentionAndBumpWatermarkParamsParameter,
 ): number | null {
-  return sql.transaction((tx) => {
-    const eviction = pruneInboxRetentionDetailed(tx, params);
+  return sql.transaction(() => {
+    const eviction = pruneInboxRetentionDetailed(sql, params);
     if (eviction.evictedThrough === null) return null;
 
     if (eviction.undeliveredEvictedThrough !== null) {
-      bumpInboxWatermark(tx, {
+      bumpInboxWatermark(sql, {
         userId: params.userId,
         channelName: params.channelName,
         channelFamily: params.channelFamily,
@@ -711,12 +711,12 @@ export function deleteInboxRowsOutsideScopes(
   const staticNames = new Set(scopes.staticNames);
   const familyKeys = new Set(scopes.familyKeys);
 
-  sql.transaction((tx) => {
+  sql.transaction(() => {
     // Do not put every active scope into one IN (...) list: a large contract
     // can exceed the adapter's bound-parameter limit. Stored scope pairs are
     // already the smallest set we need to inspect, and stale pairs are
     // removed one at a time inside the same transaction.
-    const storedScopes = tx
+    const storedScopes = sql
       .exec<{ channel_name: string; channel_family: string }>(
         `
         SELECT channel_name, channel_family FROM __livething_inbox
@@ -735,17 +735,17 @@ export function deleteInboxRowsOutsideScopes(
           : familyKeys.has(scope.channel_family);
       if (active) continue;
 
-      tx.exec(
+      sql.exec(
         `DELETE FROM __livething_inbox WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,
       );
-      tx.exec(
+      sql.exec(
         `DELETE FROM __livething_inbox_watermark WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,
       );
-      tx.exec(
+      sql.exec(
         `DELETE FROM __livething_inbox_receipts WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,

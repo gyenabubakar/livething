@@ -296,15 +296,15 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
     deadLetters: summarizeOps(dlqOps),
   });
 
-  storage.sql.transaction((tx) => {
+  storage.sql.transaction(() => {
     for (const op of runOps) {
       if (op.kind === 'delete') {
-        tx.exec('DELETE FROM __livething_scheduled WHERE id = ?', op.id);
+        storage.sql.exec('DELETE FROM __livething_scheduled WHERE id = ?', op.id);
         continue;
       }
 
       if (op.kind === 'insert') {
-        tx.exec(
+        storage.sql.exec(
           `INSERT INTO __livething_scheduled
             (id, taskId, time, data, everyMs, attempts, recurring, retry)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -325,7 +325,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         number,
         number | string,
       ];
-      tx.exec(
+      storage.sql.exec(
         `UPDATE __livething_scheduled
          SET taskId = ?, time = ?, data = ?, everyMs = ?, attempts = ?, recurring = ?, retry = ?
          WHERE id = ?`,
@@ -342,12 +342,12 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
 
     for (const op of dlqOps) {
       if (op.kind === 'delete') {
-        tx.exec('DELETE FROM __livething_scheduled_dlq WHERE id = ?', op.id);
+        storage.sql.exec('DELETE FROM __livething_scheduled_dlq WHERE id = ?', op.id);
         continue;
       }
 
       if (op.kind === 'insert') {
-        tx.exec(
+        storage.sql.exec(
           `INSERT INTO __livething_scheduled_dlq
             (id, taskId, time, failedAt, data, attempts, error)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -365,7 +365,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         number,
         string,
       ];
-      tx.exec(
+      storage.sql.exec(
         `UPDATE __livething_scheduled_dlq
          SET taskId = ?, time = ?, failedAt = ?, data = ?, attempts = ?, error = ?
          WHERE id = ?`,
@@ -628,6 +628,16 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
  * Failed runs are retried with backoff or moved into the internal dead-letter
  * queue, depending on the task's retry policy.
  */
+interface RunnableTask {
+  handler: (ctx: unknown, data?: unknown) => void | Promise<void>;
+  hasData: boolean;
+}
+
+/** Call a task's handler, with its data only when the task declares data. */
+function invokeTask(task: RunnableTask, ctx: unknown, data: unknown): void | Promise<void> {
+  return task.hasData ? task.handler(ctx, data) : task.handler(ctx);
+}
+
 export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Promise<void> {
   const now = Date.now();
   const scheduledRuns = runtime.getScheduledRuns();
@@ -670,14 +680,14 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
       const task = runtime.getScheduledTask(run.taskId);
       if (task?.handler) {
         const ctx = runtime.createTaskContext();
-        if (task.hasData) {
-          await (task.handler as (ctx: unknown, data: unknown) => void | Promise<void>)(
-            ctx,
-            run.data,
-          );
-        } else {
-          await (task.handler as (ctx: unknown) => void | Promise<void>)(ctx);
-        }
+        const runnable: RunnableTask = {
+          handler: task.handler as RunnableTask['handler'],
+          hasData: task.hasData === true,
+        };
+
+        await (runtime.runInTaskContext
+          ? runtime.runInTaskContext(ctx, () => invokeTask(runnable, ctx, run.data))
+          : invokeTask(runnable, ctx, run.data));
       }
 
       return run;
@@ -804,6 +814,13 @@ export function scheduleTaskRun(
     );
   }
 
+  // The task gets the data as it is stored, so it is the same before and after a restart. Data
+  // that has no JSON throws here, before the run joins the queue.
+  const storedData =
+    normalizedData === undefined
+      ? undefined
+      : JSON.parse(serializeJsonOrThrow(normalizedData, `ctx.schedule("${taskId}", ...) data`));
+
   const every = task.options?.every;
   const restartsRecurring = every !== undefined && clearTaskStopped(runtime, taskId);
 
@@ -811,7 +828,7 @@ export function scheduleTaskRun(
     id,
     taskId,
     time,
-    data: normalizedData,
+    data: storedData,
     ...(restartsRecurring ? { every } : {}),
     attempts: 0,
     recurring: restartsRecurring,

@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
-import { server as createServerDefinition, emits, t, translator } from '@livething/server';
+import { context, server as createServerDefinition, emits, t, translator } from '@livething/server';
 import { CloseCodes, RejectUpgrade } from '@livething/server/errors';
 import { scheduled } from '@livething/server/scheduled';
 import Database from 'better-sqlite3';
@@ -49,7 +49,7 @@ function createTestService<TDefinition extends ServerDefinition>(
     endpoint.ready(),
     new Promise<void>((resolve, reject) => {
       httpServer.once('error', reject);
-      httpServer.listen(options.port, () => {
+      httpServer.listen(options.port, '127.0.0.1', () => {
         httpServer.off('error', reject);
         resolve();
       });
@@ -126,8 +126,8 @@ function buildServerDefinition(state: IntegrationState) {
   const store = base.on('store', {
     async run(ctx, input) {
       const value = String((input as { value: string }).value);
-      ctx.sql.transaction((tx) => {
-        tx.exec(
+      ctx.sql.transaction(() => {
+        ctx.sql.exec(
           'INSERT INTO node_integration_values (key, value) VALUES (?, ?) ' +
             'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
           'answer',
@@ -199,6 +199,39 @@ function buildServerDefinition(state: IntegrationState) {
       },
     }),
   });
+}
+
+function buildContextDefinition() {
+  const base = createServerDefinition({
+    upgrade(request, ctx) {
+      const user = new URL(request.url).searchParams.get('user') ?? 'anonymous';
+      const row = ctx.sql
+        .exec<{ role: string }>('SELECT role FROM context_roles WHERE user = ?', user)
+        .one();
+
+      return { userId: user, meta: { role: row?.role ?? 'guest' } };
+    },
+    capabilities: [emits({ whoami: t<{ user: string; role: string }>() })],
+  });
+
+  base.onInit((ctx) => {
+    ctx.sql.exec('CREATE TABLE IF NOT EXISTS context_roles (user TEXT PRIMARY KEY, role TEXT)');
+    ctx.sql.exec("INSERT OR REPLACE INTO context_roles VALUES ('alice', 'admin')");
+  });
+
+  function describeCaller() {
+    const ctx = context.connection(base);
+    return { user: ctx.user.id, role: ctx.meta.role };
+  }
+
+  const whoami = base.on('whoami', {
+    async run(ctx) {
+      await Promise.resolve();
+      ctx.send('whoami', describeCaller());
+    },
+  });
+
+  return base.assemble({ handlers: [whoami] });
 }
 
 function createTranslatedHandler(state: IntegrationState) {
@@ -314,22 +347,6 @@ function createMessageQueue(socket: WebSocket): {
       socket.off('error', onError);
     },
   };
-}
-
-function expectNoMessage(socket: WebSocket, duration: number): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    function onMessage(): void {
-      clearTimeout(timer);
-      socket.off('message', onMessage);
-      reject(new Error('Unexpected WebSocket message'));
-    }
-
-    const timer = setTimeout(() => {
-      socket.off('message', onMessage);
-      resolve();
-    }, duration);
-    socket.on('message', onMessage);
-  });
 }
 
 function waitForClose(socket: WebSocket): Promise<{ code: number; reason: string }> {
@@ -591,6 +608,25 @@ describe('Node server integration', () => {
     );
 
     expect(state.upgradeRequest?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('lets upgrade read storage and a helper read ctx through context.connection', async () => {
+    const service = createTestService(buildContextDefinition(), { port: 0 });
+    services.push(service);
+    await service.ready;
+
+    for (const [user, role] of [
+      ['alice', 'admin'],
+      ['bob', 'guest'],
+    ] as const) {
+      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/?user=${user}`);
+      clients.push(socket);
+      await waitForOpen(socket);
+      const reply = waitForMessage(socket);
+      socket.send(JSON.stringify(['whoami', {}, null]));
+
+      await expect(reply).resolves.toEqual(['whoami', { user, role }, null]);
+    }
   });
 
   it('derives the client IP from a trusted proxy during a real upgrade', async () => {
@@ -977,21 +1013,22 @@ describe('Node server integration', () => {
 
     const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
-    const connected = waitForJson<{ data: { role: string }; type: string }>(socket);
+    const messages = createMessageQueue(socket);
     await waitForOpen(socket);
-    await expect(connected).resolves.toEqual({
+    await expect(messages.next()).resolves.toEqual({
       type: 'connected',
       data: { role: 'translated' },
     });
 
+    // One socket's frames are handled in order, so a reply to the ignored frame
+    // would arrive before the echo.
     socket.send(JSON.stringify({ type: 'ignore', data: {} }));
-    await expectNoMessage(socket, 20);
-
     socket.send(JSON.stringify({ type: 'echo', data: { text: 'translated' } }));
-    await expect(waitForJson(socket)).resolves.toEqual({
+    await expect(messages.next()).resolves.toEqual({
       type: 'echoed',
       data: { text: 'translated' },
     });
+    messages.dispose();
   });
 
   it('closes a connected real client with going-away during shutdown', async () => {
@@ -1113,7 +1150,7 @@ describe('Node server integration', () => {
     await startedUpgrade;
     socket.end();
 
-    await vi.waitFor(() => expect(aborted).toBe(true), { timeout: 100 });
+    await vi.waitFor(() => expect(aborted).toBe(true));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(webSocketServer.attempts()).toBe(0);
     await expect(service.shutdown()).resolves.toBeUndefined();

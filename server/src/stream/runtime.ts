@@ -8,9 +8,15 @@ import {
   StreamIdCollision,
   ValidationFailed,
 } from '@livething/core';
-import { withConnectionContext } from '~/_engine/async-context.ts';
+import {
+  connectionCall,
+  inConnectionCall,
+  withConnectionCall,
+  withConnectionLevelCall,
+} from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
+import { payloadForFanOut } from '~/_engine/runtime/json-guard.ts';
 import {
   abortActiveStream,
   assertNoConcurrentStream,
@@ -544,7 +550,14 @@ export async function runStream(
     }),
   );
 
-  const iterator = stream.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
+  const streamCall = connectionCall(connection.id, scope, () => ctx);
+  const iterator = inConnectionCall(
+    runtime.asyncContext,
+    streamCall,
+    withConnectionCall(runtime.asyncContext, streamCall, () =>
+      stream.generator(ctx, payload),
+    ) as AsyncGenerator<unknown, void, unknown>,
+  );
 
   const { active: activeStream } = buildActiveStream({
     streamId,
@@ -572,17 +585,15 @@ export async function runStream(
     let seq = 0;
 
     while (!activeStream.closed) {
-      // Advance the generator inside the connection's async context so plugin
-      // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
-      const result = await withConnectionContext(runtime.asyncContext, connection.id, () =>
-        iterator.next(nextInput),
-      );
+      // The wrapped iterator runs inside the connection's async context, so plugin
+      // APIs the generator calls (e.g. hooks.getState()) resolve to the stream owner.
+      const result = await iterator.next(nextInput);
       if (result.done) break;
 
       // A cancel can land while next() was pending. Drop the resolved value —
       // sending it would emit a chunk (and a later __streamEnd__) after cancel.
       if (activeStream.closed) {
-        await iterator.return?.(undefined);
+        await iterator.return(undefined);
         break;
       }
 
@@ -595,6 +606,8 @@ export async function runStream(
         streamSeq: seq,
       };
 
+      // A broadcast chunk is turned into JSON once, so the creator and every peer get the same one.
+      const chunk = stream.stream.broadcast ? payloadForFanOut(event, result.value) : result.value;
       if (stream.stream.broadcast) {
         // Fan out per-target so each peer chunk carries streamId + seq + streamDurability
         // (same as the creator's), which onStream needs to group and complete it.
@@ -604,7 +617,7 @@ export async function runStream(
             runtime.sendThroughPipeline(target, {
               routing: chunkRouting,
               event,
-              payload: result.value,
+              payload: chunk,
             });
           },
           { context: `stream broadcast fan-out streamId="${streamId}" event="${event}"` },
@@ -614,11 +627,11 @@ export async function runStream(
       const sent = runtime.sendThroughPipeline(connection, {
         routing: chunkRouting,
         event,
-        payload: result.value,
+        payload: chunk,
       });
       if (!sent) {
         activeStream.closed = true;
-        await iterator.return?.(undefined);
+        await iterator.return(undefined);
         await sendBroadcastEnd(seq);
         break;
       }
@@ -637,6 +650,10 @@ export async function runStream(
       await sendBroadcastEnd(seq);
     }
   } catch (streamError) {
+    // When LiveThing refused a chunk, the generator still waits at its yield. Close it, so its
+    // finally blocks run. A generator that threw has already finished, so this does nothing.
+    await iterator.return(undefined).catch(() => {});
+
     const routing: Protocol.LiveThingRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelFamily) routing.channelFamily = scope.channelFamily;
@@ -683,7 +700,14 @@ export async function runStream(
       // the client is waiting for.
       await forEachIsolatedAsync(
         runtime.errorHooks,
-        (hook) => hook(runtime.buildConnectionContext(connection, scope), internal, event),
+        (hook) => {
+          const hookCtx = runtime.buildConnectionContext(connection, scope);
+          return withConnectionLevelCall(
+            runtime.asyncContext,
+            { connectionId: connection.id, ctx: hookCtx },
+            () => hook(hookCtx, internal, event),
+          );
+        },
         { context: `stream onError hook event="${event}"` },
       );
       runtime.sendProtocolMessage(connection, {

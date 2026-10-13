@@ -254,7 +254,7 @@ export type CoreCtx<TSlots, TMeta> = {
   readonly meta: TMeta;
   /** Merge a patch into this connection's `meta`. Persists once at the end of the handler. */
   setMeta(patch: Partial<TMeta>): void;
-  /** The raw platform handle (for example a Durable Object state). Untyped by default. */
+  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>`). Untyped by default. */
   readonly platform: unknown;
 
   /** Bytes currently buffered on the socket. A rising value signals a slow client. */

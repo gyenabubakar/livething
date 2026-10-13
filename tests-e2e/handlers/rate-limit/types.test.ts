@@ -19,11 +19,15 @@ describe('RateLimitClient — top-level incoming (server outgoing)', () => {
   });
 
   it('has expensive-done with empty payload', () => {
-    expectTypeOf<RateLimitClient['incoming']['expensive-done']>().toEqualTypeOf<{}>();
+    expectTypeOf<RateLimitClient['incoming']['expensive-done']>().toEqualTypeOf<
+      Record<string, never>
+    >();
   });
 
   it('has shared-done with empty payload', () => {
-    expectTypeOf<RateLimitClient['incoming']['shared-done']>().toEqualTypeOf<{}>();
+    expectTypeOf<RateLimitClient['incoming']['shared-done']>().toEqualTypeOf<
+      Record<string, never>
+    >();
   });
 
   it('exactly three events in top-level incoming', () => {

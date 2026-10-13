@@ -110,11 +110,12 @@ test.describe('stream-durable', () => {
     await expect
       .poll(async () => Number(await page.getByTestId('paginate-row-count').textContent()))
       .toBeGreaterThanOrEqual(3);
-    const seenBeforeDrop = Number(await page.getByTestId('paginate-row-count').textContent());
-    expect(seenBeforeDrop).toBeLessThan(10);
-
     await page.getByTestId('drop-socket').click();
     await expect(page.getByTestId('status')).toHaveText('disconnected');
+    // Read the count after the drop: the page ignores frames from the dropped socket, so no row
+    // can arrive between the read and the drop and be sent again on continue.
+    const seenBeforeDrop = Number(await page.getByTestId('paginate-row-count').textContent());
+    expect(seenBeforeDrop).toBeLessThan(10);
 
     await page.getByTestId('since').fill(String(seenBeforeDrop));
     await page.getByTestId('connect').click();
@@ -143,11 +144,11 @@ test.describe('stream-durable', () => {
     await expect
       .poll(async () => Number(await page.getByTestId('paginate-bare-row-count').textContent()))
       .toBeGreaterThanOrEqual(1);
-    const seenBeforeDrop = Number(await page.getByTestId('paginate-bare-row-count').textContent());
-    expect(seenBeforeDrop).toBeLessThan(4);
-
     await page.getByTestId('drop-socket').click();
     await expect(page.getByTestId('status')).toHaveText('disconnected');
+    // Read the count after the drop, so no row can arrive in between.
+    const seenBeforeDrop = Number(await page.getByTestId('paginate-bare-row-count').textContent());
+    expect(seenBeforeDrop).toBeLessThan(4);
 
     await page.getByTestId('since').fill(String(seenBeforeDrop));
     await page.getByTestId('connect').click();

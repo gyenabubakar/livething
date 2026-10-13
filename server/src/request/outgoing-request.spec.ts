@@ -88,12 +88,12 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       },
     };
 
+    function userHandle(ids: string[]) {
+      return { id: ids[0], connections: () => ids.map(member) };
+    }
+
     if (opts?.user) {
       for (const id of opts.user) live.add(id);
-      function userHandle(ids: string[]) {
-        return { id: ids[0], connections: () => ids.map(member) };
-      }
-
       ctx.user = userHandle(opts.user);
       ctx.users = { get: (_id: string) => userHandle(opts!.user!) };
     }
@@ -117,16 +117,16 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       };
     }
 
-    if (opts?.tags) {
-      function makeGroup() {
-        return {
-          connections: () => (opts!.tags!.group ?? []).map(member),
-          ref: (key: string) => ({
-            connections: () => (opts!.tags!.refs?.[key] ?? []).map(member),
-          }),
-        };
-      }
+    function makeGroup() {
+      return {
+        connections: () => (opts!.tags!.group ?? []).map(member),
+        ref: (key: string) => ({
+          connections: () => (opts!.tags!.refs?.[key] ?? []).map(member),
+        }),
+      };
+    }
 
+    if (opts?.tags) {
       ctx.tags = { ephemeral: makeGroup, persistent: makeGroup };
     }
 
@@ -923,24 +923,62 @@ describe('server→client broadcast request — self-exclusion (Major 6)', () =>
     );
   }
 
+  /** These tests read only what was sent. Nobody answers, so the request later times out. */
+  function ignoreTimeout(request: Promise<unknown>): void {
+    request.catch(() => {});
+  }
+
   it('ctx.channel.broadcastRequest excludes the caller by default', () => {
     const env = install(channelDeclarations('rooms', VOLUNTEER));
     const ctx = channelCtx(env);
-    void ctx.channel.broadcastRequest('volunteer', { turn: 1 });
+    ignoreTimeout(ctx.channel.broadcastRequest('volunteer', { turn: 1 }));
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
   });
 
   it('ctx.channel.broadcastRequest includes the caller with includeSelf: true', () => {
     const env = install(channelDeclarations('rooms', VOLUNTEER));
     const ctx = channelCtx(env);
-    void ctx.channel.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true });
+    ignoreTimeout(ctx.channel.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true }));
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
   });
 
   it('ctx.broadcastRequest includes the caller with includeSelf: true', () => {
     const env = install(topDeclarations(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { connections: ['c1', 'a', 'b'] });
-    void ctx.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true });
+    ignoreTimeout(ctx.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true }));
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
+  });
+});
+
+describe('server→client request — a payload the engine refuses to send', () => {
+  it('leaves no timer behind when ctx.request rejects because sending threw', async () => {
+    vi.useFakeTimers();
+    try {
+      let extender!: (ctx: any) => Record<string, unknown>;
+      const engine = {
+        generateId: (prefix?: string) => `${prefix}_1`,
+        onAnswerFrame() {},
+        onDisconnect() {},
+        extendContext: (factory: any) => (extender = factory),
+        sendServerRequest() {
+          throw new Error('[livething] The payload for "ask" must be a plain object');
+        },
+      };
+
+      makeServerRequestsPrimitive(topDeclarations(PERMISSION)).__setup!(engine as any);
+      const ctx: any = {
+        connection: { __livething: 'connection-ref', id: 'c1', instance: undefined, userId: 'i' },
+        [ENGINE_CHANNEL_META]: {},
+        connections: { get: () => ({ send: () => true }), all: () => [] },
+      };
+
+      Object.assign(ctx, extender(ctx));
+
+      await expect(ctx.request('ask', 'not an object')).rejects.toThrow(/plain object/);
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

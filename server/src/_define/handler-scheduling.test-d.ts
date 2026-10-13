@@ -16,7 +16,7 @@ base.on('ordered', {
 base.request('interleaved', {
   allowInterleaving: false,
   run() {
-    return true;
+    return { ok: true };
   },
 });
 
@@ -30,7 +30,7 @@ room.on('ordered', {
 room.request('interleaved', {
   allowInterleaving: false,
   run() {
-    return true;
+    return { ok: true };
   },
 });
 
@@ -39,21 +39,21 @@ room.request('interleaved', {
 base.stream('plain', {
   allowConcurrent: true,
   async *run() {
-    yield true;
+    yield { ok: true };
   },
 });
 
 base.cursorStream('cursor', {
   allowConcurrent: true,
   async *run() {
-    yield true;
+    yield { ok: true };
   },
 });
 
 base.recordedStream('recorded', {
   allowConcurrent: true,
   async *run() {
-    yield true;
+    yield { ok: true };
   },
 });
 
@@ -61,6 +61,6 @@ base.stream('no-interleaving', {
   // @ts-expect-error — streams use allowConcurrent, not allowInterleaving.
   allowInterleaving: true,
   async *run() {
-    yield true;
+    yield { ok: true };
   },
 });
