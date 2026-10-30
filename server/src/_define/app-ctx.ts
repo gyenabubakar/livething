@@ -382,8 +382,8 @@ interface SendReplayCtx<TSlots> {
 interface ScheduleCtx<TSlots> {
   /**
    * Queue a scheduled task to run once at `time` (unix ms). The body bound with
-   * `base.scheduled(taskId, ...)` runs then, receiving `data`. Only tasks
-   * declared by the `scheduled(...)` capability are accepted.
+   * `base.scheduled(taskId, ...)` (passed to `assemble()`) runs then, receiving
+   * `data`. Only tasks declared by the `scheduled(...)` capability are accepted.
    *
    * For a recurring (`every`) task that `cancelScheduled(taskId)` stopped, this
    * starts the task again: it runs at `time`, then every `every` ms after that.

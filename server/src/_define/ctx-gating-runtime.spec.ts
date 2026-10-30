@@ -118,8 +118,8 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
 
   it('scheduled() adds ctx.schedule / ctx.cancelScheduled that call through', async () => {
     const base = createServerDefinition({ capabilities: [scheduled({ cleanup: null })] });
-    base.scheduled('cleanup', { run() {} });
-    const ctx = await captureCtx(probeServer(base));
+    const cleanup = base.scheduled('cleanup', { run() {} });
+    const ctx = await captureCtx(probeServer(base, cleanup));
 
     expect('schedule' in ctx).toBe(true);
     expect('cancelScheduled' in ctx).toBe(true);

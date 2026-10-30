@@ -7,12 +7,11 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [clientRequests()],
-});
-
-// Hook intentionally throws — the engine must still send `__error__` to the
-// client so the request Promise rejects instead of hanging.
-base.onError(() => {
-  throw new Error('observability sink is down');
+  // Hook intentionally throws — the engine must still send `__error__` to the
+  // client so the request Promise rejects instead of hanging.
+  onError() {
+    throw new Error('observability sink is down');
+  },
 });
 
 const handleDoRequest = base.request('do-request', {
@@ -20,7 +19,7 @@ const handleDoRequest = base.request('do-request', {
   run(_ctx): { text: string } {
     // Throw an unrecognized error from the request handler. The engine should
     // normalize it into `internal-error` and still send `__error__` despite the
-    // base.onError hook above blowing up.
+    // onError hook above blowing up.
     throw new Error('handler boom');
   },
 });

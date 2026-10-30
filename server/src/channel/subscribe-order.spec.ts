@@ -134,25 +134,25 @@ describe('a channel frame sent right after its subscribe', () => {
       upgrade: () => ({ userId: 'unused' }),
       capabilities: [channels(), serverRequests({})],
     });
+    const outcomes: string[] = [];
     const room = base.channel('room', {
       capabilities: [
         serverRequests({
           'confirm-join': { out: t<{ room: string }>(), in: v.object({ ok: v.boolean() }) },
         }),
       ],
-    });
-    const outcomes: string[] = [];
-    room.subscribe(async (ctx) => {
-      try {
-        const answer = await ctx.channel.request(
-          'confirm-join',
-          { room: 'room' },
-          { timeout: 500 },
-        );
-        outcomes.push(answer.ok ? 'confirmed' : 'refused');
-      } catch (error) {
-        outcomes.push(`failed:${(error as { code?: string }).code}`);
-      }
+      async onSubscribe(ctx) {
+        try {
+          const answer = await ctx.channel.request(
+            'confirm-join',
+            { room: 'room' },
+            { timeout: 500 },
+          );
+          outcomes.push(answer.ok ? 'confirmed' : 'refused');
+        } catch (error) {
+          outcomes.push(`failed:${(error as { code?: string }).code}`);
+        }
+      },
     });
 
     const engine = startEngine(base.assemble({ handlers: [room] }));

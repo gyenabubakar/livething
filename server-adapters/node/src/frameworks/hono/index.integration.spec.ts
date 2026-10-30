@@ -33,24 +33,22 @@ const base = createServerDefinition({
       echoed: t<{ text: string }>(),
     }),
   ],
+  onConnect(ctx) {
+    ctx.send('connected', {
+      userId: ctx.connection.userId,
+      clientIp: lastClientIp,
+    });
+  },
+  onDisconnect(ctx) {
+    disconnects += 1;
+    lastDisconnect = { code: ctx.closeCode ?? 1000, reason: ctx.closeReason ?? '' };
+  },
 });
 
 const echo = base.on('echo', {
   run(ctx, input) {
     ctx.send('echoed', input as { text: string });
   },
-});
-
-base.onConnect((ctx) => {
-  ctx.send('connected', {
-    userId: ctx.connection.userId,
-    clientIp: lastClientIp,
-  });
-});
-
-base.onDisconnect((ctx) => {
-  disconnects += 1;
-  lastDisconnect = { code: ctx.closeCode ?? 1000, reason: ctx.closeReason ?? '' };
 });
 
 const assembled = base.assemble({ handlers: [echo] });

@@ -128,9 +128,9 @@ const tinyDefinition = tinyBase.assemble({
 const alarmBase = server({
   capabilities: [scheduled({ noop: null })],
 });
-alarmBase.scheduled('noop', { run() {} });
+const alarmNoop = alarmBase.scheduled('noop', { run() {} });
 const alarmDefinition = alarmBase.assemble({
-  handlers: [],
+  handlers: [alarmNoop],
 });
 
 const mediumBase = server({
@@ -537,7 +537,7 @@ describe('engine declaredErrorCodes', () => {
 describe('revalidate requires a persistent channel', () => {
   const channelCapabilities = { capabilities: [emits({ said: TextOut })] };
 
-  it('throws at boot when a channel with the default membership has a .revalidate() hook', async () => {
+  it('throws at boot when a channel with the default membership has a revalidate hook', async () => {
     const base = server({
       capabilities: [channels()],
     });
@@ -545,11 +545,11 @@ describe('revalidate requires a persistent channel', () => {
     const definition = base.assemble({ handlers: [room] });
 
     await expect(initWithFakeStorage(definition)).rejects.toThrow(
-      /Channel "room" has a \.revalidate\(\) hook but is not persistent.*Set `membership: 'persistent'`/,
+      /Channel "room" has a revalidate hook but is not persistent.*Set `membership: 'persistent'`/,
     );
   });
 
-  it('boots fine when a persistent channel has a .revalidate() hook', async () => {
+  it('boots fine when a persistent channel has a revalidate hook', async () => {
     const base = server({
       capabilities: [channels()],
     });

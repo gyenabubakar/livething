@@ -98,12 +98,12 @@ export type ValidChannelTemplate<S extends string> = string extends S
  * // A `[familyKey, pattern]` tuple declares a channel family that matches
  * // `room:<anything>` subscriptions. The family key ('rooms') is used in
  * // `ctx.channels.get(key, name)` lookups.
- * const rooms = base.channel(['rooms', 'room:{id}']);
- *
- * rooms.subscribe((ctx) => {
- *   // ctx.channel.family is the family key ('rooms')
- *   // ctx.channel.name is the matched path (e.g. 'room:alpha-42')
- *   // ctx.channel.params.id is the captured segment (e.g. 'alpha-42')
+ * const rooms = base.channel(['rooms', 'room:{id}'], {
+ *   onSubscribe(ctx) {
+ *     // ctx.channel.family is the family key ('rooms')
+ *     // ctx.channel.name is the matched path (e.g. 'room:alpha-42')
+ *     // ctx.channel.params.id is the captured segment (e.g. 'alpha-42')
+ *   },
  * });
  * ```
  */

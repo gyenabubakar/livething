@@ -37,6 +37,10 @@
       "entry": ["src/**/*.test-d.ts"],
       "project": ["src/**/*.ts"],
     },
+    "tests-e2e/handlers": {
+      // tsconfig.declaration.json compiles this file; nothing imports it.
+      "entry": ["declaration-emit/*.ts"],
+    },
     "tests-e2e/client": {
       // Each test page's index.html loads its own script, next to its spec.
       // Shared helpers sit in tests/ itself, so knip checks that they are used.

@@ -44,10 +44,9 @@ const room = base.channel('room', {
     // Throwing here prevents the subscriber from being added.
     if (ctx.channel.members().length >= 2) throw new Error('room is full');
   },
-});
-
-room.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  },
 });
 
 const handleRoomSend = room.on('send', {
@@ -64,10 +63,9 @@ const checkOnly = base.channel('check-only', {
     await new Promise((r) => setTimeout(r, 5));
     if (ctx.meta.username === 'no-access') throw new Error('no-access user is not allowed');
   },
-});
-
-checkOnly.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  },
 });
 
 // Uses only commit — shows that check is optional.
@@ -77,10 +75,9 @@ const commitOnly = base.channel('commit-only', {
     if (ctx.channel.members().length >= 1)
       throw new Error('commit-only room allows one subscriber');
   },
-});
-
-commitOnly.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  },
 });
 
 // A slow async check followed by a one-member cap in commit. Two subscribes that
@@ -126,10 +123,9 @@ const nonceRoom = base.channel('nonce-room', {
 
     await ctx.kv.set(key, true);
   },
-});
-
-nonceRoom.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  },
 });
 
 // Test support: a server-initiated retryable close so the client reconnects

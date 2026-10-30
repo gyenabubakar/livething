@@ -55,8 +55,9 @@ describe('boot-time cross-primitive collision guard', () => {
     const rooms = base.channel('rooms', {});
     const plain = rooms.stream('feed', { async *run() {} });
     const recorded = rooms.recordedStream('feed', { async *run() {} });
+    // @ts-expect-error: the same name twice on one channel
     expect(() => compileServerDefinition(base.assemble({ handlers: [plain, recorded] }))).toThrow(
-      /Event name 'feed' is registered as both 'stream' and 'recordedStream' in channel 'rooms'/,
+      /Duplicate event 'feed' on channel 'rooms'/,
     );
   });
 
@@ -67,8 +68,9 @@ describe('boot-time cross-primitive collision guard', () => {
     const rooms = base.channel(['rooms', 'room:{id}'], {});
     const plain = rooms.stream('feed', { async *run() {} });
     const recorded = rooms.recordedStream('feed', { async *run() {} });
+    // @ts-expect-error: the same name twice on one channel
     expect(() => compileServerDefinition(base.assemble({ handlers: [plain, recorded] }))).toThrow(
-      /Event name 'feed' is registered as both 'stream' and 'recordedStream' in channel family 'rooms'/,
+      /Duplicate event 'feed' on channel 'rooms'/,
     );
   });
 
@@ -280,8 +282,9 @@ describe('boot-time same-kind duplicate guard', () => {
     const room = base.channel('room', {});
     const first = room.on('msg', { run() {} });
     const second = room.on('msg', { run() {} });
-    expect(() => compileServerDefinition(base.assemble({ handlers: [first, second] }))).toThrow(
-      /Duplicate incoming in channel "room" declaration for "msg"/,
-    );
+    expect(() =>
+      // @ts-expect-error: the same event twice in one channel is a compile error
+      compileServerDefinition(base.assemble({ handlers: [first, second] })),
+    ).toThrow(/Duplicate event 'msg' on channel 'room'/);
   });
 });

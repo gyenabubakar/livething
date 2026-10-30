@@ -39,10 +39,9 @@ function buildEngine(seen: OutgoingFrame[]): Engine {
       tags((ephemeral) => [ephemeral('team')]),
       emits({ note: t<{ text: string }>() }),
     ],
-  });
-
-  base.onOutgoing((_ctx, frame) => {
-    seen.push(frame);
+    onOutgoing(_ctx, frame) {
+      seen.push(frame);
+    },
   });
 
   const joinTeam = base.on('join-team', {

@@ -726,9 +726,9 @@ describe('engine features inside a rolled-back user transaction', () => {
     const base = server({
       capabilities: [scheduled({ once: null, again: null, repeat: { every: 60_000 } })],
     });
-    base.scheduled('once', { run() {} });
-    base.scheduled('again', { run() {} });
-    base.scheduled('repeat', { run() {} });
+    const onceTask = base.scheduled('once', { run() {} });
+    const againTask = base.scheduled('again', { run() {} });
+    const repeatTask = base.scheduled('repeat', { run() {} });
     const run = base.on('run', {
       run(ctx) {
         ctx.schedule('again', { time: Date.now() + 60_000 });
@@ -746,7 +746,10 @@ describe('engine features inside a rolled-back user transaction', () => {
     });
 
     const storage = createTestStorage();
-    const { engine } = buildEngine(base.assemble({ handlers: [run] }), storage);
+    const { engine } = buildEngine(
+      base.assemble({ handlers: [run, onceTask, againTask, repeatTask] }),
+      storage,
+    );
     await engine.initialize();
     await open(engine).handleMessage(frame('run'));
 

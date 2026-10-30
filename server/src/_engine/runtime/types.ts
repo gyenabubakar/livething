@@ -166,13 +166,13 @@ export interface RegisteredEngineHooks {
   pong: ((connectionId: string) => void | Promise<void>)[];
 
   /**
-   * The app's own `base.onPing` hooks, kept apart from the engine and capability
+   * The app's own `onPing` hooks, kept apart from the engine and capability
    * `ping` hooks so the dispatch can run them last — after `keepalive()` and any
    * plugin observers, matching the capability → plugin → app order.
    */
   appPing: ((connectionId: string) => void | Promise<void>)[];
 
-  /** The app's own `base.onPong` hooks, kept apart for the same ordering reason. */
+  /** The app's own `onPong` hooks, kept apart for the same ordering reason. */
   appPong: ((connectionId: string) => void | Promise<void>)[];
 
   /**

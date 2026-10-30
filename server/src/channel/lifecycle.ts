@@ -188,9 +188,9 @@ export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePr
     __validate(view: ValidationView) {
       if (view.channelKey && !view.isChannelDurable(view.channelKey)) {
         throw new Error(
-          `[livething] Channel "${view.channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
+          `[livething] Channel "${view.channelKey}" has a revalidate hook but is not persistent, so it would ` +
             `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
-            `Set \`membership: 'persistent'\` on this channel, or remove the .revalidate() hook (use \`.check()\` ` +
+            `Set \`membership: 'persistent'\` on this channel, or remove the revalidate hook (use \`check\` ` +
             `for first-subscribe authorization).`,
         );
       }
@@ -254,10 +254,10 @@ export function commit<TCtx, TCheck = unknown>(
  * ```ts
  * const notifications = base.channel('notifications', {
  *   capabilities: [emits({ notifications: t<Item[]>() })],
- * });
- * notifications.subscribe(async (ctx) => {
- *   const items = await db.getUnread(ctx.meta.userId);
- *   ctx.channel.send('notifications', items);
+ *   async onSubscribe(ctx) {
+ *     const items = await db.getUnread(ctx.meta.userId);
+ *     ctx.channel.send('notifications', items);
+ *   },
  * });
  * ```
  */

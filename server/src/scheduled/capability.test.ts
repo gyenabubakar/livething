@@ -63,9 +63,16 @@ describe('scheduled() typing', () => {
     scheduled({ heartbeat: { every: 1_000, retry: [1_000] } });
   });
 
-  it('returns nothing after registering a task body', () => {
+  it('returns a handler that assemble() accepts', () => {
     const base = makeBase();
     const result = base.scheduled('heartbeat', { run() {} });
-    expectTypeOf(result).toEqualTypeOf<void>();
+    expectTypeOf(result).not.toBeVoid();
+    base.assemble({
+      handlers: [
+        result,
+        base.scheduled('cleanup', { run() {} }),
+        base.scheduled('report', { run() {} }),
+      ],
+    });
   });
 });

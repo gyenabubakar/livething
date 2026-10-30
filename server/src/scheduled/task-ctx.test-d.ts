@@ -10,6 +10,13 @@ const base = server({
     channels(),
     scheduled({ startMaintenance: null }),
   ],
+  onShutdown(ctx) {
+    ctx.broadcast('maintenanceStarted', { minutes: 0 });
+    // @ts-expect-error — not an event this server emits
+    ctx.broadcast('maintenanceEnded', {});
+    // @ts-expect-error — a connectionless ctx has no current connection
+    ctx.send;
+  },
 });
 const general = base.channel('general', {
   capabilities: [emits({ huddleClosing: t<{ reason: string }>() })],
@@ -50,12 +57,4 @@ docsBase.scheduled('archive-room', {
     // @ts-expect-error — not an event of this channel
     ctx.channels.get(rooms.at({ roomId: data.roomId })).broadcast('room-opened', {});
   },
-});
-
-base.onShutdown((ctx) => {
-  ctx.broadcast('maintenanceStarted', { minutes: 0 });
-  // @ts-expect-error — not an event this server emits
-  ctx.broadcast('maintenanceEnded', {});
-  // @ts-expect-error — a connectionless ctx has no current connection
-  ctx.send;
 });

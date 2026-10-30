@@ -141,9 +141,9 @@ function buildHandler() {
     revalidate(ctx) {
       record('revalidate', ctx);
     },
-  });
-  chat.subscribe((ctx) => {
-    record('subscribe', ctx);
+    onSubscribe(ctx) {
+      record('subscribe', ctx);
+    },
   });
 
   const definition = base.assemble({ handlers: [chat] });
@@ -192,9 +192,9 @@ function buildDynamicHandler() {
     revalidate(ctx) {
       recordDynamic('revalidate', ctx, state);
     },
-  });
-  rooms.subscribe((ctx) => {
-    recordDynamic('subscribe', ctx, state);
+    onSubscribe(ctx) {
+      recordDynamic('subscribe', ctx, state);
+    },
   });
 
   return {
@@ -475,9 +475,9 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       revalidate(ctx) {
         recordPlugin('revalidate', ctx);
       },
-    });
-    room.subscribe((ctx) => {
-      recordPlugin('subscribe', ctx);
+      onSubscribe(ctx) {
+        recordPlugin('subscribe', ctx);
+      },
     });
 
     const Feed = plugin('acme:gate-feed', {
@@ -569,11 +569,11 @@ describe('context.channelGate and context.channelLifecycle across the subscribe 
           seen.lifecycleInRevalidate = (error as Error).message;
         }
       },
+      onSubscribe(ctx) {
+        seen.subscribe = context.channelLifecycle(chatRef) === ctx;
+      },
     });
     chatRef = chat;
-    chat.subscribe((ctx) => {
-      seen.subscribe = context.channelLifecycle(chatRef) === ctx;
-    });
 
     const engine = buildEngine(base.assemble({ handlers: [chat] }));
     await engine.initialize();

@@ -79,12 +79,11 @@ function withChannelCtx(
 }
 
 /**
- * The accumulating channel object returned by `base.channel(...)`. Its handler
- * methods register onto the channel and return a value carrying both the
- * client-contract type and a reference back to the channel; its gate and
- * lifecycle methods mutate and return void. A handler value passed to
- * `assemble()` enables that handler; passing the channel itself only includes
- * its configuration and lifecycle behavior.
+ * The channel object returned by `base.channel(...)`. Nothing changes it after it
+ * is created. Its handler methods return a value carrying both the client-contract
+ * type and a reference back to the channel. A handler value passed to `assemble()`
+ * enables that handler; passing the channel itself only includes its configuration
+ * and hooks.
  *
  * Stream and replay handlers delegate to the matching capability's
  * builder (passed in as `deps`), so a channel only pulls in those engines when
@@ -101,13 +100,10 @@ export class ChannelBuilder {
   readonly __baseId: symbol | undefined;
   /** The channel-level rate-limit rule, if the config set one. @internal */
   readonly __rateLimit?: RateLimitConfig;
-  /** Per-handler rate-limit overrides for this channel. @internal */
-  readonly __rateLimitOverrides = new Map<Primitive, { event: string; config: RateLimitConfig }>();
 
   private readonly pattern: string | ReturnType<typeof scopeFactory>;
+  /** The config and hooks. Handlers are not here: `assemble()` passes the ones it was given. */
   private readonly children: Primitive[] = [];
-  private readonly handlerPrimitives = new Set<Primitive>();
-  private readonly once = new Set<string>();
   private readonly deps: ChannelDeps;
   /** Capability kinds declared by this channel's own `capabilities` list. */
   private readonly capabilityKinds = new Set<string>();
@@ -179,6 +175,14 @@ export class ChannelBuilder {
     if (cfg.commit) this.children.push(commitFactory(withChannelCtx(cfg.commit) as any));
     if (cfg.revalidate)
       this.children.push(revalidateFactory(withChannelCtx(cfg.revalidate) as any));
+    if (cfg.onSubscribe)
+      this.children.push(onSubscribeFactory(withChannelCtx(cfg.onSubscribe) as any));
+    if (cfg.onUnsubscribe)
+      this.children.push(onUnsubscribeFactory(withChannelCtx(cfg.onUnsubscribe) as any));
+    if (cfg.onSessionEnd)
+      this.children.push(onSessionEndFactory(withChannelCtx(cfg.onSessionEnd) as any));
+
+    if (cfg.intercept) this.children.push(interceptFactory(withChannelCtx(cfg.intercept) as any));
   }
 
   /**
@@ -203,11 +207,8 @@ export class ChannelBuilder {
       validator: config.input,
       allowInterleaving: config.allowInterleaving,
     });
-    this.recordRateLimit(event, config, primitive);
-    this.handlerPrimitives.add(primitive);
-    this.children.push(primitive);
 
-    return this.handlerValue(primitive);
+    return this.handlerValue(primitive, config);
   }
 
   request(event: string, config: any): ChannelHandlerValue {
@@ -225,12 +226,8 @@ export class ChannelBuilder {
       allowInterleaving: config.allowInterleaving,
       run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
     });
-    this.recordRateLimit(event, config, primitive);
 
-    this.handlerPrimitives.add(primitive);
-    this.children.push(primitive);
-
-    return this.handlerValue(primitive);
+    return this.handlerValue(primitive, config);
   }
 
   stream(event: string, config: any): ChannelHandlerValue {
@@ -241,32 +238,30 @@ export class ChannelBuilder {
     return this.delegateStream('recorded', event, config);
   }
 
-  subscribe(handler: (ctx: any) => void | Promise<void>): void {
-    this.registerOnce('subscribe', onSubscribeFactory(withChannelCtx(handler) as any));
-  }
+  /** Build the channel primitive from its config, its hooks and the given handlers. @internal */
+  __build(selectedHandlers: ReadonlySet<Primitive>): Primitive {
+    const seenEvents = new Set<string>();
+    for (const handler of selectedHandlers) {
+      const { event } = handler as { event?: string };
+      if (event === undefined) continue;
 
-  unsubscribe(handler: (ctx: any) => void | Promise<void>): void {
-    this.registerOnce('unsubscribe', onUnsubscribeFactory(withChannelCtx(handler) as any));
-  }
+      if (seenEvents.has(event)) {
+        throw new Error(
+          `[livething] Duplicate event '${event}' on channel '${this.__key}' passed to ` +
+            'assemble(). Two handlers use this name. Remove one or rename it.',
+        );
+      }
 
-  sessionEnd(handler: (ctx: any) => void | Promise<void>): void {
-    this.registerOnce('sessionEnd', onSessionEndFactory(withChannelCtx(handler) as any));
-  }
+      seenEvents.add(event);
+    }
 
-  intercept(handler: (ctx: any, frame: any) => unknown): void {
-    this.registerOnce('intercept', interceptFactory(withChannelCtx(handler) as any));
-  }
-
-  /** Build the channel primitive from everything registered so far. @internal */
-  __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive {
-    const children = selectedHandlers
-      ? this.children.filter(
-          (child) => !this.handlerPrimitives.has(child) || selectedHandlers.has(child),
-        )
-      : this.children;
-    const primitive = channelFactory(this.pattern as any, ...(children as any[]));
+    const primitive = channelFactory(
+      this.pattern as any,
+      ...([...this.children, ...selectedHandlers] as any[]),
+    );
     (primitive as { __capabilityKinds?: ReadonlySet<string> }).__capabilityKinds =
       this.capabilityKinds;
+
     return primitive;
   }
 
@@ -293,35 +288,15 @@ export class ChannelBuilder {
 
     const primitive = build(event, channelConfig);
 
-    this.recordRateLimit(event, config, primitive);
-    this.handlerPrimitives.add(primitive);
-    this.children.push(primitive);
-
-    return this.handlerValue(primitive);
+    return this.handlerValue(primitive, config);
   }
 
-  /** Stash a handler's `rateLimit` override so assembly can fold it into the plan. */
-  private recordRateLimit(event: string, config: any, primitive: Primitive): void {
+  /** A handler's own `rateLimit` travels on its primitive, so `assemble()` reads it from there. */
+  private handlerValue(primitive: Primitive, config: any): ChannelHandlerValue {
     if (config?.rateLimit !== undefined) {
-      this.__rateLimitOverrides.set(primitive, {
-        event,
-        config: config.rateLimit as RateLimitConfig,
-      });
-    }
-  }
-
-  private registerOnce(slot: string, primitive: Primitive): void {
-    if (this.once.has(slot)) {
-      throw new Error(
-        `[livething] Duplicate ${slot} on channel '${this.__key}'. Only one ${slot} can be attached.`,
-      );
+      (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = config.rateLimit;
     }
 
-    this.once.add(slot);
-    this.children.push(primitive);
-  }
-
-  private handlerValue(primitive: Primitive): ChannelHandlerValue {
     return { __channel: this, __handler: primitive };
   }
 }

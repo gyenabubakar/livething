@@ -61,10 +61,9 @@ const room = h.channel('room', {
   check(ctx) {
     if ((ctx.meta as { username?: string }).username === 'blocked') throw RoomFull({ limit: 5 });
   },
-});
-
-room.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { who: ctx.connection.id }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { who: ctx.connection.id }, { includeSelf: true });
+  },
 });
 
 const roomChat = room.on('chat', {
@@ -104,10 +103,9 @@ const thread = h.channel(['thread', 'thread:{id}'], {
       'thread-msg': t<{ thread: string; text: string }>(),
     }),
   ],
-});
-
-thread.subscribe((ctx) => {
-  ctx.channel.broadcast('posted', { thread: ctx.channel.name }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('posted', { thread: ctx.channel.name }, { includeSelf: true });
+  },
 });
 
 const threadPost = thread.on('post', {

@@ -114,6 +114,27 @@ const archiveRoom = base.channel('archive-room', {
       throw new Error('banned from archive-room');
     }
   },
+  // Fires once per subscribe flow that actually adds the member. Used to observe
+  // whether a warm reconnect runs this more than once (server auto-rejoin and a
+  // redundant client re-subscribe).
+  onSubscribe(ctx) {
+    ctx.send('subscribe-flow-ran', {
+      channel: ctx.channel.name,
+      username: ctx.meta.username,
+    });
+  },
+  onUnsubscribe(ctx) {
+    ctx.send('true-leave', {
+      channel: ctx.channel.name,
+      username: ctx.meta.username,
+    });
+  },
+  onSessionEnd(ctx) {
+    ctx.channel.broadcast('session-ended', {
+      channel: ctx.channel.name,
+      username: ctx.meta.username,
+    });
+  },
 });
 
 const handleSendMessage = archiveRoom.on('send-message', {
@@ -124,30 +145,6 @@ const handleSendMessage = archiveRoom.on('send-message', {
       from: ctx.meta.username,
     });
   },
-});
-
-// Fires once per subscribe flow that actually adds the member. Used to observe
-// whether a warm reconnect runs this more than once (server auto-rejoin and a
-// redundant client re-subscribe).
-archiveRoom.subscribe((ctx) => {
-  ctx.send('subscribe-flow-ran', {
-    channel: ctx.channel.name,
-    username: ctx.meta.username,
-  });
-});
-
-archiveRoom.unsubscribe((ctx) => {
-  ctx.send('true-leave', {
-    channel: ctx.channel.name,
-    username: ctx.meta.username,
-  });
-});
-
-archiveRoom.sessionEnd((ctx) => {
-  ctx.channel.broadcast('session-ended', {
-    channel: ctx.channel.name,
-    username: ctx.meta.username,
-  });
 });
 
 const typingIndicator = base.channel('typing-indicator', {

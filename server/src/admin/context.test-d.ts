@@ -63,9 +63,10 @@ const full = server({
   ],
 });
 const tick = full.on('tick', { run() {} });
+const sweep = full.scheduled('sweep', { run() {} });
 
 full.assemble({
-  handlers: [tick],
+  handlers: [tick, sweep],
   api: (ctx) => {
     expectTypeOf(ctx).toHaveProperty('channels');
     expectTypeOf(ctx.channels.get('lobby')).toHaveProperty('broadcast');

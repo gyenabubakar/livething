@@ -840,8 +840,8 @@ export interface ChannelsManager<
  * trims it down.
  *
  * `ConnectionContext` is passed to handlers created with: `base.on`,
- * `base.request`, `base.stream`, `base.onConnect`, `base.onDisconnect`,
- * and `base.onError`.
+ * `base.request`, `base.stream`, and the `onConnect`, `onDisconnect` and
+ * `onError` keys of `server({ ... })`.
  *
  * @template Meta     Per-connection metadata set in the upgrade step.
  * @template Platform The raw platform object (e.g. a Cloudflare DO stub).

@@ -837,7 +837,7 @@ describe('scheduled/runtime — through the real engine', () => {
     const base = server({
       capabilities: [scheduled({ processRefund: { retry: false }, sendReceipt: null })],
     });
-    base.scheduled('processRefund', {
+    const processRefund = base.scheduled('processRefund', {
       run(ctx) {
         ctx.schedule('sendReceipt', { time: Date.now() + 5000 });
         rowsDuringHandler.push(
@@ -845,9 +845,9 @@ describe('scheduled/runtime — through the real engine', () => {
         );
       },
     });
-    base.scheduled('sendReceipt', { run() {} });
+    const sendReceipt = base.scheduled('sendReceipt', { run() {} });
 
-    const { engine } = await buildEngine(base.assemble({ handlers: [] }));
+    const { engine } = await buildEngine(base.assemble({ handlers: [processRefund, sendReceipt] }));
 
     scheduleTask(engine.core, () => ({}), {
       taskId: 'processRefund',
@@ -870,19 +870,21 @@ describe('scheduled/runtime — through the real engine', () => {
         scheduled({ chargeCard: { retry: false }, sendReceipt: null, clearFailedCharges: null }),
       ],
     });
-    base.scheduled('chargeCard', {
+    const chargeCard = base.scheduled('chargeCard', {
       run() {
         throw new Error('card declined');
       },
     });
-    base.scheduled('sendReceipt', { run() {} });
-    base.scheduled('clearFailedCharges', {
+    const sendReceipt = base.scheduled('sendReceipt', { run() {} });
+    const clearFailedCharges = base.scheduled('clearFailedCharges', {
       run(ctx) {
         ctx.sql.exec('DELETE FROM __livething_scheduled_dlq');
       },
     });
 
-    const { engine, sql } = await buildEngine(base.assemble({ handlers: [] }));
+    const { engine, sql } = await buildEngine(
+      base.assemble({ handlers: [chargeCard, sendReceipt, clearFailedCharges] }),
+    );
     function queue(taskId: string) {
       scheduleTask(engine.core, () => ({}), { taskId, time: 1, data: undefined });
     }

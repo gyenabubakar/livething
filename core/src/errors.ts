@@ -179,8 +179,10 @@ function createMatchesFn<TCode extends string, TDetail>(
  * the handler never fires (or stops executing if thrown mid-handler).
  *
  * ```ts
- * base.intercept((ctx, frame) => {
- *   if (isBanned(ctx.meta.userId)) throw Block;
+ * const base = server({
+ *   intercept(ctx, frame) {
+ *     if (isBanned(ctx.meta.userId)) throw Block;
+ *   },
  * });
  * ```
  */

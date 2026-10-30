@@ -31,19 +31,18 @@ const base = server({
     }),
     scheduled({ 'probe-task': null }),
   ],
+  onInit(ctx) {
+    ctx.sql.exec(`
+      CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL
+      )
+    `);
+  },
 });
 
-base.scheduled('probe-task', { run() {} });
-
-base.onInit((ctx) => {
-  ctx.sql.exec(`
-    CREATE TABLE IF NOT EXISTS notes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      body TEXT NOT NULL
-    )
-  `);
-});
+const handleProbeTask = base.scheduled('probe-task', { run() {} });
 
 const handleSaveNote = base.on('save-note', {
   input: v.object({ title: v.string(), body: v.string() }),
@@ -247,6 +246,7 @@ export const ctxSqlDefinition = base.assemble({
     handleSqlTxDeferredKeyProbe,
     handleSqlOneMultiProbe,
     handleConnectionsSnapshotProbe,
+    handleProbeTask,
   ],
 });
 

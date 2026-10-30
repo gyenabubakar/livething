@@ -46,15 +46,14 @@ const base = server({
       'schedule-unknown-task-result': t<{ rejected: boolean; message: string }>(),
     }),
   ],
+  onInit(ctx) {
+    ctx.sql.exec(
+      'CREATE TABLE IF NOT EXISTS _cleanup_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ranAt INTEGER NOT NULL)',
+    );
+  },
 });
 
-base.onInit((ctx) => {
-  ctx.sql.exec(
-    'CREATE TABLE IF NOT EXISTS _cleanup_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ranAt INTEGER NOT NULL)',
-  );
-});
-
-base.scheduled('cleanup', {
+const runCleanup = base.scheduled('cleanup', {
   run(ctx) {
     const ranAt = Date.now();
     ctx.sql.exec('INSERT INTO _cleanup_log (ranAt) VALUES (?)', ranAt);
@@ -62,13 +61,13 @@ base.scheduled('cleanup', {
   },
 });
 
-base.scheduled('heartbeat-tick', {
+const runHeartbeatTick = base.scheduled('heartbeat-tick', {
   run(ctx) {
     ctx.broadcast('heartbeat-tick', { count: Date.now() });
   },
 });
 
-base.scheduled('flaky-task', {
+const runFlakyTask = base.scheduled('flaky-task', {
   run(ctx) {
     flakyAttempts += 1;
     if (flakyAttempts < 3) throw new Error('flaky');
@@ -78,7 +77,7 @@ base.scheduled('flaky-task', {
   },
 });
 
-base.scheduled('default-retry-task', {
+const runDefaultRetryTask = base.scheduled('default-retry-task', {
   run(ctx) {
     defaultRetryAttempts += 1;
     if (defaultRetryAttempts < 2) throw new Error('retry-once');
@@ -88,26 +87,26 @@ base.scheduled('default-retry-task', {
   },
 });
 
-base.scheduled('always-fail-task', {
+const runAlwaysFailTask = base.scheduled('always-fail-task', {
   run() {
     throw new Error('permanent failure');
   },
 });
 
-base.scheduled('bigint-throw-task', {
+const runBigintThrowTask = base.scheduled('bigint-throw-task', {
   run() {
     // eslint-disable-next-line @typescript-eslint/only-throw-error
     throw 1n;
   },
 });
 
-base.scheduled('filtered-cleanup', {
+const runFilteredCleanup = base.scheduled('filtered-cleanup', {
   run(ctx, data) {
     ctx.broadcast('filtered-task-result', { label: data.label });
   },
 });
 
-base.scheduled('send-to-conn-task', {
+const runSendToConnTask = base.scheduled('send-to-conn-task', {
   run(ctx, data) {
     const target = ctx.connections.all().find((info) => info.id === data.connectionId);
     const delivered = target
@@ -122,19 +121,19 @@ base.scheduled('send-to-conn-task', {
   },
 });
 
-base.scheduled('empty-backoff-task', {
+const runEmptyBackoffTask = base.scheduled('empty-backoff-task', {
   run() {
     throw new Error('always fails with no retry');
   },
 });
 
-base.scheduled('broadcast-task', {
+const runBroadcastTask = base.scheduled('broadcast-task', {
   run(ctx) {
     ctx.broadcast('broadcast-result', { text: 'from-task' });
   },
 });
 
-base.scheduled('send-to-tag-task', {
+const runSendToTagTask = base.scheduled('send-to-tag-task', {
   run(ctx) {
     for (const conn of ctx.connections.all()) {
       if (conn.tags.some((r) => r.kind === 'ephemeral' && r.group === 'role' && r.key === 'vip')) {
@@ -394,6 +393,17 @@ export const scheduledDefinition = base.assemble({
     handleTagVip,
     handleCancelNonexistent,
     handleTriggerScheduleUnknownTask,
+    runCleanup,
+    runHeartbeatTick,
+    runFlakyTask,
+    runDefaultRetryTask,
+    runAlwaysFailTask,
+    runBigintThrowTask,
+    runFilteredCleanup,
+    runSendToConnTask,
+    runEmptyBackoffTask,
+    runBroadcastTask,
+    runSendToTagTask,
   ],
 });
 

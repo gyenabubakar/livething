@@ -117,8 +117,7 @@ describe('plugin() — scoped server definition + manifest', () => {
   });
 
   it('reroutes a plugin connect hook into the plugin lifecycle registry', () => {
-    const h = server({ scope: 'plugin' });
-    h.onConnect(() => {});
+    const h = server({ scope: 'plugin', onConnect() {} });
     const { __primitives } = plugin('acme:presence', {
       definition: h.assemble({ handlers: [] }),
     })();
@@ -289,10 +288,13 @@ describe('plugin() — scoped server definition + manifest', () => {
 
 describe('plugin() — hook ownership', () => {
   function buildHookPlugin() {
-    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const h = server({
+      scope: 'plugin',
+      capabilities: [emits({ tick: t<{}>() })],
+      intercept() {},
+      onOutgoing() {},
+    });
     const beat = h.on('tick', { input: v.object({}), run() {} });
-    h.intercept(() => {});
-    h.onOutgoing(() => {});
 
     return plugin('acme:obs', { definition: h.assemble({ handlers: [beat] }) });
   }

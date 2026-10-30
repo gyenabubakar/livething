@@ -14,12 +14,11 @@ const base = server({
       'anything-echo': t<{ got: unknown }>(),
     }),
   ],
-});
-
-base.onError((ctx, error, evt) => {
-  if (ValidationFailed.matches(error)) {
-    ctx.send('validation-error-fired', { event: evt ?? 'unknown' });
-  }
+  onError(ctx, error, evt) {
+    if (ValidationFailed.matches(error)) {
+      ctx.send('validation-error-fired', { event: evt ?? 'unknown' });
+    }
+  },
 });
 
 const handleEchoPing = base.on('echo-ping', {

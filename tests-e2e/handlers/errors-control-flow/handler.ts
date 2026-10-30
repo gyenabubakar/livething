@@ -13,19 +13,17 @@ const base = server({
       'validation-error-fired': t<{ event: string }>(),
     }),
   ],
-});
+  onError(ctx, error, evt) {
+    if (ValidationFailed.matches(error)) {
+      ctx.send('validation-error-fired', { event: evt ?? 'unknown' });
+    }
+  },
+  intercept(_ctx, frame) {
+    if (frame.event === 'block-test') throw Block;
 
-base.onError((ctx, error, evt) => {
-  if (ValidationFailed.matches(error)) {
-    ctx.send('validation-error-fired', { event: evt ?? 'unknown' });
-  }
-});
-
-base.intercept((_ctx, frame) => {
-  if (frame.event === 'block-test') throw Block;
-
-  if (frame.event === 'disconnect-intercept') throw Disconnect(4011, 'intercepted disconnect');
-  // void return — pass payload through unchanged.
+    if (frame.event === 'disconnect-intercept') throw Disconnect(4011, 'intercepted disconnect');
+    // void return — pass payload through unchanged.
+  },
 });
 
 const handleDoEcho = base.on('do-echo', {

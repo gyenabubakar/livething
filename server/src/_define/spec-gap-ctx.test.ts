@@ -52,15 +52,15 @@ describe('ctx.sendReplay gating', () => {
 
 describe('ctx.matches / ctx.unsafeCast typing', () => {
   it('narrows a frame payload to a declared event input (not any)', () => {
-    const base = server({
+    server({
       capabilities: [emits({ msg: t<{ text: string }>() })],
-    });
-    base.intercept((ctx, frame: InterceptFrame) => {
-      expectTypeOf(ctx.matches).toBeFunction();
-      expectTypeOf(ctx.unsafeCast).toBeFunction();
-      const cast = ctx.unsafeCast('send', frame);
-      expectTypeOf(cast.payload).not.toBeAny();
-      expectTypeOf(cast).toMatchTypeOf<{ event: string }>();
+      intercept(ctx, frame: InterceptFrame) {
+        expectTypeOf(ctx.matches).toBeFunction();
+        expectTypeOf(ctx.unsafeCast).toBeFunction();
+        const cast = ctx.unsafeCast('send', frame);
+        expectTypeOf(cast.payload).not.toBeAny();
+        expectTypeOf(cast).toMatchTypeOf<{ event: string }>();
+      },
     });
   });
 

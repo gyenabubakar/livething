@@ -646,14 +646,14 @@ export interface EngineAccess {
   onPong(handler: (connectionId: string) => void | Promise<void>): void;
 
   /**
-   * Register an app-level `base.onPing` hook. Kept apart from `onPing` so the
+   * Register an app-level `onPing` hook. Kept apart from `onPing` so the
    * dispatch runs the app after the engine, `keepalive()`, and any plugin
    * observers — the capability → plugin → app order. Used by the `onPing`
    * lifecycle primitive; a capability registers with `onPing` instead.
    */
   onAppPing(handler: (connectionId: string) => void | Promise<void>): void;
 
-  /** Register an app-level `base.onPong` hook. Runs last, for the same reason. */
+  /** Register an app-level `onPong` hook. Runs last, for the same reason. */
   onAppPong(handler: (connectionId: string) => void | Promise<void>): void;
 
   /**

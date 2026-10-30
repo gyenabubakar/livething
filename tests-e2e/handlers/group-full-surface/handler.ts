@@ -11,6 +11,7 @@ import {
   handleLookup,
   handleRoomSendMsg,
   handleStartTick,
+  handleTick,
   handleTokens,
 } from './group.ts';
 
@@ -27,6 +28,7 @@ export const groupFullSurfaceDefinition = base.assemble({
     handleFeed,
     handleTokens,
     handleRoomSendMsg,
+    handleTick,
   ],
 });
 

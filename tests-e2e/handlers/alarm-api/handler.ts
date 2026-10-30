@@ -10,11 +10,14 @@ function assertNoConnectionAlarm(ctx: ConnectionContext) {
 
 const base = server({
   capabilities: [scheduled({ 'alarm-api-task': null }), emits({ 'alarm-api-reply': t<{}>() })],
-});
-
-base.onInit((ctx) => {
-  // @ts-expect-error Product init handlers cannot call the platform alarm API.
-  ctx.setAlarm(Date.now());
+  onInit(ctx) {
+    // @ts-expect-error Product init handlers cannot call the platform alarm API.
+    ctx.setAlarm(Date.now());
+  },
+  onShutdown(ctx) {
+    // @ts-expect-error Product shutdown handlers cannot call the platform alarm API.
+    ctx.setAlarm(Date.now());
+  },
 });
 
 const alarmApiEvent = base.on('alarm-api-event', {
@@ -24,12 +27,7 @@ const alarmApiEvent = base.on('alarm-api-event', {
   },
 });
 
-base.onShutdown((ctx) => {
-  // @ts-expect-error Product shutdown handlers cannot call the platform alarm API.
-  ctx.setAlarm(Date.now());
-});
-
-base.scheduled('alarm-api-task', {
+const alarmApiTask = base.scheduled('alarm-api-task', {
   run(ctx) {
     // @ts-expect-error Product scheduled handlers cannot call the platform alarm API.
     ctx.setAlarm(Date.now());
@@ -37,7 +35,7 @@ base.scheduled('alarm-api-task', {
 });
 
 export const alarmApiDefinition = base.assemble({
-  handlers: [alarmApiEvent],
+  handlers: [alarmApiEvent, alarmApiTask],
   api: (ctx) => ({
     attemptPlatformAlarm() {
       // @ts-expect-error Product admin operations cannot call the platform alarm API.

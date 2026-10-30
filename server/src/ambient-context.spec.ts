@@ -110,13 +110,14 @@ describe('context.connection', () => {
   });
 
   it('works inside onConnect and onDisconnect', async () => {
-    const base = server({});
     const seen: string[] = [];
-    base.onConnect((ctx) => {
-      seen.push(context.connection(base) === ctx ? 'connect' : 'wrong');
-    });
-    base.onDisconnect((ctx) => {
-      seen.push(context.connection(base) === ctx ? 'disconnect' : 'wrong');
+    const base = server({
+      onConnect(ctx) {
+        seen.push(context.connection(base) === ctx ? 'connect' : 'wrong');
+      },
+      onDisconnect(ctx) {
+        seen.push(context.connection(base) === ctx ? 'disconnect' : 'wrong');
+      },
     });
 
     const engine = buildEngine(base.assemble({ handlers: [] }));
@@ -145,9 +146,9 @@ describe('context.connection', () => {
         }
       },
     });
-    base.scheduled('tick', { run() {} });
+    const tick = base.scheduled('tick', { run() {} });
 
-    const engine = buildEngine(base.assemble({ handlers: [probe] }));
+    const engine = buildEngine(base.assemble({ handlers: [probe, tick] }));
     await engine.initialize();
     await open(engine, 'alice').handleMessage(frame('probe'));
 
@@ -222,12 +223,12 @@ describe('context.init, context.shutdown and context.upgrade', () => {
         seen.upgrade = context.upgrade(base) === upgradeCtx;
         return { userId: 'u1' };
       },
-    });
-    base.onInit((ctx) => {
-      seen.init = context.init(base) === ctx;
-    });
-    base.onShutdown((ctx) => {
-      seen.shutdown = context.shutdown(base) === ctx;
+      onInit(ctx) {
+        seen.init = context.init(base) === ctx;
+      },
+      onShutdown(ctx) {
+        seen.shutdown = context.shutdown(base) === ctx;
+      },
     });
 
     const engine = buildEngine(base.assemble({ handlers: [] }), platform);
@@ -243,7 +244,7 @@ describe('context.task', () => {
   it('returns the ctx of a scheduled task handler', async () => {
     const base = server({ capabilities: [scheduled({ tick: null })] });
     const seen: { same?: boolean } = {};
-    base.scheduled('tick', {
+    const tick = base.scheduled('tick', {
       run(ctx) {
         seen.same = context.task(base) === ctx;
       },
@@ -254,7 +255,7 @@ describe('context.task', () => {
       },
     });
 
-    const engine = buildEngine(base.assemble({ handlers: [arm] }));
+    const engine = buildEngine(base.assemble({ handlers: [arm, tick] }));
     await engine.initialize();
     await open(engine, 'alice').handleMessage(frame('arm'));
     await engine.handleAlarm();
@@ -266,13 +267,13 @@ describe('context.task', () => {
 describe('context.channel, context.channelGate and context.channelLifecycle', () => {
   function setup() {
     const base = server({ capabilities: [channels()] });
-    const lobby = base.channel('lobby', {});
-    const other = base.channel('other', {});
     const seen: Record<string, unknown> = {};
-
-    lobby.subscribe((ctx) => {
-      seen.subscribe = context.channelLifecycle(lobby) === ctx;
+    const lobby = base.channel('lobby', {
+      onSubscribe(ctx) {
+        seen.subscribe = context.channelLifecycle(lobby) === ctx;
+      },
     });
+    const other = base.channel('other', {});
     const say = lobby.on('say', {
       run(ctx) {
         seen.handler = context.channel(lobby) === ctx;
@@ -325,25 +326,25 @@ describe('context.channel, context.channelGate and context.channelLifecycle', ()
       commit(ctx) {
         seen.commit = context.channelGate(lobbyRef) === ctx;
       },
+      onSubscribe(ctx) {
+        seen.subscribe = context.channelLifecycle(lobbyRef) === ctx;
+        try {
+          context.channelGate(lobbyRef);
+        } catch (error) {
+          seen.gateInSubscribe = (error as Error).message;
+        }
+      },
+      onUnsubscribe(ctx) {
+        seen.unsubscribe = context.channelLifecycle(lobbyRef) === ctx;
+      },
+      onSessionEnd(ctx) {
+        seen.sessionEnd = context.channelLifecycle(lobbyRef) === ctx;
+      },
     });
     lobbyRef = lobby;
-    lobby.subscribe((ctx) => {
-      seen.subscribe = context.channelLifecycle(lobby) === ctx;
-      try {
-        context.channelGate(lobby);
-      } catch (error) {
-        seen.gateInSubscribe = (error as Error).message;
-      }
-    });
-    lobby.unsubscribe((ctx) => {
-      seen.unsubscribe = context.channelLifecycle(lobby) === ctx;
-    });
-
-    lobby.sessionEnd((ctx) => {
-      seen.sessionEnd = context.channelLifecycle(lobby) === ctx;
-    });
     const engine = buildEngine(base.assemble({ handlers: [lobby] }));
     await engine.initialize();
+
     const handle = open(engine, 'alice');
 
     await handle.handleMessage(frame('__subscribe__', { channel: { name: 'lobby' } }));
@@ -369,7 +370,14 @@ describe('context.channel, context.channelGate and context.channelLifecycle', ()
   });
 
   it('reaches the top-level onError hook for a channel event and a channel validation failure', async () => {
-    const base = server({ capabilities: [channels()] });
+    const seen: Record<string, unknown> = {};
+    const base = server({
+      capabilities: [channels()],
+      onError(ctx, error) {
+        const key = ValidationFailed.matches(error) ? 'validation' : 'error';
+        seen[key] = context.connection(base) === ctx;
+      },
+    });
     const lobby = base.channel('lobby', {});
     const boom = lobby.on('boom', {
       run() {
@@ -377,12 +385,6 @@ describe('context.channel, context.channelGate and context.channelLifecycle', ()
       },
     });
     const typed = lobby.on('typed', { input: v.object({ n: v.number() }), run() {} });
-    const seen: Record<string, unknown> = {};
-
-    base.onError((ctx, error) => {
-      const key = ValidationFailed.matches(error) ? 'validation' : 'error';
-      seen[key] = context.connection(base) === ctx;
-    });
 
     const engine = buildEngine(base.assemble({ handlers: [lobby, boom, typed] }));
     await engine.initialize();
@@ -421,13 +423,14 @@ describe('context in a stream handler', () => {
 
 describe('context in the heartbeat hooks', () => {
   it('returns the connection ctx in onPing and onPong', async () => {
-    const base = server({});
     const seen: Record<string, boolean> = {};
-    base.onPing((ctx) => {
-      seen.ping = context.connection(base) === ctx;
-    });
-    base.onPong((ctx) => {
-      seen.pong = context.connection(base) === ctx;
+    const base = server({
+      onPing(ctx) {
+        seen.ping = context.connection(base) === ctx;
+      },
+      onPong(ctx) {
+        seen.pong = context.connection(base) === ctx;
+      },
     });
     const engine = buildEngine(base.assemble({ handlers: [] }));
 
@@ -528,14 +531,17 @@ describe('context in the features of a channel', () => {
   });
 
   it('returns the channel ctx in a channel intercept and the connection ctx in a top-level one', async () => {
-    const base = server({ capabilities: [channels()] });
     const seen: Record<string, boolean> = {};
-    base.intercept((ctx) => {
-      seen.topLevel = context.connection(base) === ctx;
+    const base = server({
+      capabilities: [channels()],
+      intercept(ctx) {
+        seen.topLevel = context.connection(base) === ctx;
+      },
     });
-    const room = base.channel('room', {});
-    room.intercept((ctx) => {
-      seen.channel = context.channel(room) === ctx;
+    const room = base.channel('room', {
+      intercept(ctx) {
+        seen.channel = context.channel(room) === ctx;
+      },
     });
 
     const say = room.on('say', { run() {} });
@@ -552,10 +558,12 @@ describe('context in the features of a channel', () => {
 
 describe('context in the onError hook for a stream that throws', () => {
   async function runFailingStream(fail: () => never) {
-    const base = server({ capabilities: [stream()] });
     const seen: Record<string, boolean> = {};
-    base.onError((ctx) => {
-      seen.onError = context.connection(base) === ctx;
+    const base = server({
+      capabilities: [stream()],
+      onError(ctx) {
+        seen.onError = context.connection(base) === ctx;
+      },
     });
     const feed = base.stream('feed', {
       input: v.object({}),
@@ -586,14 +594,16 @@ describe('context in the onError hook for a stream that throws', () => {
 
 describe('context inside onOutgoing', () => {
   it('has no context, so it cannot name the sender by mistake', async () => {
-    const base = server({ capabilities: [emits({ note: t<{ n: number }>() })] });
     let message = '';
-    base.onOutgoing(() => {
-      try {
-        context.connection(base);
-      } catch (error) {
-        message = (error as Error).message;
-      }
+    const base = server({
+      capabilities: [emits({ note: t<{ n: number }>() })],
+      onOutgoing() {
+        try {
+          context.connection(base);
+        } catch (error) {
+          message = (error as Error).message;
+        }
+      },
     });
     const send = base.on('send', {
       run(ctx) {
@@ -745,7 +755,6 @@ describe('context inside a plugin', () => {
         emits({ tick: t<{ n: number }>() }),
       ],
     });
-    const room = h.channel('room', {});
     const seen: Record<string, unknown> = {};
     function attempt(key: string, read: () => unknown, ctx: unknown) {
       try {
@@ -755,7 +764,11 @@ describe('context inside a plugin', () => {
       }
     }
 
-    room.subscribe((ctx) => attempt('lifecycle', () => context.channelLifecycle(room), ctx));
+    const room = h.channel('room', {
+      onSubscribe(ctx) {
+        attempt('lifecycle', () => context.channelLifecycle(room), ctx);
+      },
+    });
     const say = room.on('say', {
       run: (ctx) => attempt('channel', () => context.channel(room), ctx),
     });
@@ -765,7 +778,9 @@ describe('context inside a plugin', () => {
         ctx.schedule('sweep', { time: Date.now() - 1 });
       },
     });
-    h.scheduled('sweep', { run: (ctx) => attempt('task', () => context.task(h), ctx) });
+    const sweep = h.scheduled('sweep', {
+      run: (ctx) => attempt('task', () => context.task(h), ctx),
+    });
     const ticks = h.stream('ticks', {
       async *run(ctx) {
         await sleep(1);
@@ -776,7 +791,7 @@ describe('context inside a plugin', () => {
     });
 
     const Rooms = plugin('acme:rooms', {
-      definition: h.assemble({ handlers: [room, say, hello, ticks] }),
+      definition: h.assemble({ handlers: [room, say, hello, sweep, ticks] }),
     });
 
     return { Rooms, seen };
@@ -827,10 +842,6 @@ describe('context inside a plugin', () => {
   });
 
   it("returns the plugin's ctx in every plugin hook, and none in its outgoing hook", async () => {
-    const h = server({
-      scope: 'plugin',
-      capabilities: [emits({ failing: t<{ reason: string }>() })],
-    });
     const seen: Record<string, unknown> = {};
     function check(key: string, read: () => unknown, ctx: unknown) {
       try {
@@ -840,16 +851,37 @@ describe('context inside a plugin', () => {
       }
     }
 
-    h.onInit((ctx) => check('init', () => context.init(h), ctx));
-    h.onConnect((ctx) => check('connect', () => context.connection(h), ctx));
-    h.onPing((ctx) => check('ping', () => context.connection(h), ctx));
-    h.onPong((ctx) => check('pong', () => context.connection(h), ctx));
-    h.onError((ctx) => check('error', () => context.connection(h), ctx));
-
-    h.onDisconnect((ctx) => check('disconnect', () => context.connection(h), ctx));
-    h.onShutdown((ctx) => check('shutdown', () => context.shutdown(h), ctx));
-    h.intercept((ctx) => check('intercept', () => context.connection(h), ctx));
-    h.onOutgoing(() => check('outgoing', () => context.connection(h), undefined));
+    const h = server({
+      scope: 'plugin',
+      capabilities: [emits({ failing: t<{ reason: string }>() })],
+      onInit(ctx) {
+        check('init', () => context.init(h), ctx);
+      },
+      onConnect(ctx) {
+        check('connect', () => context.connection(h), ctx);
+      },
+      onPing(ctx) {
+        check('ping', () => context.connection(h), ctx);
+      },
+      onPong(ctx) {
+        check('pong', () => context.connection(h), ctx);
+      },
+      onError(ctx) {
+        check('error', () => context.connection(h), ctx);
+      },
+      onDisconnect(ctx) {
+        check('disconnect', () => context.connection(h), ctx);
+      },
+      onShutdown(ctx) {
+        check('shutdown', () => context.shutdown(h), ctx);
+      },
+      intercept(ctx) {
+        check('intercept', () => context.connection(h), ctx);
+      },
+      onOutgoing() {
+        check('outgoing', () => context.connection(h), undefined);
+      },
+    });
     const fail = h.on('fail', {
       run(ctx) {
         ctx.send('failing', { reason: 'on purpose' });

@@ -156,10 +156,10 @@ describe('resolveCapabilityRequirements', () => {
         'room',
         { capabilities: [provides(), needsProvider()] },
         { streamBuilders: {} },
-      ) as unknown as { __build: () => Primitive };
+      ) as unknown as { __build: (selectedHandlers: readonly unknown[]) => Primitive };
 
       expect(() =>
-        resolveCapabilityRequirements([channelBuilder.__build()], [], { scoped: false }),
+        resolveCapabilityRequirements([channelBuilder.__build([])], [], { scoped: false }),
       ).not.toThrow();
     },
   );

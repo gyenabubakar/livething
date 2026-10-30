@@ -14,10 +14,9 @@ export const ChannelKey = localKey<{ tag: string }>('channel');
 const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [emits({ echoed: t<{ text: string }>() }), clientRequests(), channels()],
-});
-
-base.intercept((ctx) => {
-  ctx.provide(TopKey, { tag: 'top' });
+  intercept(ctx) {
+    ctx.provide(TopKey, { tag: 'top' });
+  },
 });
 
 const handleEcho = base.on('echo', {
@@ -40,10 +39,9 @@ const handleLookup = base.request('lookup', {
 
 const room = base.channel('room', {
   capabilities: [emits({ echoed: t<{ text: string }>() })],
-});
-
-room.intercept((ctx) => {
-  ctx.provide(ChannelKey, { tag: 'channel' });
+  intercept(ctx) {
+    ctx.provide(ChannelKey, { tag: 'channel' });
+  },
 });
 
 const handleRoomEcho = room.on('echo', {

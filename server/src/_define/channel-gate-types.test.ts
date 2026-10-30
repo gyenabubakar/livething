@@ -142,20 +142,20 @@ describe('channel gate surface typing', () => {
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
         }),
       ],
+      onSubscribe(ctx) {
+        expectTypeOf(ctx.channel.request).toBeFunction();
+      },
+      onUnsubscribe(ctx) {
+        expectTypeOf(ctx.channel.request).toBeFunction();
+      },
+      onSessionEnd(ctx) {
+        expectTypeOf(ctx.channel.request).toBeFunction();
+      },
     });
     normal.on('message', {
       run(ctx) {
         expectTypeOf(ctx.channel.request).toBeFunction();
       },
-    });
-    normal.subscribe((ctx) => {
-      expectTypeOf(ctx.channel.request).toBeFunction();
-    });
-    normal.unsubscribe((ctx) => {
-      expectTypeOf(ctx.channel.request).toBeFunction();
-    });
-    normal.sessionEnd((ctx) => {
-      expectTypeOf(ctx.channel.request).toBeFunction();
     });
   });
 

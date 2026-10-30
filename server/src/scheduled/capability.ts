@@ -116,7 +116,8 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
 /**
  * Declare the scheduled tasks this server runs, and enable `base.scheduled`
  * handlers and `ctx.schedule(...)`. Each key is a task id; the value declares
- * how it behaves. Bind a body for every declared task with `base.scheduled`.
+ * how it behaves. Bind a body for every declared task with `base.scheduled`,
+ * and pass the handler it returns to `assemble({ handlers })`.
  *
  * Task payloads are typed with `t<...>()` and trusted, not validated — they
  * originate on the server when you call `ctx.schedule(...)`.
@@ -140,11 +141,14 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  *   ],
  * });
  *
- * base.scheduled('report', {
+ * const handleReport = base.scheduled('report', {
  *   run(ctx, data) {
  *     // data: { userId: string }
  *   },
  * });
+ *
+ * // Pass every task handler to assemble(), or the declared task has no body.
+ * export default base.assemble({ handlers: [handleReport] });
  * ```
  */
 export const scheduled = withCapabilityKind(function scheduled<const TDefs extends ScheduledDefs>(

@@ -43,6 +43,9 @@ function buildDefinition(
       channels(),
       tags((ephemeral) => [ephemeral('team', t<string>())]),
     ],
+    onConnect(ctx) {
+      refs.set(ctx.connection.id, ctx.connection);
+    },
   });
 
   const saySecret = base.on('say-secret', {
@@ -73,10 +76,6 @@ function buildDefinition(
     run(ctx) {
       ctx.tags.ephemeral('team').broadcast('secret', { text: 'every-team' });
     },
-  });
-
-  base.onConnect((ctx) => {
-    refs.set(ctx.connection.id, ctx.connection);
   });
 
   const sendSecret = base.on('send-secret', {

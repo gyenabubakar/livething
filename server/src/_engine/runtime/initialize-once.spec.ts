@@ -36,8 +36,11 @@ function buildEngine(definition: ServerDefinition): Engine {
   return captured;
 }
 
-function assembleWith(base: ReturnType<typeof server>): ServerDefinition {
-  return base.assemble({ handlers: [base.on('noop', { input: v.object({}), run() {} })] });
+function buildWithInit(onInit: () => void | Promise<void>): Engine {
+  const base = server({ capabilities: [], onInit });
+  return buildEngine(
+    base.assemble({ handlers: [base.on('noop', { input: v.object({}), run() {} })] }),
+  );
 }
 
 interface GatedEngine {
@@ -65,15 +68,14 @@ function buildGatedEngine(): GatedEngine {
     release = resolve;
   });
 
-  const base = server({ capabilities: [] });
-  base.onInit(async () => {
+  const engine = buildWithInit(async () => {
     calls += 1;
     entered();
     await gate;
   });
 
   return {
-    engine: buildEngine(assembleWith(base)),
+    engine,
     hookEntered,
     release,
     callCount: () => calls,
@@ -117,15 +119,12 @@ describe('engine.initialize() under concurrent callers', () => {
 
   it('runs init hooks once when an init hook calls initialize() again', async () => {
     let calls = 0;
-    const base = server({ capabilities: [] });
-    base.onInit(() => {
+    const engine = buildWithInit(() => {
       calls += 1;
       // Re-entry from the hook's synchronous body, the earliest point any
       // handler code can run. Not awaited — the run it joins is this one.
       if (calls === 1) void engine.initialize();
     });
-
-    const engine = buildEngine(assembleWith(base));
     await engine.initialize();
 
     expect(calls).toBe(1);
@@ -134,13 +133,11 @@ describe('engine.initialize() under concurrent callers', () => {
   it('keeps a failed run failed rather than half-installing hooks twice', async () => {
     let calls = 0;
 
-    const base = server({ capabilities: [] });
-    base.onInit(async () => {
+    const engine = buildWithInit(async () => {
       calls += 1;
       await Promise.resolve();
       throw new Error('boom');
     });
-    const engine = buildEngine(assembleWith(base));
 
     await expect(engine.initialize()).rejects.toThrow('boom');
     await expect(engine.initialize()).rejects.toThrow('boom');

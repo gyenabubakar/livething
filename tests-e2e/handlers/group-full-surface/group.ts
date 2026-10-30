@@ -1,61 +1,16 @@
-import { emits, localKey, t } from '@livething/server';
-import { ValidationFailed } from '@livething/server/errors';
+import { emits, t } from '@livething/server';
 import * as v from 'valibot';
 import {
   BadPayload,
   base,
   ChatPayload,
   FeedChunk,
+  GroupRequestKey,
   LookupReq,
   SendMsgPayload,
   TokenChunk,
 } from './contract.ts';
 import type { RoomMsgPayload } from './contract.ts';
-
-const GroupRequestKey = localKey<{ tag: string }>('group-request');
-
-base.onInit((ctx) => {
-  ctx.sql.exec(
-    'CREATE TABLE IF NOT EXISTS _init_check (id INTEGER PRIMARY KEY, ran INTEGER NOT NULL)',
-  );
-  ctx.sql.exec('INSERT OR REPLACE INTO _init_check (id, ran) VALUES (1, 1)');
-  ctx.sql.exec(
-    'CREATE TABLE IF NOT EXISTS _disconnect_log (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, t INTEGER NOT NULL)',
-  );
-  ctx.sql.exec(
-    'CREATE TABLE IF NOT EXISTS _scheduled_log (id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL)',
-  );
-});
-
-base.onConnect((ctx) => {
-  ctx.send('welcome', { username: ctx.meta.username });
-});
-
-base.onDisconnect((ctx) => {
-  ctx.sql.exec('INSERT INTO _disconnect_log (identity, t) VALUES (?, ?)', ctx.user.id, Date.now());
-});
-
-base.onError((ctx, err, eventName) => {
-  if (ValidationFailed.matches(err)) {
-    ctx.send('validation-marker', { event: eventName ?? 'unknown' });
-  }
-
-  ctx.send('error-marker', {
-    event: eventName,
-    msg: err instanceof Error ? err.message : String(err),
-  });
-});
-
-base.intercept((ctx, frame) => {
-  ctx.provide(GroupRequestKey, { tag: 'group' });
-  ctx.send('pre-intercept-marker', { event: frame.event });
-  // The v2 ctx has no payload-narrowing helper in the built dist yet, so gate
-  // on frame.event/frame.kind and cast the raw payload (mirrors intercept/).
-  if (frame.kind === 'incoming' && frame.event === 'chat') {
-    const p = frame.payload as { text: string };
-    ctx.send('post-intercept-marker', { text: p.text });
-  }
-});
 
 export const handleChat = base.on('chat', {
   input: ChatPayload,
@@ -154,7 +109,7 @@ export const handleTokens = base.recordedStream('tokens', {
   },
 });
 
-base.scheduled('tick', {
+export const handleTick = base.scheduled('tick', {
   run(ctx) {
     ctx.sql.exec('INSERT INTO _scheduled_log (t) VALUES (?)', Date.now());
   },

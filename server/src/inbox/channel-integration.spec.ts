@@ -234,8 +234,8 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
         membership: 'persistent',
         capabilities: [inbox({ retention: { maxAgeMs: 20 } })],
       });
-      base.scheduled('tick', { run() {} });
-      const definition = base.assemble({ handlers: [chat] });
+      const tick = base.scheduled('tick', { run() {} });
+      const definition = base.assemble({ handlers: [chat, tick] });
       const { engine, getAlarm } = buildEngine(definition);
 
       await engine.initialize();

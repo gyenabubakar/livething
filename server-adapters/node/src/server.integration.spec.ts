@@ -109,12 +109,23 @@ function buildServerDefinition(state: IntegrationState) {
       }),
       scheduled({ 'integration-task': { data: t<{ text: string }>() } }),
     ],
-  });
-
-  base.onInit((ctx) => {
-    ctx.sql.exec(
-      'CREATE TABLE IF NOT EXISTS node_integration_values (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
-    );
+    onInit(ctx) {
+      ctx.sql.exec(
+        'CREATE TABLE IF NOT EXISTS node_integration_values (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      );
+    },
+    onConnect(ctx) {
+      ctx.send('connected', { role: ctx.meta.role });
+    },
+    onDisconnect(ctx) {
+      state.disconnect = { code: ctx.closeCode, reason: ctx.closeReason };
+    },
+    onError(_ctx, error) {
+      state.errors.push(error instanceof Error ? error.message : String(error));
+    },
+    onShutdown() {
+      state.shutdowns += 1;
+    },
   });
 
   const echo = base.on('echo', {
@@ -169,30 +180,14 @@ function buildServerDefinition(state: IntegrationState) {
     },
   });
 
-  base.scheduled('integration-task', {
+  const integrationTask = base.scheduled('integration-task', {
     run(ctx, data) {
       ctx.broadcast('scheduled', { text: data.text });
     },
   });
 
-  base.onConnect((ctx) => {
-    ctx.send('connected', { role: ctx.meta.role });
-  });
-
-  base.onDisconnect((ctx) => {
-    state.disconnect = { code: ctx.closeCode, reason: ctx.closeReason };
-  });
-
-  base.onError((_ctx, error) => {
-    state.errors.push(error instanceof Error ? error.message : String(error));
-  });
-
-  base.onShutdown(() => {
-    state.shutdowns += 1;
-  });
-
   return base.assemble({
-    handlers: [echo, store, schedule, buffered, invalidClose],
+    handlers: [echo, store, schedule, buffered, invalidClose, integrationTask],
     api: (ctx) => ({
       announce(text: string): number {
         ctx.broadcast('adminAnnouncement', { text });
@@ -213,11 +208,10 @@ function buildContextDefinition() {
       return { userId: user, meta: { role: row?.role ?? 'guest' } };
     },
     capabilities: [emits({ whoami: t<{ user: string; role: string }>() })],
-  });
-
-  base.onInit((ctx) => {
-    ctx.sql.exec('CREATE TABLE IF NOT EXISTS context_roles (user TEXT PRIMARY KEY, role TEXT)');
-    ctx.sql.exec("INSERT OR REPLACE INTO context_roles VALUES ('alice', 'admin')");
+    onInit(ctx) {
+      ctx.sql.exec('CREATE TABLE IF NOT EXISTS context_roles (user TEXT PRIMARY KEY, role TEXT)');
+      ctx.sql.exec("INSERT OR REPLACE INTO context_roles VALUES ('alice', 'admin')");
+    },
   });
 
   function describeCaller() {

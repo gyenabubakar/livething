@@ -65,8 +65,8 @@ describe('plugin namespacing — channels', () => {
 describe('plugin namespacing — scheduled', () => {
   it('registers a plugin task under __<id>::<task> and prefixes ctx.schedule', () => {
     const h = server({ scope: 'plugin', capabilities: [scheduled({ sweep: { every: 1000 } })] });
-    h.scheduled('sweep', { run() {} });
-    const Plug = plugin('acme:presence', { definition: h.assemble({ handlers: [] }) });
+    const handleSweep = h.scheduled('sweep', { run() {} });
+    const Plug = plugin('acme:presence', { definition: h.assemble({ handlers: [handleSweep] }) });
     const base = server({ capabilities: [Plug()] });
     const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
 
@@ -78,7 +78,7 @@ describe('plugin namespacing — scheduled', () => {
       scope: 'plugin',
       capabilities: [emits({ done: t<{}>() }), scheduled({ sweep: { every: 1000 } })],
     });
-    h.scheduled('sweep', { run() {} });
+    const handleSweep = h.scheduled('sweep', { run() {} });
     const trigger = h.on('go', {
       input: v.object({}),
       run(ctx) {
@@ -86,7 +86,7 @@ describe('plugin namespacing — scheduled', () => {
       },
     });
     const { __primitives } = plugin('acme:presence', {
-      definition: h.assemble({ handlers: [trigger] }),
+      definition: h.assemble({ handlers: [handleSweep, trigger] }),
     })();
     const incoming = __primitives.find(
       (p: any) => p.__livething === 'incoming' && p.event === '__acme:presence::go',
@@ -623,10 +623,10 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
     const h = server({
       scope: 'plugin',
       capabilities: [emits({ 'own-event': t<{ ok: boolean }>() })],
-    });
-    h.intercept((ctx: any) => {
-      ctx.send('own-event', { ok: true });
-      void ctx.kv.set('count', 1);
+      intercept(ctx: any) {
+        ctx.send('own-event', { ok: true });
+        void ctx.kv.set('count', 1);
+      },
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:presence', {
@@ -644,9 +644,12 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
   });
 
   it('namespaces ctx.send from a plugin outgoing hook', () => {
-    const h = server({ scope: 'plugin', capabilities: [emits({ 'own-event': t<{}>() })] });
-    h.onOutgoing((ctx: any) => {
-      ctx.send('own-event', {});
+    const h = server({
+      scope: 'plugin',
+      capabilities: [emits({ 'own-event': t<{}>() })],
+      onOutgoing(ctx: any) {
+        ctx.send('own-event', {});
+      },
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:store', { definition: h.assemble({ handlers: [go] }) })();
@@ -662,10 +665,12 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
   });
 
   it('passes a nullish outgoing-hook ctx through without proxying (broadcast safety)', () => {
-    const h = server({ scope: 'plugin' });
     let received: any = 'unset';
-    h.onOutgoing((ctx: any) => {
-      received = ctx;
+    const h = server({
+      scope: 'plugin',
+      onOutgoing(ctx: any) {
+        received = ctx;
+      },
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:obs', { definition: h.assemble({ handlers: [go] }) })();
@@ -681,13 +686,15 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
 describe('plugin namespacing — channel hook is owned and scoped (Major 5)', () => {
   it('owner-stamps and scopes a plugin channel intercept child', () => {
     const h = server({ scope: 'plugin', capabilities: [channels()] });
-    const room = h.channel('room', { capabilities: [emits({ roster: t<{ who: string }>() })] });
-    room.intercept((ctx: any) => {
-      ctx.channel.send('roster', { who: 'a' });
+    const room = h.channel('room', {
+      capabilities: [emits({ roster: t<{ who: string }>() })],
+      intercept(ctx: any) {
+        ctx.channel.send('roster', { who: 'a' });
+      },
     });
-    room.on('say', { input: v.object({}), run() {} });
+    const say = room.on('say', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:room', {
-      definition: h.assemble({ handlers: [room] }),
+      definition: h.assemble({ handlers: [say] }),
     })();
 
     const channelPrim = __primitives.find((p: any) => p.__livething === 'channel') as any;

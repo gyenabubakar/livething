@@ -42,9 +42,11 @@ const scopedDefinition = scopedBase.on('beat', {
   },
 });
 
+const scopedTask = scopedBase.scheduled('p-task', { run() {} });
+
 const ApiPlugin = plugin('acme:presence', {
   definition: scopedBase.assemble({
-    handlers: [scopedDefinition],
+    handlers: [scopedDefinition, scopedTask],
     api: (ctx) => {
       // The declared emit with the right payload is allowed.
       ctx.send('p-online', { id: ctx.connection.id });

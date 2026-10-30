@@ -25,16 +25,15 @@ const base = server({
     }),
     stream(),
   ],
-});
-
-// A speed-up nudge with factor 0 is rejected by the intercept with a typed
-// error. Everything else passes through untouched, so the other nudge tests
-// are unaffected.
-base.intercept((ctx, frame) => {
-  if (frame.kind === 'nudge' && frame.event === 'speed-up') {
-    const p = frame.payload as { factor?: number };
-    if (p.factor === 0) throw NudgeRejected();
-  }
+  // A speed-up nudge with factor 0 is rejected by the intercept with a typed
+  // error. Everything else passes through untouched, so the other nudge tests
+  // are unaffected.
+  intercept(ctx, frame) {
+    if (frame.kind === 'nudge' && frame.event === 'speed-up') {
+      const p = frame.payload as { factor?: number };
+      if (p.factor === 0) throw NudgeRejected();
+    }
+  },
 });
 
 const handlePause = base.on('pause', {

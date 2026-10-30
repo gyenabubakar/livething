@@ -72,10 +72,21 @@ describe('onOutgoing ctx — which connection, if any, it belongs to', () => {
         channels(),
         emits({ note: t<{ from: string }>(), welcome: t<{}>(), left: t<{}>() }),
       ],
+      onConnect(ctx) {
+        ctx.send('welcome', {});
+      },
+      onDisconnect(ctx) {
+        ctx.broadcast('left', {});
+      },
+      onOutgoing(ctx, frame) {
+        seen.push({ event: frame.event, userId: ctx?.connection.userId });
+      },
     });
-    const room = base.channel('room', { capabilities: [emits({ joined: t<{}>() })] });
-    room.subscribe((ctx) => {
-      ctx.channel.broadcast('joined', {}, { includeSelf: true });
+    const room = base.channel('room', {
+      capabilities: [emits({ joined: t<{}>() })],
+      onSubscribe(ctx) {
+        ctx.channel.broadcast('joined', {}, { includeSelf: true });
+      },
     });
     const direct = base.on('direct', {
       run(ctx) {
@@ -87,15 +98,6 @@ describe('onOutgoing ctx — which connection, if any, it belongs to', () => {
       run(ctx) {
         ctx.broadcast('note', { from: 'shout' });
       },
-    });
-    base.onConnect((ctx) => {
-      ctx.send('welcome', {});
-    });
-    base.onDisconnect((ctx) => {
-      ctx.broadcast('left', {});
-    });
-    base.onOutgoing((ctx, frame) => {
-      seen.push({ event: frame.event, userId: ctx?.connection.userId });
     });
 
     return { engine: buildEngine(base.assemble({ handlers: [room, direct, shout] })), seen };

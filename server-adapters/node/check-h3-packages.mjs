@@ -116,8 +116,8 @@ import WebSocket from 'ws';
 const base = defineServer({
   upgrade() { return { userId: 'packed-v1' }; },
   capabilities: [emits({ ready: t<{ version: string }>() })],
+  onConnect(ctx) { ctx.send('ready', { version: 'v1' }); },
 });
-base.onConnect((ctx) => { ctx.send('ready', { version: 'v1' }); });
 const definition = base.assemble({ handlers: [] });
 const livething = setup();
 const endpoint = livething.bind(definition, { sql: ':memory:' });
@@ -158,8 +158,8 @@ import WebSocket from 'ws';
 const base = defineServer({
   upgrade() { return { userId: 'packed-v2' }; },
   capabilities: [emits({ ready: t<{ version: string }>() })],
+  onConnect(ctx) { ctx.send('ready', { version: 'v2' }); },
 });
-base.onConnect((ctx) => { ctx.send('ready', { version: 'v2' }); });
 const livething = setup();
 const endpoint = livething.bind(base.assemble({ handlers: [] }), { sql: ':memory:' });
 const app = new H3();

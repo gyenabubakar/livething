@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // Coverage: a handler split across setup.ts + rooms.ts + handler.ts must work
-// end-to-end. The notification comes from a flat .onConnect in handler.ts; the
+// end-to-end. The notification comes from the onConnect hook in setup.ts; the
 // room channel is defined in rooms.ts; the shared base lives in setup.ts. If
 // type state or primitives didn't survive the file boundary, one of these
 // would silently fail.

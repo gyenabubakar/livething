@@ -53,10 +53,9 @@ function buildEngine(options: ServerOptions = {}): Engine {
   const base = server({
     ...(options.hibernation ? { hibernation: true } : {}),
     capabilities: options.withKeepalive ? [keepalive(options.withKeepalive)] : [],
+    ...(options.onPing ? { onPing: options.onPing } : {}),
+    ...(options.onPong ? { onPong: options.onPong } : {}),
   });
-
-  if (options.onPing) base.onPing(options.onPing);
-  if (options.onPong) base.onPong(options.onPong);
 
   const noop = base.on('noop', { run() {} });
   const definition = base.assemble({ handlers: [noop] });

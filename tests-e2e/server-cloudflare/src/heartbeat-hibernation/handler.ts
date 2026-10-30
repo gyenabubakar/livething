@@ -18,14 +18,12 @@ const base = server({
       'pong-seen': t<{ connectionId: string }>(),
     }),
   ],
-});
-
-base.onPing((ctx) => {
-  ctx.send('ping-seen', { connectionId: ctx.connection.id });
-});
-
-base.onPong((ctx) => {
-  ctx.send('pong-seen', { connectionId: ctx.connection.id });
+  onPing(ctx) {
+    ctx.send('ping-seen', { connectionId: ctx.connection.id });
+  },
+  onPong(ctx) {
+    ctx.send('pong-seen', { connectionId: ctx.connection.id });
+  },
 });
 
 export const heartbeatHibernationDefinition = base.assemble({ handlers: [] });

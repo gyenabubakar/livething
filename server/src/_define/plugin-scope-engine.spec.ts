@@ -170,26 +170,30 @@ describe('plugin onError — only the plugin’s own failures', () => {
     const probe: Seen = { errors: [], validation: [] };
     const app: Seen = { errors: [], validation: [] };
 
-    const ph = server({ scope: 'plugin', capabilities: [channels()] });
+    const ph = server({
+      scope: 'plugin',
+      capabilities: [channels()],
+      onError(_ctx, error, event) {
+        probe.errors.push(event);
+        if (ValidationFailed.matches(error)) probe.validation.push(event!);
+      },
+    });
     const fail = ph.on('fail', {
       run() {
         throw new Error('probe failed');
       },
     });
     const strict = ph.on('strict', { input: v.object({ n: v.number() }), run() {} });
-    const room = ph.channel('room', {});
-    room.subscribe(() => {
-      throw new Error('probe subscribe failed');
+    const room = ph.channel('room', {
+      onSubscribe() {
+        throw new Error('probe subscribe failed');
+      },
     });
 
     const say = room.on('say', {
       run() {
         throw new Error('probe channel handler failed');
       },
-    });
-    ph.onError((_ctx, error, event) => {
-      probe.errors.push(event);
-      if (ValidationFailed.matches(error)) probe.validation.push(event!);
     });
     const Probe = plugin('acme:probe', {
       definition: ph.assemble({ handlers: [fail, strict, room, say] }),
@@ -206,17 +210,19 @@ describe('plugin onError — only the plugin’s own failures', () => {
       definition: other.assemble({ handlers: [otherFail, otherStrict] }),
     });
 
-    const base = server({ capabilities: [Probe(), Other()] });
+    const base = server({
+      capabilities: [Probe(), Other()],
+      onError(_ctx, error, event) {
+        app.errors.push(event);
+        if (ValidationFailed.matches(error)) app.validation.push(event!);
+      },
+    });
     const appFail = base.on('app-fail', {
       run() {
         throw new Error('app failed');
       },
     });
     const appStrict = base.on('app-strict', { input: v.object({ n: v.number() }), run() {} });
-    base.onError((_ctx, error, event) => {
-      app.errors.push(event);
-      if (ValidationFailed.matches(error)) app.validation.push(event!);
-    });
 
     const engine = buildEngine(base.assemble({ handlers: [appFail, appStrict] }));
 

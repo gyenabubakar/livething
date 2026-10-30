@@ -41,17 +41,22 @@ describe('server() send/receive core', () => {
   });
 
   it('assembles handlers, capabilities, and the upgrade hook into a bootable server', () => {
-    const base = makeBase();
+    const base = server({
+      upgrade(request) {
+        const username = new URL(request.url).searchParams.get('username') ?? 'anon';
+        return { userId: username, meta: { username } };
+      },
+      capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound])],
+      onConnect(ctx) {
+        ctx.send('welcome', { username: ctx.meta.username });
+      },
+    });
 
     const handlePing = base.on('echo', {
       input: v.object({ text: v.string() }),
       run(ctx, input) {
         ctx.send('welcome', { username: input.text });
       },
-    });
-
-    base.onConnect((ctx) => {
-      ctx.send('welcome', { username: ctx.meta.username });
     });
 
     const definition = base.assemble({ handlers: [handlePing] });
@@ -193,9 +198,10 @@ describe('server() send/receive core', () => {
   });
 
   it('registers a single intercept', () => {
-    const base = makeBase();
-    base.intercept((_ctx, frame) => {
-      if (frame.event === 'blocked') throw new Error('blocked');
+    const base = server({
+      intercept(_ctx, frame) {
+        if (frame.event === 'blocked') throw new Error('blocked');
+      },
     });
     const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.intercepts).toHaveLength(1);
@@ -228,27 +234,11 @@ describe('server() send/receive core', () => {
     }
   });
 
-  it.each(['onInit', 'onConnect', 'onDisconnect', 'onError', 'onShutdown'] as const)(
-    'throws when the %s lifecycle hook is registered twice',
-    (hook) => {
-      const base = makeBase();
-      (base[hook] as (handler: () => void) => void)(() => {});
-      expect(() => (base[hook] as (handler: () => void) => void)(() => {})).toThrow(
-        new RegExp(`Duplicate ${hook} hook`),
-      );
-    },
-  );
-
-  it('throws when a second intercept is registered', () => {
-    const base = makeBase();
-    base.intercept(() => {});
-    expect(() => base.intercept(() => {})).toThrow(/Duplicate intercept hook/);
-  });
-
   it('throws when the same event is bound by two handlers passed to assemble', () => {
     const base = makeBase();
     const first = base.on('echo', { input: v.object({ text: v.string() }), run() {} });
     const second = base.on('echo', { input: v.object({ text: v.string() }), run() {} });
+    // @ts-expect-error: the same event twice at the top level is a compile error
     expect(() => base.assemble({ handlers: [first, second] })).toThrow(
       /Duplicate incoming handler for 'echo'/,
     );
@@ -266,6 +256,7 @@ describe('server() send/receive core', () => {
     const base = server({ capabilities: [clientRequests()] });
     const asEvent = base.on('shared', { input: v.object({}), run() {} });
     const asRequest = base.request('shared', { input: v.object({}), run() {} });
+    // @ts-expect-error: the same event twice at the top level is a compile error
     expect(() => base.assemble({ handlers: [asEvent, asRequest] })).toThrow(
       /Event name 'shared' is bound by both a incoming handler and a request handler/,
     );

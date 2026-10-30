@@ -25,11 +25,9 @@ type ChannelCtxOf<TChannel> = TChannel extends { on: (...args: infer A) => any }
     : never
   : never;
 
-/** The `ctx` a channel's `subscribe`, `unsubscribe` and `sessionEnd` hooks receive. */
-type ChannelLifecycleCtxOf<TChannel> = TChannel extends { subscribe: (...args: infer A) => any }
-  ? A[0] extends (ctx: infer C) => any
-    ? C
-    : never
+/** The `ctx` a channel's `onSubscribe`, `onUnsubscribe` and `onSessionEnd` hooks receive. */
+type ChannelLifecycleCtxOf<TChannel> = TChannel extends { __lifecycleCtx?: infer C }
+  ? NonNullable<C>
   : never;
 
 /** The `ctx` a channel's `check`, `commit` and `revalidate` hooks receive. */
@@ -161,12 +159,12 @@ export const context = {
   },
 
   /**
-   * The `ctx` of a channel's `subscribe`, `unsubscribe` or `sessionEnd` hook. It has the
+   * The `ctx` of a channel's `onSubscribe`, `onUnsubscribe` or `onSessionEnd` hook. It has the
    * channel-only handles (`ctx.channel.inbox`, `readReceipts` and `request`) when the
    * channel has them. Call it in a `check`, `commit` or
    * `revalidate` hook and it throws; use `context.channelGate(channel)` there.
    */
-  channelLifecycle<TChannel extends ChannelRef & { subscribe: unknown }>(
+  channelLifecycle<TChannel extends ChannelRef & { __lifecycleCtx?: unknown }>(
     channel: TChannel,
   ): ChannelLifecycleCtxOf<TChannel> {
     return currentCtx({
@@ -180,10 +178,10 @@ export const context = {
   /**
    * The `ctx` of a channel's `check`, `commit` or `revalidate` hook. The type has no
    * `ctx.channel.inbox`, `readReceipts` or `request`, because those hooks
-   * do not have them. Call it in a `subscribe`, `unsubscribe` or `sessionEnd` hook and it
-   * throws; use `context.channelLifecycle(channel)` there.
+   * do not have them. Call it in an `onSubscribe`, `onUnsubscribe` or `onSessionEnd` hook and
+   * it throws; use `context.channelLifecycle(channel)` there.
    */
-  channelGate<TChannel extends ChannelRef & { subscribe: unknown }>(
+  channelGate<TChannel extends ChannelRef & { __gateCtx?: unknown }>(
     channel: TChannel,
   ): ChannelGateCtxOf<TChannel> {
     return currentCtx({

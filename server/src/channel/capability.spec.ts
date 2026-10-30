@@ -94,8 +94,10 @@ describe('channels() capability', () => {
 
   it('pulls in channel configuration and lifecycle with one selected handler', () => {
     const base = server({ capabilities: [channels()] });
-    const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
-    room.subscribe(() => {});
+    const room = base.channel('room', {
+      capabilities: [emits({ said: t<{ text: string }>() })],
+      onSubscribe() {},
+    });
     const handleSay = room.on('say', { input: v.object({}), run() {} });
     const primitive = channelPrimitive(base.assemble({ handlers: [handleSay] }).primitives);
 
@@ -108,8 +110,8 @@ describe('channels() capability', () => {
     const base = server({ capabilities: [channels()] });
     const presence = base.channel('presence', {
       capabilities: [emits({ tick: t<{}>() })],
+      onSubscribe() {},
     });
-    presence.subscribe(() => {});
     const compiled = compileServerDefinition(base.assemble({ handlers: [presence] }));
     expect(compiled.channels.has('presence')).toBe(true);
   });
@@ -270,13 +272,6 @@ describe('channels() capability', () => {
     const iterator = streamChild.generator(ctx, {});
     const first = await iterator.next();
     expect(first.value).toEqual({ family: 'rooms' });
-  });
-
-  it('throws when a lifecycle hook is registered twice', () => {
-    const base = server({ capabilities: [channels()] });
-    const room = base.channel('room', {});
-    room.subscribe(() => {});
-    expect(() => room.subscribe(() => {})).toThrow(/Duplicate subscribe on channel 'room'/);
   });
 
   it('throws when a channel request is used without the clientRequests() capability', () => {

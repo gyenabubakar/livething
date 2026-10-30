@@ -54,7 +54,7 @@ describe('a scheduled task ctx', () => {
     const general = base.channel('general', {
       capabilities: [emits({ huddleClosing: t<{ reason: string }>() })],
     });
-    base.scheduled('closeHuddle', {
+    const closeHuddle = base.scheduled('closeHuddle', {
       run(ctx) {
         ctx.channels.get(general).broadcast('huddleClosing', { reason: 'maintenance' });
       },
@@ -71,7 +71,7 @@ describe('a scheduled task ctx', () => {
     });
 
     const engine = await startEngine(
-      base.assemble({ handlers: [general, joinGeneral, queueClose] }),
+      base.assemble({ handlers: [general, joinGeneral, queueClose, closeHuddle] }),
     );
 
     const alice = connect(engine, 'alice');

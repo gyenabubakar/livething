@@ -38,15 +38,17 @@ function settle(): Promise<void> {
 describe('rate limit and onError', () => {
   it('passes each rejected frame to onError, so the app can see who goes over the limit', async () => {
     const seen: { connectionId: string; event: string | undefined; retryAfterMs: number }[] = [];
-    const base = server({ capabilities: [rateLimit({ windowMs: 60_000, max: 1 })] });
-    base.onError((ctx, error, event) => {
-      if (RateLimited.matches(error)) {
-        seen.push({
-          connectionId: ctx.connection.id,
-          event,
-          retryAfterMs: error.detail.retryAfterMs,
-        });
-      }
+    const base = server({
+      capabilities: [rateLimit({ windowMs: 60_000, max: 1 })],
+      onError(ctx, error, event) {
+        if (RateLimited.matches(error)) {
+          seen.push({
+            connectionId: ctx.connection.id,
+            event,
+            retryAfterMs: error.detail.retryAfterMs,
+          });
+        }
+      },
     });
     let runs = 0;
     const handleSay = base.on('say', {
@@ -80,13 +82,15 @@ describe('rate limit and onError', () => {
 
   it('lets the app close a connection that keeps going over the limit', async () => {
     const strikes = new Map<string, number>();
-    const base = server({ capabilities: [rateLimit({ windowMs: 60_000, max: 1 })] });
-    base.onError((ctx, error) => {
-      if (!RateLimited.matches(error)) return;
+    const base = server({
+      capabilities: [rateLimit({ windowMs: 60_000, max: 1 })],
+      onError(ctx, error) {
+        if (!RateLimited.matches(error)) return;
 
-      const count = (strikes.get(ctx.connection.id) ?? 0) + 1;
-      strikes.set(ctx.connection.id, count);
-      if (count >= 3) ctx.close(CloseCodes.RATE_LIMITED, 'Too many messages');
+        const count = (strikes.get(ctx.connection.id) ?? 0) + 1;
+        strikes.set(ctx.connection.id, count);
+        if (count >= 3) ctx.close(CloseCodes.RATE_LIMITED, 'Too many messages');
+      },
     });
 
     const handleSay = base.on('say', { input: v.object({}), run() {} });

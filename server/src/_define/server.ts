@@ -150,9 +150,72 @@ type EphemeralGroupsOf<TCaps extends readonly AnyCapability[]> = keyof SlotOr<
   string;
 
 /**
- * The configuration passed to `server(...)`. Holds only bootstrap — the things
- * the runtime needs to exist and accept a connection. Every feature beyond this
- * is an entry in `capabilities`.
+ * The hooks of a server, written in `server({ ... })`. List `upgrade` and
+ * `capabilities` before them: TypeScript reads the object from top to bottom, so
+ * a hook above `upgrade` sees `ctx.meta` as `unknown`.
+ */
+interface ServerHooks<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+  /** Run once at server startup, before any connection. Use it for schema creation or migrations. */
+  readonly onInit?: (ctx: InitContext) => void | Promise<void>;
+  /** Run each time a connection opens, after `upgrade(...)` succeeds. */
+  readonly onConnect?: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>;
+  /** Run each time a connection closes, for any reason. `ctx.closeCode` / `ctx.closeReason` are set. */
+  readonly onDisconnect?: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>;
+  /**
+   * Run each time a client sends a `ping`. The server has already replied
+   * `pong` by then — this is for observing, not for answering.
+   */
+  readonly onPing?: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>;
+  /**
+   * Run each time a client answers a server `ping` with a `pong`. With
+   * `keepalive()` listed, the round-trip is already recorded, so `ctx.latency`
+   * is fresh here.
+   */
+  readonly onPong?: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>;
+  /**
+   * Run on any unhandled error from a handler. `event` is set when the error came from one.
+   * In a plugin (`server({ scope: 'plugin' })`), it runs only for the plugin's own
+   * events and channels, and `event` is the name the plugin declared, without the
+   * `__<id>::` prefix.
+   */
+  readonly onError?: (
+    ctx: AppCtx<TSlots, TMeta, TCaps>,
+    error: unknown,
+    event?: string,
+  ) => void | Promise<void>;
+  /** Run once when the server is shutting down. `ctx` is a server-wide context, with no single connection. */
+  readonly onShutdown?: (ctx: ConnectionlessCtx<TSlots, TMeta, TCaps>) => void | Promise<void>;
+  /**
+   * Inspect every incoming frame before routing and validation. Throw to reject;
+   * return a value to replace the payload.
+   */
+  readonly intercept?: (
+    ctx: AppCtx<TSlots, TMeta, TCaps>,
+    frame: InterceptFrame<PluginIdsOf<TSlots>>,
+  ) => unknown | void;
+  /**
+   * Watch every app frame the server sends, once per send, after the frame
+   * went out. A send to many connections is one call: `frame.target` says who
+   * it was addressed to and `frame.recipients` how many sockets got it. The
+   * hook cannot change or stop a frame.
+   *
+   * `ctx` is the context of the connection whose `on`, `request` or `stream`
+   * handler, intercept, or `onConnect` hook is running when the frame is sent.
+   * For a broadcast from that code, `ctx` is the sender, not each receiver. In
+   * every other case `ctx` is `undefined` — for example, a send from a channel
+   * `onSubscribe` hook, `onDisconnect`, `onError`, a scheduled task, `onInit`,
+   * `onShutdown`, or the admin API.
+   */
+  readonly onOutgoing?: (
+    ctx: AppCtx<TSlots, TMeta, TCaps> | undefined,
+    frame: OutgoingFrame<PluginIdsOf<TSlots>>,
+  ) => void | Promise<void>;
+}
+
+/**
+ * The configuration passed to `server(...)`. Holds bootstrap — the things the
+ * runtime needs to exist and accept a connection — and the server's hooks. Every
+ * feature beyond this is an entry in `capabilities`.
  */
 export interface ServerConfig<
   TMeta = unknown,
@@ -162,7 +225,7 @@ export interface ServerConfig<
   // widen every capability brand to `string` — making the ctx gating pass for
   // capabilities the server never listed.
   TCaps extends readonly AnyCapability[] = readonly [],
-> {
+> extends ServerHooks<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps> {
   /** Auth gate. Return `{ userId, meta }` to accept, or throw `RejectUpgrade(...)` to deny. */
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** Turn on Cloudflare Durable Object hibernation (which disables server pings). */
@@ -213,7 +276,7 @@ export type TopLevelCapability = AnyCapability & { __channelOnly?: never };
 export interface ScopedServerConfig<
   TMeta = unknown,
   TCaps extends readonly PluginSafeCapability[] = readonly PluginSafeCapability[],
-> {
+> extends ServerHooks<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps> {
   /** Marks this as a plugin's scoped server definition. */
   readonly scope: 'plugin';
   /**
@@ -230,19 +293,14 @@ export interface ScopedServerConfig<
   readonly capabilities?: TCaps & UniqueCapabilityKinds<TCaps>;
 }
 
-/** Reads the capabilities from an inferred scoped config object. @internal */
-type ScopedCapabilitiesOf<TConfig> = TConfig extends {
-  readonly capabilities?: infer TCaps;
+/** The value `base.scheduled(...)` returns. Pass it to `assemble()` to activate the task. */
+export interface ScheduledHandlerValue<TTaskId extends string = string> extends Contribution {
+  /** @internal */
+  readonly __livethingScheduledTask: true;
+  readonly taskId: TTaskId;
+  /** @internal */
+  readonly run: (ctx: ConnectionlessContext, data?: unknown) => void | Promise<void>;
 }
-  ? TCaps extends readonly AnyCapability[]
-    ? TCaps
-    : readonly []
-  : readonly [];
-
-/** Keeps excess-property checks when a scoped config is inferred through a generic. @internal */
-type NoExtraScopedConfigKeys<TConfig> = {
-  readonly [K in Exclude<keyof TConfig, keyof ScopedServerConfig>]: never;
-};
 
 /** The value `base.on(...)` returns — a handler primitive that also declares its contract slot. */
 export type IncomingHandlerValue<TEvent extends string, TPayload> = IncomingPrimitive<
@@ -342,14 +400,14 @@ interface ScheduledConfig<TSlots, TMeta, TCaps extends readonly AnyCapability[],
 /** Builder method granted by the `scheduled()` capability. */
 interface ScheduledMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
-   * Register the body for one declared scheduled task. The task id and its
-   * payload type come from the `scheduled(...)` capability; binding an
-   * undeclared task is a type error.
+   * Create the handler for one declared scheduled task. Pass it to `assemble()` to
+   * activate it. The task id and its payload type come from the `scheduled(...)`
+   * capability; naming an undeclared task is a type error.
    */
   scheduled<TTaskId extends keyof ScheduledMap<TSlots> & string>(
     taskId: TTaskId,
     config: ScheduledConfig<TSlots, TMeta, TCaps, ScheduledMap<TSlots>[TTaskId]>,
-  ): void;
+  ): ScheduledHandlerValue<TTaskId>;
 }
 
 /** A stream's nudge map: event name → schema, or `null` for a no-payload nudge. */
@@ -652,10 +710,10 @@ export type ChannelCtx<
 };
 
 /**
- * The looser `ctx` that a channel's gate hooks (`check`, `commit`, `revalidate`) and lifecycle
- * hooks (`subscribe`, `unsubscribe`, `sessionEnd`) receive (sends accept any
- * channel event). Replay is exposed, when active, on `ctx.channel.sendReplay`;
- * channel contexts do not expose the root `ctx.sendReplay` method.
+ * The `ctx` that a channel's gate hooks (`check`, `commit`, `revalidate`) and lifecycle
+ * hooks (`onSubscribe`, `onUnsubscribe`, `onSessionEnd`, `intercept`) receive. Replay is
+ * exposed, when active, on `ctx.channel.sendReplay`; channel contexts do not expose the
+ * root `ctx.sendReplay` method.
  */
 type ChannelGateCtx<
   TSlots,
@@ -667,7 +725,7 @@ type ChannelGateCtx<
   TIsSubscribeGate extends boolean = false,
   TServerRequests = {},
 > = Omit<AppCtx<TSlots, TMeta, TCaps, TIsSubscribeGate>, 'sendReplay'> & {
-  readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta> &
+  readonly channel: ChannelHandle<Record<string, string>, TOutgoing, TMeta> &
     ChannelRequestArm<TServerRequests, TChannelBrand> &
     ChannelCapabilityArm<TChannelBrand, TOutgoing>;
 };
@@ -704,7 +762,7 @@ export type ChannelConfig<
    * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
    * `ctx.channel.request` are not available here — read
-   * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
+   * channel-only surfaces in `onSubscribe`, `onUnsubscribe`, or `onSessionEnd`
    * instead.
    */
   check?: (
@@ -719,7 +777,7 @@ export type ChannelConfig<
    * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
    * `ctx.channel.request` are not available here — read
-   * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
+   * channel-only surfaces in `onSubscribe`, `onUnsubscribe`, or `onSessionEnd`
    * instead.
    */
   commit?: (
@@ -732,12 +790,61 @@ export type ChannelConfig<
    * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
    * `ctx.channel.request` are not available here — read
-   * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
+   * channel-only surfaces in `onSubscribe`, `onUnsubscribe`, or `onSessionEnd`
    * instead.
    */
   revalidate?: (
     ctx: ChannelGateCtx<TSlots, TMeta, TCaps, never, TOutgoing, true>,
   ) => void | Promise<void>;
+  /** Runs after a client subscribes to this channel. */
+  readonly onSubscribe?: (
+    ctx: ChannelGateCtx<
+      TSlots,
+      TMeta,
+      TCaps,
+      BrandsOf<TCapabilities>,
+      TOutgoing,
+      false,
+      ChannelServerRequests<TCapabilities>
+    >,
+  ) => void | Promise<void>;
+  /** Runs on a true leave (explicit unsubscribe / kick), not a plain disconnect. */
+  readonly onUnsubscribe?: (
+    ctx: ChannelGateCtx<
+      TSlots,
+      TMeta,
+      TCaps,
+      BrandsOf<TCapabilities>,
+      TOutgoing,
+      false,
+      ChannelServerRequests<TCapabilities>
+    >,
+  ) => void | Promise<void>;
+  /** Runs on every session end, including a plain disconnect. */
+  readonly onSessionEnd?: (
+    ctx: ChannelGateCtx<
+      TSlots,
+      TMeta,
+      TCaps,
+      BrandsOf<TCapabilities>,
+      TOutgoing,
+      false,
+      ChannelServerRequests<TCapabilities>
+    >,
+  ) => void | Promise<void>;
+  /** Inspect every incoming frame in this channel before routing. */
+  readonly intercept?: (
+    ctx: ChannelGateCtx<
+      TSlots,
+      TMeta,
+      TCaps,
+      BrandsOf<TCapabilities>,
+      TOutgoing,
+      false,
+      ChannelServerRequests<TCapabilities>
+    >,
+    frame: InterceptFrame,
+  ) => unknown | void;
   /** Whether membership survives a reconnect (default `'ephemeral'`). */
   readonly membership?: 'persistent' | 'ephemeral';
   /**
@@ -851,14 +958,12 @@ type ChannelRecordedStreamConfig<
 } & RateLimitField<TCaps>;
 
 /**
- * The accumulating channel object returned by `base.channel(...)`. Its handler
- * methods register onto the channel and return a value carrying both the
- * client-contract type and a reference back to the channel; its gate and
- * lifecycle methods mutate and return void. Pass handler values to
- * `assemble()` to select them; passing the channel itself only includes its
- * configuration and lifecycle behavior.
+ * A channel's `stream` method. It returns a handler value carrying both the
+ * client-contract type and a reference back to the channel, and doesn't change
+ * the channel. Pass handler values to `assemble()` to select them; passing the
+ * channel itself only includes its configuration and hooks.
  */
-interface ChannelStreamMethod<
+export interface ChannelStreamMethod<
   TSlots,
   TMeta,
   TKey extends string,
@@ -902,7 +1007,7 @@ interface ChannelStreamMethod<
   >;
 }
 
-interface ChannelRecordedStreamMethod<
+export interface ChannelRecordedStreamMethod<
   TSlots,
   TMeta,
   TKey extends string,
@@ -1061,18 +1166,7 @@ type ChannelObjectCore<
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = Omit<
-  ChannelBuilder,
-  | 'on'
-  | 'request'
-  | 'stream'
-  | 'recordedStream'
-  | 'subscribe'
-  | 'unsubscribe'
-  | 'sessionEnd'
-  | 'intercept'
-  | 'at'
-> &
+> = Omit<ChannelBuilder, 'on' | 'request' | 'stream' | 'recordedStream' | 'at'> &
   Contribution<{
     channels: {
       [K in TKey]: ChannelOwnSlice<
@@ -1110,11 +1204,10 @@ type ChannelObjectCore<
         TServerRequests,
         TChannelBrand
       >
-    : {}) &
-  ChannelInterceptMethods<TSlots, TMeta, TCaps, TChannelBrand, TOutgoing, TServerRequests>;
+    : {});
 
-/** The `on` / lifecycle methods every channel object carries. */
-interface ChannelCoreMethods<
+/** The `on` method and the type-only `ctx` carriers every channel object has. */
+export interface ChannelCoreMethods<
   TSlots,
   TMeta,
   TKey extends string,
@@ -1133,6 +1226,22 @@ interface ChannelCoreMethods<
    * @internal
    */
   readonly __gateCtx?: ChannelGateCtx<TSlots, TMeta, TCaps, never, TOutgoing, true>;
+  /**
+   * Type only, never set at runtime. It carries the `ctx` type that this channel's
+   * `onSubscribe`, `onUnsubscribe` and `onSessionEnd` hooks receive, so
+   * `context.channelLifecycle(channel)` can return it.
+   *
+   * @internal
+   */
+  readonly __lifecycleCtx?: ChannelGateCtx<
+    TSlots,
+    TMeta,
+    TCaps,
+    TChannelBrand,
+    TOutgoing,
+    false,
+    TServerRequests
+  >;
 
   /** Create a client→server event handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   on<TEvent extends string, TInput extends Validator | undefined = undefined>(
@@ -1151,29 +1260,10 @@ interface ChannelCoreMethods<
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
     { incoming: Record<TEvent, InferInput<TInput>> }
   >;
-
-  /** Runs after a client subscribes to this channel. */
-  subscribe(
-    handler: (
-      ctx: ChannelGateCtx<TSlots, TMeta, TCaps, TChannelBrand, TOutgoing, false, TServerRequests>,
-    ) => void | Promise<void>,
-  ): void;
-  /** Runs on a true leave (explicit unsubscribe / kick), not a plain disconnect. */
-  unsubscribe(
-    handler: (
-      ctx: ChannelGateCtx<TSlots, TMeta, TCaps, TChannelBrand, TOutgoing, false, TServerRequests>,
-    ) => void | Promise<void>,
-  ): void;
-  /** Runs on every session end, including a plain disconnect. */
-  sessionEnd(
-    handler: (
-      ctx: ChannelGateCtx<TSlots, TMeta, TCaps, TChannelBrand, TOutgoing, false, TServerRequests>,
-    ) => void | Promise<void>,
-  ): void;
 }
 
 /** Channel `request(...)`, granted by the `clientRequests()` capability. */
-interface ChannelRequestMethods<
+export interface ChannelRequestMethods<
   TSlots,
   TMeta,
   TKey extends string,
@@ -1211,24 +1301,6 @@ interface ChannelRequestMethods<
       >;
     }
   >;
-}
-
-/** Channel `intercept(...)`. */
-interface ChannelInterceptMethods<
-  TSlots,
-  TMeta,
-  TCaps extends readonly AnyCapability[],
-  TChannelBrand extends string = never,
-  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
-  TServerRequests = {},
-> {
-  /** Inspect every incoming frame in this channel before routing. One per channel. */
-  intercept(
-    handler: (
-      ctx: ChannelGateCtx<TSlots, TMeta, TCaps, TChannelBrand, TOutgoing, false, TServerRequests>,
-      frame: InterceptFrame,
-    ) => unknown | void,
-  ): void;
 }
 
 /**
@@ -1349,7 +1421,7 @@ type CapabilityMethods<
 
 /**
  * The builder returned by `server(...)`. Carries the methods every server has
- * (`on`, the lifecycle hooks, `intercept`, `onOutgoing`, `assemble`) plus any
+ * (`on`, `assemble`) plus any
  * methods the listed capabilities grant through their brands — for example,
  * `request` exists only when `clientRequests()` is listed.
  */
@@ -1394,77 +1466,13 @@ export interface CoreBase<
     config: OnConfig<TSlots, TMeta, TSchema, TCaps>,
   ): IncomingHandlerValue<TEvent, InferInput<TSchema>>;
 
-  /** Run once at server startup, before any connection. Use it for schema creation or migrations. */
-  onInit(handler: (ctx: InitContext) => void | Promise<void>): void;
-  /** Run each time a connection opens, after `upgrade(...)` succeeds. */
-  onConnect(handler: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>): void;
-  /** Run each time a connection closes, for any reason. `ctx.closeCode` / `ctx.closeReason` are set. */
-  onDisconnect(handler: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>): void;
-  /**
-   * Run each time a client sends a `ping`. The server has already replied
-   * `pong` by then — this is for observing, not for answering.
-   */
-  onPing(handler: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>): void;
-  /**
-   * Run each time a client answers a server `ping` with a `pong`. With
-   * `keepalive()` listed, the round-trip is already recorded, so `ctx.latency`
-   * is fresh here.
-   */
-  onPong(handler: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>): void;
-  /**
-   * Run on any unhandled error from a handler. `event` is set when the error came from one.
-   * In a plugin (`server({ scope: 'plugin' })`), it runs only for the plugin's own
-   * events and channels, and `event` is the name the plugin declared, without the
-   * `__<id>::` prefix.
-   */
-  onError(
-    handler: (
-      ctx: AppCtx<TSlots, TMeta, TCaps>,
-      error: unknown,
-      event?: string,
-    ) => void | Promise<void>,
-  ): void;
-  /** Run once when the server is shutting down. `ctx` is a server-wide context, with no single connection. */
-  onShutdown(handler: (ctx: ConnectionlessCtx<TSlots, TMeta, TCaps>) => void | Promise<void>): void;
-
-  /**
-   * Inspect every incoming frame before routing and validation. Throw to reject;
-   * return a value to replace the payload. One intercept per server.
-   */
-  intercept(
-    handler: (
-      ctx: AppCtx<TSlots, TMeta, TCaps>,
-      frame: InterceptFrame<PluginIdsOf<TSlots>>,
-    ) => unknown | void,
-  ): void;
-
-  /**
-   * Watch every app frame the server sends, once per send, after the frame
-   * went out. A send to many connections is one call: `frame.target` says who
-   * it was addressed to and `frame.recipients` how many sockets got it. The
-   * hook cannot change or stop a frame. One `onOutgoing` hook per server.
-   *
-   * `ctx` is the context of the connection whose `on`, `request` or `stream`
-   * handler, intercept, or `onConnect` hook is running when the frame is sent.
-   * For a broadcast from that code, `ctx` is the sender, not each receiver. In
-   * every other case `ctx` is `undefined` — for example, a send from a channel
-   * `subscribe` hook, `onDisconnect`, `onError`, a scheduled task, `onInit`,
-   * `onShutdown`, or the admin API.
-   */
-  onOutgoing(
-    handler: (
-      ctx: AppCtx<TSlots, TMeta, TCaps> | undefined,
-      frame: OutgoingFrame<PluginIdsOf<TSlots>>,
-    ) => void | Promise<void>,
-  ): void;
-
   /**
    * Collect every routed handler into the final server definition the platform adapter runs.
    * Pass them as `{ handlers: [...] }` — each `base.on(...)` (and, with their
    * capabilities, `request` / `stream` / `channel`) value. A channel handler
    * enables only itself; passing the channel includes its configuration but no
-   * handlers. Scheduled task bodies, lifecycle hooks, the upgrade hook, the
-   * intercept, and listed capabilities are folded in automatically.
+   * handlers. Pass each `base.scheduled(...)` value too. The hooks and upgrade from
+   * `server({ ... })`, and listed capabilities, are folded in automatically.
    *
    * A scoped plugin server definition (`server({ scope: 'plugin' })`) may also pass `api` —
    * the per-connection surface the host reaches via `ctx.plugin(id)`. Its `ctx`
@@ -1474,7 +1482,7 @@ export interface CoreBase<
    * one is a type error.
    */
   assemble<const THandlers extends readonly AssembleInput[], TApi = unknown>(config: {
-    readonly handlers: THandlers;
+    readonly handlers: CheckedHandlers<THandlers, keyof ScheduledMap<TSlots> & string>;
     readonly api?: (
       ctx: TScoped extends true
         ? AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TMeta, TCaps>
@@ -1492,14 +1500,81 @@ export interface CoreBase<
 /** A value `assemble(...)` accepts — a routed handler or channel, never a capability. */
 type AssembleInput = Contribution & { readonly __livethingCapability?: never };
 
+type EventNamesOf<TSlice> =
+  | (TSlice extends { incoming: infer R } ? keyof R & string : never)
+  | (TSlice extends { clientRequests: infer R } ? keyof R & string : never)
+  | (TSlice extends { streams: infer R } ? keyof R & string : never)
+  | (TSlice extends { recordedStreams: infer R } ? keyof R & string : never);
+
+/** Keep a name only when it's one exact string. `string` or a union could be any name, so only `assemble()` can check it. */
+type ExactName<TName extends string, TAll extends string = TName> = TName extends unknown
+  ? [TAll] extends [TName]
+    ? {} extends Record<TName, 1>
+      ? never
+      : TName
+    : never
+  : never;
+
+/** The scoped names one handler binds: `server:<event>`, `<channel>:<event>` or `task:<id>`. */
+type HandlerScopedNames<THandler> =
+  | (THandler extends ScheduledHandlerValue<infer TTaskId> ? `task:${TTaskId}` : never)
+  | (THandler extends { __contributes?: infer TContribution }
+      ? NonNullable<TContribution> extends infer TSlice
+        ?
+            | `server:${EventNamesOf<TSlice>}`
+            | (TSlice extends { channels: infer TChannels }
+                ? {
+                    [K in keyof TChannels & string]: `channel:${K}:${EventNamesOf<TChannels[K]>}`;
+                  }[keyof TChannels & string]
+                : never)
+        : never
+      : never);
+
+type FirstDuplicateName<
+  THandlers extends readonly unknown[],
+  TSeen extends string = never,
+> = THandlers extends readonly [infer TFirst, ...infer TRest]
+  ? [ExactName<HandlerScopedNames<TFirst>> & TSeen] extends [never]
+    ? FirstDuplicateName<TRest, TSeen | ExactName<HandlerScopedNames<TFirst>>>
+    : ExactName<HandlerScopedNames<TFirst>> & TSeen
+  : never;
+
+type DuplicateNameMessage<TName extends string> = TName extends `server:${infer TEvent}`
+  ? `Duplicate event '${TEvent}': two handlers at the top level use this name. Remove one or rename it.`
+  : TName extends `channel:${infer TChannel}:${infer TEvent}`
+    ? `Duplicate event '${TEvent}' on channel '${TChannel}': two handlers use this name. Remove one or rename it.`
+    : TName extends `task:${infer TTaskId}`
+      ? `Duplicate scheduled task '${TTaskId}': two handlers run this task. Remove one.`
+      : never;
+
+/** The declared tasks with no handler in this list, or `never` when the list's length is unknown. */
+type MissingTask<
+  THandlers extends readonly unknown[],
+  TDeclaredTasks extends string,
+> = number extends THandlers['length']
+  ? never
+  : Exclude<TDeclaredTasks, THandlers[number] extends infer H ? TaskIdOf<H> : never>;
+
+type TaskIdOf<THandler> = THandler extends ScheduledHandlerValue<infer TTaskId> ? TTaskId : never;
+
+/**
+ * `assemble()`'s `handlers` type. It stays the list itself when the list is valid, and
+ * becomes a readable message when it isn't, so the compile error says what to fix. A list
+ * whose length isn't known (no `as const`) can't be checked here; `assemble()` checks it
+ * when it runs.
+ */
+type CheckedHandlers<THandlers extends readonly unknown[], TDeclaredTasks extends string> = [
+  FirstDuplicateName<THandlers>,
+] extends [never]
+  ? [MissingTask<THandlers, TDeclaredTasks>] extends [never]
+    ? THandlers
+    : `Scheduled task '${MissingTask<THandlers, TDeclaredTasks>}' has no handler. Pass base.scheduled('${MissingTask<THandlers, TDeclaredTasks>}', ...) to assemble().`
+  : DuplicateNameMessage<FirstDuplicateName<THandlers>>;
+
 /** The rate-limit slots `assemble(...)` reads off a collected channel object. @internal */
 interface ChannelRateLimitSource {
   readonly __key: string;
   readonly __rateLimit?: RateLimitConfig;
-  readonly __rateLimitOverrides?: ReadonlyMap<
-    Primitive,
-    { event: string; config: RateLimitConfig }
-  >;
 }
 
 /**
@@ -1596,6 +1671,31 @@ function mergeServerRequestPrimitives(primitives: Primitive[]): void {
   for (const [index] of rest.reverse()) primitives.splice(index, 1);
 }
 
+/** Build the primitives for the hooks written in `server({ ... })`. */
+function buildHookPrimitives(config: ServerHooks<any, any, any>): Primitive[] {
+  const { onError: onErrorHook } = config;
+  const primitives: Primitive[] = [];
+  if (config.onInit) primitives.push(onInit(config.onInit));
+  if (config.onConnect) primitives.push(onConnect(config.onConnect));
+  if (config.onDisconnect) primitives.push(onDisconnect(config.onDisconnect));
+
+  if (config.onPing) primitives.push(onPing(config.onPing));
+  if (config.onPong) primitives.push(onPong(config.onPong));
+  if (onErrorHook) {
+    primitives.push(
+      onError((ctx: any, error: unknown, event?: string) =>
+        onErrorHook(adaptChannelContext(ctx) as any, error, event),
+      ),
+    );
+  }
+
+  if (config.onShutdown) primitives.push(onShutdown(config.onShutdown));
+  if (config.intercept) primitives.push(interceptFactory(config.intercept as any));
+  if (config.onOutgoing) primitives.push(outgoingHookFactory(config.onOutgoing as any));
+
+  return primitives;
+}
+
 /**
  * Pair every declared scheduled task with its body and build the task
  * primitives. A declared task with no body, or a body with no declaration, is a
@@ -1611,8 +1711,8 @@ function mergeScheduled(
     const body = bodies.get(taskId);
     if (!body) {
       throw new Error(
-        `[livething] No body for scheduled task '${taskId}'. ` +
-          `Register it with base.scheduled('${taskId}', ...).`,
+        `[livething] Scheduled task '${taskId}' has no handler. ` +
+          `Pass base.scheduled('${taskId}', ...) to assemble().`,
       );
     }
 
@@ -1720,43 +1820,15 @@ export function server<
 >(config: ServerConfig<TMeta, TCaps>): Base<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps>;
 export function server<
   TMeta = unknown,
-  const TConfig extends ScopedServerConfig<
-    TMeta,
-    readonly (PluginSafeCapability & TopLevelCapability)[]
-  > = ScopedServerConfig<TMeta, readonly (PluginSafeCapability & TopLevelCapability)[]>,
+  const TCaps extends readonly (PluginSafeCapability & TopLevelCapability)[] = readonly [],
 >(
-  config: TConfig &
-    NoExtraScopedConfigKeys<TConfig> & {
-      readonly capabilities?: ScopedCapabilitiesOf<TConfig> &
-        UniqueCapabilityKinds<ScopedCapabilitiesOf<TConfig>>;
-    },
-): Base<
-  MergeSlots<SlotsOf<ScopedCapabilitiesOf<TConfig>[number]>>,
-  TMeta,
-  ScopedCapabilitiesOf<TConfig>,
-  true
->;
+  config: ScopedServerConfig<TMeta, TCaps>,
+): Base<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps, true>;
 export function server(config: any): any {
   assertUniqueCapabilityKinds(config.capabilities ?? [], 'server({ capabilities: [...] })');
 
   const scoped = config.scope === 'plugin';
-  const lifecyclePrimitives: Primitive[] = [];
-  const scheduledBodies = new Map<
-    string,
-    (ctx: ConnectionlessContext, data?: unknown) => void | Promise<void>
-  >();
-  const seen = new Set<string>();
-
-  function registerOnce(slot: string, primitive: Primitive): void {
-    if (seen.has(slot)) {
-      throw new Error(
-        `[livething] Duplicate ${slot} hook on this server. Only one ${slot} hook can be attached.`,
-      );
-    }
-
-    seen.add(slot);
-    lifecyclePrimitives.push(primitive);
-  }
+  const hookPrimitives = buildHookPrimitives(config);
 
   type StreamBuild = (event: string, streamConfig: unknown) => Primitive;
 
@@ -1779,7 +1851,7 @@ export function server(config: any): any {
   function buildRateLimitPrimitive(
     handlerPrimitives: readonly Primitive[],
     channelObjects: ReadonlyMap<
-      { __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive },
+      { __build(selectedHandlers: ReadonlySet<Primitive>): Primitive },
       ReadonlySet<Primitive>
     >,
   ): Primitive | null {
@@ -1813,16 +1885,14 @@ export function server(config: any): any {
       const source = channel as unknown as ChannelRateLimitSource;
       channelKeys.add(source.__key);
       if (source.__rateLimit !== undefined) channelRules.set(source.__key, source.__rateLimit);
-      if (source.__rateLimitOverrides?.size) {
-        const channelOverrides = new Map<string, RateLimitConfig>();
-        for (const [handler, declaration] of source.__rateLimitOverrides) {
-          if (handlers.has(handler)) channelOverrides.set(declaration.event, declaration.config);
-        }
-
-        if (channelOverrides.size > 0) {
-          overrides.set(`channel:${source.__key}`, channelOverrides);
-        }
+      const channelOverrides = new Map<string, RateLimitConfig>();
+      for (const handler of handlers) {
+        const override = (handler as { __rateLimit?: RateLimitConfig }).__rateLimit;
+        const event = (handler as { event?: string }).event;
+        if (override !== undefined && event !== undefined) channelOverrides.set(event, override);
       }
+
+      if (channelOverrides.size > 0) overrides.set(`channel:${source.__key}`, channelOverrides);
     }
 
     const hasOverrides = overrides.size > 0 || channelRules.size > 0;
@@ -1878,14 +1948,7 @@ export function server(config: any): any {
       return primitive;
     },
     scheduled(taskId: string, taskConfig: ServerConfigParameter) {
-      if (scheduledBodies.has(taskId)) {
-        throw new Error(
-          `[livething] Duplicate scheduled task '${taskId}' on this server. ` +
-            'A task can only be registered once.',
-        );
-      }
-
-      scheduledBodies.set(taskId, taskConfig.run);
+      return { __livethingScheduledTask: true, taskId, run: taskConfig.run };
     },
     stream(event: string, streamConfig: unknown) {
       return streamBuilder('plain', 'stream', 'stream()')(event, streamConfig);
@@ -1932,38 +1995,6 @@ export function server(config: any): any {
         registerServerRequests,
       });
     },
-    onInit(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('onInit', onInit(handler));
-    },
-    onConnect(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('onConnect', onConnect(handler));
-    },
-    onDisconnect(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('onDisconnect', onDisconnect(handler));
-    },
-    onPing(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('onPing', onPing(handler));
-    },
-    onPong(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('onPong', onPong(handler));
-    },
-    onError(handler: (ctx: any, error: unknown, event?: string) => void | Promise<void>) {
-      registerOnce(
-        'onError',
-        onError((ctx: any, error: unknown, event?: string) =>
-          handler(adaptChannelContext(ctx), error, event),
-        ),
-      );
-    },
-    onShutdown(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('onShutdown', onShutdown(handler));
-    },
-    intercept(handler: (ctx: any, frame: InterceptFrame) => unknown | void) {
-      registerOnce('intercept', interceptFactory(handler));
-    },
-    onOutgoing(handler: (ctx: any, frame: OutgoingFrame) => void | Promise<void>) {
-      registerOnce('onOutgoing', outgoingHookFactory(handler));
-    },
     assemble(assembleConfig: ServerAssembleConfigParameter) {
       const items = assembleConfig.handlers;
       const api = assembleConfig.api;
@@ -1973,9 +2004,10 @@ export function server(config: any): any {
 
       const handlerPrimitives: Primitive[] = [];
       const channelObjects = new Map<
-        { __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive },
+        { __build(selectedHandlers: ReadonlySet<Primitive>): Primitive },
         Set<Primitive>
       >();
+      const scheduledBodies = new Map<string, ScheduledHandlerValue['run']>();
       for (const item of items) {
         if ((item as { __livethingCapability?: unknown }).__livethingCapability) {
           throw new Error(
@@ -1984,9 +2016,22 @@ export function server(config: any): any {
           );
         }
 
+        const task = item as Partial<ScheduledHandlerValue>;
+        if (task.__livethingScheduledTask) {
+          if (scheduledBodies.has(task.taskId!)) {
+            throw new Error(
+              `[livething] Duplicate scheduled task '${task.taskId}' passed to assemble(). ` +
+                'Two handlers run this task. Remove one.',
+            );
+          }
+
+          scheduledBodies.set(task.taskId!, task.run!);
+          continue;
+        }
+
         const channel = (
           item as {
-            __channel?: { __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive };
+            __channel?: { __build(selectedHandlers: ReadonlySet<Primitive>): Primitive };
           }
         ).__channel;
         if (channel) {
@@ -2042,7 +2087,7 @@ export function server(config: any): any {
       for (const cap of config.capabilities ?? []) primitives.push(...cap.__primitives);
       if (rateLimitPrimitive) primitives.push(rateLimitPrimitive);
 
-      primitives.push(...lifecyclePrimitives);
+      primitives.push(...hookPrimitives);
       primitives.push(...handlerPrimitives);
       primitives.push(...scheduledPrimitives);
       primitives.push(...channelPrimitives);

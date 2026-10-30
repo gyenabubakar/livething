@@ -21,8 +21,8 @@ function scheduledPrimitive(primitives: readonly { __livething: string }[]): Any
 describe('scheduled() capability', () => {
   it('registers a declaration body into one bootable task', () => {
     const base = server({ capabilities: [scheduled({ cleanup: null })] });
-    base.scheduled('cleanup', { run() {} });
-    const definition = base.assemble({ handlers: [] });
+    const cleanup = base.scheduled('cleanup', { run() {} });
+    const definition = base.assemble({ handlers: [cleanup] });
     const compiled = compileServerDefinition(definition);
     expect(compiled.scheduled.has('cleanup')).toBe(true);
 
@@ -33,8 +33,8 @@ describe('scheduled() capability', () => {
     const base = server({
       capabilities: [scheduled({ report: { data: t<{ userId: string }>(), retry: true } })],
     });
-    base.scheduled('report', { run() {} });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
+    const report = base.scheduled('report', { run() {} });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [report] }).primitives);
     expect(primitive.hasData).toBe(true);
     expect(primitive.options?.retry).toBe(true);
   });
@@ -43,8 +43,8 @@ describe('scheduled() capability', () => {
     const base = server({
       capabilities: [scheduled({ heartbeat: { every: 30_000 } })],
     });
-    base.scheduled('heartbeat', { run() {} });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
+    const heartbeat = base.scheduled('heartbeat', { run() {} });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [heartbeat] }).primitives);
     expect(primitive.options?.every).toBe(30_000);
   });
 
@@ -56,15 +56,20 @@ describe('scheduled() capability', () => {
 
   it('throws when a declared task has no body', () => {
     const base = server({ capabilities: [scheduled({ cleanup: null })] });
-    expect(() => base.assemble({ handlers: [] })).toThrow(/No body for scheduled task 'cleanup'/);
+    base.scheduled('cleanup', { run() {} });
+    const noHandlers: never[] = [];
+    expect(() => base.assemble({ handlers: noHandlers })).toThrow(
+      /Pass base\.scheduled\('cleanup', \.\.\.\) to assemble\(\)/,
+    );
   });
 
-  it('throws when the same task is registered twice', () => {
+  it('throws when the same task is passed twice', () => {
     const base = server({ capabilities: [scheduled({ cleanup: null })] });
-    base.scheduled('cleanup', { run() {} });
-    expect(() => base.scheduled('cleanup', { run() {} })).toThrow(
-      /Duplicate scheduled task 'cleanup'/,
-    );
+    const handlers = [
+      base.scheduled('cleanup', { run() {} }),
+      base.scheduled('cleanup', { run() {} }),
+    ];
+    expect(() => base.assemble({ handlers })).toThrow(/Duplicate scheduled task 'cleanup'/);
   });
 
   it('passes trusted data to the registered body at runtime', async () => {
@@ -72,8 +77,8 @@ describe('scheduled() capability', () => {
       capabilities: [scheduled({ report: { data: t<{ userId: string }>() } })],
     });
     const run = vi.fn();
-    base.scheduled('report', { run });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
+    const report = base.scheduled('report', { run });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [report] }).primitives);
 
     const ctx = {} as never;
     await primitive.handler(ctx, { userId: 'alice' });
@@ -83,8 +88,8 @@ describe('scheduled() capability', () => {
   it('runs a no-data task body with only the context', async () => {
     const base = server({ capabilities: [scheduled({ cleanup: null })] });
     const run = vi.fn();
-    base.scheduled('cleanup', { run });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
+    const cleanup = base.scheduled('cleanup', { run });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [cleanup] }).primitives);
 
     const ctx = {} as never;
     await primitive.handler(ctx);
@@ -95,10 +100,11 @@ describe('scheduled() capability', () => {
     const base = server({});
     const escapeHatch = base as unknown as {
       scheduled(taskId: string, config: { run: () => void }): unknown;
+      assemble(config: { handlers: unknown[] }): unknown;
     };
-    escapeHatch.scheduled('cleanup', { run() {} });
-    expect(() => base.assemble({ handlers: [] })).toThrow(
-      /base\.scheduled\('cleanup'\) has no matching declaration/,
+    const stray = escapeHatch.scheduled('cleanup', { run() {} });
+    expect(() => escapeHatch.assemble({ handlers: [stray] })).toThrow(
+      /'cleanup'.*no matching declaration/,
     );
   });
 

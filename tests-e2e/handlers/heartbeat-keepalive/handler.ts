@@ -17,10 +17,9 @@ const base = server({
       'pong-seen': t<{ latency: number | null; quality: string | null }>(),
     }),
   ],
-});
-
-base.onPong((ctx) => {
-  ctx.send('pong-seen', { latency: ctx.latency, quality: ctx.quality });
+  onPong(ctx) {
+    ctx.send('pong-seen', { latency: ctx.latency, quality: ctx.quality });
+  },
 });
 
 export const heartbeatKeepaliveDefinition = base.assemble({ handlers: [] });

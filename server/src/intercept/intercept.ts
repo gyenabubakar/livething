@@ -192,7 +192,7 @@ export function intercept(handler: InterceptHandler<any>): InterceptPrimitive<an
  * `ctx` is the context of the connection whose `on`, `request` or `stream`
  * handler, intercept, or `onConnect` hook is running when the frame is sent —
  * for a broadcast from that code, the sender, not each receiver. It is
- * `undefined` in every other case, such as a send from a channel `subscribe`
+ * `undefined` in every other case, such as a send from a channel `onSubscribe`
  * hook, `onDisconnect`, `onError`, a scheduled task, `onInit`, `onShutdown`,
  * or the admin API.
  */

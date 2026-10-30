@@ -18,6 +18,10 @@ const h = server({
       'validation-seen': t<{ event: string }>(),
     }),
   ],
+  onError(ctx, error, event) {
+    if (ValidationFailed.matches(error)) ctx.send('validation-seen', { event: event ?? 'unknown' });
+    ctx.send('error-seen', { event: event ?? null });
+  },
 });
 
 const viaConnections = h.on('via-connections', {
@@ -55,11 +59,6 @@ const fail = h.on('fail', {
 const strict = h.on('strict', {
   input: v.object({ n: v.number() }),
   run() {},
-});
-
-h.onError((ctx, error, event) => {
-  if (ValidationFailed.matches(error)) ctx.send('validation-seen', { event: event ?? 'unknown' });
-  ctx.send('error-seen', { event: event ?? null });
 });
 
 export const Probe = plugin('e2e:probe', {

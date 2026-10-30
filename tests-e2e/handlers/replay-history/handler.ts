@@ -72,10 +72,9 @@ const base = server({
     stream(),
     ReplayPlugin(),
   ],
-});
-
-base.onError((_ctx, error, event) => {
-  console.error(`[replay] error in ${event}:`, error);
+  onError(_ctx, error, event) {
+    console.error(`[replay] error in ${event}:`, error);
+  },
 });
 
 export const handleSendMsg = base.on('send-msg', {
