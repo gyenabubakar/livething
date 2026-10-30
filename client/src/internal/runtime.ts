@@ -97,14 +97,6 @@ export interface PrimitiveRuntime {
   onOutgoing?(message: Message): Message | null;
 
   /**
-   * Rewrite the connection URL before each connect (first connect and every
-   * reconnect). Gets the URL so far and returns the next one — primitives chain,
-   * each seeing the previous result. `query()` uses this to append params. Async
-   * is awaited, so a basic connect with no URL hooks stays synchronous.
-   */
-  resolveUrl?(url: string): string | Promise<string>;
-
-  /**
    * Runs just before the socket opens, on every reconnect (skipped on the first connect).
    * Awaited, so a primitive can finish any async work it needs before the
    * socket opens — e.g. `channels` can refresh a rotating auth token
@@ -133,9 +125,6 @@ export interface PrimitiveRuntime {
    * releases the idle-prevention holds it held for active channels.
    */
   onReconnectFailed?(): void;
-
-  /** Vote on whether to reconnect: `true`/`false` is final, `void` means "no opinion." */
-  shouldReconnect?(code: number, reason: string): boolean | void;
 
   /** Add methods to the socket object (e.g. `socket.channel`). */
   install?(socket: LiveThingSocket): void;
@@ -208,12 +197,8 @@ export interface PrimitiveHelpers {
   /** Register who handles an unexpected close — this is how reconnection takes over. */
   onUnexpectedClose(handler: (code: number, reason: string) => void): void;
 
-  /** Ask each primitive whether to reconnect; the first `true` or `false` answer wins. */
-  runShouldReconnect(code: number, reason: string): boolean | undefined;
-
-  /** True if an unexpected close with this code would lead to a reconnect attempt
-   * (a reconnection module is installed and no primitive vetoes the code). */
-  willReconnect(code: number, reason: string): boolean;
+  /** True if an unexpected close leads to a reconnect attempt (a reconnection module is installed). */
+  willReconnect(): boolean;
 
   /** Register a callback that runs when a `pong` frame arrives. */
   onPong(handler: () => void): void;
@@ -238,14 +223,8 @@ export interface PrimitiveHelpers {
    */
   readonly shared: Map<string, unknown>;
 
-  /** Close the connection and stop everything (the public `disconnect()`). */
-  disconnect(code?: number, reason?: string): void;
-
-  /** Open the connection (the public `connect()`). */
-  connect(): void;
-
   /** Temporarily close the transport while keeping reconnectable primitive state. */
-  suspend(code?: number, reason?: string): void;
+  suspend(): void;
 
   /** Reopen a suspended transport as a reconnect. */
   resume(): void;

@@ -15,9 +15,8 @@ const NoNameKey = localKey<string>();
 declare const _sk: LocalKey<string>;
 void [StringKey, NumberKey, ObjKey, NoNameKey, _sk];
 
-const _name: string | undefined = StringKey.name;
 const _id: symbol = StringKey.id;
-void [_name, _id];
+void _id;
 
 declare const ctx: ConnectionContext;
 

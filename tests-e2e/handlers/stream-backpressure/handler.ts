@@ -14,16 +14,14 @@ const base = server({
 /**
  * Phase 6 — a stream that calls `await ctx.stream.drain()` between every yield.
  *
- * On a healthy client drain resolves the moment the buffer is under the mark, so
+ * On a healthy client drain resolves the moment the buffer is under 256 KB, so
  * the stream runs to completion at full speed. On Cloudflare the platform does
  * not expose buffer fullness, so drain is a no-op (resolves immediately) — the
- * stream must still complete and deliver every chunk. The override
- * `highWaterMark` proves the option threads through server → compile → runtime.
+ * stream must still complete and deliver every chunk.
  */
 const handleDrainFeed = base.stream('drain-feed', {
   input: v.object({ count: v.number() }),
   chunk: Tick,
-  highWaterMark: 64 * 1024,
   async *run(ctx, input) {
     for (let i = 0; i < input.count; i += 1) {
       yield { index: i };

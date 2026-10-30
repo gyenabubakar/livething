@@ -8,8 +8,10 @@
  * - `env`: your Worker bindings, such as KV namespaces and secrets.
  * - `ctx.storage`: the raw Durable Object storage.
  * - `ctx.blockConcurrencyWhile()`: the Durable Object state method.
- * - `ctx.waitUntil()`: present so the type matches Cloudflare's API. It has no
- *   effect in a Durable Object.
+ * - `ctx.waitUntil()`: rarely needed. Pending I/O already keeps a Durable Object
+ *   in memory. A promise passed here also counts as unfinished work, so the
+ *   object does not hibernate until it settles (up to 15 minutes). It does not
+ *   change when a request completes.
  * - `ctx.getWebSockets()`: the sockets accepted through the hibernation API, so
  *   it returns sockets only when hibernation is on. LiveThing does not add tags
  *   to Cloudflare's per-socket tag list, so `getWebSockets(tag)` returns an

@@ -9,9 +9,8 @@ import {
   withInvocationScope,
   withInvocationScopeSync,
 } from '~/_engine/runtime/invocation-scope.ts';
-import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
-import { createAdminContext, RESERVED_ADMIN_API_NAMES } from '~/admin/context.ts';
-import { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
+import { RESERVED_ADMIN_API_NAMES } from '~/admin/context.ts';
+import { createInitContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
@@ -87,7 +86,7 @@ export class Engine<TApi = unknown> {
   handleHibernationWake(wsKey: unknown): ConnectionHandle {
     if (!this.usesHibernation()) {
       throw new Error(
-        '[livething] hibernation is not enabled for this server definition. Set `hibernation: { enabled: true }` in server().',
+        '[livething] hibernation is not enabled for this server definition. Set `hibernation: true` in server().',
       );
     }
 
@@ -146,7 +145,7 @@ export class Engine<TApi = unknown> {
         shutdownHooks: core.hooks.shutdown,
         pluginShutdownHooks: core.hooks.pluginLifecycle.shutdown,
 
-        createShutdownContext: () => this.createShutdownContext(),
+        createContext: () => EngineDeps.connectionlessContext(core),
 
         cancelActiveStreamsForConnection: (connectionId) =>
           EngineConnectionRuntime.cancelActiveStreamsForConnection(
@@ -250,15 +249,6 @@ export class Engine<TApi = unknown> {
     };
   }
 
-  /** @internal */
-  private createShutdownContext() {
-    return createShutdownContext({
-      connections: this.core.connections,
-      usersByKey: this.core.usersByKey,
-      ...EngineDeps.commonDeps(this.core),
-    });
-  }
-
   /**
    * The connectionless admin surface, reached from outside the socket layer (an
    * HTTP route, an auth webhook, a cron job). Returns the full admin context
@@ -270,21 +260,16 @@ export class Engine<TApi = unknown> {
    * adapter hands it back whole; the Cloudflare adapter projects it onto an
    * `RpcTarget`, because only prototype methods survive a Worker→DO call.
    */
-  admin(): PublicApi.AdminContext<Record<string, unknown>, unknown> & TApi {
+  admin(): PublicApi.ConnectionlessContext<Record<string, unknown>, unknown> & TApi {
     const core = this.core;
-    const ctx = createAdminContext({
-      connections: core.connections,
-      usersByKey: core.usersByKey,
-      ...EngineDeps.commonDeps(core),
-      purgeUser: (userId, options) => EnginePurgeUser.purgeUser(core, userId, options),
-    });
+    const ctx = EngineDeps.connectionlessContext(core);
     const devApi = core.adminApiFactory ? core.adminApiFactory(ctx) : {};
     // Copy descriptors rather than spreading: `connectionCount` is a getter and
     // must stay live, and the built-ins have to land after the dev api to win.
     const surface = flattenApi(devApi);
     Object.defineProperties(surface, Object.getOwnPropertyDescriptors(ctx));
 
-    return surface as PublicApi.AdminContext<Record<string, unknown>, unknown> & TApi;
+    return surface as PublicApi.ConnectionlessContext<Record<string, unknown>, unknown> & TApi;
   }
 }
 

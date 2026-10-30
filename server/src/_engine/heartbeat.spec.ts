@@ -51,7 +51,7 @@ type ServerOptions = {
 
 function buildEngine(options: ServerOptions = {}): Engine {
   const base = server({
-    ...(options.hibernation ? { hibernation: { enabled: true } } : {}),
+    ...(options.hibernation ? { hibernation: true } : {}),
     capabilities: options.withKeepalive ? [keepalive(options.withKeepalive)] : [],
   });
 

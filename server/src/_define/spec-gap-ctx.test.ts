@@ -2,7 +2,6 @@
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { emits } from '~/emits/emits.ts';
-import { intercepts } from '~/intercept/capability.ts';
 import { localKey } from '~/local-key/local-key.ts';
 import { replay } from '~/replay/capability.ts';
 import { describe, expectTypeOf, it } from 'vitest';
@@ -33,17 +32,6 @@ describe('ctx.sendReplay gating', () => {
     });
   });
 
-  it('adds ctx.sendReplay with replay.custom()', () => {
-    const base = server({
-      capabilities: [emits({ msg: t<{ text: string }>() }), replay.custom()],
-    });
-    base.on('x', {
-      run(ctx) {
-        expectTypeOf(ctx.sendReplay).toBeFunction();
-      },
-    });
-  });
-
   it('adds ctx.sendReplay with replay.snapshot(), typed to the emits catalog', () => {
     const base = server({
       capabilities: [
@@ -65,7 +53,7 @@ describe('ctx.sendReplay gating', () => {
 describe('ctx.matches / ctx.unsafeCast typing', () => {
   it('narrows a frame payload to a declared event input (not any)', () => {
     const base = server({
-      capabilities: [emits({ msg: t<{ text: string }>() }), intercepts()],
+      capabilities: [emits({ msg: t<{ text: string }>() })],
     });
     base.intercept((ctx, frame: InterceptFrame) => {
       expectTypeOf(ctx.matches).toBeFunction();
@@ -76,7 +64,7 @@ describe('ctx.matches / ctx.unsafeCast typing', () => {
     });
   });
 
-  it('are typed on ctx without intercepts() — they are core', () => {
+  it('are typed on an on() handler ctx too', () => {
     const base = server({
       capabilities: [emits({ msg: t<{ text: string }>() })],
     });
@@ -93,7 +81,6 @@ describe('localKey() no-arg', () => {
   it('creates a key with no name argument', () => {
     const key = localKey<{ tag: string }>();
     expectTypeOf(key.id).toEqualTypeOf<symbol>();
-    expectTypeOf(key.name).toEqualTypeOf<string | undefined>();
     const named = localKey<number>('count');
     expectTypeOf(named.id).toEqualTypeOf<symbol>();
   });

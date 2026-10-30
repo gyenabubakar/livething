@@ -71,7 +71,7 @@ describe('send rejects reserved event names', () => {
   });
 });
 
-describe('queued frame isolation on open (#10)', () => {
+describe('queued frame isolation on open', () => {
   it('isolates a bad queued frame so valid frames behind it still send', () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
@@ -106,7 +106,7 @@ describe('_send: onOutgoing null cancels before buffering fallback', () => {
       },
     };
 
-    const socket = buildSocket(buffering({ enabled: true }));
+    const socket = buildSocket(buffering());
     const existing = (socket as LiveThingSocket)._primitives;
     (socket as LiveThingSocket)._setPrimitives([cancellingPrimitive, ...existing]);
 
@@ -125,7 +125,7 @@ describe('_send: onOutgoing null cancels before buffering fallback', () => {
       },
     };
 
-    const socket = buildSocket(buffering({ enabled: true }));
+    const socket = buildSocket(buffering());
     const existing = (socket as LiveThingSocket)._primitives;
     (socket as LiveThingSocket)._setPrimitives([cancellingPrimitive, ...existing]);
 
@@ -153,16 +153,10 @@ describe('_send: return value — true when buffered, false when dropped', () =>
     expect(() => ch.send('update', { value: 'x' })).toThrow();
   });
 
-  it('returns true when buffering(enabled:true) is installed and socket is disconnected', () => {
-    const socket = buildSocket(buffering({ enabled: true }));
+  it('returns true when buffering() is installed and socket is disconnected', () => {
+    const socket = buildSocket(buffering());
     const result = socket.send('action', { id: 10 });
     expect(result).toBe(true);
-  });
-
-  it('returns false when buffering(enabled:false) is installed and socket is disconnected', () => {
-    const socket = buildSocket(buffering({ enabled: false }));
-    const result = socket.send('action', { id: 11 });
-    expect(result).toBe(false);
   });
 });
 

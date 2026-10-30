@@ -253,7 +253,7 @@ describe('topoSort — intercept tag collision', () => {
 
     ws.emit({ event: 'msg', payload: { text: 'hello' } });
 
-    // Correct behavior: A was registered first, so A must run before B.
+    // A was registered first, so A must run before B.
     expect(runOrder).toEqual(['A', 'B']);
   });
 });

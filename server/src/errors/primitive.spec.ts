@@ -8,16 +8,15 @@ const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 const OutOfStock = error('out-of-stock', v.object({ channel: v.string() }));
 
 describe('errors', () => {
-  it('produces correct tag and kind', () => {
+  it('produces correct tag', () => {
     const p = errors(Forbidden);
     expect(p.__livething).toBe('errors');
-    expect(p.__kind).toBe('contract');
   });
 
   it('uses singleton identity', () => {
     const p = errors(Forbidden);
     expect(p.__identity).toHaveLength(1);
-    expect(p.__identity[0]).toBe(errors.__key);
+    expect(typeof p.__identity[0]).toBe('symbol');
   });
 
   it('stores defs in order', () => {
@@ -30,10 +29,6 @@ describe('errors', () => {
   it('instances have empty dependencies and requires', () => {
     const p = errors(Forbidden);
     expect(p.__requires).toEqual({});
-  });
-
-  it('factory has a symbol key for dependency references', () => {
-    expect(typeof errors.__key).toBe('symbol');
   });
 
   it('registers declared error definitions during setup', () => {

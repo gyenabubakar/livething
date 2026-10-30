@@ -2,10 +2,10 @@
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
-import { cursorStream, recordedStream, stream } from '~/streams.ts';
+import { recordedStream, stream } from '~/streams.ts';
 
 const base = server({
-  capabilities: [channels(), clientRequests(), stream(), cursorStream(), recordedStream()],
+  capabilities: [channels(), clientRequests(), stream(), recordedStream()],
 });
 
 base.on('ordered', {
@@ -37,13 +37,6 @@ room.request('interleaved', {
 // `allowConcurrent` controls overlapping instances of one stream event. The
 // normal per-connection handler scheduler does not apply to streams.
 base.stream('plain', {
-  allowConcurrent: true,
-  async *run() {
-    yield { ok: true };
-  },
-});
-
-base.cursorStream('cursor', {
   allowConcurrent: true,
   async *run() {
     yield { ok: true };

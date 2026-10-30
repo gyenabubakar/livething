@@ -119,30 +119,20 @@ describe('channel gate surface typing', () => {
         // available while the gate callbacks are being contextually typed.
         // @ts-expect-error — channel request methods are not part of gate ctx.
         ctx.channel.request;
-        // @ts-expect-error — channel request methods are not part of gate ctx.
-        ctx.channel.broadcastRequest;
         expectTypeOf(ctx.channel.send).toBeFunction();
         expectTypeOf(ctx.channel.broadcast).toBeFunction();
         expectTypeOf(ctx.channel.members).toBeFunction();
         expectTypeOf(ctx.request).toBeFunction();
-
-        expectTypeOf(ctx.broadcastRequest).toBeFunction();
-        expectTypeOf(ctx.tags.ephemeral('role').broadcastRequest).toBeFunction();
         // @ts-expect-error — stream generators have their own ctx, not a gate ctx.
         ctx.stream;
-        expectTypeOf(ctx.channels.get('request-gated').broadcastRequest).toBeFunction();
       },
       commit(ctx) {
         // @ts-expect-error — channel request methods are not part of gate ctx.
         ctx.channel.request;
-        // @ts-expect-error — channel request methods are not part of gate ctx.
-        ctx.channel.broadcastRequest;
       },
       revalidate(ctx) {
         // @ts-expect-error — channel request methods are not part of gate ctx.
         ctx.channel.request;
-        // @ts-expect-error — channel request methods are not part of gate ctx.
-        ctx.channel.broadcastRequest;
       },
     });
 
@@ -156,20 +146,16 @@ describe('channel gate surface typing', () => {
     normal.on('message', {
       run(ctx) {
         expectTypeOf(ctx.channel.request).toBeFunction();
-        expectTypeOf(ctx.channel.broadcastRequest).toBeFunction();
       },
     });
     normal.subscribe((ctx) => {
       expectTypeOf(ctx.channel.request).toBeFunction();
-      expectTypeOf(ctx.channel.broadcastRequest).toBeFunction();
     });
     normal.unsubscribe((ctx) => {
       expectTypeOf(ctx.channel.request).toBeFunction();
-      expectTypeOf(ctx.channel.broadcastRequest).toBeFunction();
     });
     normal.sessionEnd((ctx) => {
       expectTypeOf(ctx.channel.request).toBeFunction();
-      expectTypeOf(ctx.channel.broadcastRequest).toBeFunction();
     });
   });
 

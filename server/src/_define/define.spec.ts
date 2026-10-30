@@ -5,9 +5,7 @@ import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
-import { intercepts } from '~/intercept/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
-import { translator } from '~/translation/translator.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { plugin } from './plugins.ts';
@@ -25,7 +23,7 @@ function makeBase() {
       const username = new URL(request.url).searchParams.get('username') ?? 'anon';
       return { userId: username, meta: { username } };
     },
-    capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound]), intercepts()],
+    capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound])],
   });
 }
 
@@ -142,7 +140,6 @@ describe('server() send/receive core', () => {
         errorHooks: [],
         buildConnectionContext: () => ({ connection: { id: connection.id } }),
         async handleRuntimeError() {},
-        async handleValidationError() {},
         async handleSubscribe() {},
         async handleUnsubscribe() {},
         sendProtocolMessage() {},
@@ -218,41 +215,29 @@ describe('server() send/receive core', () => {
     expect(compiled.outgoing.has('goodbye')).toBe(true);
   });
 
-  it('wires hibernation into a primitive and the feature set when enabled', () => {
-    const base = server({ hibernation: { enabled: true } });
+  it('wires hibernation into a primitive when enabled', () => {
+    const base = server({ hibernation: true });
     const definition = base.assemble({ handlers: [] });
     expect(definition.primitives.some((p) => p.__livething === 'hibernation')).toBe(true);
-    expect(definition.__features?.has('hibernation')).toBe(true);
   });
 
   it('omits hibernation when not enabled', () => {
-    const base = server({});
-    const definition = base.assemble({ handlers: [] });
-    expect(definition.primitives.some((p) => p.__livething === 'hibernation')).toBe(false);
-    expect(definition.__features?.has('hibernation')).toBe(false);
+    for (const base of [server({}), server({ hibernation: false })]) {
+      const definition = base.assemble({ handlers: [] });
+      expect(definition.primitives.some((p) => p.__livething === 'hibernation')).toBe(false);
+    }
   });
 
-  it('retains one translator factory on the assembled server definition', () => {
-    const translate = translator(() => ({ inbound: (raw) => raw }));
-    const base = server({ translate });
-
-    expect(base.assemble({ handlers: [] }).__translate).toBe(translate);
-  });
-
-  it.each([
-    'onInit',
-    'onConnect',
-    'onDisconnect',
-    'onError',
-    'onValidationError',
-    'onShutdown',
-  ] as const)('throws when the %s lifecycle hook is registered twice', (hook) => {
-    const base = makeBase();
-    (base[hook] as (handler: () => void) => void)(() => {});
-    expect(() => (base[hook] as (handler: () => void) => void)(() => {})).toThrow(
-      new RegExp(`Duplicate ${hook} hook`),
-    );
-  });
+  it.each(['onInit', 'onConnect', 'onDisconnect', 'onError', 'onShutdown'] as const)(
+    'throws when the %s lifecycle hook is registered twice',
+    (hook) => {
+      const base = makeBase();
+      (base[hook] as (handler: () => void) => void)(() => {});
+      expect(() => (base[hook] as (handler: () => void) => void)(() => {})).toThrow(
+        new RegExp(`Duplicate ${hook} hook`),
+      );
+    },
+  );
 
   it('throws when a second intercept is registered', () => {
     const base = makeBase();

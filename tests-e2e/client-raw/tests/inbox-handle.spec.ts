@@ -138,7 +138,7 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
     expect(typeof bobEntry?.oldestHeldAt).toBe('number');
     expect(typeof bobEntry?.lastSeenAt).toBe('number');
 
-    // Bob acks, settling (deleting, the default `onDelivered: 'delete'`) his row.
+    // Bob acks, which deletes his row.
     await send(bob.page, {
       event: '__received__',
       payload: { receivedThrough: seq },

@@ -3,12 +3,10 @@ import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
 /** Options for `buffering()`. */
 export interface BufferingOptions {
-  /** Queue sends made while disconnected. Default: `false`. */
-  enabled?: boolean;
   /** Most messages to hold; the oldest is dropped when full. Default: `50`. */
   maxSize?: number;
-  /** Time-to-live for queued messages: one number for all, or a per-event map. */
-  ttl?: number | Record<string, number>;
+  /** Time-to-live (ms) for every queued message. A per-call `send(..., { ttl })` wins. */
+  ttl?: number;
   /** Ms between each message on flush. `0` sends them all at once. Default: `0`. */
   flushInterval?: number;
 }
@@ -23,7 +21,6 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
     _tag: 'buffering',
     setup(helpers) {
       const buffer = new MessageBuffer({
-        enabled: options.enabled,
         maxSize: options.maxSize,
         ttl: options.ttl,
         flushInterval: options.flushInterval,
@@ -34,10 +31,10 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
       // must queue behind the not-yet-flushed messages so order is preserved,
       // not race ahead of them onto the wire. Decline otherwise (open and idle),
       // so normal sends go straight to the wire.
-      helpers.registerOutgoingFallback((message, options) => {
+      helpers.registerOutgoingFallback((message, sendOptions) => {
         if (helpers.getState() === 'open' && !buffer.isFlushing) return false;
 
-        const buffered = buffer.enqueue(message, options?.ttl, options?.owner);
+        const buffered = buffer.enqueue(message, sendOptions?.ttl, sendOptions?.owner);
         if (buffered) helpers.log.info(`buffered '${message.event}'`);
         return buffered;
       });
@@ -49,7 +46,6 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
           helpers.log.info('flushing buffered messages');
           buffer.flush(
             (message) => helpers.rawSend(message),
-            undefined,
             (error) => helpers.log.report(error),
           );
           return null;

@@ -1,4 +1,5 @@
 import { emits, server, t } from '@livething/server';
+import { ValidationFailed } from '@livething/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -15,8 +16,10 @@ const base = server({
   ],
 });
 
-base.onValidationError((ctx, evt) => {
-  ctx.send('validation-error-fired', { event: evt });
+base.onError((ctx, error, evt) => {
+  if (ValidationFailed.matches(error)) {
+    ctx.send('validation-error-fired', { event: evt ?? 'unknown' });
+  }
 });
 
 const handleEchoPing = base.on('echo-ping', {

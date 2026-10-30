@@ -4,7 +4,7 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { Logger, SQLProvider } from '~/context.ts';
 
-export interface RejoinSubscribeOptions {
+interface RejoinSubscribeOptions {
   channelName: string;
 
   channelFamily: string | null;
@@ -60,8 +60,7 @@ export interface RejoinRuntime {
  * connection already in its old channels. For each durable membership the
  * engine re-runs the `revalidate` hook. On pass the connection is committed
  * via the server-subscribe primitive (`source: 'server'`), which sends
- * `__subscribeOk__` to the rejoining socket. Peers see `__memberOnline__`, and
- * `__memberJoin__` before it only when a kick had ended the membership. On
+ * `__subscribeOk__` to the rejoining socket. Peers see `__memberOnline__`. On
  * reject the durable row is dropped, peers see `__memberLeave__`, and a
  * `rejoin-rejected` `__error__` scoped to the channel is sent to the new socket
  * so the client knows that one channel did not restore.

@@ -1,10 +1,7 @@
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import type { Message } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
-import type {
-  ServerRequestsOptions,
-  ServerRequestsTypeFn,
-} from '~/primitives/server-requests/types.ts';
+import type { ServerRequestsTypeFn } from '~/primitives/server-requests/types.ts';
 import type { Primitive } from '~/primitives/types.ts';
 
 /** A registered handler that answers one server→client request event. */
@@ -33,9 +30,7 @@ function handlerKey(markers: ScopeMarkers, event: string): string {
  * everything else), so a reply to the client's own request and a server-initiated
  * request never reach the wrong primitive regardless of registration order.
  */
-export function serverRequests(
-  _options: ServerRequestsOptions = {},
-): Primitive<ServerRequestsTypeFn> {
+export function serverRequests(): Primitive<ServerRequestsTypeFn> {
   return {
     _tag: 'serverRequests',
 

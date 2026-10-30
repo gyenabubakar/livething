@@ -3,18 +3,19 @@ import { adapter, normalizeCloseReason } from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
 import { DurableObject } from 'cloudflare:workers';
 import type {
-  ApiOf,
   ConnectionHandle,
   Engine,
   EngineRuntimeOptions,
   Logger,
-  MetaOf,
   ServerDefinition,
 } from '@livething/server/adapters';
 import { buildAdmin } from './admin.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
-import type { LiveThingAdmin } from './admin.ts';
+import type { CloudflareAdmin } from './admin.ts';
+
+/** `WebSocket.READY_STATE_OPEN` on Workers. */
+const WEB_SOCKET_OPEN = 1;
 
 /**
  * The instance shape of a `bind()`-produced Durable Object.
@@ -28,8 +29,7 @@ import type { LiveThingAdmin } from './admin.ts';
  */
 export interface LiveThingDurableObjectInstance<
   Env = unknown,
-  TApi = unknown,
-  TMeta = Record<string, never>,
+  TAdmin = CloudflareAdmin,
 > extends DurableObject<Env> {
   /** Gracefully drain the Durable Object: run `onShutdown`, close every socket. */
   shutdown(): Promise<void>;
@@ -38,32 +38,26 @@ export interface LiveThingDurableObjectInstance<
    * await admin.purgeUser(id)`, plus whatever the server definition's own `api` factory
    * returned.
    */
-  admin(): Promise<LiveThingAdmin<TMeta> & TApi>;
+  admin(): Promise<TAdmin>;
 }
 
 /**
  * The Durable Object class type that `bind()` returns. Use this as the type
  * for your exported Durable Object class.
  *
- * @template TApi  The server definition's `api` type, so `stub.admin()` resolves to the
- *   built-in operations **and** the app's own admin methods.
- * @template TMeta The server definition's connection metadata, carried so the connection
- *   snapshots the admin surface returns keep their real `meta` type.
+ * @template TAdmin What `stub.admin()` resolves to: the built-in operations, typed
+ *   against the server definition's own emits, **and** the app's own admin methods.
  */
-export type CloudflareDurableObjectClass<
-  Env = unknown,
-  TApi = unknown,
-  TMeta = Record<string, never>,
-> = new (ctx: DurableObjectState, env: Env) => LiveThingDurableObjectInstance<Env, TApi, TMeta>;
+export type CloudflareDurableObjectClass<Env = unknown, TAdmin = CloudflareAdmin> = new (
+  ctx: DurableObjectState,
+  env: Env,
+) => LiveThingDurableObjectInstance<Env, TAdmin>;
 
 function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
 }
 
-const buildBind = adapter<
-  undefined,
-  CloudflareDurableObjectClass<unknown, unknown, Record<string, unknown>>
->({
+const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unknown>>({
   id: 'cloudflare',
   hibernation: {
     persist(wsKey, snapshot) {
@@ -78,7 +72,6 @@ const buildBind = adapter<
   setup<TApi>(createEngine: (options: EngineRuntimeOptions) => Engine<TApi>) {
     return class LiveThingDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine<TApi>;
-      private readonly liveConnections = new Map<WebSocket, ConnectionHandle>();
       private readonly ready: Promise<void>;
 
       constructor(ctx: DurableObjectState, env: Env) {
@@ -112,9 +105,7 @@ const buildBind = adapter<
           // Restore every surviving socket's membership eagerly so a broadcast reaches members that have not sent since the wake.
           if (this.engine.usesHibernation()) {
             await this.engine.restoreHibernatedConnections(this.ctx.getWebSockets());
-            if (!this.engine.core.translatorFactory) {
-              this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
-            }
+            this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
           } else {
             this.engine.reconcileConnections(new Set());
           }
@@ -151,7 +142,13 @@ const buildBind = adapter<
       ) {
         let closed = false;
         return {
-          send: (data: string) => socket.send(data),
+          // workerd throws on send() after close; report a refused frame instead.
+          send: (data: string) => {
+            if (socket.readyState !== WEB_SOCKET_OPEN) return false;
+
+            socket.send(data);
+            return true;
+          },
           close: (code?: number, reason?: string) => {
             if (closed) return;
 
@@ -176,7 +173,6 @@ const buildBind = adapter<
           }
         });
         socket.addEventListener('close', (event) => {
-          this.liveConnections.delete(socket);
           connection.handleClose(event.code, event.reason);
         });
         socket.addEventListener('error', (event) => {
@@ -220,8 +216,6 @@ const buildBind = adapter<
           throw error;
         }
 
-        this.liveConnections.set(server, connection);
-
         if (!hibernating) {
           this.wireStandardSocket(server, connection);
         }
@@ -232,26 +226,15 @@ const buildBind = adapter<
         } as ResponseInit & { webSocket: WebSocket });
       }
 
-      private getConnection(ws: WebSocket): ConnectionHandle {
-        if (this.engine.usesHibernation()) {
-          return this.engine.handleHibernationWake(ws);
-        }
-
-        const connection = this.liveConnections.get(ws);
-        if (!connection) {
-          throw new Error('[livething] Connection is not active for this websocket.');
-        }
-
-        return connection;
-      }
-
+      // Cloudflare calls these three methods only for sockets accepted with
+      // ctx.acceptWebSocket(), so they always belong to a hibernating engine.
       async webSocketMessage(
         ws: WebSocket,
         message: string | ArrayBuffer | ArrayBufferView,
       ): Promise<void> {
         await this.ready;
 
-        const connection = this.getConnection(ws);
+        const connection = this.engine.handleHibernationWake(ws);
 
         if (typeof message === 'string') {
           await connection.handleMessage(message);
@@ -261,25 +244,16 @@ const buildBind = adapter<
         closeBinaryFrame(ws);
       }
 
-      // oxlint-disable-next-line max-params
-      async webSocketClose(
-        ws: WebSocket,
-        code: number,
-        reason: string,
-        _wasClean?: boolean,
-      ): Promise<void> {
+      async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
         await this.ready;
 
-        const connection = this.getConnection(ws);
-        this.liveConnections.delete(ws);
-        await connection.handleClose(code, reason);
+        await this.engine.handleHibernationWake(ws).handleClose(code, reason);
       }
 
       async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
         await this.ready;
 
-        const connection = this.getConnection(ws);
-        await connection.handleError(error);
+        await this.engine.handleHibernationWake(ws).handleError(error);
       }
 
       async alarm(): Promise<void> {
@@ -322,9 +296,9 @@ const buildBind = adapter<
        * like `purgeUser` or `broadcast` reaches every connection, not just
        * the ones already live on this instance.
        */
-      // The engine erases the app's meta type at runtime; `bind()` casts the
-      // finished class back to the handler's own `TMeta`.
-      async admin(): Promise<LiveThingAdmin<Record<string, unknown>> & TApi> {
+      // The engine erases the definition's types at runtime; `bind()` casts the
+      // finished class back to the definition's own `CloudflareAdmin`.
+      async admin(): Promise<unknown> {
         await this.ready;
         if (this.engine.usesHibernation()) {
           for (const ws of this.ctx.getWebSockets()) {
@@ -359,10 +333,8 @@ function closeBinaryFrame(socket: WebSocket): void {
  * instantiate one DO per `idFromName(...)`. Each DO instance owns its own
  * WebSocket connections, storage, and scheduled alarm. The DO uses the
  * Cloudflare WebSocket Hibernation API when the contract sets
- * `hibernation: { enabled: true }`. Without a translator, the runtime answers the client's
- * keepalive "ping" with "pong" at the edge, so a hibernated DO is not woken
- * just to reply. A translated connection wakes so both directions pass through
- * its translator.
+ * `hibernation: true`. The runtime then answers the client's keepalive "ping"
+ * with "pong" at the edge, so a hibernated DO is not woken just to reply.
  *
  * The returned value is a class, not an instance. Export it from your worker
  * module with a **class declaration** — Cloudflare instantiates it per Durable
@@ -402,10 +374,9 @@ function closeBinaryFrame(socket: WebSocket): void {
  */
 export function bind<TDefinition extends ServerDefinition>(
   definition: TDefinition,
-): CloudflareDurableObjectClass<unknown, ApiOf<TDefinition>, MetaOf<TDefinition>> {
+): CloudflareDurableObjectClass<unknown, CloudflareAdmin<TDefinition>> {
   return buildBind(definition, undefined) as unknown as CloudflareDurableObjectClass<
     unknown,
-    ApiOf<TDefinition>,
-    MetaOf<TDefinition>
+    CloudflareAdmin<TDefinition>
   >;
 }

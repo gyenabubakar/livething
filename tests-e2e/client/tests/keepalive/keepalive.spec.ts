@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @livething/client's keepalive() + quality() against the real LiveThing
+// Conformance: @livething/client's keepalive() against the real LiveThing
 // `keepalive` server definition. Adapter-oblivious — it talks to whatever server the run
 // booted over the /ws proxy. It pings every 1s and closes after 2s of
 // silence.

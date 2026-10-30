@@ -60,19 +60,10 @@ test.describe('group full surface', () => {
     expect(chunks).toEqual([1, 2, 3]);
   });
 
-  test('group.cursorStream and group.recordedStream both work', async ({ page }, testInfo) => {
+  test('group.recordedStream works', async ({ page }, testInfo) => {
     const room = `gfs-streams-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
-
-    await send(page, a, { event: 'paginate', payload: {}, metadata: { stream: { id: 'p-1' } } });
-    await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.metadata?.stream?.id === 'p-1',
-    });
-    const rows = (await frames(page, a))
-      .filter((f) => f.event === 'paginate' && typeof f.payload.row === 'number')
-      .map((f) => f.payload.row as number);
-    expect(rows).toEqual([1, 2, 3, 4, 5]);
 
     await send(page, a, { event: 'tokens', payload: {}, metadata: { stream: { id: 't-1' } } });
     await waitForFrame(page, a, {
@@ -168,25 +159,6 @@ test.describe('group full surface', () => {
     expect(err.payload.code).toBe('rate-limited');
   });
 
-  test('group.customReplay round-trips a stored marker', async ({ page }, testInfo) => {
-    const room = `gfs-replay-${testInfo.testId}-${Date.now()}`;
-    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
-
-    await send(page, a, { event: 'emit-replay-marker', payload: { note: 'stored-1' } });
-    await waitForFrame(page, a, {
-      match: (f) => f.event === 'replay-marker' && f.payload.note === 'stored-1',
-    });
-
-    const b = await connect(page, { path: WS_PATH, username: 'bob', room: room });
-    await waitForFrame(page, b, { match: (f) => f.event === 'welcome' });
-    await send(page, b, { event: '__replay__', payload: { lastKnownSeq: 0 }, metadata: null });
-
-    await waitForFrame(page, b, {
-      match: (f) => f.event === 'replay-marker' && f.payload.note === 'stored-1',
-    });
-  });
-
   test('group.onConnect sends welcome and group.onDisconnect writes to SQL', async ({
     page,
   }, testInfo) => {
@@ -235,7 +207,9 @@ test.describe('group full surface', () => {
     expect(marker.payload.ran).toBe(1);
   });
 
-  test('group.onError and onValidationError fire', async ({ page }, testInfo) => {
+  test('group.onError fires for a thrown error and a validation failure', async ({
+    page,
+  }, testInfo) => {
     const room = `gfs-err-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });

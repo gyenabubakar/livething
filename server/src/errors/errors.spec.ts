@@ -1,13 +1,6 @@
 import { LiveThingError } from '@livething/core';
 import { describe, expect, it } from 'vitest';
-import {
-  CloseCodes,
-  CrossInstanceRef,
-  Defer,
-  DeferExhausted,
-  Disconnect,
-  RejectUpgrade,
-} from './errors.ts';
+import { CloseCodes, CrossInstanceRef, Disconnect, RejectUpgrade } from './errors.ts';
 
 describe('CloseCodes', () => {
   it('exposes the standard 1xxx codes', () => {
@@ -68,82 +61,6 @@ describe('RejectUpgrade', () => {
 
   it('is frozen', () => {
     expect(Object.isFrozen(RejectUpgrade(403, 'test'))).toBe(true);
-  });
-});
-
-describe('Defer', () => {
-  it('creates frozen object with __livething and delay', () => {
-    const df = Defer(1000);
-    expect(df.__livething).toBe('defer');
-    expect(df.delay).toBe(1000);
-  });
-
-  it('is frozen', () => {
-    expect(Object.isFrozen(Defer(500))).toBe(true);
-  });
-});
-
-describe('DeferExhausted', () => {
-  it('has code defer-exhausted', () => {
-    expect(DeferExhausted.code).toBe('defer-exhausted');
-  });
-
-  it('creates LiveThingError with event, payload, and retries', () => {
-    const err = DeferExhausted({
-      event: 'send-message',
-      payload: { text: 'hello' },
-      retries: 3,
-    });
-    expect(err).toBeInstanceOf(LiveThingError);
-    expect(err.code).toBe('defer-exhausted');
-    expect(err.detail.event).toBe('send-message');
-    expect(err.detail.payload).toEqual({ text: 'hello' });
-
-    expect(err.detail.retries).toBe(3);
-  });
-
-  it('.matches() returns true for valid DeferExhausted error', () => {
-    const err = new LiveThingError('defer-exhausted', {
-      event: 'test',
-      payload: null,
-      retries: 1,
-    });
-    expect(DeferExhausted.matches(err)).toBe(true);
-  });
-
-  it('.matches() returns false for wrong code', () => {
-    const err = new LiveThingError('forbidden', { event: 'x', payload: null, retries: 0 });
-    expect(DeferExhausted.matches(err)).toBe(false);
-  });
-
-  it('.matches() returns false for non-LiveThingError', () => {
-    expect(DeferExhausted.matches(new Error('defer-exhausted'))).toBe(false);
-  });
-});
-
-describe('DeferExhausted parser — bad payload', () => {
-  it('throws when detail is not an object', () => {
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => DeferExhausted('not-an-object' as any)).toThrow('Validation failed');
-  });
-
-  it('throws when detail.event is not a string', () => {
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => DeferExhausted({ retries: 3 } as any)).toThrow('Validation failed');
-  });
-
-  it('throws when detail.retries is not a number', () => {
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => DeferExhausted({ event: 'x', retries: 'nope' } as any)).toThrow(
-      'Validation failed',
-    );
-  });
-
-  it('throws when detail.retries is Infinity', () => {
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => DeferExhausted({ event: 'x', retries: Infinity } as any)).toThrow(
-      'Validation failed',
-    );
   });
 });
 

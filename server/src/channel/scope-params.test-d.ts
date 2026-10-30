@@ -38,3 +38,10 @@ threads.on('ping', {
     void [org, tid];
   },
 });
+
+// @ts-expect-error — a stray '{' outside a capture is rejected
+base.channel(['configs', 'cfg{{x}}:{id}']);
+// @ts-expect-error — a stray '}' outside a capture is rejected
+base.channel(['configs', 'cfg:{id}}']);
+// @ts-expect-error — an unclosed '{' is rejected
+base.channel(['configs', 'cfg:{id']);

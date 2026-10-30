@@ -114,8 +114,7 @@ describe('ReplayClient — streams', () => {
     }>();
   });
 
-  it('start-tiny-stream has no cursor or nudges', () => {
-    expectTypeOf<ReplayClient['streams']['start-tiny-stream']>().not.toHaveProperty('cursor');
+  it('start-tiny-stream has no nudges', () => {
     expectTypeOf<ReplayClient['streams']['start-tiny-stream']>().not.toHaveProperty('nudges');
     expectTypeOf<ReplayClient['streams']['start-tiny-stream']>().not.toHaveProperty('broadcast');
   });

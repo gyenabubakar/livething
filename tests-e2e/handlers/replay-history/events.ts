@@ -13,7 +13,6 @@ export const RequestHistory = v.object({});
 export const RequestRoomHistory = v.object({});
 export const InjectFamilyReplay = v.object({});
 export const GetToken = v.object({});
-export const TokenResponse = v.object({ token: v.string() });
 
 export const TriggerBadReplay = v.object({});
 export const TriggerBigIntReplay = v.object({});

@@ -6,8 +6,8 @@ import type { Frame } from './_inbox-rig.ts';
 // Raw-wire conformance for the `lastSeen()` capability against the real
 // Cloudflare worker. It stamps a durable per-identity timestamp on connect and
 // on disconnect (the default `track: 'connection'`) and exposes `ctx.lastSeen`
-// (`at` / `atMany` / `online`) to any connection, including one asking about an
-// identity other than itself.
+// (`at` / `atMany`) to any connection, including one asking about an identity
+// other than itself. The handler reads online status from `ctx.users`.
 //
 // `askLastSeen` may be asked about the same identity twice in one test (before
 // and after a disconnect), so it counts matching answers already in the frame
@@ -83,6 +83,23 @@ test.describe('lastSeen() (raw wire)', () => {
     expect(typeof entries.alice).toBe('number');
     expect(typeof entries.bob).toBe('number');
     expect('carol' in entries).toBe(false);
+
+    await alice.close();
+    await bob.close();
+  });
+
+  test('each listed connection reads its user through lastSeen()', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const alice = await openMember(browser, { path: '/last-seen', room, username: 'alice' });
+    const bob = await openMember(browser, { path: '/last-seen', room, username: 'bob' });
+
+    await send(bob.page, { event: 'ask-connections-last-seen', payload: {}, metadata: null });
+    const answer = await waitForFrame(bob.page, (f) => f.event === 'connections-last-seen-answer');
+    const connections = answer.payload.connections as { userId: string; lastSeen: unknown }[];
+    expect(connections.map((c) => c.userId).sort()).toEqual(['alice', 'bob']);
+    expect(connections.every((c) => typeof c.lastSeen === 'number')).toBe(true);
 
     await alice.close();
     await bob.close();

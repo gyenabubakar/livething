@@ -1,5 +1,11 @@
-import type { QualityThresholds } from '~/internal/config.ts';
 import type { ConnectionQuality } from '~/types.ts';
+
+/** Latency cut-offs (ms) for each quality tier. A round trip below a cut-off gets that tier. */
+export interface QualityThresholds {
+  excellent: number;
+  good: number;
+  degraded: number;
+}
 
 /** Settings for the ping loop. */
 export interface KeepaliveLoopOptions {
@@ -23,8 +29,8 @@ interface KeepaliveCallbacks {
 /** How many recent samples the quality tier is averaged over, to smooth out spikes. */
 const QUALITY_WINDOW = 5;
 
-/** Default latency cut-offs. The server measures quality on its own side. */
-const DEFAULT_THRESHOLDS: QualityThresholds = { excellent: 50, good: 150, degraded: 500 };
+/** Default latency cut-offs, the same table the server uses for `ctx.quality`. */
+const DEFAULT_THRESHOLDS: QualityThresholds = { excellent: 100, good: 300, degraded: 1000 };
 
 /**
  * Sends pings on a timer and watches for the matching pongs. Each pong gives a
@@ -53,7 +59,6 @@ export class KeepaliveLoop {
   /** Begin pinging. Call once the socket is open. */
   start(): void {
     this.stop();
-    if (this.interval <= 0) return;
 
     this.missedPongs = 0;
     this.pingSentAt = null;

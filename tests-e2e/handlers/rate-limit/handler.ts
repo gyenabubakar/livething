@@ -35,7 +35,7 @@ const handleTick = base.on('tick', {
 
 const handleExpensive = base.on('expensive', {
   input: v.object({}),
-  rateLimit: { enabled: true, max: 1 },
+  rateLimit: { max: 1 },
   run(ctx) {
     ctx.send('expensive-done', {});
   },
@@ -46,7 +46,7 @@ const handleExpensive = base.on('expensive', {
 // the default per-connection isolation.
 const handleSharedTick = base.on('shared-tick', {
   input: v.object({}),
-  rateLimit: { enabled: true, max: 2, per: (ctx) => ctx.meta.username },
+  rateLimit: { max: 2, per: (ctx) => ctx.meta.username },
   run(ctx) {
     ctx.send('shared-done', {});
   },
@@ -56,7 +56,7 @@ const handleSharedTick = base.on('shared-tick', {
 // rate-limited rejection preserves correlationId.
 const handleEchoReq = base.request('echo-req', {
   input: EchoReqPayload,
-  rateLimit: { enabled: true, max: 1 },
+  rateLimit: { max: 1 },
   run(ctx, input) {
     return { text: input.text };
   },
@@ -77,7 +77,7 @@ const handleInheritSend = inheritRoom.on('send', {
 // Channel exempt from the cap.
 const noLimit = base.channel('no-limit', {
   capabilities: [emits({ msg: t<{ text: string }>() })],
-  rateLimit: { enabled: false },
+  rateLimit: false,
 });
 
 const handleNoLimitSend = noLimit.on('send', {
@@ -90,12 +90,12 @@ const handleNoLimitSend = noLimit.on('send', {
 // Channel with its own scope rule plus an inner per-handler override.
 const rooms = base.channel('rooms', {
   capabilities: [emits({ 'chatter-broadcast': t<{ text: string }>() })],
-  rateLimit: { enabled: true, max: 50 },
+  rateLimit: { max: 50 },
 });
 
 const handleChatter = rooms.on('chatter', {
   input: RoomMsgPayload,
-  rateLimit: { enabled: true, max: 1 },
+  rateLimit: { max: 1 },
   run(ctx, p) {
     ctx.channel.broadcast('chatter-broadcast', p, { includeSelf: true });
   },
@@ -105,7 +105,7 @@ const handleChatter = rooms.on('chatter', {
 // channel-scope bucket.
 const tightRoom = base.channel('tight-room', {
   capabilities: [emits({ 'tight-broadcast': t<{ text: string }>() })],
-  rateLimit: { enabled: true, max: 2 },
+  rateLimit: { max: 2 },
 });
 
 const handleAlpha = tightRoom.on('alpha', {

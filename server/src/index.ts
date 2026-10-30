@@ -1,10 +1,11 @@
-export { error, t } from './_api/index.ts';
+export { error, t } from './_api/definitions.ts';
 
 export type {
   FrameOwner,
   InterceptFrame,
   InterceptRouting,
   OutgoingFrame,
+  OutgoingTarget,
 } from './intercept/intercept.ts';
 
 export { localKey } from './local-key/local-key.ts';
@@ -13,9 +14,6 @@ export type { LocalKey } from './local-key/local-key.ts';
 export type { RateLimitConfig } from './rate-limit/rate-limit.ts';
 
 export type { Validator } from './types.ts';
-
-export { translator } from './translation/translator.ts';
-export type { Translator, TranslatorFactory } from './translation/translator.ts';
 
 export type { ScopeDeclaration } from './channel/channel.ts';
 
@@ -50,17 +48,16 @@ export type {
   ConnectionContext,
   ConnectionHandle,
   ConnectionInfo,
+  ConnectionlessContext,
   ConnectionRef,
   ConnectionsManager,
   InitContext,
   Logger,
   ReplayScopeSendApi,
   ScopeSendApi,
-  ShutdownContext,
   SQLProvider,
   SqlResult,
   TagRef,
-  TaskContext,
   UserHandle,
   UserInfo,
   UserRef,

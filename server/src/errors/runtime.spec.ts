@@ -1,6 +1,6 @@
 import { LiveThingError } from '@livething/core';
 import { describe, expect, it } from 'vitest';
-import { normalizeRuntimeError, notifyValidationError, sendRuntimeError } from './runtime.ts';
+import { normalizeRuntimeError, sendRuntimeError } from './runtime.ts';
 
 describe('errors runtime', () => {
   it('normalizes LiveThingError values into __error__ payload and livething halves', () => {
@@ -102,8 +102,7 @@ describe('errors runtime', () => {
     ]);
     expect(await send(boom, [() => {}])).toEqual([]);
     expect(await send(new LiveThingError('forbidden', {}), [])).toEqual([]);
-    // A misplaced Defer already logged why; RejectUpgrade outside `upgrade` is a mistake to log.
-    expect(await send(Object.freeze({ __livething: 'defer', delay: 10 }), [])).toEqual([]);
+    // RejectUpgrade outside `upgrade` is a mistake to log.
     expect(await send(Object.freeze({ __livething: 'reject-upgrade', code: 4001 }), [])).toEqual([
       [expect.stringMatching(/unexpected error/), expect.anything()],
     ]);
@@ -134,33 +133,6 @@ describe('errors runtime', () => {
     );
 
     expect(observed).toEqual(['hook']);
-  });
-
-  it('notifies validation hooks with the scoped context', async () => {
-    const events: string[] = [];
-
-    await notifyValidationError(
-      {
-        buildConnectionContext(_connection, scope) {
-          return { scope };
-        },
-        validationErrorHooks: [
-          async (ctx, event) => {
-            events.push(
-              `${event}:${String((ctx as { scope?: { channelName?: string } }).scope?.channelName ?? '')}`,
-            );
-          },
-        ],
-      },
-      { id: 'c1' } as never,
-      {
-        event: '__subscribe__',
-        validationError: new Error('bad'),
-        scope: { channelName: 'room-1' } as never,
-      },
-    );
-
-    expect(events).toEqual(['__subscribe__:room-1']);
   });
 
   it('isolates a throwing onError hook so subsequent hooks and the __error__ send still run', async () => {

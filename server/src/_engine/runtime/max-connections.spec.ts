@@ -1,4 +1,4 @@
-import { CloseCodes, LiveThingConfigError } from '@livething/core';
+import { CloseCodes } from '@livething/core';
 import { acceptConnection } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -9,7 +9,6 @@ function baseCompiled(usersPolicy?: { maxConnections?: number; onExceed: 'replac
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
     channels: new Map(),
@@ -98,48 +97,6 @@ describe('acceptConnection — users.maxConnections policy', () => {
     // socket, just no longer one the user can be reached at.
     expect(runtime.usersByKey.get('u1')?.size).toBe(2);
     expect(runtime.connections.size).toBe(3);
-  });
-
-  it('does not evict a healthy connection when the replacement translator factory fails', () => {
-    let translatorFactories = 0;
-    const runtime = createRuntime(
-      { maxConnections: 1, onExceed: 'replace' },
-      {
-        translatorFactory() {
-          translatorFactories += 1;
-          if (translatorFactories === 2) throw new Error('invalid translator');
-
-          return { inbound: (raw: string) => raw };
-        },
-      },
-    );
-    const first = descriptorFor('u1');
-    const rejected = descriptorFor('u1');
-
-    acceptConnection(runtime as never, Symbol('first'), first);
-    acceptConnection(runtime as never, Symbol('rejected'), rejected);
-
-    expect(first.close).not.toHaveBeenCalled();
-    expect(rejected.close).toHaveBeenCalledWith(1011, '[livething] translator failed');
-    expect(runtime.usersByKey.get('u1')?.size).toBe(1);
-  });
-
-  it('reports a malformed direct translator factory as configuration error', () => {
-    const runtime = createRuntime(undefined, {
-      translatorFactory() {
-        return { outbound() {} };
-      },
-    });
-    const descriptor = descriptorFor('u1');
-
-    expect(() =>
-      acceptConnection(runtime as never, Symbol('invalid-translator'), descriptor),
-    ).toThrow(LiveThingConfigError);
-    expect(descriptor.close).toHaveBeenCalledWith(
-      1011,
-      '[livething] translator configuration failed',
-    );
-    expect(runtime.connections).toHaveLength(0);
   });
 
   it('replace evicts multiple oldest connections when the newcomer pushes further over the cap', () => {

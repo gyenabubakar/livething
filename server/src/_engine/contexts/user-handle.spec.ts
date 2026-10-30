@@ -1,10 +1,14 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { buildConnectionContext, toConnectionInfo } from '~/_engine/contexts/contexts.ts';
-import { createTestSql } from '~/_test/sql.ts';
+import { createTestSql, createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import { ensureLastSeenSchema, readLastSeen, stampLastSeen } from '~/last-seen/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
+import type { Engine } from '~/_engine/engine.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 function createConnection(id: string, userId: string): RuntimeConnection {
@@ -18,7 +22,6 @@ function createConnection(id: string, userId: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -61,7 +64,6 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
     platform: {},
     getStorage: () => baseStorage(),
     getStorageView: () => baseStorage(),
-    getTimers: () => createTestTimers(),
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
     broadcastToConnections: vi.fn(),
@@ -203,7 +205,7 @@ describe('UserHandle.info — no flat .meta', () => {
     expect(ctx.users.get('ghost').info()).toBeNull();
   });
 
-  it('reports online, connections(), channels, tags — and carries no flat .meta field', () => {
+  it('reports connections(), channels, tags — and carries no flat .meta field', () => {
     const tab1 = createConnection('t1', 'alice');
     const tab2 = createConnection('t2', 'alice');
     const deps = baseDeps([tab1, tab2]);
@@ -213,14 +215,13 @@ describe('UserHandle.info — no flat .meta', () => {
 
     expect(info).not.toBeNull();
     expect(info!.id).toBe('alice');
-    expect(info!.online).toBe(true);
     expect(info!.connections()).toHaveLength(2);
     expect('meta' in (info as object)).toBe(false);
   });
 });
 
 describe('UserHandle.info — last-seen storage reads', () => {
-  it('performs exactly one last-seen read per info() call, regardless of how many tabs the user holds', () => {
+  it('reads nothing until lastSeen() is called, then one row per call', () => {
     const reads: string[] = [];
     const sql = createTestSql({
       onExec: (query) => {
@@ -232,11 +233,10 @@ describe('UserHandle.info — last-seen storage reads', () => {
 
     const tabs = Array.from({ length: 5 }, (_, i) => createConnection(`t${i}`, 'alice'));
     const deps = baseDeps(tabs, {
-      toConnectionInfo: (c: RuntimeConnection, opts?: { lastSeen?: number | null }) =>
+      toConnectionInfo: (c: RuntimeConnection) =>
         toConnectionInfo(c, undefined, {
           hibernationEnabled: false,
           lastSeenAt: (userId: string) => readLastSeen(sql, userId),
-          ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
         }),
     });
     const ctx = buildConnectionContext(deps, tabs[0]!);
@@ -245,10 +245,11 @@ describe('UserHandle.info — last-seen storage reads', () => {
     const info = ctx.users.get('alice').info()!;
     const connections = info.connections();
 
-    expect(reads).toHaveLength(1);
-    expect(info.lastSeen).toBe(1_000);
+    expect(reads).toHaveLength(0);
     expect(connections).toHaveLength(tabs.length);
-    expect(connections.map((connection) => connection.lastSeen)).toEqual(tabs.map(() => 1_000));
+    expect(info.lastSeen!()).toBe(1_000);
+    expect(connections[3]!.lastSeen!()).toBe(1_000);
+    expect(reads).toHaveLength(2);
   });
 });
 
@@ -283,5 +284,64 @@ describe('UserHandle.connections()', () => {
 
     const snapshot = ctx.users.get('alice').connections();
     expect(snapshot.map((c) => c.id).sort()).toEqual(['t1', 't2']);
+  });
+});
+
+describe('UserHandle.isOnline()', () => {
+  function buildEngine(): Engine {
+    let captured: Engine | undefined;
+    const runAdapter = adapter({
+      id: 'user-handle-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        captured = createEngine({
+          storage: createTestStorage(),
+          platform: {},
+          timers: createTestTimers(),
+          logger: { info() {}, warn() {}, error() {} },
+        });
+        return {};
+      },
+    });
+    runAdapter(server({}).assemble({ handlers: [] }), undefined as never);
+    if (!captured) throw new Error('engine not captured');
+
+    return captured;
+  }
+
+  function openTab(engine: Engine, userId: string) {
+    return engine.accept(Symbol(userId), {
+      send() {},
+      close() {},
+      bufferedAmount: () => 0,
+      userId,
+    } as never);
+  }
+
+  it('is true while the user has an open tab and false once the last one closes', async () => {
+    const engine = buildEngine();
+    await engine.initialize();
+    function alice() {
+      return engine.admin().users.get('alice');
+    }
+
+    expect(alice().isOnline()).toBe(false);
+
+    const tab1 = openTab(engine, 'alice');
+    expect(alice().isOnline()).toBe(true);
+
+    const tab2 = openTab(engine, 'alice');
+    await tab1.handleClose(1000, '');
+    expect(alice().isOnline()).toBe(true);
+
+    await tab2.handleClose(1000, '');
+    expect(alice().isOnline()).toBe(false);
+  });
+
+  it('is false for an anonymous ctx.user', () => {
+    const anonymous = createConnection('anon', '');
+    const ctx = buildConnectionContext(baseDeps([anonymous]), anonymous);
+
+    expect(ctx.user.isOnline()).toBe(false);
   });
 });

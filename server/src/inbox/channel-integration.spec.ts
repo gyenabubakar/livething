@@ -1,10 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/adapter.ts';
+import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
+import { engineAccessDeps } from '~/_engine/engine.deps.ts';
+import { createEngineAccess } from '~/_engine/registry/engine-access.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
 import { persistMembership } from '~/channel/membership.ts';
 import { dedup } from '~/dedup/capability.ts';
+import { emits } from '~/emits/emits.ts';
 import {
   bumpInboxWatermark,
   insertInboxRows,
@@ -15,6 +19,7 @@ import { scheduled } from '~/scheduled/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { inbox } from './capability.ts';
 import {
@@ -23,6 +28,8 @@ import {
   listReaders,
   listReceivers,
 } from './receipts-storage.ts';
+import { applyInboxAck, drainInboxOnReconnect } from './runtime.ts';
+import { buildInboxSurface } from './surface.ts';
 
 function buildEngine(
   definition: ServerDefinition,
@@ -45,7 +52,6 @@ function buildEngine(
           deleteAlarm: async () => {
             alarm = null;
           },
-          getAlarm: async () => alarm,
         },
         logger: { info() {}, warn() {}, error() {} },
       });
@@ -63,7 +69,7 @@ describe('inbox() on a channel — writes real per-member rows on broadcast', ()
     const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
-    const chat = base.channel('chat', { capabilities: [inbox()] });
+    const chat = base.channel('chat', { membership: 'persistent', capabilities: [inbox()] });
     const plain = base.channel('plain', {});
     const definition = base.assemble({ handlers: [chat, plain] });
     const { engine } = buildEngine(definition);
@@ -92,7 +98,7 @@ describe('inbox() on a channel — writes real per-member rows on broadcast', ()
     const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
-    const chat = base.channel('chat', { capabilities: [inbox()] });
+    const chat = base.channel('chat', { membership: 'persistent', capabilities: [inbox()] });
     const plain = base.channel('plain', {});
     const definition = base.assemble({ handlers: [chat, plain] });
     const { engine } = buildEngine(definition);
@@ -120,8 +126,11 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
     const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
-    const firstChat = base.channel('chat', { capabilities: [inbox()] });
-    const removedChannel = base.channel('removed', { capabilities: [inbox()] });
+    const firstChat = base.channel('chat', { membership: 'persistent', capabilities: [inbox()] });
+    const removedChannel = base.channel('removed', {
+      membership: 'persistent',
+      capabilities: [inbox()],
+    });
     const storage = createTestStorage();
     const first = buildEngine(base.assemble({ handlers: [firstChat, removedChannel] }), storage);
 
@@ -155,7 +164,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
       now: 1,
     });
 
-    const secondChat = base.channel('chat', { capabilities: [inbox()] });
+    const secondChat = base.channel('chat', { membership: 'persistent', capabilities: [inbox()] });
     const second = buildEngine(base.assemble({ handlers: [secondChat] }), storage);
     await second.engine.initialize();
 
@@ -174,6 +183,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const firstChat = base.channel('chat', {
+      membership: 'persistent',
       capabilities: [inbox({ retention: { maxMessages: 3 } })],
     });
     const firstDefinition = base.assemble({ handlers: [firstChat] });
@@ -198,6 +208,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
     });
 
     const secondChat = base.channel('chat', {
+      membership: 'persistent',
       capabilities: [inbox({ retention: { maxMessages: 1 } })],
     });
     const secondDefinition = base.assemble({ handlers: [secondChat] });
@@ -220,6 +231,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
         ],
       });
       const chat = base.channel('chat', {
+        membership: 'persistent',
         capabilities: [inbox({ retention: { maxAgeMs: 20 } })],
       });
       base.scheduled('tick', { run() {} });
@@ -267,6 +279,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
         capabilities: [channels(), sequence({ persist: true }), dedup()],
       });
       const chat = base.channel('chat', {
+        membership: 'persistent',
         capabilities: [inbox({ retention: { maxAgeMs: 20 } })],
       });
       const rooms = base.channel(['rooms', 'room:{id}'], {
@@ -327,10 +340,192 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
   });
 });
 
+/** Drain a member's owed messages, then ack them as the client inbox() primitive does. */
+function reconnectAndAck(engine: Engine, userId: string): string[] {
+  const texts: string[] = [];
+  let receivedThrough = 0;
+  const connection = {
+    id: `${userId}-socket`,
+    userId,
+    descriptor: {
+      send: (frame: string) => {
+        const [event, payload, meta] = JSON.parse(frame) as [
+          string,
+          { text: string },
+          { delivery?: { seq: number } } | null,
+        ];
+        if (event !== 'message') return;
+
+        texts.push(payload.text);
+        receivedThrough = Math.max(receivedThrough, meta?.delivery?.seq ?? 0);
+      },
+      close() {},
+      bufferedAmount: () => 0,
+    },
+  } as unknown as RuntimeConnection;
+  drainInboxOnReconnect(engine.core, connection);
+  applyInboxAck(engine.core.storage.sql, {
+    userId,
+    channelName: 'chat',
+    channelFamily: null,
+    receivedThrough,
+  });
+
+  return texts;
+}
+
+async function buildChatEngine(members: readonly string[] = ['ada', 'ben']): Promise<Engine> {
+  const base = server({
+    capabilities: [channels(), sequence({ persist: true }), dedup()],
+  });
+  const chat = base.channel('chat', {
+    membership: 'persistent',
+    capabilities: [emits({ message: t<{ text: string }>() }), inbox()],
+  });
+  const { engine } = buildEngine(base.assemble({ handlers: [chat] }));
+  await engine.initialize();
+  for (const userId of members) {
+    persistMembership(engine.core, { userId, channelName: 'chat', channelFamily: null });
+  }
+
+  return engine;
+}
+
+const earlierMessages = [
+  { event: 'message', payload: { text: 'old one' }, __livething: { messageId: 'old-1' } },
+  { event: 'message', payload: { text: 'old two' }, __livething: { messageId: 'old-2' } },
+];
+
+function chatInboxOf(engine: Engine) {
+  const access = createEngineAccess(engine.core, engineAccessDeps(engine.core));
+  return buildInboxSurface(access, { channelName: 'chat', channelFamily: null });
+}
+
+describe('inbox backfill() next to live messages', () => {
+  it('keeps live messages sent after a backfill for an offline member', async () => {
+    const engine = await buildChatEngine();
+
+    chatInboxOf(engine).backfill('ben', earlierMessages);
+    const chat = engine.admin().channels.get('chat');
+    chat.broadcast('message', { text: 'live one' });
+    chat.broadcast('message', { text: 'live two' });
+
+    expect(reconnectAndAck(engine, 'ben')).toEqual(['old one', 'old two', 'live one', 'live two']);
+  });
+
+  it('stores each message once when the same backfill runs twice', async () => {
+    const engine = await buildChatEngine();
+    const chatInbox = chatInboxOf(engine);
+
+    chatInbox.backfill('ben', earlierMessages);
+    chatInbox.backfill('ben', earlierMessages);
+
+    expect(reconnectAndAck(engine, 'ben')).toEqual(['old one', 'old two']);
+  });
+});
+
+type ChatFrame = [string, { text?: string } | null, { delivery?: { seq?: number } } | null];
+
+/** Open a real connection for one user, as the adapter would, and record what it receives. */
+async function connectAs(engine: Engine, userId: string) {
+  const frames: ChatFrame[] = [];
+  const before = new Set(engine.core.connections.keys());
+  const handle = engine.accept(Symbol(userId), {
+    send: (data: string) => frames.push(JSON.parse(data) as ChatFrame),
+    close() {},
+    bufferedAmount: () => 0,
+    userId,
+  });
+  const connection = [...engine.core.connections.values()].find((c) => !before.has(c.id))!;
+  await connection.lifecycleReady;
+
+  function messages() {
+    return frames.filter(([event]) => event === 'message');
+  }
+
+  return {
+    connection,
+    texts: () => messages().map(([, payload]) => payload?.text),
+    subscribe: () =>
+      handle.handleMessage(JSON.stringify(['__subscribe__', {}, { channel: { name: 'chat' } }])),
+    /** Ack the highest seq seen, with the frame the client's inbox() primitive sends. */
+    ack: async () => {
+      const receivedThrough = Math.max(...messages().map(([, , meta]) => meta?.delivery?.seq ?? 0));
+      await handle.handleMessage(
+        JSON.stringify(['__received__', { receivedThrough }, { channel: { name: 'chat' } }]),
+      );
+    },
+    close: () => handle.handleClose(1006, 'dropped'),
+  };
+}
+
+async function untilTrue(check: () => boolean): Promise<void> {
+  for (let i = 0; i < 500; i += 1) {
+    if (check()) return;
+
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+
+  throw new Error('condition never became true');
+}
+
+function inChat(engine: Engine, connectionId: string): boolean {
+  const members = engine.core.channelMembers.get(JSON.stringify([null, 'chat']));
+  return [...(members ?? [])].some((connection) => connection.id === connectionId);
+}
+
+describe('inbox backfill() for a member who is online', () => {
+  it('sends the backfilled messages straight away, so the ack of a later live message loses nothing', async () => {
+    const engine = await buildChatEngine();
+    const ben = await connectAs(engine, 'ben');
+    await ben.subscribe();
+    expect(inChat(engine, ben.connection.id)).toBe(true);
+
+    chatInboxOf(engine).backfill('ben', earlierMessages);
+    engine.admin().channels.get('chat').broadcast('message', { text: 'live one' });
+
+    expect(ben.texts()).toEqual(['old one', 'old two', 'live one']);
+    await ben.ack();
+    expect(loadUndeliveredRows(engine.core.storage.sql, 'ben')).toEqual([]);
+
+    await ben.close();
+    const benAgain = await connectAs(engine, 'ben');
+    await untilTrue(() => inChat(engine, benAgain.connection.id));
+    expect(benAgain.texts()).toEqual([]);
+  });
+
+  it('sends nothing live when the member is not in the channel, and drains on the next connect', async () => {
+    const engine = await buildChatEngine(['ada']);
+    const ben = await connectAs(engine, 'ben');
+
+    chatInboxOf(engine).backfill('ben', earlierMessages);
+    expect(ben.texts()).toEqual([]);
+
+    persistMembership(engine.core, { userId: 'ben', channelName: 'chat', channelFamily: null });
+    await ben.close();
+    const benAgain = await connectAs(engine, 'ben');
+    await untilTrue(() => benAgain.texts().length === 2);
+    expect(benAgain.texts()).toEqual(['old one', 'old two']);
+  });
+
+  it('sends nothing new when the same backfill runs again while its messages are still stored', async () => {
+    const engine = await buildChatEngine();
+    const ben = await connectAs(engine, 'ben');
+    await ben.subscribe();
+    expect(inChat(engine, ben.connection.id)).toBe(true);
+    const chatInbox = chatInboxOf(engine);
+
+    chatInbox.backfill('ben', earlierMessages);
+    chatInbox.backfill('ben', earlierMessages);
+
+    expect(ben.texts()).toEqual(['old one', 'old two']);
+  });
+});
+
 describe('a host missing sequence()/dedup() fails the build, naming what to add and where', () => {
   it('fails when a channel lists inbox() but the host is missing sequence() and dedup()', () => {
     const base = server({ capabilities: [channels()] });
-    const chat = base.channel('chat', { capabilities: [inbox()] });
+    const chat = base.channel('chat', { membership: 'persistent', capabilities: [inbox()] });
     expect(() => base.assemble({ handlers: [chat] })).toThrow(
       '[livething] The sequence() capability is required by inbox but is not listed. Add sequence() to server({ capabilities: [...] }).',
     );

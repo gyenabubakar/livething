@@ -17,8 +17,6 @@ function outgoingRuntime(compiled: any) {
     compiled,
     outgoingHooks: [],
     livethingStampHooks: [],
-    beforeSendHooks: [],
-    afterSendHooks: [],
     logger: { warn() {}, error() {} },
     generateId: () => 'id_1',
   } as any;

@@ -320,6 +320,5 @@ export function createEngineTimers(
       tracker.recordOperation(() => timers.deleteAlarm(), outcome);
       return outcome;
     },
-    getAlarm: () => timers.getAlarm(),
   };
 }

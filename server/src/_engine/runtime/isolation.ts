@@ -1,6 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rethrowIfConfigError } from '@livething/core';
-import { isTranslatorConfigError } from '~/translation/error.ts';
 import type { Logger } from '~/context.ts';
 
 interface IsolationOptions {
@@ -41,7 +40,7 @@ export function forEachIsolated<T>(
     try {
       fn(item);
     } catch (error) {
-      if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
+      rethrowIfConfigError(error);
       reportIsolated(error, options);
     }
   }
@@ -62,7 +61,7 @@ export async function forEachIsolatedAsync<T>(
     try {
       await fn(item);
     } catch (error) {
-      if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
+      rethrowIfConfigError(error);
       reportIsolated(error, options);
     }
   }

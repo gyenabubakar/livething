@@ -21,20 +21,19 @@ const base = server({
   ],
 });
 
-base.onError((ctx, _error, eventName) => {
+base.onError((ctx, error, eventName) => {
   const c = ctx as unknown as { channel?: { name?: string; family?: string | null } };
+  if (ValidationFailed.matches(error)) {
+    ctx.send('validation-observed', {
+      channel: c.channel?.name ?? '<top-level>',
+      event: eventName ?? '<unknown>',
+    });
+  }
+
   ctx.send('scoped-error-observed', {
     channel: c.channel?.name ?? '<top-level>',
     family: c.channel?.family ?? '<no-family>',
     event: eventName ?? '<unknown>',
-  });
-});
-
-base.onValidationError((ctx, eventName) => {
-  const c = ctx as unknown as { channel?: { name?: string } };
-  ctx.send('validation-observed', {
-    channel: c.channel?.name ?? '<top-level>',
-    event: eventName,
   });
 });
 

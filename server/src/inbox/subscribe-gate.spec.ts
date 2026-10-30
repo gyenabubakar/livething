@@ -50,7 +50,7 @@ function fakeConnection(id: string, userId: string): RuntimeConnection {
     id,
     userId,
     wsKey: Symbol(id),
-    descriptor: { send() {}, close() {}, bufferedAmount: () => 0, userId },
+    descriptor: { send() {}, close() {}, bufferedAmount: () => 0 },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships: new Map(),
@@ -66,13 +66,9 @@ interface Sighting {
   hasLookupInbox: boolean;
   hasLookupReadReceipts: boolean;
   hasLookupRequest: boolean;
-  hasLookupBroadcastRequest: boolean;
   hasRequest: boolean;
-  hasBroadcastRequest: boolean;
   hasRootRequest: boolean;
-  hasRootBroadcastRequest: boolean;
   hasRootReplay: boolean;
-  hasTagBroadcastRequest: boolean;
   hasStream: boolean;
   hasMembers: boolean;
   hasReplay: boolean;
@@ -119,17 +115,9 @@ function buildHandler() {
       hasLookupInbox: 'inbox' in lookup,
       hasLookupReadReceipts: 'readReceipts' in lookup,
       hasLookupRequest: 'request' in lookup,
-      hasLookupBroadcastRequest: 'broadcastRequest' in lookup,
       hasRequest: 'request' in channel,
-      hasBroadcastRequest: 'broadcastRequest' in channel,
       hasRootRequest: 'request' in (ctx as Record<string, unknown>),
-      hasRootBroadcastRequest: 'broadcastRequest' in (ctx as Record<string, unknown>),
       hasRootReplay: typeof (ctx as { sendReplay?: unknown }).sendReplay === 'function',
-      hasTagBroadcastRequest:
-        'broadcastRequest' in
-        (ctx as { tags: { ephemeral(group: string): Record<string, unknown> } }).tags.ephemeral(
-          'role',
-        ),
       hasStream: 'stream' in (ctx as Record<string, unknown>),
       hasMembers: typeof channel.members === 'function',
       hasReplay: typeof channel.sendReplay === 'function',
@@ -138,6 +126,7 @@ function buildHandler() {
   }
 
   const chat = base.channel('chat', {
+    membership: 'persistent',
     capabilities: [
       serverRequests({ ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) } }),
       inbox(),
@@ -188,6 +177,7 @@ function buildDynamicHandler() {
   });
 
   const rooms = base.channel(['rooms', 'room:{id}'], {
+    membership: 'persistent',
     capabilities: [
       serverRequests({ ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) } }),
       inbox(),
@@ -237,17 +227,9 @@ function recordDynamic(
     hasLookupInbox: 'inbox' in lookup,
     hasLookupReadReceipts: 'readReceipts' in lookup,
     hasLookupRequest: 'request' in lookup,
-    hasLookupBroadcastRequest: 'broadcastRequest' in lookup,
     hasRequest: 'request' in channel,
-    hasBroadcastRequest: 'broadcastRequest' in channel,
     hasRootRequest: 'request' in (ctx as Record<string, unknown>),
-    hasRootBroadcastRequest: 'broadcastRequest' in (ctx as Record<string, unknown>),
     hasRootReplay: typeof (ctx as { sendReplay?: unknown }).sendReplay === 'function',
-    hasTagBroadcastRequest:
-      'broadcastRequest' in
-      (ctx as { tags: { ephemeral(group: string): Record<string, unknown> } }).tags.ephemeral(
-        'role',
-      ),
     hasStream: 'stream' in (ctx as Record<string, unknown>),
     hasMembers: typeof channel.members === 'function',
     hasReplay: typeof channel.sendReplay === 'function',
@@ -278,13 +260,9 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasLookupInbox: false,
       hasLookupReadReceipts: false,
       hasLookupRequest: false,
-      hasLookupBroadcastRequest: true,
       hasRequest: false,
-      hasBroadcastRequest: false,
       hasRootRequest: true,
-      hasRootBroadcastRequest: true,
       hasRootReplay: false,
-      hasTagBroadcastRequest: true,
       hasStream: false,
       hasMembers: true,
       hasReplay: true,
@@ -296,13 +274,9 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasLookupInbox: false,
       hasLookupReadReceipts: false,
       hasLookupRequest: false,
-      hasLookupBroadcastRequest: true,
       hasRequest: false,
-      hasBroadcastRequest: false,
       hasRootRequest: true,
-      hasRootBroadcastRequest: true,
       hasRootReplay: false,
-      hasTagBroadcastRequest: true,
       hasStream: false,
       hasMembers: true,
       hasReplay: true,
@@ -331,13 +305,9 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasLookupInbox: false,
       hasLookupReadReceipts: false,
       hasLookupRequest: false,
-      hasLookupBroadcastRequest: true,
       hasRequest: false,
-      hasBroadcastRequest: false,
       hasRootRequest: true,
-      hasRootBroadcastRequest: true,
       hasRootReplay: false,
-      hasTagBroadcastRequest: true,
       hasStream: false,
       hasMembers: true,
       hasReplay: true,
@@ -368,13 +338,9 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasLookupInbox: true,
       hasLookupReadReceipts: true,
       hasLookupRequest: false,
-      hasLookupBroadcastRequest: true,
       hasRequest: true,
-      hasBroadcastRequest: true,
       hasRootRequest: true,
-      hasRootBroadcastRequest: true,
       hasRootReplay: false,
-      hasTagBroadcastRequest: true,
       hasStream: false,
       hasMembers: true,
       hasReplay: true,
@@ -405,13 +371,9 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasLookupInbox: false,
       hasLookupReadReceipts: false,
       hasLookupRequest: false,
-      hasLookupBroadcastRequest: true,
       hasRequest: false,
-      hasBroadcastRequest: false,
       hasRootRequest: true,
-      hasRootBroadcastRequest: true,
       hasRootReplay: false,
-      hasTagBroadcastRequest: true,
       hasStream: false,
       hasMembers: true,
       hasReplay: true,
@@ -443,13 +405,9 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasLookupInbox: true,
       hasLookupReadReceipts: true,
       hasLookupRequest: false,
-      hasLookupBroadcastRequest: true,
       hasRequest: true,
-      hasBroadcastRequest: true,
       hasRootRequest: true,
-      hasRootBroadcastRequest: true,
       hasRootReplay: false,
-      hasTagBroadcastRequest: true,
       hasStream: false,
       hasMembers: true,
       hasReplay: true,
@@ -489,13 +447,9 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
         hasLookupInbox: 'inbox' in lookup,
         hasLookupReadReceipts: 'readReceipts' in lookup,
         hasLookupRequest: 'request' in lookup,
-        hasLookupBroadcastRequest: 'broadcastRequest' in lookup,
         hasRequest: 'request' in channel,
-        hasBroadcastRequest: 'broadcastRequest' in channel,
         hasRootRequest: 'request' in (ctx as Record<string, unknown>),
-        hasRootBroadcastRequest: 'broadcastRequest' in (ctx as Record<string, unknown>),
         hasRootReplay: typeof (ctx as { sendReplay?: unknown }).sendReplay === 'function',
-        hasTagBroadcastRequest: false,
         hasStream: 'stream' in (ctx as Record<string, unknown>),
         hasMembers: typeof channel.members === 'function',
         hasReplay: typeof channel.sendReplay === 'function',
@@ -504,6 +458,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
     }
 
     const room = pluginBase.channel('chat', {
+      membership: 'persistent',
       capabilities: [
         serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
@@ -553,13 +508,9 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasLookupInbox: false,
       hasLookupReadReceipts: false,
       hasLookupRequest: false,
-      hasLookupBroadcastRequest: true,
       hasRequest: false,
-      hasBroadcastRequest: false,
       hasRootRequest: true,
-      hasRootBroadcastRequest: true,
       hasRootReplay: false,
-      hasTagBroadcastRequest: false,
       hasStream: false,
       hasMembers: true,
       hasReplay: false,
@@ -591,7 +542,6 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasLookupInbox: true,
       hasLookupReadReceipts: true,
       hasRequest: true,
-      hasBroadcastRequest: true,
       hasReplay: false,
     });
   });
@@ -604,6 +554,7 @@ describe('context.channelGate and context.channelLifecycle across the subscribe 
     // The hooks run later, after `chat` is assigned.
     let chatRef = undefined as unknown as Parameters<typeof context.channelGate>[0];
     const chat = base.channel('chat', {
+      membership: 'persistent',
       check(ctx) {
         seen.check = context.channelGate(chatRef) === ctx;
       },

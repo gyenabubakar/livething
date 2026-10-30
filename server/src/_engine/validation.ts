@@ -9,8 +9,7 @@ interface AllowedValueLocation {
  * Reject numeric config that would silently break runtime math or unbound a
  * cap. `windowMs: 0` divides by zero in rate-limit refill; `maxChunks: 0`
  * makes a `if (def.maxChunks)` truthy gate skip the cap entirely; `maxAgeMs:
- * Infinity` makes a `now - maxAgeMs` produce `-Infinity` and prunes nothing;
- * `Defer(NaN)` passes through `setTimeout` as a 0ms retry loop. The accepted
+ * Infinity` makes a `now - maxAgeMs` produce `-Infinity` and prunes nothing. The accepted
  * shape is a positive integer that fits in `Number.MAX_SAFE_INTEGER`.
  *
  * Throws `LiveThingConfigError` so build paths fail fast — the engine refuses to
@@ -20,20 +19,6 @@ export function assertPositiveInteger(value: unknown, field: string, context: st
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new LiveThingConfigError(
       `${context}: '${field}' must be a positive safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
-    );
-  }
-}
-
-/**
- * Same shape as `assertPositiveInteger` but accepts zero. Use for cursor-like
- * values where zero is meaningful (e.g. `lastKnownSeq: 0` meaning "give me
- * everything from the start"). Still rejects unsafe integers above
- * `Number.MAX_SAFE_INTEGER`.
- */
-export function assertNonNegativeSafeInteger(value: unknown, field: string, context: string): void {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new LiveThingConfigError(
-      `${context}: '${field}' must be a non-negative safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
     );
   }
 }

@@ -33,7 +33,7 @@ function buildEngine(definition: ServerDefinition): Engine {
         storage: makeStorage(),
 
         platform: {},
-        timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+        timers: { setAlarm() {}, deleteAlarm() {} } as never,
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};

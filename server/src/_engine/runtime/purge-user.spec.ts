@@ -26,7 +26,7 @@ import { insertInboxRows, loadUndeliveredRows } from '~/inbox/storage.ts';
 import { lastSeen } from '~/last-seen/capability.ts';
 import { readLastSeen, stampLastSeen } from '~/last-seen/storage.ts';
 import { sequence } from '~/sequence/capability.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
+import { recordedStream } from '~/stream-recorded/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import { insertTag, listTagsByUser } from '~/tags/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -69,7 +69,6 @@ async function buildEngine(
         timers: {
           setAlarm: vi.fn(async () => {}),
           deleteAlarm: vi.fn(async () => {}),
-          getAlarm: vi.fn(async () => null),
         },
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
@@ -129,11 +128,14 @@ function withEveryOwningCapability(): ServerDefinition {
       sequence({ persist: true }),
       dedup(),
       lastSeen(),
-      cursorStream(),
+      recordedStream(),
     ],
   });
   const lobby = base.channel('lobby');
-  const chat = base.channel('chat', { capabilities: [inbox(), readReceipts()] });
+  const chat = base.channel('chat', {
+    membership: 'persistent',
+    capabilities: [inbox(), readReceipts()],
+  });
   const lobbyNoop = lobby.on('noop', { run() {} });
   const chatNoop = chat.on('noop', { run() {} });
 
@@ -190,7 +192,6 @@ describe('admin().purgeUser() — every owning capability enabled together', () 
       streamId: 'alice-stream',
       event: 'progress',
       payload: '{}',
-      kind: 'cursor',
       now,
     });
     insertStream(sql, {
@@ -198,7 +199,6 @@ describe('admin().purgeUser() — every owning capability enabled together', () 
       streamId: 'bob-stream',
       event: 'progress',
       payload: '{}',
-      kind: 'cursor',
       now,
     });
     seedSubscriber(sql, {
@@ -358,9 +358,9 @@ describe('admin().purgeUser() — one cleanup step throws', () => {
 });
 
 describe('admin().purgeUser() — durable-stream schema never created before purge', () => {
-  it('succeeds when cursorStream() is listed but no stream has ever been started', async () => {
+  it('succeeds when recordedStream() is listed but no stream has ever been started', async () => {
     const base = server({
-      capabilities: [cursorStream()],
+      capabilities: [recordedStream()],
     });
     const definition = base.assemble({ handlers: [] });
     const { engine } = await buildEngine(definition);
@@ -383,7 +383,6 @@ describe('purgeUser(core, userId, options) — broadcast stream content', () => 
       streamId: 's-broadcast',
       event: 'progress',
       payload: '{}',
-      kind: 'cursor',
       now,
       broadcast: true,
       creatorUserId: 'alice',
@@ -403,7 +402,6 @@ describe('purgeUser(core, userId, options) — broadcast stream content', () => 
       streamId: 's-broadcast',
       event: 'progress',
       payload: '{}',
-      kind: 'cursor',
       now,
       broadcast: true,
       creatorUserId: 'alice',

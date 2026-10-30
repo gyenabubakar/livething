@@ -13,7 +13,7 @@ import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 const TagBatchPayload = v.object({});
 
 const base = server({
-  hibernation: { enabled: true },
+  hibernation: true,
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     // `user` is consumed by `requireUsernameWithUserTag` from `_shared/upgrade.ts`;

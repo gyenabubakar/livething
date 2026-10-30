@@ -2,7 +2,7 @@ import { channels } from '~/channel/capability.ts';
 import { emits, server, t } from '~/index.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { expectTypeOf } from 'vitest';
-import type { UnlistedAdminContextMember } from './context.ts';
+import type { UnlistedConnectionlessContextMember } from './context.ts';
 
 // A top-level (app) assemble types its api ctx as the connectionless admin ctx:
 // engine-wide ops are present, per-connection members are not.
@@ -22,6 +22,13 @@ app.assemble({
 
     expectTypeOf(ctx).toHaveProperty('users');
     expectTypeOf(ctx.connectionCount).toEqualTypeOf<number>();
+
+    ctx.users.get('u1').broadcast('ping', { n: 1 });
+    expectTypeOf(ctx.users.get('u1').isOnline()).toEqualTypeOf<boolean>();
+    // @ts-expect-error — not an event this server emits
+    ctx.users.get('u1').broadcast('pong', { n: 1 });
+    // @ts-expect-error — wrong payload for a declared event
+    ctx.broadcast('ping', { n: '1' });
 
     // @ts-expect-error — no current connection on the admin ctx
     ctx.send;
@@ -72,5 +79,5 @@ full.assemble({
 });
 
 // The member list adapters read must stay in step with the context it describes:
-// adding a member to AdminContext without listing it fails here.
-expectTypeOf<UnlistedAdminContextMember>().toEqualTypeOf<never>();
+// adding a member to ConnectionlessContext without listing it fails here.
+expectTypeOf<UnlistedConnectionlessContextMember>().toEqualTypeOf<never>();

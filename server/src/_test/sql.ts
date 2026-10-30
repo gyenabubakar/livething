@@ -11,7 +11,7 @@ import type { KVProvider, SqlLimits, SQLProvider, SqlResult, StorageProvider } f
  * override `limits` to test a batching boundary at a small, readable count
  * instead of tens of thousands of rows.
  */
-export const NODE_SQLITE_LIMITS: SqlLimits = {
+const NODE_SQLITE_LIMITS: SqlLimits = {
   maxBoundParams: 32_766,
   maxStatementBytes: 1_000_000_000,
   maxValueBytes: 1_000_000_000,

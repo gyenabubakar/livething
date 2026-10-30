@@ -52,7 +52,6 @@ function createConnection(): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: 'c1',
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },

@@ -58,12 +58,24 @@ function messages(peer: Peer): Promise<Received[]> {
   });
 }
 
+/** The resume token the server sent this socket in `__resume__`. */
+async function resumeToken(peer: Peer): Promise<string> {
+  let token: unknown;
+  await expect
+    .poll(async () => {
+      token = (await messages(peer)).find((m) => m.event === '__resume__')?.payload?.token;
+      return token;
+    })
+    .toEqual(expect.any(String));
+  return String(token);
+}
+
 /** Ask for the full replay of one scope and return the `text` of every replayed frame. */
-async function replayTexts(peer: Peer, channel?: string): Promise<string[]> {
+async function replayTexts(peer: Peer, channel?: string, resume?: string[]): Promise<string[]> {
   const before = (await messages(peer)).length;
   await send(peer, {
     event: '__replay__',
-    payload: { lastKnownSeq: 0 },
+    payload: resume ? { lastKnownSeq: 0, resume } : { lastKnownSeq: 0 },
     metadata: channel ? { channel: { name: channel } } : null,
   });
   // A replay answer has no end marker, so wait a beat for every row to arrive.
@@ -103,6 +115,29 @@ test.describe('replay records only frames addressed to the requester', () => {
     const [bob, carol] = await openPeers(page, room, ['bob', 'carol']);
     expect(await replayTexts(bob!)).toEqual(['for-bob']);
     expect(await replayTexts(carol!)).toEqual([]);
+  });
+
+  test('a private send replays to the same user showing the old connection token, and to no one else', async ({
+    page,
+  }, testInfo) => {
+    const room = `recording-resume-${testInfo.testId}`;
+    await page.goto(`/replay?room=${room}`);
+    const [alice] = await openPeers(page, room, ['alice']);
+    const token = await resumeToken(alice!);
+    expect(token).toMatch(/^[0-9a-f-]{36}$/);
+
+    await send(alice!, { event: 'send-private', payload: { text: 'alice-only' } });
+    await expect
+      .poll(async () => (await messages(alice!)).some((m) => m.payload?.text === 'alice-only'))
+      .toBe(true);
+
+    const [aliceAgain] = await openPeers(page, room, ['alice']);
+    expect(await resumeToken(aliceAgain!)).not.toBe(token);
+    expect(await replayTexts(aliceAgain!)).toEqual([]);
+    expect(await replayTexts(aliceAgain!, undefined, [token])).toEqual(['alice-only']);
+
+    const [bob] = await openPeers(page, room, ['bob']);
+    expect(await replayTexts(bob!, undefined, [token])).toEqual([]);
   });
 });
 

@@ -1,5 +1,4 @@
 import { emits, error, errors, server, t } from '@livething/server';
-import { intercepts } from '@livething/server/intercepts';
 import { plugin } from '@livething/server/plugins';
 import { scheduled } from '@livething/server/scheduled';
 import * as v from 'valibot';
@@ -70,7 +69,6 @@ const h = server({
       'drizzle-query-dlq': null,
       'drizzle-task-with-data': { data: taskDataSchema },
     }),
-    intercepts(),
   ],
 });
 
@@ -129,16 +127,8 @@ h.intercept((ctx, frame) => {
   }
 });
 
-h.onOutgoing((ctx, frame) => {
+h.onOutgoing((ctx) => {
   if (ctx) getState(ctx.platform as Platform).outgoingCount++;
-  if (
-    frame.owner.kind === 'plugin' &&
-    frame.event === 'drizzle-ready' &&
-    frame.payload &&
-    typeof frame.payload === 'object'
-  ) {
-    return { ...(frame.payload as Record<string, unknown>), hooked: true };
-  }
 });
 
 const triggerDenied = h.on('trigger-plugin-denied', {

@@ -218,7 +218,7 @@ describe('disconnect() is a quiet no-op when already closed', () => {
 
 describe('disconnect() still cleans up primitives when already closed', () => {
   it('clears the buffer even if the socket is already closed', () => {
-    const socket = build(connect('wss://test'), buffering({ enabled: true }));
+    const socket = build(connect('wss://test'), buffering());
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006);
@@ -321,8 +321,7 @@ describe('idle timer armed during close must not fire during reconnect', () => {
       expect(socket.state.get()).toBe('reconnecting');
 
       // Advance past the idle timeout while the reconnect timer is still pending.
-      // Bug: the un-cleared idle timer fires disconnect(), setting state 'closed'.
-      // Correct behavior: state is 'reconnecting' (or 'open' if the retry fired).
+      // The idle timer must be cleared: state stays 'reconnecting' (or 'open' if the retry fired).
       vi.advanceTimersByTime(1500);
 
       expect(socket.state.get()).not.toBe('closed');

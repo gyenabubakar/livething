@@ -13,10 +13,17 @@ export type {
   UpgradeDecision,
 } from './types.ts';
 export { ADMIN_CONTEXT_MEMBERS } from '~/admin/context.ts';
-export type { ApiOf, MetaOf, ServerContract, ServerDefinition } from '~/server-definition.ts';
 export type {
-  AdminContext,
+  AdminOf,
+  ApiOf,
+  MetaOf,
+  ServerContract,
+  ServerDefinition,
+} from '~/server-definition.ts';
+export type {
+  ChannelBroadcastArgs,
   ConnectionInfo,
+  ConnectionlessContext,
   ConnectionRef,
   KVProvider,
   Logger,
@@ -27,5 +34,6 @@ export type {
   StorageProvider,
   TagRef,
   TimerProvider,
+  UserInfo,
   UserRef,
 } from '~/context.ts';

@@ -30,7 +30,6 @@ function createConnection(id = 'c1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -48,6 +47,7 @@ function createStreamRuntime() {
     buildConnectionContext: () => ({ id: 'c1', nudges: () => [] }),
     sendProtocolMessage: (_conn: RuntimeConnection, _opts: SendProtocolMessageOptions) => {},
     sendThroughPipeline: (_conn: RuntimeConnection, _opts: SendThroughPipelineOptions) => true,
+    openSharedSend: () => ({ deliver: () => true, finish() {} }),
     asyncContext: new AsyncLocalStorage<AsyncContextStore>(),
     persistAttachment: vi.fn(),
     livethingStampHooks: [],
@@ -55,7 +55,6 @@ function createStreamRuntime() {
     errorHooks: [] as never[],
     declaredErrorCodes: new Set<string>(),
     async handleRuntimeError() {},
-    async handleValidationError() {},
   };
 }
 
@@ -163,12 +162,12 @@ describe('stream stop signal (ctx.stream.signal)', () => {
     expect(seen.abortReason).toBe('aborted');
   });
 
-  it('fires the signal on server shutdown — including a detached keep-running stream', async () => {
+  it('fires the signal on server shutdown — including a detached recorded stream', async () => {
     const runtime = createStreamRuntime();
     const connection = createConnection();
     runtime.connections.set(connection.id, connection);
 
-    // A keep-running stream: a plain disconnect would detach (not abort) it, but
+    // A recorded stream: a plain disconnect would detach (not abort) it, but
     // shutdown must still fire its signal.
     const { stream, seen } = blockingStream();
     (stream.stream as Record<string, unknown>).broadcast = true;
@@ -181,13 +180,13 @@ describe('stream stop signal (ctx.stream.signal)', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    runtime.activeStreams.get('stream_1')!.onDisconnect = 'keep-running';
+    runtime.activeStreams.get('stream_1')!.durable = true;
 
     await handleShutdown({
       connections: runtime.connections,
       activeStreams: runtime.activeStreams,
       shutdownHooks: [],
-      createShutdownContext: () => ({}),
+      createContext: () => ({}),
       cancelActiveStreamsForConnection: () => Promise.resolve(),
       handleConnectionClose: () => Promise.resolve(),
       logger: runtime.logger,

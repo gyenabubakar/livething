@@ -38,7 +38,7 @@ describe('restorePersistentTags', () => {
     expect(errors).toHaveLength(1);
   });
 
-  it('propagates a config error (async schema) and keeps the stored tag (#1)', () => {
+  it('propagates a config error (async schema) and keeps the stored tag', () => {
     const sql = createTestSql();
     ensureTagsSchema(sql);
     insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });

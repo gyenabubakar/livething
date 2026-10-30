@@ -1,5 +1,3 @@
-import type { SQLProvider } from '~/context.ts';
-
 /**
  * How replay stores and resends messages for one scope.
  *
@@ -17,9 +15,9 @@ export type ReplayType = 'history' | 'snapshot';
 export type ReplayDurability = 'strict' | 'best-effort';
 
 /**
- * Retention limits for the built-in replay store.
+ * Retention limits for the replay store.
  */
-export interface ReplayRetention {
+interface ReplayRetention {
   /**
    * Maximum age, in milliseconds, for stored replay rows.
    *
@@ -138,8 +136,16 @@ export interface ReplayRow {
   payload: string;
   channel: string | null;
   channelFamily: string | null;
-  /** The one user the frame was addressed to; `null` when it went to everyone in its scope. */
+  /**
+   * The one user the frame was addressed to; `null` when it went to everyone in its scope, or to
+   * anonymous connections.
+   */
   userId: string | null;
+  /**
+   * JSON array of the resume tokens of the connections the frame was sent to, or `null` when it
+   * was not sent to chosen connections.
+   */
+  recipients: string | null;
   snapshotKey: string | null;
   createdAt: number;
   /** Forward-compat blob (see the metadata column); not yet read or written. */
@@ -150,9 +156,4 @@ export interface ReplayRow {
 export interface ReplayPayloadScope {
   channel: string | null;
   channelFamily: string | null;
-}
-
-/** @internal */
-export interface ReplayStorageAccess {
-  sql: SQLProvider;
 }

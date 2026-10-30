@@ -23,6 +23,21 @@ type OptsParameter = {
   channel?: string;
   channelFamily?: string | null;
 };
+/** Options for one server→client request sent to many connections. */
+export interface ServerRequestBroadcastOptions {
+  event: string;
+  payload: unknown;
+  target: InterceptPrimitive.OutgoingTarget;
+}
+
+/** One server→client request being sent to many connections. */
+export interface ServerRequestBroadcast {
+  /** Send one leg. Returns `false` when the connection is not live on this instance. */
+  send(connectionId: string, correlationId: string): boolean;
+  /** Show the finished send, with its recipient count, to the `onOutgoing` hooks. */
+  finish(): void;
+}
+
 type OptionsParameter = {
   channelName: string | null;
   channelFamily: string | null;
@@ -123,8 +138,8 @@ export interface EngineAccess {
    * Send a server→client request frame to one live connection.
    *
    * Routes through the normal outgoing pipeline with the given `correlationId`
-   * (and optional channel family) so plugin stampers and `onBeforeSend`/
-   * `onAfterSend` hooks still run. Returns `false` when the connection is no
+   * (and optional channel family) so `onOutgoing` and the sequence/dedup
+   * stampers still run. Returns `false` when the connection is no
    * longer live on this instance. Used by the `serverRequests()` capability for
    * `ctx.request(...)` and friends.
    *
@@ -133,16 +148,25 @@ export interface EngineAccess {
   sendServerRequest(connectionId: string, opts: OptsParameter): boolean;
 
   /**
-   * Observe or rewrite outgoing wire messages before they are serialized.
+   * Send one server→client request to many connections. The payload is checked,
+   * serialized and stamped once; each leg adds its own correlation id. Throws
+   * when the payload is invalid. Call `finish()` after the last leg so the
+   * `onOutgoing` hooks see the send once.
+   *
+   * @internal
+   */
+  openServerRequestBroadcast(opts: ServerRequestBroadcastOptions): ServerRequestBroadcast;
+
+  /**
+   * Watch each app frame once after it is sent. Protocol frames are not shown.
    *
    * The handler gets the context of the connection whose handler, intercept,
    * or `onConnect` hook is running (the sender, for a broadcast), or
-   * `undefined` when none is, and the `OutgoingFrame` (`event`, `payload`, `owner`).
-   * Return a value to replace the payload, or return nothing to keep the
-   * original. Same locked-event semantics as `onIncoming`.
+   * `undefined` when none is, and the `OutgoingFrame` (`event`, `payload`,
+   * `owner`, `channel`, `target`, `recipients`). It cannot change the frame.
    */
   onOutgoing(
-    handler: (ctx: unknown, frame: InterceptPrimitive.OutgoingFrame) => unknown | void,
+    handler: (ctx: unknown, frame: InterceptPrimitive.OutgoingFrame) => void | Promise<void>,
     owner?: InterceptPrimitive.FrameOwner,
   ): void;
 
@@ -157,27 +181,6 @@ export interface EngineAccess {
    * @internal
    */
   onLiveThingStamp(handler: (event: string) => Record<string, unknown>): void;
-
-  /**
-   * Observe one fully prepared outgoing wire message before it is sent.
-   *
-   * The framework metadata — `deliverySeq`, `messageId`, scope routing markers — lives
-   * on `message.livething` by this point. This is an internal observer hook for
-   * framework features such as replay storage; it is not a payload rewrite
-   * hook. Throw to stop the send.
-   *
-   * @internal
-   */
-  onBeforeSend(handler: (message: EngineRuntimeTypes.WireOutgoingMessage) => void): void;
-
-  /**
-   * Observe one fully prepared outgoing wire message after it is sent.
-   *
-   * Use this for best-effort side effects that should not block delivery.
-   */
-  onAfterSend(
-    handler: (message: EngineRuntimeTypes.WireOutgoingMessage) => void | Promise<void>,
-  ): void;
 
   /**
    * Observe one broadcast once, before any recipient is sent the frame. Runs
@@ -283,13 +286,6 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Observe validation failures for incoming payloads.
-   */
-  onValidationError(
-    handler: (ctx: unknown, event: string, validationError: unknown) => void | Promise<void>,
-  ): void;
-
-  /**
    * Handle one reserved protocol message sent by the client.
    *
    * Return `true` when this handler consumed the protocol message so later
@@ -372,8 +368,8 @@ export interface EngineAccess {
   /**
    * Read the set of channel keys that have explicit replay registered.
    *
-   * Server-level replay uses this to skip channels that registered their own
-   * `.replay(...)` or `.replay(false)` — that scope is already claimed.
+   * Server-level replay uses this to skip channels that set their own
+   * `replay: true` or `replay: false` — that scope is already claimed.
    */
   getReplayClaimedChannelKeys(): ReadonlySet<string>;
 
@@ -384,9 +380,6 @@ export interface EngineAccess {
 
   /** The adapter's SQL and key-value storage. Every adapter provides this. */
   readonly storage: ContextApi.StorageProvider;
-
-  /** The adapter's durable alarm implementation. Every adapter provides this. */
-  readonly timers: ContextApi.TimerProvider;
 
   /**
    * Read the scope object the engine keeps open while it is running one
@@ -409,14 +402,14 @@ export interface EngineAccess {
   } | null;
 
   /**
-   * Tell the engine whether this handler wants connection hibernation enabled.
+   * Tell the engine this server uses connection hibernation.
    *
    * Adapters can then ask the engine for that decision instead of inspecting
    * primitive instances directly.
    *
    * @internal
    */
-  setHibernationEnabled(enabled: boolean): void;
+  enableHibernation(): void;
 
   /**
    * Read whether connection hibernation is enabled. `keepalive()` reads this in
@@ -444,6 +437,24 @@ export interface EngineAccess {
    * @internal
    */
   setSequencePersistent(enabled: boolean): void;
+
+  /**
+   * Register the allocator `sequence()` stamps every outgoing frame's
+   * `deliverySeq` from, so other capabilities can take numbers from the same
+   * counter.
+   *
+   * @internal
+   */
+  setDeliverySeqAllocator(allocate: () => number): void;
+
+  /**
+   * Take the next delivery seq from the server's sequence counter, the same
+   * one live sends use. Inbox `backfill` uses it so a backfilled row can never
+   * share a seq with a live message. Throws when `sequence()` is not listed.
+   *
+   * @internal
+   */
+  allocateDeliverySeq(): number;
 
   /**
    * Register a set of declared tag groups of one kind. Used by the contract's
@@ -531,7 +542,7 @@ export interface EngineAccess {
   getPluginApiFactory(id: string): ((ctx: unknown) => unknown) | undefined;
 
   /**
-   * Register one new-model plugin lifecycle hook. Kept apart from the app's so
+   * Register one plugin lifecycle hook. Kept apart from the app's so
    * the engine can run them in onion order. Hooks land in install order,
    * which equals host capability (registration) order, so inbound kinds run the
    * list head-first and outbound kinds run it in reverse (LIFO). The handler is
@@ -540,21 +551,13 @@ export interface EngineAccess {
    * @internal
    */
   registerPluginLifecycle(
-    kind:
-      | 'init'
-      | 'connect'
-      | 'disconnect'
-      | 'shutdown'
-      | 'error'
-      | 'validationError'
-      | 'ping'
-      | 'pong',
+    kind: 'init' | 'connect' | 'disconnect' | 'shutdown' | 'error' | 'ping' | 'pong',
     pluginId: string,
     handler: (ctx: unknown, ...rest: unknown[]) => void | Promise<void>,
   ): void;
 
   /**
-   * Register one new-model plugin `upgrade` hook. Runs before the app's upgrade
+   * Register one plugin `upgrade` hook. Runs before the app's upgrade
    * (inbound onion); it may own `userId`, but the single-owner rule is
    * enforced at runtime. `baseId` is the id of the plugin's own `base`, so
    * `context.upgrade(pluginBase)` works inside the hook.
@@ -668,11 +671,6 @@ export interface EngineAccess {
   getScheduledRuns(): Map<string, ScheduledPrimitive.ScheduledRun>;
 
   /**
-   * Access the engine's in-memory dead-letter queue for scheduled runs.
-   */
-  getScheduledDlq(): Map<string, ScheduledPrimitive.ScheduledDeadLetter>;
-
-  /**
    * Queue one future scheduled task run. Backs `ctx.schedule(...)`, registered
    * by the `scheduled()` capability so a server without it has no such surface.
    *
@@ -702,19 +700,11 @@ export interface EngineAccess {
   getScheduledTasks(): Iterable<EngineCompileTypes.AnyScheduled>;
 
   /**
-   * Build the runtime task context object used when scheduled work runs.
-   *
-   * It is returned as `unknown` here on purpose so primitive setup code does
-   * not depend on a concrete engine context type.
-   */
-  createTaskContext(): unknown;
-
-  /**
    * Send one replay message to a live connection with explicit wire metadata.
    *
    * Primitives use this to resend history without re-running the normal
-   * outgoing pipeline. Unlike `rawSend`, this routes through the replay
-   * pipeline and applies `onBeforeSend` / `onAfterSend` hooks.
+   * outgoing pipeline. Unlike `rawSend`, the frame keeps the message's stored
+   * `deliverySeq` and `messageId`.
    */
   sendReplay(connectionId: string, options: OptionsParameter): void;
 
@@ -754,10 +744,9 @@ export interface EngineAccess {
   /**
    * Send one raw protocol event directly to a live connection by id.
    *
-   * This bypasses the normal typed ctx helpers and skips `onOutgoing` /
-   * `onBeforeSend` / `onAfterSend` hooks — used for protocol messages
-   * that should not go through the replay pipeline. For replay resends, use
-   * `sendReplay` instead.
+   * This bypasses the normal typed ctx helpers and skips `onOutgoing` — used
+   * for protocol messages that should not go through the replay pipeline. For
+   * replay resends, use `sendReplay` instead.
    */
   rawSend(connectionId: string, event: string, payload: unknown): void;
 
@@ -794,8 +783,7 @@ export interface EngineAccess {
 
   /**
    * Register the durable-stream dispatch surface (trigger, continue, cancel,
-   * schema). Set once when either `cursorStream()` or `recordedStream()` is
-   * listed.
+   * schema). Set once when `recordedStream()` is listed.
    *
    * @internal
    */
@@ -843,16 +831,6 @@ export interface EngineAccess {
   setScheduledService(service: FeatureSlots.ScheduledService): void;
 
   /**
-   * Register the intercept pipeline runner. Set by the `intercepts()` capability
-   * so a handler without it skips the intercept block and never bundles the
-   * pipeline. The `ctx.matches` / `ctx.unsafeCast` frame matchers are core and
-   * always present, so they are not registered here.
-   *
-   * @internal
-   */
-  setInterceptRuntime(runIntercepts: FeatureSlots.RunIntercepts): void;
-
-  /**
    * Register the channel subscribe/leave/kick runtime. Set by the `channels()`
    * capability so a handler without it never bundles the membership-protocol
    * engine or the subscribe/unsubscribe frame handlers.
@@ -881,8 +859,8 @@ export interface EngineAccess {
 
   /**
    * Register the last-seen surface so other capabilities (inbox backlog, channel
-   * member data) can read a member's last-seen timestamp and whether it is online
-   * now, without importing the last-seen runtime. Set by the `lastSeen()` capability.
+   * member data) can read a member's last-seen timestamp without importing the
+   * last-seen runtime. Set by the `lastSeen()` capability.
    *
    * @internal
    */
@@ -907,12 +885,24 @@ export interface EngineAccess {
 
   /**
    * Whether any live connection on this instance currently belongs to the
-   * given user id. Read by inbox backlog and the last-seen surface to report
-   * a member's online state without scanning the connection map themselves.
+   * given user id. Read by inbox backlog to report a member's online state, and
+   * by the last-seen activity stamp to drop a user who left this instance.
    *
    * @internal
    */
   isUserOnline(userId: string): boolean;
+
+  /**
+   * The ids of one user's live connections on this instance that are in the
+   * given channel. Read by inbox `backfill` to send the new rows straight away.
+   *
+   * @internal
+   */
+  userConnectionIdsInChannel(
+    userId: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): string[];
 
   /**
    * The identity of one live connection by id, or `undefined` when no such

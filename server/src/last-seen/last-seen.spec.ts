@@ -160,12 +160,58 @@ describe('lastSeen activity mode', () => {
 
     vi.restoreAllMocks();
   });
+
+  it("drops a user's throttle once their last connection closes, so a quick reconnect stamps again", () => {
+    const h = harness({ track: 'activity', throttleMs: 1000 });
+    const activity = h.messageActivityHooks[0]!;
+    const now = vi.spyOn(Date, 'now');
+
+    h.userIdByConnection.set('c1', 'alice');
+    now.mockReturnValue(0);
+    activity('c1');
+
+    h.userIdByConnection.delete('c1');
+    now.mockReturnValue(100);
+    for (const hook of h.disconnectHooks) hook(ctxFor('alice'));
+
+    h.online.add('alice');
+    h.userIdByConnection.set('c2', 'alice');
+    now.mockReturnValue(200);
+    h.connectHooks[0]!(ctxFor('alice'));
+
+    now.mockReturnValue(300);
+    activity('c2');
+    expect(readLastSeen(h.sql, 'alice')).toBe(300);
+
+    vi.restoreAllMocks();
+  });
+
+  it("keeps a user's throttle while another of their connections is still open", () => {
+    const h = harness({ track: 'activity', throttleMs: 1000 });
+    const activity = h.messageActivityHooks[0]!;
+    const now = vi.spyOn(Date, 'now');
+
+    h.online.add('alice');
+    h.userIdByConnection.set('c1', 'alice');
+    h.userIdByConnection.set('c2', 'alice');
+    now.mockReturnValue(0);
+    activity('c1');
+
+    h.userIdByConnection.delete('c1');
+    now.mockReturnValue(100);
+    for (const hook of h.disconnectHooks) hook(ctxFor('alice'));
+
+    now.mockReturnValue(300);
+    activity('c2');
+    expect(readLastSeen(h.sql, 'alice')).toBe(100);
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe('ctx.lastSeen surface', () => {
-  it('exposes at / atMany / online', () => {
+  it('exposes at / atMany', () => {
     const h = harness();
-    h.online.add('alice');
     stampLastSeen(h.sql, { userId: 'alice', now: 7 });
     stampLastSeen(h.sql, { userId: 'bob', now: 8 });
 
@@ -173,7 +219,6 @@ describe('ctx.lastSeen surface', () => {
       lastSeen: {
         at(userId: string): number | null;
         atMany(userIds: string[]): Map<string, number>;
-        online(userId: string): boolean;
       };
     };
 
@@ -183,18 +228,14 @@ describe('ctx.lastSeen surface', () => {
       ['alice', 7],
       ['bob', 8],
     ]);
-    expect(surface.lastSeen.online('alice')).toBe(true);
-    expect(surface.lastSeen.online('bob')).toBe(false);
+    expect('online' in surface.lastSeen).toBe(false);
   });
 
-  it('feeds the lastSeenService slot with durable at() and in-memory online()', () => {
+  it('feeds the lastSeenService slot with a durable at()', () => {
     const h = harness();
-    h.online.add('alice');
     stampLastSeen(h.sql, { userId: 'alice', now: 55 });
 
     expect(h.service).toBeDefined();
     expect(h.service!.at('alice')).toBe(55);
-    expect(h.service!.online('alice')).toBe(true);
-    expect(h.service!.online('bob')).toBe(false);
   });
 });

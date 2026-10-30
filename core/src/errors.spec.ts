@@ -517,7 +517,7 @@ describe('StreamAborted', () => {
     'not-found',
     'hibernation-wake',
     'unsubscribed',
-    'cursor-invalid',
+    'interrupted',
     'aborted',
   ] as const;
 
@@ -726,7 +726,7 @@ describe('error() reserved-code guard', () => {
     expect(() => error('timeout')).toThrow(/reserved/);
     expect(() => error('disconnected')).toThrow(/reserved/);
     expect(() => error('dropped')).toThrow(/reserved/);
-    expect(() => error('defer-exhausted')).toThrow(/reserved/);
+    expect(() => error('not-a-member')).toThrow(/reserved/);
   });
 
   it('allows a non-reserved code', () => {

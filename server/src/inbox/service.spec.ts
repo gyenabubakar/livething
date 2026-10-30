@@ -45,7 +45,7 @@ function buildInboxEngine(storage = createTestStorage()): Engine {
   const base = server({
     capabilities: [channels(), sequence({ persist: true }), dedup()],
   });
-  const chat = base.channel('chat', { capabilities: [inbox()] });
+  const chat = base.channel('chat', { membership: 'persistent', capabilities: [inbox()] });
   const definition = base.assemble({ handlers: [chat] });
   return buildEngine(definition, storage);
 }
@@ -144,7 +144,9 @@ describe('inbox runtime install', () => {
         const base = server({
           capabilities: [channels(), sequence({ persist: true }), dedup()],
         });
-        return base.assemble({ handlers: [base.channel('chat', { capabilities: [inbox()] })] });
+        return base.assemble({
+          handlers: [base.channel('chat', { membership: 'persistent', capabilities: [inbox()] })],
+        });
       })(),
       storage,
     );
@@ -210,7 +212,9 @@ describe('inbox runtime install', () => {
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const engine = buildEngine(
-      base.assemble({ handlers: [base.channel('chat', { capabilities: [inbox()] })] }),
+      base.assemble({
+        handlers: [base.channel('chat', { membership: 'persistent', capabilities: [inbox()] })],
+      }),
       storage,
     );
     await engine.initialize();

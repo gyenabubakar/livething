@@ -2,7 +2,7 @@ import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { Disconnect } from '@livething/server/errors';
-import { cursorStream } from '@livething/server/streams';
+import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { allowAnonymous, requireUsername } from '../_shared/upgrade.ts';
@@ -24,7 +24,7 @@ const base = server({
   capabilities: [
     channels(),
     clientRequests(),
-    cursorStream(),
+    recordedStream(),
     emits({
       'true-leave': t<v.InferOutput<typeof TrueLeavePayload>>(),
       // Test support: a per-subscribe-flow ack so a test can count how many times
@@ -40,18 +40,7 @@ const handleRemoveMember = base.on('remove-member', {
   async run(ctx, input) {
     await ctx.channels
       .get('archive-room')
-      .kick(ctx.users.get(input.identity).ref(), { reason: 'removed', revoke: true });
-  },
-});
-
-// A kick that keeps the membership: the user is removed now and rejoins on
-// their next connection.
-const handleKickMember = base.on('kick-member', {
-  input: RemoveMemberPayload,
-  async run(ctx, input) {
-    await ctx.channels
-      .get('archive-room')
-      .kick(ctx.users.get(input.identity).ref(), { reason: 'kicked' });
+      .kick(ctx.users.get(input.identity).ref(), { reason: 'removed' });
   },
 });
 
@@ -95,7 +84,7 @@ const handleReadExecCount = base.request('read-exec-count', {
 // Anonymous connections (`upgrade` returned no `userId`) cannot continue a
 // stream on reconnect — they have no stable id to key the reconnect against. The
 // engine rejects the start with `DurableStreamRequiresUser` before this runs.
-const handleAnonStream = base.cursorStream('anon-stream', {
+const handleAnonStream = base.recordedStream('anon-stream', {
   input: v.object({}),
   chunk: t<{ n: number }>(),
   async *run() {
@@ -104,6 +93,7 @@ const handleAnonStream = base.cursorStream('anon-stream', {
 });
 
 const archiveRoom = base.channel('archive-room', {
+  membership: 'persistent',
   capabilities: [
     emits({
       'room-message': t<v.InferOutput<typeof RoomMessagePayload>>(),
@@ -169,6 +159,7 @@ const typingIndicator = base.channel('typing-indicator', {
 // commit is NOT re-run on auto-rejoin: a returning member keeps its seat even
 // when another live member now fills the cap.
 const capacityRoom = base.channel('capacity-room', {
+  membership: 'persistent',
   capabilities: [emits({ 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() })],
   commit(ctx) {
     // Excludes self (membership is not written yet), so the first member sees 0.
@@ -181,7 +172,6 @@ const capacityRoom = base.channel('capacity-room', {
 export const persistenceDefinition = base.assemble({
   handlers: [
     handleRemoveMember,
-    handleKickMember,
     handleBan,
     handleServerDrop,
     handleRecordExec,

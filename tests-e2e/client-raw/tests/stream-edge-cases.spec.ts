@@ -41,69 +41,6 @@ test.describe('stream edge cases', () => {
     expect(err.payload.code).toBe('internal-error');
   });
 
-  test('ctx.stream.attempt on a broadcast cursor creator-continue equals 2 on the second run', async ({
-    page,
-  }, testInfo) => {
-    const room = `sec-${testInfo.testId}-${Date.now()}`;
-    await openRig(page, '/stream-durable-broadcast');
-    const a = await connect(page, {
-      path: '/ws/stream-durable-broadcast',
-      username: 'alice',
-      room: room,
-    });
-    await send(page, a, {
-      event: '__subscribe__',
-      payload: null,
-      metadata: { channel: { name: 'rooms' } },
-    });
-    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
-
-    // Unique per run: this stream sleeps 60s and never ends, so a fixed id
-    // would leave an active durable row behind that collides on the next run.
-    const streamId = `attempt-broadcast-${Date.now()}`;
-    await send(page, a, {
-      event: 'attempt-broadcast',
-      payload: {},
-      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
-    });
-    const firstChunk = await waitForFrame(page, a, {
-      match: (f) => f.event === 'attempt-broadcast' && typeof f.payload?.attempt === 'number',
-    });
-    expect(firstChunk.payload.attempt).toBe(1);
-
-    // Drop + reconnect as the same identity (creator).
-    await closeSocket(page, a);
-    await page.waitForTimeout(150);
-    const b = await connect(page, {
-      path: '/ws/stream-durable-broadcast',
-      username: 'alice',
-      room: room,
-    });
-    await send(page, b, {
-      event: '__subscribe__',
-      payload: null,
-      metadata: { channel: { name: 'rooms' } },
-    });
-    await waitForFrame(page, b, { match: (f) => f.event === '__subscribeOk__' });
-
-    await send(page, b, {
-      event: '__continueStream__',
-      payload: { lastKnownSeq: 1 },
-      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
-    });
-
-    // Cursor is live (no replay): the creator-continue re-runs the generator
-    // from the latest cursor with attempt=2, producing a brand-new chunk.
-    const next = await waitForFrame(page, b, {
-      match: (f) =>
-        f.event === 'attempt-broadcast' &&
-        typeof f.payload?.attempt === 'number' &&
-        f.metadata?.stream?.seq !== 1,
-      timeoutMs: 10_000,
-    });
-    expect(next.payload.attempt).toBe(2);
-  });
-
   test('a supplied metadata.stream.id pins a channel-scoped durable stream continue key', async ({
     page,
   }, testInfo) => {

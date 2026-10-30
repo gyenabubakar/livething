@@ -23,6 +23,3 @@ export interface ServerRequestsTypeFn extends TypeFn {
       }
     : {};
 }
-
-/** Options for `serverRequests()`. */
-export interface ServerRequestsOptions {}

@@ -5,7 +5,7 @@
  * discriminator that marks plain streams ephemeral and durable streams
  * persistent (gap 8).
  */
-import { t } from '~/_api/index.ts';
+import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
@@ -13,7 +13,6 @@ import { emits } from '~/emits/emits.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
@@ -88,7 +87,7 @@ expectTypeOf<SelectedClient['channels']['selected']['outgoing']>().not.toHavePro
 // Gap 8 — stream `kind` discriminator.
 // ---------------------------------------------------------------------------
 const streamBase = server({
-  capabilities: [emits({ noop: t<{}>() }), stream(), cursorStream(), recordedStream()],
+  capabilities: [emits({ noop: t<{}>() }), stream(), recordedStream()],
 });
 
 const plainStream = streamBase.stream('plain', {
@@ -96,35 +95,22 @@ const plainStream = streamBase.stream('plain', {
   run: async function* () {},
 });
 
-const cursor = streamBase.cursorStream('cursor', {
+const recorded = streamBase.recordedStream('record', {
   chunk: t<{ tick: number }>(),
-  cursor: t<{ at: number }>(),
   nudges: { faster: v.object({ by: v.number() }) },
   run: async function* () {},
 });
 
-const recorded = streamBase.recordedStream('record', {
-  chunk: t<{ tick: number }>(),
-  run: async function* () {},
-});
-
-const streamDef = streamBase.assemble({ handlers: [plainStream, cursor, recorded] });
+const streamDef = streamBase.assemble({ handlers: [plainStream, recorded] });
 type StreamClient = InferClient<typeof streamDef>;
 
-// A plain stream is ephemeral and carries no cursor (tidied away).
+// A plain stream is ephemeral, and an empty nudge map is tidied away.
 expectTypeOf<StreamClient['streams']['plain']['kind']>().toEqualTypeOf<'ephemeral'>();
-expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('cursor');
 expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('nudges');
 
-// A cursor stream is persistent and keeps its nudges. Its cursor is
-// server-only, so the client entry has no cursor even when one is declared.
-expectTypeOf<StreamClient['streams']['cursor']['kind']>().toEqualTypeOf<'persistent'>();
-expectTypeOf<StreamClient['streams']['cursor']>().not.toHaveProperty('cursor');
-expectTypeOf<StreamClient['streams']['cursor']['nudges']>().toHaveProperty('faster');
-
-// A recorded stream is persistent and has no cursor either.
+// A recorded stream is persistent and keeps its nudges.
 expectTypeOf<StreamClient['streams']['record']['kind']>().toEqualTypeOf<'persistent'>();
-expectTypeOf<StreamClient['streams']['record']>().not.toHaveProperty('cursor');
+expectTypeOf<StreamClient['streams']['record']['nudges']>().toHaveProperty('faster');
 
 // ---------------------------------------------------------------------------
 // Gap — a channel's own `capabilities` (`inbox()` / `readReceipts()`) must

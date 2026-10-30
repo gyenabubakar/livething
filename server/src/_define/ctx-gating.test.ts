@@ -32,8 +32,6 @@ describe('capability-owned, TS-gated ctx extensions', () => {
         ctx.plugin;
         // @ts-expect-error ctx.request needs the serverRequests() capability
         ctx.request;
-        // @ts-expect-error ctx.broadcastRequest needs the serverRequests() capability
-        ctx.broadcastRequest;
         expectTypeOf(ctx.connection.id).toEqualTypeOf<string>();
       },
     });
@@ -69,14 +67,10 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
   });
 
-  it('adds broadcastRequest on every fan-out surface for every declared request', () => {
+  it('adds user request arms that resolve the first answer and who gave it', () => {
     const base = server({
       capabilities: [
         serverRequests({
-          'ask-permission': {
-            out: t<{ action: string }>(),
-            in: v.object({ allowed: v.boolean() }),
-          },
           volunteer: { out: t<{ turn: number }>(), in: v.object({ ready: v.boolean() }) },
         }),
         channels(),
@@ -85,43 +79,16 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
     base.on('x', {
       run(ctx) {
-        expectTypeOf(ctx.broadcastRequest).toBeFunction();
-        const result = ctx.broadcastRequest('volunteer', { turn: 5 });
-        expectTypeOf(result).resolves.toMatchTypeOf<{
+        expectTypeOf(ctx.users.get('u1').request('volunteer', { turn: 5 })).resolves.toMatchTypeOf<{
           response: { ready: boolean };
           from: ConnectionRef;
         }>();
-        ctx.broadcastRequest('ask-permission', { action: 'x' });
         // @ts-expect-error wrong payload shape for 'volunteer'
-        ctx.broadcastRequest('volunteer', { turn: 'soon' });
-
-        const lobby = ctx.channels.get('lobby');
-        expectTypeOf(lobby.broadcastRequest).toBeFunction();
-        expectTypeOf(lobby.broadcastRequest('volunteer', { turn: 1 })).resolves.toMatchTypeOf<{
-          response: { ready: boolean };
-        }>();
-        // @ts-expect-error a channel handle has no targeted request verb
-        lobby.request;
-
-        const group = ctx.tags.ephemeral('role');
-        expectTypeOf(group.broadcastRequest).toBeFunction();
-        expectTypeOf(group.ref('admin').broadcastRequest).toBeFunction();
-        // @ts-expect-error a tag group is broadcast-only, no targeted request
-        group.request;
-      },
-    });
-  });
-
-  it('omits broadcastRequest on channel/tag handles without serverRequests()', () => {
-    const base = server({
-      capabilities: [channels(), tags((ephemeral) => [ephemeral('role', t<string>())])],
-    });
-    base.on('x', {
-      run(ctx) {
-        // @ts-expect-error broadcastRequest needs the serverRequests() capability
-        ctx.channels.get('lobby').broadcastRequest;
-        // @ts-expect-error broadcastRequest needs the serverRequests() capability
-        ctx.tags.ephemeral('role').broadcastRequest;
+        void ctx.user.request('volunteer', { turn: 'soon' });
+        // @ts-expect-error a channel lookup handle has no request verb
+        ctx.channels.get('lobby').request;
+        // @ts-expect-error a tag group has no request verb
+        ctx.tags.ephemeral('role').request;
       },
     });
   });

@@ -74,12 +74,6 @@ describe('StreamNudgesClient — streams', () => {
     expectTypeOf<StreamNudgesClient['streams']['start-nudge-stream']>().toHaveProperty('nudges');
   });
 
-  it('start-nudge-stream has no cursor (basic stream)', () => {
-    expectTypeOf<StreamNudgesClient['streams']['start-nudge-stream']>().not.toHaveProperty(
-      'cursor',
-    );
-  });
-
   it('start-nudge-stream has no broadcast key', () => {
     expectTypeOf<StreamNudgesClient['streams']['start-nudge-stream']>().not.toHaveProperty(
       'broadcast',

@@ -2,16 +2,14 @@ import { Block, LiveThingError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
-import { debug } from '~/primitives/debug.ts';
 import { intercept } from '~/primitives/intercept.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
-import { quality } from '~/primitives/quality.ts';
-import { query } from '~/primitives/query.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { serialization } from '~/primitives/serialization/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
+import type { MockInstance } from 'vitest';
 
 interface TestContract {
   incoming: { message: { text: string }; ad: { id: string } };
@@ -110,7 +108,7 @@ describe('error routing', () => {
 
 describe('buffering', () => {
   it('queues sends while disconnected and flushes on reconnect', () => {
-    const socket = client<TestContract>()(connect('wss://test'), buffering({ enabled: true }));
+    const socket = client<TestContract>()(connect('wss://test'), buffering());
     expect(socket.send('typing', { channelId: 'a' })).toBe(true);
     socket.connect();
     const ws = MockWebSocket.last();
@@ -124,36 +122,53 @@ describe('buffering', () => {
   });
 });
 
-describe('query params', () => {
-  it('appends params to the URL on connect', async () => {
+describe('debug log redacts the connection URL', () => {
+  function connectLogLines(spy: MockInstance<typeof console.log>): string[] {
+    return spy.mock.calls
+      .map((args) => args.join(' '))
+      .filter((line) => line.includes('connecting to'));
+  }
+
+  it('drops a token from the connect log', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const socket = client<TestContract>()(
-      connect('wss://test'),
-      query(() => ({ token: 'abc', client: 'web' })),
+      connect(async () => 'wss://test/huddle?token=SECRET-TOKEN-123'),
     );
+
+    socket.setDebug(true);
     socket.connect();
     await Promise.resolve();
-    const ws = MockWebSocket.last();
-    expect(ws.url).toContain('token=abc');
+    const lines = connectLogLines(log);
+    log.mockRestore();
 
-    expect(ws.url).toContain('client=web');
+    expect(MockWebSocket.last().url).toContain('token=SECRET-TOKEN-123');
+    expect(lines).toEqual(['[livething] connecting to wss://test/huddle']);
   });
 
-  it('awaits a thenable that is not instanceof Promise (cross-realm) (#23)', async () => {
-    const foreign = {
-      then(onFulfilled: (value: Record<string, string>) => unknown) {
-        return Promise.resolve(onFulfilled({ token: 'xrealm' }));
-      },
-    };
-
-    expect(foreign instanceof Promise).toBe(false);
-
+  it('drops userinfo and the hash from the connect log', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const socket = client<TestContract>()(
-      connect('wss://test'),
-      query(() => foreign as unknown as Record<string, string>),
+      connect('wss://huddle-bot:hunter2@test/huddle?token=abc#frag'),
     );
+    socket.setDebug(true);
     socket.connect();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(MockWebSocket.last().url).toContain('token=xrealm');
+    const lines = connectLogLines(log);
+
+    log.mockRestore();
+
+    expect(lines).toEqual(['[livething] connecting to wss://test/huddle']);
+  });
+
+  it('drops the query string from a relative URL', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const socket = client<TestContract>()(connect('/huddle?token=abc'));
+    socket.setDebug(true);
+    socket.connect();
+    const lines = connectLogLines(log);
+
+    log.mockRestore();
+
+    expect(lines).toEqual(['[livething] connecting to /huddle']);
   });
 });
 
@@ -244,17 +259,6 @@ describe('serialization (binary)', () => {
 
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
     expect(handler).not.toHaveBeenCalled();
-  });
-});
-
-describe('quality + debug compose without error', () => {
-  it('builds with quality and debug primitives', () => {
-    const socket = client<TestContract>()(
-      connect('wss://test'),
-      quality({ thresholds: { excellent: 10, good: 20, degraded: 30 } }),
-      debug(false),
-    );
-    expect(socket.state.get()).toBe('closed');
   });
 });
 

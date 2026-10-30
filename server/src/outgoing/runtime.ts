@@ -6,13 +6,12 @@ import * as Protocol from '~/_engine/runtime/protocol.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
-import { isTranslatorConfigError } from '~/translation/error.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
+import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 
-type RunOutgoingHooksMessageParameter = { event: string; payload: unknown };
 type BroadcastToChannelOptsParameter = {
   channelName: string;
   channelFamily: string | null;
@@ -43,12 +42,6 @@ export interface OutgoingRuntime {
    */
   livethingStampHooks: readonly ((event: string) => Record<string, unknown>)[];
 
-  beforeSendHooks: readonly ((message: EngineRuntimeTypes.WireOutgoingMessage) => void)[];
-
-  afterSendHooks: readonly ((
-    message: EngineRuntimeTypes.WireOutgoingMessage,
-  ) => void | Promise<void>)[];
-
   /** Run once per broadcast, before the recipient loop — even when nobody is live. */
   beforeBroadcastHooks?: readonly ((message: EngineRuntimeTypes.WireBroadcastMessage) => void)[];
 
@@ -70,7 +63,7 @@ export interface OutgoingRuntime {
  *
  * Real protocol events — the fixed set the engine sends, like `__memberJoin__`
  * — are allowed. An unknown `__x__` name is not, so it cannot slip past the
- * scope check by looking protocol-shaped. A new-model plugin's namespaced
+ * scope check by looking protocol-shaped. A plugin's namespaced
  * `emits()` lives in the normal outgoing/channel maps, so it is found by the
  * scope checks below.
  */
@@ -89,7 +82,6 @@ export function isDeclaredOutgoingEvent(
     return (
       (channel?.outgoing.has(event) ?? false) ||
       (channel?.streams.has(event) ?? false) ||
-      (channel?.cursorStreams.has(event) ?? false) ||
       (channel?.recordedStreams.has(event) ?? false)
     );
   }
@@ -97,35 +89,77 @@ export function isDeclaredOutgoingEvent(
   return (
     compiled.outgoing.has(event) ||
     compiled.streams.has(event) ||
-    compiled.cursorStreams.has(event) ||
     compiled.recordedStreams.has(event)
   );
 }
 
-/** Run the owner-tagged outgoing hooks and return the (possibly rewritten) message. */
-function runOutgoingHooks(
-  outgoingHooks: OutgoingRuntime['outgoingHooks'],
-  message: RunOutgoingHooksMessageParameter,
-): { event: string; payload: unknown } {
-  let current = message;
+/** One finished send, as the `onOutgoing` hooks see it. */
+interface SentFrame {
+  event: string;
+  payload: unknown;
+  routing: EngineRuntimeTypes.RoutingTarget | undefined;
+  target: InterceptPrimitive.OutgoingTarget;
+  recipients: number;
+}
 
-  // Owner is derived from the event name, which the hooks cannot rewrite.
-  const owner = frameOwner(current.event);
+/**
+ * Show one finished send to every `onOutgoing` hook. Protocol frames are not
+ * shown. A hook only watches: what it throws, or a promise it returns that
+ * rejects, is logged and never reaches the sender — except a configuration
+ * error, which is rethrown so the developer sees it.
+ */
+function notifyOutgoing(
+  runtime: Pick<OutgoingRuntime, 'outgoingHooks' | 'logger' | 'trackBackgroundWork'>,
+  sent: SentFrame,
+): void {
+  if (runtime.outgoingHooks.length === 0 || Protocol.isProtocolEventName(sent.event)) return;
+
+  const owner = frameOwner(sent.event);
   // A plugin sees its own frames with the short name it declared.
-  const parsed = parsePluginWireName(current.event);
-  for (const { handler, owner: hookOwner } of outgoingHooks) {
-    const ownFrame =
-      hookOwner.kind === 'plugin' && owner.kind === 'plugin' && hookOwner.id === owner.id;
-    const event = ownFrame && parsed ? parsed.name : current.event;
-    // The hook sees a frame, not a connection's ctx. The sender's call context
-    // would name the wrong connection when one connection broadcasts to another.
-    const next = runOutsideCall(() => handler({ event, payload: current.payload, owner }));
-    if (next !== undefined) current = { event: current.event, payload: next };
+  const parsed = parsePluginWireName(sent.event);
+  const channel = sent.routing?.channel
+    ? { name: sent.routing.channel, family: sent.routing.channelFamily ?? null }
+    : null;
+
+  invokeAfterHooks(runtime, {
+    hooks: runtime.outgoingHooks.map((hook) => {
+      const ownFrame =
+        hook.owner.kind === 'plugin' && owner.kind === 'plugin' && hook.owner.id === owner.id;
+      const frame: InterceptPrimitive.OutgoingFrame = {
+        event: ownFrame && parsed ? parsed.name : sent.event,
+        payload: sent.payload,
+        owner,
+        channel,
+        target: sent.target,
+        recipients: sent.recipients,
+      };
+
+      // The hook sees a frame, not the call context of the code that sent it.
+      return () => runOutsideCall(() => hook.handler(frame));
+    }),
+    message: undefined,
+    failure: '[livething] onOutgoing hook failed',
+    rethrowConfigErrors: true,
+  });
+}
+
+/** Who a channel recipient selector addresses, for the `onOutgoing` hooks. */
+export function outgoingTargetOf(
+  to: PublicApi.ChannelRecipient,
+): InterceptPrimitive.OutgoingTarget {
+  switch (to.__livething) {
+    case 'connection-ref':
+      return { kind: 'connection', id: to.id };
+
+    case 'user-ref':
+      return { kind: 'user', id: to.id };
+
+    case 'tag-ref':
+      return { kind: 'tag', tagKind: to.kind, group: to.group, key: to.key };
+
+    case 'group-handle':
+      return { kind: 'tag', tagKind: to.kind, group: to.group };
   }
-
-  assertPayloadRecord(current.event, current.payload);
-
-  return current;
 }
 
 /**
@@ -174,11 +208,13 @@ function applyLiveThingStampers(
   }
 }
 
-/** Fan out after-send (or after-broadcast) hooks and log asynchronous failures. */
+/** Run hooks that only watch, and log their failures instead of throwing. */
 interface AfterHooksRun<TMessage> {
   hooks: readonly ((message: TMessage) => void | Promise<void>)[];
   message: TMessage;
   failure: string;
+  /** Rethrow a configuration error a hook throws, so the developer sees it. */
+  rethrowConfigErrors?: boolean;
 }
 
 function invokeAfterHooks<TMessage>(
@@ -199,25 +235,15 @@ function invokeAfterHooks<TMessage>(
         });
       }
     } catch (error) {
+      if (run.rethrowConfigErrors) rethrowIfConfigError(error);
       logger.error(failure, { error });
     }
   }
 }
 
-function invokeAfterSendHooks(
-  runtime: Pick<OutgoingRuntime, 'afterSendHooks' | 'logger' | 'trackBackgroundWork'>,
-  wireMessage: EngineRuntimeTypes.WireOutgoingMessage,
-): void {
-  invokeAfterHooks(runtime, {
-    hooks: runtime.afterSendHooks,
-    message: wireMessage,
-    failure: '[livething] after-send hook failed',
-  });
-}
-
 /**
- * Push one outgoing event through plugin hooks, declaration checks, and
- * `__livething` metadata before sending it to a connection.
+ * Check one outgoing event, add its `__livething` metadata, send it to one
+ * connection, then show it to the `onOutgoing` hooks.
  */
 export interface SendThroughPipelineOptions {
   routing: EngineRuntimeTypes.RoutingTarget | undefined;
@@ -232,87 +258,75 @@ export function sendThroughPipeline(
 ): boolean {
   const { routing, event } = opts;
   const isRequestResponse = !!routing?.correlationId;
-  // A handler that never calls ctx.respond() answers void. Hooks still see the
-  // frame — they see every server→client frame — but an empty payload is left
+  // A handler that never calls ctx.respond() answers void. Its payload is left
   // off the wire entirely so the caller resolves with nothing rather than `{}`.
   const isVoidResponse = opts.payload === undefined && isRequestResponse;
-  const payload = isVoidResponse ? {} : opts.payload;
-  assertPayloadRecord(event, payload);
+  if (!isVoidResponse) assertPayloadRecord(event, opts.payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, { event, payload });
-
-  if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
-    throw new Error(
-      `[livething] Outgoing event "${message.event}" was not declared in the active scope.`,
-    );
+  if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, event, routing)) {
+    throw new Error(`[livething] Outgoing event "${event}" was not declared in the active scope.`);
   }
 
   // Widen to a loose bag here: from this point plugin stampers contribute
   // arbitrary, open-ended `__livething` keys that no fixed type can enumerate.
   const livething = buildLiveThing(routing) as Record<string, unknown>;
-  applyLiveThingStampers(runtime.livethingStampHooks, message.event, livething);
+  applyLiveThingStampers(runtime.livethingStampHooks, event, livething);
 
-  const finalPayload = message.payload as Record<string, unknown>;
-  // A hook may answer a void acknowledgement with real data; only a still-empty
-  // one is left off the wire.
-  const payloadJson =
-    isVoidResponse && Object.keys(finalPayload).length === 0
-      ? undefined
-      : serializePayload(message.event, finalPayload);
+  const wirePayload = isVoidResponse
+    ? null
+    : (JSON.parse(serializePayload(event, opts.payload)) as Record<string, unknown>);
 
-  const hasSendHooks = runtime.beforeSendHooks.length > 0 || runtime.afterSendHooks.length > 0;
-  const wireMessage: EngineRuntimeTypes.WireOutgoingMessage = {
-    connectionId: connection.id,
-    event: message.event,
-    // Hooks (inbox, replay) get the payload as sent, so a toJSON() runs once and what they
-    // store matches the frame.
-    payload: hasSendHooks && payloadJson !== undefined ? JSON.parse(payloadJson) : finalPayload,
-    livething,
-    meta: connection.meta,
-  };
-
-  for (const hook of runtime.beforeSendHooks) {
-    hook(wireMessage);
+  let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
+  if (wirePayload && !isRequestResponse && hasBroadcastHooks(runtime)) {
+    const recipients = recipientsOf([connection]);
+    if (recipients.length > 0) {
+      recorded = { event, payload: wirePayload, livething, recipients };
+      if (!tryBeforeBroadcastHooks(runtime, recorded, { event, connectionId: connection.id })) {
+        return false;
+      }
+    }
   }
 
-  const sent = connection.descriptor.send(
-    payloadJson === undefined
-      ? serializeWireFrame(message.event, null, livething)
-      : serializeWireFrame(message.event, JSON.parse(payloadJson), livething),
-  );
-  if (sent === false) return false;
+  const sent =
+    connection.descriptor.send(serializeWireFrame(event, wirePayload, livething)) !== false;
+  if (recorded) runAfterBroadcastHooks(runtime, recorded);
 
-  invokeAfterSendHooks(runtime, wireMessage);
+  notifyOutgoing(runtime, {
+    event,
+    payload: wirePayload,
+    routing,
+    target: { kind: 'connection', id: connection.id },
+    recipients: sent ? 1 : 0,
+  });
 
-  return true;
+  return sent;
 }
 
 interface PreparedBroadcast {
   event: string;
 
-  eventJson: string;
-
-  payloadJson: string;
-
   finalPayload: Record<string, unknown>;
 
   baseLiveThing: Record<string, unknown>;
 
-  needsWireMessage: boolean;
-
   /**
-   * The whole frame string when it is identical for every recipient — set
-   * whenever no `beforeSend` hook can rewrite `__livething` per connection. The
-   * sequence/dedup stampers already ran once into `baseLiveThing`, so every
-   * recipient shares these bytes and `sendPrepared` skips re-serializing.
+   * The whole frame string, identical for every recipient. The sequence/dedup
+   * stampers already ran once into `baseLiveThing`, so every recipient shares
+   * these bytes. Built on first use.
    */
-  sharedFrame?: string;
+  frame?: string;
+}
+
+function sharedFrame(prepared: PreparedBroadcast): string {
+  return (prepared.frame ??= serializeWireFrame(
+    prepared.event,
+    prepared.finalPayload,
+    prepared.baseLiveThing,
+  ));
 }
 
 type BroadcastRuntime = Pick<
   OutgoingRuntime,
-  | 'afterSendHooks'
-  | 'beforeSendHooks'
   | 'beforeBroadcastHooks'
   | 'afterBroadcastHooks'
   | 'trackBackgroundWork'
@@ -389,9 +403,8 @@ function runAfterBroadcastHooks(
 
 /**
  * Run the recipient-independent half of the send pipeline once for a whole
- * broadcast: outgoing hooks, the declaration check, the base `__livething` block,
- * and JSON serialization of the event name and payload. `sendPrepared` reuses
- * the result for every recipient instead of repeating this per peer.
+ * broadcast: the payload and declaration checks, the base `__livething` block,
+ * and JSON serialization. Every recipient reuses the result.
  */
 interface PrepareBroadcastOptions {
   routing: EngineRuntimeTypes.RoutingTarget | undefined;
@@ -406,100 +419,150 @@ function prepareBroadcast(
   const { routing, event, payload } = opts;
   assertPayloadRecord(event, payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, {
-    event,
-    payload,
-  });
-
-  if (!isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
-    throw new Error(
-      `[livething] Outgoing event "${message.event}" was not declared in the active scope.`,
-    );
+  // A server request is declared by `serverRequests(...)`, not `emits(...)`, and its
+  // routing carries `source`, so it skips the outgoing-event check.
+  if (!routing?.source && !isDeclaredOutgoingEvent(runtime.compiled, event, routing)) {
+    throw new Error(`[livething] Outgoing event "${event}" was not declared in the active scope.`);
   }
 
-  const payloadJson = serializePayload(message.event, message.payload);
   // From here every frame, recipient and hook uses this plain copy of what was serialized, so a
   // toJSON() runs once for the whole broadcast and every peer gets the same payload.
-  const finalPayload = JSON.parse(payloadJson) as Record<string, unknown>;
+  const finalPayload = JSON.parse(serializePayload(event, payload)) as Record<string, unknown>;
 
   // Stamp once for the whole broadcast: all recipients share one deliverySeq/messageId, so replay stores one row, not one per member.
   const baseLiveThing = buildLiveThing(routing) as Record<string, unknown>;
-  applyLiveThingStampers(runtime.livethingStampHooks, message.event, baseLiveThing);
+  applyLiveThingStampers(runtime.livethingStampHooks, event, baseLiveThing);
 
-  const hasBeforeSend = runtime.beforeSendHooks.length > 0;
+  return { event, finalPayload, baseLiveThing };
+}
+
+/** Write one prepared broadcast frame to a single recipient. */
+function sendPrepared(
+  connection: EngineRuntimeTypes.RuntimeConnection,
+  prepared: PreparedBroadcast,
+): boolean {
+  return connection.descriptor.send(sharedFrame(prepared)) !== false;
+}
+
+function notifyPrepared(
+  runtime: BroadcastRuntime,
+  prepared: PreparedBroadcast,
+  sent: Pick<SentFrame, 'routing' | 'target' | 'recipients'>,
+): void {
+  notifyOutgoing(runtime, { event: prepared.event, payload: prepared.finalPayload, ...sent });
+}
+
+/** Options for one send to a set of connections. */
+export interface SharedSendOptions {
+  routing: EngineRuntimeTypes.RoutingTarget | undefined;
+  event: string;
+  payload: unknown;
+  target: InterceptPrimitive.OutgoingTarget;
+}
+
+/**
+ * One send to many connections. The payload is checked, serialized and stamped
+ * once, so every recipient gets the same payload and the same
+ * `deliverySeq`/`messageId`. Throws when the payload or the event is invalid.
+ */
+export interface SharedSend {
+  /**
+   * Write the frame to one connection, and return whether it was written.
+   * `extra` adds per-recipient `__livething` fields (a server request leg's
+   * correlation id); the frame is then serialized for this recipient only.
+   */
+  deliver(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    extra?: Record<string, unknown>,
+  ): boolean;
+  /** Show the finished send, with its recipient count, to the `onOutgoing` hooks. */
+  finish(): void;
+}
+
+export function openSharedSend(runtime: BroadcastRuntime, opts: SharedSendOptions): SharedSend {
+  return openPreparedSend(runtime, prepareBroadcast(runtime, opts), opts);
+}
+
+function openPreparedSend(
+  runtime: BroadcastRuntime,
+  prepared: PreparedBroadcast,
+  opts: SharedSendOptions,
+): SharedSend {
+  let recipients = 0;
 
   return {
-    event: message.event,
-    eventJson: JSON.stringify(message.event),
-    payloadJson,
-    finalPayload,
-    baseLiveThing,
-    needsWireMessage: hasBeforeSend || runtime.afterSendHooks.length > 0,
-    sharedFrame: hasBeforeSend
-      ? undefined
-      : serializeWireFrame(message.event, finalPayload, baseLiveThing),
+    deliver(connection, extra) {
+      const frame = extra
+        ? serializeWireFrame(prepared.event, prepared.finalPayload, {
+            ...prepared.baseLiveThing,
+            ...extra,
+          })
+        : sharedFrame(prepared);
+      const sent = connection.descriptor.send(frame) !== false;
+      if (sent) recipients += 1;
+
+      return sent;
+    },
+    finish() {
+      notifyPrepared(runtime, prepared, { routing: opts.routing, target: opts.target, recipients });
+    },
   };
 }
 
 /**
- * Send one prepared broadcast frame to a single recipient. Only per-connection
- * work runs here — `__livething` stamping, before/after-send hooks, the wire write.
- * The frame splices in the prepared payload JSON, so the payload is never
- * re-serialized per recipient.
+ * Send one event to an already-chosen set of connections as one shared frame.
+ * Returns how many sockets got it. A payload or declaration error throws; a
+ * failure to write to one peer is logged and the rest still get the frame.
  */
-function sendPrepared(
+export function sendToConnections(
   runtime: BroadcastRuntime,
-  connection: EngineRuntimeTypes.RuntimeConnection,
-  prepared: PreparedBroadcast,
-): boolean {
-  // Shared-frame fast path: the bytes are the same for everyone, so just
-  // write the prepared string. beforeSend is empty here (it disqualifies a
-  // shared frame), so only an afterSend hook still needs the wire message.
-  if (prepared.sharedFrame !== undefined) {
-    if (connection.descriptor.send(prepared.sharedFrame) === false) return false;
+  connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
+  opts: SharedSendOptions,
+): number {
+  const prepared = prepareBroadcast(runtime, opts);
+  const targets = hasBroadcastHooks(runtime) ? [...connections] : connections;
+  let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
+  if (hasBroadcastHooks(runtime)) {
+    const recipients = recipientsOf(targets);
+    if (recipients.length > 0) {
+      recorded = { ...toBroadcastMessage(prepared), recipients };
+      if (!tryBeforeBroadcastHooks(runtime, recorded, { event: opts.event })) return 0;
+    }
+  }
 
-    if (prepared.needsWireMessage) {
-      invokeAfterSendHooks(runtime, {
+  const send = openPreparedSend(runtime, prepared, opts);
+  let delivered = 0;
+  for (const connection of targets) {
+    try {
+      if (send.deliver(connection)) delivered += 1;
+    } catch (error) {
+      rethrowIfConfigError(error);
+      runtime.logger?.error('[livething] send to one peer threw; continuing fanout', {
         connectionId: connection.id,
-        event: prepared.event,
-        payload: prepared.finalPayload,
-        livething: prepared.baseLiveThing,
-        meta: connection.meta,
+        event: opts.event,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
-
-    return true;
   }
 
-  const livething = { ...prepared.baseLiveThing };
+  send.finish();
+  if (recorded) runAfterBroadcastHooks(runtime, recorded);
 
-  let wireMessage: EngineRuntimeTypes.WireOutgoingMessage | undefined;
-  if (prepared.needsWireMessage) {
-    wireMessage = {
-      connectionId: connection.id,
-      event: prepared.event,
-      payload: prepared.finalPayload,
-      livething,
-      meta: connection.meta,
-    };
-    for (const hook of runtime.beforeSendHooks) {
-      hook(wireMessage);
+  return delivered;
+}
+
+/** The connections a frame can be handed back to after a reconnect: those with a resume token. */
+function recipientsOf(
+  connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
+): EngineRuntimeTypes.FrameRecipient[] {
+  const recipients: EngineRuntimeTypes.FrameRecipient[] = [];
+  for (const connection of connections) {
+    if (connection.resumeToken) {
+      recipients.push({ userId: connection.userId, resumeToken: connection.resumeToken });
     }
   }
 
-  if (
-    connection.descriptor.send(
-      serializeWireFrame(prepared.event, prepared.finalPayload, livething),
-    ) === false
-  ) {
-    return false;
-  }
-
-  if (wireMessage) {
-    invokeAfterSendHooks(runtime, wireMessage);
-  }
-
-  return true;
+  return recipients;
 }
 
 /**
@@ -546,21 +609,24 @@ export function broadcastToConnections(
     }
   }
 
-  // Without broadcast hooks the frame is prepared on the first eligible peer,
-  // so a broadcast that reaches nobody never pays to serialize, and the caller
-  // can hand over a live view of the connections rather than a copy of it.
-  // With them (built-in replay), it is prepared up front so the broadcast is
-  // recorded once even when nobody receives it live.
+  // Without broadcast or onOutgoing hooks the frame is prepared on the first
+  // eligible peer, so a broadcast that reaches nobody never pays to serialize,
+  // and the caller can hand over a live view of the connections rather than a
+  // copy of it. With them, it is prepared up front so the broadcast is recorded
+  // and shown to the hooks once even when nobody receives it live.
   let prepared: PreparedBroadcast | undefined;
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
-  if (hasBroadcastHooks(runtime)) {
+  if (hasBroadcastHooks(runtime) || runtime.outgoingHooks.length > 0) {
     prepared = prepareOrLog();
     if (!prepared) return;
+  }
 
+  if (prepared && hasBroadcastHooks(runtime)) {
     recorded = toBroadcastMessage(prepared);
     if (!tryBeforeBroadcastHooks(runtime, recorded, { event })) return;
   }
 
+  let recipients = 0;
   for (const connection of connections) {
     if (
       excludeConnectionId &&
@@ -576,9 +642,9 @@ export function broadcastToConnections(
 
     // One bad peer must not stop the rest of the broadcast — log and continue.
     try {
-      sendPrepared(runtime, connection, prepared);
+      if (sendPrepared(connection, prepared)) recipients += 1;
     } catch (error) {
-      if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
+      rethrowIfConfigError(error);
       runtime.logger?.error('[livething] broadcast send to one peer threw; continuing fanout', {
         connectionId: connection.id,
         event,
@@ -588,6 +654,15 @@ export function broadcastToConnections(
   }
 
   if (recorded) runAfterBroadcastHooks(runtime, recorded);
+
+  if (prepared) {
+    const routing = { channel: options?.channel, channelFamily: options?.channelFamily };
+    notifyPrepared(runtime, prepared, {
+      routing,
+      target: options?.channel ? { kind: 'channel' } : { kind: 'all' },
+      recipients,
+    });
+  }
 }
 
 /**
@@ -623,22 +698,34 @@ export function broadcastToUser(
   if (!userId) return 0;
 
   const records = hasBroadcastHooks(runtime);
-  if (connections.length === 0 && !records) return 0;
+  if (connections.length === 0 && !records && runtime.outgoingHooks.length === 0) return 0;
 
-  const prepared = prepareBroadcast(runtime, {
-    routing: channelName ? { channel: channelName, channelFamily } : undefined,
-    event,
-    payload,
-  });
+  const routing = channelName ? { channel: channelName, channelFamily } : undefined;
+  const prepared = prepareBroadcast(runtime, { routing, event, payload });
   const recorded = records ? toBroadcastMessage(prepared, userId) : undefined;
   if (recorded) runBeforeBroadcastHooks(runtime, recorded);
 
   let delivered = 0;
   for (const connection of connections) {
-    if (sendPrepared(runtime, connection, prepared)) delivered += 1;
+    try {
+      if (sendPrepared(connection, prepared)) delivered += 1;
+    } catch (error) {
+      rethrowIfConfigError(error);
+      runtime.logger?.error('[livething] user broadcast send to one tab threw; continuing fanout', {
+        connectionId: connection.id,
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (recorded) runAfterBroadcastHooks(runtime, recorded);
+
+  notifyPrepared(runtime, prepared, {
+    routing,
+    target: { kind: 'user', id: userId },
+    recipients: delivered,
+  });
 
   return delivered;
 }
@@ -739,15 +826,16 @@ export function broadcastToChannel(
     }
   }
 
+  let recipients = 0;
   for (const connection of members ?? []) {
     if (excludeConnectionId && !(includeSelf ?? false) && connection.id === excludeConnectionId)
       continue;
 
     // One bad peer must not stop the rest of the fanout — log and continue.
     try {
-      sendPrepared(runtime, connection, prepared);
+      if (sendPrepared(connection, prepared)) recipients += 1;
     } catch (error) {
-      if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
+      rethrowIfConfigError(error);
       runtime.logger?.error(
         '[livething] channel broadcast send to one peer threw; continuing fanout',
         {
@@ -762,6 +850,12 @@ export function broadcastToChannel(
   }
 
   if (recorded) runAfterBroadcastHooks(runtime, recorded);
+
+  notifyPrepared(runtime, prepared, {
+    routing: { channel: channelName, channelFamily },
+    target: { kind: 'channel' },
+    recipients,
+  });
 }
 
 /**

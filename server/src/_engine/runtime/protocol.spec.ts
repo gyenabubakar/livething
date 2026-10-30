@@ -1,11 +1,13 @@
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_RESUME_TOKENS,
   metadataFromLiveThing,
   MetadataSchema,
   OutgoingProtocolFrame,
   parseUserEventFrame,
   ReadFrame,
+  ReplayFrame,
   serializeWireFrame,
   SubscribeOkFrame,
   UserEventFrameSchema,
@@ -108,6 +110,30 @@ describe('LiveThing wire tuples', () => {
     expect(() => parseUserEventFrame(objectFrame)).toThrow();
     expect(v.safeParse(UserEventFrameSchema, ['event', {}]).success).toBe(false);
     expect(() => parseUserEventFrame(['event', {}])).toThrow();
+  });
+});
+
+describe('__replay__ resume tokens', () => {
+  function tokens(count: number): string[] {
+    return Array.from({ length: count }, (_, i) => `token-${i}`);
+  }
+
+  it('accepts up to MAX_RESUME_TOKENS tokens', () => {
+    expect(
+      v.safeParse(ReplayFrame, [
+        '__replay__',
+        { lastKnownSeq: 3, resume: tokens(MAX_RESUME_TOKENS) },
+        null,
+      ]).success,
+    ).toBe(true);
+  });
+
+  it('rejects more tokens than the cap, an empty token and a token that is not a string', () => {
+    for (const resume of [tokens(MAX_RESUME_TOKENS + 1), [''], [42]]) {
+      expect(
+        v.safeParse(ReplayFrame, ['__replay__', { lastKnownSeq: 3, resume }, null]).success,
+      ).toBe(false);
+    }
   });
 });
 

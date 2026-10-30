@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertPositiveInteger } from '~/_engine/validation.ts';
-import type { TaskContext } from '~/context.ts';
+import type { ConnectionlessContext } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
@@ -23,31 +23,18 @@ interface ScheduledDeclaration {
   options?: ScheduledOptions;
 }
 
-/**
- * An opaque handle returned when a task is enqueued.
- *
- * `__data` exists only so TypeScript can remember the task's payload type.
- * It is not present at runtime.
- */
-export interface ScheduledHandle<TData = unknown> {
-  /** The unique ID of this scheduled task instance. */
-  readonly id: string;
-  /** Type-only field — not present at runtime. */
-  readonly __data?: TData;
-}
-
 /** A scheduled task handler for tasks that do not declare `.data(...)`. */
-export type ScheduledHandlerNoData<TCtx = TaskContext> = (ctx: TCtx) => void | Promise<void>;
+type ScheduledHandlerNoData<TCtx = ConnectionlessContext> = (ctx: TCtx) => void | Promise<void>;
 
 /** A scheduled task handler for tasks that declare `.data(...)`. */
-export type ScheduledHandlerWithData<TCtx = TaskContext, TData = unknown> = (
+type ScheduledHandlerWithData<TCtx = ConnectionlessContext, TData = unknown> = (
   ctx: TCtx,
   data: TData,
 ) => void | Promise<void>;
 
 /** The handler type stored on a scheduled primitive. */
 export type ScheduledHandler<
-  TCtx = TaskContext,
+  TCtx = ConnectionlessContext,
   TData = unknown,
   THasData extends boolean = true,
 > = THasData extends true ? ScheduledHandlerWithData<TCtx, TData> : ScheduledHandlerNoData<TCtx>;
@@ -92,7 +79,7 @@ export const SCHEDULED_RUNTIME_KEY = Symbol('scheduled-runtime');
  */
 export class ScheduledBuilder<
   TTaskId extends string,
-  TCtx = TaskContext,
+  TCtx = ConnectionlessContext,
   TData = never,
   THasData extends boolean = false,
   THasRun extends boolean = false,
@@ -210,7 +197,6 @@ export class ScheduledBuilder<
 
     return {
       __livething: 'scheduled',
-      __kind: 'infrastructure',
       __identity: [SCHEDULED_KEY, this._taskId],
       __requires: {},
       taskId: this._taskId,
@@ -237,7 +223,7 @@ export class ScheduledBuilder<
  */
 export function scheduled<
   TTaskId extends string,
-  TCtx = TaskContext,
+  TCtx = ConnectionlessContext,
   TData = never,
   THasData extends boolean = false,
 >(
@@ -258,9 +244,6 @@ export function scheduled<
   return finalized._build();
 }
 
-/** Symbol key used to reference this primitive in dependency declarations. */
-scheduled.__key = SCHEDULED_KEY;
-
 /**
  * Build a scheduled-task primitive directly from a declaration and a handler.
  *
@@ -272,7 +255,7 @@ scheduled.__key = SCHEDULED_KEY;
  *
  * @internal
  */
-export function makeScheduledPrimitive<TCtx = TaskContext>(
+export function makeScheduledPrimitive<TCtx = ConnectionlessContext>(
   taskId: string,
   declaration: ScheduledDeclaration,
   handler: (ctx: TCtx, data?: unknown) => void | Promise<void>,
@@ -285,7 +268,6 @@ export function makeScheduledPrimitive<TCtx = TaskContext>(
 
   return {
     __livething: 'scheduled',
-    __kind: 'infrastructure',
     __identity: [SCHEDULED_KEY, taskId],
     __requires: {},
     taskId,

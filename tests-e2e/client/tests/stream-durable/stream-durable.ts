@@ -23,7 +23,9 @@ export function setup(): void {
 
   const lazy = new URLSearchParams(location.search).get('lazy') === '1';
   const socket = client<StreamDurableClient>()(
-    connect(wsUrl('stream-durable'), { lazy }),
+    // The server must outlive the drop: a recorded stream resumes only while its
+    // generator is still running.
+    connect(wsUrl('stream-durable', { holdRoom: true }), { lazy }),
     reconnection(),
     // Chunks come every 400 ms. A tighter per-chunk timeout fails the stream
     // on a slow machine before it ends.

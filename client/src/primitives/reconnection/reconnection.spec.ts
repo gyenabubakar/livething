@@ -1,3 +1,4 @@
+import { CloseCodes } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
@@ -241,37 +242,56 @@ describe('shouldReconnect precedence', () => {
     ws.serverClose(4002);
     expect(socket.state.get()).toBe('closed');
   });
+});
 
-  it('primitive shouldReconnect hook returning false takes precedence over options.shouldReconnect', () => {
-    const vetoer = {
-      _tag: 'vetoer',
-      setup: () => ({
-        id: 'vetoer',
-        shouldReconnect: (_code: number, _reason: string): boolean | void => false,
-      }),
-    };
-
-    const { ws, socket } = build(reconnection({ shouldReconnect: () => true }), vetoer);
-    ws.serverClose(1006);
+describe('default non-retryable close codes', () => {
+  it.each([
+    ['AUTH_INVALID', CloseCodes.AUTH_INVALID],
+    ['DUPLICATE', CloseCodes.DUPLICATE],
+    ['BANNED', CloseCodes.BANNED],
+  ])('does not reconnect after %s with no options', (_name, code) => {
+    const { ws, socket } = build(reconnection());
+    ws.serverClose(code);
+    vi.advanceTimersByTime(60_000);
     expect(socket.state.get()).toBe('closed');
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 
-  it('primitive shouldReconnect hook returning true takes precedence over nonRetryableCodes', () => {
-    const approver = {
-      _tag: 'approver',
-      setup: () => ({
-        id: 'approver',
-        shouldReconnect: (_code: number, _reason: string): boolean | void => true,
-      }),
-    };
+  it('adds nonRetryableCodes to the defaults instead of replacing them', () => {
+    const { ws, socket } = build(reconnection({ nonRetryableCodes: [4100] }));
+    ws.serverClose(CloseCodes.BANNED);
+    vi.advanceTimersByTime(60_000);
+    expect(socket.state.get()).toBe('closed');
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
 
-    const { ws, socket } = build(reconnection({ nonRetryableCodes: [4003] }), approver);
-    ws.serverClose(4003);
+  it('lets shouldReconnect returning true retry a default non-retryable code', () => {
+    const { ws, socket } = build(
+      reconnection({
+        shouldReconnect: (code) => (code === CloseCodes.DUPLICATE ? true : undefined),
+      }),
+    );
+    ws.serverClose(CloseCodes.DUPLICATE);
     expect(socket.state.get()).toBe('reconnecting');
+  });
+
+  it('stops after one replaced connection when every reopen is closed with DUPLICATE', () => {
+    const { ws } = build(reconnection({ maxAttempts: 3 }));
+    ws.serverClose(CloseCodes.DUPLICATE);
+    for (let round = 0; round < 50; round++) {
+      vi.advanceTimersByTime(60_000);
+      const latest = MockWebSocket.last();
+      if (latest.readyState === 0) {
+        latest.open();
+        latest.serverClose(CloseCodes.DUPLICATE);
+      }
+    }
+
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 });
 
-describe('reconnect policy error isolation (#18)', () => {
+describe('reconnect policy error isolation', () => {
   it('reports a throwing user shouldReconnect and still reconnects by default', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const errors: unknown[] = [];

@@ -25,43 +25,20 @@ function replayRows(sql: ReturnType<typeof createTestSql>): ReplayRow[] {
 }
 
 describe('replay', () => {
-  it('produces correct tag and kind', () => {
+  it('produces correct tag', () => {
     const p = replay();
     expect(p.__livething).toBe('replay');
-    expect(p.__kind).toBe('infrastructure');
   });
 
   it('uses singleton identity', () => {
     const p = replay();
     expect(p.__identity).toHaveLength(1);
-    expect(p.__identity[0]).toBe(replay.__key);
+    expect(typeof p.__identity[0]).toBe('symbol');
   });
 
   it('declares dependencies and requires', () => {
     const p = replay();
     expect(p.__requires).toEqual({});
-  });
-
-  it('stores automatic replay options when provided', () => {
-    const p = replay({
-      type: 'snapshot',
-      durability: 'best-effort',
-      exclude: ['typing'],
-      retention: {
-        maxAgeMs: 60_000,
-        maxMessages: 10,
-      },
-    });
-
-    expect(p.options).toEqual({
-      type: 'snapshot',
-      durability: 'best-effort',
-      exclude: ['typing'],
-      retention: {
-        maxAgeMs: 60_000,
-        maxMessages: 10,
-      },
-    });
   });
 
   it('reduces snapshot rows when a reducer is provided', () => {
@@ -246,6 +223,7 @@ describe('replay', () => {
       onBoot() {},
       onBootSchema() {},
       onProtocolMessage() {},
+      onPurgeUser() {},
       sendReplay() {},
     } as Pick<
       EngineAccess,
@@ -255,6 +233,7 @@ describe('replay', () => {
       | 'onBeforeBroadcast'
       | 'onBoot'
       | 'onProtocolMessage'
+      | 'onPurgeUser'
       | 'setReplayEnabled'
       | 'getReplayClaimedChannelKeys'
       | 'sendReplay'
@@ -291,6 +270,7 @@ describe('replay', () => {
       onBoot() {},
       onBootSchema() {},
       onProtocolMessage() {},
+      onPurgeUser() {},
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         sent.push(args);
       },
@@ -303,6 +283,7 @@ describe('replay', () => {
       | 'onBeforeBroadcast'
       | 'onBoot'
       | 'onProtocolMessage'
+      | 'onPurgeUser'
       | 'setReplayEnabled'
       | 'getReplayClaimedChannelKeys'
       | 'sendReplay'
@@ -358,6 +339,7 @@ describe('replay', () => {
       onBoot() {},
       onBootSchema() {},
       onProtocolMessage() {},
+      onPurgeUser() {},
       sendReplay() {},
     } as Pick<
       EngineAccess,
@@ -367,6 +349,7 @@ describe('replay', () => {
       | 'onBeforeBroadcast'
       | 'onBoot'
       | 'onProtocolMessage'
+      | 'onPurgeUser'
       | 'setReplayEnabled'
       | 'getReplayClaimedChannelKeys'
       | 'sendReplay'
@@ -467,6 +450,7 @@ describe('replay', () => {
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         sent.push(args);
       },
+      onPurgeUser() {},
       onProtocolMessage(
         event: IncomingProtocolEvent,
         handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
@@ -481,6 +465,7 @@ describe('replay', () => {
       | 'onBeforeBroadcast'
       | 'onBoot'
       | 'onProtocolMessage'
+      | 'onPurgeUser'
       | 'storage'
       | 'setReplayEnabled'
       | 'getReplayClaimedChannelKeys'
@@ -633,6 +618,7 @@ describe('replay', () => {
         sendGap(...args: Parameters<EngineAccess['sendGap']>) {
           gaps.push(args);
         },
+        onPurgeUser() {},
         onProtocolMessage(
           event: IncomingProtocolEvent,
           handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
@@ -760,7 +746,6 @@ describe('replay', () => {
   it('replay(false) returns a disabled primitive with no setup work', () => {
     const primitive = replay(false);
     expect(primitive.disabled).toBe(true);
-    expect(primitive.options).toEqual({});
     expect(primitive.__requires).toEqual({});
     // The disabled primitive intentionally has no __setup so nothing wires
     // hooks for this scope. Its only purpose is to mark the scope as claimed

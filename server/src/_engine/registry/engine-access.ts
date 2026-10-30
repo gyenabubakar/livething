@@ -3,6 +3,7 @@ import { CloseCodes } from '@livething/core';
 import { getInvocationScope, withConnectionCall } from '~/_engine/async-context.ts';
 import { assertPayloadRecord } from '~/_engine/runtime/json-guard.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
+import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import * as InboxRuntime from '~/inbox/runtime.ts';
 import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
@@ -34,8 +35,6 @@ type CreateEngineAccessScopeParameter = { channelKey?: string };
 export interface EngineAccessDeps {
   /** Install the scheduled runtime if not already installed. */
   ensureScheduledRuntime(): void;
-  /** Build a fresh task context for scheduled task handlers. */
-  createTaskContext(): unknown;
   /** Queue one future scheduled task run. */
   scheduleTask(opts: OptsParameter): void;
   /** Remove queued runs for one scheduled task id. */
@@ -56,6 +55,10 @@ export interface EngineAccessDeps {
   buildContextForConnection(connectionId: string): unknown;
   /** Send a server→client request frame through the outgoing pipeline. */
   sendServerRequest(connectionId: string, opts: OptsParameter3): boolean;
+  /** Send one server→client request to many connections, stamped once. */
+  openServerRequestBroadcast(
+    opts: EngineAccessModule.ServerRequestBroadcastOptions,
+  ): EngineAccessModule.ServerRequestBroadcast;
   /** Broadcast one already-built protocol frame to every live member of a channel. */
   broadcastToChannel(opts: OptsParameter4): void;
   /** Count the live members currently in a channel. */
@@ -76,7 +79,6 @@ export function createEngineAccess(
   let onUpgradeCalled = false;
   return {
     storage: core.storage,
-    timers: core.timers,
     installOnce: (key, install) => {
       if (core.installedFeatures.has(key)) return;
 
@@ -99,6 +101,7 @@ export function createEngineAccess(
       core.hooks.answerFrame.push(handler);
     },
     sendServerRequest: (connectionId, opts) => deps.sendServerRequest(connectionId, opts),
+    openServerRequestBroadcast: (opts) => deps.openServerRequestBroadcast(opts),
     onOutgoing: (handler, owner) => {
       // The pipeline supplies the frame; ctx is resolved per-send from the
       // active connection in the async context, or undefined when none is set.
@@ -113,12 +116,6 @@ export function createEngineAccess(
     },
     onLiveThingStamp: (handler) => {
       core.hooks.livethingStamp.push(handler);
-    },
-    onBeforeSend: (handler) => {
-      core.hooks.beforeSend.push(handler);
-    },
-    onAfterSend: (handler) => {
-      core.hooks.afterSend.push(handler);
     },
     onBeforeBroadcast: (handler) => {
       core.hooks.beforeBroadcast.push(handler);
@@ -165,9 +162,6 @@ export function createEngineAccess(
       }
 
       core.hooks.builderUpgrade = handler;
-    },
-    onValidationError: (handler) => {
-      core.hooks.validationError.push(handler);
     },
     onProtocolMessage: (event, handler) => {
       const existing = core.hooks.protocol.get(event) ?? [];
@@ -224,8 +218,8 @@ export function createEngineAccess(
       core.hooks.contextExtenders.push(factory);
     },
     getInvocationScope: () => getInvocationScope(core.asyncContext),
-    setHibernationEnabled: (enabled) => {
-      core.hibernationEnabled = enabled;
+    enableHibernation: () => {
+      core.hibernationEnabled = true;
     },
     getHibernationEnabled: () => core.hibernationEnabled,
     setReplayEnabled: (enabled) => {
@@ -233,6 +227,18 @@ export function createEngineAccess(
     },
     setSequencePersistent: (enabled) => {
       core.sequencePersistent = enabled;
+    },
+    setDeliverySeqAllocator: (allocate) => {
+      core.allocateDeliverySeq = allocate;
+    },
+    allocateDeliverySeq: () => {
+      if (!core.allocateDeliverySeq) {
+        throw new Error(
+          '[livething] No delivery seq allocator. Add sequence() to server({ capabilities: [...] }).',
+        );
+      }
+
+      return core.allocateDeliverySeq();
     },
     setChannelDurable: (channelKey, durable) => {
       core.channelDurabilityOverrides.set(channelKey, durable);
@@ -254,8 +260,7 @@ export function createEngineAccess(
     },
     getPluginApiFactory: (id) => core.pluginApiFactories.get(id),
     registerPluginLifecycle: (kind, pluginId, handler) => {
-      const list = core.hooks.pluginLifecycle[kind];
-      list.push({ pluginId, order: list.length, handler });
+      core.hooks.pluginLifecycle[kind].push({ pluginId, handler });
     },
     registerPluginUpgrade: (pluginId, handler, baseId) => {
       core.hooks.pluginUpgrade.push({ pluginId, handler, baseId });
@@ -335,12 +340,10 @@ export function createEngineAccess(
       core.hooks.connectionCleanup.push(handler);
     },
     getScheduledRuns: () => core.scheduledRuns,
-    getScheduledDlq: () => core.scheduledDlq,
     scheduleTask: (taskId, time, data) => deps.scheduleTask({ taskId, time, data }),
     cancelScheduled: (taskId, filter) => deps.cancelScheduled({ taskId, filter }),
     getScheduledTask: (taskId) => core.compiled.scheduled.get(taskId),
     getScheduledTasks: () => core.compiled.scheduled.values(),
-    createTaskContext: () => deps.createTaskContext(),
     sendReplay: (connectionId, options) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
@@ -411,9 +414,6 @@ export function createEngineAccess(
     setScheduledService: (service) => {
       core.scheduledService = service;
     },
-    setInterceptRuntime: (runIntercepts) => {
-      core.runIntercepts = runIntercepts;
-    },
     setChannelService: (service) => {
       core.channelService = service;
     },
@@ -435,6 +435,14 @@ export function createEngineAccess(
 
       const members = core.usersByKey.get(userId);
       return members !== undefined && members.size > 0;
+    },
+    userConnectionIdsInChannel: (userId, channelName, channelFamily) => {
+      const members = core.channelMembers.get(
+        createChannelMembershipKey(channelName, channelFamily),
+      );
+      return [...(members ?? [])]
+        .filter((connection) => connection.userId === userId)
+        .map((connection) => connection.id);
     },
     getConnectionIdentity: (connectionId) => core.connections.get(connectionId)?.userId,
     broadcastToChannel: (opts) => deps.broadcastToChannel(opts),

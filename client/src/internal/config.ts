@@ -1,18 +1,9 @@
 import type { InterceptFn, Message } from '~/internal/runtime.ts';
 
-/** Latency cut-offs (ms) for each quality tier. */
-export interface QualityThresholds {
-  excellent: number;
-  good: number;
-  degraded: number;
-}
-
 /**
- * The settings the kernel runs on. It only holds kernel-level things and the few
- * values shared between primitives (like quality thresholds, which `quality()`
- * sets and `keepalive()` reads). Anything specific to one behavior — backoff,
- * ping interval, buffer size — lives inside that primitive, not here, so its
- * code only loads when you use it.
+ * The settings the kernel runs on. It only holds kernel-level things. Anything
+ * specific to one behavior — backoff, ping interval, buffer size — lives inside
+ * that primitive, not here, so its code only loads when you use it.
  */
 export interface SocketConfig {
   /** The URL, or a function that returns one on every connect/reconnect. */
@@ -24,21 +15,11 @@ export interface SocketConfig {
   /** WebSocket subprotocols. */
   protocols?: string[];
 
-  /** Set by `quality()`, read by `keepalive()`. */
-  qualityThresholds?: QualityThresholds;
-
   /** Format the server delivers binary frames in. */
   binaryType?: 'arraybuffer' | 'blob';
   /** Decode a binary frame into a message, or `null` to ignore it. */
   parseBinary?: (data: unknown) => Message | null;
-  /** Decode a text frame into a message, or `null` to ignore it. */
-  parse?: (raw: string) => Message | null;
-  /** Encode a message into the string sent over the wire. */
-  serialize?: (message: Message) => string;
 
   /** Functions that get to inspect/transform/drop each incoming message. */
   intercepts?: InterceptFn[];
-
-  /** Log connection events and message flow to the console. */
-  debug?: boolean;
 }

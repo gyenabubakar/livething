@@ -8,15 +8,17 @@ import {
   makeFakeDOState,
   makeFakeEngine,
 } from './test-utils.ts';
-import type { LiveThingAdmin } from './admin.ts';
+import type { CloudflareAdmin } from './admin.ts';
 import type { FakeEngine } from './test-utils.ts';
 
 const responseRestore = installPermissiveResponse();
 afterAll(() => responseRestore.restore());
 
+const { RpcTargetFake } = vi.hoisted(() => ({ RpcTargetFake: class {} }));
+
 vi.mock('cloudflare:workers', () => ({
   DurableObject: FakeDurableObjectBase,
-  RpcTarget: class RpcTargetFake {},
+  RpcTarget: RpcTargetFake,
 }));
 
 type AdapterSetup = (
@@ -52,12 +54,11 @@ type DOInstance = {
 };
 
 /** The real built-in surface, plus whatever dev api methods a test stages on it. */
-type AdminSurface = LiveThingAdmin & Record<string, unknown>;
+type AdminSurface = CloudflareAdmin & Record<string, unknown>;
 
-function buildClass(opts?: { hibernation?: boolean; translation?: boolean }) {
+function buildClass(opts?: { hibernation?: boolean }) {
   fake = makeFakeEngine();
   if (opts?.hibernation !== false) fake.setHibernation(true);
-  if (opts?.translation) fake.setTranslation(true);
   return bind({} as never) as unknown as new (ctx: DurableObjectState, env: unknown) => DOInstance;
 }
 
@@ -157,11 +158,31 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     });
   });
 
+  it('returns false for a send to a closed socket', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const [, server] = pairs[0]!;
+    // workerd throws on send() once the socket has closed.
+    server.readyState = 3;
+    server.send.mockImplementation(() => {
+      throw new Error("Can't call WebSocket send() after close().");
+    });
+    const desc = fake.calls.accept[0]!.descriptor as { send(data: string): unknown };
+
+    expect(desc.send('frame')).toBe(false);
+    expect(server.send).not.toHaveBeenCalled();
+  });
+
   it('closes an accepted socket when engine connection setup throws', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
     fake.stageUpgrade({});
-    const setupError = new Error('translator setup failed');
+    const setupError = new Error('connection setup failed');
     (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw setupError;
     });
@@ -179,10 +200,10 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
     fake.stageUpgrade({});
-    const setupError = new Error('translator setup failed');
+    const setupError = new Error('connection state could not be persisted');
     (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (_ws: unknown, descriptor: { close(code: number, reason: string): void }) => {
-        descriptor.close(1011, '[livething] translator configuration failed');
+        descriptor.close(1011, '[livething] connection state could not be persisted');
         throw setupError;
       },
     );
@@ -193,7 +214,10 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
 
     const [, server] = pairs[0]!;
     expect(server.close).toHaveBeenCalledTimes(1);
-    expect(server.close).toHaveBeenCalledWith(1011, '[livething] translator configuration failed');
+    expect(server.close).toHaveBeenCalledWith(
+      1011,
+      '[livething] connection state could not be persisted',
+    );
   });
 
   it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
@@ -296,17 +320,6 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     };
     expect(pair.request).toBe('ping');
     expect(pair.response).toBe('pong');
-  });
-
-  it('does not register the edge ping/pong auto-response when translation is enabled', async () => {
-    const Cls = buildClass({ hibernation: true, translation: true });
-    const state = makeFakeDOState();
-    fake.stageUpgrade({});
-
-    const instance = new Cls(state as unknown as DurableObjectState, {});
-    await instance.fetch(upgradeRequest());
-
-    expect(state.setWebSocketAutoResponse).not.toHaveBeenCalled();
   });
 
   it('does not register an auto-response in standard (non-hibernation) mode', async () => {
@@ -653,53 +666,83 @@ describe('LiveThingDurableObject admin()', () => {
     expect(fake.adminApi.purgeUser).toHaveBeenCalledWith('u1', { keepBroadcastContent: true });
   });
 
-  it('projects the context managers onto flat, RPC-callable methods', async () => {
-    const { admin } = await adminOf();
-
-    expect(admin.connectionCount()).toBe(3);
-    expect(admin.listConnections()).toEqual([{ id: 'c1', userId: 'u1' }]);
-    expect(admin.sendToConnection('c1', 'evt', { n: 1 })).toBe(true);
-    expect(fake.adminSpies.connectionSend).toHaveBeenCalledWith('evt', { n: 1 });
-
-    expect(admin.sendToUser('u1', 'evt', { n: 2 })).toBe(2);
-    expect(fake.adminSpies.userSend).toHaveBeenCalledWith('evt', { n: 2 });
-
-    admin.closeUser('u1', 4000, 'bye');
-    expect(fake.adminSpies.userClose).toHaveBeenCalledWith(4000, 'bye');
-  });
-
-  it('a snapshot crossing the stub carries data only, never ref()', async () => {
-    const { admin } = await adminOf();
-    const [info] = admin.listConnections();
-    expect(info).not.toHaveProperty('ref');
-  });
-
-  it('sendToConnection reports false for an id no live connection holds', async () => {
-    const { admin } = await adminOf();
-    expect(admin.sendToConnection('nope', 'evt', {})).toBe(false);
-    expect(fake.adminSpies.connectionSend).not.toHaveBeenCalled();
-  });
-
-  it('channel ops resolve a static name and a family + instance alike', async () => {
+  it('reaches connections, users, and channels through nested RPC targets, like Node', async () => {
     const { admin } = await adminOf();
     const channels = fake.adminApi.channels as { get: ReturnType<typeof vi.fn> };
 
-    admin.channelBroadcast('lobby', 'evt', { n: 1 });
-    expect(channels.get).toHaveBeenCalledWith('lobby');
-    expect(fake.adminSpies.channelBroadcast).toHaveBeenCalledWith('evt', { n: 1 });
+    expect(admin.connectionCount).toBe(3);
 
-    admin.channelMembers({ family: 'rooms', instance: 'rooms:42' });
+    const [info] = admin.connections.all();
+    expect(info).toMatchObject({ id: 'c1', userId: 'u1' });
+    const connection = admin.connections.get(info!.ref());
+    expect(connection.send('evt', { n: 1 })).toBe(true);
+    expect(fake.adminSpies.connection.send).toHaveBeenCalledWith('evt', { n: 1 });
+    // A ref with no instance id is local to this Durable Object.
+    expect(
+      (fake.adminApi.connections as { get: ReturnType<typeof vi.fn> }).get,
+    ).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1', instance: 'fake-instance' }));
+    connection.close(4000, 'bye');
+    expect(fake.adminSpies.connection.close).toHaveBeenCalledWith(4000, 'bye');
+
+    const user = admin.users.get('u1');
+    expect(user.id).toBe('u1');
+    expect(user.broadcast('evt', { n: 2 })).toBe(2);
+    expect(fake.adminSpies.user.broadcast).toHaveBeenCalledWith('evt', { n: 2 });
+    (user.setMeta as (patch: Record<string, unknown>) => void)({ displayName: 'Ada' });
+
+    expect(fake.adminSpies.user.setMeta).toHaveBeenCalledWith({ displayName: 'Ada' });
+    user.close(4000, 'bye');
+    expect(fake.adminSpies.user.close).toHaveBeenCalledWith(4000, 'bye');
+    expect(user.isOnline()).toBe(true);
+
+    admin.channels.get('rooms', 'rooms:42').members();
     expect(channels.get).toHaveBeenCalledWith('rooms', 'rooms:42');
-    expect(fake.adminSpies.channelMembers).toHaveBeenCalled();
+    expect(fake.adminSpies.channel.members).toHaveBeenCalled();
+  });
 
+  it('channels.broadcast passes the channel, event and payload to the context', async () => {
+    const { admin } = await adminOf();
+    const broadcast = (fake.adminApi.channels as { broadcast: ReturnType<typeof vi.fn> }).broadcast;
+
+    const channels = admin.channels as unknown as {
+      broadcast(channel: unknown, event: string, payload: unknown): unknown;
+    };
+    expect(channels.broadcast('lobby', 'evt', { n: 3 })).toBeUndefined();
+    channels.broadcast({ family: 'rooms', name: 'rooms:42' }, 'evt', { n: 4 });
+
+    expect(broadcast).toHaveBeenNthCalledWith(1, 'lobby', 'evt', { n: 3 });
+    expect(broadcast).toHaveBeenNthCalledWith(2, { family: 'rooms', name: 'rooms:42' }, 'evt', {
+      n: 4,
+    });
+    expect('broadcast' in admin.channels.get('lobby')).toBe(false);
+  });
+
+  it('every nested part is an RpcTarget reached through a prototype getter or method', async () => {
+    const { admin } = await adminOf();
+
+    for (const part of ['connections', 'users', 'channels', 'connectionCount']) {
+      expect(Object.hasOwn(admin, part)).toBe(false);
+    }
+
+    for (const target of [
+      admin.connections,
+      admin.users,
+      admin.channels,
+      admin.users.get('u1'),
+      admin.channels.get('lobby'),
+      admin.connections.get(admin.connections.all()[0]!.ref()),
+    ]) {
+      expect(target).toBeInstanceOf(RpcTargetFake);
+    }
+  });
+
+  it('channel kick treats a user ref built in the Worker as local to this instance', async () => {
+    const { admin } = await adminOf();
     const target = { __livething: 'user-ref', id: 'u1', instance: undefined } as const;
-    await admin.channelKick('lobby', target, { reason: 'banned', revoke: true });
-    expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(
+    await admin.channels.get('lobby').kick(target, { reason: 'banned' });
+    expect(fake.adminSpies.channel.kick).toHaveBeenCalledWith(
       { ...target, instance: 'fake-instance' },
-      {
-        reason: 'banned',
-        revoke: true,
-      },
+      { reason: 'banned' },
     );
   });
 
@@ -707,9 +750,21 @@ describe('LiveThingDurableObject admin()', () => {
     const { admin } = await adminOf();
     const target = { __livething: 'user-ref', id: 'u1', instance: 'other' } as const;
 
-    await admin.channelKick('lobby', target, { reason: 'foreign' });
+    await admin.channels.get('lobby').kick(target, { reason: 'foreign' });
 
-    expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(target, { reason: 'foreign' });
+    expect(fake.adminSpies.channel.kick).toHaveBeenCalledWith(target, { reason: 'foreign' });
+  });
+
+  it('an api method named dup is rejected, since the stub has its own dup()', async () => {
+    fake = makeFakeEngine();
+    fake.adminApi.dup = vi.fn();
+    const Cls = bind({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+    await expect(instance.admin()).rejects.toThrow(/'dup'/);
   });
 
   it('leaves the context plumbing off the stub surface', async () => {

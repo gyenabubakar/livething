@@ -3,7 +3,7 @@ import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
+import { recordedStream } from '~/stream-recorded/capability.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
@@ -37,7 +37,7 @@ function buildEngine(
 
 describe('durable-stream registrar — purgeUser', () => {
   it('registers a purgeUser hook', async () => {
-    const base = server({ capabilities: [cursorStream()] });
+    const base = server({ capabilities: [recordedStream()] });
     const definition = base.assemble({ handlers: [] });
     const engine = buildEngine(definition);
 
@@ -47,7 +47,7 @@ describe('durable-stream registrar — purgeUser', () => {
   });
 
   it("running the hook deletes the purged user's stream rows, leaving another user's rows intact", async () => {
-    const base = server({ capabilities: [cursorStream()] });
+    const base = server({ capabilities: [recordedStream()] });
     const definition = base.assemble({ handlers: [] });
     const engine = buildEngine(definition);
 
@@ -60,7 +60,6 @@ describe('durable-stream registrar — purgeUser', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: 1_000,
     });
     insertStream(sql, {
@@ -68,7 +67,6 @@ describe('durable-stream registrar — purgeUser', () => {
       streamId: 's-2',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: 1_000,
     });
 
@@ -79,7 +77,7 @@ describe('durable-stream registrar — purgeUser', () => {
   });
 
   it('forwards purgeUser options through to purgeStreamsByUser', async () => {
-    const base = server({ capabilities: [cursorStream()] });
+    const base = server({ capabilities: [recordedStream()] });
     const definition = base.assemble({ handlers: [] });
     const engine = buildEngine(definition);
 
@@ -92,7 +90,6 @@ describe('durable-stream registrar — purgeUser', () => {
       streamId: 's-broadcast',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: 1_000,
       broadcast: true,
       creatorUserId: 'u-1',
@@ -115,7 +112,7 @@ describe('durable-stream registrar — purgeUser', () => {
 
 describe('durable-stream registrar — boot schema', () => {
   it('creates the durable-stream tables at boot, before any stream is ever started', async () => {
-    const base = server({ capabilities: [cursorStream()] });
+    const base = server({ capabilities: [recordedStream()] });
     const definition = base.assemble({ handlers: [] });
     const engine = buildEngine(definition);
 
@@ -130,7 +127,6 @@ describe('durable-stream registrar — boot schema', () => {
         streamId: 's-1',
         event: 'e',
         payload: '{}',
-        kind: 'cursor',
         now: 1_000,
       }),
     ).not.toThrow();
@@ -150,13 +146,12 @@ describe('durable-stream registrar — restart', () => {
         streamId: 'ask-scout-1',
         event: 'answer',
         payload: '{}',
-        kind: 'cursor',
         now: 1_000,
         maxAgeMs: 60_000,
       });
 
       vi.setSystemTime(5_000);
-      const base = server({ capabilities: [cursorStream()] });
+      const base = server({ capabilities: [recordedStream()] });
       const engine = buildEngine(base.assemble({ handlers: [] }), storage);
       await engine.initialize();
 

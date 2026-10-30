@@ -1,5 +1,5 @@
 import type { AnyScheduled } from '~/_engine/compile/types.ts';
-import type { Logger, StorageProvider, TimerProvider } from '~/context.ts';
+import type { Logger, StorageProvider } from '~/context.ts';
 
 /**
  * One queued scheduled task run.
@@ -54,17 +54,11 @@ export interface ScheduledRuntimeAccess {
   /** Read the adapter's SQL and key-value storage. */
   getStorage(): StorageProvider;
 
-  /** Read the adapter's durable alarm APIs. */
-  getTimers(): TimerProvider;
-
   /** Create a framework-generated id, usually for one queued task run. */
   generateId(prefix?: string): string;
 
   /** Read the engine-owned in-memory table of queued runs. */
   getScheduledRuns(): Map<string, ScheduledRun>;
-
-  /** Read the engine-owned in-memory dead-letter queue. */
-  getScheduledDlq(): Map<string, ScheduledDeadLetter>;
 
   /**
    * Read the engine-owned mirror of the durable run table. Maps row id to a
@@ -74,9 +68,6 @@ export interface ScheduledRuntimeAccess {
    */
   getScheduledRunsPersisted(): Map<string, string>;
 
-  /** Read the engine-owned mirror of the durable dead-letter table. */
-  getScheduledDlqPersisted(): Map<string, string>;
-
   /** Read one declared scheduled task by its task id. */
   getScheduledTask(taskId: string): AnyScheduled | undefined;
 
@@ -84,10 +75,10 @@ export interface ScheduledRuntimeAccess {
   getScheduledTasks(): Iterable<AnyScheduled>;
 
   /** Build the context object passed to a scheduled task handler. */
-  createTaskContext(): unknown;
+  createContext(): unknown;
 
   /** Run a task handler so `context.task(base)` can reach `ctx`. Omitted by test harnesses. */
-  runInTaskContext?<T>(ctx: unknown, fn: () => T): T;
+  runInTaskCall?<T>(ctx: unknown, fn: () => T): T;
 
   /** Ask the engine to recompute when the next alarm should fire. */
   rescheduleAlarm(): void;

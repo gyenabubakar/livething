@@ -35,7 +35,7 @@ describe('clientRequests — buffered frame ownership', () => {
     vi.useFakeTimers();
     const socket = client<C>()(
       connect('wss://test'),
-      buffering({ enabled: true }),
+      buffering(),
       clientRequests({ timeout: 5000 }),
     );
     socket.connect();
@@ -83,7 +83,7 @@ describe('clientRequests — buffered frame ownership', () => {
 });
 
 describe('clientRequests', () => {
-  it('rejects and cleans up timer/pending when the payload will not serialize (#15)', async () => {
+  it('rejects and cleans up timer/pending when the payload will not serialize', async () => {
     vi.useFakeTimers();
     const { socket, ws } = build();
     const circular: Record<string, unknown> = {};
@@ -114,7 +114,7 @@ describe('clientRequests', () => {
     expect(ws.sentFrames()).toHaveLength(0);
   });
 
-  it('rejects an over-limit event name locally with validation-failed, no send (#3)', async () => {
+  it('rejects an over-limit event name locally with validation-failed, no send', async () => {
     const { socket, ws } = build();
     const longEvent = 'e'.repeat(WIRE_LIMITS.event + 1);
     await expect(

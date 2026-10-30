@@ -1,6 +1,5 @@
 import { intercept } from '~/intercept/intercept.ts';
 import type { InterceptPrimitive } from '~/intercept/intercept.ts';
-import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
 
 const handler = intercept(async (ctx: { userId: string }, frame) => {
   const _user: string = ctx.userId;
@@ -16,12 +15,7 @@ const _handlerType: InterceptPrimitive = handler;
 void _handlerType;
 
 const _tag: 'intercept' = handler.__livething;
-const _kind: PrimitiveKind = handler.__kind;
-void [_tag, _kind];
-
-const _ref: PrimitiveRef = intercept;
-const _key: symbol = intercept.__key;
-void [_ref, _key];
+void _tag;
 
 const wrapped = intercept(async (ctx: { orgId: string }, frame) => {
   const _org: string = ctx.orgId;

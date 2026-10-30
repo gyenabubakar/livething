@@ -6,7 +6,6 @@ import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { translator } from '~/translation/translator.ts';
 import { describe, expect, it } from 'vitest';
 import type { ConnectionHandle } from '~/_adapters/types.ts';
 import type { Engine } from '~/_engine/engine.ts';
@@ -42,10 +41,12 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-async function open(engine: Engine, userId: string): Promise<OpenSocket> {
+async function open(engine: Engine, userId: string, refuseFrames = false): Promise<OpenSocket> {
   const frames: string[] = [];
   const handle = engine.accept(Symbol(userId), {
     send: (data: string) => {
+      if (refuseFrames) return false;
+
       frames.push(data);
     },
     close() {},
@@ -143,10 +144,9 @@ describe('onOutgoing ctx — which connection, if any, it belongs to', () => {
 });
 
 describe('ctx.send return value', () => {
-  function buildApp(outbound: (frame: string) => string | null) {
+  function buildApp() {
     const results: boolean[] = [];
     const base = server({
-      translate: translator(() => ({ inbound: () => null, outbound })),
       capabilities: [emits({ note: t<{}>() })],
     });
     const direct = base.on('direct', {
@@ -159,7 +159,7 @@ describe('ctx.send return value', () => {
   }
 
   it('returns true when the frame is handed to the socket', async () => {
-    const { engine, results } = buildApp((frame) => frame);
+    const { engine, results } = buildApp();
     await engine.initialize();
     const alice = await open(engine, 'alice');
     await send(alice, ['direct', {}]);
@@ -168,14 +168,13 @@ describe('ctx.send return value', () => {
     expect(alice.frames.some((frame) => frame.startsWith('["note"'))).toBe(true);
   });
 
-  it('returns false when the outbound translation fails', async () => {
-    const { engine, results } = buildApp(() => {
-      throw new Error('cannot translate');
-    });
+  it('returns false when the adapter refuses the frame', async () => {
+    const { engine, results } = buildApp();
     await engine.initialize();
-    const alice = await open(engine, 'alice');
+    const alice = await open(engine, 'alice', true);
     await send(alice, ['direct', {}]);
 
     expect(results).toEqual([false]);
+    expect(alice.frames).toEqual([]);
   });
 });

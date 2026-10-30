@@ -7,6 +7,7 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
+import type { SharedSendOptions } from '~/outgoing/runtime.ts';
 import type * as EngineContextTypes from './types.ts';
 
 type BuildConnectionContextScopeParameter = {
@@ -18,7 +19,6 @@ type BuildConnectionContextScopeParameter = {
 type ToConnectionInfoOptsParameter = {
   hibernationEnabled?: boolean;
   lastSeenAt?: (userId: string) => number | null;
-  lastSeen?: number | null;
 };
 
 /**
@@ -101,26 +101,16 @@ function buildUserInfo(
     }
   }
 
-  // Every connection here belongs to the same user, so `toConnectionInfo`'s
-  // last-seen lookup (a storage read) would return the same answer for each
-  // one of them — probe it through a single connection instead of once per
-  // tab. `lastSeen` is only present on a `ConnectionInfo` at all when the
-  // `lastSeen()` capability is installed, so the field is omitted here too
-  // when it's absent from the probe.
-  const lastSeenProbe = deps.toConnectionInfo(connections[0]!);
-  const sawLastSeen = 'lastSeen' in lastSeenProbe;
-  const lastSeen = sawLastSeen ? (lastSeenProbe.lastSeen ?? null) : undefined;
+  // Every connection here belongs to the same user, so any one of them carries
+  // the user's `lastSeen()` reader (present only when `lastSeen()` is listed).
+  const { lastSeen } = deps.toConnectionInfo(connections[0]!);
 
   return {
     id: userId,
-    online: true,
-    connections: () =>
-      connections.map((target) =>
-        deps.toConnectionInfo(target, sawLastSeen ? { lastSeen } : undefined),
-      ),
+    connections: () => connections.map((target) => deps.toConnectionInfo(target)),
     channels: [...channels],
     tags: [...tagsByKey.values()],
-    ...(sawLastSeen ? { lastSeen: lastSeenProbe.lastSeen ?? null } : {}),
+    ...(lastSeen ? { lastSeen } : {}),
     ref: () => buildUserRef(userId, deps.instanceId),
   };
 }
@@ -154,6 +144,8 @@ function buildUserHandle(
     },
 
     info: () => buildUserInfo(userId, deps),
+
+    isOnline: () => (deps.usersByKey.get(userId)?.size ?? 0) > 0,
   };
 }
 
@@ -263,14 +255,14 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
   if (deps.usesTags && buildTags) {
     const tagsRuntime = {
       tagMembers: deps.tagMembers,
+      usersByKey: deps.usersByKey,
       isTagGroupDeclared: deps.isTagGroupDeclared,
       getTagGroupSchema: deps.getTagGroupSchema,
       toConnectionInfo: deps.toConnectionInfo,
-      sendThroughPipeline: (
-        target: EngineRuntimeTypes.RuntimeConnection,
-        event: string,
-        payload: unknown,
-      ) => deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
+      sendToConnections: (
+        targets: Iterable<EngineRuntimeTypes.RuntimeConnection>,
+        opts: Omit<SharedSendOptions, 'routing'>,
+      ) => deps.sendToConnections(targets, { routing: undefined, ...opts }),
       persistAttachment: deps.persistAttachment,
       getStorage: deps.getStorage,
     };
@@ -367,12 +359,9 @@ export function toConnectionInfo(
     ref: () => buildConnectionRef(connection.id, connection.userId, instanceId),
   };
 
-  if ('lastSeen' in (opts ?? {})) {
-    return { ...info, lastSeen: opts!.lastSeen ?? null };
-  }
-
-  if (opts?.lastSeenAt) {
-    return { ...info, lastSeen: opts.lastSeenAt(connection.userId) };
+  const lastSeenAt = opts?.lastSeenAt;
+  if (lastSeenAt) {
+    return { ...info, lastSeen: () => lastSeenAt(connection.userId) };
   }
 
   return info;
@@ -384,7 +373,7 @@ export function toConnectionInfo(
  * instance id when one is configured — the broker (future) reads this field
  * to decide whether the target lives locally or on another instance.
  */
-export function buildConnectionRef(
+function buildConnectionRef(
   connectionId: string,
   userId: string,
   instanceId: string | undefined,

@@ -5,9 +5,26 @@ import type {
   UpgradeDecision,
 } from '@livething/server/adapters';
 
+/** The WebSocket `readyState` of an open socket. */
+const WEB_SOCKET_OPEN = 1;
+
+/**
+ * Send one frame only while the socket is open. Node WebSocket libraries drop
+ * or reject a send on a closing socket in different ways, so every transport
+ * reports it the same way: as not delivered. A socket that does not expose
+ * `readyState` is always sent to.
+ */
+export function sendWhenOpen(readyState: number | undefined, send: () => unknown): boolean {
+  if (readyState !== undefined && readyState !== WEB_SOCKET_OPEN) return false;
+
+  send();
+  return true;
+}
+
 /** Transport functions the engine needs after a WebSocket handshake. */
 export interface ConnectionTransport {
-  send(data: string): void;
+  /** Return `false` when the frame was not sent, for example because the socket is closing. */
+  send(data: string): boolean | void;
   close(code?: number, reason?: string): void;
   bufferedAmount(): number;
   backpressureSupported: boolean;

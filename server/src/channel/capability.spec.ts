@@ -352,14 +352,6 @@ describe('channels() capability', () => {
     );
   });
 
-  it('throws when a custom channel replay is used without the replay.custom() capability', () => {
-    const base = server({ capabilities: [channels()] });
-    const room = base.channel('room', {});
-    expect(() => room.replay({ replay() {} })).toThrow(
-      /replay\.custom\(\) capability is\s+not listed/,
-    );
-  });
-
   it('throws when base.channel() is used without the channels() capability', () => {
     const base = server({});
     const escapeHatch = base as unknown as { channel(name: string, config?: any): unknown };

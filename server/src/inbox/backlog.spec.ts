@@ -88,8 +88,6 @@ describe('inbox backlog()', () => {
       channelName: SCOPE.channelName,
       channelFamily: SCOPE.channelFamily,
       receivedThrough: 2,
-      onDelivered: 'delete',
-      now: 1,
     });
 
     expect(surface.backlog()).toEqual([]);
@@ -107,7 +105,6 @@ describe('inbox backlog()', () => {
   it('fills lastSeenAt from the LastSeenService slot when set', () => {
     const lastSeen: LastSeenService = {
       at: (identity) => (identity === 'alice' ? 4242 : null),
-      online: () => false,
     };
 
     const { sql, surface } = harness({ lastSeen });

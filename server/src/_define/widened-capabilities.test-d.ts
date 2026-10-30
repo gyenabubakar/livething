@@ -5,7 +5,7 @@
  * to `never`, so every gate keyed off it closes at once instead of opening
  * for every brand simultaneously.
  */
-import { t } from '~/_api/index.ts';
+import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
@@ -29,7 +29,7 @@ const base = server({ capabilities: widenedCaps });
 // every gate closes together, so `base.channel` itself is gone, not just its
 // rateLimit field.
 // @ts-expect-error — channels() is not confirmed listed, so base.channel is absent.
-base.channel('room', { rateLimit: { enabled: true, max: 5 } });
+base.channel('room', { rateLimit: { max: 5 } });
 
 // @ts-expect-error — channels() is not confirmed listed, so base.channel is absent.
 base.channel('room2', {
@@ -59,7 +59,7 @@ base.on('ping', {
 const rateLimitBase = server({
   capabilities: [channels(), rateLimit({ max: 5 })],
 });
-rateLimitBase.channel('room', { rateLimit: { enabled: true, max: 5 } });
+rateLimitBase.channel('room', { rateLimit: { max: 5 } });
 
 const requestsBase = server({
   capabilities: [channels(), serverRequests()],
@@ -105,6 +105,14 @@ lastSeenBase.on('ping', {
   input: v.object({}),
   run(ctx) {
     expectTypeOf(ctx.lastSeen).not.toBeUndefined();
+    expectTypeOf(ctx.users.get('user_9').isOnline()).toEqualTypeOf<boolean>();
+    expectTypeOf(ctx.user.isOnline()).toEqualTypeOf<boolean>();
+    const [first] = ctx.connections.all();
+    expectTypeOf(first!.lastSeen?.()).toEqualTypeOf<number | null | undefined>();
+
+    expectTypeOf(ctx.users.get('user_9').info()?.lastSeen?.()).toEqualTypeOf<
+      number | null | undefined
+    >();
   },
 });
 

@@ -6,7 +6,6 @@ describe('outgoing', () => {
     const primitive = outgoing<'message', { text: string }>('message');
 
     expect(primitive.__livething).toBe('outgoing');
-    expect(primitive.__kind).toBe('contract');
     expect(primitive.__identity[1]).toBe('message');
     expect(primitive.event).toBe('message');
     expect(primitive.__requires).toEqual({});

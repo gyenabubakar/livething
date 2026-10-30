@@ -6,6 +6,7 @@ import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { ValidationFailed } from '~/errors/errors.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -98,8 +99,15 @@ describe('plugin scope — every send surface is namespaced on a real engine', (
       room.ref('lobby').broadcast('user-online', { via: 'tag-ref' });
     },
   });
+  const onlineChecks: boolean[] = [];
+
+  const checkOnline = ph.on('check-online', {
+    run(ctx) {
+      onlineChecks.push(ctx.user.isOnline(), ctx.users.get(ctx.user.id).isOnline());
+    },
+  });
   const Presence = plugin('acme:presence', {
-    definition: ph.assemble({ handlers: [viaConnections, viaUsers, viaTags] }),
+    definition: ph.assemble({ handlers: [viaConnections, viaUsers, viaTags, checkOnline] }),
   });
 
   async function openPresence() {
@@ -132,6 +140,14 @@ describe('plugin scope — every send surface is namespaced on a real engine', (
     expect(events(socket)).not.toContain('__error__');
   });
 
+  it('ctx.user.isOnline and ctx.users.get(id).isOnline pass through the plugin scope', async () => {
+    const socket = await openPresence();
+    await send(socket, ['__acme:presence::check-online', {}]);
+
+    expect(onlineChecks).toEqual([true, true]);
+    expect(events(socket)).not.toContain('__error__');
+  });
+
   it('tag group and tag ref broadcast go out under the plugin namespace', async () => {
     const socket = await openPresence();
     await send(socket, ['__acme:presence::via-tags', {}]);
@@ -144,7 +160,7 @@ describe('plugin scope — every send surface is namespaced on a real engine', (
   });
 });
 
-describe('plugin onError / onValidationError — only the plugin’s own failures', () => {
+describe('plugin onError — only the plugin’s own failures', () => {
   interface Seen {
     errors: (string | undefined)[];
     validation: string[];
@@ -171,11 +187,9 @@ describe('plugin onError / onValidationError — only the plugin’s own failure
         throw new Error('probe channel handler failed');
       },
     });
-    ph.onError((_ctx, _error, event) => {
+    ph.onError((_ctx, error, event) => {
       probe.errors.push(event);
-    });
-    ph.onValidationError((_ctx, event) => {
-      probe.validation.push(event);
+      if (ValidationFailed.matches(error)) probe.validation.push(event!);
     });
     const Probe = plugin('acme:probe', {
       definition: ph.assemble({ handlers: [fail, strict, room, say] }),
@@ -199,11 +213,9 @@ describe('plugin onError / onValidationError — only the plugin’s own failure
       },
     });
     const appStrict = base.on('app-strict', { input: v.object({ n: v.number() }), run() {} });
-    base.onError((_ctx, _error, event) => {
+    base.onError((_ctx, error, event) => {
       app.errors.push(event);
-    });
-    base.onValidationError((_ctx, event) => {
-      app.validation.push(event);
+      if (ValidationFailed.matches(error)) app.validation.push(event!);
     });
 
     const engine = buildEngine(base.assemble({ handlers: [appFail, appStrict] }));

@@ -1,6 +1,5 @@
 import { emits, server, t } from '@livething/server';
 import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
-import type { InferClient } from '@livething/server';
 
 /**
  * A hibernation-enabled server that reports every heartbeat hook it sees.
@@ -11,7 +10,7 @@ import type { InferClient } from '@livething/server';
  * handler lets a test prove both over the real wire.
  */
 const base = server({
-  hibernation: { enabled: true },
+  hibernation: true,
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -30,5 +29,3 @@ base.onPong((ctx) => {
 });
 
 export const heartbeatHibernationDefinition = base.assemble({ handlers: [] });
-
-export type HeartbeatHibernationClient = InferClient<typeof heartbeatHibernationDefinition>;

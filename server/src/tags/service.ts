@@ -10,7 +10,7 @@ import type { TagPersistenceService } from '~/_engine/runtime/feature-slots.ts';
  * `tagPersistenceService` slot. Registered by the `tags()` capability — a
  * handler that never lists it never pulls the tag storage or rejoin code.
  */
-export const tagPersistenceService: TagPersistenceService = {
+const tagPersistenceService: TagPersistenceService = {
   restorePersistentTags,
 };
 
@@ -21,7 +21,7 @@ const TAG_PERSISTENCE_RUNTIME_KEY = Symbol('tag-persistence-runtime');
  * `purgeUser` cleanup hook into the engine. `installOnce` keeps this a
  * single-time setup even when several tag groups are declared.
  */
-export function registerTagPersistenceRuntime(engine: EngineAccess): void {
+function registerTagPersistenceRuntime(engine: EngineAccess): void {
   engine.installOnce(TAG_PERSISTENCE_RUNTIME_KEY, () => {
     engine.setTagPersistenceService(tagPersistenceService);
 
@@ -38,8 +38,6 @@ export function registerTagPersistenceRuntime(engine: EngineAccess): void {
 export const tagPersistenceRuntimePrimitive = definePrimitive({
   tag: 'tag-persistence-runtime',
   key: Symbol('tag-persistence-runtime-primitive'),
-  kind: 'infrastructure',
-  create: () => ({}),
   setup(engine) {
     registerTagPersistenceRuntime(engine);
   },

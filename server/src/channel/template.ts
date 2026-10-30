@@ -7,9 +7,9 @@ import { LiveThingConfigError } from '@livething/core';
  *
  * - `room:{id}`            matches `room:general` → `{ id: 'general' }`
  * - `org:{org}/t:{tid}`    matches `org:acme/t:42` → `{ org: 'acme', tid: '42' }`
- * - `cfg{{x}}`             `{{`/`}}` are literal braces → matches `cfg{x}`
  *
- * Each `{name}` matches one or more characters (lazily up to the next literal,
+ * A brace outside a `{name}` capture is an error; templates have no literal
+ * braces. Each `{name}` matches one or more characters (lazily up to the next literal,
  * greedily to the end when trailing). A literal must separate two params so a
  * multi-param template is never ambiguous.
  */
@@ -36,7 +36,7 @@ function escapeLiteral(text: string): string {
 
 /**
  * Parse a channel family template into a safe matcher. Throws `LiveThingConfigError`
- * with a clear message on any malformed template — unclosed/unmatched brace,
+ * with a clear message on any malformed template — stray brace,
  * empty `{}`, bad param name, duplicate param, or two params with no literal
  * between them.
  */
@@ -56,6 +56,13 @@ export function compileChannelTemplate(
   let previousWasParam = false;
   let i = 0;
 
+  function strayBrace(brace: '{' | '}'): LiveThingConfigError {
+    return new LiveThingConfigError(
+      `${source} template "${template}" has a stray '${brace}' that is not part of a ` +
+        `'{param}' capture. Channel templates cannot contain literal braces.`,
+    );
+  }
+
   function flushLiteral(): void {
     if (literal !== '') {
       regexSource += escapeLiteral(literal);
@@ -67,23 +74,12 @@ export function compileChannelTemplate(
     const char = template[i];
 
     if (char === '{') {
-      // `{{` is an escaped literal brace.
-      if (template[i + 1] === '{') {
-        literal += '{';
-        previousWasParam = false;
-        i += 2;
-        continue;
-      }
-
       const end = template.indexOf('}', i + 1);
-      if (end === -1) {
-        throw new LiveThingConfigError(
-          `${source} template "${template}" has an unclosed '{'. ` +
-            `Write '{{' for a literal '{'.`,
-        );
+      const name = end === -1 ? '' : template.slice(i + 1, end);
+      if (end === -1 || name.includes('{')) {
+        throw strayBrace('{');
       }
 
-      const name = template.slice(i + 1, end);
       if (name === '') {
         throw new LiveThingConfigError(
           `${source} template "${template}" has an empty '{}'. ` +
@@ -122,17 +118,7 @@ export function compileChannelTemplate(
     }
 
     if (char === '}') {
-      // `}}` is an escaped literal brace; a lone `}` is an error.
-      if (template[i + 1] === '}') {
-        literal += '}';
-        previousWasParam = false;
-        i += 2;
-        continue;
-      }
-
-      throw new LiveThingConfigError(
-        `${source} template "${template}" has an unmatched '}'. ` + `Write '}}' for a literal '}'.`,
-      );
+      throw strayBrace('}');
     }
 
     literal += char;
@@ -149,7 +135,7 @@ export function compileChannelTemplate(
 /**
  * Fill a channel family template with concrete params to produce a channel
  * name — the inverse of the matcher. `room:{id}` + `{ id: 'general' }` →
- * `room:general`. `{{`/`}}` collapse to literal braces. Throws if a declared
+ * `room:general`. Throws if a declared
  * param is missing or its value is empty, so a `.at(...)` ref never resolves to
  * a malformed name.
  */
@@ -165,12 +151,6 @@ export function fillChannelTemplate(
     const char = template[i];
 
     if (char === '{') {
-      if (template[i + 1] === '{') {
-        result += '{';
-        i += 2;
-        continue;
-      }
-
       const end = template.indexOf('}', i + 1);
       if (end === -1) {
         throw new LiveThingConfigError(
@@ -191,12 +171,6 @@ export function fillChannelTemplate(
 
       result += value;
       i = end + 1;
-      continue;
-    }
-
-    if (char === '}' && template[i + 1] === '}') {
-      result += '}';
-      i += 2;
       continue;
     }
 

@@ -10,7 +10,6 @@ describe('scheduled', () => {
     const primitive = scheduled('cleanup', (t) => t.data(dataSchema).retry(true).run(handler));
 
     expect(primitive.__livething).toBe('scheduled');
-    expect(primitive.__kind).toBe('infrastructure');
     expect(primitive.__identity[1]).toBe('cleanup');
     expect(primitive.__requires).toEqual({});
     expect(primitive.handler).toBe(handler);

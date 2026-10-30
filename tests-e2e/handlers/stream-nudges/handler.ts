@@ -1,7 +1,6 @@
 import { emits, errors, server, t } from '@livething/server';
 import { dedup } from '@livething/server/dedup';
 import { error } from '@livething/server/errors';
-import { intercepts } from '@livething/server/intercepts';
 import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -25,7 +24,6 @@ const base = server({
       'nudge-saw': t<{ events: string[] }>(),
     }),
     stream(),
-    intercepts(),
   ],
 });
 

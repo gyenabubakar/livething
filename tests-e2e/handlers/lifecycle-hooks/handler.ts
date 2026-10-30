@@ -1,4 +1,5 @@
 import { emits, server, t } from '@livething/server';
+import { ValidationFailed } from '@livething/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -49,12 +50,12 @@ base.onShutdown((ctx) => {
   ctx.broadcast('disconnected', { username: 'server-shutdown' });
 });
 
-base.onError((ctx, err) => {
-  ctx.send('error-fired', { message: err instanceof Error ? err.message : String(err) });
-});
+base.onError((ctx, err, eventName) => {
+  if (ValidationFailed.matches(err)) {
+    ctx.send('validation-error-fired', { event: eventName ?? 'unknown' });
+  }
 
-base.onValidationError((ctx, eventName) => {
-  ctx.send('validation-error-fired', { event: eventName });
+  ctx.send('error-fired', { message: err instanceof Error ? err.message : String(err) });
 });
 
 const handleBadEvent = base.on('bad-event', {

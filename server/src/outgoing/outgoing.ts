@@ -33,14 +33,8 @@ export function outgoing<TEvent extends string, TPayload = unknown>(
   assertValidLiveThingIdentifier(event, 'outgoing() event name');
   return {
     __livething: 'outgoing',
-    __kind: 'contract',
     __identity: [OUTGOING_KEY, event],
     __requires: {},
     event,
   };
 }
-
-/**
- * Symbol key used to reference this primitive in dependency declarations.
- */
-outgoing.__key = OUTGOING_KEY;

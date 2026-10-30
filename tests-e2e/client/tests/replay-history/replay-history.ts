@@ -7,8 +7,25 @@ import { button, el, mount, OFFLINE_WINDOW_MAX_DELAY, ready, wsUrl } from '../_s
 // frames missed while disconnected — top-level AND channel-scoped — by sending
 // __replay__ on reconnect, typed by the same contract the server implements.
 export function setup(): void {
+  // Drop the next incoming frame that carries `lose-next` text, before the
+  // client sees it: a frame the server wrote but the network lost.
+  let loseNext: string | null = null;
+  const NativeWebSocket = window.WebSocket;
+  window.WebSocket = class extends NativeWebSocket {
+    constructor(...args: ConstructorParameters<typeof WebSocket>) {
+      super(...args);
+      this.addEventListener('message', (event) => {
+        if (loseNext && typeof event.data === 'string' && event.data.includes(loseNext)) {
+          loseNext = null;
+          event.stopImmediatePropagation();
+        }
+      });
+    }
+  };
+
   mount(`
     <button data-testid="connect">connect</button>
+    <button data-testid="send-private-lost">send-private-lost</button>
     <button data-testid="send-m1">send-m1</button>
     <button data-testid="send-m2">send-m2</button>
     <button data-testid="send-m3">send-m3</button>
@@ -66,6 +83,10 @@ export function setup(): void {
   button('connect', () => socket.connect());
   button('send-m1', () => {
     socket.send('send-msg', { text: 'm1' });
+  });
+  button('send-private-lost', () => {
+    loseNext = 'private-lost';
+    socket.send('send-private', { text: 'private-lost' });
   });
   button('send-m2', () => {
     socket.send('send-msg', { text: 'm2' });

@@ -1,7 +1,8 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { lastSeen } from '@livething/server/last-seen';
 import { scheduled } from '@livething/server/scheduled';
-import { cursorStream } from '@livething/server/streams';
+import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -14,7 +15,10 @@ const base = server({
     // Listed but never used: this server declares a durable stream and no test
     // ever starts one. `purgeUser` must still delete stream rows, which means
     // the stream tables have to exist from boot rather than from first use.
-    cursorStream(),
+    recordedStream(),
+    // Listed so the stub's connection snapshots carry `lastSeen()`, a method
+    // that has to cross Workers RPC as a callable stub, like `ref()`.
+    lastSeen(),
     emits({
       announced: t<{ text: string }>(),
       poked: t<{ text: string }>(),

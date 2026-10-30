@@ -63,7 +63,7 @@ describe('plugin onion ordering — shutdown', () => {
       connections: new Map(),
       shutdownHooks: [push(trace, 'app')],
       pluginShutdownHooks: [{ handler: push(trace, 'p1') }, { handler: push(trace, 'p2') }],
-      createShutdownContext: () => ({}),
+      createContext: () => ({}),
       cancelActiveStreamsForConnection: async () => {},
       handleConnectionClose: async () => {},
     } as any);

@@ -42,7 +42,6 @@ function buildEngine(makeApi: (ctx: unknown) => object): Engine<object> {
         timers: {
           setAlarm: vi.fn(async () => {}),
           deleteAlarm: vi.fn(async () => {}),
-          getAlarm: vi.fn(async () => null),
         },
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       }) as Engine<object>;

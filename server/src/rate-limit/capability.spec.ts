@@ -22,7 +22,7 @@ describe('rateLimit() capability', () => {
     const base = server({ capabilities: [rateLimit()] });
     const handler = base.on('expensive', {
       input: v.object({}),
-      rateLimit: { enabled: true, max: 1, windowMs: 10_000 },
+      rateLimit: { max: 1, windowMs: 10_000 },
       run() {},
     });
     expect(interceptCount(base.assemble({ handlers: [handler] }))).toBe(1);
@@ -34,7 +34,7 @@ describe('rateLimit() capability', () => {
     });
     const ask = base.request('ask', {
       input: v.object({}),
-      rateLimit: { enabled: true, max: 2 },
+      rateLimit: { max: 2 },
       run() {
         return {};
       },
@@ -48,9 +48,15 @@ describe('rateLimit() capability', () => {
     });
     const free = base.on('free', {
       input: v.object({}),
-      rateLimit: { enabled: false },
+      rateLimit: false,
       run() {},
     });
+    expect(interceptCount(base.assemble({ handlers: [free] }))).toBe(1);
+  });
+
+  it('keeps a `rateLimit: false` override instead of dropping it as unset', () => {
+    const base = server({ capabilities: [rateLimit()] });
+    const free = base.on('free', { input: v.object({}), rateLimit: false, run() {} });
     expect(interceptCount(base.assemble({ handlers: [free] }))).toBe(1);
   });
 
@@ -67,7 +73,7 @@ describe('rateLimit() capability', () => {
     const base = server({});
     const handler = base.on('plain', {
       input: v.object({}),
-      ...({ rateLimit: { enabled: true, max: 1 } } as object),
+      ...({ rateLimit: { max: 1 } } as object),
       run() {},
     });
     expect(() => base.assemble({ handlers: [handler] })).toThrow(

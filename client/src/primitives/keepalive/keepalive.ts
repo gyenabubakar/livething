@@ -1,16 +1,22 @@
-import { CloseCodes } from '@livething/core';
+import { CloseCodes, LiveThingConfigError } from '@livething/core';
 import { createStore } from '~/internal/store.ts';
 import { KeepaliveLoop } from '~/primitives/keepalive/loop.ts';
 import type { ReadableStore } from '~/internal/store.ts';
+import type { QualityThresholds } from '~/primitives/keepalive/loop.ts';
 import type { Primitive, TypeFn } from '~/primitives/types.ts';
 import type { ConnectionQuality } from '~/types.ts';
 
 /** Options for `keepalive()`. */
 export interface KeepaliveOptions {
-  /** How often to ping, in ms. `0` turns it off. Default: `30_000`. */
+  /** How often to ping, in ms. Must be 1 or more. Default: `30_000`. */
   interval?: number;
   /** How many pongs can be missed before the socket is force-closed. Default: `2`. */
   maxMissedPongs?: number;
+  /**
+   * Latency cut-offs (ms) for the quality tiers. Default:
+   * `{ excellent: 100, good: 300, degraded: 1000 }`, the same table the server uses.
+   */
+  thresholds?: QualityThresholds;
 }
 
 /** The connection-health stores that `keepalive()` adds to the socket. */
@@ -47,6 +53,14 @@ interface KeepaliveTypeFn extends TypeFn {
  * `keepalive()`.
  */
 export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTypeFn> {
+  const { interval } = options;
+  if (interval !== undefined && !(Number.isFinite(interval) && interval >= 1)) {
+    throw new LiveThingConfigError(
+      `keepalive interval must be a number of ms, 1 or more, got ${interval}. ` +
+        `To turn keepalive off, leave keepalive() out.`,
+    );
+  }
+
   return {
     _tag: 'keepalive',
     setup(helpers) {
@@ -57,9 +71,9 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
 
       const loop = new KeepaliveLoop(
         {
-          interval: options.interval,
+          interval,
           maxMissedPongs: options.maxMissedPongs,
-          thresholds: helpers.config.qualityThresholds,
+          thresholds: options.thresholds,
         },
         {
           sendPing: () => helpers.sendPing(),

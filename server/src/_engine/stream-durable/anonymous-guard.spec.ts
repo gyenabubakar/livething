@@ -17,7 +17,6 @@ function createConnection(userId: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId,
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -47,7 +46,6 @@ function createRuntime(sqlInstance: ReturnType<typeof createTestSql>) {
 function baseDef(overrides: Partial<DurableStreamRuntimeDef> = {}): DurableStreamRuntimeDef {
   return {
     event: 'e',
-    kind: 'recorded',
     allowConcurrent: false,
     maxAgeMs: 60_000,
     retentionAfterEndMs: 30_000,

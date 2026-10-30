@@ -61,12 +61,6 @@ describe('GroupFullSurfaceClient — incoming (server outgoing)', () => {
     expectTypeOf<GroupFullSurfaceClient['incoming']['rl-marker']>().toEqualTypeOf<{ at: number }>();
   });
 
-  it('has replay-marker', () => {
-    expectTypeOf<GroupFullSurfaceClient['incoming']['replay-marker']>().toEqualTypeOf<{
-      note: string;
-    }>();
-  });
-
   it('has scheduled-marker', () => {
     expectTypeOf<GroupFullSurfaceClient['incoming']['scheduled-marker']>().toEqualTypeOf<{
       tickCount: number;
@@ -106,12 +100,6 @@ describe('GroupFullSurfaceClient — outgoing (server incoming)', () => {
   it('has start-tick with empty payload', () => {
     expectTypeOf<GroupFullSurfaceClient['outgoing']['start-tick']>().toEqualTypeOf<{}>();
   });
-
-  it('has emit-replay-marker', () => {
-    expectTypeOf<GroupFullSurfaceClient['outgoing']['emit-replay-marker']>().toEqualTypeOf<{
-      note: string;
-    }>();
-  });
 });
 
 describe('GroupFullSurfaceClient — clientRequests', () => {
@@ -143,20 +131,6 @@ describe('GroupFullSurfaceClient — streams', () => {
     }>();
   });
 
-  it('feed has no cursor (basic stream)', () => {
-    expectTypeOf<GroupFullSurfaceClient['streams']['feed']>().not.toHaveProperty('cursor');
-  });
-
-  it('has paginate cursor stream', () => {
-    expectTypeOf<GroupFullSurfaceClient['streams']>().toHaveProperty('paginate');
-  });
-
-  it('paginate chunk is correct', () => {
-    expectTypeOf<GroupFullSurfaceClient['streams']['paginate']['chunk']>().toEqualTypeOf<{
-      row: number;
-    }>();
-  });
-
   it('has tokens recorded stream', () => {
     expectTypeOf<GroupFullSurfaceClient['streams']>().toHaveProperty('tokens');
   });
@@ -169,7 +143,6 @@ describe('GroupFullSurfaceClient — streams', () => {
 
   it('no stream entry has a broadcast key', () => {
     expectTypeOf<GroupFullSurfaceClient['streams']['feed']>().not.toHaveProperty('broadcast');
-    expectTypeOf<GroupFullSurfaceClient['streams']['paginate']>().not.toHaveProperty('broadcast');
     expectTypeOf<GroupFullSurfaceClient['streams']['tokens']>().not.toHaveProperty('broadcast');
   });
 });
@@ -177,12 +150,6 @@ describe('GroupFullSurfaceClient — streams', () => {
 describe('GroupFullSurfaceClient — stream kind', () => {
   it('feed is ephemeral', () => {
     expectTypeOf<GroupFullSurfaceClient['streams']['feed']['kind']>().toEqualTypeOf<'ephemeral'>();
-  });
-
-  it('paginate is persistent', () => {
-    expectTypeOf<
-      GroupFullSurfaceClient['streams']['paginate']['kind']
-    >().toEqualTypeOf<'persistent'>();
   });
 
   it('tokens is persistent', () => {
@@ -241,7 +208,6 @@ describe('GroupFullSurfaceClient — exact key sets', () => {
       | 'pre-intercept-marker'
       | 'post-intercept-marker'
       | 'rl-marker'
-      | 'replay-marker'
       | 'scheduled-marker'
     >();
   });
@@ -255,7 +221,6 @@ describe('GroupFullSurfaceClient — exact key sets', () => {
       | 'check-disconnect-log'
       | 'check-scheduled'
       | 'start-tick'
-      | 'emit-replay-marker'
     >();
   });
 
@@ -263,10 +228,8 @@ describe('GroupFullSurfaceClient — exact key sets', () => {
     expectTypeOf<keyof GroupFullSurfaceClient['clientRequests']>().toEqualTypeOf<'lookup'>();
   });
 
-  it('streams has exactly feed, paginate, tokens', () => {
-    expectTypeOf<keyof GroupFullSurfaceClient['streams']>().toEqualTypeOf<
-      'feed' | 'paginate' | 'tokens'
-    >();
+  it('streams has exactly feed, tokens', () => {
+    expectTypeOf<keyof GroupFullSurfaceClient['streams']>().toEqualTypeOf<'feed' | 'tokens'>();
   });
 
   it('channels has exactly rooms', () => {

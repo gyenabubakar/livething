@@ -6,14 +6,18 @@
 // the page's own query string so a spec can isolate each test on its own room
 // (one durable object) and identity. The URL is origin-relative — vite proxies
 // /ws to whichever adapter the run booted.
-export function wsUrl(feature: string): string {
+//
+// The Node test server shuts a room down 1 s after its last socket closes, the
+// way Cloudflare evicts an idle Durable Object. `holdRoom` keeps the room's
+// server running across a socket drop, for specs about a server that stays up.
+export function wsUrl(feature: string, options: { holdRoom?: boolean } = {}): string {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
   const page = new URLSearchParams(location.search);
-  const qs = new URLSearchParams({
-    room: page.get('room') ?? 'default',
-    username: page.get('username') ?? 'alice',
-  }).toString();
-  return `${scheme}://${location.host}/ws/${feature}?${qs}`;
+  const room = page.get('room') ?? 'default';
+  const qs = new URLSearchParams({ room, username: page.get('username') ?? 'alice' });
+  if (options.holdRoom) qs.set('__livethingFixtureLease', room);
+
+  return `${scheme}://${location.host}/ws/${feature}?${qs.toString()}`;
 }
 
 // maxDelay for pages whose specs act while the client is offline after a drop.

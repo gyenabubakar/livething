@@ -38,8 +38,9 @@ function buildDurableSweep(): Primitive {
 /**
  * Enable recorded server-pushed streams. Listing this lets you register
  * `base.recordedStream(name, { input, run })`. Chunks are buffered as they
- * emit; on reconnect the client receives the chunks it missed — the generator
- * does not re-run. Best for one-shot sources such as model tokens.
+ * emit, and the generator keeps running when its client drops; on reconnect
+ * the client receives the chunks it missed. Best for one-shot sources such as
+ * model tokens.
  *
  * @example
  * ```ts
@@ -72,8 +73,6 @@ export const recordedStream = withCapabilityKind(
           nudges: toNudgeDefs(config.nudges),
           broadcast: config.broadcast,
           allowConcurrent: config.allowConcurrent,
-          highWaterMark: config.highWaterMark,
-          onDisconnect: config.onDisconnect,
           maxChunks: config.maxChunks,
           maxAgeMs: config.maxAgeMs,
           retentionAfterEndMs: config.retentionAfterEndMs,

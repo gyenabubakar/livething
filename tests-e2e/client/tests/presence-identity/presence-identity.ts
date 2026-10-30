@@ -66,7 +66,7 @@ export function setup(): void {
     socket.send('server-drop', {});
   });
   button('kick-alice', () => {
-    socket.send('kick-member', { identity: 'alice' });
+    socket.send('remove-member', { identity: 'alice' });
   });
 
   el('on-subscribed').textContent = '0';

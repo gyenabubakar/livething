@@ -12,14 +12,12 @@ type CheckEventsInScopeScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-  cursorStreams?: ReadonlyMap<string, EngineCompileTypes.AnyCursorStream>;
   recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
 };
 type CheckScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, unknown>;
-  cursorStreams?: ReadonlyMap<string, unknown>;
   recordedStreams?: ReadonlyMap<string, unknown>;
 };
 type CollectFromScopeScopeParameter = {
@@ -27,7 +25,6 @@ type CollectFromScopeScopeParameter = {
   requests: ReadonlyMap<string, unknown>;
   outgoing: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-  cursorStreams?: ReadonlyMap<string, EngineCompileTypes.AnyCursorStream>;
   recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
 };
 type CheckScopeScopeParameter = {
@@ -35,7 +32,6 @@ type CheckScopeScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-  cursorStreams?: ReadonlyMap<string, EngineCompileTypes.AnyCursorStream>;
   recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
 };
 
@@ -93,15 +89,6 @@ function visitCompiledPrimitives(
         EngineCompileUtils.setUniqueOrThrow(compiled.streams, p.event, {
           value: p,
           kind: 'stream',
-        });
-        continue;
-      }
-
-      case 'cursor-stream-generate': {
-        const p = primitive as EngineCompileTypes.AnyCursorStream;
-        EngineCompileUtils.setUniqueOrThrow(compiled.cursorStreams, p.event, {
-          value: p,
-          kind: 'cursorStream',
         });
         continue;
       }
@@ -178,7 +165,6 @@ export function compileServerDefinition(
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
     channels: new Map(),
@@ -229,10 +215,6 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
  * restarts and replay cannot order rows. Fail fast at compile so the misconfig
  * surfaces at boot instead of on the first message. This is the one place the
  * persistent-sequence rule for replay is checked.
- *
- * `replay.custom()` has the same rule: its hooks read `msg.wire.messageId`
- * (from dedup) and `msg.wire.deliverySeq` (from sequence), and a custom store
- * that keeps rows across restarts needs a seq that survives them too.
  */
 function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive[]): void {
   // dedup and sequence are top-level only — they have no meaning nested inside
@@ -241,27 +223,10 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
   // catch nested cases that the top-level scan would miss.
   let hasDedup = false;
   let hasPersistentSequence = false;
-  let hasCustomReplay = false;
   for (const primitive of primitives) {
     if (primitive.__livething === 'dedup') hasDedup = true;
     if (primitive.__livething === 'sequence' && (primitive as { persist?: boolean }).persist) {
       hasPersistentSequence = true;
-    }
-
-    if (primitive.__livething === 'replayCustomSend') hasCustomReplay = true;
-  }
-
-  if (hasCustomReplay) {
-    if (!hasDedup) {
-      throw new Error(
-        `[livething] replay.custom() needs the dedup() capability. Custom replay hooks get every broadcast's msg.wire.messageId from dedup. List dedup() in server({ capabilities: [...] }).`,
-      );
-    }
-
-    if (!hasPersistentSequence) {
-      throw new Error(
-        `[livething] replay.custom() needs a persistent sequence. Custom replay hooks get every broadcast's msg.wire.deliverySeq from sequence, and a stored seq only stays valid across restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
-      );
     }
   }
 
@@ -378,13 +343,6 @@ function validateScopeAndEventNameSyntax(
       for (const nudge of generate.stream.nudges) checkEventName(nudge.event, scopeLabel);
     }
 
-    if (scope.cursorStreams) {
-      for (const [event, generate] of scope.cursorStreams) {
-        checkEventName(event, scopeLabel);
-        for (const nudge of generate.nudges) checkEventName(nudge.event, scopeLabel);
-      }
-    }
-
     if (scope.recordedStreams) {
       for (const [event, generate] of scope.recordedStreams) {
         checkEventName(event, scopeLabel);
@@ -408,8 +366,7 @@ function validateScopeAndEventNameSyntax(
 
 /**
  * Refuse to boot when an event name is registered as more than one of
- * `incoming` / `request` / `stream` / `cursorStream` / `recordedStream`
- * within the same scope. The dispatcher picks the first match in that order,
+ * `incoming` / `request` / `stream` / `recordedStream` within the same scope. The dispatcher picks the first match in that order,
  * so the loser is unreachable — a client `request(...)` against a shadowed
  * name hangs forever, and a stream trigger against a recorded-stream name
  * shadowed by an incoming handler never starts a stream.
@@ -421,13 +378,11 @@ function validateNoCrossPrimitiveEventCollisions(
   compiled: EngineCompileTypes.CompiledServer,
 ): void {
   function check(scope: CheckScopeParameter, label: string): void {
-    const cursor = scope.cursorStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const recorded = scope.recordedStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const allNames = new Set<string>([
       ...scope.incoming.keys(),
       ...scope.requests.keys(),
       ...scope.streams.keys(),
-      ...cursor.keys(),
       ...recorded.keys(),
     ]);
 
@@ -437,14 +392,12 @@ function validateNoCrossPrimitiveEventCollisions(
       if (scope.incoming.has(event)) where.push('incoming');
       if (scope.requests.has(event)) where.push('request');
       if (scope.streams.has(event)) where.push('stream');
-
-      if (cursor.has(event)) where.push('cursorStream');
       if (recorded.has(event)) where.push('recordedStream');
 
       if (where.length > 1) {
         throw new Error(
           `[livething] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
-            `An event name can only belong to one of incoming/request/stream/cursorStream/recordedStream within a scope — pick a different name.`,
+            `An event name can only belong to one of incoming/request/stream/recordedStream within a scope — pick a different name.`,
         );
       }
     }
@@ -468,7 +421,7 @@ function validateNoCrossPrimitiveEventCollisions(
 function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
   const names = new Set<string>();
 
-  // New-model plugins contribute namespaced incoming/request/outgoing/stream
+  // Plugins contribute namespaced incoming/request/outgoing/stream
   // primitives that carry a `__plugin` provenance marker. Collecting their wire
   // names here is what lets the reserved-name guards allow the framework-managed
   // `__<id>::name` form while still rejecting any hand-declared reserved name.
@@ -498,13 +451,6 @@ function collectFromScope(scope: CollectFromScopeScopeParameter, names: Set<stri
 
     names.add(event);
     for (const nudge of generate.stream.nudges) names.add(nudge.event);
-  }
-
-  for (const [event, generate] of scope.cursorStreams ?? []) {
-    if (!(generate as { __plugin?: string }).__plugin) continue;
-
-    names.add(event);
-    for (const nudge of generate.nudges) names.add(nudge.event);
   }
 
   for (const [event, generate] of scope.recordedStreams ?? []) {
@@ -566,15 +512,6 @@ function validateNoReservedEventNames(
       // has to walk the actual nudge list too.
       for (const nudge of generate.stream.nudges) {
         check(nudge.event, `${label} stream '${streamEvent}' nudge`);
-      }
-    }
-
-    if (scope.cursorStreams) {
-      for (const [streamEvent, primitive] of scope.cursorStreams) {
-        check(streamEvent, `${label} cursorStream`);
-        for (const nudge of primitive.nudges) {
-          check(nudge.event, `${label} cursorStream '${streamEvent}' nudge`);
-        }
       }
     }
 

@@ -5,10 +5,9 @@ import {
   Block,
   CloseCodes,
   CrossInstanceRef,
-  Defer,
-  DeferExhausted,
   Disconnect,
   error,
+  NotAMember,
   RejectUpgrade,
   ValidationFailed,
 } from './errors.ts';
@@ -41,14 +40,6 @@ const _ruCode: number = ru.code;
 const _ruReason: string = ru.reason;
 void [_ruLiveThing, _ruCode, _ruReason];
 
-const df = Defer(1000);
-const _dfLiveThing: 'defer' = df.__livething;
-const _dfDelay: number = df.delay;
-void [_dfLiveThing, _dfDelay];
-
-const _deCode: 'defer-exhausted' = DeferExhausted.code;
-void _deCode;
-
 declare const unknownErr: unknown;
 
 const _cirCode: 'cross-instance-ref' = CrossInstanceRef.code;
@@ -76,16 +67,13 @@ if (CrossInstanceRef.matches(unknownErr)) {
   void [_cirMatchCode, _cirMatchDetail];
 }
 
-const deErr = DeferExhausted({ event: 'send-message', payload: { text: 'hi' }, retries: 3 });
-const _deErrCode: 'defer-exhausted' = deErr.code;
-const _deDetail: { event: string; payload: unknown; retries: number } = deErr.detail;
-void [_deErrCode, _deDetail];
-
-if (DeferExhausted.matches(unknownErr)) {
-  const _mc: 'defer-exhausted' = unknownErr.code;
-  const _md: { event: string; payload: unknown; retries: number } = unknownErr.detail;
-  void [_mc, _md];
-}
-
-const _isLiveThingErr: boolean = deErr instanceof LiveThingError;
+const _isLiveThingErr: boolean = cirErr instanceof LiveThingError;
 void _isLiveThingErr;
+
+const _namCode: 'not-a-member' = NotAMember.code;
+void _namCode;
+
+if (NotAMember.matches(unknownErr)) {
+  const _namMatchCode: 'not-a-member' = unknownErr.code;
+  void _namMatchCode;
+}

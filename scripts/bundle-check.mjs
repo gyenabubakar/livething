@@ -64,6 +64,8 @@ const SERVER_ENGINES = {
   tags: { marker: '__livething_tags', label: 'tags storage engine' },
   replay: { marker: '__livething_replay', label: 'replay engine' },
   inbox: { marker: '__livething_inbox', label: 'inbox engine' },
+  // The `readersOf` query. Only `readReceipts()` reads the read cursor.
+  readReceipts: { marker: 'read_through >= ?', label: 'read-receipts engine' },
   lastSeen: { marker: '__livething_last_seen', label: 'last-seen engine' },
   keepalive: { marker: '__livething: "keepalive"', label: 'keepalive capability' },
   dedup: { marker: '__livething: "dedup"', label: 'dedup capability' },
@@ -142,8 +144,16 @@ function serverScenarios(f) {
     // runtime — inbox is a channel-only capability, so `channels()` is always
     // listed alongside it anyway.
     {
-      name: 'inbox',
+      name: 'inbox (all)',
       source: importStar(f('inbox.js')),
+      owns: ['inbox', 'readReceipts'],
+      alsoPulls: ['channelStorage'],
+    },
+    // `readReceipts()` shares the inbox entry, so picking only `inbox` from it
+    // must tree-shake read receipts away.
+    {
+      name: 'inbox only',
+      source: importNamed(f('inbox.js'), 'inbox'),
       owns: 'inbox',
       alsoPulls: ['channelStorage'],
     },
@@ -153,7 +163,6 @@ function serverScenarios(f) {
       owns: 'lastSeen',
       alsoPulls: [],
     },
-    { name: 'intercepts', source: importStar(f('intercepts.js')), owns: null, alsoPulls: [] },
     { name: 'plugins', source: importStar(f('plugins.js')), owns: 'plugin', alsoPulls: [] },
   ];
 }

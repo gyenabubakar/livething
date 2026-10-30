@@ -51,10 +51,9 @@ type SendPosition = 'event-first' | 'event-second';
 const SCOPED_SENDS: Record<string, SendPosition> = {
   send: 'event-first',
   broadcast: 'event-first',
-  // request/broadcastRequest take the event/request name first, so a plugin's `ctx.request('confirm', ...)` goes out as `__<id>::confirm`
+  // request takes the request name first, so a plugin's `ctx.request('confirm', ...)` goes out as `__<id>::confirm`
   // to match its namespaced `serverRequests({...})` declaration.
   request: 'event-first',
-  broadcastRequest: 'event-first',
   // sendReplay re-sends a stored message by event name; namespace it (and the
   // channel in its `wire.channel`) so a plugin's replayed frame matches its own
   // namespaced declaration.
@@ -76,7 +75,6 @@ const SCOPED_USER_METHODS: Record<string, SendPosition> = {
 /** The event positions on a `ctx.tags.<kind>(group)` handle and its `.ref(key)`. */
 const SCOPED_TAG_METHODS: Record<string, SendPosition> = {
   broadcast: 'event-first',
-  broadcastRequest: 'event-first',
 };
 
 /** The event positions on a `ctx.channel` handle. */
@@ -85,7 +83,6 @@ const SCOPED_CHANNEL_SENDS: Record<string, SendPosition> = {
   broadcastTo: 'event-second',
   broadcast: 'event-first',
   request: 'event-first',
-  broadcastRequest: 'event-first',
   sendReplay: 'event-first',
 };
 
@@ -372,19 +369,33 @@ function scopeSendReplay(
 
 /**
  * Wrap `ctx.channels` so `get(...)` namespaces its target and the resolved
- * handle's event names (`send`/`broadcastTo`/`broadcast`/`request`/`broadcastRequest`)
+ * handle's event names (`send`/`broadcastTo`/`broadcast`/`request`)
  * carry the plugin namespace — the channel's child events are declared under
- * `__<id>::`, so the runtime looks them up there.
+ * `__<id>::`, so the runtime looks them up there. The connectionless
+ * `channels.broadcast(channel, event, payload)` goes through that scoped `get`.
  */
 function scopeChannelsApi(id: string, channels: Record<PropertyKey, unknown>): unknown {
+  function get(...args: unknown[]): Record<PropertyKey, unknown> {
+    const call = channels.get as (...args: unknown[]) => Record<PropertyKey, unknown>;
+    return scopeHandleEvents(id, call(...scopeChannelGetArgs(id, args)), SCOPED_CHANNEL_SENDS);
+  }
+
   return new Proxy(channels, {
     get(target, key, receiver) {
       const original = Reflect.get(target, key, receiver);
-      if (key !== 'get' || typeof original !== 'function') return original;
+      if (typeof original !== 'function') return original;
 
-      const call = original as (...args: unknown[]) => Record<PropertyKey, unknown>;
-      return (...args: unknown[]) =>
-        scopeHandleEvents(id, call(...scopeChannelGetArgs(id, args)), SCOPED_CHANNEL_SENDS);
+      if (key === 'get') return get;
+
+      if (key === 'broadcast') {
+        return (channel: string | { family: string; name: string }, ...rest: unknown[]) => {
+          const handle =
+            typeof channel === 'string' ? get(channel) : get(channel.family, channel.name);
+          return (handle.broadcast as (...args: unknown[]) => unknown)(...rest);
+        };
+      }
+
+      return original;
     },
   });
 }
@@ -439,9 +450,8 @@ export function scopeUpgradeHelpers(id: string, helpers: any): any {
 
 /**
  * Wrap `ctx.tags` so `tags.ephemeral('group')` / `tags.persistent('group')`
- * namespace the group, and the returned handle's `broadcast` and
- * `broadcastRequest` (on the group and on `.ref(key)`) carry the plugin
- * namespace — the events are declared under `__<id>::`, so they must go out
+ * namespace the group, and the returned handle's `broadcast` (on the group and
+ * on `.ref(key)`) carries the plugin namespace — the events are declared under `__<id>::`, so they must go out
  * there too.
  */
 function scopeTagsApi(id: string, tags: Record<PropertyKey, unknown>): unknown {
@@ -459,7 +469,7 @@ function scopeTagsApi(id: string, tags: Record<PropertyKey, unknown>): unknown {
   });
 }
 
-/** Scope a tag-group handle's `broadcast` / `broadcastRequest`, recursing through `.ref(key)`. */
+/** Scope a tag-group handle's `broadcast`, recursing through `.ref(key)`. */
 function scopeTagHandle(id: string, handle: unknown): unknown {
   if (!handle || typeof handle !== 'object') return handle;
 

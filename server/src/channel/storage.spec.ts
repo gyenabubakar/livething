@@ -8,7 +8,6 @@ import {
   insertMembership,
   listMembersByChannel,
   listMembershipsByUser,
-  markMembershipKicked,
   purgeMembershipsByUser,
   readMembership,
 } from './storage.ts';
@@ -22,39 +21,38 @@ describe('channel membership storage', () => {
   });
 
   it('maps null scope to "" on write and back to null on read', () => {
-    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
+    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null });
     const rows = listMembershipsByUser(sql, 'u-1');
-    expect(rows).toEqual([{ channelName: 'lobby', channelFamily: null, joinedAt: 1000 }]);
+    expect(rows).toEqual([{ channelName: 'lobby', channelFamily: null }]);
   });
 
   it('preserves non-null scope for dynamic family channels', () => {
-    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 2000);
-    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:99' }, 3000);
+    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' });
+    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:99' });
     const rows = listMembershipsByUser(sql, 'u-1');
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.channelFamily).sort()).toEqual(['room:42', 'room:99']);
   });
 
   it('INSERT OR REPLACE deduplicates on PK', () => {
-    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
-    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null }, 5000);
+    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null });
     const rows = listMembershipsByUser(sql, 'u-1');
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.joinedAt).toBe(5000);
   });
 
   it('deletes one membership for a specific user+channel+scope', () => {
-    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
-    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 2000);
+    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' });
     deleteMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null });
     const rows = listMembershipsByUser(sql, 'u-1');
     expect(rows.map((r) => r.channelName)).toEqual(['room']);
   });
 
   it('listMembershipsByUser returns only rows for that user', () => {
-    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
-    insertMembership(sql, { userId: 'u-2', channelName: 'lobby', channelFamily: null }, 2000);
-    insertMembership(sql, { userId: 'u-2', channelName: 'admin', channelFamily: null }, 3000);
+    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { userId: 'u-2', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { userId: 'u-2', channelName: 'admin', channelFamily: null });
     expect(listMembershipsByUser(sql, 'u-1')).toHaveLength(1);
     expect(listMembershipsByUser(sql, 'u-2')).toHaveLength(2);
 
@@ -62,9 +60,9 @@ describe('channel membership storage', () => {
   });
 
   it('purgeMembershipsByUser drops every row for that user', () => {
-    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
-    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 2000);
-    insertMembership(sql, { userId: 'u-2', channelName: 'lobby', channelFamily: null }, 3000);
+    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' });
+    insertMembership(sql, { userId: 'u-2', channelName: 'lobby', channelFamily: null });
     purgeMembershipsByUser(sql, 'u-1');
     expect(listMembershipsByUser(sql, 'u-1')).toHaveLength(0);
 
@@ -72,10 +70,10 @@ describe('channel membership storage', () => {
   });
 
   it('deleteMembershipsByChannel removes rows across every user', () => {
-    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
-    insertMembership(sql, { userId: 'u-2', channelName: 'lobby', channelFamily: null }, 2000);
-    insertMembership(sql, { userId: 'u-3', channelName: 'lobby', channelFamily: null }, 3000);
-    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 4000);
+    insertMembership(sql, { userId: 'u-1', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { userId: 'u-2', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { userId: 'u-3', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' });
     deleteMembershipsByChannel(sql, 'lobby', null);
 
     expect(listMembershipsByUser(sql, 'u-1').map((r) => r.channelName)).toEqual(['room']);
@@ -83,26 +81,15 @@ describe('channel membership storage', () => {
     expect(listMembershipsByUser(sql, 'u-3')).toHaveLength(0);
   });
 
-  it('stores the member meta and reads it back with the kicked state', () => {
+  it('stores the member meta and reads it back', () => {
     const key = { userId: 'u-1', channelName: 'room', channelFamily: 'rooms' };
     insertMembership(sql, { ...key, meta: { name: 'Ada' } });
 
-    expect(readMembership(sql, key)).toEqual({ meta: { name: 'Ada' }, kicked: false });
+    expect(readMembership(sql, key)).toEqual({ meta: { name: 'Ada' } });
     expect(readMembership(sql, { ...key, userId: 'u-2' })).toBeUndefined();
   });
 
-  it('marks a row kicked, and a later write clears it', () => {
-    const key = { userId: 'u-1', channelName: 'room', channelFamily: null };
-    insertMembership(sql, { ...key, meta: { name: 'Ada' } });
-
-    markMembershipKicked(sql, key);
-    expect(readMembership(sql, key)).toEqual({ meta: { name: 'Ada' }, kicked: true });
-
-    insertMembership(sql, { ...key, meta: { name: 'Ada 2' } });
-    expect(readMembership(sql, key)).toEqual({ meta: { name: 'Ada 2' }, kicked: false });
-  });
-
-  it('lists the members of one exact channel with their meta and kicked state', () => {
+  it('lists the members of one exact channel with their meta', () => {
     insertMembership(sql, {
       userId: 'u-1',
       channelName: 'room',
@@ -111,14 +98,13 @@ describe('channel membership storage', () => {
     });
     insertMembership(sql, { userId: 'u-2', channelName: 'room', channelFamily: 'a' });
     insertMembership(sql, { userId: 'u-3', channelName: 'room', channelFamily: 'b' });
-    markMembershipKicked(sql, { userId: 'u-2', channelName: 'room', channelFamily: 'a' });
 
     const members = listMembersByChannel(sql, 'room', 'a').sort((x, y) =>
       x.userId.localeCompare(y.userId),
     );
     expect(members).toEqual([
-      { userId: 'u-1', meta: { n: 1 }, kicked: false },
-      { userId: 'u-2', meta: {}, kicked: true },
+      { userId: 'u-1', meta: { n: 1 } },
+      { userId: 'u-2', meta: {} },
     ]);
   });
 

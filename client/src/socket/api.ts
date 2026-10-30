@@ -47,7 +47,7 @@ export interface SocketConnection {
  * builder returns. It's phantom — never present at runtime — and optional so
  * hand-built socket shapes still satisfy `Socket`.
  */
-export interface SocketContractBrand<TContract extends SocketContract> {
+interface SocketContractBrand<TContract extends SocketContract> {
   readonly _socketContract?: TContract;
 }
 

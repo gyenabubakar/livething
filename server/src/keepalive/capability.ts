@@ -6,8 +6,9 @@ import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
 /**
  * Send periodic pings so the server can detect and close dead connections.
  *
- * `pingIntervalMs` must be less than `idleTimeoutMs`: the ping has to fire
- * before the idle window closes, or a quiet-but-alive client would be dropped.
+ * Defaults: `pingIntervalMs` 30 s, `idleTimeoutMs` 60 s. `pingIntervalMs` must
+ * be less than `idleTimeoutMs`: the ping has to fire before the idle window
+ * closes, or a quiet-but-alive client would be dropped.
  *
  * @example
  * ```ts
@@ -15,11 +16,11 @@ import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
  * import { keepalive } from '@livething/server/keepalive';
  *
  * const base = server({
- *   capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
+ *   capabilities: [keepalive()],
  * });
  * ```
  */
 export const keepalive = defineHostCapability(
   CAPABILITY_KIND.keepalive,
-  (options: KeepaliveOptions) => keepaliveFactory(options),
+  (options?: KeepaliveOptions) => keepaliveFactory(options),
 );

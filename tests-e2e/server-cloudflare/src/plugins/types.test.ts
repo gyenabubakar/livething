@@ -79,8 +79,7 @@ describe('PluginsClient — host streams', () => {
     }>();
   });
 
-  it('stream-connection-id has no cursor or nudges', () => {
-    expectTypeOf<PluginsClient['streams']['stream-connection-id']>().not.toHaveProperty('cursor');
+  it('stream-connection-id has no nudges', () => {
     expectTypeOf<PluginsClient['streams']['stream-connection-id']>().not.toHaveProperty('nudges');
     expectTypeOf<PluginsClient['streams']['stream-connection-id']>().not.toHaveProperty(
       'broadcast',
@@ -129,7 +128,7 @@ describe('PluginsClient — Feed plugin (prefixed __id:: names, top-level)', () 
       name: string;
     }>();
   });
-  it('exposes all three plugin stream kinds under prefixed names', () => {
+  it('exposes both plugin stream kinds under prefixed names', () => {
     // Both durable kinds surface as 'persistent' on the client; plain is 'ephemeral'.
     expectTypeOf<
       PluginsClient['streams']['__e2e:feed::feed']['kind']

@@ -31,8 +31,8 @@ export interface IncomingPrimitive<
   readonly allowInterleaving: boolean;
   /**
    * Optional schema validator. When present, the engine validates the raw
-   * payload before calling `handler`. If validation fails, `onValidationError`
-   * fires instead.
+   * payload before calling `handler`. If validation fails, `onError` gets a
+   * `ValidationFailed` error instead.
    */
   readonly validator?: Validator<TPayload>;
 }
@@ -42,8 +42,8 @@ const INCOMING_KEY = Symbol('incoming');
 
 /**
  * Internal primitive factory. The user-facing surface for declaring a
- * client→server event is `base.on(...)`. This factory is called by the compile
- * step to bind a selected handler value to an `IncomingDef`.
+ * client→server event is `base.on(...)`, which calls this factory with the
+ * event name and its handler.
  */
 export function incoming<TEvent extends string, TPayload, TCtx = any>(
   event: TEvent,
@@ -53,7 +53,6 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
   assertValidLiveThingIdentifier(event, 'incoming() event name');
   return {
     __livething: 'incoming',
-    __kind: 'handler',
     __identity: [INCOMING_KEY, event],
     __requires: {},
     event,
@@ -62,8 +61,3 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
     validator: options?.validator,
   };
 }
-
-/**
- * Symbol key used to reference this primitive in dependency declarations.
- */
-incoming.__key = INCOMING_KEY;

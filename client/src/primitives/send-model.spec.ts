@@ -28,7 +28,7 @@ describe('send-and-await frames respect the buffering flush order', () => {
     vi.useFakeTimers();
     const socket = client<C>()(
       connect('wss://test'),
-      buffering({ enabled: true, flushInterval: 100 }),
+      buffering({ flushInterval: 100 }),
       clientRequests(),
     );
     socket.connect();
@@ -56,11 +56,7 @@ describe('send-and-await frames respect the buffering flush order', () => {
 
   it('a stream trigger fired during a staggered flush lands behind the not-yet-flushed messages', () => {
     vi.useFakeTimers();
-    const socket = client<C>()(
-      connect('wss://test'),
-      buffering({ enabled: true, flushInterval: 100 }),
-      stream(),
-    );
+    const socket = client<C>()(connect('wss://test'), buffering({ flushInterval: 100 }), stream());
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();

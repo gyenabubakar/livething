@@ -33,7 +33,6 @@ import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
 import type * as ServerTypes from '~/server-definition.ts';
-import type { TranslatorFactory } from '~/translation/translator.ts';
 import type { Validator } from '~/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
@@ -55,9 +54,6 @@ export class EngineCore {
    * was declared.
    */
   readonly adminApiFactory?: (ctx: unknown) => unknown;
-
-  /** Optional factory for the one foreign-wire translator assigned to each connection. */
-  readonly translatorFactory?: TranslatorFactory;
 
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
 
@@ -98,11 +94,12 @@ export class EngineCore {
   channelMembershipService?: FeatureSlots.ChannelMembershipService;
   tagPersistenceService?: FeatureSlots.TagPersistenceService;
   scheduledService?: FeatureSlots.ScheduledService;
-  runIntercepts?: FeatureSlots.RunIntercepts;
   channelService?: FeatureSlots.ChannelService;
   channelContext?: FeatureSlots.ChannelContext;
   inboxService?: FeatureSlots.InboxService;
   lastSeenService?: FeatureSlots.LastSeenService;
+  /** Hands out the next delivery seq. Set by `sequence()`, shared with every send. */
+  allocateDeliverySeq?: () => number;
 
   /**
    * Handle-augmenters registered by capabilities that own a per-channel surface
@@ -125,7 +122,7 @@ export class EngineCore {
    */
   freshBoot = false;
 
-  /** Per-channel `membership` overrides. Explicit `'ephemeral'` opts out. */
+  /** Per-channel `membership` overrides. Explicit `'persistent'` opts in. */
   readonly channelDurabilityOverrides = new Map<string, boolean>();
 
   /**
@@ -211,14 +208,12 @@ export class EngineCore {
   readonly wsToConnectionId = new Map<unknown, string>();
   readonly activeStreams = new Map<string, ActiveStream>();
   readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();
-  readonly scheduledDlq = new Map<string, ScheduledPrimitiveTypes.ScheduledDeadLetter>();
 
-  // Mirrors of the durable scheduler tables: maps from row id to a stable
-  // signature of the columns last written. The scheduler diffs the current
-  // in-memory queue against these maps to emit one targeted INSERT/UPDATE/DELETE
-  // per changed row instead of rewriting the whole table on each persist.
+  // Mirror of the durable run table: maps from row id to a stable signature of
+  // the columns last written. The scheduler diffs the current in-memory queue
+  // against it to emit one targeted INSERT/UPDATE/DELETE per changed row
+  // instead of rewriting the whole table on each persist.
   readonly scheduledRunsPersisted = new Map<string, string>();
-  readonly scheduledDlqPersisted = new Map<string, string>();
   /** Framework-owned alarm sources. The adapter exposes one durable alarm. */
   readonly alarmSources = new Map<symbol, () => number | null>();
   readonly installedFeatures = new Set<symbol>();
@@ -270,7 +265,6 @@ export class EngineCore {
     this.adminApiFactory = (
       definition as { __apiFactory?: (ctx: unknown) => unknown }
     ).__apiFactory;
-    this.translatorFactory = definition.__translate;
     this.compiled = EngineCompile.compileServerDefinition(definition);
 
     this.platform = options.platform;
@@ -336,7 +330,7 @@ export class EngineCore {
   }
 
   isChannelDurable(channelKey: string): boolean {
-    return this.channelDurabilityOverrides.get(channelKey) !== false;
+    return this.channelDurabilityOverrides.get(channelKey) === true;
   }
 
   isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean {
@@ -346,10 +340,6 @@ export class EngineCore {
   /** The runtime validator for a tag group, or `undefined` when it has none. */
   getTagGroupSchema(kind: 'ephemeral' | 'persistent', group: string): Validator | undefined {
     return this.tagGroupSchemas.get(`${kind}:${group}`);
-  }
-
-  getDeclaredTagGroups(kind: 'ephemeral' | 'persistent'): ReadonlySet<string> {
-    return this.declaredTagGroups[kind];
   }
 
   /**

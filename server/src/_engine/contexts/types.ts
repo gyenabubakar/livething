@@ -15,7 +15,6 @@ type OptsParameter = {
   event: string;
   payload: unknown;
 };
-type OptsParameter2 = { lastSeen?: number | null };
 
 /**
  * Hidden channel markers attached to live connection contexts for engine-owned
@@ -62,8 +61,6 @@ export interface ContextCommonDeps {
   /** The engine's shared `sql` / `kv` view, built once and reused by every context. */
   getStorageView(): { sql: PublicApi.SQLProvider; kv: PublicApi.KVProvider };
 
-  getTimers(): PublicApi.TimerProvider;
-
   scheduleTask(taskId: string, time: number, data: unknown): void;
 
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): ScheduledCancelResult;
@@ -77,6 +74,12 @@ export interface ContextCommonDeps {
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: OutgoingRuntime.SendThroughPipelineOptions,
   ): boolean;
+
+  /** Send one event to the given connections as one shared frame. Returns how many got it. */
+  sendToConnections(
+    connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
+    opts: OutgoingRuntime.SharedSendOptions,
+  ): number;
 
   /**
    * Send one event to the given connections of one user, stamped once and
@@ -133,7 +136,6 @@ export interface ContextCommonDeps {
 
   toConnectionInfo(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts?: OptsParameter2,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];
@@ -186,10 +188,13 @@ export interface BuildConnectionContextDeps extends ContextCommonDeps {
 }
 
 /**
- * Extra data required when building a task or shutdown context.
+ * Extra data required when building a connectionless context (shutdown hooks,
+ * scheduled tasks, and the admin surface).
  */
-export interface CreateTaskContextDeps extends ContextCommonDeps {
+export interface CreateConnectionlessContextDeps extends ContextCommonDeps {
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   /** User-key → members index, backing the connectionless `ctx.users` surface. */
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
+  /** Drop a user everywhere and close their sockets. Closes over the engine core. */
+  purgeUser(userId: string, options?: PublicApi.PurgeUserOptions): Promise<void>;
 }

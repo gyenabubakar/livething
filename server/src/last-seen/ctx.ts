@@ -10,7 +10,5 @@ export interface LastSeenCtx {
     at(userId: string): number | null;
     /** Last-seen timestamps for many users in one read, keyed by user id. */
     atMany(userIds: string[]): Map<string, number>;
-    /** Whether a user has a live connection on this instance right now. */
-    online(userId: string): boolean;
   };
 }

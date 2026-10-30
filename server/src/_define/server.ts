@@ -17,21 +17,19 @@ import {
   onPong,
   onShutdown,
   onUpgrade,
-  onValidationError,
 } from '~/lifecycle/lifecycle.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
-import type { ExtractParams } from '~/channel/channel.ts';
+import type { ExtractParams, ValidChannelTemplate } from '~/channel/channel.ts';
 import type {
   ChannelInbox,
   ChannelReadReceipts,
   ChannelRecipient,
   ConnectionInfo,
+  ConnectionlessContext,
   ConnectionRef,
   InitContext,
-  ShutdownContext,
   TagRef,
-  TaskContext,
   UserRef,
 } from '~/context.ts';
 import type { EmitDefs, EmitsCapability } from '~/emits/emits.ts';
@@ -42,16 +40,10 @@ import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitCapability } from '~/rate-limit/capability.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
-import type {
-  ChannelCustomReplayHooks,
-  CustomReplayHooks,
-  ReplayCustomCapability,
-} from '~/replay/capability.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { ResolvedServerRequest, ServerRequestsCapability } from '~/request/server-requests.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
-import type { TranslatorFactory } from '~/translation/translator.ts';
 import type {
   ClientResponse,
   DurableWireChunk,
@@ -69,15 +61,7 @@ import {
   assertPluginDependencies,
   assertUniquePluginIds,
 } from './plugin-checks.ts';
-import type {
-  AdminCtx,
-  AppCtx,
-  BroadcastRequestArm,
-  BroadcastServerRequests,
-  ChannelRef,
-  ReplayWire,
-  SelfBroadcastRequestOptions,
-} from './app-ctx.ts';
+import type { AppCtx, ChannelRef, ConnectionlessCtx, ReplayWire } from './app-ctx.ts';
 import type {
   AnyCapability,
   BrandIsWidened,
@@ -91,7 +75,7 @@ import type {
 } from './capability.ts';
 import type { BuildContract, InferInput } from './contract.ts';
 
-type OptsParameter = { reason: string; revoke?: boolean };
+type OptsParameter = { reason: string };
 type ServerRequestConfigParameter = {
   input?: Validator;
   allowInterleaving?: boolean;
@@ -129,8 +113,13 @@ export interface UpgradeReturn<TMeta, TEphemeralGroups extends string = string> 
   readonly userId?: string;
   /** Per-connection metadata, surfaced as `ctx.meta` in every handler. */
   readonly meta?: TMeta;
-  /** Initial ephemeral tags to attach: `{ ephemeral: { group: key } }`. */
-  readonly tags?: { readonly ephemeral?: Partial<Record<TEphemeralGroups, string>> };
+  /**
+   * Initial ephemeral tags to attach: `{ ephemeral: { group: key } }`, or a list
+   * of keys to put the connection under several keys of one group.
+   */
+  readonly tags?: {
+    readonly ephemeral?: Partial<Record<TEphemeralGroups, string | readonly string[]>>;
+  };
 }
 
 /**
@@ -177,9 +166,7 @@ export interface ServerConfig<
   /** Auth gate. Return `{ userId, meta }` to accept, or throw `RejectUpgrade(...)` to deny. */
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** Turn on Cloudflare Durable Object hibernation (which disables server pings). */
-  readonly hibernation?: { readonly enabled: boolean };
-  /** Translate one foreign WebSocket wire format into LiveThing at this server's connection edge. */
-  readonly translate?: TranslatorFactory;
+  readonly hibernation?: boolean;
   /**
    * Cap how many live connections one user may hold at once. `onExceed` decides
    * what a would-be breaching connection does: `reject` refuses the newcomer
@@ -270,7 +257,7 @@ export type IncomingHandlerValue<TEvent extends string, TPayload> = IncomingPrim
  * override without the capability is a compile-time excess-property error rather
  * than a boot-time throw.
  */
-export type RateLimitField<TCaps extends readonly AnyCapability[]> =
+type RateLimitField<TCaps extends readonly AnyCapability[]> =
   'rateLimit' extends BrandsOf<TCaps>
     ? {
         /** Per-handler rate-limit override — tighten, loosen, or disable the limit for this event. */
@@ -323,7 +310,7 @@ export type RequestConfig<
 } & RateLimitField<TCaps>;
 
 /** Builder method granted by the `clientRequests()` capability. */
-export interface RequestMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+interface RequestMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
    * Create a handler value for one client→server request. Like `base.on`, but the
    * client awaits a reply: whatever the handler returns becomes the response,
@@ -344,16 +331,16 @@ export interface RequestMethods<TSlots, TMeta, TCaps extends readonly AnyCapabil
 type ScheduledMap<TSlots> = SlotOr<TSlots, 'scheduled'>;
 
 /** Configuration object for `base.scheduled(...)`. */
-export interface ScheduledConfig<TMeta, TData> {
+interface ScheduledConfig<TSlots, TMeta, TCaps extends readonly AnyCapability[], TData> {
   /** Runs when the task fires. Receives the typed payload for tasks that declare one. */
   run: TData extends undefined
-    ? (ctx: TaskContext<TMeta>) => void | Promise<void>
+    ? (ctx: ConnectionlessCtx<TSlots, TMeta, TCaps>) => void | Promise<void>
     : // The task gets the data back from its stored JSON, so a Date field arrives as a string.
-      (ctx: TaskContext<TMeta>, data: Jsonify<TData>) => void | Promise<void>;
+      (ctx: ConnectionlessCtx<TSlots, TMeta, TCaps>, data: Jsonify<TData>) => void | Promise<void>;
 }
 
 /** Builder method granted by the `scheduled()` capability. */
-export interface ScheduledMethods<TSlots, TMeta> {
+interface ScheduledMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
    * Register the body for one declared scheduled task. The task id and its
    * payload type come from the `scheduled(...)` capability; binding an
@@ -361,12 +348,12 @@ export interface ScheduledMethods<TSlots, TMeta> {
    */
   scheduled<TTaskId extends keyof ScheduledMap<TSlots> & string>(
     taskId: TTaskId,
-    config: ScheduledConfig<TMeta, ScheduledMap<TSlots>[TTaskId]>,
+    config: ScheduledConfig<TSlots, TMeta, TCaps, ScheduledMap<TSlots>[TTaskId]>,
   ): void;
 }
 
 /** A stream's nudge map: event name → schema, or `null` for a no-payload nudge. */
-export type StreamNudgeMap = Record<string, Validator | null>;
+type StreamNudgeMap = Record<string, Validator | null>;
 
 /** The payload type one nudge declaration carries, or `undefined` for a no-payload nudge. */
 type NudgePayloadOf<T> = T extends Validator<infer U> ? U : undefined;
@@ -383,20 +370,19 @@ type NudgesHandle<TNudges> = [keyof TNudges] extends [never]
 
 /**
  * The base `ctx.stream` handle present on every stream generator, regardless of
- * nudges or cursor. Combined with `NudgesHandle` (and cursor controls for
- * durable streams) to form the full handle.
+ * nudges. Combined with `NudgesHandle` to form the full handle.
  */
 type StreamHandleBase = {
   /**
    * Stop signal fired when the stream is cancelled, the owning client
-   * disconnects, or the server shuts down. Pass it into slow awaited work (e.g.
+   * disconnects (plain streams only — a recorded stream keeps running), or the
+   * server shuts down. Pass it into slow awaited work (e.g.
    * `fetch(url, { signal: ctx.stream.signal })`) so it stops immediately.
    */
   readonly signal: AbortSignal;
   /**
    * Pause the generator until the outbound buffer is healthy, then continue.
-   * Resolves immediately when the buffered amount is below the stream's
-   * `highWaterMark` (default 256 KB). For a broadcast stream it paces against
+   * Resolves immediately when the buffered amount is below 256 KB. For a broadcast stream it paces against
    * the healthiest client, never the slowest. On Cloudflare, which does not
    * expose buffer fullness, `drain()` is a no-op that resolves immediately.
    */
@@ -407,7 +393,7 @@ type StreamHandleBase = {
 type NudgesContract<TNudges> = { [K in keyof TNudges & string]: NudgePayloadOf<TNudges[K]> };
 
 /** The value the stream builders return — a primitive that declares its stream slot. */
-export type StreamHandlerValue<TEvent extends string, TEntry, TSlot extends string> = Primitive &
+type StreamHandlerValue<TEvent extends string, TEntry, TSlot extends string> = Primitive &
   Contribution<{ [K in TSlot]: Record<TEvent, TEntry> }>;
 
 /** The `ctx` a plain stream generator receives — `ctx.stream` carries nudges. */
@@ -420,7 +406,7 @@ type StreamCtx<TSlots, TMeta, TNudges, TCaps extends readonly AnyCapability[]> =
 };
 
 /** Configuration object for `base.stream(...)`. */
-export interface StreamConfig<
+interface StreamConfig<
   TSlots,
   TMeta,
   TInput extends Validator | undefined,
@@ -438,8 +424,6 @@ export interface StreamConfig<
   readonly broadcast?: boolean;
   /** Permit overlapping streams of the same event on one connection (default false). */
   readonly allowConcurrent?: boolean;
-  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
-  readonly highWaterMark?: number;
   /** The async generator — each yielded value is sent to the client as a chunk. */
   run(
     ctx: StreamCtx<TSlots, TMeta, TNudges, TCaps>,
@@ -448,7 +432,7 @@ export interface StreamConfig<
 }
 
 /** Builder method granted by the `stream()` capability. */
-export interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Create a plain server-pushed stream handler value. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
@@ -465,88 +449,16 @@ export interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapabili
   >;
 }
 
-/** Retention and disconnect options shared by the durable stream kinds. */
+/** Retention options of a recorded stream. */
 interface DurableStreamOptions {
-  /** Behavior when the owning client drops. */
-  readonly onDisconnect?: 'cancel-but-buffer' | 'keep-running';
-  /** How long a suspended stream is kept after the client drops. */
+  /** How long a stream whose generator stopped mid-stream (e.g. a server restart) is kept. */
   readonly maxAgeMs?: number;
   /** How long an ended stream is kept so a quick reconnect can still continue. */
   readonly retentionAfterEndMs?: number;
 }
 
-/** The `ctx` a cursor stream generator receives — `ctx.stream` adds cursor controls. */
-type CursorStreamCtx<
-  TSlots,
-  TMeta,
-  TChunk,
-  TCursor,
-  TNudges,
-  TCaps extends readonly AnyCapability[],
-> = AppCtx<TSlots, TMeta, TCaps> & {
-  stream: StreamHandleBase &
-    NudgesHandle<TNudges> & {
-      /** The cursor recorded on the last run, or `null` on the first run. */
-      cursor: TCursor | null;
-      /** 1 on the first run, then one higher on every reconnect (2, 3, ...). */
-      attempt: number;
-      /** Attach a cursor to a chunk so the framework can continue from it. */
-      withCursor(chunk: TChunk, cursor: TCursor): TChunk;
-    };
-};
-
-/** Configuration object for `base.cursorStream(...)`. */
-export interface CursorStreamConfig<
-  TSlots,
-  TMeta,
-  TInput extends Validator | undefined,
-  TChunk,
-  TCursor,
-  TNudges extends StreamNudgeMap,
-  TCaps extends readonly AnyCapability[] = readonly [],
-> extends DurableStreamOptions {
-  readonly input?: TInput;
-  /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
-  readonly chunk?: TypeMarker<TChunk>;
-  /** The cursor type. A `t<T>()` marker is type-only; a schema also runtime-checks restored cursors. */
-  readonly cursor?: TypeMarker<TCursor> | Validator<TCursor>;
-  readonly nudges?: TNudges;
-  readonly broadcast?: boolean;
-  readonly allowConcurrent?: boolean;
-  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
-  readonly highWaterMark?: number;
-  run(
-    ctx: CursorStreamCtx<TSlots, TMeta, TChunk, TCursor, TNudges, TCaps>,
-    input: InferInput<TInput>,
-  ): AsyncGenerator<TChunk, void, unknown>;
-}
-
-/** Builder method granted by the `cursorStream()` capability. */
-export interface CursorStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
-  /** Create a cursor server-pushed stream handler value. Pass it to `assemble()` to activate it. */
-  cursorStream<
-    TEvent extends string,
-    TChunk = unknown,
-    TCursor = unknown,
-    TInput extends Validator | undefined = undefined,
-    const TNudges extends StreamNudgeMap = {},
-  >(
-    event: TEvent,
-    config: CursorStreamConfig<TSlots, TMeta, TInput, TChunk, TCursor, TNudges, TCaps>,
-  ): StreamHandlerValue<
-    TEvent,
-    {
-      payload: InferInput<TInput>;
-      chunk: DurableWireChunk<TChunk>;
-      cursor: TCursor;
-      nudges: NudgesContract<TNudges>;
-    },
-    'cursorStreams'
-  >;
-}
-
 /** Configuration object for `base.recordedStream(...)`. */
-export interface RecordedStreamConfig<
+interface RecordedStreamConfig<
   TSlots,
   TMeta,
   TInput extends Validator | undefined,
@@ -562,8 +474,6 @@ export interface RecordedStreamConfig<
   readonly allowConcurrent?: boolean;
   /** Hard cap on buffered chunks. Default: 500. */
   readonly maxChunks?: number;
-  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
-  readonly highWaterMark?: number;
   run(
     ctx: StreamCtx<TSlots, TMeta, TNudges, TCaps>,
     input: InferInput<TInput>,
@@ -571,7 +481,7 @@ export interface RecordedStreamConfig<
 }
 
 /** Builder method granted by the `recordedStream()` capability. */
-export interface RecordedStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+interface RecordedStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Create a recorded server-pushed stream handler value. Pass it to `assemble()` to activate it. */
   recordedStream<
     TEvent extends string,
@@ -647,8 +557,8 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   /**
    * Remove a user, everyone holding a tag, or everyone with any key under a
    * tag group (`ctx.tags.ephemeral(...)` / `.persistent(...)`) from this
-   * channel. Pass `revoke: true` to also drop the durable membership row so
-   * the user does not auto-rejoin on reconnect. Every targeted connection is
+   * channel for good. The durable membership row is dropped, so the user does
+   * not auto-rejoin on reconnect. Every targeted connection is
    * kicked even when a leave hook throws; then the promise rejects with an
    * `AggregateError` holding every hook failure.
    */
@@ -664,9 +574,9 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
     opts: OptsParameter,
   ): Promise<void>;
   /**
-   * Inject a synthetic replay frame for one of this channel's outgoing events.
-   * Used from a channel custom-replay handler; `wire` carries the seq/messageId
-   * the client uses to dedup. It is absent when replay is not active for this
+   * Inject a synthetic replay frame for one of this channel's outgoing events,
+   * for example to seed history. `wire` carries the seq/messageId the client
+   * uses to dedup. It is absent when replay is not active for this
    * channel.
    */
   sendReplay?<E extends keyof TOutgoing & string>(
@@ -676,21 +586,9 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   ): void;
 }
 
-/** A channel's own server→client request map, filtered to targeted (non-broadcast) entries. */
-type ChannelTargetedRequests<TServerRequests> = {
-  [K in keyof TServerRequests as TServerRequests[K] extends { broadcast: true }
-    ? never
-    : K]: TServerRequests[K];
-};
-
-/** A channel's own server→client request map, filtered to broadcast-only entries. */
-type ChannelBroadcastRequests<TServerRequests> = BroadcastServerRequests<{
-  serverRequests: TServerRequests;
-}>;
-
 /**
- * The `request`/`broadcastRequest` arms added to `ctx.channel` when that channel
- * lists `serverRequests(...)`. They resolve the channel's own declarations.
+ * The `request` arm added to `ctx.channel` when that channel lists
+ * `serverRequests(...)`. It resolves the channel's own declarations.
  */
 type ChannelRequestArm<
   TServerRequests,
@@ -701,24 +599,15 @@ type ChannelRequestArm<
     : {
         /**
          * Ask a server→client request this channel declared and resolve its
-         * typed answer. Targets the calling connection by default; pass `{ to }`
-         * to ask a specific member instead — a `ConnectionRef`, or a
-         * `UserRef`/`TagRef`/`TagGroupHandle`, in which case the first valid
-         * answer from a matching member wins.
+         * typed answer. Targets the calling connection by default; pass
+         * `{ to: connectionRef }` to ask one other member of this channel instead.
          */
-        request<E extends keyof ChannelTargetedRequests<TServerRequests> & string>(
+        request<E extends keyof TServerRequests & string>(
           event: E,
-          payload: ChannelTargetedRequests<TServerRequests>[E] extends { payload: infer P }
-            ? P
-            : never,
-          options?: { timeout?: number; to?: ChannelRecipient },
-        ): Promise<
-          ChannelTargetedRequests<TServerRequests>[E] extends { response: infer R } ? R : never
-        >;
-      } & BroadcastRequestArm<
-        ChannelBroadcastRequests<TServerRequests>,
-        SelfBroadcastRequestOptions
-      >
+          payload: TServerRequests[E] extends { payload: infer P } ? P : never,
+          options?: { timeout?: number; to?: ConnectionRef },
+        ): Promise<TServerRequests[E] extends { response: infer R } ? R : never>;
+      }
   : {};
 
 /**
@@ -768,7 +657,7 @@ export type ChannelCtx<
  * channel event). Replay is exposed, when active, on `ctx.channel.sendReplay`;
  * channel contexts do not expose the root `ctx.sendReplay` method.
  */
-export type ChannelGateCtx<
+type ChannelGateCtx<
   TSlots,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
@@ -814,7 +703,7 @@ export type ChannelConfig<
    * `commit`; throw to reject. Written inside this same config object, before
    * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
-   * `ctx.channel.request` / `broadcastRequest` are not available here — read
+   * `ctx.channel.request` are not available here — read
    * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
    * instead.
    */
@@ -829,7 +718,7 @@ export type ChannelConfig<
    * and two subscribes at once cannot both pass it. Throw to reject. Written inside this same config object, before
    * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
-   * `ctx.channel.request` / `broadcastRequest` are not available here — read
+   * `ctx.channel.request` are not available here — read
    * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
    * instead.
    */
@@ -842,17 +731,17 @@ export type ChannelConfig<
    * Throw to drop. Written inside this same config object, before
    * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
-   * `ctx.channel.request` / `broadcastRequest` are not available here — read
+   * `ctx.channel.request` are not available here — read
    * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
    * instead.
    */
   revalidate?: (
     ctx: ChannelGateCtx<TSlots, TMeta, TCaps, never, TOutgoing, true>,
   ) => void | Promise<void>;
-  /** Whether membership survives a reconnect (default `'persistent'`). */
+  /** Whether membership survives a reconnect (default `'ephemeral'`). */
   readonly membership?: 'persistent' | 'ephemeral';
   /**
-   * Per-channel built-in replay opt-in/out, cascading from `server`. `true` is
+   * Per-channel replay opt-in/out, cascading from `server`. `true` is
    * shorthand for history mode with defaults; `false` opts this channel out.
    */
   readonly replay?: boolean;
@@ -871,7 +760,7 @@ export type ChannelConfig<
  * and carries a reference to the channel — so passing a single handler to
  * `assemble()` includes that handler and the channel surface it belongs to.
  */
-export type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = ChannelHandlerValue &
+type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = ChannelHandlerValue &
   Contribution<{ channels: { [K in TKey]: TOwn & TSlice } }>;
 
 /**
@@ -925,8 +814,6 @@ type ChannelStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
-  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
-  readonly highWaterMark?: number;
   run(
     ctx: ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand> & {
       stream: StreamHandleBase & NudgesHandle<TNudges>;
@@ -955,50 +842,9 @@ type ChannelRecordedStreamConfig<
   readonly allowConcurrent?: boolean;
   /** Hard cap on buffered chunks. Default: 500. */
   readonly maxChunks?: number;
-  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
-  readonly highWaterMark?: number;
   run(
     ctx: ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand> & {
       stream: StreamHandleBase & NudgesHandle<TNudges>;
-    },
-    input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
-  ): AsyncGenerator<TChunk, void, unknown>;
-} & RateLimitField<TCaps>;
-
-/** Configuration object for a channel `cursorStream` — adds cursor controls and retention. */
-type ChannelCursorStreamConfig<
-  TSlots,
-  TMeta,
-  TParams,
-  TOutgoing extends Record<string, unknown>,
-  TInput,
-  TChunk,
-  TCursor,
-  TNudges,
-  TCaps extends readonly AnyCapability[],
-  TServerRequests = {},
-  TChannelBrand extends string = never,
-> = DurableStreamOptions & {
-  readonly input?: TInput;
-  readonly chunk?: TypeMarker<TChunk>;
-  /** The cursor type. A `t<T>()` marker is type-only; a schema also runtime-checks restored cursors. */
-  readonly cursor?: TypeMarker<TCursor> | Validator<TCursor>;
-  readonly nudges?: TNudges;
-  readonly broadcast?: boolean;
-  readonly allowConcurrent?: boolean;
-  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
-  readonly highWaterMark?: number;
-  run(
-    ctx: ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand> & {
-      stream: StreamHandleBase &
-        NudgesHandle<TNudges> & {
-          /** The cursor recorded on the last run, or `null` on the first run. */
-          cursor: TCursor | null;
-          /** 1 on the first run, then one higher on every reconnect (2, 3, ...). */
-          attempt: number;
-          /** Attach a cursor to a chunk so the framework can continue from it. */
-          withCursor(chunk: TChunk, cursor: TCursor): TChunk;
-        };
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
   ): AsyncGenerator<TChunk, void, unknown>;
@@ -1056,57 +902,6 @@ interface ChannelStreamMethod<
   >;
 }
 
-interface ChannelCursorStreamMethod<
-  TSlots,
-  TMeta,
-  TKey extends string,
-  TParams,
-  TOutgoing extends Record<string, unknown>,
-  TAddressing extends string,
-  TSubscribe,
-  TCaps extends readonly AnyCapability[],
-  TServerRequests = {},
-  TChannelBrand extends string = never,
-> {
-  /** Create a cursor stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
-  cursorStream<
-    TEvent extends string,
-    TChunk = unknown,
-    TCursor = unknown,
-    TInput extends Validator | undefined = undefined,
-    const TNudges extends StreamNudgeMap = {},
-  >(
-    event: TEvent,
-    config: ChannelCursorStreamConfig<
-      TSlots,
-      TMeta,
-      TParams,
-      TOutgoing,
-      TInput,
-      TChunk,
-      TCursor,
-      TNudges,
-      TCaps,
-      TServerRequests,
-      TChannelBrand
-    >,
-  ): ChannelHandlerContribution<
-    TKey,
-    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
-    {
-      cursorStreams: Record<
-        TEvent,
-        {
-          payload: InferInput<TInput>;
-          chunk: DurableWireChunk<TChunk>;
-          cursor: TCursor;
-          nudges: NudgesContract<TNudges>;
-        }
-      >;
-    }
-  >;
-}
-
 interface ChannelRecordedStreamMethod<
   TSlots,
   TMeta,
@@ -1159,7 +954,7 @@ interface ChannelRecordedStreamMethod<
  * The stream methods a channel exposes, each present only when its matching
  * stream capability is listed — mirroring the top-level brand gating.
  */
-export type ChannelStreamMethods<
+type ChannelStreamMethods<
   TSlots,
   TMeta,
   TKey extends string,
@@ -1185,20 +980,6 @@ export type ChannelStreamMethods<
       TChannelBrand
     >
   : {}) &
-  ('cursorStream' extends TBrand
-    ? ChannelCursorStreamMethod<
-        TSlots,
-        TMeta,
-        TKey,
-        TParams,
-        TOutgoing,
-        TAddressing,
-        TSubscribe,
-        TCaps,
-        TServerRequests,
-        TChannelBrand
-      >
-    : {}) &
   ('recordedStream' extends TBrand
     ? ChannelRecordedStreamMethod<
         TSlots,
@@ -1214,7 +995,7 @@ export type ChannelStreamMethods<
       >
     : {});
 
-export type ChannelObject<
+type ChannelObject<
   TSlots,
   TMeta,
   TKey extends string,
@@ -1250,7 +1031,7 @@ export type ChannelObject<
     TServerRequests,
     TChannelBrand
   > &
-  ChannelRefForm<TParams, TOutgoing, TAddressing, TServerRequests>;
+  ChannelRefForm<TParams, TOutgoing, TAddressing>;
 
 /**
  * How a channel declaration is referenced in `ctx.channels.get(...)`. A static channel
@@ -1258,14 +1039,9 @@ export type ChannelObject<
  * to bind an instance, and only that ref carries the channel's contract. So
  * `.at(...)` exists only on family declarations.
  */
-type ChannelRefForm<
-  TParams,
-  TOutgoing,
-  TAddressing extends string,
-  TServerRequests,
-> = TAddressing extends 'dynamic'
-  ? { at(params: TParams): ChannelRef<TOutgoing, TServerRequests> }
-  : ChannelRef<TOutgoing, TServerRequests>;
+type ChannelRefForm<TParams, TOutgoing, TAddressing extends string> = TAddressing extends 'dynamic'
+  ? { at(params: TParams): ChannelRef<TOutgoing> }
+  : ChannelRef<TOutgoing>;
 
 /**
  * The channel methods present whatever stream capabilities are listed. It drops
@@ -1274,7 +1050,7 @@ type ChannelRefForm<
  * `ChannelStreamMethods`) are the only source — that is what makes the typing
  * and gating real.
  */
-export type ChannelObjectCore<
+type ChannelObjectCore<
   TSlots,
   TMeta,
   TKey extends string,
@@ -1290,13 +1066,11 @@ export type ChannelObjectCore<
   | 'on'
   | 'request'
   | 'stream'
-  | 'cursorStream'
   | 'recordedStream'
   | 'subscribe'
   | 'unsubscribe'
   | 'sessionEnd'
   | 'intercept'
-  | 'replay'
   | 'at'
 > &
   Contribution<{
@@ -1337,12 +1111,10 @@ export type ChannelObjectCore<
         TChannelBrand
       >
     : {}) &
-  ('intercepts' extends BrandsOf<TCaps>
-    ? ChannelInterceptMethods<TSlots, TMeta, TCaps, TChannelBrand, TOutgoing, TServerRequests>
-    : {});
+  ChannelInterceptMethods<TSlots, TMeta, TCaps, TChannelBrand, TOutgoing, TServerRequests>;
 
 /** The `on` / lifecycle methods every channel object carries. */
-export interface ChannelCoreMethods<
+interface ChannelCoreMethods<
   TSlots,
   TMeta,
   TKey extends string,
@@ -1398,12 +1170,10 @@ export interface ChannelCoreMethods<
       ctx: ChannelGateCtx<TSlots, TMeta, TCaps, TChannelBrand, TOutgoing, false, TServerRequests>,
     ) => void | Promise<void>,
   ): void;
-  /** Register a custom replay strategy scoped to this channel. */
-  replay(hooks: ChannelCustomReplayHooks): void;
 }
 
 /** Channel `request(...)`, granted by the `clientRequests()` capability. */
-export interface ChannelRequestMethods<
+interface ChannelRequestMethods<
   TSlots,
   TMeta,
   TKey extends string,
@@ -1443,8 +1213,8 @@ export interface ChannelRequestMethods<
   >;
 }
 
-/** Channel `intercept(...)`, granted by the `intercepts()` capability. */
-export interface ChannelInterceptMethods<
+/** Channel `intercept(...)`. */
+interface ChannelInterceptMethods<
   TSlots,
   TMeta,
   TCaps extends readonly AnyCapability[],
@@ -1496,7 +1266,7 @@ type ValidChannelServerRequests<
     : T;
 
 /** Builder method granted by the `channels()` capability. */
-export interface ChannelMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+interface ChannelMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Declare a static channel. */
   channel<
     TName extends string,
@@ -1536,7 +1306,7 @@ export interface ChannelMethods<TSlots, TMeta, TCaps extends readonly AnyCapabil
     TCheckResult = unknown,
     const TCapabilities extends readonly ChannelCapability[] = readonly [],
   >(
-    pattern: readonly [TFamily, TPattern],
+    pattern: readonly [TFamily, TPattern & ValidChannelTemplate<TPattern>],
     config?: ChannelConfig<
       TSlots,
       TMeta,
@@ -1562,53 +1332,26 @@ export interface ChannelMethods<TSlots, TMeta, TCaps extends readonly AnyCapabil
   >;
 }
 
-/** Builder method granted by the `replay.custom()` capability. */
-export interface ReplayMethods {
-  /**
-   * Register a custom replay strategy: your own storage and resend. The
-   * `replay` hook (the resend) is required; `beforeBroadcast` /
-   * `afterBroadcast` are optional. One registration per server.
-   */
-  replay(hooks: CustomReplayHooks): void;
-}
-
 /**
  * The builder methods the listed capabilities grant `base`, selected by each
  * capability's brand. A capability with no brand grants nothing.
  */
-export type CapabilityMethods<
+type CapabilityMethods<
   TSlots,
   TMeta,
   TBrand extends string,
   TCaps extends readonly AnyCapability[],
 > = ('clientRequests' extends TBrand ? RequestMethods<TSlots, TMeta, TCaps> : {}) &
-  ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TMeta> : {}) &
-  ('replay-custom' extends TBrand ? ReplayMethods : {}) &
-  ('intercepts' extends TBrand ? InterceptMethods<TSlots, TMeta, TCaps> : {}) &
+  ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TMeta, TCaps> : {}) &
   ('stream' extends TBrand ? StreamMethods<TSlots, TMeta, TCaps> : {}) &
-  ('cursorStream' extends TBrand ? CursorStreamMethods<TSlots, TMeta, TCaps> : {}) &
   ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TMeta, TCaps> : {}) &
   ('channels' extends TBrand ? ChannelMethods<TSlots, TMeta, TCaps> : {});
 
-/** Builder method granted by the `intercepts()` capability. */
-export interface InterceptMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
-  /**
-   * Inspect every incoming frame before routing and validation. Throw to reject;
-   * return a value to replace the payload. One intercept per server.
-   */
-  intercept(
-    handler: (
-      ctx: AppCtx<TSlots, TMeta, TCaps>,
-      frame: InterceptFrame<PluginIdsOf<TSlots>>,
-    ) => unknown | void,
-  ): void;
-}
-
 /**
  * The builder returned by `server(...)`. Carries the methods every server has
- * (`on`, the lifecycle hooks, `onOutgoing`, `assemble`) plus any methods the
- * listed capabilities grant through their brands — for example, `intercept`
- * exists only when `intercepts()` is listed.
+ * (`on`, the lifecycle hooks, `intercept`, `onOutgoing`, `assemble`) plus any
+ * methods the listed capabilities grant through their brands — for example,
+ * `request` exists only when `clientRequests()` is listed.
  */
 export type Base<
   TSlots,
@@ -1623,7 +1366,7 @@ export type Base<
  * to type `frame.owner.id` on app-level `intercept` / `outgoing` callbacks so
  * authors get autocomplete. Falls back to `string` when no plugins are listed.
  */
-export type PluginIdsOf<TSlots> = keyof SlotOr<TSlots, 'plugins'> extends never
+type PluginIdsOf<TSlots> = keyof SlotOr<TSlots, 'plugins'> extends never
   ? string
   : keyof SlotOr<TSlots, 'plugins'> & string;
 
@@ -1681,25 +1424,25 @@ export interface CoreBase<
       event?: string,
     ) => void | Promise<void>,
   ): void;
-  /**
-   * Run when an incoming payload fails its schema validation. In a plugin, it
-   * runs only for the plugin's own events, and `event` is the name the plugin
-   * declared, without the `__<id>::` prefix.
-   */
-  onValidationError(
-    handler: (
-      ctx: AppCtx<TSlots, TMeta, TCaps>,
-      event: string,
-      error: unknown,
-    ) => void | Promise<void>,
-  ): void;
   /** Run once when the server is shutting down. `ctx` is a server-wide context, with no single connection. */
-  onShutdown(handler: (ctx: ShutdownContext<TMeta, unknown, TSlots>) => void | Promise<void>): void;
+  onShutdown(handler: (ctx: ConnectionlessCtx<TSlots, TMeta, TCaps>) => void | Promise<void>): void;
 
   /**
-   * Inspect every outgoing frame before it is serialized. Return a value to
-   * rewrite the payload, or nothing to observe. The event is locked. One
-   * `onOutgoing` hook per server.
+   * Inspect every incoming frame before routing and validation. Throw to reject;
+   * return a value to replace the payload. One intercept per server.
+   */
+  intercept(
+    handler: (
+      ctx: AppCtx<TSlots, TMeta, TCaps>,
+      frame: InterceptFrame<PluginIdsOf<TSlots>>,
+    ) => unknown | void,
+  ): void;
+
+  /**
+   * Watch every app frame the server sends, once per send, after the frame
+   * went out. A send to many connections is one call: `frame.target` says who
+   * it was addressed to and `frame.recipients` how many sockets got it. The
+   * hook cannot change or stop a frame. One `onOutgoing` hook per server.
    *
    * `ctx` is the context of the connection whose `on`, `request` or `stream`
    * handler, intercept, or `onConnect` hook is running when the frame is sent.
@@ -1712,7 +1455,7 @@ export interface CoreBase<
     handler: (
       ctx: AppCtx<TSlots, TMeta, TCaps> | undefined,
       frame: OutgoingFrame<PluginIdsOf<TSlots>>,
-    ) => unknown | void,
+    ) => void | Promise<void>,
   ): void;
 
   /**
@@ -1735,18 +1478,19 @@ export interface CoreBase<
     readonly api?: (
       ctx: TScoped extends true
         ? AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TMeta, TCaps>
-        : AdminCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TMeta, TCaps>,
+        : ConnectionlessCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TMeta, TCaps>,
     ) => TApi;
   }): ServerDefinition<
     readonly Primitive[],
     BuildContract<MergeSlots<TSlots | SlotsOf<THandlers[number]>>>,
     AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TMeta, TCaps>,
-    TApi
+    TApi,
+    ConnectionlessCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TMeta, TCaps>
   >;
 }
 
 /** A value `assemble(...)` accepts — a routed handler or channel, never a capability. */
-export type AssembleInput = Contribution & { readonly __livethingCapability?: never };
+type AssembleInput = Contribution & { readonly __livethingCapability?: never };
 
 /** The rate-limit slots `assemble(...)` reads off a collected channel object. @internal */
 interface ChannelRateLimitSource {
@@ -1766,7 +1510,6 @@ const ROUTING_KINDS = new Set([
   'incoming',
   'request',
   'stream-generate',
-  'cursor-stream-generate',
   'recorded-stream-generate',
 ]);
 
@@ -1860,7 +1603,7 @@ function mergeServerRequestPrimitives(primitives: Primitive[]): void {
  */
 function mergeScheduled(
   declarations: ReadonlyMap<string, ScheduledDeclaration>,
-  bodies: ReadonlyMap<string, (ctx: TaskContext, data?: unknown) => void | Promise<void>>,
+  bodies: ReadonlyMap<string, (ctx: ConnectionlessContext, data?: unknown) => void | Promise<void>>,
   build: ScheduledCapability['__buildScheduled'] | undefined,
 ): Primitive[] {
   const primitives: Primitive[] = [];
@@ -1888,13 +1631,19 @@ function mergeScheduled(
   return primitives;
 }
 
-/** Turn the `upgrade` ephemeral-tag sugar `{ group: key }` into the engine's tag refs. */
-function toEphemeralTagRefs(ephemeral: Record<string, string | undefined> | undefined): TagRef[] {
+/** Turn the `upgrade` ephemeral-tag sugar `{ group: key | keys }` into the engine's tag refs. */
+function toEphemeralTagRefs(
+  ephemeral: Record<string, string | readonly string[] | undefined> | undefined,
+): TagRef[] {
   if (!ephemeral) return [];
 
   const refs: TagRef[] = [];
-  for (const [group, key] of Object.entries(ephemeral)) {
-    if (key !== undefined) refs.push({ __livething: 'tag-ref', kind: 'ephemeral', group, key });
+  for (const [group, keys] of Object.entries(ephemeral)) {
+    if (keys === undefined) continue;
+
+    for (const key of typeof keys === 'string' ? [keys] : keys) {
+      refs.push({ __livething: 'tag-ref', kind: 'ephemeral', group, key });
+    }
   }
 
   return refs;
@@ -1927,7 +1676,6 @@ const SCOPED_UPGRADE_KEY = Symbol('scopedUpgrade');
 function scopedUpgradePrimitive(handler: UpgradeHandler, baseId: symbol): Primitive {
   return {
     __livething: 'onUpgrade',
-    __kind: 'lifecycle',
     __identity: [SCOPED_UPGRADE_KEY],
     __requires: {},
     __scopedUpgrade: true,
@@ -1995,7 +1743,7 @@ export function server(config: any): any {
   const lifecyclePrimitives: Primitive[] = [];
   const scheduledBodies = new Map<
     string,
-    (ctx: TaskContext, data?: unknown) => void | Promise<void>
+    (ctx: ConnectionlessContext, data?: unknown) => void | Promise<void>
   >();
   const seen = new Set<string>();
 
@@ -2013,7 +1761,7 @@ export function server(config: any): any {
   type StreamBuild = (event: string, streamConfig: unknown) => Primitive;
 
   function streamBuilder(
-    kind: 'plain' | 'cursor' | 'recorded',
+    kind: 'plain' | 'recorded',
     method: string,
     capabilityName: string,
   ): StreamBuild {
@@ -2055,7 +1803,7 @@ export function server(config: any): any {
     for (const handler of handlerPrimitives) {
       const override = (handler as { __rateLimit?: RateLimitConfig }).__rateLimit;
       const event = (handler as { event?: string }).event;
-      if (override && event !== undefined) topOverrides.set(event, override);
+      if (override !== undefined && event !== undefined) topOverrides.set(event, override);
     }
 
     if (topOverrides.size > 0) overrides.set('top', topOverrides);
@@ -2064,7 +1812,7 @@ export function server(config: any): any {
     for (const [channel, handlers] of channelObjects) {
       const source = channel as unknown as ChannelRateLimitSource;
       channelKeys.add(source.__key);
-      if (source.__rateLimit) channelRules.set(source.__key, source.__rateLimit);
+      if (source.__rateLimit !== undefined) channelRules.set(source.__key, source.__rateLimit);
       if (source.__rateLimitOverrides?.size) {
         const channelOverrides = new Map<string, RateLimitConfig>();
         for (const [handler, declaration] of source.__rateLimitOverrides) {
@@ -2092,13 +1840,13 @@ export function server(config: any): any {
 
   const base = {
     __baseId: baseId,
-    on(event: string, config: OnConfig<any, any, any, any> & { rateLimit?: RateLimitConfig }) {
-      const primitive = incomingFactory(event, config.run as any, {
-        validator: config.input,
-        allowInterleaving: config.allowInterleaving,
+    on(event: string, onConfig: OnConfig<any, any, any, any> & { rateLimit?: RateLimitConfig }) {
+      const primitive = incomingFactory(event, onConfig.run as any, {
+        validator: onConfig.input,
+        allowInterleaving: onConfig.allowInterleaving,
       });
-      if (config.rateLimit) {
-        (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = config.rateLimit;
+      if (onConfig.rateLimit !== undefined) {
+        (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = onConfig.rateLimit;
       }
 
       return primitive;
@@ -2123,13 +1871,13 @@ export function server(config: any): any {
         run: requestConfig.run,
       });
 
-      if (requestConfig.rateLimit) {
+      if (requestConfig.rateLimit !== undefined) {
         (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = requestConfig.rateLimit;
       }
 
       return primitive;
     },
-    scheduled(taskId: string, config: ServerConfigParameter) {
+    scheduled(taskId: string, taskConfig: ServerConfigParameter) {
       if (scheduledBodies.has(taskId)) {
         throw new Error(
           `[livething] Duplicate scheduled task '${taskId}' on this server. ` +
@@ -2137,13 +1885,10 @@ export function server(config: any): any {
         );
       }
 
-      scheduledBodies.set(taskId, config.run);
+      scheduledBodies.set(taskId, taskConfig.run);
     },
     stream(event: string, streamConfig: unknown) {
       return streamBuilder('plain', 'stream', 'stream()')(event, streamConfig);
-    },
-    cursorStream(event: string, streamConfig: unknown) {
-      return streamBuilder('cursor', 'cursorStream', 'cursorStream()')(event, streamConfig);
     },
     recordedStream(event: string, streamConfig: unknown) {
       return streamBuilder('recorded', 'recordedStream', 'recordedStream()')(event, streamConfig);
@@ -2151,8 +1896,7 @@ export function server(config: any): any {
     channel(pattern: unknown, channelConfig?: unknown) {
       let factory: ((p: unknown, c: unknown, deps: unknown) => unknown) | undefined;
       const streamBuilders: Record<string, unknown> = {};
-      let buildCustomReplay: unknown;
-      let buildBuiltinReplay: unknown;
+      let buildReplay: unknown;
       let buildClientRequest: unknown;
 
       let registerServerRequests: unknown;
@@ -2164,11 +1908,9 @@ export function server(config: any): any {
         const streamBuild = (cap as { __streamBuild?: { kind: string; build: unknown } })
           .__streamBuild;
         if (streamBuild) streamBuilders[streamBuild.kind] = streamBuild.build;
-        const customReplay = (cap as { __buildCustomReplay?: unknown }).__buildCustomReplay;
+        const replayBuilder = (cap as { __buildReplay?: unknown }).__buildReplay;
 
-        if (customReplay) buildCustomReplay = customReplay;
-        const builtinReplay = (cap as { __buildBuiltinReplay?: unknown }).__buildBuiltinReplay;
-        if (builtinReplay) buildBuiltinReplay = builtinReplay;
+        if (replayBuilder) buildReplay = replayBuilder;
         const request = (cap as { __buildClientRequest?: unknown }).__buildClientRequest;
         if (request) buildClientRequest = request;
 
@@ -2185,8 +1927,7 @@ export function server(config: any): any {
       return factory(pattern, channelConfig, {
         baseId,
         streamBuilders,
-        buildCustomReplay,
-        buildBuiltinReplay,
+        buildReplay,
         buildClientRequest,
         registerServerRequests,
       });
@@ -2214,44 +1955,14 @@ export function server(config: any): any {
         ),
       );
     },
-    onValidationError(handler: (ctx: any, event: string, error: unknown) => void | Promise<void>) {
-      registerOnce(
-        'onValidationError',
-        onValidationError((ctx: any, event: string, error: unknown) =>
-          handler(adaptChannelContext(ctx), event, error),
-        ),
-      );
-    },
     onShutdown(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('onShutdown', onShutdown(handler));
     },
     intercept(handler: (ctx: any, frame: InterceptFrame) => unknown | void) {
       registerOnce('intercept', interceptFactory(handler));
     },
-    onOutgoing(handler: (ctx: any, frame: OutgoingFrame) => unknown | void) {
+    onOutgoing(handler: (ctx: any, frame: OutgoingFrame) => void | Promise<void>) {
       registerOnce('onOutgoing', outgoingHookFactory(handler));
-    },
-    replay(hooks: CustomReplayHooks) {
-      let build: ReplayCustomCapability['__buildCustomReplay'] | undefined;
-      for (const cap of config.capabilities ?? []) {
-        const candidate = (cap as Partial<ReplayCustomCapability>).__buildCustomReplay;
-        if (candidate) {
-          if (build) {
-            throw new Error('[livething] replay.custom() is listed more than once. List it once.');
-          }
-
-          build = candidate;
-        }
-      }
-
-      if (!build) {
-        throw new Error(
-          '[livething] base.replay() needs the replay.custom() capability. ' +
-            'Add replay.custom() to capabilities.',
-        );
-      }
-
-      registerOnce('replay', build(hooks));
     },
     assemble(assembleConfig: ServerAssembleConfigParameter) {
       const items = assembleConfig.handlers;
@@ -2327,7 +2038,7 @@ export function server(config: any): any {
         );
       }
 
-      if (config.hibernation?.enabled) primitives.push(hibernationFactory(true));
+      if (config.hibernation) primitives.push(hibernationFactory());
       for (const cap of config.capabilities ?? []) primitives.push(...cap.__primitives);
       if (rateLimitPrimitive) primitives.push(rateLimitPrimitive);
 
@@ -2345,39 +2056,22 @@ export function server(config: any): any {
         context: 'server({ capabilities: [...] })',
       });
 
-      const builtinReplayCount = primitives.filter(
+      const replayCount = primitives.filter(
         (p) => p.__livething === 'replay' && !(p as { disabled?: boolean }).disabled,
       ).length;
-      const hasCustomReplay = primitives.some((p) => p.__livething === 'replayCustom');
-      if (builtinReplayCount > 1) {
+      if (replayCount > 1) {
         throw new Error(
-          '[livething] built-in replay (replay.history() / replay.snapshot()) is listed more than ' +
+          '[livething] replay (replay.history() / replay.snapshot()) is listed more than ' +
             'once. Use one replay strategy per scope.',
         );
       }
 
-      if (builtinReplayCount > 0 && hasCustomReplay) {
-        throw new Error(
-          '[livething] built-in replay and custom base.replay() are both configured. ' +
-            'Use one or the other.',
-        );
-      }
-
-      const features = new Set<string>();
-      for (const cap of config.capabilities ?? []) {
-        for (const feature of cap.__features) features.add(feature);
-      }
-
-      if (config.hibernation?.enabled) features.add('hibernation');
-
       function isDurableGenerate(p: Primitive): boolean {
-        return (
-          p.__livething === 'cursor-stream-generate' || p.__livething === 'recorded-stream-generate'
-        );
+        return p.__livething === 'recorded-stream-generate';
       }
 
-      // A durable stream can be declared at the top level or nested inside a
-      // channel, so scan both — otherwise a channel-only durable stream would
+      // A recorded stream can be declared at the top level or nested inside a
+      // channel, so scan both — otherwise a channel-only recorded stream would
       // miss the retention sweep below.
       const hasDurableStream = primitives.some(
         (p) =>
@@ -2388,10 +2082,8 @@ export function server(config: any): any {
             )),
       );
 
-      // Install the durable-stream retention sweep only when a cursor/recorded
-      // stream handler actually exists — not merely because the capability is
-      // listed. Both stream capabilities carry the same sweep builder, and the
-      // engine rejects duplicate scheduled task names, so register exactly one.
+      // Install the durable-stream retention sweep only when a recorded stream
+      // handler actually exists — not merely because the capability is listed.
       if (hasDurableStream) {
         for (const cap of config.capabilities ?? []) {
           const sweep = (cap as { __durableSweep?: () => Primitive }).__durableSweep;
@@ -2423,8 +2115,6 @@ export function server(config: any): any {
         __livething: 'server' as const,
         __baseId: baseId,
         primitives: Object.freeze(primitives) as readonly Primitive[],
-        __features: Object.freeze(features) as ReadonlySet<string>,
-        ...(config.translate ? { __translate: config.translate } : {}),
         ...(config.users ? { __usersPolicy: config.users } : {}),
         // Read by plugin() on a scoped server definition, by Engine.admin() on an app one.
         ...(api ? { __apiFactory: api } : {}),

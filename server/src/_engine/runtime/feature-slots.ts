@@ -14,14 +14,13 @@
  * function signatures carries zero bundle cost.
  */
 
+import type { AnyRecordedStream } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import type * as ChannelRuntime from '~/channel/runtime.ts';
 import type { MembershipInsert, MembershipKey, StoredMembership } from '~/channel/storage.ts';
-import type { ConnectionInfo, ConnectionRef, SQLProvider } from '~/context.ts';
-import type { InterceptFrame } from '~/intercept/intercept.ts';
-import type { RunInterceptsOptions } from '~/intercept/runtime.ts';
+import type { ConnectionInfo, ConnectionRef } from '~/context.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type {
   BufferStreamNudgeOptions,
@@ -99,20 +98,14 @@ export type StreamChannelLeave = (
 /** Options the durable trigger needs to start a durable stream. */
 export interface DurableTriggerOptions {
   scope: ResolvedChannel;
-  /** The compiled durable stream the durable runtime builds its def from. */
-  durable: any;
-  kind: 'cursor' | 'recorded';
+  /** The compiled recorded stream the durable runtime builds its def from. */
+  durable: AnyRecordedStream;
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
 }
 
-/**
- * The durable-stream dispatch surface. Set once (idempotently) when either the
- * `cursorStream()` or `recordedStream()` capability is listed.
- */
+/** The durable-stream dispatch surface. Set when the `recordedStream()` capability is listed. */
 export interface DurableStreamService {
-  /** Create the durable-stream tables if this engine has not done so yet. */
-  ensureSchema(runtime: any): void;
   /** Start a matched durable stream. */
   trigger(
     runtime: any,
@@ -144,14 +137,13 @@ export type RequestDispatch = (
 /**
  * Durable channel-membership operations. Set by the `channels()` capability,
  * so a handler without it never pulls the membership storage or rejoin code.
- * Each op already no-ops for a channel opted out with `membership: 'ephemeral'`,
- * so an unset slot is the same as the opted-out path.
+ * Each op already no-ops for an ephemeral channel (the default), so an unset
+ * slot is the same as the ephemeral path.
  */
 export interface ChannelMembershipService {
   persistMembership(core: any, row: MembershipInsert): void;
   deleteDurableMembership(core: any, key: MembershipKey): void;
   getDurableMembership(core: any, key: MembershipKey): StoredMembership | undefined;
-  markDurableMembershipKicked(core: any, key: MembershipKey): void;
   listDurableMembers(
     core: any,
     channelName: string,
@@ -177,27 +169,19 @@ export interface TagPersistenceService {
  * or when a durable stream is listed (its retention sweep is a scheduled task),
  * so a handler with neither never pulls the scheduler or the task context.
  *
- * Each method takes the engine's `commonDeps` so the service can build a task
- * context without the engine importing the scheduled context builder.
+ * Each method takes the engine's connectionless context factory, which builds
+ * the `ctx` a scheduled task body receives.
  */
 export interface ScheduledService {
-  ensureRuntime(core: any, commonDeps: any): void;
-  scheduleTask(core: any, commonDeps: any, opts: OptsParameter): void;
-  cancelScheduled(core: any, commonDeps: any, opts: OptsParameter2): ScheduledCancelResult;
+  ensureRuntime(core: any, createContext: () => unknown): void;
+  scheduleTask(core: any, createContext: () => unknown, opts: OptsParameter): void;
+  cancelScheduled(
+    core: any,
+    createContext: () => unknown,
+    opts: OptsParameter2,
+  ): ScheduledCancelResult;
   rescheduleAlarm(core: any): void;
-  createTaskContext(core: any, commonDeps: any): unknown;
 }
-
-/**
- * The intercept pipeline runner. Set by the `intercepts()` capability, so a
- * handler that never lists it skips the intercept block and never bundles the
- * pipeline runner.
- */
-export type RunIntercepts = (
-  runtime: any,
-  connection: RuntimeConnection,
-  options: RunInterceptsOptions,
-) => Promise<InterceptFrame>;
 
 /**
  * The channel subscribe/leave/kick runtime. Set by the `channels()` capability,
@@ -217,11 +201,6 @@ export interface ChannelService {
     connection: RuntimeConnection,
     frame: Protocol.UnsubscribeFrame,
   ): Promise<void>;
-  handleMemberSync(
-    core: any,
-    connection: RuntimeConnection,
-    frame: Protocol.MemberSyncRequestFrame,
-  ): void;
   leaveChannel(
     core: any,
     connection: RuntimeConnection,
@@ -254,7 +233,6 @@ export interface ChannelContext {
 
 /** Inbox settings resolved for one channel, stored on the engine core. */
 export interface ResolvedInboxOptions {
-  onDelivered: 'delete' | 'retain';
   retention?: { maxAgeMs?: number; maxMessages?: number };
   /** Whether the delivered `__received__` tick is pushed live to other members. Off by default. */
   broadcastReceipts: boolean;
@@ -277,8 +255,6 @@ export interface ResolvedReadReceiptsOptions {
 export interface LastSeenService {
   /** The last-seen timestamp (ms) for a user, or `null` when never seen. */
   at(userId: string): number | null;
-  /** Whether a user has a live connection on this instance right now. */
-  online(userId: string): boolean;
 }
 
 /**
@@ -311,20 +287,3 @@ export interface InboxService {
   /** Drop a user's rows for a channel it has just left. */
   clearChannel(core: any, key: KeyParameter): void;
 }
-
-/** The bag of optional feature slots the engine core carries. */
-export interface FeatureDispatchSlots {
-  streamTrigger?: StreamTrigger;
-  streamNudgeBuffer?: StreamNudgeBuffer;
-  streamCancel?: StreamCancel;
-  streamChannelLeave?: StreamChannelLeave;
-  durableStream?: DurableStreamService;
-  requestDispatch?: RequestDispatch;
-  channelService?: ChannelService;
-  channelContext?: ChannelContext;
-  inboxService?: InboxService;
-  lastSeenService?: LastSeenService;
-}
-
-/** Re-exported so the durable dispatch service can satisfy the runtime contract. */
-export type { SQLProvider };

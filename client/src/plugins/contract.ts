@@ -62,7 +62,7 @@ export type PluginSlice<TContract extends SocketContract, TId extends string> = 
  * ids in `TClaimed`. This is what the top-level socket is typed against, so once a
  * plugin claims `acme:chat`, `socket.on('__acme:chat::message')` is a type error;
  * those names are reached through the plugin's own API. A prefix no registered
- * plugin claims is left in place, so it stays reachable as before. With no plugins
+ * plugin claims is left in place, so it stays reachable at the top level. With no plugins
  * (`TClaimed` = `never`) nothing is removed.
  */
 export type TopLevelContract<TContract extends SocketContract, TClaimed extends string = never> = {

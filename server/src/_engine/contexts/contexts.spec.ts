@@ -4,22 +4,15 @@ import { ensureConnectionSchema, readConnectionRow } from '~/_engine/runtime/con
 import { acceptConnection, handleConnectionClose } from '~/_engine/runtime/connection.ts';
 import { persistAttachment } from '~/_engine/runtime/hibernation.ts';
 import { createTestSql } from '~/_test/sql.ts';
-import { createTestTimers } from '~/_test/timers.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import { CrossInstanceRef } from '~/errors/errors.ts';
-import { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
-import { createTaskContext } from '~/scheduled/context.ts';
+import { createInitContext } from '~/lifecycle/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type {
-  AdminContext,
-  ConnectionContext,
-  InitContext,
-  ShutdownContext,
-  TaskContext,
-} from '~/context.ts';
+import type { ConnectionContext, ConnectionlessContext, InitContext } from '~/context.ts';
+import { createConnectionlessContext } from './connectionless.ts';
 
 function createConnection(id: string, userId: string = id): RuntimeConnection {
   return {
@@ -32,7 +25,6 @@ function createConnection(id: string, userId: string = id): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -60,7 +52,6 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     platform: {},
     getStorage: () => baseStorage(),
     getStorageView: () => baseStorage(),
-    getTimers: () => createTestTimers(),
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
     broadcastToConnections: vi.fn(),
@@ -334,9 +325,9 @@ describe('ctx.connections.get(ref).send', () => {
     );
   });
 
-  it('task context connections.get(ref).send returns false for unknown ids', () => {
+  it('connectionless context connections.get(ref).send returns false for unknown ids', () => {
     const deps = baseDeps();
-    const task = createTaskContext(deps);
+    const task = createConnectionlessContext(deps);
 
     expect(task.connections.get(localRef('missing')).send('evt', {})).toBe(false);
     expect(deps.logger.error).toHaveBeenCalledWith(
@@ -397,20 +388,13 @@ describe('ctx.connections.get(ref).send', () => {
 });
 
 describe('ctx.cancelScheduled', () => {
-  it('logs an error when a task context cancellation matches no runs', () => {
-    const deps = baseDeps({
-      cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 0 })),
-    });
-    const task = createTaskContext(deps);
+  it('a connectionless context forwards the task id and filter to the scheduler', () => {
+    const deps = baseDeps();
+    const task = createConnectionlessContext(deps);
 
     task.cancelScheduled('cleanup', { label: 'drop' });
 
     expect(deps.cancelScheduled).toHaveBeenCalledWith('cleanup', { label: 'drop' });
-    expect(deps.logger.error).toHaveBeenCalledWith('[livething] cancelScheduled matched no runs', {
-      taskId: 'cleanup',
-      filter: { label: 'drop' },
-      taskExists: true,
-    });
   });
 });
 
@@ -428,12 +412,10 @@ describe('connection context alarms', () => {
     const publicContextsExposeAlarm = [
       false satisfies HasAlarmWriter<ConnectionContext>,
       false satisfies HasAlarmWriter<InitContext>,
-      false satisfies HasAlarmWriter<ShutdownContext>,
-      false satisfies HasAlarmWriter<TaskContext>,
-      false satisfies HasAlarmWriter<AdminContext>,
+      false satisfies HasAlarmWriter<ConnectionlessContext>,
     ] as const;
 
-    expect(publicContextsExposeAlarm).toEqual([false, false, false, false, false]);
+    expect(publicContextsExposeAlarm).toEqual([false, false, false]);
   });
 });
 
@@ -522,7 +504,6 @@ describe('ctx.channel.send', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
       } as any,
@@ -672,13 +653,12 @@ describe('ctx.channels.get(name).members()', () => {
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    await (ctx as any).channels.get('room').kick('banned', { reason: 'spam', revoke: true });
+    await (ctx as any).channels.get('room').kick('banned', { reason: 'spam' });
 
     expect(kickChannelMembers).toHaveBeenCalledWith({
       channelName: 'room',
       target: 'banned',
       reason: 'spam',
-      revoke: true,
       channelFamily: undefined,
     });
   });
@@ -705,10 +685,10 @@ describe('ctx.log', () => {
     expect(error).toHaveBeenCalledWith('boom', new Error('x'));
   });
 
-  it('task ctx.log forwards to the adapter logger', () => {
+  it('connectionless ctx.log forwards to the adapter logger', () => {
     const info = vi.fn();
     const deps = baseDeps({ logger: { info, warn: vi.fn(), error: vi.fn() } });
-    const task = createTaskContext(deps);
+    const task = createConnectionlessContext(deps);
 
     (task as any).log.info('scheduled tick', { task: 'cleanup' });
 
@@ -758,7 +738,6 @@ describe('persistAttachment', () => {
       ephemeral_tags: [{ group: 'role', key: 'vip' }],
       ephemeral_memberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
       active_stream_ids: ['stream_1'],
-      translator_state: undefined,
       metadata: {},
     });
   });
@@ -783,14 +762,13 @@ describe('persistAttachment', () => {
   });
 });
 
-describe('storage view in init/shutdown/task contexts', () => {
+describe('storage view in init and connectionless contexts', () => {
   function makeShutdownDeps(getStorage: () => any) {
     return {
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       platform: {},
       getStorage,
       getStorageView: getStorage,
-      getTimers: () => createTestTimers(),
       scheduleTask: vi.fn(),
       cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
       broadcastToConnections: vi.fn(),
@@ -820,21 +798,9 @@ describe('storage view in init/shutdown/task contexts', () => {
     expect(realSqlExec).toHaveBeenCalledWith('SELECT 1', 1, 2);
   });
 
-  it('shutdown ctx.sql.exec forwards calls to the real provider', () => {
+  it('connectionless ctx.sql.exec forwards calls to the real provider', () => {
     const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
-    const ctx = createShutdownContext(
-      makeShutdownDeps(() => ({
-        sql: { exec: realSqlExec, transaction: vi.fn() },
-        kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
-      })),
-    );
-    ctx.sql.exec('SELECT 1', 1, 2);
-    expect(realSqlExec).toHaveBeenCalledWith('SELECT 1', 1, 2);
-  });
-
-  it('task ctx.sql.exec forwards calls to the real provider', () => {
-    const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
-    const ctx = createTaskContext(
+    const ctx = createConnectionlessContext(
       makeShutdownDeps(() => ({
         sql: { exec: realSqlExec, transaction: vi.fn() },
         kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },

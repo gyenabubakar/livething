@@ -56,60 +56,24 @@ export function flushDirtyAttachment(
 
   if (!options.force && connection.closing) return;
 
-  let state: ConnectionStore.SerializedTranslatorState;
   try {
-    state = translatorState(connection);
-  } catch (error) {
-    if (options.force && connection.closing) return;
-
-    if (isLiveThingConfigError(error)) {
-      closeForTranslatorStateFailure(connection, error);
-    }
-
-    closeForConnectionStateFailure(core, connection, error);
-    return;
-  }
-
-  try {
-    flushConnectionState(core, connection, state);
+    flushConnectionState(core, connection);
   } catch (error) {
     closeForConnectionStateFailure(core, connection, error);
   }
 }
 
-function translatorState(connection: RuntimeConnection): ConnectionStore.SerializedTranslatorState {
-  return ConnectionStore.serializeTranslatorState(connection);
-}
-
-function flushConnectionState(
-  core: EngineCore,
-  connection: RuntimeConnection,
-  translatorState: ConnectionStore.SerializedTranslatorState,
-): void {
-  const row = ConnectionStore.buildConnectionRow(connection, {
-    translatorState: translatorState.value,
-  });
-  const fingerprint = JSON.stringify({ ...row, translator_state: translatorState.json });
+function flushConnectionState(core: EngineCore, connection: RuntimeConnection): void {
+  const row = ConnectionStore.buildConnectionRow(connection);
+  const fingerprint = JSON.stringify(row);
   if (connection.lastPersistedFingerprint === fingerprint) return;
 
-  ConnectionStore.writeConnectionRow(core.storage.sql, row, {
-    translatorStateJson: translatorState.json,
-  });
+  ConnectionStore.writeConnectionRow(core.storage.sql, row);
   const persistResult = core.options.hibernation?.persist(connection.wsKey, {
     id: connection.id,
   });
   assertSynchronousResult(persistResult, 'adapter hibernation.persist');
   connection.lastPersistedFingerprint = fingerprint;
-}
-
-function closeForTranslatorStateFailure(connection: RuntimeConnection, error: unknown): never {
-  connection.preserveStateOnClose = true;
-  connection.closing = true;
-  connection.descriptor.close(
-    CloseCodes.INTERNAL_ERROR,
-    '[livething] translator configuration failed',
-  );
-  throw error;
 }
 
 function closeForConnectionStateFailure(

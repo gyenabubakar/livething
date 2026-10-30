@@ -65,18 +65,6 @@ type ScheduledRunRow = {
   metadata?: Record<string, unknown>;
 };
 
-type ScheduledDeadLetterRow = {
-  id: string;
-  taskId: string;
-  time: number;
-  failedAt: number;
-  data: string | null;
-  attempts: number;
-  error: string | null;
-  /** Forward-compat blob (see the metadata column); not yet read or written. */
-  metadata?: Record<string, unknown>;
-};
-
 const DEFAULT_BACKOFF_MS: readonly number[] = [1_000, 5_000, 25_000];
 
 function deserializeRetry(value: unknown): boolean | readonly number[] {
@@ -161,23 +149,6 @@ function serializeRunColumns(
     run.attempts,
     run.recurring ? 1 : 0,
     serializeRetry(run.retry),
-  ];
-}
-
-/** Serialize one DLQ row into its persisted column tuple. */
-function serializeDlqColumns(
-  entry: ScheduledDeadLetter,
-): [string, string, number, number, string | null, number, string] {
-  return [
-    entry.id,
-    entry.taskId,
-    entry.time,
-    entry.failedAt,
-    entry.data === undefined
-      ? null
-      : serializeJsonOrThrow(entry.data, `Scheduled DLQ data for "${entry.taskId}"`),
-    entry.attempts,
-    JSON.stringify(entry.error),
   ];
 }
 
@@ -272,28 +243,32 @@ function getClaimedRunIds(runtime: ScheduledRuntimeAccess): Set<string> {
  * run for good. Deletes for a claimed id are skipped here; the alarm clears
  * the claim once its handler settles, so its own closing persist deletes the
  * row normally.
+ *
+ * Dead letters never change once written, so they are not diffed: the alarm
+ * passes the runs that just failed for good, and each one is one `INSERT` in
+ * the same transaction that deletes its queued row.
  */
-function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
+function persistSchedulerState(
+  runtime: ScheduledRuntimeAccess,
+  newDeadLetters: readonly ScheduledDeadLetter[] = [],
+): void {
   const storage = runtime.getStorage();
   const runs = runtime.getScheduledRuns();
-  const deadLetters = runtime.getScheduledDlq();
   const runsSnapshot = runtime.getScheduledRunsPersisted();
-  const dlqSnapshot = runtime.getScheduledDlqPersisted();
 
   const claimed = getClaimedRunIds(runtime);
 
   const runOps = diffAgainstSnapshot(runs, runsSnapshot, serializeRunColumns).filter(
     (op) => op.kind !== 'delete' || !claimed.has(op.id),
   );
-  const dlqOps = diffAgainstSnapshot(deadLetters, dlqSnapshot, serializeDlqColumns);
 
-  if (runOps.length === 0 && dlqOps.length === 0) {
+  if (runOps.length === 0 && newDeadLetters.length === 0) {
     return;
   }
 
   runtime.logger.info('[livething] scheduler persist — applying diff', {
     runs: summarizeOps(runOps),
-    deadLetters: summarizeOps(dlqOps),
+    deadLetters: newDeadLetters.length,
   });
 
   storage.sql.transaction(() => {
@@ -340,48 +315,25 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
       );
     }
 
-    for (const op of dlqOps) {
-      if (op.kind === 'delete') {
-        storage.sql.exec('DELETE FROM __livething_scheduled_dlq WHERE id = ?', op.id);
-        continue;
-      }
-
-      if (op.kind === 'insert') {
-        storage.sql.exec(
-          `INSERT INTO __livething_scheduled_dlq
-            (id, taskId, time, failedAt, data, attempts, error)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          ...(op.columns as unknown[]),
-        );
-        continue;
-      }
-
-      const [, taskId, time, failedAt, data, attempts, error] = op.columns as [
-        string,
-        string,
-        number,
-        number,
-        string | null,
-        number,
-        string,
-      ];
+    for (const entry of newDeadLetters) {
       storage.sql.exec(
-        `UPDATE __livething_scheduled_dlq
-         SET taskId = ?, time = ?, failedAt = ?, data = ?, attempts = ?, error = ?
-         WHERE id = ?`,
-        taskId,
-        time,
-        failedAt,
-        data,
-        attempts,
-        error,
-        op.id,
+        `INSERT INTO __livething_scheduled_dlq
+          (id, taskId, time, failedAt, data, attempts, error)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        entry.id,
+        entry.taskId,
+        entry.time,
+        entry.failedAt,
+        entry.data === undefined
+          ? null
+          : serializeJsonOrThrow(entry.data, `Scheduled DLQ data for "${entry.taskId}"`),
+        entry.attempts,
+        JSON.stringify(entry.error),
       );
     }
   });
 
   applyDiffToSnapshot(runOps, runsSnapshot);
-  applyDiffToSnapshot(dlqOps, dlqSnapshot);
 }
 
 /** Update the in-memory snapshot to reflect a successfully-applied diff. */
@@ -499,21 +451,17 @@ export function ensureScheduledSchema(runtime: ScheduledRuntimeAccess): void {
 }
 
 /**
- * Restore queued runs and dead-lettered runs into memory. Always runs on
+ * Restore queued runs into memory. Always runs on
  * every boot. Assumes the schema already exists (either freshly created in
  * `ensureScheduledSchema` on cold boot, or from a previous boot on wake).
  */
 export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void {
   const storage = runtime.getStorage();
   const scheduledRuns = runtime.getScheduledRuns();
-  const deadLetters = runtime.getScheduledDlq();
   const runsSnapshot = runtime.getScheduledRunsPersisted();
-  const dlqSnapshot = runtime.getScheduledDlqPersisted();
 
   scheduledRuns.clear();
-  deadLetters.clear();
   runsSnapshot.clear();
-  dlqSnapshot.clear();
 
   runtime.logger.info('[livething] scheduler boot — loading queue from storage');
 
@@ -563,31 +511,6 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
     runsSnapshot.set(run.id, fingerprint(serializeRunColumns(run)));
   }
 
-  for (const row of storage.sql
-    .exec<ScheduledDeadLetterRow>(
-      `
-        SELECT id, taskId, time, failedAt, data, attempts, error
-        FROM __livething_scheduled_dlq
-      `,
-    )
-    .toArray()) {
-    const entry: ScheduledDeadLetter = {
-      id: String(row.id),
-      taskId: String(row.taskId),
-      time: Number(row.time),
-      failedAt: Number(row.failedAt),
-      data: typeof row.data === 'string' && row.data.length > 0 ? JSON.parse(row.data) : undefined,
-      attempts: Number(row.attempts),
-      error:
-        typeof row.error === 'string' && row.error.length > 0
-          ? (JSON.parse(row.error) as ScheduledDeadLetter['error'])
-          : { message: 'Unknown scheduled task failure' },
-    };
-
-    deadLetters.set(entry.id, entry);
-    dlqSnapshot.set(entry.id, fingerprint(serializeDlqColumns(entry)));
-  }
-
   // A stopped marker only matters for a task that still declares `every`.
   const recurringTaskIds = new Set<string>();
   for (const task of runtime.getScheduledTasks()) {
@@ -614,7 +537,6 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
 
   runtime.logger.info('[livething] scheduler boot complete', {
     queuedRuns: scheduledRuns.size,
-    deadLetters: deadLetters.size,
     recurringTaskIds: [...scheduledRuns.values()]
       .filter((run) => run.recurring)
       .map((run) => run.taskId),
@@ -679,14 +601,14 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     due.map(async (run) => {
       const task = runtime.getScheduledTask(run.taskId);
       if (task?.handler) {
-        const ctx = runtime.createTaskContext();
+        const ctx = runtime.createContext();
         const runnable: RunnableTask = {
           handler: task.handler as RunnableTask['handler'],
           hasData: task.hasData === true,
         };
 
-        await (runtime.runInTaskContext
-          ? runtime.runInTaskContext(ctx, () => invokeTask(runnable, ctx, run.data))
+        await (runtime.runInTaskCall
+          ? runtime.runInTaskCall(ctx, () => invokeTask(runnable, ctx, run.data))
           : invokeTask(runnable, ctx, run.data));
       }
 
@@ -694,7 +616,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     }),
   );
 
-  const deadLetters = runtime.getScheduledDlq();
+  const deadLetters: ScheduledDeadLetter[] = [];
   // Read after the handlers settle: a handler may have stopped its own task.
   const stopped = due.some((run) => run.recurring)
     ? readStoppedTaskIds(runtime)
@@ -742,7 +664,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
       continue;
     }
 
-    deadLetters.set(run.id, {
+    deadLetters.push({
       id: run.id,
       taskId: run.taskId,
       time: run.time,
@@ -770,7 +692,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
   }
 
   claimed.clear();
-  persistSchedulerState(runtime);
+  persistSchedulerState(runtime, deadLetters);
   runtime.rescheduleAlarm();
 }
 

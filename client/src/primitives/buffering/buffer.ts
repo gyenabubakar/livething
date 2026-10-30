@@ -4,9 +4,8 @@ import type { FrameOwner, Message } from '~/internal/runtime.ts';
 
 /** Settings for the buffer. */
 export interface MessageBufferOptions {
-  enabled?: boolean;
   maxSize?: number;
-  ttl?: number | Record<string, number>;
+  ttl?: number;
   flushInterval?: number;
 }
 
@@ -31,13 +30,11 @@ export class MessageBuffer {
   private count = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private readonly enabled: boolean;
   private readonly maxSize: number;
-  private readonly ttlConfig: number | Record<string, number> | undefined;
+  private readonly defaultTtl: number | null;
   private readonly flushInterval: number;
 
   constructor(options: MessageBufferOptions) {
-    this.enabled = options.enabled ?? false;
     this.maxSize = options.maxSize ?? 50;
     if (!Number.isInteger(this.maxSize) || this.maxSize < 1) {
       throw new LiveThingConfigError(
@@ -45,20 +42,18 @@ export class MessageBuffer {
       );
     }
 
-    this.ttlConfig = options.ttl;
+    this.defaultTtl = options.ttl ?? null;
     this.flushInterval = options.flushInterval ?? 0;
 
     this.ring = new Array(this.maxSize).fill(null);
   }
 
   /**
-   * Add a message. Returns `true` if it was taken, `false` if buffering is off.
+   * Add a message. Always returns `true`: the message is taken.
    * If the buffer is full the oldest message is dropped to make room.
    */
   enqueue(message: Message, perCallTtl?: number, owner?: FrameOwner): boolean {
-    if (!this.enabled) return false;
-
-    const ttl = this.resolveTTL(message.event, perCallTtl);
+    const ttl = perCallTtl ?? this.defaultTtl;
     const tail = (this.head + this.count) % this.maxSize;
 
     if (this.count >= this.maxSize) {
@@ -85,11 +80,7 @@ export class MessageBuffer {
    * up front. So if the socket drops mid-flush, `stopFlush()` leaves the
    * not-yet-sent messages in the buffer and they go out on the next flush.
    */
-  flush(
-    send: (message: Message) => void,
-    onComplete?: () => void,
-    onError?: (error: unknown) => void,
-  ): void {
+  flush(send: (message: Message) => void, onError?: (error: unknown) => void): void {
     this.stopFlush();
     this.dropExpired();
 
@@ -108,11 +99,6 @@ export class MessageBuffer {
       }
     }
 
-    if (this.count === 0) {
-      onComplete?.();
-      return;
-    }
-
     if (this.flushInterval <= 0) {
       let buffered = this.dequeue();
       while (buffered) {
@@ -120,7 +106,6 @@ export class MessageBuffer {
         buffered = this.dequeue();
       }
 
-      onComplete?.();
       return;
     }
 
@@ -128,7 +113,6 @@ export class MessageBuffer {
       const buffered = this.dequeue();
       if (!buffered) {
         this.flushTimer = null;
-        onComplete?.();
         return;
       }
 
@@ -155,14 +139,6 @@ export class MessageBuffer {
     this.head = 0;
     this.count = 0;
     this.stopFlush();
-  }
-
-  get size(): number {
-    return this.count;
-  }
-
-  get isEnabled(): boolean {
-    return this.enabled;
   }
 
   /** True while a staggered flush is still draining (its next tick is scheduled). */
@@ -220,16 +196,5 @@ export class MessageBuffer {
     this.count = 0;
 
     return result;
-  }
-
-  /** Pick the TTL: a per-call value wins, then per-event, then a global number, else none. */
-  private resolveTTL(event: string, perCallTtl?: number): number | null {
-    if (perCallTtl !== undefined) return perCallTtl;
-
-    if (typeof this.ttlConfig === 'number') return this.ttlConfig;
-
-    if (typeof this.ttlConfig === 'object') return this.ttlConfig[event] ?? null;
-
-    return null;
   }
 }

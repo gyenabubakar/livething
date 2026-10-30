@@ -3,7 +3,6 @@ import {
   kickChannelMembers,
   leaveChannel,
   removeStoredMember,
-  resyncChannelMembers,
   subscribeConnection,
   subscribeConnectionAsServer,
   unsubscribeConnection,
@@ -54,7 +53,6 @@ function createRuntime(durable: boolean) {
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
   };
@@ -86,21 +84,16 @@ function createRuntime(durable: boolean) {
     broadcastToChannel({ event, payload }: BroadcastToChannelOptions) {
       presence.push({ event, payload: payload as Record<string, unknown> });
     },
-    async handleValidationError() {},
     async handleRuntimeError() {},
     isChannelDurable: () => durable,
     persistMembership({ userId, meta }: MembershipInsert) {
-      if (userId) rows.set(userId, { meta: meta ?? {}, kicked: false });
+      if (userId) rows.set(userId, { meta: meta ?? {} });
     },
     deleteDurableMembership(userId: string) {
       rows.delete(userId);
       deletedRows.push(userId);
     },
     getDurableMembership: (userId: string) => rows.get(userId),
-    markDurableMembershipKicked(userId: string) {
-      const row = rows.get(userId);
-      if (row) rows.set(userId, { ...row, kicked: true });
-    },
     listDurableMembers: () => [...rows].map(([userId, row]) => ({ userId, ...row })),
   };
 
@@ -137,12 +130,11 @@ function createRuntime(durable: boolean) {
     return unsubscribeConnection(runtime as never, connection, room);
   }
 
-  function kick(userId: string, revoke: boolean): Promise<void> {
+  function kick(userId: string): Promise<void> {
     return kickChannelMembers(runtime as never, {
       ...room,
       target: { __livething: 'user-ref', id: userId, instance: undefined },
       reason: 'removed',
-      revoke,
     });
   }
 
@@ -258,7 +250,6 @@ describe('presence on a persistent channel is keyed by user id', () => {
       ...room,
       target: { __livething: 'user-ref', id: 'alice', instance: undefined },
       reason: 'removed',
-      revoke: true,
     });
 
     expect(t.takePresence()).toEqual(['__memberLeave__ alice', '__memberOffline__ alice']);
@@ -278,21 +269,19 @@ describe('presence on a persistent channel is keyed by user id', () => {
       ...room,
       target: { __livething: 'tag-ref', kind: 'ephemeral', group: 'device', key: 'phone' },
       reason: 'removed',
-      revoke: true,
     });
 
     expect(t.takePresence()).toEqual([]);
     expect(t.deletedRows).toEqual([]);
   });
 
-  it('re-sends one snapshot entry per user on a member sync request', async () => {
+  it('sends one snapshot entry per user in the member sync', async () => {
     const t = createRuntime(true);
     const peer = createConnection('conn_p', 'bob');
     await t.join(createConnection('conn_a', 'alice'));
     await t.join(createConnection('conn_b', 'alice'));
     await t.join(peer);
 
-    resyncChannelMembers(t.runtime as never, peer, room);
     expect(t.syncFor(peer)).toEqual([
       { memberId: 'alice', meta: { name: 'conn_a' }, online: true },
     ]);
@@ -352,7 +341,6 @@ describe('the member sync lists every member of a persistent channel', () => {
     const peer = createConnection('conn_p', 'bob');
     await t.join(peer);
 
-    resyncChannelMembers(t.runtime as never, peer, room);
     expect(t.syncFor(peer)).toEqual([
       { memberId: 'alice', meta: { name: 'conn_a' }, online: true },
     ]);
@@ -376,11 +364,11 @@ describe('the member sync lists every member of a persistent channel', () => {
   it('leaves out a member whose membership a kick ended', async () => {
     const t = createRuntime(true);
     await t.join(createConnection('conn_a', 'alice'));
-    await t.kick('alice', false);
+    await t.kick('alice');
 
     const bob = createConnection('conn_b', 'bob');
     await t.join(bob);
-    expect(t.rows.get('alice')?.kicked).toBe(true);
+    expect(t.rows.has('alice')).toBe(false);
     expect(t.syncFor(bob)).toEqual([]);
   });
 
@@ -396,100 +384,66 @@ describe('the member sync lists every member of a persistent channel', () => {
   });
 });
 
-describe('a kick that keeps the membership ends it until the user rejoins', () => {
-  it('sends leave then offline on the kick, and join then online on the rejoin', async () => {
+describe('a kick ends the membership for good', () => {
+  it('drops the row, sends leave then offline, and the user does not rejoin', async () => {
     const t = createRuntime(true);
     await t.join(createConnection('conn_a', 'alice'));
     await t.join(createConnection('conn_b', 'bob'));
     t.takePresence();
 
-    await t.kick('alice', false);
+    await t.kick('alice');
     expect(t.takePresence()).toEqual(['__memberLeave__ alice', '__memberOffline__ alice']);
-    expect(t.rows.get('alice')).toEqual({ meta: { name: 'conn_a' }, kicked: true });
+    expect(t.rows.has('alice')).toBe(false);
 
-    await t.rejoin(createConnection('conn_a2', 'alice'));
-    expect(t.takePresence()).toEqual(['__memberJoin__ alice', '__memberOnline__ alice']);
-    expect(t.rows.get('alice')).toEqual({ meta: { name: 'conn_a2' }, kicked: false });
+    const again = createConnection('conn_a2', 'alice');
+    await t.rejoin(again);
+    expect(t.takePresence()).toEqual([]);
+    expect(t.subscribeOkFor(again)).toBeUndefined();
   });
 
-  it('marks the row kicked even when the compiled channel cannot be resolved', async () => {
+  it('drops the row even when the compiled channel cannot be resolved', async () => {
     const t = createRuntime(true);
     await t.join(createConnection('conn_a', 'alice'));
     t.runtime.compiled.channelFamilies.clear();
 
-    await t.kick('alice', false);
-    expect(t.rows.get('alice')).toEqual({ meta: { name: 'conn_a' }, kicked: true });
+    await t.kick('alice');
+    expect(t.rows.has('alice')).toBe(false);
   });
 
   it('sends join then online when the kicked user subscribes again on a live socket', async () => {
     const t = createRuntime(true);
     const alice = createConnection('conn_a', 'alice');
     await t.join(alice);
-    await t.kick('alice', false);
+    await t.kick('alice');
     t.takePresence();
 
     await t.join(alice);
     expect(t.takePresence()).toEqual(['__memberJoin__ alice', '__memberOnline__ alice']);
   });
 
-  it('marks the row kicked once when the kick removes every tab of the user', async () => {
+  it('drops the row once when the kick removes every tab of the user', async () => {
     const t = createRuntime(true);
     await t.join(createConnection('conn_a', 'alice'));
     await t.join(createConnection('conn_b', 'alice'));
     t.takePresence();
 
-    await t.kick('alice', false);
+    await t.kick('alice');
     expect(t.takePresence()).toEqual(['__memberLeave__ alice', '__memberOffline__ alice']);
-    expect(t.rows.get('alice')?.kicked).toBe(true);
-    expect(t.deletedRows).toEqual([]);
-
-    await t.rejoin(createConnection('conn_a2', 'alice'));
-    await t.rejoin(createConnection('conn_b2', 'alice'));
-    expect(t.takePresence()).toEqual(['__memberJoin__ alice', '__memberOnline__ alice']);
-  });
-
-  it('keeps the row kicked when the rejoin socket closes before it is confirmed', async () => {
-    const t = createRuntime(true);
-    await t.join(createConnection('conn_a', 'alice'));
-    await t.kick('alice', false);
-    t.takePresence();
-
-    const closing = createConnection('conn_a2', 'alice');
-    Object.assign(closing, { closing: true });
-    await t.rejoin(closing);
-
-    expect(t.takePresence()).toEqual([]);
-    expect(t.rows.get('alice')?.kicked).toBe(true);
+    expect(t.deletedRows).toEqual(['alice']);
   });
 });
 
 describe('a kick reaches a stored member with no live connection', () => {
-  it('drops the row and sends leave, with no offline, on a revoking kick', async () => {
+  it('drops the row and sends leave once, with no offline', async () => {
     const t = createRuntime(true);
     const alice = createConnection('conn_a', 'alice');
     await t.join(alice);
     await t.disconnect(alice);
     t.takePresence();
 
-    await t.kick('alice', true);
+    await t.kick('alice');
+    await t.kick('alice');
     expect(t.takePresence()).toEqual(['__memberLeave__ alice']);
-    expect(t.rows.has('alice')).toBe(false);
-  });
-
-  it('marks the row kicked and sends leave once on a kick that keeps the membership', async () => {
-    const t = createRuntime(true);
-    const alice = createConnection('conn_a', 'alice');
-    await t.join(alice);
-    await t.disconnect(alice);
-    t.takePresence();
-
-    await t.kick('alice', false);
-    await t.kick('alice', false);
-    expect(t.takePresence()).toEqual(['__memberLeave__ alice']);
-    expect(t.rows.get('alice')?.kicked).toBe(true);
-
-    await t.kick('alice', true);
-    expect(t.takePresence()).toEqual([]);
     expect(t.rows.has('alice')).toBe(false);
   });
 });
@@ -502,7 +456,7 @@ describe('removing a stored member after its rejoin is rejected', () => {
     await t.disconnect(alice);
     t.takePresence();
 
-    removeStoredMember(t.runtime as never, { userId: 'alice', ...room, revoke: true });
+    removeStoredMember(t.runtime as never, { userId: 'alice', ...room });
     expect(t.takePresence()).toEqual(['__memberLeave__ alice']);
     expect(t.rows.has('alice')).toBe(false);
   });
@@ -512,7 +466,7 @@ describe('removing a stored member after its rejoin is rejected', () => {
     await t.join(createConnection('conn_a', 'alice'));
     t.takePresence();
 
-    removeStoredMember(t.runtime as never, { userId: 'alice', ...room, revoke: true });
+    removeStoredMember(t.runtime as never, { userId: 'alice', ...room });
     expect(t.takePresence()).toEqual([]);
     expect(t.rows.has('alice')).toBe(true);
   });
@@ -544,7 +498,7 @@ describe('a stored member that subscribes again keeps its membership if the subs
     Object.assign(closing, { closing: true });
     await t.join(closing);
 
-    expect(t.rows.get('alice')).toEqual({ meta: { name: 'conn_a' }, kicked: false });
+    expect(t.rows.get('alice')).toEqual({ meta: { name: 'conn_a' } });
   });
 
   it('keeps the stored meta of a live member when a second tab fails to subscribe', async () => {
@@ -555,7 +509,7 @@ describe('a stored member that subscribes again keeps its membership if the subs
     Object.assign(closing, { closing: true });
     await t.join(closing);
 
-    expect(t.rows.get('alice')).toEqual({ meta: { name: 'conn_a' }, kicked: false });
+    expect(t.rows.get('alice')).toEqual({ meta: { name: 'conn_a' } });
   });
 });
 

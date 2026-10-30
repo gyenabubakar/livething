@@ -4,13 +4,12 @@ import { describe, expect, it } from 'vitest';
 import { keepalive } from './capability.ts';
 
 describe('keepalive() capability', () => {
-  it('adds the keepalive primitive and the keepalive feature flag', () => {
+  it('adds the keepalive primitive', () => {
     const base = server({
-      capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
+      capabilities: [keepalive()],
     });
     const definition = base.assemble({ handlers: [] });
     expect(definition.primitives.some((p) => p.__livething === 'keepalive')).toBe(true);
-    expect(definition.__features?.has('keepalive')).toBe(true);
   });
 
   it('rejects a ping interval that is not less than the idle timeout', () => {

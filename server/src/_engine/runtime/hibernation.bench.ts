@@ -25,7 +25,7 @@ interface FakeSocket {
 }
 
 function hibernatingDefinition(): AnyServerDefinition {
-  const base = server({ hibernation: { enabled: true } });
+  const base = server({ hibernation: true });
   return base.assemble({
     handlers: [base.on('tick', { input: TickInput, run() {} })],
   }) as AnyServerDefinition;

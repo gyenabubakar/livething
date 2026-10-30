@@ -1,9 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { getCurrentCall } from '~/_engine/call-context.ts';
-import type { AppCtx } from '~/_define/app-ctx.ts';
+import type { AppCtx, ConnectionlessCtx } from '~/_define/app-ctx.ts';
 import type { CoreBase } from '~/_define/server.ts';
 import type { CallKind } from '~/_engine/call-context.ts';
-import type { InitContext, ShutdownContext, TaskContext } from '~/context.ts';
+import type { InitContext } from '~/context.ts';
 
 /** What `server(...)` returns: the app's base, or a plugin's own `server({ scope: 'plugin' })` base. */
 type BaseRef = CoreBase<any, any, any, any>;
@@ -14,10 +14,9 @@ type ChannelRef = { readonly __key: string; readonly __baseId: symbol | undefine
 type ConnectionCtxOf<TBase> =
   TBase extends CoreBase<infer S, infer M, infer C, any> ? AppCtx<S, M, C> : never;
 
-type TaskCtxOf<TBase> = TBase extends CoreBase<any, infer M, any, any> ? TaskContext<M> : never;
-
-type ShutdownCtxOf<TBase> =
-  TBase extends CoreBase<infer S, infer M, any, any> ? ShutdownContext<M, unknown, S> : never;
+/** The `ctx` a scheduled task body and an `onShutdown` hook of this base receive. */
+type ConnectionlessCtxOf<TBase> =
+  TBase extends CoreBase<infer S, infer M, infer C, any> ? ConnectionlessCtx<S, M, C> : never;
 
 /** The `ctx` a channel's own handlers receive, read off the `run` parameter of its `on` method. */
 type ChannelCtxOf<TChannel> = TChannel extends { on: (...args: infer A) => any }
@@ -101,7 +100,7 @@ function currentCtx(expected: Expected): unknown {
 export const context = {
   /**
    * The `ctx` of a top-level event, request or stream handler, a top-level intercept, and the
-   * `onConnect`, `onDisconnect`, `onPing`, `onPong`, `onError` and `onValidationError` hooks.
+   * `onConnect`, `onDisconnect`, `onPing`, `onPong` and `onError` hooks.
    * The type has no `ctx.stream`, which only a stream handler's own `ctx` carries.
    */
   connection<TBase extends BaseRef>(base: TBase): ConnectionCtxOf<TBase> {
@@ -113,12 +112,12 @@ export const context = {
   },
 
   /** The `ctx` of a scheduled task handler. */
-  task<TBase extends BaseRef>(base: TBase): TaskCtxOf<TBase> {
+  task<TBase extends BaseRef>(base: TBase): ConnectionlessCtxOf<TBase> {
     return currentCtx({
       accessor: 'task',
       kind: 'task',
       baseId: base.__baseId,
-    }) as TaskCtxOf<TBase>;
+    }) as ConnectionlessCtxOf<TBase>;
   },
 
   /** The `ctx` of an `onInit` hook. */
@@ -127,12 +126,12 @@ export const context = {
   },
 
   /** The `ctx` of an `onShutdown` hook. */
-  shutdown<TBase extends BaseRef>(base: TBase): ShutdownCtxOf<TBase> {
+  shutdown<TBase extends BaseRef>(base: TBase): ConnectionlessCtxOf<TBase> {
     return currentCtx({
       accessor: 'shutdown',
       kind: 'shutdown',
       baseId: base.__baseId,
-    }) as ShutdownCtxOf<TBase>;
+    }) as ConnectionlessCtxOf<TBase>;
   },
 
   /**
@@ -163,8 +162,8 @@ export const context = {
 
   /**
    * The `ctx` of a channel's `subscribe`, `unsubscribe` or `sessionEnd` hook. It has the
-   * channel-only handles (`ctx.channel.inbox`, `readReceipts`, `request` and
-   * `broadcastRequest`) when the channel has them. Call it in a `check`, `commit` or
+   * channel-only handles (`ctx.channel.inbox`, `readReceipts` and `request`) when the
+   * channel has them. Call it in a `check`, `commit` or
    * `revalidate` hook and it throws; use `context.channelGate(channel)` there.
    */
   channelLifecycle<TChannel extends ChannelRef & { subscribe: unknown }>(
@@ -180,7 +179,7 @@ export const context = {
 
   /**
    * The `ctx` of a channel's `check`, `commit` or `revalidate` hook. The type has no
-   * `ctx.channel.inbox`, `readReceipts`, `request` or `broadcastRequest`, because those hooks
+   * `ctx.channel.inbox`, `readReceipts` or `request`, because those hooks
    * do not have them. Call it in a `subscribe`, `unsubscribe` or `sessionEnd` hook and it
    * throws; use `context.channelLifecycle(channel)` there.
    */

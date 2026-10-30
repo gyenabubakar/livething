@@ -3,10 +3,9 @@ import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 
 describe('request', () => {
-  it('produces correct tag and kind', () => {
+  it('produces correct tag', () => {
     const p = request('get-history', async () => {});
     expect(p.__livething).toBe('request');
-    expect(p.__kind).toBe('handler');
   });
 
   it('produces compound identity keyed by event name', () => {
@@ -40,10 +39,6 @@ describe('request', () => {
       { validator: schema },
     );
     expect(p.validator).toBe(schema);
-  });
-
-  it('factory has __key for dependency references', () => {
-    expect(typeof request.__key).toBe('symbol');
   });
 
   it('has empty dependencies and requires', () => {

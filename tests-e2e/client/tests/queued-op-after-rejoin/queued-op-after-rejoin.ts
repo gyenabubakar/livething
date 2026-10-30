@@ -42,7 +42,7 @@ export function setup(): void {
     reconnection(),
     // Buffering holds the channel send made while reconnecting; its flush runs in
     // the open phase, which the fix orders AFTER the channel rejoin.
-    buffering({ enabled: true }),
+    buffering(),
   );
 
   const archive = socket.channel('archive-room');

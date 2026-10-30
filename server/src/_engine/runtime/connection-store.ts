@@ -1,11 +1,7 @@
-import { assertSynchronousResult } from '@livething/core';
-import { parseJsonOrUndefined, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { chunkForBind } from '~/_engine/sql-batch.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { RuntimeConnection } from './types.ts';
-
-type BuildConnectionRowOptionsParameter = { translatorState: unknown };
-type WriteConnectionRowOptionsParameter = { translatorStateJson?: string };
 
 const CREATE_CONNECTIONS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __livething_connections (
@@ -15,7 +11,6 @@ const CREATE_CONNECTIONS_TABLE_SQL = `
     ephemeral_tags        TEXT NOT NULL DEFAULT '[]',
     ephemeral_memberships TEXT NOT NULL DEFAULT '[]',
     active_stream_ids     TEXT NOT NULL DEFAULT '[]',
-    translator_state      TEXT,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata              TEXT NOT NULL DEFAULT '{}'
   )
@@ -31,7 +26,7 @@ const CREATE_CONNECTIONS_USER_ID_INDEX_SQL = `
  * `(group, key)` pair the connection currently holds in the ephemeral
  * storage area.
  */
-export interface StoredEphemeralTag {
+interface StoredEphemeralTag {
   group: string;
   key: string;
 }
@@ -49,18 +44,6 @@ export interface StoredConnectionRow {
   active_stream_ids: readonly string[];
   /** Framework-owned JSON state reserved for connection-level features. */
   metadata?: Record<string, unknown>;
-  /** Per-connection translator state, restored when a hibernating socket wakes. */
-  translator_state?: unknown;
-}
-
-/**
- * A translator state snapshot and its already-serialized JSON form. Keeping
- * both means persistence can compare and write the same value without asking
- * a custom `toJSON()` method to run again.
- */
-export interface SerializedTranslatorState {
-  value: unknown;
-  json: string | undefined;
 }
 
 type RawRow = {
@@ -71,7 +54,6 @@ type RawRow = {
   ephemeral_memberships: string;
   active_stream_ids: string;
   metadata: string;
-  translator_state: string | null;
 };
 
 // Table + index bundled — one round trip instead of two.
@@ -83,48 +65,18 @@ const CONNECTION_SCHEMA_SQL = `${CREATE_CONNECTIONS_TABLE_SQL};\n${CREATE_CONNEC
  */
 export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(CONNECTION_SCHEMA_SQL);
-  const columns = sql
-    .exec<{ name: string }>('PRAGMA table_info(__livething_connections)')
-    .toArray();
-  if (!columns.some((column) => column.name === 'metadata')) {
-    sql.exec("ALTER TABLE __livething_connections ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'");
-  }
-
-  if (!columns.some((column) => column.name === 'translator_state')) {
-    sql.exec('ALTER TABLE __livething_connections ADD COLUMN translator_state TEXT');
-  }
 }
 
 /**
  * Build the row payload from the in-memory connection record. Centralised so
  * the connect, wake, and per-state-change write paths all agree on the shape.
  */
-export function serializeTranslatorState(connection: RuntimeConnection): SerializedTranslatorState {
-  const translatorHibernation = connection.translator?.hibernation;
-  const translatorState = translatorHibernation
-    ? assertSynchronousResult(translatorHibernation.serialize(), 'translator.hibernation.serialize')
-    : undefined;
-  if (translatorState === undefined) {
-    return { value: undefined, json: undefined };
-  }
-
-  const json = serializeJsonOrThrow(translatorState, `Translator state for "${connection.id}"`);
-
-  return { value: JSON.parse(json) as unknown, json };
-}
-
-export function buildConnectionRow(
-  connection: RuntimeConnection,
-  options?: BuildConnectionRowOptionsParameter,
-): StoredConnectionRow {
+export function buildConnectionRow(connection: RuntimeConnection): StoredConnectionRow {
   const ephemeral_tags: StoredEphemeralTag[] = [];
   for (const [group, keys] of connection.tags.ephemeral) {
     for (const key of keys) ephemeral_tags.push({ group, key });
   }
 
-  const translatorState = options
-    ? options.translatorState
-    : serializeTranslatorState(connection).value;
   return {
     connection_id: connection.id,
     user_id: connection.userId,
@@ -132,8 +84,7 @@ export function buildConnectionRow(
     ephemeral_tags,
     ephemeral_memberships: [...connection.channelMemberships.values()],
     active_stream_ids: [...(connection.activeStreamIds ?? [])],
-    metadata: {},
-    translator_state: translatorState,
+    metadata: connection.resumeToken ? { resumeToken: connection.resumeToken } : {},
   };
 }
 
@@ -141,16 +92,12 @@ export function buildConnectionRow(
  * Write (or replace) one connection row. Used for the initial insert on
  * accept, on each state change, and on the post-onConnect flush.
  */
-export function writeConnectionRow(
-  sql: Pick<SQLProvider, 'exec'>,
-  row: StoredConnectionRow,
-  options?: WriteConnectionRowOptionsParameter,
-): void {
+export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredConnectionRow): void {
   sql.exec(
     `
       INSERT OR REPLACE INTO __livething_connections
-        (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, translator_state, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
     row.connection_id,
     row.user_id,
@@ -158,13 +105,6 @@ export function writeConnectionRow(
     JSON.stringify(row.ephemeral_tags),
     JSON.stringify(row.ephemeral_memberships),
     JSON.stringify(row.active_stream_ids),
-    row.translator_state === undefined
-      ? null
-      : (options?.translatorStateJson ??
-          serializeJsonOrThrow(
-            row.translator_state,
-            `Translator state for "${row.connection_id}"`,
-          )),
     serializeJsonOrThrow(row.metadata ?? {}, `Connection metadata for "${row.connection_id}"`),
   );
 }
@@ -180,7 +120,7 @@ export function readConnectionRow(
   const raw = sql
     .exec<RawRow>(
       `
-        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, translator_state, metadata
+        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, metadata
         FROM __livething_connections
         WHERE connection_id = ?
       `,
@@ -197,7 +137,6 @@ export function readConnectionRow(
     ephemeral_memberships: parseMembershipArray(raw.ephemeral_memberships),
     active_stream_ids: parseStringArray(raw.active_stream_ids),
     metadata: parseObject(raw.metadata),
-    translator_state: parseJsonOrUndefined(raw.translator_state),
   };
 }
 
@@ -212,7 +151,7 @@ export function readAllConnectionRows(
   const rows = sql
     .exec<RawRow>(
       `
-        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, translator_state, metadata
+        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, metadata
         FROM __livething_connections
       `,
     )
@@ -227,7 +166,6 @@ export function readAllConnectionRows(
       ephemeral_memberships: parseMembershipArray(raw.ephemeral_memberships),
       active_stream_ids: parseStringArray(raw.active_stream_ids),
       metadata: parseObject(raw.metadata),
-      translator_state: parseJsonOrUndefined(raw.translator_state),
     });
   }
 

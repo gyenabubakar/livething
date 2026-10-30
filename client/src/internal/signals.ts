@@ -7,9 +7,8 @@ import type { PrimitiveHelpers, PrimitiveLogger } from '~/internal/runtime.ts';
  * so the socket core stays free of this vocabulary.
  *
  * - `online` — `true` when the device is online, `false` when offline.
- * - `visibility` — `true` when the app/tab is visible, `false` when hidden.
  */
-export type PlatformSignal = 'online' | 'visibility';
+type PlatformSignal = 'online';
 
 /** A per-socket pub/sub for {@link PlatformSignal}s. */
 export interface SignalBus {

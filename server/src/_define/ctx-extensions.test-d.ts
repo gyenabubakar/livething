@@ -8,12 +8,11 @@
  * capability-owned ctx arm exists only when its capability is listed, and is a
  * compile error otherwise (gap 9).
  */
-import { t } from '~/_api/index.ts';
+import { t } from '~/_api/definitions.ts';
 import { plugin } from '~/_define/plugins.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -55,7 +54,7 @@ const PluginC = plugin('acme:c', {
   definition: scopedC.assemble({ handlers: [scopedC.on('c-in', { run() {} })] }),
 });
 
-const ownerBase = server({ capabilities: [PluginA(), PluginC(), intercepts()] });
+const ownerBase = server({ capabilities: [PluginA(), PluginC()] });
 
 ownerBase.intercept((ctx, frame) => {
   void ctx;
@@ -88,8 +87,6 @@ bareBase.on('bare', {
   run(ctx) {
     // @ts-expect-error — `request` needs serverRequests()
     ctx.request('x', {});
-    // @ts-expect-error — `broadcastRequest` needs serverRequests()
-    ctx.broadcastRequest('x', {});
     // @ts-expect-error — `tags` needs tags()
     ctx.tags;
     // @ts-expect-error — `channels` needs channels()
@@ -111,7 +108,6 @@ const fullBase = server({
     emits({ e: t<{}>() }),
     serverRequests({
       r: { out: t<{}>(), in: v.object({ ok: v.boolean() }) },
-      br: { out: t<{}>(), in: v.object({ ok: v.boolean() }) },
     }),
     tags((ephemeral) => [ephemeral('grp', t<string>())]),
     channels(),
@@ -123,7 +119,6 @@ const fullBase = server({
 fullBase.on('full', {
   run(ctx) {
     expectTypeOf(ctx.request).toBeFunction();
-    expectTypeOf(ctx.broadcastRequest).toBeFunction();
     expectTypeOf(ctx.tags).not.toBeUndefined();
     expectTypeOf(ctx.channels).not.toBeUndefined();
     expectTypeOf(ctx.schedule).toBeFunction();

@@ -83,7 +83,6 @@ export function buildChannelHandle(
         channelName: scope.channelName,
         target,
         reason: opts.reason,
-        revoke: opts.revoke,
         channelFamily: scope.channelFamily,
       }),
   };

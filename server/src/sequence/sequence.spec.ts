@@ -75,11 +75,13 @@ function installSequence(
   stampHandlers: Array<NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>>;
   bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBootSchema']>[0]>>;
   hook: NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>;
+  allocate: () => number;
   sql: FakeSqlProvider;
 } {
   const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onLiveThingStamp']>[0]>> = [];
   const bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBootSchema']>[0]>> = [];
   const installs = new Set<symbol>();
+  let allocate: (() => number) | undefined;
 
   const engine = {
     installOnce(key, install) {
@@ -96,6 +98,9 @@ function installSequence(
       stampHandlers.push(handler);
     },
     setSequencePersistent() {},
+    setDeliverySeqAllocator(allocator) {
+      allocate = allocator;
+    },
     storage: {
       sql,
       kv: {
@@ -117,6 +122,7 @@ function installSequence(
     | 'onLiveThingStamp'
     | 'storage'
     | 'setSequencePersistent'
+    | 'setDeliverySeqAllocator'
   > as EngineAccess;
 
   sequence(options).__setup?.(engine);
@@ -124,26 +130,27 @@ function installSequence(
   const hook = stampHandlers[0];
 
   expect(hook).toBeDefined();
+  expect(allocate).toBeDefined();
 
   return {
     stampHandlers,
     bootHandlers,
     hook: hook!,
+    allocate: allocate!,
     sql,
   };
 }
 
 describe('sequence', () => {
-  it('produces correct tag and kind', () => {
+  it('produces correct tag', () => {
     const p = sequence();
     expect(p.__livething).toBe('sequence');
-    expect(p.__kind).toBe('infrastructure');
   });
 
   it('uses singleton identity', () => {
     const p = sequence();
     expect(p.__identity).toHaveLength(1);
-    expect(p.__identity[0]).toBe(sequence.__key);
+    expect(typeof p.__identity[0]).toBe('symbol');
   });
 
   it('instances have empty dependencies and requires', () => {
@@ -171,9 +178,10 @@ describe('sequence', () => {
         stampHandlers.push(handler);
       },
       setSequencePersistent() {},
+      setDeliverySeqAllocator() {},
     } as Pick<
       EngineAccess,
-      'installOnce' | 'onLiveThingStamp' | 'setSequencePersistent'
+      'installOnce' | 'onLiveThingStamp' | 'setSequencePersistent' | 'setDeliverySeqAllocator'
     > as EngineAccess;
 
     sequence().__setup?.(engine);
@@ -190,6 +198,17 @@ describe('sequence', () => {
     expect(first).toEqual({ deliverySeq: 1 });
     expect(second).toEqual({ deliverySeq: 2 });
   });
+
+  it.each([false, true])(
+    'hands the engine an allocator that shares the stamp counter (persist: %s)',
+    (persist) => {
+      const { hook, allocate } = installSequence({ persist });
+
+      expect(hook('message')).toEqual({ deliverySeq: 1 });
+      expect(allocate()).toBe(2);
+      expect(hook('message')).toEqual({ deliverySeq: 3 });
+    },
+  );
 
   it('still stamps plugin-owned outgoing events with a double underscore prefix', () => {
     const { hook } = installSequence();

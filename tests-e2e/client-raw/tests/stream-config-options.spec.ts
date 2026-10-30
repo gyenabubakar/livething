@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { closeSocket, connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
-import type { WireFrame } from './_ws-rig.ts';
 
 const WS_PATH = '/ws/stream-durable-scoped';
 
@@ -59,16 +58,16 @@ test.describe('stream config options', () => {
     expect(chunksCc2.length).toBeGreaterThanOrEqual(1);
   });
 
-  test('onDisconnect: keep-running — generator keeps producing after drop, continue catches up from the buffer', async ({
+  test('recorded stream — generator keeps producing after drop, continue catches up from the buffer', async ({
     page,
   }, testInfo) => {
     const room = `sco-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
-    const streamId = 'kr-1';
+    const streamId = 'bg-1';
     await send(page, a, {
-      event: 'keep-running-feed',
+      event: 'background-feed',
       payload: {},
       metadata: { stream: { id: streamId } },
     });
@@ -80,7 +79,7 @@ test.describe('stream config options', () => {
     await page.waitForFunction(
       ([sid]) =>
         (window.__livethingFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'keep-running-feed' && typeof f.payload?.idx === 'number',
+          (f) => f.event === 'background-feed' && typeof f.payload?.idx === 'number',
         ).length >= 1,
       [a],
     );
@@ -104,73 +103,18 @@ test.describe('stream config options', () => {
     await page.waitForFunction(
       ([sid]) =>
         (window.__livethingFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'keep-running-feed' && typeof f.payload?.idx === 'number',
+          (f) => f.event === 'background-feed' && typeof f.payload?.idx === 'number',
         ).length === 20,
       [b],
     );
 
     const indices = (await frames(page, b))
-      .filter((f) => f.event === 'keep-running-feed' && typeof f.payload?.idx === 'number')
+      .filter((f) => f.event === 'background-feed' && typeof f.payload?.idx === 'number')
       .map((f) => f.payload.idx as number);
     // Buffer replay carries the seq numbers from before the disconnect.
     expect(indices[0]).toBe(1);
     expect(indices.at(-1)).toBe(20);
     expect(indices).toEqual([...indices].sort((x, y) => x - y));
-  });
-
-  test('custom maxAgeMs — suspended row past the window surfaces stream-aborted expired on reconnect', async ({
-    page,
-  }, testInfo) => {
-    const room = `sco-${testInfo.testId}-${Date.now()}`;
-    await openRig(page);
-    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-
-    const streamId = 'short-window-1';
-    await send(page, a, {
-      event: 'short-window',
-      payload: {},
-      metadata: { stream: { id: streamId } },
-    });
-    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
-    // Wait for one chunk so the row exists with status='active'.
-    await page.waitForFunction(
-      ([sid]) =>
-        (window.__livethingFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'short-window' && typeof f.payload?.row === 'number',
-        ).length >= 1,
-      [a],
-    );
-
-    // Drop the socket so the row goes 'suspended'. maxAgeMs is 300ms; wait
-    // long enough that the suspend is well past the window.
-    await closeSocket(page, a);
-    await page.waitForTimeout(800);
-
-    const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-
-    // The continue frame can occasionally not land under load (the reconnect
-    // racing the worker), leaving no response at all. Re-send it until the
-    // terminal __error__ for this `metadata.stream.id` comes back.
-    let err: WireFrame | undefined;
-    for (let attempt = 0; attempt < 3 && !err; attempt++) {
-      await send(page, b, {
-        event: '__continueStream__',
-        payload: { lastKnownSeq: 0 },
-        metadata: { stream: { id: streamId } },
-      });
-      try {
-        err = await waitForFrame(page, b, {
-          match: (f) => f.event === '__error__' && f.metadata?.stream?.id === streamId,
-          timeoutMs: 4000,
-        });
-      } catch {
-        // no frame yet — the loop re-sends the continue frame
-      }
-    }
-
-    expect(err, 'continue did not surface a stream-aborted error after retries').toBeTruthy();
-    expect(err!.payload.code).toBe('stream-aborted');
-    expect((err!.payload.detail as { reason: string }).reason).toBe('expired');
   });
 
   test('custom retentionAfterEndMs — ended row past the window surfaces stream-aborted not-found on reconnect', async ({

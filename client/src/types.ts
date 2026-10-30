@@ -81,26 +81,6 @@ export type ServerRequestsOf<T> = T extends { serverRequests: infer R } ? R : {}
 export type ErrorsOf<T> = T extends { errors: infer E } ? E : {};
 
 /**
- * Lets a primitive say which events the contract must have. For example
- * `Requires<{ incoming: ['user-joined'] }>` builds a constraint that the
- * contract's `incoming` includes `'user-joined'`, and TypeScript flags the
- * primitive if it doesn't.
- */
-export type Requires<
-  R extends {
-    incoming?: string[];
-    outgoing?: string[];
-    channels?: string[];
-    clientRequests?: string[];
-  },
-> = (R['incoming'] extends string[] ? { incoming: Record<R['incoming'][number], any> } : {}) &
-  (R['outgoing'] extends string[] ? { outgoing: Record<R['outgoing'][number], any> } : {}) &
-  (R['channels'] extends string[] ? { channels: Record<R['channels'][number], any> } : {}) &
-  (R['clientRequests'] extends string[]
-    ? { clientRequests: Record<R['clientRequests'][number], any> }
-    : {});
-
-/**
  * The four connection states:
  * - `closed` — not connected and not trying
  * - `connecting` — opening a connection
@@ -111,8 +91,8 @@ export type ConnectionState = 'closed' | 'connecting' | 'open' | 'reconnecting';
 
 /**
  * Connection quality from ping/pong latency:
- * - `excellent` under 50ms, `good` 50–150ms, `degraded` 150–500ms
- * - `poor` over 500ms or after a missed pong
+ * - `excellent` under 100ms, `good` 100–300ms, `degraded` 300–1000ms
+ * - `poor` at 1000ms or more, or after a missed pong
  * - `disconnected` when the socket isn't open
  */
 export type ConnectionQuality = 'excellent' | 'good' | 'degraded' | 'poor' | 'disconnected';
@@ -120,14 +100,8 @@ export type ConnectionQuality = 'excellent' | 'good' | 'degraded' | 'poor' | 'di
 /** Flatten an intersection into one object so editor tooltips read cleanly. */
 export type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
-/** Shorthand for a primitive whose API doesn't depend on the contract. */
-export type StaticApi<Api> = {
-  readonly _contract: unknown;
-  readonly _api: Api;
-};
-
 /** Options for one `nudge()` call. */
-export interface NudgeOptions {
+interface NudgeOptions {
   /** How long to wait for the server to confirm the nudge, in ms. */
   timeout?: number;
 }

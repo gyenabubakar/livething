@@ -158,7 +158,6 @@ test.describe('lifecycle-hooks', () => {
       '/ws/channel-static',
       '/ws/ctx-send',
       '/ws/replay',
-      '/ws/replay-custom',
       '/ws/replay-snapshot',
       '/ws/plugins',
     ];
@@ -181,7 +180,7 @@ test.describe('lifecycle-hooks', () => {
     }
   });
 
-  test('onValidationError fires when an incoming payload fails its schema', async ({
+  test('onError gets ValidationFailed when an incoming payload fails its schema', async ({
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);

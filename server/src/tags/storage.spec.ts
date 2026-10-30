@@ -1,10 +1,8 @@
 import { createTestSql } from '~/_test/sql.ts';
 import {
-  deleteGroup,
   deleteTag,
   ensureTagsSchema,
   insertTag,
-  listGroupNames,
   listTagsByUser,
   purgeTagsByUser,
 } from '~/tags/storage.ts';
@@ -44,23 +42,22 @@ describe('tags storage', () => {
   });
 
   it('round-trips a tag through insert and read', () => {
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin', addedAt: 1000 });
-    expect(listTagsByUser(sql, 'u-1')).toEqual([{ group: 'role', key: 'admin', addedAt: 1000 }]);
+    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
+    expect(listTagsByUser(sql, 'u-1')).toEqual([{ group: 'role', key: 'admin' }]);
   });
 
-  it('deduplicates on the (user_id, group, key) primary key, keeping the latest addedAt', () => {
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin', addedAt: 1000 });
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin', addedAt: 5000 });
+  it('deduplicates on the (user_id, group, key) primary key', () => {
+    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
+    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
     const tags = listTagsByUser(sql, 'u-1');
     expect(tags).toHaveLength(1);
-    expect(tags[0]!.addedAt).toBe(5000);
   });
 
   it('deleteTag removes exactly the one row and leaves the rest untouched', () => {
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin', addedAt: 1000 });
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'editor', addedAt: 2000 });
-    insertTag(sql, { userId: 'u-1', group: 'team', key: 'admin', addedAt: 3000 });
-    insertTag(sql, { userId: 'u-2', group: 'role', key: 'admin', addedAt: 4000 });
+    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
+    insertTag(sql, { userId: 'u-1', group: 'role', key: 'editor' });
+    insertTag(sql, { userId: 'u-1', group: 'team', key: 'admin' });
+    insertTag(sql, { userId: 'u-2', group: 'role', key: 'admin' });
 
     deleteTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
 
@@ -75,7 +72,7 @@ describe('tags storage', () => {
   });
 
   it('deleteTag is a no-op when the row does not exist', () => {
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin', addedAt: 1000 });
+    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
     expect(() => deleteTag(sql, { userId: 'u-1', group: 'role', key: 'missing' })).not.toThrow();
     expect(listTagsByUser(sql, 'u-1')).toHaveLength(1);
   });
@@ -85,24 +82,5 @@ describe('tags storage', () => {
     insertTag(sql, { userId: 'u-2', group: 'role', key: 'editor' });
     expect(listTagsByUser(sql, 'u-1')).toHaveLength(1);
     expect(listTagsByUser(sql, 'unknown')).toHaveLength(0);
-  });
-
-  it('listGroupNames returns each group once across every user', () => {
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
-    insertTag(sql, { userId: 'u-2', group: 'role', key: 'editor' });
-    insertTag(sql, { userId: 'u-1', group: 'team', key: 'eng' });
-    expect([...listGroupNames(sql)].sort()).toEqual(['role', 'team']);
-  });
-
-  it('deleteGroup drops every row of one group across all users', () => {
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
-    insertTag(sql, { userId: 'u-2', group: 'role', key: 'editor' });
-    insertTag(sql, { userId: 'u-1', group: 'team', key: 'eng' });
-
-    deleteGroup(sql, 'role');
-
-    expect(listTagsByUser(sql, 'u-1').map((t) => t.group)).toEqual(['team']);
-    expect(listTagsByUser(sql, 'u-2')).toHaveLength(0);
-    expect([...listGroupNames(sql)]).toEqual(['team']);
   });
 });

@@ -108,7 +108,7 @@ test.describe('presence-identity (conformance)', () => {
     await bob.close();
   });
 
-  test('a kick that keeps the membership sends leave, and the rejoin sends join then online', async ({
+  test('a kick sends leave, and the kicked user is not rejoined on reconnect', async ({
     browser,
   }, testInfo) => {
     const room = `presence-identity-${testInfo.testId}`;
@@ -127,13 +127,13 @@ test.describe('presence-identity (conformance)', () => {
 
     await alice.close();
     const aliceAgain = await openMember(browser, room, 'alice');
-    await expect(aliceAgain.page.getByTestId('on-subscribed')).toHaveText('1');
+    await aliceAgain.page.waitForTimeout(300);
+    await expect(aliceAgain.page.getByTestId('on-subscribed')).toHaveText('0');
 
     await expect(bob.page.getByTestId('log')).toHaveText(
-      'join:alice,online:alice,leave:alice,offline:alice,join:alice,online:alice',
+      'join:alice,online:alice,leave:alice,offline:alice',
     );
-    await expect(bob.page.getByTestId('members')).toHaveText('alice');
-    await expect(bob.page.getByTestId('online')).toHaveText('alice');
+    await expect(bob.page.getByTestId('members')).toHaveText('');
 
     await aliceAgain.close();
     await bob.close();

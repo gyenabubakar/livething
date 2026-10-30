@@ -573,9 +573,6 @@ describe('createEngineTimers', () => {
       async deleteAlarm() {
         calls.push('delete');
       },
-      async getAlarm() {
-        return null;
-      },
     };
 
     const raw = createTestSql();
@@ -607,9 +604,6 @@ describe('createEngineTimers', () => {
       },
       async deleteAlarm() {
         throw new Error('alarm storage down');
-      },
-      async getAlarm() {
-        return null;
       },
     };
 

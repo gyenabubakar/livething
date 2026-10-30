@@ -39,12 +39,6 @@ describe('compileChannelTemplate — valid templates', () => {
     expect(match('a.b+{id}', 'a.b+x')).toEqual({ id: 'x' });
     expect(match('a.b+{id}', 'aXb+x')).toBeNull(); // the '.' is literal, not "any char"
   });
-
-  it('escaped braces {{ and }} are literal', () => {
-    const c = compileChannelTemplate('cfg{{x}}:{id}');
-    expect(c.paramNames).toEqual(['id']);
-    expect(match('cfg{{x}}:{id}', 'cfg{x}:9')).toEqual({ id: '9' });
-  });
 });
 
 describe('compileChannelTemplate — rejections', () => {
@@ -52,12 +46,22 @@ describe('compileChannelTemplate — rejections', () => {
     expect(() => compileChannelTemplate('')).toThrow(LiveThingConfigError);
   });
 
-  it('rejects an unclosed {', () => {
-    expect(() => compileChannelTemplate('room:{id')).toThrow(/unclosed/);
+  it('rejects a stray { that is not part of a {param} capture', () => {
+    for (const template of ['room:{id', 'cfg{{x}}:{id}', 'room:{{id}', 'room:{a{b}']) {
+      expect(() => compileChannelTemplate(template)).toThrow(LiveThingConfigError);
+      expect(() => compileChannelTemplate(template)).toThrow(
+        /stray '\{' that is not part of a '\{param\}' capture/,
+      );
+    }
   });
 
-  it('rejects a lone }', () => {
-    expect(() => compileChannelTemplate('room:id}')).toThrow(/unmatched/);
+  it('rejects a stray } that is not part of a {param} capture', () => {
+    for (const template of ['room:id}', 'room:{id}}', 'cfg}}']) {
+      expect(() => compileChannelTemplate(template)).toThrow(LiveThingConfigError);
+      expect(() => compileChannelTemplate(template)).toThrow(
+        /stray '\}' that is not part of a '\{param\}' capture/,
+      );
+    }
   });
 
   it('rejects an empty {}', () => {

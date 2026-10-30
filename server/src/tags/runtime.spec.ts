@@ -1,11 +1,21 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { adapter } from '~/_adapters/adapter.ts';
+import { t } from '~/_api/definitions.ts';
+import { server } from '~/_define/server.ts';
 import {
   addConnectionTag,
   removeConnectionFromTagIndex,
   removeConnectionTag,
 } from '~/_engine/runtime/tag-index.ts';
+import { createTestStorage } from '~/_test/sql.ts';
+import { createTestTimers } from '~/_test/timers.ts';
+import { emits } from '~/emits/emits.ts';
+import { tags } from '~/tags/capability.ts';
 import { buildGroupHandle } from '~/tags/runtime.ts';
+import { listTagsByUser } from '~/tags/storage.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
+import type { Engine } from '~/_engine/engine.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { TagsRuntime } from '~/tags/runtime.ts';
 
@@ -20,7 +30,6 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -39,8 +48,14 @@ function createRuntime(
     isTagGroupDeclared: () => true,
     getTagGroupSchema: () => undefined,
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
-    sendThroughPipeline: (connection: RuntimeConnection) => {
-      sent.push(connection.id);
+    sendToConnections: (connections: Iterable<RuntimeConnection>) => {
+      let count = 0;
+      for (const connection of connections) {
+        sent.push(connection.id);
+        count += 1;
+      }
+
+      return count;
     },
     persistAttachment: () => {},
     getStorage: () => {
@@ -245,10 +260,11 @@ function createPersistentRuntime(
 ): TagsRuntime {
   return {
     tagMembers,
+    usersByKey: new Map(),
     isTagGroupDeclared: () => true,
     getTagGroupSchema: () => undefined,
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
-    sendThroughPipeline: () => {},
+    sendToConnections: () => 0,
     persistAttachment: () => {},
     getStorage: () => ({ sql: { exec } }),
   } as unknown as TagsRuntime;
@@ -308,7 +324,7 @@ function runtimeWithSchema(schema: unknown): TagsRuntime {
     isTagGroupDeclared: () => true,
     getTagGroupSchema: () => schema,
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
-    sendThroughPipeline: () => {},
+    sendToConnections: () => 0,
     persistAttachment: () => {},
     getStorage: () => ({ sql: { exec: () => {} } }),
   } as unknown as TagsRuntime;
@@ -336,5 +352,130 @@ describe('tag value validation', () => {
     const runtime = runtimeWithSchema(undefined);
     buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'free' }).add('anything');
     expect(conn.tags.ephemeral.get('free')?.has('anything')).toBe(true);
+  });
+});
+
+describe("persistent tags across one user's connections", () => {
+  async function bootTabs() {
+    const base = server({
+      upgrade: () => ({ userId: 'ada' }),
+      capabilities: [
+        emits({ designUpdate: t<{ title: string }>() }),
+        tags((_ephemeral, persistent) => [persistent('team', t<string>())]),
+      ],
+    });
+    const storage = createTestStorage();
+    let lastCheck: { hasDesign: boolean; userTags: string[] } | undefined;
+    let captured: Engine | undefined;
+    adapter({
+      id: 'persistent-tags-tabs-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        captured = createEngine({
+          storage,
+          platform: {},
+          timers: createTestTimers(),
+          logger: { info() {}, warn() {}, error() {} },
+        });
+        return {};
+      },
+    })(
+      base.assemble({
+        handlers: [
+          base.on('joinDesign', {
+            run(ctx) {
+              ctx.tags.persistent('team').add('design');
+            },
+          }),
+          base.on('leaveDesign', {
+            run(ctx) {
+              ctx.tags.persistent('team').remove('design');
+            },
+          }),
+          base.on('checkDesign', {
+            run(ctx) {
+              lastCheck = {
+                hasDesign: ctx.tags.persistent('team').has('design'),
+                userTags: (ctx.users.get('ada').info()?.tags ?? []).map((tag) => tag.key),
+              };
+            },
+          }),
+          base.on('announceDesign', {
+            run(ctx) {
+              ctx.tags.persistent('team').ref('design').broadcast('designUpdate', { title: 'v2' });
+            },
+          }),
+        ],
+      }) as never,
+      undefined as never,
+    );
+
+    const engine = captured!;
+    await engine.initialize();
+
+    async function openTab(name: string) {
+      const received: unknown[] = [];
+      const before = new Set(engine.core.connections.keys());
+      const handle = engine.accept(Symbol(name), {
+        send(data: string) {
+          const frame = JSON.parse(data) as [string, unknown];
+          if (frame[0] === 'designUpdate') received.push(frame[1]);
+        },
+        close() {},
+        bufferedAmount: () => 0,
+        userId: 'ada',
+      });
+      const connection = [...engine.core.connections.values()].find((c) => !before.has(c.id))!;
+      await connection.lifecycleReady;
+
+      function send(event: string) {
+        return handle.handleMessage(JSON.stringify([event, {}, null]));
+      }
+
+      return {
+        received,
+        send,
+        async check() {
+          await send('checkDesign');
+          return lastCheck;
+        },
+      };
+    }
+
+    function rows() {
+      return listTagsByUser(storage.sql, 'ada').map((tag) => tag.key);
+    }
+
+    return { openTab, rows };
+  }
+
+  it('add from one tab tags every tab of the same user', async () => {
+    const { openTab, rows } = await bootTabs();
+    const tabA = await openTab('a');
+    const tabB = await openTab('b');
+
+    await tabA.send('joinDesign');
+
+    expect(rows()).toEqual(['design']);
+    expect(await tabB.check()).toEqual({ hasDesign: true, userTags: ['design'] });
+    await tabA.send('announceDesign');
+    expect(tabA.received).toEqual([{ title: 'v2' }]);
+    expect(tabB.received).toEqual([{ title: 'v2' }]);
+  });
+
+  it('remove from one tab untags every tab of the same user', async () => {
+    const { openTab, rows } = await bootTabs();
+    const tabA = await openTab('a');
+    await tabA.send('joinDesign');
+    const tabB = await openTab('b');
+    expect(await tabB.check()).toEqual({ hasDesign: true, userTags: ['design'] });
+
+    await tabA.send('leaveDesign');
+
+    expect(rows()).toEqual([]);
+    expect(await tabB.check()).toEqual({ hasDesign: false, userTags: [] });
+    await tabB.send('announceDesign');
+    expect(tabA.received).toEqual([]);
+    expect(tabB.received).toEqual([]);
   });
 });

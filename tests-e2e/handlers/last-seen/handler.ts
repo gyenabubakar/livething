@@ -4,11 +4,12 @@ import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-// Drives `ctx.lastSeen` — `at`, `atMany`, `online` — end to end. `lastSeen()`
-// stamps a durable per-identity timestamp on connect and disconnect (the
-// default `track: 'connection'`); no channel is needed to observe it. One
-// connection can query ANY identity's standing, including one it does not own,
-// so a still-connected member can answer for one that has since disconnected.
+// Drives `ctx.lastSeen` (`at`, `atMany`) and `ConnectionInfo.lastSeen()` end
+// to end. `lastSeen()` stamps a durable per-identity timestamp on connect and
+// disconnect (the default `track: 'connection'`); no channel is needed to
+// observe it. One connection can query ANY identity's standing, including one
+// it does not own, so a still-connected member can answer for one that has
+// since disconnected. Online status comes from `ctx.users`, not `ctx.lastSeen`.
 const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
@@ -16,6 +17,9 @@ const base = server({
     emits({
       'last-seen-answer': t<{ identity: string; at: number | null; online: boolean }>(),
       'last-seen-many-answer': t<{ entries: Record<string, number> }>(),
+      'connections-last-seen-answer': t<{
+        connections: { userId: string; lastSeen: number | null }[];
+      }>(),
     }),
   ],
 });
@@ -28,7 +32,7 @@ export const handleAskLastSeen = base.on('ask-last-seen', {
     ctx.send('last-seen-answer', {
       identity: input.identity,
       at: ctx.lastSeen.at(input.identity),
-      online: ctx.lastSeen.online(input.identity),
+      online: ctx.users.get(input.identity).isOnline(),
     });
   },
 });
@@ -43,8 +47,20 @@ export const handleAskLastSeenMany = base.on('ask-last-seen-many', {
   },
 });
 
+export const handleAskConnectionsLastSeen = base.on('ask-connections-last-seen', {
+  input: v.object({}),
+  run(ctx) {
+    ctx.send('connections-last-seen-answer', {
+      connections: ctx.connections.all().map((connection) => ({
+        userId: connection.userId,
+        lastSeen: connection.lastSeen?.() ?? null,
+      })),
+    });
+  },
+});
+
 export const lastSeenDefinition = base.assemble({
-  handlers: [handleAskLastSeen, handleAskLastSeenMany],
+  handlers: [handleAskLastSeen, handleAskLastSeenMany, handleAskConnectionsLastSeen],
 });
 
 export type LastSeenClient = InferClient<typeof lastSeenDefinition>;

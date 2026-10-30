@@ -63,7 +63,7 @@ expectTypeOf<ChatClaimed['errors']>().toEqualTypeOf<{ forbidden: { reason: strin
 expectTypeOf<keyof ChatClaimed['incoming']>().toEqualTypeOf<'app-notice'>();
 
 // With no plugin claimed (the default), NOTHING is dropped — a prefix nobody owns
-// stays reachable at the top level, exactly as before plugins existed.
+// stays reachable at the top level, the same as with no plugins.
 type NoneClaimed = TopLevelContract<HostContract>;
 expectTypeOf<keyof NoneClaimed['incoming']>().toEqualTypeOf<
   'app-notice' | '__acme:chat::message' | '__acme:chat::typing'

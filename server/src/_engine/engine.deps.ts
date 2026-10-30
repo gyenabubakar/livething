@@ -1,12 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
+import { createConnectionlessContext } from '~/_engine/contexts/connectionless.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
-import { payloadForFanOut } from '~/_engine/runtime/json-guard.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
+import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
@@ -24,10 +25,6 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 type ResolvedChannel = EngineRuntimeTypes.ResolvedChannel;
 type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
 type BroadcastOptions = PublicApi.BroadcastOptions;
-
-interface ConnectionInfoOptions {
-  lastSeen?: number | null;
-}
 
 interface PipelineOptions {
   routing: RoutingTarget | undefined;
@@ -52,12 +49,6 @@ interface ProtocolMessageOptions {
   event: string;
   payload: Record<string, unknown>;
   livething: Record<string, unknown>;
-}
-
-interface ValidationErrorOptions {
-  event: string;
-  validationError: unknown;
-  scope?: ResolvedChannel;
 }
 
 interface RuntimeErrorOptions {
@@ -131,9 +122,26 @@ function buildConnectionContext(core: EngineCore) {
     EngineContexts.buildConnectionContext(ctxDeps(core), connection, scope);
 }
 
-/** Shared dep bag for init, shutdown, task, and connection context builders. */
+/** Shared dep bag for the init, connectionless, and connection context builders. */
 export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
   return (depsMemoFor(core).common ??= buildCommonDeps(core));
+}
+
+/** The context `onShutdown` hooks, scheduled task bodies, and the admin surface receive. */
+export function connectionlessContext(
+  core: EngineCore,
+): PublicApi.ConnectionlessContext<Record<string, unknown>, unknown> {
+  return createConnectionlessContext({
+    connections: core.connections,
+    usersByKey: core.usersByKey,
+    ...commonDeps(core),
+    purgeUser: (userId, options) => EnginePurgeUser.purgeUser(core, userId, options),
+  });
+}
+
+/** Factory form of {@link connectionlessContext}, handed to the scheduled service. */
+function connectionlessContextFactory(core: EngineCore): () => unknown {
+  return () => connectionlessContext(core);
 }
 
 function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
@@ -144,11 +152,17 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     getStorage: () => core.storage,
     getStorageView: () =>
       (storageView ??= createLazyStorageView(core.options.storage, core.userTransactions)),
-    getTimers: () => core.timers,
     scheduleTask: (taskId, time, data) =>
-      core.scheduledService?.scheduleTask(core, commonDeps(core), { taskId, time, data }),
+      core.scheduledService?.scheduleTask(core, connectionlessContextFactory(core), {
+        taskId,
+        time,
+        data,
+      }),
     cancelScheduled: (taskId, filter) =>
-      core.scheduledService?.cancelScheduled(core, commonDeps(core), { taskId, filter }) ?? {
+      core.scheduledService?.cancelScheduled(core, connectionlessContextFactory(core), {
+        taskId,
+        filter,
+      }) ?? {
         removed: 0,
         taskExists: false,
       },
@@ -158,6 +172,8 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     sendThroughPipeline: (connection, opts) => {
       return OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts);
     },
+    sendToConnections: (connections, opts) =>
+      OutgoingRuntime.sendToConnections(outgoingRuntime(core), connections, opts),
     broadcastToUser: (connections, opts) =>
       OutgoingRuntime.broadcastToUser(outgoingRuntime(core), connections, opts),
     broadcastToChannel: (opts) => {
@@ -175,7 +191,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       });
       // A user is addressed as one audience, so replay can hand the frame to
       // that user's next connection. Connection, tag, and group recipients are
-      // per-socket sends that replay never records.
+      // sends that replay never records.
       if (opts.to.__livething === 'user-ref') {
         return OutgoingRuntime.broadcastToUser(outgoingRuntime(core), targets, {
           userId: opts.to.id,
@@ -186,20 +202,12 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
         });
       }
 
-      let delivered = 0;
-      if (targets.length === 0) return delivered;
-
-      const payload = payloadForFanOut(opts.event, opts.payload);
-      for (const target of targets) {
-        const sent = OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), target, {
-          routing: { channel: opts.channelName, channelFamily: opts.channelFamily },
-          event: opts.event,
-          payload,
-        });
-        if (sent) delivered += 1;
-      }
-
-      return delivered;
+      return OutgoingRuntime.sendToConnections(outgoingRuntime(core), targets, {
+        routing: { channel: opts.channelName, channelFamily: opts.channelFamily },
+        event: opts.event,
+        payload: opts.payload,
+        target: OutgoingRuntime.outgoingTargetOf(opts.to),
+      });
     },
     getChannelMembers: (channelName, channelFamily) =>
       core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
@@ -238,13 +246,12 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       sendProtocolMessage(core, connection, opts);
     },
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
-    toConnectionInfo: (connection, opts) =>
+    toConnectionInfo: (connection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
         hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
           ? (identity) => core.lastSeenService!.at(identity)
           : undefined,
-        ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
       }),
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
@@ -265,8 +272,6 @@ function buildOutgoingRuntime(core: EngineCore) {
     compiled: core.compiled,
     outgoingHooks: core.hooks.outgoing,
     livethingStampHooks: core.hooks.livethingStamp,
-    beforeSendHooks: core.hooks.beforeSend,
-    afterSendHooks: core.hooks.afterSend,
     beforeBroadcastHooks: core.hooks.beforeBroadcast,
     afterBroadcastHooks: core.hooks.afterBroadcast,
     trackBackgroundWork: (work: Promise<void>) => core.trackBackgroundWork(work),
@@ -294,16 +299,17 @@ function buildMemberRuntime(core: EngineCore) {
     asyncContext: core.asyncContext,
     connections: core.connections,
     channelMembers: core.channelMembers,
-    toConnectionInfo: (connection: RuntimeConnection, opts?: ConnectionInfoOptions) =>
+    toConnectionInfo: (connection: RuntimeConnection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
         hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
           ? (identity) => core.lastSeenService!.at(identity)
           : undefined,
-        ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
       }),
     sendThroughPipeline: (connection: RuntimeConnection, opts: PipelineOptions) =>
       OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
+    openSharedSend: (opts: OutgoingRuntime.SharedSendOptions) =>
+      OutgoingRuntime.openSharedSend(outgoingRuntime(core), opts),
     inboxFanOut: core.inboxService
       ? (opts: InboxFanOutOptions) => core.inboxService?.fanOut(core, opts)
       : undefined,
@@ -340,13 +346,6 @@ function buildChannelRuntime(core: EngineCore) {
     sendProtocolMessage: (connection: RuntimeConnection, opts: ProtocolMessageOptions) =>
       sendProtocolMessage(core, connection, opts),
 
-    handleValidationError: (connection: RuntimeConnection, opts: ValidationErrorOptions) =>
-      EngineErrorRuntime.handleValidationError(
-        { core, buildConnectionContext: buildCtx },
-        connection,
-        opts,
-      ),
-
     handleRuntimeError: (connection: RuntimeConnection, opts: RuntimeErrorOptions) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },
@@ -368,17 +367,6 @@ function buildChannelRuntime(core: EngineCore) {
 
     getDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
       core.channelMembershipService?.getDurableMembership(core, {
-        userId,
-        channelName,
-        channelFamily,
-      }),
-
-    markDurableMembershipKicked: (
-      userId: string,
-      channelName: string,
-      channelFamily: string | null,
-    ) =>
-      core.channelMembershipService?.markDurableMembershipKicked(core, {
         userId,
         channelName,
         channelFamily,
@@ -423,8 +411,6 @@ function buildDispatchRuntime(core: EngineCore) {
     declaredErrorCodes: core.declaredErrorCodes,
     incomingDedupCap: core.incomingDedupCap,
 
-    getTimers: () => core.timers,
-
     buildConnectionContext: buildCtx,
 
     sendProtocolMessage: (connection: RuntimeConnection, opts: ProtocolMessageOptions) =>
@@ -443,13 +429,6 @@ function buildDispatchRuntime(core: EngineCore) {
         opts,
       ),
 
-    handleValidationError: (connection: RuntimeConnection, opts: ValidationErrorOptions) =>
-      EngineErrorRuntime.handleValidationError(
-        { core, buildConnectionContext: buildCtx },
-        connection,
-        opts,
-      ),
-
     broadcastToConnections: (
       connections: Iterable<RuntimeConnection>,
       opts: BroadcastConnectionsOptions,
@@ -459,9 +438,6 @@ function buildDispatchRuntime(core: EngineCore) {
       core.channelService?.handleSubscribe(core, connection, frame) ?? Promise.resolve(),
     handleUnsubscribe: (connection: RuntimeConnection, frame: Protocol.UnsubscribeFrame) =>
       core.channelService?.handleUnsubscribe(core, connection, frame) ?? Promise.resolve(),
-    handleMemberSync: (connection: RuntimeConnection, frame: Protocol.MemberSyncRequestFrame) => {
-      core.channelService?.handleMemberSync(core, connection, frame);
-    },
     durableStreamSchemaReady: false,
 
     get streamTrigger() {
@@ -478,9 +454,6 @@ function buildDispatchRuntime(core: EngineCore) {
     },
     get requestDispatch() {
       return core.requestDispatch;
-    },
-    get runIntercepts() {
-      return core.runIntercepts;
     },
   };
 }
@@ -512,7 +485,6 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     hibernationEnabled: core.hibernationEnabled,
-    translatorFactory: core.translatorFactory,
     connections: core.connections,
     usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,
@@ -520,6 +492,9 @@ function buildConnectionRuntime(core: EngineCore) {
     wsToConnectionId: core.wsToConnectionId,
 
     generateId: (prefix?: string) => core.generateId(prefix),
+
+    replayEnabled: () => core.replayEnabled,
+    allocateDeliverySeq: () => core.allocateDeliverySeq?.(),
 
     persistAttachment: (connection: RuntimeConnection, options?: PersistAttachmentOptions) =>
       EngineHibernation.persistAttachment(core, connection, options),
@@ -600,11 +575,12 @@ function buildConnectionRuntime(core: EngineCore) {
 export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
   const buildCtx = buildConnectionContext(core);
   return {
-    ensureScheduledRuntime: () => core.scheduledService?.ensureRuntime(core, commonDeps(core)),
-    createTaskContext: () => core.scheduledService?.createTaskContext(core, commonDeps(core)),
-    scheduleTask: (opts) => core.scheduledService?.scheduleTask(core, commonDeps(core), opts),
+    ensureScheduledRuntime: () =>
+      core.scheduledService?.ensureRuntime(core, connectionlessContextFactory(core)),
+    scheduleTask: (opts) =>
+      core.scheduledService?.scheduleTask(core, connectionlessContextFactory(core), opts),
     cancelScheduled: (opts) =>
-      core.scheduledService?.cancelScheduled(core, commonDeps(core), opts) ?? {
+      core.scheduledService?.cancelScheduled(core, connectionlessContextFactory(core), opts) ?? {
         removed: 0,
         taskExists: false,
       },
@@ -635,6 +611,23 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
         payload: opts.payload,
       });
     },
+    openServerRequestBroadcast: (opts) => {
+      const send = OutgoingRuntime.openSharedSend(outgoingRuntime(core), {
+        routing: { source: 'server' },
+        event: opts.event,
+        payload: opts.payload,
+        target: opts.target,
+      });
+      return {
+        send(connectionId, correlationId) {
+          const connection = core.connections.get(connectionId);
+          if (!connection) return false;
+
+          return send.deliver(connection, { correlationId });
+        },
+        finish: () => send.finish(),
+      };
+    },
     broadcastToChannel: (opts) => {
       OutgoingRuntime.broadcastToChannel(memberRuntime(core), {
         channelName: opts.channelName,
@@ -652,7 +645,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
 }
 
 /** Run connect/disconnect lifecycle hooks for the handler and every plugin. */
-export function runConnectionLifecycle(
+function runConnectionLifecycle(
   core: EngineCore,
   kind: 'connect' | 'disconnect',
   ctx: Record<PropertyKey, unknown>,
@@ -691,8 +684,8 @@ export function handleConnectionClose(
         ),
       buildConnectionContext: buildConnectionContext(core),
       runConnectionLifecycle: (kind, ctx) => runConnectionLifecycle(core, kind, ctx),
-      leaveChannel: (connection, opts) =>
-        core.channelService?.leaveChannel(core, connection, opts) ?? Promise.resolve(),
+      leaveChannel: (connection, leaveOptions) =>
+        core.channelService?.leaveChannel(core, connection, leaveOptions) ?? Promise.resolve(),
       connectionCleanupHooks: core.hooks.connectionCleanup,
       logger: core.logger,
     },

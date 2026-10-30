@@ -18,7 +18,6 @@ function createConnection(id: string, userId: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },

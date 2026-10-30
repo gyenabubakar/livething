@@ -2,7 +2,6 @@
 import {
   Block,
   ChannelNotSubscribed,
-  LiveThingError,
   rethrowIfConfigError,
   UnsupportedProtocol,
   ValidationFailed,
@@ -13,11 +12,11 @@ import {
   withConnectionLevelCall,
 } from '~/_engine/async-context.ts';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
-import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
-import * as ErrorsPrimitive from '~/errors/errors.ts';
+import { runIntercepts } from '~/intercept/runtime.ts';
 import { frameOwner } from '~/plugin-scope.ts';
 import * as v from 'valibot';
+import type { LiveThingError } from '@livething/core';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
@@ -45,11 +44,6 @@ type OptsParameter2 = {
   wire: { deliverySeq: number; messageId: string; channel?: string };
 };
 type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
-type OptsParameter4 = {
-  event: string;
-  validationError: unknown;
-  scope?: EngineRuntimeTypes.ResolvedChannel;
-};
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
@@ -86,13 +80,6 @@ function connectionHoldsMembership(
 ): boolean {
   return connection.channelMemberships.has(JSON.stringify([channelFamily, channelName]));
 }
-
-/**
- * Upper bound on concurrent pending `Defer` retry timers per connection. Past
- * this, a deferring message is exhausted instead of scheduling another timer,
- * so a flood of distinct deferring messages can't grow timers without limit.
- */
-const MAX_PENDING_DEFERS = 128;
 
 /**
  * Larger dependency bag for inbound message dispatch.
@@ -150,11 +137,6 @@ interface DispatchRuntime
     opts: OptsParameter3,
   ): Promise<void>;
 
-  handleValidationError(
-    connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: OptsParameter4,
-  ): Promise<void>;
-
   broadcastToConnections(
     connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
     opts: OutgoingRuntime.BroadcastToConnectionsOptions,
@@ -170,11 +152,6 @@ interface DispatchRuntime
     frame: Protocol.UnsubscribeFrame,
   ): Promise<void>;
 
-  handleMemberSync(
-    connection: EngineRuntimeTypes.RuntimeConnection,
-    frame: Protocol.MemberSyncRequestFrame,
-  ): void;
-
   /**
    * Tracks whether the durable-stream schema has already run in this engine
    * instance lifetime. Flipped to `true` on first stream start or continue so
@@ -188,7 +165,6 @@ interface DispatchRuntime
   streamCancel?: FeatureSlots.StreamCancel;
   durableStream?: FeatureSlots.DurableStreamService;
   requestDispatch?: FeatureSlots.RequestDispatch;
-  runIntercepts?: FeatureSlots.RunIntercepts;
 }
 
 /**
@@ -288,33 +264,17 @@ export interface DispatchIncomingOptions {
   event: string;
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
-  attempt?: number;
   // The already-resolved scope from processTextMessage, so a channel frame isn't
-  // resolved twice. Omitted on a Defer retry, which re-resolves from scratch.
+  // resolved twice.
   scope?: EngineRuntimeTypes.ResolvedChannel;
 }
 
 interface HandleDispatchErrorOptions {
   event: string;
 
-  payload: unknown;
-
   livething: Protocol.LiveThingProtocol | undefined;
 
-  scope: EngineRuntimeTypes.ResolvedChannel;
-
   error: unknown;
-
-  attempt: number;
-
-  /**
-   * True only when the throw came from an `on()` handler body. `Defer` re-queues
-   * the message, which is meaningful only for an `on()` handler: a request would
-   * re-run and re-answer a settled correlation, an intercept fires on every frame
-   * kind, and a stream can't restart after yielding. So `Defer` is honored only
-   * when this is set; thrown anywhere else it collapses to `internal-error`.
-   */
-  fromIncomingHandler: boolean;
 }
 
 /**
@@ -328,14 +288,9 @@ export async function dispatchIncoming(
   connection: EngineRuntimeTypes.RuntimeConnection,
   opts: DispatchIncomingOptions,
 ): Promise<void> {
-  const { event, payload, livething, attempt = 0 } = opts;
-  // Dedup runs in `processTextMessage`. Defer retries re-enter here directly
-  // and skip dedup — that is the engine replaying its own work, not a resend.
-
-  // Bail if the connection is already closing. A Defer retry is scheduled on a
-  // timer; if the socket closed during the delay, re-running the handler would
-  // fire side effects (sends, broadcasts, storage writes) for a client that is
-  // gone — and the connection is already out of the runtime maps by then.
+  const { event, payload, livething } = opts;
+  // A closing connection is already out of the runtime maps, so running its
+  // handler would fire side effects for a client that is gone.
   if (connection.closing) return;
 
   let scope: EngineRuntimeTypes.ResolvedChannel;
@@ -378,10 +333,6 @@ export async function dispatchIncoming(
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
   const stream = scoped ? scoped.streams.get(event) : runtime.compiled.streams.get(event);
 
-  const cursorStream = scoped
-    ? scoped.cursorStreams.get(event)
-    : runtime.compiled.cursorStreams.get(event);
-
   const recordedStream = scoped
     ? scoped.recordedStreams.get(event)
     : runtime.compiled.recordedStreams.get(event);
@@ -392,24 +343,19 @@ export async function dispatchIncoming(
   }
 
   let message = { event, payload };
-  // Set once the `on()` handler is about to run, so the catch can tell a Defer
-  // thrown from the handler body (honored) from one thrown by an intercept or a
-  // request handler (collapsed to internal-error).
-  let fromIncomingHandler = false;
 
   try {
-    if (attempt === 0) {
-      for (const hook of runtime.incomingHooks) {
-        const next = hook(message);
-        if (next !== undefined) message = { event: message.event, payload: next };
-      }
+    for (const hook of runtime.incomingHooks) {
+      const next = hook(message);
+      if (next !== undefined) message = { event: message.event, payload: next };
     }
 
-    if (attempt === 0 && runtime.runIntercepts) {
+    const channelIntercepts = scope.channel?.intercepts;
+    if (runtime.compiled.intercepts.length > 0 || (channelIntercepts?.length ?? 0) > 0) {
       let interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = 'unknown';
       if (incoming) interceptKind = 'incoming';
       else if (request) interceptKind = 'request';
-      else if (stream || cursorStream || recordedStream) interceptKind = 'stream';
+      else if (stream || recordedStream) interceptKind = 'stream';
       const interceptRouting = buildInterceptRouting(livething);
       let frame: InterceptPrimitive.InterceptFrame = {
         event,
@@ -419,16 +365,16 @@ export async function dispatchIncoming(
         owner: frameOwner(event),
       };
 
-      frame = await runtime.runIntercepts(runtime, connection, {
+      frame = await runIntercepts(runtime, connection, {
         intercepts: runtime.compiled.intercepts,
         frame,
         getCtx,
         call: { kind: 'connection', getCtx },
       });
 
-      if (scope.channel) {
-        frame = await runtime.runIntercepts(runtime, connection, {
-          intercepts: scope.channel.intercepts,
+      if (channelIntercepts) {
+        frame = await runIntercepts(runtime, connection, {
+          intercepts: channelIntercepts,
           frame,
           getCtx,
           call: connectionCall(connection.id, scope, getCtx),
@@ -438,7 +384,7 @@ export async function dispatchIncoming(
       message = { event: frame.event, payload: frame.payload };
     }
 
-    const primitive = incoming ?? request ?? stream ?? cursorStream ?? recordedStream;
+    const primitive = incoming ?? request ?? stream ?? recordedStream;
     if (!primitive) return;
 
     let payloadValue: unknown;
@@ -451,9 +397,7 @@ export async function dispatchIncoming(
     } catch (error) {
       rethrowIfConfigError(error);
       // Route the validation error fully here and stop. Rethrowing would make
-      // the outer catch fire the user hooks a second time.
-      await runtime.handleValidationError(connection, { event, validationError: error, scope });
-      // Keep routing markers (`correlationId`) so a bad-payload request settles
+      // the outer catch fire the user hooks a second time. Keep routing markers (`correlationId`) so a bad-payload request settles
       // on the client instead of hanging until timeout.
       await runtime.handleRuntimeError(connection, {
         error,
@@ -464,7 +408,6 @@ export async function dispatchIncoming(
     }
 
     if (incoming) {
-      fromIncomingHandler = true;
       await runConnectionWork(connection, incoming.allowInterleaving ?? false, () => {
         if (connection.closing) return;
 
@@ -502,26 +445,16 @@ export async function dispatchIncoming(
         payload: payloadValue,
         livething,
       });
-    } else if (cursorStream || recordedStream) {
-      const durable = cursorStream ?? recordedStream!;
+    } else if (recordedStream) {
       await runtime.durableStream?.trigger(runtime, connection, {
         scope,
-        durable,
-        kind: cursorStream ? 'cursor' : 'recorded',
+        durable: recordedStream,
         payload: payloadValue,
         livething,
       });
     }
   } catch (error) {
-    await handleDispatchError(runtime, connection, {
-      event,
-      payload: message.payload,
-      livething,
-      scope,
-      error,
-      attempt,
-      fromIncomingHandler,
-    });
+    await handleDispatchError(runtime, connection, { event, livething, error });
   }
 }
 
@@ -530,35 +463,9 @@ async function handleDispatchError(
   connection: RuntimeConnection,
   opts: HandleDispatchErrorOptions,
 ): Promise<void> {
-  const { event, payload, livething, scope, error, attempt, fromIncomingHandler } = opts;
+  const { event, livething, error } = opts;
   rethrowIfConfigError(error);
   if (error === Block) return;
-
-  const isDefer =
-    !!error &&
-    typeof error === 'object' &&
-    (error as { __livething?: string }).__livething === 'defer';
-
-  // `Defer` re-queues the message, which only makes sense for an `on()` handler.
-  // Thrown from an intercept (fires on every frame kind), a request handler
-  // (would re-answer a settled correlation), or anywhere else, it is a mistake —
-  // log it and let it fall through to `internal-error` below.
-  if (isDefer && !fromIncomingHandler) {
-    runtime.logger.error(
-      '[livething] Defer is only valid in an on() handler — ignoring it and surfacing internal-error',
-      { event },
-    );
-  }
-
-  if (error instanceof LiveThingError && error.code === 'validation-failed') {
-    await runtime.handleValidationError(connection, { event, validationError: error, scope });
-    await runtime.handleRuntimeError(connection, {
-      error,
-      event,
-      routing: routingFromLiveThing(livething),
-    });
-    return;
-  }
 
   if (
     error &&
@@ -569,52 +476,6 @@ async function handleDispatchError(
       (error as { code: number }).code,
       (error as { reason: string }).reason,
     );
-    return;
-  }
-
-  // Defer — re-queue the message after a delay. Give up and fire
-  // DeferExhausted after 3 retries, or when this connection already has
-  // MAX_PENDING_DEFERS timers in flight. Only an `on()` handler may Defer; a
-  // Defer from anywhere else fell through the guard above and lands on the
-  // generic `internal-error` path below.
-  if (isDefer && fromIncomingHandler) {
-    const pendingDefers = connection.deferTimers?.size ?? 0;
-    if (attempt >= 3 || pendingDefers >= MAX_PENDING_DEFERS) {
-      const exhausted = ErrorsPrimitive.DeferExhausted({
-        event,
-        payload,
-        retries: attempt,
-      });
-      // Fire onError hooks only — DeferExhausted must not reach the client.
-      // Isolate per hook so an observer throw never escapes dispatch as an
-      // unhandled rejection — this code runs inside `void dispatchIncoming`.
-      await forEachIsolatedAsync(
-        runtime.errorHooks,
-        (hook) => {
-          const ctx = runtime.buildConnectionContext(connection, scope);
-          return withConnectionLevelCall(
-            runtime.asyncContext,
-            { connectionId: connection.id, ctx },
-            () => hook(ctx, exhausted, event),
-          );
-        },
-        { context: `onError hook (DeferExhausted) event="${event}"` },
-      );
-      return;
-    }
-
-    const delay = Number((error as { delay: number }).delay);
-    const timers = (connection.deferTimers ??= new Set());
-    const timer = setTimeout(() => {
-      timers.delete(timer);
-      void dispatchIncoming(runtime, connection, {
-        event,
-        payload,
-        livething,
-        attempt: attempt + 1,
-      });
-    }, delay);
-    timers.add(timer);
     return;
   }
 
@@ -722,10 +583,6 @@ async function dispatchProtocolFrame(
 
       case '__unsubscribe__':
         await runtime.handleUnsubscribe(connection, frame);
-        return;
-
-      case '__memberSync__':
-        runtime.handleMemberSync(connection, frame);
         return;
 
       case '__streamCancel__': {
@@ -909,7 +766,7 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
     return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
   }
 
-  if (runtime.runIntercepts && (topIntercepts.length > 0 || (channelIntercepts?.length ?? 0) > 0)) {
+  if (topIntercepts.length > 0 || (channelIntercepts?.length ?? 0) > 0) {
     try {
       let intercepted: InterceptPrimitive.InterceptFrame = {
         event,
@@ -919,14 +776,14 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
         owner: frameOwner(event),
       };
 
-      intercepted = await runtime.runIntercepts(runtime, connection, {
+      intercepted = await runIntercepts(runtime, connection, {
         intercepts: topIntercepts,
         frame: intercepted,
         getCtx,
         call: { kind: 'connection', getCtx },
       });
       if (channelIntercepts) {
-        intercepted = await runtime.runIntercepts(runtime, connection, {
+        intercepted = await runIntercepts(runtime, connection, {
           intercepts: channelIntercepts,
           frame: intercepted,
           getCtx,
@@ -988,6 +845,88 @@ export async function processTextMessage(
   connection: RuntimeConnection,
   data: string,
 ): Promise<void> {
+  const parsed = data === 'ping' || data === 'pong' ? undefined : parseFrame(data);
+  // Registered before the first await, so a later frame for the same channel
+  // finds it even when hooks below make this frame wait.
+  const subscribed = trackSubscribe(connection, parsed);
+
+  try {
+    await processParsedMessage(runtime, connection, { data, parsed });
+  } finally {
+    subscribed?.();
+  }
+}
+
+const INVALID_FRAME = Symbol('invalid-frame');
+
+/** One text frame as received, plus its JSON (or `INVALID_FRAME`; `undefined` for ping/pong). */
+interface IncomingText {
+  data: string;
+  parsed: unknown;
+}
+
+function parseFrame(data: string): unknown {
+  try {
+    return JSON.parse(data);
+  } catch {
+    return INVALID_FRAME;
+  }
+}
+
+/** The channel a frame's metadata names, as a key, or `undefined`. */
+function frameChannelKey(parsed: unknown): string | undefined {
+  if (!Array.isArray(parsed)) return undefined;
+
+  const channel = (parsed[2] as { channel?: { name?: unknown; family?: unknown } } | null)?.channel;
+  if (typeof channel?.name !== 'string') return undefined;
+
+  const family = typeof channel.family === 'string' ? channel.family : '';
+
+  return `${family}\u0000${channel.name}`;
+}
+
+/**
+ * The client sends a channel's subscribe before anything else for that channel.
+ * Keep that order: a subscribe can be slow (an async `check`).
+ */
+async function waitForSubscribe(connection: RuntimeConnection, parsed: unknown): Promise<void> {
+  const key = frameChannelKey(parsed);
+  const subscribing = key === undefined ? undefined : connection.pendingSubscribes?.get(key);
+  if (subscribing) await subscribing;
+}
+
+/**
+ * Mark a `__subscribe__` frame as running for its channel. Returns the function
+ * that clears the mark once the frame is handled.
+ */
+function trackSubscribe(connection: RuntimeConnection, parsed: unknown): (() => void) | undefined {
+  if (!Array.isArray(parsed) || parsed[0] !== '__subscribe__') return undefined;
+
+  const key = frameChannelKey(parsed);
+  if (key === undefined) return undefined;
+
+  let finish!: () => void;
+  const done = new Promise<void>((resolve) => (finish = resolve));
+  const previous = connection.pendingSubscribes?.get(key);
+  const pending = previous ? previous.then(() => done) : done;
+  connection.pendingSubscribes ??= new Map();
+
+  connection.pendingSubscribes.set(key, pending);
+
+  return () => {
+    finish();
+    if (connection.pendingSubscribes?.get(key) === pending) {
+      connection.pendingSubscribes.delete(key);
+    }
+  };
+}
+
+async function processParsedMessage(
+  runtime: Parameters<typeof processTextMessage>[0],
+  connection: RuntimeConnection,
+  message: IncomingText,
+): Promise<void> {
+  const { data, parsed } = message;
   const observed = { connectionId: connection.id, logger: runtime.logger };
 
   if (runtime.activityHooks.length > 0) {
@@ -1025,10 +964,7 @@ export async function processTextMessage(
     return;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(data);
-  } catch {
+  if (parsed === INVALID_FRAME) {
     runtime.logger.warn('Invalid JSON message dropped');
     return;
   }
@@ -1070,6 +1006,7 @@ export async function processTextMessage(
     // Protocol frames skip dedup and nudge buffering — a retried one must still
     // reach its handler.
     if (Protocol.isProtocolEventName(event)) {
+      if (event !== '__subscribe__') await waitForSubscribe(connection, parsed);
       await dispatchProtocolFrame(runtime, connection, parsed);
       return;
     }
@@ -1078,6 +1015,7 @@ export async function processTextMessage(
     try {
       frame = Protocol.parseUserEventFrame(parsed);
     } catch (error) {
+      await waitForSubscribe(connection, parsed);
       await runtime.handleRuntimeError(connection, {
         error: toValidationFailed(event, error),
         event,
@@ -1098,6 +1036,9 @@ export async function processTextMessage(
         if (hook(connection.id, { event, payload: frame.payload, livething })) return;
       }
     }
+
+    // Wait only after the answer hooks: the subscribe hook may be the one waiting for an answer.
+    await waitForSubscribe(connection, parsed);
 
     // Dedup here so every frame with a `messageId` shares one idempotency budget.
     if (
@@ -1139,12 +1080,8 @@ export async function processTextMessage(
 
     const triggerScoped = triggerScope.channel;
     const isStreamTrigger = triggerScoped
-      ? triggerScoped.streams.has(event) ||
-        triggerScoped.cursorStreams.has(event) ||
-        triggerScoped.recordedStreams.has(event)
-      : runtime.compiled.streams.has(event) ||
-        runtime.compiled.cursorStreams.has(event) ||
-        runtime.compiled.recordedStreams.has(event);
+      ? triggerScoped.streams.has(event) || triggerScoped.recordedStreams.has(event)
+      : runtime.compiled.streams.has(event) || runtime.compiled.recordedStreams.has(event);
     if (
       !isStreamTrigger &&
       (await bufferNudgeIfNeeded({ runtime, connection, event, frame, livething, triggerScope }))

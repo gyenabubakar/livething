@@ -6,7 +6,7 @@ import type * as PublicApi from '~/context.ts';
 import type { TagRef } from '~/context.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
-import type { Translator } from '~/translation/translator.ts';
+import type { SharedSend, SharedSendOptions } from '~/outgoing/runtime.ts';
 import type * as ValidationTypes from '~/types.ts';
 
 type MessageParameter = { event: string; payload: unknown };
@@ -15,7 +15,6 @@ type FrameParameter = {
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
 };
-type OptsParameter = { lastSeen?: number | null };
 type OptsParameter2 = { routing: RoutingTarget | undefined; event: string; payload: unknown };
 
 /**
@@ -24,6 +23,8 @@ type OptsParameter2 = { routing: RoutingTarget | undefined; event: string; paylo
  * The validator runs first so the hook receives a typed, already-checked
  * subscription payload. The handler may return any value; that value is
  * forwarded to the paired `commit` hook.
+ *
+ * @declarationEmit
  */
 export interface ChannelCheckHook {
   handler: (ctx: any, data?: unknown) => unknown | Promise<unknown>;
@@ -35,6 +36,8 @@ export interface ChannelCheckHook {
  *
  * Receives the value returned by the paired `check` handler. Must be
  * synchronous; the engine throws if the handler returns a Promise.
+ *
+ * @declarationEmit
  */
 export interface ChannelCommitHook {
   handler: (ctx: any, checkResult: unknown) => void;
@@ -57,67 +60,62 @@ export interface ChannelHooks {
 }
 
 /**
- * One finalized outgoing wire message.
+ * One outgoing frame, seen once before (or after) it goes out to its recipients.
  *
- * At this point the outgoing hooks have run and the framework metadata —
- * routing markers, delivery sequence number, dedup id — has been collected into
- * `livething`, the frame's `__livething` sibling. `payload` is pure user data.
- */
-export interface WireOutgoingMessage {
-  connectionId: string;
-  event: string;
-  payload: Record<string, unknown>;
-  livething: Record<string, unknown>;
-  meta: Record<string, unknown>;
-}
-
-/**
- * One broadcast, seen once before (or after) it goes out to its recipients —
- * even when no connection receives it live.
+ * It is addressed one of three ways:
  *
- * A broadcast is a frame addressed to a whole audience, not to one socket: every
- * connection (`ctx.broadcast`), every member of one channel
- * (`ctx.channel.broadcast`), or every connection of one user
- * (`ctx.users.get(id).broadcast`). `userId` is set only for that last kind.
- * Frames sent to one connection never show up here.
+ * - to a whole audience: every connection (`ctx.broadcast`) or every member of
+ *   one channel (`ctx.channel.broadcast`). Neither `userId` nor `recipients` is
+ *   set, and it shows up even when no connection receives it live.
+ * - to one user (`ctx.users.get(id).broadcast`): `userId` is set.
+ * - to chosen connections (`ctx.send`, a tag or group, a connection ref):
+ *   `recipients` lists them.
  */
 export interface WireBroadcastMessage {
   event: string;
   payload: Record<string, unknown>;
   livething: Record<string, unknown>;
-  /** The user this broadcast was addressed to, or `undefined` when it went to everyone in its scope. */
+  /** The user this frame was addressed to. */
   userId?: string;
+  /** The connections this frame was sent to, when it went to chosen connections. */
+  recipients?: readonly FrameRecipient[];
+}
+
+/** One connection a frame was sent to: its user (`''` when anonymous) and its resume token. */
+export interface FrameRecipient {
+  userId: string;
+  resumeToken: string;
 }
 
 /**
- * One new-model plugin lifecycle handler, tagged with its plugin id and the
- * global registration index so the engine can order hooks deterministically.
- * The handler already receives a plugin-scoped context (sends are prefixed).
+ * One plugin lifecycle handler, tagged with its plugin id. Hooks run in the
+ * order they were registered. The handler already receives a plugin-scoped
+ * context (sends are prefixed).
+ *
+ * @declarationEmit
  */
 export interface PluginLifecycleEntry {
   readonly pluginId: string;
-  readonly order: number;
   readonly handler: (ctx: any, ...rest: any[]) => void | Promise<void>;
 }
 
-/** New-model plugin lifecycle hooks, one ordered list per kind. */
-export interface PluginLifecycleHooks {
+/** Plugin lifecycle hooks, one ordered list per kind. */
+interface PluginLifecycleHooks {
   init: PluginLifecycleEntry[];
   connect: PluginLifecycleEntry[];
   disconnect: PluginLifecycleEntry[];
   shutdown: PluginLifecycleEntry[];
   error: PluginLifecycleEntry[];
-  validationError: PluginLifecycleEntry[];
   ping: PluginLifecycleEntry[];
   pong: PluginLifecycleEntry[];
 }
 
 /**
- * One new-model plugin `upgrade` hook. Runs before the app's upgrade in the
+ * One plugin `upgrade` hook. Runs before the app's upgrade in the
  * inbound onion. It may own `userId` — but only one upgrade hook (a
  * plugin's or the app's) may, enforced at runtime.
  */
-export interface PluginUpgradeEntry {
+interface PluginUpgradeEntry {
   readonly pluginId: string;
   /** The id of the plugin's own `base`, so `context.upgrade(pluginBase)` finds its hook. */
   readonly baseId?: symbol;
@@ -131,7 +129,7 @@ export interface PluginUpgradeEntry {
 
 /** One registered outgoing hook and its owner. */
 export interface OutgoingHookEntry {
-  handler: (frame: InterceptPrimitive.OutgoingFrame) => unknown | void;
+  handler: (frame: InterceptPrimitive.OutgoingFrame) => void | Promise<void>;
   owner: InterceptPrimitive.FrameOwner;
 }
 
@@ -199,8 +197,8 @@ export interface RegisteredEngineHooks {
   answerFrame: ((connectionId: string, frame: FrameParameter) => boolean)[];
 
   /**
-   * Runs before wire serialization — can observe or rewrite the payload (event
-   * is locked). Each entry carries its owner so its own event names can be
+   * The `onOutgoing` watchers. Each runs once per app send, after the frame
+   * went out. Each entry carries its owner so its own event names can be
    * presented in short form.
    */
   outgoing: OutgoingHookEntry[];
@@ -211,12 +209,6 @@ export interface RegisteredEngineHooks {
    * into the frame. Skipped for protocol frames.
    */
   livethingStamp: ((event: string) => Record<string, unknown>)[];
-
-  /** Runs after wire metadata is attached but before the frame is sent. */
-  beforeSend: ((message: WireOutgoingMessage) => void)[];
-
-  /** Runs after a frame is sent — for best-effort side effects like replay storage. */
-  afterSend: ((message: WireOutgoingMessage) => void | Promise<void>)[];
 
   /** Runs once per broadcast, before any recipient is sent the frame. */
   beforeBroadcast: ((message: WireBroadcastMessage) => void)[];
@@ -305,11 +297,8 @@ export interface RegisteredEngineHooks {
           }>)
     | undefined;
 
-  /** Observes incoming payloads that fail schema validation. */
-  validationError: ((ctx: any, event: string, validationError: unknown) => void | Promise<void>)[];
-
   /**
-   * New-model plugin lifecycle hooks, kept apart from the app's so they run in
+   * Plugin lifecycle hooks, kept apart from the app's so they run in
    * the onion order: inbound (`init`/`connect`) runs plugins → app, and
    * outbound (`disconnect`/`shutdown`) runs app → plugins (LIFO). Each entry
    * carries its plugin id and a global registration index so the engine can sort
@@ -318,7 +307,7 @@ export interface RegisteredEngineHooks {
   pluginLifecycle: PluginLifecycleHooks;
 
   /**
-   * New-model plugin `upgrade` hooks, in registration order. Run before the
+   * Plugin `upgrade` hooks, in registration order. Run before the
    * app's builder upgrade hook; meta is shallow-merged (the app wins on key
    * conflict), tags concatenated, and at most one hook (these or the app's) may
    * return `userId`.
@@ -373,13 +362,17 @@ export interface RuntimeConnection {
   wsKey: unknown;
 
   /** Low-level send/close callbacks provided by the adapter. */
-  descriptor: EngineAdapterTypes.ConnectionDescriptor;
+  descriptor: EngineAdapterTypes.SocketDescriptor;
 
   /** Arbitrary metadata attached during onUpgrade (e.g. username, role). */
   meta: Record<string, unknown>;
 
-  /** One server-defined foreign-wire translator created for this connection. */
-  translator?: Translator;
+  /**
+   * A secret, random token the client gets in `__resume__` when replay is on.
+   * Frames sent to this connection are recorded under it, and the client shows
+   * it in a later `__replay__` to get them back on a new connection.
+   */
+  resumeToken?: string;
 
   /**
    * Per-group tag storage. Outer key is the group name, inner Set is the
@@ -442,6 +435,13 @@ export interface RuntimeConnection {
   cancellingStreams?: Map<string, Promise<void>>;
 
   /**
+   * `__subscribe__` frames still running, by channel key. A later frame for the
+   * same channel waits for its subscribe, so the server handles it in the
+   * order the client sent it.
+   */
+  pendingSubscribes?: Map<string, Promise<void>>;
+
+  /**
    * While set and `active`, the engine is inside the connection-accept window
    * (initial row already inserted, `onConnect` running). Per-state-change row
    * writes are skipped so a single flush at the end of the hook commits the
@@ -457,12 +457,6 @@ export interface RuntimeConnection {
   closing?: boolean;
 
   /**
-   * A configuration error closed this live socket. Its hibernation row stays
-   * so a fixed deployment can restore the connection rather than losing it.
-   */
-  preserveStateOnClose?: boolean;
-
-  /**
    * Fingerprint of the last connection row written to durable storage. The
    * hibernation persist path stringifies the next row, compares against this
    * value, and skips the SQL write when they match — eliminating redundant
@@ -471,31 +465,13 @@ export interface RuntimeConnection {
    * etc). `undefined` before the first persist.
    */
   lastPersistedFingerprint?: string;
-
-  /**
-   * Pending `Defer` retry timers for this connection. Bounded by
-   * `MAX_PENDING_DEFERS` so a flood of deferring messages can't schedule
-   * unbounded timers, and cleared on close so none outlive the connection.
-   */
-  deferTimers?: Set<ReturnType<typeof setTimeout>>;
 }
 
 /** Admitted but unfinished ordered app work for one connection. */
-export interface ConnectionWorkQueue {
+interface ConnectionWorkQueue {
   tail: Promise<void>;
   pending: number;
 }
-
-/**
- * What the framework does to a durable stream's generator when the owning
- * connection drops.
- *
- * - `'cancel-but-buffer'` (default) — stop the generator; keep the cursor /
- *   buffered chunks for reconnect.
- * - `'keep-running'` — leave the generator producing into storage with no
- *   client attached. Server resources stay open until it ends on its own.
- */
-export type OnDisconnect = 'cancel-but-buffer' | 'keep-running';
 
 /**
  * Runtime bookkeeping for one active stream generator.
@@ -524,23 +500,16 @@ export interface ActiveStream {
   closed: boolean;
 
   /**
-   * `'cancel-but-buffer'` (default for durable, only value for non-durable) or
-   * `'keep-running'`. Drives whether `cancelActiveStreamsForConnection` calls
-   * `generator.return()` on the owning connection's close.
-   */
-  onDisconnect?: OnDisconnect;
-
-  /**
-   * True when the owning connection has dropped on a `keep-running` stream and
-   * the generator is still producing into storage with no client attached. The
+   * True when the owning connection of a recorded stream has dropped and the
+   * generator is still producing into storage with no client attached. The
    * runtime skips wire sends to the dropped connection while this is set.
    */
   detached?: boolean;
 
   /**
    * The live connection the generator should send chunks to. Mutated when a
-   * continuing client adopts a previously-detached `keep-running` stream so the
-   * generator's next yield lands on the new wire.
+   * continuing client adopts a running recorded stream so the generator's next
+   * yield lands on the new wire.
    */
   connection?: RuntimeConnection;
 
@@ -567,14 +536,6 @@ export interface ActiveStream {
   abortController: AbortController;
 
   /**
-   * Outbound backpressure limit in bytes for this stream. `ctx.stream.drain()`
-   * resolves once the buffered amount falls below this mark. Resolved from the
-   * stream config's `highWaterMark`, defaulting to 256 KB. The drain closure
-   * captures the resolved value directly; this field records it for diagnostics.
-   */
-  highWaterMark?: number;
-
-  /**
    * True for a plain broadcast stream (`broadcast: true`). Cancel uses it to fan
    * a terminal `__streamEnd__` out to the fan-out peers, so a creator cancel
    * doesn't leave their `onStream` runs open until timeout.
@@ -582,8 +543,9 @@ export interface ActiveStream {
   broadcast?: boolean;
 
   /**
-   * True for a durable stream. Leaving the stream's channel hands
-   * it to the durable runtime so its stored row is removed too.
+   * True for a recorded stream. It keeps running when its owner disconnects,
+   * and leaving the stream's channel hands it to the durable runtime so its
+   * stored row is removed too.
    */
   durable?: boolean;
 }
@@ -667,8 +629,10 @@ export interface ConnectionMembersRuntime {
 
   toConnectionInfo(
     connection: RuntimeConnection,
-    opts?: OptsParameter,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
   sendThroughPipeline(connection: RuntimeConnection, opts: OptsParameter2): boolean;
+
+  /** Open one send to many connections: one stamp, one frame, one `onOutgoing` call. */
+  openSharedSend(opts: SharedSendOptions): SharedSend;
 }

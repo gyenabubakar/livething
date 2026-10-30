@@ -20,7 +20,6 @@ export function compileStreamDef(
       validator: def.payload,
       broadcast: def.broadcast,
       allowConcurrent: def.allowConcurrent,
-      highWaterMark: def.highWaterMark,
     },
     ...def.nudges.map((n: NudgeDef) => ({ event: n.name, validator: n.schema })),
   );

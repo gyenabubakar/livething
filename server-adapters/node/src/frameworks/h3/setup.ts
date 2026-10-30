@@ -1,4 +1,4 @@
-import type { ApiOf, ServerDefinition } from '@livething/server/adapters';
+import type { ServerDefinition } from '@livething/server/adapters';
 import type {
   defineWebSocketHandler as H3DefineWebSocketHandler,
   WebSocketMessage,
@@ -7,6 +7,7 @@ import type {
 import type { IncomingMessage } from 'node:http';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
+import { sendWhenOpen } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { invalidUpgradeResponse, isWebSocketUpgrade } from '../../upgrade.ts';
 import { createWebUpgradeLifecycle } from '../../web-upgrade-lifecycle.ts';
@@ -30,12 +31,12 @@ type DefineWebSocketHandler<THandler> = (
 
 /** One LiveThing definition registered as an H3 and CrossWS WebSocket route. */
 export interface H3Endpoint<
-  TApi = unknown,
+  TAdmin = NodeAdmin,
   THandler = ReturnType<typeof H3DefineWebSocketHandler>,
 > {
   upgrade: THandler;
   ready(): Promise<void>;
-  admin(): Promise<NodeAdmin<TApi>>;
+  admin(): Promise<TAdmin>;
 }
 
 /** Shared lifecycle for H3 and CrossWS WebSocket routes. */
@@ -43,7 +44,7 @@ export interface H3Setup<THandler> {
   bind<TDefinition extends ServerDefinition>(
     definition: TDefinition,
     options: NodeEndpointOptions,
-  ): H3Endpoint<ApiOf<TDefinition>, THandler>;
+  ): H3Endpoint<NodeAdmin<TDefinition>, THandler>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -119,7 +120,7 @@ export function createH3Setup<THandler>(
 
             try {
               const connection = upgrade.accept({
-                send: (data) => peer.send(data),
+                send: (data) => sendWhenOpen(peer.websocket.readyState, () => peer.send(data)),
                 close: (code, reason) => peer.close(code, reason),
                 bufferedAmount: () => peer.bufferedAmount,
                 backpressureSupported: true,

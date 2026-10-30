@@ -1,4 +1,5 @@
 import { emits, server, t } from '@livething/server';
+import { ValidationFailed } from '@livething/server/errors';
 import { plugin } from '@livething/server/plugins';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
@@ -6,7 +7,7 @@ import * as v from 'valibot';
 // A pure-LiveThing plugin that sends through every per-connection surface a
 // plugin ctx offers, and reports its own failures back to the client. Every
 // frame it sends must travel under its `__e2e:probe::` namespace, and its
-// `onError` / `onValidationError` must run only for its own events.
+// `onError` must run only for its own events.
 const h = server({
   scope: 'plugin',
   capabilities: [
@@ -56,12 +57,9 @@ const strict = h.on('strict', {
   run() {},
 });
 
-h.onError((ctx, _error, event) => {
+h.onError((ctx, error, event) => {
+  if (ValidationFailed.matches(error)) ctx.send('validation-seen', { event: event ?? 'unknown' });
   ctx.send('error-seen', { event: event ?? null });
-});
-
-h.onValidationError((ctx, event) => {
-  ctx.send('validation-seen', { event });
 });
 
 export const Probe = plugin('e2e:probe', {

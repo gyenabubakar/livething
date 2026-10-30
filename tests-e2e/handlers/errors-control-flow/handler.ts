@@ -1,48 +1,24 @@
 import { emits, server, t } from '@livething/server';
-import { channels } from '@livething/server/channels';
-import {
-  Block,
-  CloseCodes,
-  Defer,
-  DeferExhausted,
-  Disconnect,
-  ValidationFailed,
-} from '@livething/server/errors';
-import { intercepts } from '@livething/server/intercepts';
-import { stream } from '@livething/server/streams';
+import { Block, CloseCodes, Disconnect, ValidationFailed } from '@livething/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const StreamToken = t<{ index: number }>();
-
 const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
-    channels(),
-    stream(),
     emits({
       echoed: t<{ text: string }>(),
       'block-reply': t<{ leaked: boolean }>(),
-      'defer-result': t<{ received: boolean }>(),
-      'defer-exhausted-result': t<{ event: string; retries: number }>(),
       'validation-error-fired': t<{ event: string }>(),
     }),
-    intercepts(),
   ],
 });
 
 base.onError((ctx, error, evt) => {
-  if (DeferExhausted.matches(error)) {
-    ctx.send('defer-exhausted-result', {
-      event: evt ?? 'unknown',
-      retries: error.detail.retries,
-    });
+  if (ValidationFailed.matches(error)) {
+    ctx.send('validation-error-fired', { event: evt ?? 'unknown' });
   }
-});
-
-base.onValidationError((ctx, evt) => {
-  ctx.send('validation-error-fired', { event: evt });
 });
 
 base.intercept((_ctx, frame) => {
@@ -66,27 +42,6 @@ const handleBlockTest = base.on('block-test', {
   },
 });
 
-const handleDeferTest = base.on('defer-test', {
-  input: v.object({}),
-  async run(ctx) {
-    const key = `defer:${ctx.connection.id}`;
-    const attempts = ((await ctx.kv.get(key)) as number | undefined) ?? 0;
-    await ctx.kv.set(key, attempts + 1);
-    if (attempts < 1) throw Defer(50);
-
-    await ctx.kv.delete(key);
-
-    ctx.send('defer-result', { received: true });
-  },
-});
-
-const handleAlwaysDefer = base.on('always-defer', {
-  input: v.object({}),
-  run() {
-    throw Defer(25);
-  },
-});
-
 const handleManualValidation = base.on('manual-validation', {
   input: v.object({}),
   run() {
@@ -104,35 +59,8 @@ const handleForceDisconnect = base.on('force-disconnect', {
   },
 });
 
-const handleStartDeferStream = base.stream('start-defer-stream', {
-  input: v.object({}),
-  chunk: StreamToken,
-  async *run() {
-    throw Defer(25);
-    yield { index: 0 };
-  },
-});
-
-const chat = base.channel('chat', {});
-
-const handleChatAlwaysDefer = chat.on('chat-always-defer', {
-  input: v.object({}),
-  run() {
-    throw Defer(25);
-  },
-});
-
 export const errorsControlFlowDefinition = base.assemble({
-  handlers: [
-    handleDoEcho,
-    handleBlockTest,
-    handleDeferTest,
-    handleAlwaysDefer,
-    handleManualValidation,
-    handleForceDisconnect,
-    handleStartDeferStream,
-    handleChatAlwaysDefer,
-  ],
+  handlers: [handleDoEcho, handleBlockTest, handleManualValidation, handleForceDisconnect],
 });
 
 export type ErrorsControlFlowClient = InferClient<typeof errorsControlFlowDefinition>;

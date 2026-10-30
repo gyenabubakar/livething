@@ -1,5 +1,4 @@
 import type { Logger, StorageProvider } from '@livething/server/adapters';
-import { createAsyncContext } from './async-context.ts';
 import { createLogger } from './logger.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
@@ -16,12 +15,11 @@ export interface NodeRuntime {
   platform: ReturnType<typeof createPlatform>;
   storage: StorageProvider;
   timers: NodeTimers;
-  asyncContextFactory: typeof createAsyncContext;
   logger: Logger;
   close(): Promise<void>;
 }
 
-/** Creates storage, timers, async context, and logging services. */
+/** Creates storage, timers, and logging services. */
 export function createRuntime(options: NodeRuntimeOptions): NodeRuntime {
   const logger = options.logger ?? createLogger();
   const storageRuntime = createStorage({
@@ -35,7 +33,6 @@ export function createRuntime(options: NodeRuntimeOptions): NodeRuntime {
     platform: createPlatform(),
     storage: storageRuntime.storage,
     timers,
-    asyncContextFactory: createAsyncContext,
     logger,
     async close() {
       timers.stop();

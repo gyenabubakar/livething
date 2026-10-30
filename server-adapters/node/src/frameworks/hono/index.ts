@@ -1,20 +1,21 @@
 import { upgradeWebSocket } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
-import type { ApiOf, ServerDefinition } from '@livething/server/adapters';
+import type { ServerDefinition } from '@livething/server/adapters';
 import type { MiddlewareHandler } from 'hono';
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
+import { sendWhenOpen } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { isNodeWebSocketUpgrade, isWebSocketUpgrade } from '../../upgrade.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions } from '../../binding.ts';
 
 /** One LiveThing definition registered as a Hono WebSocket route. */
-export interface HonoEndpoint<TApi = unknown> {
+export interface HonoEndpoint<TAdmin = NodeAdmin> {
   upgrade: MiddlewareHandler;
   ready(): Promise<void>;
-  admin(): Promise<NodeAdmin<TApi>>;
+  admin(): Promise<TAdmin>;
 }
 
 /** Shared Hono WebSocket transport and lifecycle. */
@@ -23,7 +24,7 @@ export interface HonoSetup {
   bind<TDefinition extends ServerDefinition>(
     definition: TDefinition,
     options: NodeEndpointOptions,
-  ): HonoEndpoint<ApiOf<TDefinition>>;
+  ): HonoEndpoint<NodeAdmin<TDefinition>>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -80,7 +81,7 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
             try {
               const rawSocket = socket.raw as WebSocket;
               const connection = upgrade.accept({
-                send: (data) => socket.send(data),
+                send: (data) => sendWhenOpen(rawSocket.readyState, () => socket.send(data)),
                 close: (code, reason) => socket.close(code, reason),
                 bufferedAmount: () => rawSocket.bufferedAmount,
                 backpressureSupported: true,

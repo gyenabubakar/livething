@@ -6,7 +6,7 @@ import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { replay } from '~/replay/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
-import { describe, expectTypeOf, it } from 'vitest';
+import { describe, it } from 'vitest';
 
 describe('top-level ctx.sendReplay types', () => {
   const base = server({
@@ -69,62 +69,6 @@ describe('top-level ctx.sendReplay types', () => {
           { deliverySeq: 5, messageId: 'm5', channel: 'lobby' },
         );
       },
-    });
-  });
-});
-
-describe('channel.replay(hooks) types', () => {
-  const base = server({
-    capabilities: [dedup(), sequence({ persist: true }), channels(), replay.custom()],
-  });
-  const room = base.channel('room');
-
-  it('types channel hooks with the channel wire and the channel replay ctx', () => {
-    room.replay({
-      beforeBroadcast(_ctx, msg) {
-        expectTypeOf(msg.wire.channel).toEqualTypeOf<string>();
-        expectTypeOf(msg.wire.channelFamily).toEqualTypeOf<string | null>();
-        expectTypeOf(msg.wire.deliverySeq).toEqualTypeOf<number>();
-        expectTypeOf(msg.wire.messageId).toEqualTypeOf<string>();
-      },
-      afterBroadcast(_ctx, msg) {
-        expectTypeOf(msg.wire.channel).toEqualTypeOf<string>();
-      },
-      replay(ctx, since) {
-        expectTypeOf(ctx.channel.name).toEqualTypeOf<string>();
-        expectTypeOf(since).toEqualTypeOf<number>();
-        // @ts-expect-error — a channel replay ctx has no `request`; it names its channel.
-        void ctx.request;
-      },
-    });
-  });
-
-  it('keeps the top-level hooks for base.replay', () => {
-    base.replay({
-      beforeBroadcast(_ctx, msg) {
-        expectTypeOf(msg.wire.channel).toEqualTypeOf<string | null>();
-      },
-      afterBroadcast(_ctx, msg) {
-        expectTypeOf(msg.wire.channel).toEqualTypeOf<string | null>();
-      },
-      replay(ctx) {
-        expectTypeOf(ctx.request.channel).toEqualTypeOf<string | null>();
-        // @ts-expect-error — a top-level replay ctx has no `channel`.
-        void ctx.channel;
-      },
-    });
-  });
-
-  it('rejects hook names that are not part of the custom replay hooks', () => {
-    base.replay({
-      // @ts-expect-error — the store hooks are `beforeBroadcast` and `afterBroadcast`.
-      beforeRecord() {},
-      replay() {},
-    });
-    room.replay({
-      // @ts-expect-error — the store hooks are `beforeBroadcast` and `afterBroadcast`.
-      afterRecord() {},
-      replay() {},
     });
   });
 });

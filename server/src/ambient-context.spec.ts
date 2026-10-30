@@ -9,10 +9,9 @@ import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
-import { Defer } from '~/errors/errors.ts';
+import { ValidationFailed } from '~/errors/errors.ts';
 // From the package entry, so these tests also fail if `context` stops being exported.
 import { context, error as defineError } from '~/index.ts';
-import { intercepts } from '~/intercept/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
@@ -369,7 +368,7 @@ describe('context.channel, context.channelGate and context.channelLifecycle', ()
     );
   });
 
-  it('reaches the top-level onError and onValidationError hooks for a channel event', async () => {
+  it('reaches the top-level onError hook for a channel event and a channel validation failure', async () => {
     const base = server({ capabilities: [channels()] });
     const lobby = base.channel('lobby', {});
     const boom = lobby.on('boom', {
@@ -380,11 +379,9 @@ describe('context.channel, context.channelGate and context.channelLifecycle', ()
     const typed = lobby.on('typed', { input: v.object({ n: v.number() }), run() {} });
     const seen: Record<string, unknown> = {};
 
-    base.onError((ctx) => {
-      seen.error = context.connection(base) === ctx;
-    });
-    base.onValidationError((ctx) => {
-      seen.validation = context.connection(base) === ctx;
+    base.onError((ctx, error) => {
+      const key = ValidationFailed.matches(error) ? 'validation' : 'error';
+      seen[key] = context.connection(base) === ctx;
     });
 
     const engine = buildEngine(base.assemble({ handlers: [lobby, boom, typed] }));
@@ -531,7 +528,7 @@ describe('context in the features of a channel', () => {
   });
 
   it('returns the channel ctx in a channel intercept and the connection ctx in a top-level one', async () => {
-    const base = server({ capabilities: [channels(), intercepts()] });
+    const base = server({ capabilities: [channels()] });
     const seen: Record<string, boolean> = {};
     base.intercept((ctx) => {
       seen.topLevel = context.connection(base) === ctx;
@@ -581,14 +578,6 @@ describe('context in the onError hook for a stream that throws', () => {
   it('returns the connection ctx when the stream throws an error', async () => {
     const seen = await runFailingStream(() => {
       throw new Error('stream failed');
-    });
-
-    expect(seen).toEqual({ onError: true });
-  });
-
-  it('returns the connection ctx when the stream throws Defer, which a stream cannot retry', async () => {
-    const seen = await runFailingStream(() => {
-      throw Defer(10);
     });
 
     expect(seen).toEqual({ onError: true });
@@ -840,7 +829,7 @@ describe('context inside a plugin', () => {
   it("returns the plugin's ctx in every plugin hook, and none in its outgoing hook", async () => {
     const h = server({
       scope: 'plugin',
-      capabilities: [intercepts(), emits({ failing: t<{ reason: string }>() })],
+      capabilities: [emits({ failing: t<{ reason: string }>() })],
     });
     const seen: Record<string, unknown> = {};
     function check(key: string, read: () => unknown, ctx: unknown) {

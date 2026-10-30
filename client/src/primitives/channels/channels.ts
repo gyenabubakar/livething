@@ -14,11 +14,7 @@ import type { LiveThingError } from '@livething/core';
 import type { LiveThingMetadata, Message } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { ChannelContext, FamilyHandle } from '~/primitives/channels/messaging.ts';
-import type {
-  ChannelsOptions,
-  ChannelsPrimitive,
-  SubscribeSource,
-} from '~/primitives/channels/types.ts';
+import type { ChannelsPrimitive, SubscribeSource } from '~/primitives/channels/types.ts';
 import type { LiveThingSocket } from '~/socket/socket.ts';
 
 const PERSISTENT_REJOIN_FALLBACK_MS = 5000;
@@ -114,7 +110,7 @@ function scopedChannelMethod(channel: HostChannel, scope: ScopeInfo): HostChanne
  * subscribers only. This primitive owns all per-channel state —
  * subscriptions, members, presence — and routes incoming channel messages.
  */
-export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
+export function channels(): ChannelsPrimitive {
   return {
     _tag: 'channels',
     setup(helpers) {
@@ -155,14 +151,6 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         }
       }
 
-      function resolveTtl(event: string): number | undefined {
-        if (typeof options.ttl === 'number') return options.ttl;
-
-        if (options.ttl) return options.ttl[event];
-
-        return undefined;
-      }
-
       function stateFor(name: string, familyKey?: string): ChannelState {
         const key = channelKey(familyKey, name);
         let state = states.get(key);
@@ -195,7 +183,6 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
       const context: ChannelContext = {
         helpers,
-        resolveTtl,
         family: familyFor,
         listFamily,
         get socket() {

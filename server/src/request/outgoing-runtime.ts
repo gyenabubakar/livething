@@ -1,5 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Disconnected, LiveThingError, RequestInvalidResponse, Timeout } from '@livething/core';
+import {
+  Disconnected,
+  LiveThingError,
+  NotAMember,
+  RequestInvalidResponse,
+  Timeout,
+} from '@livething/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
@@ -7,7 +13,7 @@ import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { ResolvedServerRequest } from '~/request/capability.ts';
+import type { ResolvedServerRequest } from '~/request/server-requests.ts';
 import type { Validator } from '~/types.ts';
 
 type ValueParameter = { response: unknown; from: PublicApi.ConnectionRef };
@@ -17,10 +23,10 @@ type SettleFrameParameter = {
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
 };
-type SettleBroadcastLegArgsParameter = {
+type SettleRaceLegArgsParameter = {
   connectionId: string;
   correlationId: string;
-  entry: Extract<PendingServerRequest, { kind: 'broadcast' }>;
+  entry: Extract<PendingServerRequest, { kind: 'race' }>;
   frame: { event: string; payload: unknown };
 };
 type SendRequestArgsParameter = {
@@ -35,14 +41,11 @@ type SendRequestArgsParameter = {
   payload: unknown;
   options: RequestOptions | undefined;
 };
-type SendBroadcastRequestArgsParameter = {
-  targets: ReadonlyArray<{ connectionId: string; from: PublicApi.ConnectionRef }>;
+type SendUserRequestArgsParameter = {
+  user: PublicApi.UserHandle;
   event: string;
   payload: unknown;
   options: RequestOptions | undefined;
-  routing?: { channel?: string; channelFamily?: string | null };
-  /** The channel definition key whose declarations to resolve, or null for top-level. */
-  declarationChannelKey?: string | null;
 };
 
 function RequestNotDeclared(
@@ -56,9 +59,10 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
 /**
  * One in-flight server→client exchange awaiting an answer, keyed by
- * correlationId. A `targeted` entry is one `ctx.request(...)`; a `broadcast`
- * entry is one leg of a `ctx.broadcastRequest(...)` fan-out — many legs share a
- * single `group` so the first valid answer wins and the rest are dropped.
+ * correlationId. A `targeted` entry is one request to one connection; a `race`
+ * entry is one leg of a user request sent to each of the user's sockets — the
+ * legs share a single `group` so the first valid answer wins and the rest are
+ * dropped.
  */
 type PendingServerRequest =
   | {
@@ -73,20 +77,19 @@ type PendingServerRequest =
       responseValidator?: Validator;
     }
   | {
-      kind: 'broadcast';
+      kind: 'race';
       connectionId: string;
       /** The connection ref of this leg's target, returned as `from` when it wins. */
       from: PublicApi.ConnectionRef;
-      /** The shared race state every leg of this broadcast points at. */
-      group: BroadcastGroup;
+      /** The shared race state every leg of this request points at. */
+      group: RaceGroup;
     };
 
-/** The shared race state for one `broadcastRequest` fan-out. */
-interface BroadcastGroup {
+/** The shared race state for one user request. */
+interface RaceGroup {
   resolve: (value: ValueParameter) => void;
   reject: (reason: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
-  /** The event name, for the (unused-on-broadcast) invalid path symmetry. */
   event: string;
   /** Validates each leg's answer; an answer that fails it is ignored, not a win. */
   responseValidator?: Validator;
@@ -99,12 +102,6 @@ interface BroadcastGroup {
 /** Per-request options accepted by every server→client request surface. */
 interface RequestOptions {
   timeout?: number;
-}
-
-/** Per-broadcast-request options: a timeout plus self-exclusion control. */
-interface BroadcastRequestOptions extends RequestOptions {
-  /** Include the calling connection in the fan-out (default false). */
-  includeSelf?: boolean;
 }
 
 /**
@@ -128,80 +125,11 @@ function channelDeclarationKey(handle: ChannelDeclarationKeyHandleParameter): st
   return typeof handle.family === 'string' ? handle.family : (handle.name ?? '');
 }
 
-/** A handle that can list its members and fan out a broadcast request. */
-interface MemberHandle {
-  connections(): PublicApi.ConnectionInfo[];
-  broadcastRequest?: (event: string, payload: unknown, options?: RequestOptions) => unknown;
-}
-
-/** The broadcast arm of the outgoing-request runtime, used by the surface wiring. */
-type BroadcastSender = Pick<
-  ReturnType<typeof createOutgoingRequestRuntime>,
-  'sendBroadcastRequest'
->;
-
 /**
- * Map a member snapshot to broadcast targets — `from` is each member's ref so
- * the winner's identity is reported back. Pass `excludeId` to drop the calling
- * connection (mirrors `ctx.broadcast` excluding self at the top level).
- */
-function membersToTargets(
-  members: readonly PublicApi.ConnectionInfo[],
-  excludeId?: string,
-): ReadonlyArray<{ connectionId: string; from: PublicApi.ConnectionRef }> {
-  const targets: Array<{ connectionId: string; from: PublicApi.ConnectionRef }> = [];
-  for (const member of members) {
-    if (excludeId !== undefined && member.id === excludeId) continue;
-
-    targets.push({ connectionId: member.id, from: member.ref() });
-  }
-
-  return targets;
-}
-
-/**
- * Whether a member snapshot satisfies a channel-scoped `to` recipient. A
- * `user-ref` matches on the member's `userId`, mirroring `userKeyOf` on the
- * live connection. An anonymous member has `userId === ''` — no user identity
- * at all — and never matches, even when a `UserRef` id happens to equal its
- * connection id.
- */
-function infoMatchesRecipient(
-  info: PublicApi.ConnectionInfo,
-  to: PublicApi.ChannelRecipient,
-): boolean {
-  const ref = info.ref();
-  switch (to.__livething) {
-    case 'connection-ref':
-      return ref.instance === to.instance && info.id === to.id;
-
-    case 'user-ref':
-      return ref.instance === to.instance && info.userId !== '' && info.userId === to.id;
-
-    case 'tag-ref':
-      return info.tags.some((t) => t.kind === to.kind && t.group === to.group && t.key === to.key);
-
-    case 'group-handle':
-      return info.tags.some((t) => t.kind === to.kind && t.group === to.group);
-  }
-}
-
-/** Attach a `broadcastRequest` arm to a tag group/ref handle. */
-function addTagBroadcastRequest(handle: MemberHandle, runtime: BroadcastSender): void {
-  handle.broadcastRequest = (event: string, payload: unknown, options?: RequestOptions) =>
-    runtime.sendBroadcastRequest({
-      targets: membersToTargets(handle.connections()),
-      event,
-      payload,
-      options,
-    });
-}
-
-/**
- * Build the per-engine pending map and the `sendServerRequest` helper every
- * server→client request surface (`ctx.request`, `ctx.connections.get(ref).request`,
- * `ctx.channel.request`) shares. The map lives here, in the requests capability,
- * so the engine core never imports it.
+ * Build the per-engine pending map and the send helpers every server→client
+ * request surface (`ctx.request`, `ctx.connections.get(ref).request`,
+ * `ctx.channel.request`, user requests) shares. The map lives here, in the
+ * requests capability, so the engine core never imports it.
  */
 function createOutgoingRequestRuntime(
   engine: EngineAccess,
@@ -216,8 +144,7 @@ function createOutgoingRequestRuntime(
     const entry = pending.get(correlationId);
     if (!entry) return false;
 
-    if (entry.kind === 'broadcast')
-      return settleBroadcastLeg({ connectionId, correlationId, entry, frame });
+    if (entry.kind === 'race') return settleRaceLeg({ connectionId, correlationId, entry, frame });
 
     // Only the connection that was asked may answer. A frame from any other
     // connection that happens to echo this correlationId is claimed (so it never
@@ -252,13 +179,13 @@ function createOutgoingRequestRuntime(
   }
 
   /**
-   * One leg of a broadcast answered. Silence and invalid answers both mean "no"
-   * (drop the leg, keep waiting); the first VALID answer wins the whole race and
-   * cancels every sibling leg. We always return `true` because the
+   * One leg of a user request answered. Silence and invalid answers both mean
+   * "no" (drop the leg, keep waiting); the first VALID answer wins the whole
+   * race and cancels every sibling leg. We always return `true` because the
    * correlationId matched a leg we own — even an invalid answer must not fall
    * through to normal routing.
    */
-  function settleBroadcastLeg(args: SettleBroadcastLegArgsParameter): boolean {
+  function settleRaceLeg(args: SettleRaceLegArgsParameter): boolean {
     const { connectionId, correlationId, entry, frame } = args;
     // Only the leg's own target may answer it; a mismatched connection echoing
     // the leg's correlationId is claimed but ignored, leaving the leg live.
@@ -285,7 +212,7 @@ function createOutgoingRequestRuntime(
       }
 
       if (valid) {
-        finishBroadcast(group, () => group.resolve({ response, from: entry.from }));
+        finishRace(group, () => group.resolve({ response, from: entry.from }));
         return true;
       }
     }
@@ -295,8 +222,8 @@ function createOutgoingRequestRuntime(
     return true;
   }
 
-  /** Resolve/reject a broadcast once, cancelling its timer and every live leg. */
-  function finishBroadcast(group: BroadcastGroup, settle: () => void): void {
+  /** Resolve/reject a race once, cancelling its timer and every live leg. */
+  function finishRace(group: RaceGroup, finish: () => void): void {
     if (group.settled) return;
 
     group.settled = true;
@@ -304,16 +231,17 @@ function createOutgoingRequestRuntime(
     for (const legId of group.legs) pending.delete(legId);
     group.legs.clear();
 
-    settle();
+    finish();
   }
 
   function rejectForConnection(connectionId: string): void {
     for (const [correlationId, entry] of pending) {
       if (entry.connectionId !== connectionId) continue;
 
-      if (entry.kind === 'broadcast') {
-        // One target dropping does NOT fail the broadcast — others may still
-        // answer. Just retire this leg; the timer rejects only if all go quiet.
+      if (entry.kind === 'race') {
+        // One socket dropping does NOT fail the race — the user's other sockets
+        // may still answer. Just retire this leg; the timer rejects only if all
+        // go quiet.
         pending.delete(correlationId);
         entry.group.legs.delete(correlationId);
         continue;
@@ -380,17 +308,16 @@ function createOutgoingRequestRuntime(
   }
 
   /**
-   * Fan a broadcast request out to every local target and race their answers.
-   * Resolves with `{ response, from }` on the first VALID answer; rejects with
-   * `Timeout` when no valid answer arrives in time — including the zero-target
-   * case (nobody to ask = nobody volunteered). The caller resolves the targets
-   * with the same enumeration the matching `broadcast`/tag broadcast uses.
+   * Ask every live socket one user holds and race their answers. Resolves with
+   * `{ response, from }` on the first VALID answer; rejects with `Timeout` when
+   * no valid answer arrives in time — including when the user has no live
+   * socket on this instance.
    */
-  function sendBroadcastRequest(
-    args: SendBroadcastRequestArgsParameter,
+  function sendUserRequest(
+    args: SendUserRequestArgsParameter,
   ): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
-    const { targets, event, payload, options, routing } = args;
-    const declarationKey = serverRequestKey(args.declarationChannelKey ?? null, event);
+    const { user, event, payload, options } = args;
+    const declarationKey = serverRequestKey(null, event);
     if (!serverRequests.has(declarationKey)) {
       return Promise.reject(RequestNotDeclared(event));
     }
@@ -398,7 +325,7 @@ function createOutgoingRequestRuntime(
     const declaration = serverRequests.get(declarationKey)!;
 
     return new Promise((resolve, reject) => {
-      const group: BroadcastGroup = {
+      const group: RaceGroup = {
         resolve,
         reject,
         event,
@@ -409,42 +336,51 @@ function createOutgoingRequestRuntime(
       };
 
       group.timer = setTimeout(() => {
-        finishBroadcast(group, () => group.reject(Timeout()));
+        finishRace(group, () => group.reject(Timeout()));
       }, options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS);
 
-      for (const target of targets) {
-        const correlationId = engine.generateId('breq');
+      let fanOut: ReturnType<EngineAccess['openServerRequestBroadcast']>;
+      try {
+        fanOut = engine.openServerRequestBroadcast({
+          event,
+          payload,
+          target: { kind: 'user', id: user.id },
+        });
+      } catch (error) {
+        // Every socket gets the same payload, so none of them can be sent.
+        finishRace(group, () => group.reject(error));
+        return;
+      }
+
+      for (const connection of user.connections()) {
+        const correlationId = engine.generateId('ureq');
         let sent: boolean;
         try {
-          sent = engine.sendServerRequest(target.connectionId, {
-            event,
-            payload,
-            correlationId,
-            channel: routing?.channel,
-            channelFamily: routing?.channelFamily,
-          });
+          sent = fanOut.send(connection.id, correlationId);
         } catch (error) {
-          // Every target gets the same payload, so none of them can be sent.
-          finishBroadcast(group, () => group.reject(error));
+          fanOut.finish();
+          finishRace(group, () => group.reject(error));
           return;
         }
 
-        // A target whose socket is already gone simply contributes no leg —
-        // others may still answer; if none remain the timer rejects.
+        // A socket that is already gone simply contributes no leg — others may
+        // still answer; if none remain the timer rejects.
         if (!sent) continue;
 
         group.legs.add(correlationId);
         pending.set(correlationId, {
-          kind: 'broadcast',
-          connectionId: target.connectionId,
-          from: target.from,
+          kind: 'race',
+          connectionId: connection.id,
+          from: connection.ref(),
           group,
         });
       }
+
+      fanOut.finish();
     });
   }
 
-  return { settle, rejectForConnection, sendRequest, sendBroadcastRequest };
+  return { settle, rejectForConnection, sendRequest, sendUserRequest };
 }
 
 /** Coerce a client `__error__` payload into a throwable for the server promise. */
@@ -467,9 +403,9 @@ function toRejection(payload: unknown): unknown {
 /**
  * The runtime primitive the `serverRequests({...})` capability contributes. Its
  * `__setup` installs the server→client request surfaces (`ctx.request`,
- * `ctx.connections.get(ref).request`, `ctx.channel.request`) and the inbound
- * answer-frame + disconnect seams. Channel-owned request verbs stay off
- * subscribe-gate contexts because those callbacks cannot infer the channel's
+ * `ctx.connections.get(ref).request`, `ctx.channel.request`, user requests) and
+ * the inbound answer-frame + disconnect seams. Channel-owned request verbs stay
+ * off subscribe-gate contexts because those callbacks cannot infer the channel's
  * own request declaration map. The pending-request map lives in this module,
  * so the engine core never imports any of it (tree-shaking: a server without
  * `serverRequests()` pulls none of this).
@@ -479,7 +415,6 @@ export function makeServerRequestsPrimitive(
 ): Primitive {
   return {
     __livething: 'server-requests',
-    __kind: 'infrastructure',
     __identity: [SERVER_REQUESTS_KEY],
     __requires: {},
     __serverRequests: serverRequests,
@@ -509,8 +444,7 @@ export function makeServerRequestsPrimitive(
 
         const extra: Record<string, unknown> = {};
 
-        // ctx.request — ask the current connection. Inside a channel handler it
-        // stamps the channel family so the answer routes back through it.
+        // ctx.request — ask the current connection.
         if (connectionId) {
           extra.request = (event: string, payload: unknown, options?: RequestOptions) =>
             runtime.sendRequest({
@@ -547,13 +481,7 @@ export function makeServerRequestsPrimitive(
         // user holds and settle on the first valid answer.
         function attachUserRequest(handle: PublicApi.UserHandle & Record<string, unknown>) {
           handle.request = (event: string, payload: unknown, options?: RequestOptions) =>
-            runtime.sendBroadcastRequest({
-              targets: membersToTargets(handle.connections(), undefined),
-              event,
-              payload,
-              options,
-              declarationChannelKey: null,
-            });
+            runtime.sendUserRequest({ user: handle, event, payload, options });
         }
 
         if (ctx.user) attachUserRequest(ctx.user);
@@ -567,9 +495,9 @@ export function makeServerRequestsPrimitive(
           };
         }
 
-        // ctx.channel.request / ctx.channel.broadcastRequest — ask the current
-        // connection (targeted) or fan out to every member (broadcast), each
-        // stamping the channel family so answers route back through it.
+        // ctx.channel.request — ask the current connection, or one other member
+        // with `{ to }`, stamping the channel family so the answer routes back
+        // through it.
         const channelHandle = ctx.channel as
           | (PublicApi.ChannelHandle & Record<string, unknown>)
           | undefined;
@@ -583,144 +511,29 @@ export function makeServerRequestsPrimitive(
           channelHandle.request = (
             event: string,
             payload: unknown,
-            options?: RequestOptions & { to?: PublicApi.ChannelRecipient },
+            options?: RequestOptions & { to?: PublicApi.ConnectionRef },
           ) => {
-            const routing = {
-              channel: channelHandle.name,
-              channelFamily: channelHandle.family ?? null,
-            };
-
-            const declarationChannelKey = channelDeclarationKey(channelHandle);
-
-            // A `to` recipient asks matching members instead of the caller. When
-            // it resolves to more than one member the first valid answer wins;
-            // `from` is dropped so the resolved type stays the bare response.
             const to = options?.to;
             if (to) {
-              if (to.__livething === 'connection-ref' || to.__livething === 'user-ref') {
-                assertLocalRef(to, ctx.connection?.instance, 'ctx.channel.request({ to })');
+              assertLocalRef(to, ctx.connection?.instance, 'ctx.channel.request({ to })');
+              // Only a member of this channel can answer through it.
+              if (!channelHandle.members().some((member) => member.id === to.id)) {
+                return Promise.reject(NotAMember());
               }
-
-              return runtime
-                .sendBroadcastRequest({
-                  targets: membersToTargets(
-                    channelHandle.members().filter((member) => infoMatchesRecipient(member, to)),
-                  ),
-                  event,
-                  payload,
-                  options,
-                  routing,
-                  declarationChannelKey,
-                })
-                .then((winner) => winner.response);
             }
 
             return runtime.sendRequest({
-              target: { connectionId, ...routing, declarationChannelKey },
+              target: {
+                connectionId: to?.id ?? connectionId,
+                channel: channelHandle.name,
+                channelFamily: channelHandle.family ?? null,
+                declarationChannelKey: channelDeclarationKey(channelHandle),
+              },
               event,
               payload,
               options,
             });
           };
-        }
-
-        if (channelHandle && !channelScope?.isSubscribeGate) {
-          channelHandle.broadcastRequest = (
-            event: string,
-            payload: unknown,
-            options?: BroadcastRequestOptions,
-          ) =>
-            runtime.sendBroadcastRequest({
-              // Exclude the calling connection by default, matching
-              // ctx.channel.broadcast and ctx.broadcastRequest; an author can
-              // opt back in with { includeSelf: true }. With no current
-              // connection there is no self to drop.
-              targets: membersToTargets(
-                channelHandle.members(),
-                (options?.includeSelf ?? false) ? undefined : connectionId,
-              ),
-              event,
-              payload,
-              options,
-              routing: { channel: channelHandle.name, channelFamily: channelHandle.family ?? null },
-              declarationChannelKey: channelDeclarationKey(channelHandle),
-            });
-        }
-
-        // ctx.broadcastRequest — ask every other connection on this instance,
-        // first valid answer wins. Self is excluded, mirroring ctx.broadcast.
-        const allConnections = (ctx as { connections?: { all?(): PublicApi.ConnectionInfo[] } })
-          .connections?.all;
-        if (typeof allConnections === 'function') {
-          extra.broadcastRequest = (
-            event: string,
-            payload: unknown,
-            options?: BroadcastRequestOptions,
-          ) =>
-            runtime.sendBroadcastRequest({
-              targets: membersToTargets(
-                allConnections(),
-                (options?.includeSelf ?? false) ? undefined : connectionId,
-              ),
-              event,
-              payload,
-              options,
-              declarationChannelKey: null,
-            });
-        }
-
-        // ctx.channels.get(...).broadcastRequest — fan a channel broadcast request
-        // out to a named channel's members from any handler. It resolves the
-        // CHANNEL's own request declarations (keyed by the channel's family or static
-        // name), matching the active ctx.channel handle. The channel handle has no
-        // current connection, so only the broadcast verb is added.
-        const channelsApi = ctx.channels as
-          | { get(...args: unknown[]): PublicApi.ChannelHandle & Record<string, unknown> }
-          | undefined;
-        if (channelsApi && typeof channelsApi.get === 'function') {
-          const coreGet = channelsApi.get.bind(channelsApi);
-          channelsApi.get = (...args: unknown[]) => {
-            const handle = coreGet(...args);
-            handle.broadcastRequest = (event: string, payload: unknown, options?: RequestOptions) =>
-              runtime.sendBroadcastRequest({
-                targets: membersToTargets(handle.members()),
-                event,
-                payload,
-                options,
-                routing: { channel: handle.name, channelFamily: handle.family ?? null },
-                declarationChannelKey: handle.family ?? handle.name,
-              });
-            return handle;
-          };
-        }
-
-        // ctx.tags.<kind>(group).broadcastRequest and .ref(key).broadcastRequest
-        // — fan out to a tag group or one tag key, first valid answer wins.
-        const tagsApi = ctx.tags as Record<string, unknown> | undefined;
-        if (tagsApi) {
-          for (const kind of ['ephemeral', 'persistent'] as const) {
-            const coreFn = tagsApi[kind];
-            if (typeof coreFn !== 'function') continue;
-
-            tagsApi[kind] = (group: string) => {
-              const handle = (coreFn as (g: string) => MemberHandle).call(
-                tagsApi,
-                group,
-              ) as MemberHandle & { ref(key: string): MemberHandle };
-
-              addTagBroadcastRequest(handle, runtime);
-
-              const coreRef = handle.ref.bind(handle);
-
-              handle.ref = (key: string) => {
-                const refHandle = coreRef(key);
-                addTagBroadcastRequest(refHandle, runtime);
-                return refHandle;
-              };
-
-              return handle;
-            };
-          }
         }
 
         return extra;

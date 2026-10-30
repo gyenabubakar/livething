@@ -8,7 +8,6 @@ describe('incoming', () => {
     const primitive = incoming('send-message', handler);
 
     expect(primitive.__livething).toBe('incoming');
-    expect(primitive.__kind).toBe('handler');
     expect(primitive.__identity[1]).toBe('send-message');
     expect(primitive.handler).toBe(handler);
     expect(primitive.__requires).toEqual({});

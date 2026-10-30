@@ -1,19 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /**
- * Helpers shared by the plain-stream, cursor-stream, and recorded-stream
- * runtimes. They all build the same `ActiveStream` shape, install the same
- * `ctx.nudges()` helper, and resolve the same broadcast target list.
+ * Helpers shared by the plain-stream and recorded-stream runtimes. They both
+ * build the same `ActiveStream` shape, install the same `ctx.nudges()` helper,
+ * and resolve the same broadcast target list.
  */
 
 import { StreamAlreadyActive } from '@livething/core';
-import { assertValidHighWaterMark } from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import type {
-  ActiveStream,
-  OnDisconnect,
-  ResolvedChannel,
-  RuntimeConnection,
-} from '~/_engine/runtime/types.ts';
+import type { ActiveStream, ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 type AbortActiveStreamActiveParameter = { abortController?: AbortController };
 type AssertNoConcurrentStreamRuntimeParameter = {
@@ -21,7 +15,7 @@ type AssertNoConcurrentStreamRuntimeParameter = {
 };
 
 /** Validator handle used to type-narrow a registered nudge. */
-export interface NudgeBinding {
+interface NudgeBinding {
   readonly event: string;
   readonly validator?: unknown;
 }
@@ -33,11 +27,6 @@ export interface BuildActiveStreamInput {
   connection: RuntimeConnection;
   generator: AsyncGenerator<unknown, void, unknown>;
   nudges: readonly NudgeBinding[];
-  /**
-   * Disconnect policy for durable streams. Optional — defaults to
-   * `'cancel-but-buffer'` (and non-durable streams leave it undefined).
-   */
-  onDisconnect?: OnDisconnect;
 
   /** The scope the stream runs in, used to gate nudges to the same scope. */
   scope?: ResolvedChannel;
@@ -49,16 +38,10 @@ export interface BuildActiveStreamInput {
    */
   abortController?: AbortController;
 
-  /**
-   * Outbound backpressure limit in bytes. `ctx.stream.drain()` resolves once the
-   * buffered amount is below this mark. Defaults to {@link DEFAULT_HIGH_WATER_MARK}.
-   */
-  highWaterMark?: number;
-
   /** True for a broadcast stream — recorded so cancel can notify fan-out peers. */
   broadcast?: boolean;
 
-  /** True for a durable stream. */
+  /** True for a recorded stream, which keeps running when its owner disconnects. */
   durable?: boolean;
 }
 
@@ -75,10 +58,6 @@ export interface ActiveStreamHandle {
  * `iterator.next(value)` call.
  */
 export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHandle {
-  // Backstop for any authoring path the server-time factory checks don't cover
-  // (e.g. a lower-level builder): a non-positive highWaterMark would make drain()
-  // poll to its cap before resolving, so refuse it loudly at stream start.
-  assertValidHighWaterMark(input.highWaterMark, `stream("${input.event}")`);
   const nudgeBuffer: { event: string; payload: unknown }[] = [];
   const nudgeValidators = new Map<string, unknown>();
   for (const nudge of input.nudges) {
@@ -93,11 +72,9 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
     nudges: nudgeBuffer,
     nudgeValidators,
     closed: false,
-    onDisconnect: input.onDisconnect,
     connection: input.connection,
     scope: input.scope,
     abortController: input.abortController ?? new AbortController(),
-    highWaterMark: input.highWaterMark ?? DEFAULT_HIGH_WATER_MARK,
     broadcast: input.broadcast ?? false,
     durable: input.durable ?? false,
   };
@@ -106,13 +83,13 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
 }
 
 /**
- * Default outbound backpressure limit per connection, in bytes (256 KB). Used
- * when a stream config omits `highWaterMark`.
+ * Outbound backpressure limit per connection, in bytes (256 KB).
+ * `ctx.stream.drain()` resolves once the buffered amount is below it.
  */
-export const DEFAULT_HIGH_WATER_MARK = 256 * 1024;
+export const DRAIN_BUFFER_LIMIT_BYTES = 256 * 1024;
 
 /** A poll step for `drain` — defaults to `setTimeout`; injectable for tests. */
-export type DrainDelay = (ms: number) => Promise<void>;
+type DrainDelay = (ms: number) => Promise<void>;
 
 function defaultDelay(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -138,7 +115,6 @@ export interface BuildDrainInput {
    * a broadcast picks up the current membership.
    */
   targets: () => readonly DrainTarget[];
-  highWaterMark: number;
   /** True once the stream is torn down — drain resolves at once instead of hanging. */
   isClosed: () => boolean;
   delay?: DrainDelay;
@@ -156,8 +132,8 @@ function targetSupportsBackpressure(target: DrainTarget): boolean {
 /**
  * Build the `ctx.stream.drain()` function for one stream.
  *
- * Resolves immediately when the outbound buffer is healthy (below the high water
- * mark). Otherwise it polls on a small interval until the buffer drains, then
+ * Resolves immediately when the outbound buffer is healthy (below
+ * {@link DRAIN_BUFFER_LIMIT_BYTES}). Otherwise it polls on a small interval until the buffer drains, then
  * resolves — pausing the generator so it does not outrun the network.
  *
  * For a broadcast stream the generator paces against the *healthiest* client
@@ -194,7 +170,7 @@ export function buildDrain(input: BuildDrainInput): () => Promise<void> {
       // No target reports real backpressure (Cloudflare, or no live targets): no-op.
       if (best === null) return;
 
-      if (best < input.highWaterMark) return;
+      if (best < DRAIN_BUFFER_LIMIT_BYTES) return;
 
       await delay(DRAIN_POLL_INTERVAL_MS);
     }

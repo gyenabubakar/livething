@@ -25,6 +25,10 @@ const CREATE_REPLAY_TABLE_SQL = `
     channelFamily TEXT,
     -- The one user the frame was addressed to, or NULL when it went to everyone in its scope.
     userId TEXT,
+    -- JSON array of the resume tokens of the connections the frame was sent to, or NULL.
+    recipients TEXT,
+    -- The retention budget and gap watermark the row counts toward (see replayAudienceOf).
+    audience TEXT NOT NULL DEFAULT '',
     snapshotKey TEXT,
     createdAt INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
@@ -42,6 +46,11 @@ const CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL = `
   ON __livething_replay (channel, channelFamily, seq)
 `;
 
+const CREATE_REPLAY_AUDIENCE_SEQ_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS __livething_idx_replay_audience_seq
+  ON __livething_replay (channel, channelFamily, audience, seq)
+`;
+
 const CREATE_REPLAY_WATERMARK_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __livething_replay_watermark (
     scope_key TEXT PRIMARY KEY,
@@ -56,6 +65,7 @@ const REPLAY_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_REPLAY_TABLE_SQL,
   CREATE_REPLAY_SEQ_INDEX_SQL,
   CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL,
+  CREATE_REPLAY_AUDIENCE_SEQ_INDEX_SQL,
   CREATE_REPLAY_WATERMARK_TABLE_SQL,
 ].join(';\n');
 
@@ -68,6 +78,7 @@ const REPLAY_ROW_COLUMNS = `
   channel,
   channelFamily,
   userId,
+  recipients,
   snapshotKey,
   createdAt
 `;
@@ -95,6 +106,11 @@ interface ReplayLoadScope {
    * connection. Rows addressed to one user load only for that user.
    */
   userId: string | null;
+  /**
+   * The resume tokens the requester showed. A row sent to chosen connections
+   * loads only when it lists one of them and has the requester's user.
+   */
+  resumeTokens?: readonly string[];
 }
 
 /**
@@ -116,11 +132,12 @@ interface ReplayRowKeyIds {
   messageId: string;
   snapshotKey: string | null;
   userId: string | null;
+  recipients: string | null;
 }
 
 interface ReplayPruneOptions {
   retention: ReplayOptions['retention'] | undefined;
-  scope: ReplayPayloadScope;
+  scope: ReplayAudienceScope;
   owner: ReplayStoreOwner;
   stamp: number;
 }
@@ -236,14 +253,7 @@ export function readReplayScope(livething: Record<string, unknown>): ReplayPaylo
 }
 
 /**
- * Decide whether one broadcast belongs to this replay instance.
- *
- * Built-in replay only ever sees broadcasts — frames addressed to everyone in a
- * scope (`ctx.broadcast`, `ctx.channel.broadcast`) or to one user
- * (`ctx.users.get(id).broadcast`, `ctx.channel.broadcastTo(userRef, ...)`). A
- * frame sent to one connection (`ctx.send`, `ctx.connections.get(ref).send`,
- * `ctx.channel.send`) or to a tag is never recorded: a reconnect gets a new
- * connection id, so no later connection could prove it was the addressee.
+ * Decide whether one outgoing frame belongs to this replay instance.
  *
  * Channel-scoped replay only stores frames for its own channel. Server-level
  * replay (no `channelKey`) cascades — it stores frames for every scope except
@@ -293,6 +303,26 @@ export function shouldStoreReplayMessage(
   );
 }
 
+/** The audience of the shared log: frames sent to everyone in a scope. */
+const SHARED_AUDIENCE = '';
+/** The one audience all frames sent to chosen anonymous connections share. */
+const ANONYMOUS_AUDIENCE = 'anonymous';
+
+/**
+ * The retention budget and gap watermark a row counts toward: the shared log,
+ * one user's rows (sent to that user, or to chosen connections of theirs), or
+ * the rows sent to chosen anonymous connections. Each has its own `maxMessages`
+ * and its own watermark, so one audience's rows never push out another's or
+ * report a gap to a client that never had them. Anonymous connections share one
+ * audience: they have no identity to keep apart, and one per connection would
+ * grow without limit.
+ */
+export function replayAudienceOf(userId: string | null, toChosenConnections: boolean): string {
+  if (userId) return `user:${userId}`;
+
+  return toChosenConnections ? ANONYMOUS_AUDIENCE : SHARED_AUDIENCE;
+}
+
 /**
  * Convert one outgoing frame into the replay row that should be stored. The
  * `payload` column holds the pure user payload; sequence number, message id,
@@ -308,12 +338,16 @@ export interface BuildReplayRowOptions {
   /** The one user the frame was addressed to; leave it out for a whole-scope broadcast. */
   userId?: string;
 
+  /** The resume tokens of the connections the frame was sent to, when it went to chosen ones. */
+  recipients?: readonly string[];
+
   now: number;
 }
 
 export function buildReplayRow(event: string, params: BuildReplayRowOptions): ReplayRow {
   const { options, payload, livething, now } = params;
   const userId = params.userId || null;
+  const recipients = params.recipients ? JSON.stringify(params.recipients) : null;
   const seq = livething.deliverySeq;
   const messageId = livething.messageId;
 
@@ -328,7 +362,7 @@ export function buildReplayRow(event: string, params: BuildReplayRowOptions): Re
   const snapshotKey = type === 'snapshot' ? (options.snapshotKey?.(event, payload) ?? event) : null;
 
   return {
-    rowKey: buildReplayRowKey(type, scope, { messageId, snapshotKey, userId }),
+    rowKey: buildReplayRowKey(type, scope, { messageId, snapshotKey, userId, recipients }),
     messageId,
     seq,
     event,
@@ -336,6 +370,7 @@ export function buildReplayRow(event: string, params: BuildReplayRowOptions): Re
     channel: scope.channel,
     channelFamily: scope.channelFamily,
     userId,
+    recipients,
     snapshotKey,
     createdAt: now,
   };
@@ -351,6 +386,7 @@ function toReplayRow(row: ReplayRow): ReplayRow {
     channel: (row.channel as string | null) ?? null,
     channelFamily: (row.channelFamily as string | null) ?? null,
     userId: (row.userId as string | null) ?? null,
+    recipients: (row.recipients as string | null) ?? null,
     snapshotKey: (row.snapshotKey as string | null) ?? null,
     createdAt: Number(row.createdAt),
   };
@@ -380,7 +416,7 @@ export function getReplayRowByKey(
 /**
  * Delete one replay row by key.
  */
-export function deleteReplayRow(sql: Pick<SQLProvider, 'exec'>, rowKey: string): void {
+function deleteReplayRow(sql: Pick<SQLProvider, 'exec'>, rowKey: string): void {
   sql.exec(
     `
       DELETE FROM __livething_replay
@@ -393,7 +429,7 @@ export function deleteReplayRow(sql: Pick<SQLProvider, 'exec'>, rowKey: string):
 /**
  * Convert a stored replay row into the reducer-facing snapshot value shape.
  */
-export function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
+function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
   return {
     event: row.event,
     payload: JSON.parse(row.payload) as Record<string, unknown>,
@@ -422,6 +458,9 @@ export interface PersistReplayMessageOptions {
 
   /** The one user the frame was addressed to; leave it out for a whole-scope broadcast. */
   userId?: string;
+
+  /** The resume tokens of the connections the frame was sent to, when it went to chosen ones. */
+  recipients?: readonly string[];
 
   now: number;
 
@@ -471,11 +510,11 @@ export function persistReplayMessage(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
   opts: PersistReplayMessageOptions,
 ): ReplayRow | null {
-  const { options, event, payload, livething, userId, now, scope, postFlush, validateReduced } =
-    opts;
+  const { options, event, payload, livething, userId, recipients, now } = opts;
+  const { scope, postFlush, validateReduced } = opts;
   function noopPostFlush(): void {}
 
-  const row = buildReplayRow(event, { options, payload, livething, userId, now });
+  const row = buildReplayRow(event, { options, payload, livething, userId, recipients, now });
 
   if ((options.type ?? 'history') === 'history') {
     storeReplayRow(sql, row);
@@ -566,16 +605,19 @@ export function persistReplayMessage(
 }
 
 /**
- * A snapshot row is keyed per audience too, so a value addressed to one user
- * never replaces (or is merged into) the value everyone in the scope sees.
+ * A row is keyed per audience, so a value addressed to one user or to chosen
+ * connections never replaces (or is merged into) the value others see. A frame
+ * sent to the connections of several users is stored as one row per user.
  */
 function buildReplayRowKey(
   type: ReplayType,
   scope: ReplayPayloadScope,
   ids: ReplayRowKeyIds,
 ): string {
-  const { messageId, snapshotKey, userId } = ids;
-  if (type === 'history') return messageId;
+  const { messageId, snapshotKey, userId, recipients } = ids;
+  if (type === 'history') {
+    return recipients === null ? messageId : JSON.stringify([messageId, userId]);
+  }
 
   return JSON.stringify([
     'snapshot',
@@ -583,6 +625,7 @@ function buildReplayRowKey(
     scope.channelFamily ?? '',
     snapshotKey ?? messageId,
     userId,
+    ...(recipients === null ? [] : [recipients]),
   ]);
 }
 
@@ -601,9 +644,11 @@ export function storeReplayRow(sql: Pick<SQLProvider, 'exec'>, row: ReplayRow): 
         channel,
         channelFamily,
         userId,
+        recipients,
+        audience,
         snapshotKey,
         createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     row.rowKey,
     row.messageId,
@@ -613,6 +658,8 @@ export function storeReplayRow(sql: Pick<SQLProvider, 'exec'>, row: ReplayRow): 
     row.channel,
     row.channelFamily,
     row.userId,
+    row.recipients,
+    replayAudienceOf(row.userId, row.recipients !== null),
     row.snapshotKey,
     row.createdAt,
   );
@@ -666,33 +713,51 @@ export function readReplayWatermark(
   return row ? Number(row.evicted_through_seq) : null;
 }
 
-/** Watermark key for rows sent to one user, kept apart from the scope's shared rows. */
-function replayUserWatermarkKey(scopeKey: string, userId: string): string {
-  return JSON.stringify(['user', scopeKey, userId]);
-}
-
-function replayWatermarkKey(scope: ReplayStorageScope, userId: string | null): string {
+/**
+ * Watermark key for one audience of one scope; the shared log keeps the plain scope key. An
+ * audience key has three items and a channel scope key two, so a channel family named like an
+ * audience (`user:bob`) never shares a key start with that audience.
+ */
+function replayWatermarkKey(scope: ReplayStorageScope, audience: string): string {
   const scopeKey = replayScopeKey(scope);
-  return userId === null ? scopeKey : replayUserWatermarkKey(scopeKey, userId);
+  return audience === SHARED_AUDIENCE ? scopeKey : JSON.stringify(['audience', audience, scopeKey]);
 }
 
 /**
- * The highest evicted `seq` a user could have received in one scope: the
- * scope's shared rows plus the rows sent only to that user. Rows sent to other
- * users never count, so their eviction cannot report a gap to this user.
+ * The highest evicted `seq` a client could have received in one scope: the
+ * scope's shared rows plus the rows of its own audience (`null` for none). Rows
+ * of another audience never count, so their eviction cannot report a gap to
+ * this client.
  */
 export function readReplayGapWatermark(
   sql: Pick<SQLProvider, 'exec'>,
   scope: ReplayStorageScope,
-  userId: string | null,
+  audience: string | null,
 ): number | null {
   const shared = readReplayWatermark(sql, replayScopeKey(scope));
-  if (userId === null) return shared;
+  if (audience === null) return shared;
 
-  const own = readReplayWatermark(sql, replayWatermarkKey(scope, userId));
+  const own = readReplayWatermark(sql, replayWatermarkKey(scope, audience));
   if (shared === null) return own;
 
   return own === null ? shared : Math.max(shared, own);
+}
+
+/** Delete one user's replay rows and gap watermarks, in every store. */
+export function purgeReplayUser(
+  sql: Pick<SQLProvider, 'exec' | 'transaction'>,
+  userId: string,
+): void {
+  // A user watermark key is `JSON.stringify(['audience', audience, scopeKey])`; this is its start.
+  const watermarkPrefix = `${JSON.stringify(['audience', replayAudienceOf(userId, false)]).slice(0, -1)},`;
+  sql.transaction(() => {
+    sql.exec('DELETE FROM __livething_replay WHERE userId = ?', userId);
+    sql.exec(
+      'DELETE FROM __livething_replay_watermark WHERE substr(scope_key, 1, length(?)) = ?',
+      watermarkPrefix,
+      watermarkPrefix,
+    );
+  });
 }
 
 /**
@@ -758,15 +823,15 @@ export function pruneExpiredReplayRows(
     .exec<{
       channel: string | null;
       channelFamily: string | null;
-      userId: string | null;
+      audience: string;
       m: number;
     }>(
       `
-        SELECT channel, channelFamily, userId, MAX(seq) AS m
+        SELECT channel, channelFamily, audience, MAX(seq) AS m
         FROM __livething_replay
         WHERE createdAt < ?
           AND ${owned.where}
-        GROUP BY channel, channelFamily, userId
+        GROUP BY channel, channelFamily, audience
       `,
       cutoff,
       ...owned.params,
@@ -782,7 +847,7 @@ export function pruneExpiredReplayRows(
           channel: (scope.channel as string | null) ?? null,
           channelFamily: (scope.channelFamily as string | null) ?? null,
         },
-        (scope.userId as string | null) ?? null,
+        String(scope.audience),
       ),
       Number(scope.m),
     );
@@ -819,55 +884,49 @@ export function pruneExpiredReplayRows(
   }
 }
 
+/** One audience's rows in one replay store: the unit `maxMessages` limits. */
+export interface ReplayAudienceScope extends ReplayPayloadScope {
+  /** From `replayAudienceOf`. */
+  audience: string;
+}
+
 /**
- * Trim one replay store down to the configured maximum row count.
- *
- * Replay has exactly two replay stores: the top-level one and one per channel.
- * The limit is matched to the read by keying on `channel`/`channelFamily`:
- *
- * - Top-level store (`channel` is null): keep the newest N across every
- *   non-channel row.
- * - Channel store: keep the newest N for that one `(channel, channelFamily)`.
- *
- * Both cases fall out of the same query: a null `channel`/`channelFamily` binds
- * to the top-level rows, a real channel binds to that channel's rows. Ordering
- * by `seq` is well-defined because the sequence counter is global (one counter
- * for the whole server).
+ * Trim one audience of one replay store down to the configured maximum row
+ * count, keeping its newest rows. A store is the top level or one channel; a
+ * null `channel`/`channelFamily` binds to the top-level rows. Ordering by `seq`
+ * is well-defined because the sequence counter is global (one counter for the
+ * whole server).
  */
 export function pruneReplayScopeRows(
   sql: Pick<SQLProvider, 'exec'>,
   retention: ReplayOptions['retention'] | undefined,
-  scope: ReplayPayloadScope,
+  scope: ReplayAudienceScope,
 ): void {
   if (retention?.maxMessages === undefined) return;
 
   const dropped = sql
-    .exec<{ userId: string | null; m: number }>(
+    .exec<{ m: number | null }>(
       `
-        SELECT userId, MAX(seq) AS m
+        SELECT MAX(seq) AS m
         FROM (
-          SELECT seq, userId
+          SELECT seq
           FROM __livething_replay
           WHERE channel IS ?
             AND channelFamily IS ?
+            AND audience = ?
           ORDER BY seq DESC
           LIMIT -1 OFFSET ?
         )
-        GROUP BY userId
       `,
       scope.channel,
       scope.channelFamily,
+      scope.audience,
       retention.maxMessages,
     )
-    .toArray();
+    .one();
+  if (dropped?.m == null) return;
 
-  for (const audience of dropped) {
-    bumpReplayWatermark(
-      sql,
-      replayWatermarkKey(scope, (audience.userId as string | null) ?? null),
-      Number(audience.m),
-    );
-  }
+  bumpReplayWatermark(sql, replayWatermarkKey(scope, scope.audience), Number(dropped.m));
 
   sql.exec(
     `
@@ -877,35 +936,36 @@ export function pruneReplayScopeRows(
         FROM __livething_replay
         WHERE channel IS ?
           AND channelFamily IS ?
+          AND audience = ?
         ORDER BY seq DESC
         LIMIT -1 OFFSET ?
       )
     `,
     scope.channel,
     scope.channelFamily,
+    scope.audience,
     retention.maxMessages,
   );
 }
 
-/** Count the rows in one replay store (top-level or a single channel). */
-export function countReplayScopeRows(
-  sql: Pick<SQLProvider, 'exec'>,
-  scope: ReplayPayloadScope,
-): number {
+/** Count one audience's rows in one replay store. */
+function countReplayScopeRows(sql: Pick<SQLProvider, 'exec'>, scope: ReplayAudienceScope): number {
   const row = sql
     .exec<{
       n: number;
     }>(
-      `SELECT COUNT(*) AS n FROM __livething_replay WHERE channel IS ? AND channelFamily IS ?`,
+      `SELECT COUNT(*) AS n FROM __livething_replay
+       WHERE channel IS ? AND channelFamily IS ? AND audience = ?`,
       scope.channel,
       scope.channelFamily,
+      scope.audience,
     )
     .one();
   return row ? Number(row.n) : 0;
 }
 
 /** The oldest `createdAt` among the rows one replay instance owns, or null when it has none. */
-export function minReplayCreatedAt(
+function minReplayCreatedAt(
   sql: Pick<SQLProvider, 'exec'>,
   owner: ReplayStoreOwner,
 ): number | null {
@@ -965,7 +1025,7 @@ export class ReplayPruneGate {
     }
 
     if (retention?.maxMessages !== undefined) {
-      const key = replayScopeKey(scope);
+      const key = replayWatermarkKey(scope, scope.audience);
       const cached = this.scopeCounts.get(key);
       const count = cached === undefined ? countReplayScopeRows(sql, scope) : cached + 1;
       if (count > retention.maxMessages) {
@@ -984,13 +1044,15 @@ export class ReplayPruneGate {
  * A row addressed to one user loads only when `scope.userId` is that user; a
  * whole-scope row loads for anyone who may read the scope. An anonymous
  * requester (`userId` null) never matches a user row, because `userId = NULL`
- * is never true in SQL.
+ * is never true in SQL. A row sent to chosen connections loads only when it
+ * lists one of `scope.resumeTokens` and has the requester's user (`NULL` for
+ * an anonymous requester).
  */
 export function buildLoadReplayQuery(
   since: number,
   scope: ReplayLoadScope,
 ): { sql: string; params: unknown[] } {
-  const audience = '(userId IS NULL OR userId = ?)';
+  const audience = replayAudience(scope);
 
   if (scope.channelName) {
     if (scope.channelFamily === null) {
@@ -1001,10 +1063,10 @@ export function buildLoadReplayQuery(
           WHERE channel IS ?
             AND channelFamily IS NULL
             AND seq > ?
-            AND ${audience}
+            AND ${audience.sql}
           ORDER BY seq ASC
         `,
-        params: [scope.channelName, since, scope.userId],
+        params: [scope.channelName, since, ...audience.params],
       };
     }
 
@@ -1015,10 +1077,10 @@ export function buildLoadReplayQuery(
         WHERE channel IS ?
           AND channelFamily IS ?
           AND seq > ?
-          AND ${audience}
+          AND ${audience.sql}
         ORDER BY seq ASC
       `,
-      params: [scope.channelName, scope.channelFamily, since, scope.userId],
+      params: [scope.channelName, scope.channelFamily, since, ...audience.params],
     };
   }
 
@@ -1033,10 +1095,25 @@ export function buildLoadReplayQuery(
       WHERE channel IS NULL
         AND channelFamily IS NULL
         AND seq > ?
-        AND ${audience}
+        AND ${audience.sql}
       ORDER BY seq ASC
     `,
-    params: [since, scope.userId],
+    params: [since, ...audience.params],
+  };
+}
+
+function replayAudience(scope: ReplayLoadScope): { sql: string; params: unknown[] } {
+  const shared = '(recipients IS NULL AND (userId IS NULL OR userId = ?))';
+  const resumeTokens = scope.resumeTokens ?? [];
+  if (resumeTokens.length === 0) return { sql: shared, params: [scope.userId] };
+
+  const tokens = resumeTokens.map(() => '?').join(', ');
+
+  return {
+    sql: `(${shared} OR (recipients IS NOT NULL AND userId IS ? AND EXISTS (
+      SELECT 1 FROM json_each(recipients) WHERE value IN (${tokens})
+    )))`,
+    params: [scope.userId, scope.userId, ...resumeTokens],
   };
 }
 

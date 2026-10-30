@@ -17,7 +17,6 @@ import { emits } from '~/emits/emits.ts';
 import { replay } from '~/replay/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
@@ -39,7 +38,7 @@ const tinyDefinition = tinyBase.assemble({
 });
 
 const mediumBase = server({
-  hibernation: { enabled: true },
+  hibernation: true,
   capabilities: [
     clientRequests(),
     stream(),
@@ -84,14 +83,13 @@ function channelEmits(prefix: string) {
 }
 
 const heavyBase = server({
-  hibernation: { enabled: true },
+  hibernation: true,
   capabilities: [
     dedup(),
     sequence({ persist: true }),
     replay.history(),
     clientRequests(),
     stream(),
-    cursorStream(),
     recordedStream(),
     channels(),
     emits({ 'o-a': EmptyOut, 'o-b': EmptyOut, 'o-c': EmptyOut, 'o-d': EmptyOut, 'o-e': EmptyOut }),
@@ -126,15 +124,6 @@ for (const name of ['s-a', 's-b']) {
   );
 }
 
-heavyHandlers.push(
-  heavyBase.cursorStream('rs-a', {
-    input: Empty,
-    chunk: NumChunk,
-    async *run() {
-      yield { n: 1 };
-    },
-  }),
-);
 heavyHandlers.push(
   heavyBase.recordedStream('rec-a', {
     input: Empty,

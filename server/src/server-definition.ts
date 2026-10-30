@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { ConnectionlessContext } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { TranslatorFactory } from '~/translation/translator.ts';
 
 /**
  * The contract of a server, described from the **server's** point of view.
@@ -18,14 +18,13 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
  * | `base.request('r', …)`      | `clientRequests`     | `clientRequests`          |
  * | `serverRequests({...})`     | `serverRequests`     | `serverRequests`          |
  * | `base.stream('s', …)`       | `streams`            | `streams`                 |
- * | `base.cursorStream('s', …)` | `streams`         | `streams`                 |
- * | `base.recordedStream('s', …)`  | `streams`         | `streams`                 |
+ * | `base.recordedStream('s', …)` | `streams`         | `streams`                 |
  * | `errors([...])`             | `errors`             | `errors`                  |
  * | `base.channel('x', …)`      | `channels`           | `channels` (each flipped) |
  *
- * `cursorStream` and `recordedStream` collapse into the same client
- * `streams` slot as plain `stream` — the durability mechanism is a server
- * concern and does not change the client's wire surface.
+ * `recordedStream` collapses into the same client `streams` slot as plain
+ * `stream` — the durability mechanism is a server concern and does not change
+ * the client's wire surface.
  *
  * For routed handlers, a row exists only when the value returned by the
  * matching `base.*(...)` call is included in `base.assemble({ handlers: [...] })`.
@@ -65,9 +64,8 @@ export interface ServerContract {
   /**
    * Server-sent streams the client subscribes to. From the client's
    * perspective every server-pushed stream lives here regardless of
-   * whether the server declared it with `stream(...)`, `cursorStream(...)`,
-   * or `recordedStream(...)` — the durability mechanism is a server-side
-   * concern.
+   * whether the server declared it with `stream(...)` or `recordedStream(...)`
+   * — the durability mechanism is a server-side concern.
    */
   readonly streams: Record<string, any>;
 
@@ -109,12 +107,15 @@ export interface ServerContract {
  * @template TScopedCtx - The `ctx` type a scoped server definition's own handlers receive.
  * @template TApi - The return type of the server definition's `api` factory (the per-connection
  *   surface a plugin exposes via `ctx.plugin(id)`). `unknown` when no `api` is given.
+ * @template TConnectionlessCtx - The `ctx` type the definition's `api` factory, scheduled task
+ *   bodies and `onShutdown` hooks receive. Adapters read it to type the admin surface.
  */
 export interface ServerDefinition<
   TPrimitives extends readonly Primitive[] = readonly Primitive[],
   TContract extends ServerContract = ServerContract,
   TScopedCtx = unknown,
   TApi = unknown,
+  TConnectionlessCtx = unknown,
 > {
   readonly __livething: 'server';
   /** Id of the `base` that assembled this definition. Read by the `context.*` accessors. @internal */
@@ -138,15 +139,19 @@ export interface ServerDefinition<
    * Absent (`unknown`) when no `api` was given.
    */
   readonly __api?: TApi;
-  /** Runtime feature flags copied from the contract config for compile-time validation. */
-  readonly __features?: ReadonlySet<string>;
+  /**
+   * Type-only field — never set at runtime.
+   *
+   * The connectionless `ctx` type this definition was assembled with.
+   * {@link AdminOf} reads it so an adapter's admin surface is typed against
+   * the server's own emits, channels and scheduled tasks.
+   */
+  readonly __connectionlessCtx?: TConnectionlessCtx;
   /** The per-user connection cap from `server({ users: {...} })`, enforced on accept. */
   readonly __usersPolicy?: {
     readonly maxConnections?: number;
     readonly onExceed: 'replace' | 'reject';
   };
-  /** One optional foreign-wire translator factory, created once per connection. */
-  readonly __translate?: TranslatorFactory;
   /**
    * Type-only field — never set at runtime.
    *
@@ -166,6 +171,17 @@ export interface ServerDefinition<
  */
 export type ApiOf<TDefinition> =
   TDefinition extends ServerDefinition<any, any, any, infer TApi> ? TApi : unknown;
+
+/**
+ * The full admin surface of a server definition: its connectionless `ctx`
+ * (typed against the definition's own emits, channels and scheduled tasks)
+ * merged with the app's own `api` methods. An in-process adapter's
+ * `admin()` resolves to this type.
+ */
+export type AdminOf<TDefinition> =
+  TDefinition extends ServerDefinition<any, any, any, infer TApi, infer TCtx>
+    ? (unknown extends TCtx ? ConnectionlessContext<Record<string, unknown>, unknown> : TCtx) & TApi
+    : ConnectionlessContext<Record<string, unknown>, unknown>;
 
 /**
  * The per-connection metadata type a server definition's `upgrade(...)` returns, read off

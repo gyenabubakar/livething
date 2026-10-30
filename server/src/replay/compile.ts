@@ -15,7 +15,7 @@ export function collectReplayClaimedScopes(
   parentChannelKey?: string,
 ): void {
   for (const primitive of primitives) {
-    if (primitive.__livething === 'replay' || primitive.__livething === 'replayCustom') {
+    if (primitive.__livething === 'replay') {
       if (parentChannelKey) out.add(parentChannelKey);
       continue;
     }

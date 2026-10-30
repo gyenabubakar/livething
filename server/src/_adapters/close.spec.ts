@@ -46,7 +46,7 @@ describe('normalizeCloseReason', () => {
     const close = vi.fn();
     const onInvalidCloseCode = vi.fn();
     const descriptor = normalizeConnectionDescriptor(
-      { send() {}, close, bufferedAmount: () => 0, userId: '' },
+      { send() {}, close, bufferedAmount: () => 0 },
       { onInvalidCloseCode },
     );
 

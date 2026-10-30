@@ -6,7 +6,6 @@ import type * as OutgoingPrimitive from '~/outgoing/index.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as RequestPrimitive from '~/request/request.ts';
 import type * as ScheduledPrimitive from '~/scheduled/scheduled.ts';
-import type * as CursorStreamPrimitive from '~/stream-cursor/stream-cursor.ts';
 import type * as RecordedStreamPrimitive from '~/stream-recorded/stream-recorded.ts';
 import type * as StreamPrimitive from '~/stream/stream.ts';
 
@@ -27,8 +26,6 @@ export type AnyGenerate = StreamPrimitive.GeneratePrimitive<
   any,
   any
 >;
-/** Compiled cursor stream handler (`cursorStream(...)` after compile). */
-export type AnyCursorStream = CursorStreamPrimitive.CursorStreamGeneratePrimitive;
 /** Compiled recorded stream handler (`recordedStream(...)` after compile). */
 export type AnyRecordedStream = RecordedStreamPrimitive.RecordedStreamGeneratePrimitive;
 /** Any `.intercept()` primitive. */
@@ -38,7 +35,7 @@ export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, an
 /** Widened `.channel()` primitive type for the compile layer. */
 export type ChannelPrimitiveType = ChannelPrimitive.ChannelPrimitive;
 /** Adapter dependency manifest — which platform features a primitive needs. */
-export type RequiresManifest = PrimitiveCore.RequiresManifest;
+type RequiresManifest = PrimitiveCore.RequiresManifest;
 
 /**
  * Precomputed channel or channel-family view used by the runtime.
@@ -57,8 +54,6 @@ export interface CompiledChannel {
   requests: Map<string, AnyRequest>;
 
   streams: Map<string, AnyGenerate>;
-
-  cursorStreams: Map<string, AnyCursorStream>;
 
   recordedStreams: Map<string, AnyRecordedStream>;
 
@@ -85,7 +80,7 @@ export interface CompiledChannel {
  * connection would breach it — `reject` refuses the newcomer, `replace` evicts
  * the user's oldest connection(s) to make room. Absent means unlimited.
  */
-export interface UsersPolicy {
+interface UsersPolicy {
   maxConnections?: number;
   onExceed: 'replace' | 'reject';
 }
@@ -98,8 +93,6 @@ export interface CompiledServer {
   requests: Map<string, AnyRequest>;
 
   streams: Map<string, AnyGenerate>;
-
-  cursorStreams: Map<string, AnyCursorStream>;
 
   recordedStreams: Map<string, AnyRecordedStream>;
 
@@ -126,5 +119,3 @@ export interface CompiledServer {
   /** Per-user connection cap from `server({ users: {...} })`, or `undefined` for unlimited. */
   usersPolicy?: UsersPolicy;
 }
-
-export type { ChannelPrimitive, OutgoingPrimitive, RequestPrimitive };

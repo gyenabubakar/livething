@@ -72,7 +72,7 @@ describe('signal bus', () => {
 
 describe('generateId', () => {
   // Ids carry a per-socket random scope segment before the counter so two fresh
-  // sockets never collide (#1): `<scope>-<n>` with no prefix, `<prefix>-<scope>-<n>` with one.
+  // sockets never collide: `<scope>-<n>` with no prefix, `<prefix>-<scope>-<n>` with one.
   it('returns scope-counter when no prefix is given', () => {
     const gen = idGenerator(makeHelpers());
     const id = gen();
@@ -124,7 +124,7 @@ describe('generateId', () => {
   });
 });
 
-describe('id scope fallback (#17)', () => {
+describe('id scope fallback', () => {
   /** The per-socket scope segment of `<scope>-<n>` (no prefix). */
   function scopeOf(socket: LiveThingSocket): string {
     const id = idGenerator(socket._helpers())();

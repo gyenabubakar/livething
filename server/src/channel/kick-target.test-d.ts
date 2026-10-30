@@ -24,7 +24,7 @@ room.on('moderate', {
     await ctx.channel.kick(ctx.users.get('u-1').ref(), { reason: 'spam' });
     await ctx.channel.kick(ctx.tags.ephemeral('role').ref('troll'), { reason: 'spam' });
     await ctx.channel.kick(ctx.tags.ephemeral('role'), { reason: 'spam' });
-    await ctx.channel.kick(ctx.tags.persistent('team'), { reason: 'spam', revoke: true });
+    await ctx.channel.kick(ctx.tags.persistent('team'), { reason: 'spam' });
 
     // @ts-expect-error a connection ref is not a kick target; close the connection instead
     await ctx.channel.kick(ctx.connection.ref(), { reason: 'spam' });

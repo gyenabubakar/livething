@@ -18,7 +18,7 @@ function buildEngine(definition: ServerDefinition, platform: unknown = {}): Engi
       captured = createEngine({
         storage: createTestStorage(),
         platform,
-        timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+        timers: { setAlarm() {}, deleteAlarm() {} } as never,
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};
@@ -93,7 +93,7 @@ describe("a plugin's upgrade(request, ctx)", () => {
         captured = createEngine({
           storage,
           platform: { name: 'test-platform' },
-          timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+          timers: { setAlarm() {}, deleteAlarm() {} } as never,
           logger: { info() {}, warn() {}, error() {} },
         });
         return {};
@@ -219,7 +219,7 @@ describe('plugin upgrades and the single userId', () => {
         captured = createEngine({
           storage: createTestStorage(),
           platform: {},
-          timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+          timers: { setAlarm() {}, deleteAlarm() {} } as never,
           logger: {
             info() {},
             warn() {},

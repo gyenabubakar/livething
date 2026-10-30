@@ -7,6 +7,4 @@ export type {
   ChannelReadReceiptsApi,
   CursorList,
   ReceiptQueryOptions,
-  InboxPrimitive,
-  ReadReceiptsPrimitive,
 } from '~/primitives/inbox/types.ts';

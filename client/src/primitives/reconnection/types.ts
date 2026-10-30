@@ -25,7 +25,10 @@ export interface ReconnectionOptions {
    */
   shouldReconnect?: (code: number, reason: string) => boolean | void;
 
-  /** Close codes that should never trigger a retry (e.g. "banned"). */
+  /**
+   * More close codes that should never trigger a retry. These add to the
+   * built-in list: `AUTH_INVALID` (4002), `DUPLICATE` (4003) and `BANNED` (4009).
+   */
   nonRetryableCodes?: number[];
 
   /** Pause retries while the device is offline (needs a platform environment). Default: `true`. */

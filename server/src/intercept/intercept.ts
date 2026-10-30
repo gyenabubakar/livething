@@ -44,23 +44,50 @@ export interface InterceptFrame<TOwnerId extends string = string> {
 }
 
 /**
- * The shape of a message as it travels through the outbound authoring pipeline.
+ * Who one send was addressed to.
  *
- * Same locked-event rule as `InterceptFrame`: the return value replaces
- * `payload` only. There is no `kind`/`routing` here — an outgoing frame is
- * already routed.
+ * - `all`: every connection on the server (`ctx.broadcast`, a top-level
+ *   broadcast stream).
+ * - `channel`: every member of `frame.channel`.
+ * - `connection`: one connection.
+ * - `user`: every connection of one user.
+ * - `tag`: every connection with one tag key, or with any key of a tag group
+ *   when `key` is absent.
+ */
+export type OutgoingTarget =
+  | { readonly kind: 'all' }
+  | { readonly kind: 'channel' }
+  | { readonly kind: 'connection'; readonly id: string }
+  | { readonly kind: 'user'; readonly id: string }
+  | {
+      readonly kind: 'tag';
+      readonly tagKind: 'ephemeral' | 'persistent';
+      readonly group: string;
+      readonly key?: string;
+    };
+
+/**
+ * One server→client send, as the `onOutgoing` hook sees it after the frame went
+ * out. A send to many connections is one frame: every recipient got the same
+ * payload and the same delivery metadata.
  */
 export interface OutgoingFrame<TOwnerId extends string = string> {
-  /** The event name as it will be sent to the client. */
+  /** The event name as it was sent to the client. */
   readonly event: string;
   /**
-   * The payload value. `ctx.matches()` / `ctx.unsafeCast()` take only an
-   * incoming `InterceptFrame`, so check `frame.event` and narrow the payload
+   * The payload as it was sent. `ctx.matches()` / `ctx.unsafeCast()` take only
+   * an incoming `InterceptFrame`, so check `frame.event` and narrow the payload
    * yourself.
    */
   readonly payload: unknown;
   /** Whether this event is app-owned or plugin-owned, derived from its name. */
   readonly owner: FrameOwner<TOwnerId>;
+  /** The channel the frame was sent in, or `null` for a top-level frame. */
+  readonly channel: { readonly name: string; readonly family: string | null } | null;
+  /** Who the send was addressed to. */
+  readonly target: OutgoingTarget;
+  /** How many sockets the frame was written to. It can be `0`. */
+  readonly recipients: number;
 }
 
 /**
@@ -86,7 +113,7 @@ export interface InterceptRouting {
  * — whatever value you return becomes `frame.payload` verbatim, even if it
  * happens to be an object with its own `event` or `routing` fields.
  */
-export type InterceptResult = unknown | void | Promise<unknown | void>;
+type InterceptResult = unknown | void | Promise<unknown | void>;
 
 /**
  * Handler signature for an intercept: runs before any event is dispatched.
@@ -151,7 +178,6 @@ const INTERCEPT_KEY = Symbol('intercept');
 export function intercept(handler: InterceptHandler<any>): InterceptPrimitive<any> {
   return {
     __livething: 'intercept',
-    __kind: 'infrastructure',
     __identity: [INTERCEPT_KEY, 'intercept'],
     __requires: {},
     handler,
@@ -159,14 +185,9 @@ export function intercept(handler: InterceptHandler<any>): InterceptPrimitive<an
 }
 
 /**
- * Symbol key used to reference this primitive in dependency declarations.
- */
-intercept.__key = INTERCEPT_KEY;
-
-/**
- * Handler signature for an outgoing hook: runs on every server→client frame
- * before it is serialized. Return a value to rewrite the payload; return
- * nothing to observe. The event is locked.
+ * Handler signature for an outgoing hook: watches each server→client send once,
+ * after the frame went out. It cannot change or stop the frame. An error it
+ * throws, or a promise it returns that rejects, is logged.
  *
  * `ctx` is the context of the connection whose `on`, `request` or `stream`
  * handler, intercept, or `onConnect` hook is running when the frame is sent —
@@ -178,7 +199,7 @@ intercept.__key = INTERCEPT_KEY;
 export type OutgoingHandler<TCtx = any> = (
   ctx: TCtx | undefined,
   frame: OutgoingFrame,
-) => unknown | void | Promise<unknown | void>;
+) => void | Promise<void>;
 
 /** Primitive type for an outgoing hook. */
 export interface OutgoingHookPrimitive<TCtx = any> extends Primitive<'outgoingHook'> {
@@ -191,9 +212,8 @@ export interface OutgoingHookPrimitive<TCtx = any> extends Primitive<'outgoingHo
 const OUTGOING_HOOK_KEY = Symbol('outgoingHook');
 
 /**
- * Creates an outgoing-hook primitive that fires on every outbound frame before
- * serialization. Mirrors `intercept` on the inbound side: one per scope, the
- * return value replaces `frame.payload` only, the event is locked.
+ * Creates an outgoing-hook primitive that watches every server→client send
+ * once, after the frame went out. One per scope, like `intercept`.
  *
  * Its `__setup` registers the hook through the engine's `onOutgoing` seam, so
  * it joins the same outgoing pipeline plugins already feed.
@@ -201,7 +221,6 @@ const OUTGOING_HOOK_KEY = Symbol('outgoingHook');
 export function outgoingHook(handler: OutgoingHandler<any>): OutgoingHookPrimitive<any> {
   return {
     __livething: 'outgoingHook',
-    __kind: 'infrastructure',
     __identity: [OUTGOING_HOOK_KEY, 'outgoingHook'],
     __requires: {},
     handler,
@@ -210,8 +229,3 @@ export function outgoingHook(handler: OutgoingHandler<any>): OutgoingHookPrimiti
     },
   } as OutgoingHookPrimitive<any>;
 }
-
-/**
- * Symbol key used to reference this primitive in dependency declarations.
- */
-outgoingHook.__key = OUTGOING_HOOK_KEY;

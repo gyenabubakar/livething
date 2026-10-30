@@ -4,7 +4,7 @@ import type { Message, PrimitiveHelpers } from '~/internal/runtime.ts';
 import type { ScopeInfo } from '~/internal/scoped.ts';
 
 /** The two query events: inbox owns `__receivedQuery__`, read-receipts `__readQuery__`. */
-export type ReceiptQueryEvent = '__receivedQuery__' | '__readQuery__';
+type ReceiptQueryEvent = '__receivedQuery__' | '__readQuery__';
 
 /** A `receiversOf`/`readersOf` call waiting on its query answer. */
 export interface PendingQuery {

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidHighWaterMark, collectUnique } from '~/_engine/compile/utils.ts';
+import { collectUnique } from '~/_engine/compile/utils.ts';
 import { assertNonReservedEventName } from '~/event-name.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { TypeMarker } from '~/_api/definitions.ts';
@@ -22,7 +22,6 @@ interface StreamConfig<TPayload, TChunk, TNudges extends readonly NudgeDef<strin
   nudges?: TNudges;
   broadcast?: boolean;
   allowConcurrent?: boolean;
-  highWaterMark?: number;
 }
 
 /**
@@ -43,7 +42,6 @@ export interface StreamDef<
   readonly nudges: TNudges;
   readonly broadcast: boolean;
   readonly allowConcurrent: boolean;
-  readonly highWaterMark?: number;
 }
 
 /**
@@ -73,7 +71,6 @@ export function stream<
   config?: StreamConfig<TPayload, TChunk, TNudges>,
 ): StreamDef<TName, TPayload, TChunk, TNudges> {
   assertNonReservedEventName(name, 'stream');
-  assertValidHighWaterMark(config?.highWaterMark, `stream("${name}")`);
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context: `stream("${name}")` });
 
@@ -85,6 +82,5 @@ export function stream<
     nudges,
     broadcast: config?.broadcast ?? false,
     allowConcurrent: config?.allowConcurrent ?? false,
-    highWaterMark: config?.highWaterMark,
   };
 }

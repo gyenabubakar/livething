@@ -21,13 +21,7 @@ import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 
-type HooksParameter = {
-  beforeBroadcast?: unknown;
-  afterBroadcast?: unknown;
-  replay: unknown;
-};
 type ConfigParameter = { input?: unknown; allowInterleaving?: boolean; run: any };
-type HooksParameter2 = { beforeBroadcast?: any; afterBroadcast?: any; replay: any };
 
 /** Builds one stream primitive from a `(event, config)` pair. Supplied by a stream capability. */
 type StreamBuild = (event: string, config: unknown) => Primitive;
@@ -49,7 +43,6 @@ interface ChannelOnlyBuilder {
 /** The capability name a channel stream of each kind needs listed. */
 const CHANNEL_STREAM_CAPABILITY = {
   plain: 'stream()',
-  cursor: 'cursorStream()',
   recorded: 'recordedStream()',
 } as const;
 
@@ -65,13 +58,10 @@ export interface ChannelDeps {
   /** Stream builders by kind, present only for the stream capabilities that are listed. */
   readonly streamBuilders: {
     plain?: StreamBuild;
-    cursor?: StreamBuild;
     recorded?: StreamBuild;
   };
-  /** Custom-replay builder, present only when `replay.custom()` is listed. */
-  readonly buildCustomReplay?: (hooks: HooksParameter) => Primitive;
-  /** Built-in replay builder, present only when `replay.history()`/`replay.snapshot()` is listed. */
-  readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
+  /** Replay builder, present only when `replay.history()`/`replay.snapshot()` is listed. */
+  readonly buildReplay?: (replayConfig: unknown) => Primitive;
   /** Request builder, present only when the `clientRequests()` capability is listed. */
   readonly buildClientRequest?: (event: string, config: ConfigParameter) => Primitive;
   /**
@@ -96,9 +86,9 @@ function withChannelCtx(
  * `assemble()` enables that handler; passing the channel itself only includes
  * its configuration and lifecycle behavior.
  *
- * Stream and custom-replay handlers delegate to the matching capability's
+ * Stream and replay handlers delegate to the matching capability's
  * builder (passed in as `deps`), so a channel only pulls in those engines when
- * the app also lists `stream()` / `replay.custom()` / etc.
+ * the app also lists `stream()` / `replay.history()` / etc.
  */
 export class ChannelBuilder {
   /** Marks this value for `assemble()` to collect as a channel. @internal */
@@ -140,16 +130,16 @@ export class ChannelBuilder {
       `channel '${this.__key}' capabilities`,
     );
 
-    if (cfg.rateLimit) this.__rateLimit = cfg.rateLimit as RateLimitConfig;
+    if (cfg.rateLimit !== undefined) this.__rateLimit = cfg.rateLimit as RateLimitConfig;
     if (cfg.membership !== undefined) {
       this.children.push(membershipMarker(cfg.membership === 'persistent'));
     }
 
     if (cfg.replay !== undefined) {
-      const build = deps.buildBuiltinReplay;
+      const build = deps.buildReplay;
       if (!build) {
         throw new Error(
-          `[livething] channel '${this.__key}' sets replay but no built-in replay capability is ` +
+          `[livething] channel '${this.__key}' sets replay but no replay capability is ` +
             'listed. Add replay.history() or replay.snapshot() to capabilities.',
         );
       }
@@ -247,10 +237,6 @@ export class ChannelBuilder {
     return this.delegateStream('plain', event, config);
   }
 
-  cursorStream(event: string, config: any): ChannelHandlerValue {
-    return this.delegateStream('cursor', event, config);
-  }
-
   recordedStream(event: string, config: any): ChannelHandlerValue {
     return this.delegateStream('recorded', event, config);
   }
@@ -271,18 +257,6 @@ export class ChannelBuilder {
     this.registerOnce('intercept', interceptFactory(withChannelCtx(handler) as any));
   }
 
-  replay(hooks: HooksParameter2): void {
-    const build = this.deps.buildCustomReplay;
-    if (!build) {
-      throw new Error(
-        `[livething] channel '${this.__key}' uses replay() but the replay.custom() capability is ` +
-          'not listed. Add replay.custom() to capabilities.',
-      );
-    }
-
-    this.registerOnce('replay', build(hooks));
-  }
-
   /** Build the channel primitive from everything registered so far. @internal */
   __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive {
     const children = selectedHandlers
@@ -298,7 +272,7 @@ export class ChannelBuilder {
 
   /** Borrow a stream capability's builder, adapting the generator to the channel ctx. */
   private delegateStream(
-    kind: 'plain' | 'cursor' | 'recorded',
+    kind: 'plain' | 'recorded',
     event: string,
     config: any,
   ): ChannelHandlerValue {
@@ -328,7 +302,7 @@ export class ChannelBuilder {
 
   /** Stash a handler's `rateLimit` override so assembly can fold it into the plan. */
   private recordRateLimit(event: string, config: any, primitive: Primitive): void {
-    if (config?.rateLimit) {
+    if (config?.rateLimit !== undefined) {
       this.__rateLimitOverrides.set(primitive, {
         event,
         config: config.rateLimit as RateLimitConfig,
@@ -348,13 +322,12 @@ export class ChannelBuilder {
   }
 
   private handlerValue(primitive: Primitive): ChannelHandlerValue {
-    return { __livethingChannelHandler: true, __channel: this, __handler: primitive };
+    return { __channel: this, __handler: primitive };
   }
 }
 
 /** The value a channel handler returns — carries a reference to its channel. @internal */
 export interface ChannelHandlerValue {
-  readonly __livethingChannelHandler: true;
   readonly __channel: ChannelBuilder;
   readonly __handler: Primitive;
 }
@@ -383,9 +356,9 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
 /**
  * Enable channels — subscription scopes with their own events, gates, and
  * lifecycle. Listing this grants `base.channel(...)` and the `ctx.channels`
- * accessor. Channel membership is durable by default (set `membership:
- * 'ephemeral'` on a channel to opt out); channel streams need the matching stream
- * capability, and a custom channel replay needs `replay.custom()`.
+ * accessor. Channel membership is ephemeral by default (set `membership:
+ * 'persistent'` on a channel to keep it across reconnects); channel streams need the matching stream
+ * capability.
  *
  * @example
  * ```ts

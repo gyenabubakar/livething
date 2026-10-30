@@ -23,8 +23,11 @@ export function buildInboxSurface<
   const { channelName, channelFamily } = scope;
   return {
     backfill(userId: string, messages: readonly ChannelBackfillMessage<TOutgoing>[]): void {
+      // Seqs come from the counter live sends use, so a backfilled row never
+      // takes a seq a later live message needs. A failed write leaves a gap,
+      // which is harmless.
       const frames: InboxFrame[] = messages.map((message) => ({
-        deliverySeq: message.__livething.deliverySeq,
+        deliverySeq: engine.allocateDeliverySeq(),
         messageId: message.__livething.messageId,
         event: message.event,
         // The same rule as every payload that is sent: an object in JSON, stored as that JSON.
@@ -34,7 +37,7 @@ export function buildInboxSurface<
         >,
       }));
       const config = engine.getInboxChannel(channelKeyFor(channelName, channelFamily));
-      backfillInbox(engine.storage.sql, {
+      const stored = backfillInbox(engine.storage.sql, {
         channelName,
         channelFamily,
         userId,
@@ -45,6 +48,31 @@ export function buildInboxSurface<
       // These rows bypassed the live fan-out that keeps the count cache warm, so
       // the cached value is now too low. Drop it and let the next write re-read.
       engine.invalidateInboxMemberCount?.(channelName, channelFamily, userId);
+
+      // A member in the channel right now gets the new rows straight away, the
+      // same frames the reconnect drain sends. Otherwise its ack of a later live
+      // message would settle these rows before it ever saw them.
+      if (stored.length === 0) return;
+
+      for (const connectionId of engine.userConnectionIdsInChannel(
+        userId,
+        channelName,
+        channelFamily,
+      )) {
+        for (const frame of stored) {
+          engine.sendReplay(connectionId, {
+            channelName,
+            channelFamily,
+            event: frame.event,
+            payload: frame.payload,
+            wire: {
+              deliverySeq: frame.deliverySeq,
+              messageId: frame.messageId,
+              channel: channelName,
+            },
+          });
+        }
+      }
     },
     receiversOf(seq: number): string[] {
       return listReceivers(engine.storage.sql, { channelName, channelFamily, seq });

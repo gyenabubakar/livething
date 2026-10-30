@@ -1,6 +1,5 @@
 import { InternalError, LiveThingError } from '@livething/core';
 import { withConnectionLevelCall } from '~/_engine/async-context.ts';
-import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -38,25 +37,6 @@ interface RuntimeErrorDeps {
   logger: Pick<Logger, 'warn' | 'error'>;
 
   sendProtocolMessage(connection: RuntimeConnection, opts: OptsParameter): void;
-}
-
-/**
- * Runtime surface for validation-error fanout.
- */
-interface ValidationErrorDeps {
-  buildConnectionContext(
-    connection: RuntimeConnection,
-    scope?: ResolvedChannel,
-  ): Record<PropertyKey, unknown>;
-
-  /** Lets `context.connection(base)` reach the hook's `ctx`. */
-  asyncContext?: EngineAsyncContext;
-
-  validationErrorHooks: readonly ((
-    ctx: unknown,
-    event: string,
-    validationError: unknown,
-  ) => void | Promise<void>)[];
 }
 
 /**
@@ -120,18 +100,13 @@ export async function sendRuntimeError(
   }
 
   // The client only sees `internal-error`, so with no hook to see it the real error would be
-  // lost. An `onError` hook replaces this log, as it owns the error from then on. The only signal
-  // that reaches here is a `Defer` thrown outside an on() handler, which already logged why.
-  // Any other signal here, such as `RejectUpgrade` outside `upgrade`, is a mistake and is logged.
-  const isLoggedDefer =
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { __livething?: unknown }).__livething === 'defer';
+  // lost. An `onError` hook replaces this log, as it owns the error from then on. A signal here,
+  // such as `RejectUpgrade` outside `upgrade`, is a mistake and is logged.
   if (options.fromSocket) {
     if (deps.errorHooks.length === 0) {
       deps.logger.warn('[livething] A connection reported a socket error.', { error });
     }
-  } else if (!(error instanceof LiveThingError) && !isLoggedDefer && deps.errorHooks.length === 0) {
+  } else if (!(error instanceof LiveThingError) && deps.errorHooks.length === 0) {
     deps.logger.error(
       '[livething] A handler threw an unexpected error, and the client got internal-error. ' +
         'Add an onError hook to handle such errors yourself.',
@@ -160,38 +135,4 @@ export async function sendRuntimeError(
 
   const { payload, livething } = normalizeRuntimeError(error, routing, deps.declaredErrorCodes);
   deps.sendProtocolMessage(connection, { event: '__error__', payload, livething });
-}
-
-export interface NotifyValidationErrorOptions {
-  event: string;
-
-  validationError: unknown;
-
-  scope?: ResolvedChannel;
-}
-
-/**
- * Notify `onValidationError(...)` hooks for one failed incoming payload.
- *
- * This does not decide whether the client receives `__error__`; it only tells
- * the registered validation hooks that validation failed.
- */
-export async function notifyValidationError(
-  deps: ValidationErrorDeps,
-  connection: RuntimeConnection,
-  options: NotifyValidationErrorOptions,
-): Promise<void> {
-  const { event, validationError, scope } = options;
-  if (deps.validationErrorHooks.length === 0) return;
-
-  const ctx = deps.buildConnectionContext(connection, scope);
-
-  await forEachIsolatedAsync(
-    deps.validationErrorHooks,
-    (hook) =>
-      withConnectionLevelCall(deps.asyncContext, { connectionId: connection.id, ctx }, () =>
-        hook(ctx, event, validationError),
-      ),
-    { context: `onValidationError hook event="${event}"` },
-  );
 }

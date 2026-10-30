@@ -95,7 +95,7 @@ export type ContractPayload<T> = [keyof T] extends [never]
   : T;
 
 /**
- * What a client receives for one chunk of a cursor or recorded stream, decided on the chunk's
+ * What a client receives for one chunk of a recorded stream, decided on the chunk's
  * JSON (what its `toJSON()` returns, if it has one), per member of a union as the runtime does:
  * - a plain object is sent as it is;
  * - a primitive, `null`, an array or a boxed value is wrapped as `{ value: json }` (a `Date`

@@ -240,3 +240,37 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'other')).not.toBeNull();
   });
 });
+
+describe('RateLimitRuntime — memory', () => {
+  it('drops the buckets of users who went quiet once their budgets have refilled', () => {
+    const c = clock();
+    const rt = new RateLimitRuntime(
+      plan([['top', { id: 1, windowMs: 60_000, max: 2, per: (ctx: any) => ctx.user.id }]]),
+      c.read.bind(c),
+    );
+    for (let i = 0; i < 100; i += 1) {
+      rt.check({ id: `c${i}`, user: { id: `u-${i}` } }, 'e');
+    }
+
+    expect(rt.size).toBe(100);
+
+    c.advance(2 * 60 * 60 * 1000);
+    rt.check({ id: 'c-new', user: { id: 'u-new' } }, 'e');
+
+    expect(rt.size).toBe(1);
+  });
+
+  it('keeps a bucket that has not refilled, so a quiet user cannot reset the budget', () => {
+    const c = clock();
+    const rt = new RateLimitRuntime(
+      plan([['top', { id: 1, windowMs: 60 * 60 * 1000, max: 1, per: (ctx: any) => ctx.user.id }]]),
+      c.read.bind(c),
+    );
+    rt.check({ id: 'c1', user: { id: 'u-1' } }, 'e');
+
+    c.advance(30 * 60 * 1000);
+    rt.check({ id: 'c2', user: { id: 'u-2' } }, 'e');
+
+    expect(rt.check({ id: 'c3', user: { id: 'u-1' } }, 'e')).not.toBeNull();
+  });
+});

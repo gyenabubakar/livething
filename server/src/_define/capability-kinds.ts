@@ -5,10 +5,9 @@
  * `assertPluginDependencies`) — can match a referenced capability to a listed
  * one by identity, without calling the factory and without colliding on shape.
  *
- * The three stream variants get distinct kinds so a recorded/cursor
+ * The two stream variants get distinct kinds so a recorded-stream
  * requirement is never satisfied by a plain `stream()`. Replay uses a single
- * `replay` kind for history and snapshot (they are the same engine);
- * `replay.custom` is a distinct engine and gets its own `replay-custom` kind.
+ * `replay` kind for history and snapshot (they are the same engine).
  */
 export const CAPABILITY_KIND = {
   dedup: 'dedup',
@@ -16,7 +15,6 @@ export const CAPABILITY_KIND = {
   keepalive: 'keepalive',
   rateLimit: 'rate-limit',
   replay: 'replay',
-  replayCustom: 'replay-custom',
   inbox: 'inbox',
   readReceipts: 'read-receipts',
   lastSeen: 'last-seen',
@@ -27,14 +25,9 @@ export const CAPABILITY_KIND = {
   tags: 'tags',
   emits: 'emits',
   errors: 'errors',
-  intercepts: 'intercepts',
   stream: 'stream',
-  cursorStream: 'cursor-stream',
   recordedStream: 'recorded-stream',
 } as const;
-
-/** A capability identity token. @internal */
-export type CapabilityKind = (typeof CAPABILITY_KIND)[keyof typeof CAPABILITY_KIND];
 
 /**
  * The capability kinds a plugin can never own (the global host-owned engines —
@@ -67,7 +60,6 @@ const KIND_TO_NAME: Readonly<Record<string, string>> = Object.fromEntries(
 );
 const CAPABILITY_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   [CAPABILITY_KIND.replay]: 'replay.history() / replay.snapshot()',
-  [CAPABILITY_KIND.replayCustom]: 'replay.custom()',
 };
 
 /** Render a kind token as the capability factory call to show in an error. @internal */

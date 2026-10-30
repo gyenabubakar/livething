@@ -90,13 +90,6 @@ export type UpgradeHandler = (
   helpers: UpgradeHelpers,
 ) => UpgradeResult | Promise<UpgradeResult>;
 
-/** Handler type for `base.onValidationError(...)`. */
-export type ValidationErrorHandler<TCtx = any> = (
-  ctx: TCtx,
-  event: string,
-  validationError: unknown,
-) => void | Promise<void>;
-
 /** The TypeScript type returned by `onInit()`. */
 export interface InitPrimitive<TCtx = any> extends Primitive<'onInit'> {
   readonly handler: InitHandler<TCtx>;
@@ -137,11 +130,6 @@ export interface UpgradePrimitive extends Primitive<'onUpgrade'> {
   readonly handler: UpgradeHandler;
 }
 
-/** The TypeScript type returned by `onValidationError()`. */
-export interface ValidationErrorPrimitive<TCtx = any> extends Primitive<'onValidationError'> {
-  readonly handler: ValidationErrorHandler<TCtx>;
-}
-
 const ON_INIT_KEY = Symbol('onInit');
 const ON_CONNECT_KEY = Symbol('onConnect');
 const ON_DISCONNECT_KEY = Symbol('onDisconnect');
@@ -150,7 +138,6 @@ const ON_PONG_KEY = Symbol('onPong');
 const ON_SHUTDOWN_KEY = Symbol('onShutdown');
 const ON_ERROR_KEY = Symbol('onError');
 const ON_UPGRADE_KEY = Symbol('onUpgrade');
-const ON_VALIDATION_ERROR_KEY = Symbol('onValidationError');
 
 /** @internal */
 function makeLifecycle<TTag extends string>(
@@ -160,7 +147,6 @@ function makeLifecycle<TTag extends string>(
 ) {
   return <THandler>(handler: THandler) => ({
     __livething: tag,
-    __kind: 'lifecycle' as const,
     __identity: [key] as const,
     __requires: {},
     handler,
@@ -279,17 +265,4 @@ export const onUpgrade = Object.assign(
     handler: UpgradeHandler,
   ) => UpgradePrimitive,
   { __key: ON_UPGRADE_KEY },
-);
-
-/**
- * Creates an `onValidationError` lifecycle primitive. Prefer `base.onValidationError(...)`
- * — this factory is used internally by `assemble(...)`.
- */
-export const onValidationError = Object.assign(
-  makeLifecycle('onValidationError', ON_VALIDATION_ERROR_KEY, (e, h) => e.onValidationError(h)) as <
-    TCtx,
-  >(
-    handler: ValidationErrorHandler<TCtx>,
-  ) => ValidationErrorPrimitive<TCtx>,
-  { __key: ON_VALIDATION_ERROR_KEY },
 );

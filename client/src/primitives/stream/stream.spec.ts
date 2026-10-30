@@ -1,4 +1,4 @@
-import { WIRE_LIMITS } from '@livething/core';
+import { StreamAborted, WIRE_LIMITS } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
@@ -272,6 +272,29 @@ describe('onStream (broadcast)', () => {
     expect(onEnd).toHaveBeenCalledWith('bs1', 5);
   });
 
+  it('fires onError with StreamAborted interrupted when a viewed stream is cut off', () => {
+    const { socket, ws } = buildStream();
+    const onEnd = vi.fn();
+    const onError = vi.fn();
+    socket.onStream('ask-ai', { onChunk: () => {}, onEnd, onError });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'a' },
+      metadata: { stream: { id: 'bs3', seq: 1 } },
+    });
+
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'stream-aborted', detail: { reason: 'interrupted' } },
+      metadata: { stream: { id: 'bs3', event: 'ask-ai', terminated: true } },
+    });
+
+    expect(onEnd).not.toHaveBeenCalled();
+    const [error, streamId] = onError.mock.calls[0]!;
+    expect(streamId).toBe('bs3');
+    expect(StreamAborted.matches(error) && error.detail.reason === 'interrupted').toBe(true);
+  });
+
   it('fires onError when the broadcast stream errors', () => {
     const { socket, ws } = buildStream();
     const onError = vi.fn();
@@ -361,6 +384,37 @@ describe('durable continue', () => {
 
     ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'feed-1' } } });
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
+  });
+
+  it('continueStream replays chunks, then throws StreamAborted interrupted for a cut-off stream', async () => {
+    const { socket, ws } = buildStream();
+    const handle = socket.continueStream('ask-ai', 'reply-1', { lastKnownSeq: 0 });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'a' },
+      metadata: { stream: { id: 'reply-1', seq: 1 } },
+    });
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'b' },
+      metadata: { stream: { id: 'reply-1', seq: 2 } },
+    });
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'stream-aborted', detail: { reason: 'interrupted' } },
+      metadata: { stream: { id: 'reply-1', event: 'ask-ai', terminated: true } },
+    });
+
+    const received: { text: string }[] = [];
+    let caught: unknown;
+    try {
+      for await (const chunk of handle) received.push(chunk);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(received).toEqual([{ text: 'a' }, { text: 'b' }]);
+    expect(StreamAborted.matches(caught) && caught.detail.reason === 'interrupted').toBe(true);
   });
 
   it('scoped continueStream carries the channel markers', async () => {
@@ -520,7 +574,7 @@ describe('stream wire-limit validation', () => {
   });
 });
 
-describe('stream id uniqueness across clients (#1)', () => {
+describe('stream id uniqueness across clients', () => {
   it('two fresh sockets do not generate the same streamId', async () => {
     const a = buildStream();
     const b = buildStream();
@@ -538,21 +592,15 @@ describe('stream id uniqueness across clients (#1)', () => {
   });
 });
 
-describe('one reconnect decision per close (#19)', () => {
-  it('evaluates a primitive shouldReconnect hook once per close even with an active durable stream', async () => {
+describe('one reconnect decision per close', () => {
+  it('calls a stateful shouldReconnect callback once per close even with an active durable stream', async () => {
     let calls = 0;
-    const flaky = {
-      _tag: 'flaky',
-      setup: () => ({
-        id: 'flaky',
-        shouldReconnect: (_code: number, _reason: string): boolean | void => {
-          calls++;
-          return calls === 1 ? true : false;
-        },
-      }),
-    };
+    function shouldReconnect(): boolean {
+      calls++;
+      return calls === 1;
+    }
 
-    const socket = client<C>()(connect('wss://test'), stream(), reconnection(), flaky);
+    const socket = client<C>()(connect('wss://test'), stream(), reconnection({ shouldReconnect }));
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -575,7 +623,7 @@ describe('one reconnect decision per close (#19)', () => {
   });
 });
 
-describe('stream control frames while not open (#24)', () => {
+describe('stream control frames while not open', () => {
   it('nudge rejects with Disconnected immediately while reconnecting, not after the timeout', async () => {
     const socket = client<C>()(connect('wss://test'), stream(), reconnection());
     socket.connect();
@@ -611,7 +659,7 @@ describe('stream control frames while not open (#24)', () => {
 });
 
 describe('stream wire-id and nudge validation', () => {
-  it('nudge with an unserializable payload rejects instead of throwing (#6)', async () => {
+  it('nudge with an unserializable payload rejects', async () => {
     const { socket, ws } = buildStream();
     const { handle } = await start(socket, ws);
     const circular: Record<string, unknown> = {};
@@ -623,13 +671,13 @@ describe('stream wire-id and nudge validation', () => {
     handle.cancel();
   });
 
-  it('continueStream with an empty id settles the handle with validation-failed (#3)', async () => {
+  it('continueStream with an empty id settles the handle with validation-failed', async () => {
     const { socket } = buildStream();
     const handle = socket.continueStream('ask-ai', '', { lastKnownSeq: 0 });
     await expect(collect(handle)).rejects.toMatchObject({ code: 'validation-failed' });
   });
 
-  it('rejects an over-limit event name on trigger before any send (#3)', async () => {
+  it('rejects an over-limit event name on trigger before any send', async () => {
     const { socket, ws } = buildStream();
     const longEvent = 'e'.repeat(WIRE_LIMITS.event + 1);
     const before = ws.sentFrames().length;

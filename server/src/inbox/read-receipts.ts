@@ -26,9 +26,7 @@ type SettleInboxOnReadOptsParameter = {
 };
 
 /** The primitive type produced by the `readReceipts()` capability for one channel. */
-export interface ReadReceiptsPrimitive extends Primitive<'read-receipts'> {
-  readonly options: ResolvedReadReceiptsOptions;
-}
+export interface ReadReceiptsPrimitive extends Primitive<'read-receipts'> {}
 
 /** @internal */
 const READ_RECEIPTS_KEY = Symbol('read-receipts');
@@ -43,11 +41,9 @@ const READ_RECEIPTS_KEY = Symbol('read-receipts');
 export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceiptsPrimitive {
   return {
     __livething: 'read-receipts',
-    __kind: 'infrastructure',
     __identity: [READ_RECEIPTS_KEY],
     __requires: {},
     __requiresCapabilities: [CAPABILITY_KIND.inbox, CAPABILITY_KIND.sequence],
-    options,
     __setup(engine) {
       const { channelKey } = engine.getScopeInfo();
       if (!channelKey) {
@@ -206,7 +202,7 @@ function buildReadQueryHandler(deps: BuildReadQueryHandlerDepsParameter) {
 /**
  * When `__read__` pulls `received_through` up (read implies received), settle
  * the member's inbox rows up to the new mark using the inbox capability's own
- * ack, so the delete/retain lifecycle stays consistent with a plain `__received__`.
+ * ack, so it stays consistent with a plain `__received__`.
  * Returns the inbox config so the caller can honor its receipt-broadcast settings.
  */
 function settleInboxOnRead(
@@ -222,7 +218,6 @@ function settleInboxOnRead(
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     receivedThrough: opts.cursors.receivedThrough,
-    onDelivered: inboxConfig.onDelivered,
   });
   engine.invalidateInboxMemberCount?.(opts.channelName, opts.channelFamily, opts.userId);
 
@@ -240,6 +235,3 @@ function isMember(ctx: unknown, channelName: string, channelFamily: string | nul
   ];
   return !!connection && hasChannelMembership(connection, channelName, channelFamily);
 }
-
-/** Symbol identity for dependency declarations. */
-readReceipts.__key = READ_RECEIPTS_KEY;

@@ -4,10 +4,9 @@
  * Durable-stream dispatch surface.
  *
  * This is the seam the engine's message hub talks to instead of importing the
- * durable-stream runtime directly. The `cursorStream()` / `recordedStream()`
- * capabilities register `durableStreamService` during `__setup`, so a handler
- * that lists neither never pulls the durable runtime, its storage layer, or the
- * cursor codec into its bundle.
+ * durable-stream runtime directly. The `recordedStream()` capability registers
+ * `durableStreamService` during `__setup`, so a server that does not list it
+ * never pulls the durable runtime or its storage layer into its bundle.
  */
 
 import * as ChannelPrimitive from '~/channel/runtime.ts';
@@ -35,28 +34,19 @@ function ensureSchemaOnce(runtime: any): void {
   }
 }
 
-/**
- * Build the runtime def the durable engine consumes from a compiled
- * durable stream. `maxChunks` is recorded-only and `cursor` is
- * cursor-only.
- */
+/** Build the runtime def the durable engine consumes from a compiled recorded stream. */
 function buildRuntimeDef(
-  durable: any,
-  kind: 'cursor' | 'recorded',
+  durable: EngineCompileTypes.AnyRecordedStream,
 ): DurableStreamRuntime.DurableStreamRuntimeDef {
   return {
     event: durable.event,
-    kind,
     generator: durable.generator,
     allowConcurrent: durable.allowConcurrent,
-    broadcast: durable.broadcast ?? false,
+    broadcast: durable.broadcast,
     nudges: durable.nudges,
-    maxChunks: kind === 'recorded' ? durable.maxChunks : undefined,
+    maxChunks: durable.maxChunks,
     maxAgeMs: durable.maxAgeMs,
     retentionAfterEndMs: durable.retentionAfterEndMs,
-    cursor: kind === 'cursor' ? durable.cursor : undefined,
-    onDisconnect: durable.onDisconnect,
-    highWaterMark: durable.highWaterMark,
   };
 }
 
@@ -71,7 +61,6 @@ function resolveDurableDefForRow(
   row: DurableStreamStorage.DurableStreamRow,
 ): { def: DurableStreamRuntime.DurableStreamRuntimeDef; scope: ResolvedChannel } | undefined {
   let scope: ResolvedChannel = {};
-  let cursor: EngineCompileTypes.AnyCursorStream | undefined;
   let recorded: EngineCompileTypes.AnyRecordedStream | undefined;
 
   if (row.channelKey) {
@@ -86,41 +75,26 @@ function resolveDurableDefForRow(
     }
 
     scope = { channel, channelName: row.channelKey, channelFamily: row.channelFamily };
-    cursor = channel.cursorStreams.get(row.event);
-
     recorded = channel.recordedStreams.get(row.event);
   } else {
-    cursor = runtime.compiled.cursorStreams.get(row.event);
     recorded = runtime.compiled.recordedStreams.get(row.event);
   }
 
-  if (cursor) {
-    return { scope, def: buildRuntimeDef(cursor, 'cursor') };
-  }
-
-  if (recorded) {
-    return { scope, def: buildRuntimeDef(recorded, 'recorded') };
-  }
-
-  return undefined;
+  return recorded ? { scope, def: buildRuntimeDef(recorded) } : undefined;
 }
 
 /** The durable-stream dispatch service registered with the engine. */
 export const durableStreamService: DurableStreamService = {
-  ensureSchema(runtime: any): void {
-    ensureSchemaOnce(runtime);
-  },
-
   async trigger(
     runtime: any,
     connection: RuntimeConnection,
     options: DurableTriggerOptions,
   ): Promise<void> {
-    const { scope, durable, kind, payload, livething } = options;
+    const { scope, durable, payload, livething } = options;
     ensureSchemaOnce(runtime);
     await DurableStreamRuntime.runDurableStream(runtime, connection, {
       scope,
-      def: buildRuntimeDef(durable, kind),
+      def: buildRuntimeDef(durable),
       payload,
       livething,
     });

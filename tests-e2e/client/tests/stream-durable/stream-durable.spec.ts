@@ -25,8 +25,8 @@ test.describe('stream-durable (conformance)', () => {
     expect(beforeDrop).toBeLessThan(10);
 
     // Force an UNEXPECTED drop mid-stream. reconnection() reopens the client and
-    // stream() continues the durable stream from its saved cursor; the remaining
-    // chunks land on the SAME handle that's still being iterated.
+    // stream() continues the durable stream from its last seq; the missed and
+    // remaining chunks land on the SAME handle that's still being iterated.
     await page.getByTestId('drop-socket').click();
     await expect(page.getByTestId('status')).toHaveText('open');
 
@@ -43,7 +43,7 @@ test.describe('stream-durable (conformance)', () => {
     await expect.poll(() => page.getByTestId('row-count').textContent()).toBe('10');
 
     // The durable row is retained after the stream ends. A manual `continueStream` from the
-    // saved cursor reattaches and ends cleanly with no remaining chunks.
+    // last seq reattaches and ends cleanly with no remaining chunks.
     await page.getByTestId('continue-paginate').click();
     await expect.poll(() => page.getByTestId('ended').textContent()).toBe('yes');
     await expect.poll(() => page.getByTestId('row-count').textContent()).toBe('10');

@@ -1,7 +1,6 @@
 import { emits, localKey, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
-import { intercepts } from '@livething/server/intercepts';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -14,12 +13,7 @@ export const ChannelKey = localKey<{ tag: string }>('channel');
 
 const base = server({
   upgrade: (request) => requireUsername(request),
-  capabilities: [
-    emits({ echoed: t<{ text: string }>() }),
-    clientRequests(),
-    channels(),
-    intercepts(),
-  ],
+  capabilities: [emits({ echoed: t<{ text: string }>() }), clientRequests(), channels()],
 });
 
 base.intercept((ctx) => {

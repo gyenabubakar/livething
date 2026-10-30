@@ -18,7 +18,7 @@ const StartSlowStreamPayload = v.object({});
 const SlowChunk = t<{ index: number }>();
 
 const base = server({
-  hibernation: { enabled: true },
+  hibernation: true,
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),

@@ -44,6 +44,78 @@ afterEach(() => {
   restore();
 });
 
+describe('replay — resume tokens', () => {
+  it('shows the tokens of earlier connections in the catch-up request', () => {
+    const { ws } = build(dedup(), gaps(), replay(), reconnection());
+    ws.emit({ event: '__resume__', payload: { token: 'first' }, metadata: null });
+    ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { delivery: { seq: 3 } } });
+
+    const second = reconnectAfterDrop(ws);
+    expect(second.sentFrames()).toContainEqual({
+      event: '__replay__',
+      payload: { lastKnownSeq: 3, resume: ['first'] },
+      metadata: null,
+    });
+
+    second.emit({ event: '__resume__', payload: { token: 'second' }, metadata: null });
+    const third = reconnectAfterDrop(second);
+    expect(third.sentFrames()).toContainEqual({
+      event: '__replay__',
+      payload: { lastKnownSeq: 3, resume: ['first', 'second'] },
+      metadata: null,
+    });
+  });
+
+  it('starts the top-level cursor at the resume frame seq when no message came before the drop', () => {
+    const { ws } = build(dedup(), gaps(), replay(), reconnection());
+    ws.emit({ event: '__resume__', payload: { token: 'first', seq: 5 }, metadata: null });
+
+    const second = reconnectAfterDrop(ws);
+    expect(second.sentFrames()).toContainEqual({
+      event: '__replay__',
+      payload: { lastKnownSeq: 5, resume: ['first'] },
+      metadata: null,
+    });
+  });
+
+  it('never moves the cursor forward to a later resume frame seq', () => {
+    const { ws } = build(dedup(), gaps(), replay(), reconnection());
+    ws.emit({ event: '__resume__', payload: { token: 'first', seq: 2 }, metadata: null });
+    ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { delivery: { seq: 3 } } });
+
+    const second = reconnectAfterDrop(ws);
+    second.emit({ event: '__resume__', payload: { token: 'second', seq: 9 }, metadata: null });
+    const third = reconnectAfterDrop(second);
+    expect(third.sentFrames()).toContainEqual({
+      event: '__replay__',
+      payload: { lastKnownSeq: 3, resume: ['first', 'second'] },
+      metadata: null,
+    });
+  });
+
+  it('keeps only the last eight tokens', () => {
+    const { ws } = build(dedup(), gaps(), replay(), reconnection());
+    for (let i = 1; i <= 10; i += 1) {
+      ws.emit({ event: '__resume__', payload: { token: `t${i}` }, metadata: null });
+    }
+
+    ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { delivery: { seq: 3 } } });
+
+    const second = reconnectAfterDrop(ws);
+    const request = second.sentFrames().find((frame) => frame.event === '__replay__');
+    expect((request?.payload as { resume?: string[] } | undefined)?.resume).toEqual([
+      't3',
+      't4',
+      't5',
+      't6',
+      't7',
+      't8',
+      't9',
+      't10',
+    ]);
+  });
+});
+
 describe('replay — per-channel scope catch-up', () => {
   describe('channel-scoped seq tracking', () => {
     it('tracks seq under the channel name, not the top-level key', () => {

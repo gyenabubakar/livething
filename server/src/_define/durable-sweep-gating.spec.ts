@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { describe, expect, it } from 'vitest';
 
@@ -36,13 +35,11 @@ describe('durable-stream retention sweep gating (Minor 1)', () => {
     expect(sweepCount(def)).toBe(1);
   });
 
-  it('installs exactly one sweep when both cursor and recorded are used (dedup)', () => {
-    const base = server({
-      capabilities: [cursorStream(), recordedStream()],
-    });
-    const r = base.cursorStream('rs', { async *run() {} } as any);
-    const c = base.recordedStream('rc', { async *run() {} } as any);
-    const def = base.assemble({ handlers: [r, c] });
+  it('installs exactly one sweep when several recorded streams are used (dedup)', () => {
+    const base = server({ capabilities: [recordedStream()] });
+    const first = base.recordedStream('rs', { async *run() {} } as any);
+    const second = base.recordedStream('rc', { async *run() {} } as any);
+    const def = base.assemble({ handlers: [first, second] });
     expect(sweepCount(def)).toBe(1);
   });
 });

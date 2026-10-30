@@ -1,21 +1,19 @@
 import { server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
-import { cursorStream, recordedStream } from '@livething/server/streams';
+import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Empty = v.object({});
 const TokenChunk = t<{ token: string }>();
-const RowChunk = t<{ row: number }>();
-const AttemptChunk = t<{ attempt: number }>();
 
 const base = server({
   upgrade: (request) => requireUsername(request),
-  capabilities: [channels(), recordedStream(), cursorStream()],
+  capabilities: [channels(), recordedStream()],
 });
 
-const rooms = base.channel('rooms', {});
+const rooms = base.channel('rooms', { membership: 'persistent' });
 
 const handleFeed = rooms.recordedStream('feed', {
   input: Empty,
@@ -29,33 +27,6 @@ const handleFeed = rooms.recordedStream('feed', {
       yield { token: `t${i}` };
       await new Promise((r) => setTimeout(r, 250));
     }
-  },
-});
-
-const handlePaginate = rooms.cursorStream('paginate', {
-  input: Empty,
-  chunk: RowChunk,
-  broadcast: true,
-  maxAgeMs: 60_000,
-  retentionAfterEndMs: 30_000,
-  async *run(ctx) {
-    const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
-    for (let i = startAt + 1; i <= 10; i += 1) {
-      yield ctx.stream.withCursor({ row: i }, { idx: i });
-      await new Promise((r) => setTimeout(r, 250));
-    }
-  },
-});
-
-const handleAttemptBroadcast = rooms.cursorStream('attempt-broadcast', {
-  input: Empty,
-  chunk: AttemptChunk,
-  broadcast: true,
-  maxAgeMs: 60_000,
-  retentionAfterEndMs: 30_000,
-  async *run(ctx) {
-    yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
-    await new Promise((r) => setTimeout(r, 60_000));
   },
 });
 
@@ -81,7 +52,7 @@ const handleFeedNudged = rooms.recordedStream('feed-nudged', {
 });
 
 export const streamDurableBroadcastDefinition = base.assemble({
-  handlers: [handleFeed, handlePaginate, handleAttemptBroadcast, handleFeedNudged],
+  handlers: [handleFeed, handleFeedNudged],
 });
 
 export type StreamDurableBroadcastClient = InferClient<typeof streamDurableBroadcastDefinition>;

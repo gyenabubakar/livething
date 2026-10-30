@@ -3,7 +3,7 @@ import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AsyncContext, AsyncContextFactory, SQLProvider } from '~/context.ts';
 
-export const INVOCATION_SCOPE = Symbol('livething.invocationScope');
+const INVOCATION_SCOPE = Symbol('livething.invocationScope');
 
 /**
  * One deferred storage write batched for the end of the current invocation.
@@ -50,7 +50,7 @@ export function createAsyncContext(
  * helpers called inside it — notably a plugin's `getState()` — resolve to the
  * right connection even while other connections' handlers interleave.
  */
-export function withConnectionContext<T>(
+function withConnectionContext<T>(
   asyncContext: EngineAsyncContext | undefined,
   connectionId: string,
   fn: () => T,

@@ -61,13 +61,6 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
   unsubscribe(): Promise<void>;
 
   /**
-   * Ask the server to resend this channel's member roster. Fire-and-forget —
-   * it sends a `__memberSync__` request and returns immediately, with nothing to
-   * await. Use it to recover a stale roster, e.g. after a leave that failed.
-   */
-  resyncMembers(): void;
-
-  /**
    * Who's in the room, as a reactive store keyed by member id. On a persistent
    * channel the member id is the user's id, so one user is one entry across
    * reconnects and tabs. On an ephemeral channel, or for an anonymous
@@ -149,7 +142,7 @@ type FamilyKeys<C> = { [K in keyof C]: IsFamily<C[K]> extends true ? K : never }
  * name)` for one inside a dynamic family, and `channel.family(family)` for a
  * whole family.
  */
-export interface ChannelMethod<C> {
+interface ChannelMethod<C> {
   <K extends FixedKeys<C> & string>(name: K): ChannelMessaging<C[K]>;
   <K extends FamilyKeys<C> & string>(familyKey: K, name: string): ChannelMessaging<C[K]>;
   family<K extends FamilyKeys<C> & string>(familyKey: K): FamilyHandle<C[K]>;
@@ -189,18 +182,14 @@ export interface StubbedChannelMethod<
  * (e.g. `receivers` from `inbox()`) are intersected in first, so a missing
  * `clientRequests()` doesn't also erase methods `inbox()` already installed.
  */
-export type StubbedMessaging<
-  C,
-  Stubs,
-  TPrimitives extends readonly Primitive<any, any, any>[],
-> = Omit<ChannelMessaging<C> & ApplyChannelPrimitives<TPrimitives, C>, keyof Stubs> & Stubs;
+type StubbedMessaging<C, Stubs, TPrimitives extends readonly Primitive<any, any, any>[]> = Omit<
+  ChannelMessaging<C> & ApplyChannelPrimitives<TPrimitives, C>,
+  keyof Stubs
+> &
+  Stubs;
 
 /** A `FamilyHandle` whose member handles carry the channel-scoped stubs. */
-export interface StubbedFamilyHandle<
-  C,
-  Stubs,
-  TPrimitives extends readonly Primitive<any, any, any>[],
-> {
+interface StubbedFamilyHandle<C, Stubs, TPrimitives extends readonly Primitive<any, any, any>[]> {
   /** Get the channel handle for one concrete name in this family. */
   (name: string): StubbedMessaging<C, Stubs, TPrimitives>;
   on<E extends keyof IncomingOf<C> & string>(
@@ -232,13 +221,13 @@ export interface AugmentedChannelMethod<
 }
 
 /** One channel handle plus every installed primitive's channel-handle surface. */
-export type AugmentedMessaging<
+type AugmentedMessaging<
   C,
   TPrimitives extends readonly Primitive<any, any, any>[],
 > = ChannelMessaging<C> & ApplyChannelPrimitives<TPrimitives, C>;
 
 /** A `FamilyHandle` whose member handles carry the channel-primitive surface. */
-export interface AugmentedFamilyHandle<C, TPrimitives extends readonly Primitive<any, any, any>[]> {
+interface AugmentedFamilyHandle<C, TPrimitives extends readonly Primitive<any, any, any>[]> {
   /** Get the channel handle for one concrete name in this family. */
   (name: string): AugmentedMessaging<C, TPrimitives>;
   on<E extends keyof IncomingOf<C> & string>(
@@ -251,16 +240,10 @@ export interface AugmentedFamilyHandle<C, TPrimitives extends readonly Primitive
 }
 
 /** Adds `socket.channel(...)` typed from the contract's `channels`. */
-export interface ChannelsTypeFn extends TypeFn {
+interface ChannelsTypeFn extends TypeFn {
   readonly _api: this['_contract'] extends { channels: infer C extends Record<string, any> }
     ? { channel: ChannelMethod<C> }
     : {};
-}
-
-/** Options for `channels()`. */
-export interface ChannelsOptions {
-  /** Buffer TTL for channel events: one number for all, or a per-event map. */
-  ttl?: number | Record<string, number>;
 }
 
 /** The descriptor `channels()` returns. */
