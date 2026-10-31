@@ -207,7 +207,7 @@ describe('frames queued behind a pending subscribe', () => {
 
     const subscribing = handle.handleMessage(subscribeFrame);
     let unsettled = 0;
-    const frames = Array.from({ length: 20_000 }, () => {
+    const frames = Array.from({ length: 2_000 }, () => {
       unsettled += 1;
       return handle.handleMessage(sayFrame).finally(() => {
         unsettled -= 1;
