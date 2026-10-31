@@ -13,6 +13,7 @@ import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
+import { releaseSubscribes } from './subscribe-order.ts';
 import { serializeWireFrame } from './wire-serialize.ts';
 import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
@@ -27,6 +28,7 @@ type RunConnectionLifecycleRuntimeParameter = {
    * handlers are already wrapped in a plugin-scoped context.
    */
   pluginConnectHooks?: readonly {
+    pluginId: string;
     handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
   }[];
   pluginDisconnectHooks?: readonly {
@@ -283,6 +285,13 @@ interface ConnectionRuntime {
     event?: string,
   ): Promise<void>;
 
+  /** Report a plugin's `onConnect` failure, so that plugin's `onError` sees it. */
+  handlePluginConnectError?(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    error: unknown,
+    pluginId: string,
+  ): Promise<void>;
+
   /** Report an error that the socket raised, not one that a handler threw. */
   handleSocketError(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -371,6 +380,9 @@ interface RestoreWakeIndexesInput {
   restoredStreamIds: readonly string[];
 }
 
+/** The plugin whose `onConnect` threw, by that connect's ctx, so its `onError` gets the failure. */
+const connectFailureOwner = new WeakMap<object, string>();
+
 /**
  * Run connect/disconnect hooks for both the handler and installed plugins.
  */
@@ -384,7 +396,12 @@ export async function runConnectionLifecycle(
     if (kind === 'connect') {
       // Inbound onion: plugins see the connection before the app.
       for (const entry of runtime.pluginConnectHooks ?? []) {
-        await entry.handler(ctx);
+        try {
+          await entry.handler(ctx);
+        } catch (error) {
+          connectFailureOwner.set(ctx, entry.pluginId);
+          throw error;
+        }
       }
 
       for (const hook of runtime.connectHooks) {
@@ -519,9 +536,11 @@ async function closeConnection(
   await runtime.cancelActiveStreamsForConnection(connection.id);
 
   connection.closing = true;
+  releaseSubscribes(connection);
   runtime.connections.delete(connection.id);
   removeConnectionFromUserIndex(runtime.usersByKey, connection);
   pendingEvictions.delete(connection);
+
   runtime.wsToConnectionId.delete(connection.wsKey);
 
   runtime.deleteConnectionState?.(connection.id);
@@ -730,7 +749,12 @@ export function acceptConnection(
     : runtime.runConnectionLifecycle('connect', ctx);
 
   connection.lifecycleReady = lifecyclePromise
-    .catch((error) => runtime.handleRuntimeError(connection, error, undefined))
+    .catch((error) => {
+      const pluginId = connectFailureOwner.get(ctx);
+      return pluginId && runtime.handlePluginConnectError
+        ? runtime.handlePluginConnectError(connection, error, pluginId)
+        : runtime.handleRuntimeError(connection, error, undefined);
+    })
     .finally(() => {
       // Flush the buffered state once, even if onConnect threw — the
       // current in-memory state is what the row should reflect.

@@ -35,7 +35,13 @@
     "@iconify-json/simple-icons": "^1.2.86",
     "@iconify-json/vscode-icons": "^1.2.59",
     "@lhci/cli": "^0.15.1",
+    "@volar/typescript": "2.4.15",
+    "@vue/compiler-sfc": "^3.5.38",
+    "@vue/language-core": "2.2.12",
     "h3": "^1.15.11",
+    "svelte": "^5.55.2",
+    "svelte2tsx": "^0.7.62",
+    "vue": "^3.5.38",
     "vue-tsc": "^2.2.0",
     "wrangler": "^4.0.0"
   }

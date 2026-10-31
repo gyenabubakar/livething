@@ -118,8 +118,9 @@ export class RateLimitRuntime {
   /**
    * Resolve the rule that applies to this frame, then consume a token.
    * Returns `null` to let the frame through, or `{ retryAfterMs }` to reject.
-   * `retryAfterMs` is rounded up to the next whole millisecond so a client
-   * backing off by it has enough time for the next token to become available.
+   * `retryAfterMs` is the time until the next token, rounded up to a whole
+   * millisecond and never less than 1000, so a client backing off by it has
+   * enough time for that token to become available.
    */
   check(ctx: any, event: string): { retryAfterMs: number } | null {
     const scopeKey = resolveScopeKey(ctx);

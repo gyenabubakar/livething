@@ -14,7 +14,7 @@ import { tags } from '~/tags/capability.ts';
 import { buildGroupHandle } from '~/tags/runtime.ts';
 import { listTagsByUser } from '~/tags/storage.ts';
 import * as v from 'valibot';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { TagsRuntime } from '~/tags/runtime.ts';
@@ -283,6 +283,18 @@ describe('persistent tag durability ordering', () => {
 
     expect(calls).toHaveLength(1);
     expect(conn.tags.persistent.get('role')?.has('admin')).toBe(true);
+  });
+
+  it('add: writes nothing for a user being purged', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const conn = createConnection('u1');
+    const exec = vi.fn();
+    const runtime = { ...createPersistentRuntime(tagMembers, exec), isUserPurging: () => true };
+
+    buildGroupHandle(runtime, conn, { kind: 'persistent', group: 'role' }).add('admin');
+
+    expect(exec).not.toHaveBeenCalled();
+    expect(conn.tags.persistent.get('role')?.has('admin')).toBeFalsy();
   });
 
   it('add: a failed durable write leaves no live tag', () => {

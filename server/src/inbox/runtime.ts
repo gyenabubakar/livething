@@ -53,6 +53,8 @@ interface InboxFanOutOptions {
   deliverySeq: number;
   messageId: string;
   excludeUserId?: string;
+  /** A user `purgeUser` is wiping gets no new row. */
+  isUserPurging?: (userId: string) => boolean;
 }
 
 interface InboxRetentionDeadlineOptions {
@@ -114,7 +116,7 @@ export function fanOutToInbox(core: EngineCore, opts: InboxFanOutOptions): void 
 
   const { sql } = core.storage;
   const userIds = listIdentitiesByChannel(sql, opts.channelName, opts.channelFamily).filter(
-    (userId) => userId !== '' && userId !== opts.excludeUserId,
+    (userId) => userId !== '' && userId !== opts.excludeUserId && !opts.isUserPurging?.(userId),
   );
   if (userIds.length === 0) return;
 

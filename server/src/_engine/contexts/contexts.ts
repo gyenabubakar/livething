@@ -168,6 +168,7 @@ function assignMessagingApi(
       payload,
       options,
       excludeConnectionId: connection.id,
+      excludeResumeToken: connection.resumeToken,
     });
   };
 
@@ -265,6 +266,7 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
       ) => deps.sendToConnections(targets, { routing: undefined, ...opts }),
       persistAttachment: deps.persistAttachment,
       getStorage: deps.getStorage,
+      isUserPurging: deps.isUserPurging,
     };
 
     Object.defineProperty(proto, 'tags', {

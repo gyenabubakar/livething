@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rethrowIfConfigError } from '@livething/core';
-import { runOutsideCall } from '~/_engine/call-context.ts';
+import { isInsideOutgoingHook, runOutgoingHook } from '~/_engine/call-context.ts';
 import { assertPayloadRecord, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
@@ -104,15 +104,22 @@ interface SentFrame {
 
 /**
  * Show one finished send to every `onOutgoing` hook. Protocol frames are not
- * shown. A hook only watches: what it throws, or a promise it returns that
- * rejects, is logged and never reaches the sender — except a configuration
- * error, which is rethrown so the developer sees it.
+ * shown, and neither is a send made inside an `onOutgoing` hook, which would
+ * otherwise run the hook again without end. A hook only watches: what it throws,
+ * or a promise it returns that rejects, is logged and never reaches the sender —
+ * except a configuration error, which is rethrown so the developer sees it.
  */
 function notifyOutgoing(
   runtime: Pick<OutgoingRuntime, 'outgoingHooks' | 'logger' | 'trackBackgroundWork'>,
   sent: SentFrame,
 ): void {
-  if (runtime.outgoingHooks.length === 0 || Protocol.isProtocolEventName(sent.event)) return;
+  if (
+    runtime.outgoingHooks.length === 0 ||
+    Protocol.isProtocolEventName(sent.event) ||
+    isInsideOutgoingHook()
+  ) {
+    return;
+  }
 
   const owner = frameOwner(sent.event);
   // A plugin sees its own frames with the short name it declared.
@@ -135,7 +142,7 @@ function notifyOutgoing(
       };
 
       // The hook sees a frame, not the call context of the code that sent it.
-      return () => runOutsideCall(() => hook.handler(frame));
+      return () => runOutgoingHook(() => hook.handler(frame));
     }),
     message: undefined,
     failure: '[livething] onOutgoing hook failed',
@@ -579,6 +586,9 @@ export interface BroadcastToConnectionsOptions {
   };
 
   excludeConnectionId?: string;
+
+  /** The resume token of `excludeConnectionId`, so replay leaves out that sender too. */
+  excludeResumeToken?: string;
 }
 
 export function broadcastToConnections(
@@ -586,7 +596,7 @@ export function broadcastToConnections(
   connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
   opts: BroadcastToConnectionsOptions,
 ): void {
-  const { event, payload, options, excludeConnectionId } = opts;
+  const { event, payload, options, excludeConnectionId, excludeResumeToken } = opts;
 
   function prepareOrLog(): PreparedBroadcast | undefined {
     try {
@@ -623,6 +633,10 @@ export function broadcastToConnections(
 
   if (prepared && hasBroadcastHooks(runtime)) {
     recorded = toBroadcastMessage(prepared);
+    if (excludeResumeToken && !options?.includeSelf) {
+      recorded.excludedResumeToken = excludeResumeToken;
+    }
+
     if (!tryBeforeBroadcastHooks(runtime, recorded, { event })) return;
   }
 
@@ -742,6 +756,9 @@ export interface BroadcastToChannelOptions {
 
   excludeConnectionId: string | undefined;
 
+  /** The resume token of `excludeConnectionId`, so replay leaves out that sender too. */
+  excludeResumeToken?: string;
+
   channelFamily: string | null;
 
   /** Whether to also deliver to `excludeConnectionId`. Defaults to `false`. */
@@ -788,6 +805,10 @@ export function broadcastToChannel(
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
   if (hasBroadcastHooks(runtime)) {
     recorded = toBroadcastMessage(prepared);
+    if (opts.excludeResumeToken && !includeSelf) {
+      recorded.excludedResumeToken = opts.excludeResumeToken;
+    }
+
     const details = { channel: channelName, channelFamily, event };
     if (!tryBeforeBroadcastHooks(runtime, recorded, details)) return;
   }

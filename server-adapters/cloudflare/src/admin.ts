@@ -40,21 +40,35 @@ type AnyArgs = [event: string, payload: unknown];
 class AdminConnection<TArgs extends AnyArgs> extends RpcTarget {
   readonly #ctx: ConnectionlessContext;
   readonly #ref: ConnectionRef;
+  readonly #instanceId: string;
 
-  constructor(ctx: ConnectionlessContext, ref: ConnectionRef) {
+  constructor(ctx: ConnectionlessContext, ref: ConnectionRef, instanceId: string) {
     super();
     this.#ctx = ctx;
     this.#ref = ref;
+    this.#instanceId = instanceId;
+  }
+
+  #handle() {
+    if (this.#ref === null || typeof this.#ref !== 'object') {
+      throw new Error(
+        `[livething] admin.connections.get(ref) needs a connection ref, got ${String(this.#ref)}. Get one from admin.connections.all().`,
+      );
+    }
+
+    return this.#ctx.connections.get(
+      this.#ref.instance === undefined ? { ...this.#ref, instance: this.#instanceId } : this.#ref,
+    );
   }
 
   /** Send an event to this connection only. `false` when it is no longer live. */
   send(...[event, payload]: TArgs): boolean {
-    return this.#ctx.connections.get(this.#ref).send(event, payload);
+    return this.#handle().send(event, payload);
   }
 
   /** Close this connection only. */
   close(code?: number, reason?: string): void {
-    this.#ctx.connections.get(this.#ref).close(code, reason);
+    this.#handle().close(code, reason);
   }
 }
 
@@ -71,11 +85,11 @@ class AdminConnections<TArgs extends AnyArgs, TMeta> extends RpcTarget {
 
   /**
    * Reach one connection by ref. A ref built in the Worker has no instance id,
-   * so it is treated as local to this Durable Object.
+   * so it is treated as local to this Durable Object. A bad ref throws from the
+   * later call, for the reason given on {@link AdminChannels.get}.
    */
   get(ref: ConnectionRef): AdminConnection<TArgs> {
-    const local = ref.instance === undefined ? { ...ref, instance: this.#instanceId } : ref;
-    return new AdminConnection(this.#ctx, local);
+    return new AdminConnection(this.#ctx, ref, this.#instanceId);
   }
 
   /** A snapshot of every live connection. Each `ref()` crosses the stub as a callable stub. */
@@ -202,11 +216,15 @@ class AdminChannels<TChannels, TMeta> extends RpcTarget {
     this.#instanceId = instanceId;
   }
 
+  /**
+   * An unknown channel throws `ChannelNotFound` from the later call, not here. A
+   * Worker chains `get(...).members()` over RPC and never holds the promise for
+   * `get`, so a throw here would be an unhandled rejection in the Worker even
+   * when the chained call is inside try/catch.
+   */
   get(...target: ChannelGetArgs<TChannels>): AdminChannel<TMeta> {
     const resolved: [string] | [string, string] =
       target[1] === undefined ? [target[0]] : [target[0], target[1]];
-    // Resolve now so an unknown name throws `ChannelNotFound` at `get`, as it does in-process.
-    void this.#ctx.channels.get(...(resolved as [string, string]));
     return new AdminChannel(this.#ctx, resolved, this.#instanceId);
   }
 
@@ -286,11 +304,18 @@ type ContractOf<TDefinition> = TDefinition extends { readonly __contract?: infer
 
 type HasKeys<T> = [keyof T] extends [never] ? false : true;
 
+/** The function members of an `api`, the only ones {@link buildAdmin} puts on the stub. */
+type ApiMethods<TApi> = {
+  [K in keyof TApi as TApi[K] extends (...args: never[]) => unknown ? K : never]: TApi[K];
+};
+
 /**
  * What `stub.admin()` resolves to for one server definition. Event names and
  * payloads are checked against the definition's own `emits(...)`, exactly as
  * they are on Node, and `channels.broadcast` checks them against the named
  * channel's emits. `channels` is there only when the definition declares a channel.
+ * Of the definition's `api`, only the methods are here: a stub can't carry a plain
+ * value member, so read one through a method.
  */
 export type CloudflareAdmin<TDefinition extends ServerDefinition = ServerDefinition> = Omit<
   AdminTarget<
@@ -300,7 +325,7 @@ export type CloudflareAdmin<TDefinition extends ServerDefinition = ServerDefinit
   >,
   HasKeys<ContractOf<TDefinition>['channels']> extends true ? never : 'channels'
 > &
-  ApiOf<TDefinition>;
+  ApiMethods<ApiOf<TDefinition>>;
 
 /** Names a Workers RPC stub already uses, so an app `api` method by one of them is never reached. */
 const RPC_STUB_NAMES: ReadonlySet<string> = new Set(['dup']);

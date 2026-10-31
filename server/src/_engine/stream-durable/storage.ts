@@ -20,7 +20,6 @@ const CREATE_STREAMS_TABLE_SQL = `
     channel_family             TEXT,
     broadcast                 INTEGER NOT NULL DEFAULT 0,
     creator_user_id           TEXT,
-    started_at                INTEGER NOT NULL,
     last_activity_at          INTEGER NOT NULL,
     ended_at                  INTEGER,
     max_chunks                INTEGER,
@@ -44,7 +43,6 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
     seq          INTEGER NOT NULL,
     message_id   TEXT,
     payload      TEXT NOT NULL,
-    emitted_at   INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata     TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (user_id, stream_id, seq),
@@ -198,8 +196,8 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
   try {
     sql.exec(
       `INSERT INTO __livething_streams
-       (user_id, stream_id, event, payload, status, last_seq, channel_key, channel_family, broadcast, creator_user_id, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
-       VALUES (?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (user_id, stream_id, event, payload, status, last_seq, channel_key, channel_family, broadcast, creator_user_id, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
+       VALUES (?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.userId,
       input.streamId,
       input.event,
@@ -208,7 +206,6 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
       input.channelFamily ?? null,
       input.broadcast ? 1 : 0,
       input.creatorUserId ?? null,
-      input.now,
       input.now,
       input.maxChunks ?? null,
       input.maxAgeMs ?? null,
@@ -328,20 +325,18 @@ export interface AppendChunkInput {
   messageId: string | null;
 
   payload: string;
-  now: number;
 }
 
 /** Append one chunk to the buffer for replay on reconnect. */
 export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
   sql.exec(
-    `INSERT INTO __livething_stream_chunks (user_id, stream_id, seq, message_id, payload, emitted_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO __livething_stream_chunks (user_id, stream_id, seq, message_id, payload)
+     VALUES (?, ?, ?, ?, ?)`,
     input.userId,
     input.streamId,
     input.seq,
     input.messageId,
     input.payload,
-    input.now,
   );
 }
 
@@ -516,6 +511,24 @@ export interface PurgeStreamsByUserOptions {
    * purged user can never stay on record as a stream's creator.
    */
   keepBroadcastContent?: boolean;
+}
+
+/** Read a stream this user started. A broadcast stream is filed under its channel, not the user. */
+export function readStreamOfCreator(
+  sql: SqlExec,
+  creatorUserId: string,
+  streamId: string,
+): DurableStreamRow | null {
+  const row = sql
+    .exec(
+      'SELECT user_id FROM __livething_streams WHERE stream_id = ? AND (user_id = ? OR creator_user_id = ?)',
+      streamId,
+      creatorUserId,
+      creatorUserId,
+    )
+    .toArray()[0];
+
+  return row ? readStream(sql, row.user_id as string, streamId) : null;
 }
 
 /**

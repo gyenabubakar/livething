@@ -76,29 +76,15 @@ interface CancelScheduledOptions {
 }
 
 /**
- * Remove every queued run for one scheduled task id. A cancel that matched no
- * run is logged as an error, since it usually means a typo in the task id or
- * filter.
+ * Remove every queued run for one scheduled task id. Matching no run is normal
+ * (the run already fired, or was never queued), so nothing is logged.
  */
 function cancelScheduled(
   core: EngineCore,
   createContext: () => unknown,
   options: CancelScheduledOptions,
-): ScheduledPrimitiveTypes.ScheduledCancelResult {
-  const result = Scheduled.cancelScheduledRuns(
-    buildAccess(core, createContext),
-    options.taskId,
-    options.filter,
-  );
-  if (result.removed === 0) {
-    core.logger.error('[livething] cancelScheduled matched no runs', {
-      taskId: options.taskId,
-      filter: options.filter,
-      taskExists: result.taskExists,
-    });
-  }
-
-  return result;
+): void {
+  Scheduled.cancelScheduledRuns(buildAccess(core, createContext), options.taskId, options.filter);
 }
 
 /**

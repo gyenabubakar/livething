@@ -21,7 +21,6 @@ import type { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/contex
 import type * as ChannelRuntime from '~/channel/runtime.ts';
 import type { MembershipInsert, MembershipKey, StoredMembership } from '~/channel/storage.ts';
 import type { ConnectionInfo, ConnectionRef } from '~/context.ts';
-import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type {
   BufferStreamNudgeOptions,
   RunStreamOptions,
@@ -175,11 +174,7 @@ export interface TagPersistenceService {
 export interface ScheduledService {
   ensureRuntime(core: any, createContext: () => unknown): void;
   scheduleTask(core: any, createContext: () => unknown, opts: OptsParameter): void;
-  cancelScheduled(
-    core: any,
-    createContext: () => unknown,
-    opts: OptsParameter2,
-  ): ScheduledCancelResult;
+  cancelScheduled(core: any, createContext: () => unknown, opts: OptsParameter2): void;
   rescheduleAlarm(core: any): void;
 }
 

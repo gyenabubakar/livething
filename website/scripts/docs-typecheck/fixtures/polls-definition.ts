@@ -1,7 +1,7 @@
 // The polls plugin's assembled slice, as the Plugins overview page (polls/polls-definition.ts) builds it in step 2.
 import { h, vote } from './polls-slice';
 
-export const definition = h.assemble({
+export const pollsDefinition = h.assemble({
   handlers: [vote],
   api(ctx) {
     return {

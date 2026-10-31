@@ -1,4 +1,11 @@
-import { Block, CloseCodes, decodeMessage, encodeMessage } from '@livething/core';
+import {
+  Block,
+  CloseCodes,
+  decodeMessage,
+  encodeMessage,
+  LiveThingConfigError,
+} from '@livething/core';
+import { assertValidTtl } from '~/internal/config.ts';
 import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
 import { toLiveThingError } from '~/internal/error-frame.ts';
 import { NAMESPACE_DELIMITER } from '~/internal/namespace.ts';
@@ -472,11 +479,19 @@ export class LiveThingSocket {
   private async _openConnection(): Promise<void> {
     const attemptId = ++this._connectAttemptId;
     this._setState('connecting');
+    let urlIsNotAString = false;
 
     try {
       const url =
         typeof this._config.url === 'function' ? await this._config.url() : this._config.url;
       if (attemptId !== this._connectAttemptId) return; // a disconnect() cancelled us mid-resolve
+
+      if (typeof url !== 'string') {
+        urlIsNotAString = true;
+        throw new LiveThingConfigError(
+          `the connect() url must be a string, or a function that returns one, got ${url === null ? 'null' : typeof url}.`,
+        );
+      }
 
       // On a reconnect, let add-on modules do any async work before the socket
       // opens (e.g. channels refreshing a subscribe token). Skipped on the first
@@ -603,7 +618,7 @@ export class LiveThingSocket {
       if (attemptId !== this._connectAttemptId) return;
 
       this._log('connection failed', error);
-      this._reportError(toLiveThingError(error));
+      this._reportError(error);
 
       // Run primitive close cleanup first (same order as ws.onclose), so a failed
       // first connect doesn't leave channel/request/ack state pending.
@@ -615,7 +630,10 @@ export class LiveThingSocket {
         }
       }
 
-      if (this._unexpectedCloseHandler) {
+      // A retry would call the same broken url function and report the same error.
+      if (urlIsNotAString) {
+        this._abandonReconnect(false);
+      } else if (this._unexpectedCloseHandler) {
         this._unexpectedCloseHandler(1006, 'connection failed');
       } else {
         this._setState('closed');
@@ -657,12 +675,6 @@ export class LiveThingSocket {
     this._processIncoming(parsed);
   }
 
-  /**
-   * @internal — the pipeline a parsed message runs through: add-on module
-   * `onIncoming` hooks, then the error-frame check, then your intercepts, then
-   * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
-   * can push a message through the same path without a live socket.
-   */
   /**
    * Run your intercepts on an app message. Returns the (maybe changed) message,
    * or null when an intercept threw Block. Protocol frames, request replies and
@@ -723,6 +735,12 @@ export class LiveThingSocket {
     return message;
   }
 
+  /**
+   * @internal — the pipeline a parsed message runs through: add-on module
+   * `onIncoming` hooks, then the error-frame check, then your intercepts, then
+   * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
+   * can push a message through the same path without a live socket.
+   */
   _processIncoming(parsed: Message): void {
     // Modules that must drop a message before the app sees it (dedup) run first.
     // Then your intercepts, before any module delivers the message to channel
@@ -754,7 +772,7 @@ export class LiveThingSocket {
     const metadata = message.metadata;
     if (metadata?.channel === undefined && metadata?.stream === undefined) {
       // Guard the log so the message string and args aren't built on every
-      // frame when debug is off (they would be, even though _logAt no-ops).
+      // frame when setDebug(true) was not called (they would be, even though _logAt no-ops).
       if (this._debug) this._log(`received '${message.event}'`, message.payload);
       this._dispatchMessage(message.event, message.payload);
     }
@@ -814,6 +832,8 @@ export class LiveThingSocket {
    * buffer, or drop it.
    */
   _send(message: Message, options?: InternalSendOptions): SendResult {
+    if (options?.ttl !== undefined) assertValidTtl(options.ttl, 'send');
+
     this._ensureConnected();
 
     let outgoing: Message | null = message;

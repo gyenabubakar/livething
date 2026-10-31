@@ -1,3 +1,4 @@
+import { LiveThingConfigError } from '@livething/core';
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { capability } from '~/_define/capability.ts';
 import { namespacePluginPrimitives } from '~/_define/plugin-namespace.ts';
@@ -240,8 +241,8 @@ function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primiti
 function assertSupported(id: string, primitive: Primitive): void {
   if (ALLOWED_PLUGIN_KINDS.has(primitive.__livething)) return;
 
-  throw new Error(
-    `[livething] plugin('${id}') uses '${primitive.__livething}', which a plugin cannot contribute. ` +
+  throw new LiveThingConfigError(
+    `plugin('${id}') uses '${primitive.__livething}', which a plugin cannot contribute. ` +
       'Host-owned engines (dedup, replay, rateLimit, …) belong on the host — list ' +
       'them there and reach them from the plugin with dependsOn.',
   );
@@ -293,14 +294,14 @@ export function plugin<
   manifest: PluginManifest<TContract, TApi, TScopedCtx>,
 ): () => PluginCapability<TId, TContract, TApi> {
   if (!PLUGIN_ID.test(id)) {
-    throw new Error(
-      `[livething] Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`,
+    throw new LiveThingConfigError(
+      `Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`,
     );
   }
 
   if (!manifest.definition.__scoped) {
-    throw new Error(
-      `[livething] plugin('${id}') definition must be built with server({ scope: 'plugin' }). ` +
+    throw new LiveThingConfigError(
+      `plugin('${id}') definition must be built with server({ scope: 'plugin' }). ` +
         'Author the plugin as a scoped server definition, then pass its assemble() result here.',
     );
   }

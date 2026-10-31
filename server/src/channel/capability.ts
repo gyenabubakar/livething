@@ -1,9 +1,9 @@
+import { LiveThingConfigError } from '@livething/core';
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertUniqueCapabilityKinds } from '~/_define/capability-checks.ts';
+import { assertConfigShape, assertUniqueCapabilityKinds } from '~/_define/capability-checks.ts';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { channel as channelFactory, scope as scopeFactory } from '~/channel/channel.ts';
-import { adaptChannelContext } from '~/channel/ctx-adapter.ts';
 import {
   check as checkFactory,
   commit as commitFactory,
@@ -20,6 +20,24 @@ import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
+import type { ResolvedServerRequest } from '~/request/server-requests.ts';
+
+/** The channel hooks that map straight to one primitive, in the order they register. */
+const CHANNEL_HOOK_PRIMITIVES = {
+  commit: commitFactory,
+  revalidate: revalidateFactory,
+  onSubscribe: onSubscribeFactory,
+  onUnsubscribe: onUnsubscribeFactory,
+  onSessionEnd: onSessionEndFactory,
+  intercept: interceptFactory,
+} as const satisfies Record<string, (hook: any) => Primitive>;
+
+const CHANNEL_CONFIG = {
+  hooks: ['check', ...Object.keys(CHANNEL_HOOK_PRIMITIVES)],
+  options: ['subscribe', 'capabilities', 'rateLimit', 'membership', 'replay'],
+};
+
+const MEMBERSHIP_VALUES = ['persistent', 'ephemeral'];
 
 type ConfigParameter = { input?: unknown; allowInterleaving?: boolean; run: any };
 
@@ -65,17 +83,13 @@ export interface ChannelDeps {
   /** Request builder, present only when the `clientRequests()` capability is listed. */
   readonly buildClientRequest?: (event: string, config: ConfigParameter) => Primitive;
   /**
-   * Merge channel `serverRequests(...)` declarations into the server→client
-   * request table. Present only when `serverRequests()` is listed at the root.
+   * Resolve channel `serverRequests(...)` declarations to server→client request
+   * table entries. Present only when `serverRequests()` is listed at the root.
    */
-  readonly registerServerRequests?: (channelKey: string, declarations: Record<string, any>) => void;
-}
-
-/** Compose the channel-context alias onto whatever a handler already adapts. */
-function withChannelCtx(
-  run: (ctx: any, payload: any) => unknown,
-): (ctx: any, payload: any) => unknown {
-  return (ctx, payload) => run(adaptChannelContext(ctx), payload);
+  readonly resolveServerRequests?: (
+    channelKey: string,
+    declarations: Record<string, any>,
+  ) => ReadonlyMap<string, ResolvedServerRequest>;
 }
 
 /**
@@ -100,6 +114,8 @@ export class ChannelBuilder {
   readonly __baseId: symbol | undefined;
   /** The channel-level rate-limit rule, if the config set one. @internal */
   readonly __rateLimit?: RateLimitConfig;
+  /** Its `serverRequests(...)` entries. Only `assemble()` puts them in a definition's table. @internal */
+  readonly __serverRequests = new Map<string, ResolvedServerRequest>();
 
   private readonly pattern: string | ReturnType<typeof scopeFactory>;
   /** The config and hooks. Handlers are not here: `assemble()` passes the ones it was given. */
@@ -121,6 +137,15 @@ export class ChannelBuilder {
     }
 
     const cfg = config ?? {};
+    const context = `channel '${this.__key}'`;
+    assertConfigShape(cfg, CHANNEL_CONFIG, context);
+    if (cfg.membership !== undefined && !MEMBERSHIP_VALUES.includes(cfg.membership)) {
+      throw new LiveThingConfigError(
+        `${context}: 'membership' must be 'persistent' or 'ephemeral', ` +
+          `not '${String(cfg.membership)}'.`,
+      );
+    }
+
     assertUniqueCapabilityKinds(
       (cfg.capabilities as readonly Capability[] | undefined) ?? [],
       `channel '${this.__key}' capabilities`,
@@ -134,8 +159,8 @@ export class ChannelBuilder {
     if (cfg.replay !== undefined) {
       const build = deps.buildReplay;
       if (!build) {
-        throw new Error(
-          `[livething] channel '${this.__key}' sets replay but no replay capability is ` +
+        throw new LiveThingConfigError(
+          `channel '${this.__key}' sets replay but no replay capability is ` +
             'listed. Add replay.history() or replay.snapshot() to capabilities.',
         );
       }
@@ -147,15 +172,17 @@ export class ChannelBuilder {
       if (cap.__capabilityKind) this.capabilityKinds.add(cap.__capabilityKind);
       if (cap.__channelEmits) this.children.push(...cap.__primitives);
       if (cap.__channelServerRequests && Object.keys(cap.__channelServerRequests).length > 0) {
-        const register = deps.registerServerRequests;
-        if (!register) {
-          throw new Error(
-            `[livething] channel '${this.__key}' declares serverRequests(...) but serverRequests() ` +
+        const resolve = deps.resolveServerRequests;
+        if (!resolve) {
+          throw new LiveThingConfigError(
+            `channel '${this.__key}' declares serverRequests(...) but serverRequests() ` +
               'is not listed. Add serverRequests() to capabilities.',
           );
         }
 
-        register(this.__key, cap.__channelServerRequests);
+        for (const [key, request] of resolve(this.__key, cap.__channelServerRequests)) {
+          this.__serverRequests.set(key, request);
+        }
       }
 
       if (cap.__buildChannelPrimitive) this.children.push(cap.__buildChannelPrimitive());
@@ -164,7 +191,7 @@ export class ChannelBuilder {
     if (cfg.check) {
       this.children.push(
         checkFactory(
-          (ctx: any, data: unknown) => cfg.check(adaptChannelContext(ctx), data),
+          (ctx: any, data: unknown) => cfg.check(ctx, data),
           cfg.subscribe ? { validator: cfg.subscribe } : undefined,
         ),
       );
@@ -172,17 +199,9 @@ export class ChannelBuilder {
       this.children.push(checkFactory(() => undefined, { validator: cfg.subscribe }));
     }
 
-    if (cfg.commit) this.children.push(commitFactory(withChannelCtx(cfg.commit) as any));
-    if (cfg.revalidate)
-      this.children.push(revalidateFactory(withChannelCtx(cfg.revalidate) as any));
-    if (cfg.onSubscribe)
-      this.children.push(onSubscribeFactory(withChannelCtx(cfg.onSubscribe) as any));
-    if (cfg.onUnsubscribe)
-      this.children.push(onUnsubscribeFactory(withChannelCtx(cfg.onUnsubscribe) as any));
-    if (cfg.onSessionEnd)
-      this.children.push(onSessionEndFactory(withChannelCtx(cfg.onSessionEnd) as any));
-
-    if (cfg.intercept) this.children.push(interceptFactory(withChannelCtx(cfg.intercept) as any));
+    for (const [hook, build] of Object.entries(CHANNEL_HOOK_PRIMITIVES)) {
+      if (cfg[hook]) this.children.push((build as (hook: unknown) => Primitive)(cfg[hook]));
+    }
   }
 
   /**
@@ -203,7 +222,7 @@ export class ChannelBuilder {
   }
 
   on(event: string, config: any): ChannelHandlerValue {
-    const primitive = incomingFactory(event, withChannelCtx(config.run) as any, {
+    const primitive = incomingFactory(event, config.run as any, {
       validator: config.input,
       allowInterleaving: config.allowInterleaving,
     });
@@ -214,17 +233,16 @@ export class ChannelBuilder {
   request(event: string, config: any): ChannelHandlerValue {
     const build = this.deps.buildClientRequest;
     if (!build) {
-      throw new Error(
-        `[livething] channel '${this.__key}' uses request() but clientRequests() is not ` +
+      throw new LiveThingConfigError(
+        `channel '${this.__key}' uses request() but clientRequests() is not ` +
           'listed. Add clientRequests() to capabilities.',
       );
     }
 
-    const run = config.run;
     const primitive = build(event, {
       input: config.input,
       allowInterleaving: config.allowInterleaving,
-      run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
+      run: config.run,
     });
 
     return this.handlerValue(primitive, config);
@@ -239,15 +257,15 @@ export class ChannelBuilder {
   }
 
   /** Build the channel primitive from its config, its hooks and the given handlers. @internal */
-  __build(selectedHandlers: ReadonlySet<Primitive>): Primitive {
+  __build(selectedHandlers: readonly Primitive[]): Primitive {
     const seenEvents = new Set<string>();
     for (const handler of selectedHandlers) {
       const { event } = handler as { event?: string };
       if (event === undefined) continue;
 
       if (seenEvents.has(event)) {
-        throw new Error(
-          `[livething] Duplicate event '${event}' on channel '${this.__key}' passed to ` +
+        throw new LiveThingConfigError(
+          `Duplicate event '${event}' on channel '${this.__key}' passed to ` +
             'assemble(). Two handlers use this name. Remove one or rename it.',
         );
       }
@@ -274,19 +292,13 @@ export class ChannelBuilder {
     const build = this.deps.streamBuilders[kind];
     if (!build) {
       const capabilityName = CHANNEL_STREAM_CAPABILITY[kind];
-      throw new Error(
-        `[livething] channel '${this.__key}' uses ${capabilityName} but the ${capabilityName} ` +
+      throw new LiveThingConfigError(
+        `channel '${this.__key}' uses ${capabilityName} but the ${capabilityName} ` +
           `capability is not listed. Add ${capabilityName} to capabilities.`,
       );
     }
 
-    const run = config.run;
-    const channelConfig = {
-      ...config,
-      run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
-    };
-
-    const primitive = build(event, channelConfig);
+    const primitive = build(event, config);
 
     return this.handlerValue(primitive, config);
   }
@@ -349,7 +361,7 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  *   run(ctx, input) { ctx.channel.broadcast('joined', { id: ctx.connection.id }); },
  * });
  *
- * export const server = base.assemble({ handlers: [handleChat] });
+ * export const serverDefinition = base.assemble({ handlers: [handleChat] });
  * ```
  */
 export const channels = withCapabilityKind(function channels(): ChannelsCapability {

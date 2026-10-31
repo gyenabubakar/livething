@@ -44,7 +44,7 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
       kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
     }),
     scheduleTask: vi.fn(),
-    cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
+    cancelScheduled: vi.fn(),
     broadcastToConnections: vi.fn(),
     sendThroughPipeline: vi.fn(() => true),
     broadcastToChannel: vi.fn(),

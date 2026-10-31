@@ -85,7 +85,9 @@ export async function handleRuntimeError(
 ): Promise<void> {
   const { core, buildConnectionContext } = deps;
   // A plugin's `onError` sees only its own failures, under its short event name.
-  const owner = pluginFailureOwner(opts.event, opts.routing);
+  const owner = opts.pluginId
+    ? { id: opts.pluginId, event: opts.event }
+    : pluginFailureOwner(opts.event, opts.routing);
   const pluginHooks = owner
     ? core.hooks.pluginLifecycle.error
         .filter((entry) => entry.pluginId === owner.id)

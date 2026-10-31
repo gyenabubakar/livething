@@ -104,12 +104,8 @@ const asyncCommit = base.channel('async-commit', {
 
 // A check that rejects a token it has already seen (nonce / replay protection).
 // Used to prove the client re-subscribes with a FRESH payload on reconnect: a
-// stale (reused) token is refused, a function-generated one is admitted. Stays
-// ephemeral (`membership: 'ephemeral'`) so a reconnect requires a real client-driven
-// re-subscribe through `check`, instead of a server auto-rejoin through
-// `revalidate`.
+// stale (reused) token is refused, a function-generated one is admitted.
 const nonceRoom = base.channel('nonce-room', {
-  membership: 'ephemeral',
   capabilities: [emits({ joined: t<{ username: string }>() })],
   subscribe: v.object({ token: v.string() }),
   async check(ctx, input) {

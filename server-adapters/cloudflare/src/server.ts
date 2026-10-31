@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter, normalizeCloseReason } from '@livething/server/adapters';
+import { adapter, isValidCloseCode, normalizeCloseReason } from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
 import { DurableObject } from 'cloudflare:workers';
 import type {
@@ -16,6 +16,9 @@ import type { CloudflareAdmin } from './admin.ts';
 
 /** `WebSocket.READY_STATE_OPEN` on Workers. */
 const WEB_SOCKET_OPEN = 1;
+
+/** The close code for a socket that ended with no close frame from the client. */
+const ABNORMAL_CLOSURE = 1006;
 
 /**
  * The instance shape of a `bind()`-produced Durable Object.
@@ -245,6 +248,8 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
       }
 
       async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+        // First, so a slow hook or a failed boot can't keep the client waiting.
+        answerClientClose(ws, code, reason);
         await this.ready;
 
         await this.engine.handleHibernationWake(ws).handleClose(code, reason);
@@ -253,7 +258,10 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
       async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
         await this.ready;
 
-        await this.engine.handleHibernationWake(ws).handleError(error);
+        const connection = this.engine.handleHibernationWake(ws);
+        await connection.handleError(error);
+        // The runtime has already closed the socket and sends no webSocketClose after an error.
+        await connection.handleClose(ABNORMAL_CLOSURE, 'socket error');
       }
 
       async alarm(): Promise<void> {
@@ -322,6 +330,20 @@ function requestWithClientIp(request: Request): Request {
   return new Request(request, { headers });
 }
 
+/**
+ * Send the close frame that ends a client's close handshake. A hibernating socket
+ * doesn't get this from the runtime. 1005 and 1006 only describe a received close
+ * and `close()` throws on them, so those close with no code, which a client that
+ * sent no code sees as 1005.
+ */
+function answerClientClose(ws: WebSocket, code: number, reason: string): void {
+  if (isValidCloseCode(code)) {
+    ws.close(code, reason);
+  } else {
+    ws.close();
+  }
+}
+
 function closeBinaryFrame(socket: WebSocket): void {
   socket.close(CloseCodes.UNSUPPORTED_DATA, '[livething] binary frames are not supported yet');
 }
@@ -350,11 +372,12 @@ function closeBinaryFrame(socket: WebSocket): void {
  * binding falls back to `any` and every `stub.…()` call goes unchecked.
  *
  * **LiveThing requires `compatibility_date` `2026-04-07` or later** in
- * `wrangler.jsonc`. On that date the Workers runtime completes a
- * client-initiated WebSocket close handshake itself; on earlier dates it does
- * not, so a client that calls `socket.disconnect()` (or `ws.close()`) can hang
- * until a timeout instead of closing promptly. Server-initiated closes are
- * unaffected.
+ * `wrangler.jsonc`. From that date the Workers runtime completes a
+ * client-initiated close handshake on a standard socket; on earlier dates it
+ * does not, so a client that calls `socket.disconnect()` (or `ws.close()`) can
+ * hang until a timeout instead of closing promptly. On a hibernating socket the
+ * adapter completes the handshake itself in `webSocketClose`. Server-initiated
+ * closes are unaffected.
  *
  * @example
  * ```ts

@@ -307,6 +307,98 @@ describe('keepalive/runtime', () => {
     });
   });
 
+  describe('a late pong', () => {
+    it('is timed against the ping it answers, not a newer one', () => {
+      const port = createPort();
+      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      monitor.watch('c1');
+
+      passOnePingInterval();
+      passOnePingInterval();
+      answerPongAfter(monitor, 'c1', 100);
+
+      expect(lastLatency(port)).toBe(30_100);
+      expect(lastQuality(port)).toBe('poor');
+    });
+
+    it('still times a healthy pong against its own ping', () => {
+      const port = createPort();
+      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      monitor.watch('c1');
+
+      passOnePingInterval();
+      answerPongAfter(monitor, 'c1', 100);
+
+      expect(lastLatency(port)).toBe(100);
+    });
+  });
+
+  describe('one ping at a time', () => {
+    it('sends no new ping while one is unanswered', () => {
+      const port = createPort({ sendPing: () => true });
+      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      monitor.watch('c1');
+
+      for (let i = 0; i < 4; i += 1) passOnePingInterval();
+
+      expect(port.sendPing).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts every interval with no pong as missed', () => {
+      const port = createPort({ sendPing: () => true });
+      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      monitor.watch('c1');
+
+      passOnePingInterval();
+      passOnePingInterval();
+      passOnePingInterval();
+
+      expect(port.setConnectionLatency.mock.calls).toEqual([
+        ['c1', null, 'poor'],
+        ['c1', null, 'poor'],
+      ]);
+    });
+
+    it('pings again on the next interval after a late pong', () => {
+      const port = createPort({ sendPing: () => true });
+      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      monitor.watch('c1');
+
+      passOnePingInterval();
+      passOnePingInterval();
+      answerPongAfter(monitor, 'c1', 100);
+      passOnePingInterval();
+
+      expect(port.sendPing).toHaveBeenCalledTimes(2);
+    });
+
+    it('times the pong after a late one against its own ping, not an interval off', () => {
+      const port = createPort({ sendPing: () => true });
+      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      monitor.watch('c1');
+
+      passOnePingInterval();
+      passOnePingInterval();
+      answerPongAfter(monitor, 'c1', 100);
+      passOnePingInterval();
+      answerPongAfter(monitor, 'c1', 50);
+
+      // The average of the real samples, 30_100 and 50.
+      expect(lastLatency(port)).toBe(15_075);
+    });
+
+    it('treats a ping that was not sent as not outstanding', () => {
+      const port = createPort({ sendPing: () => false });
+      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      monitor.watch('c1');
+
+      passOnePingInterval();
+      answerPongAfter(monitor, 'c1', 10);
+
+      expect(port.setConnectionLatency).not.toHaveBeenCalled();
+    });
+  });
+
   it('stops pinging without throwing when the send races a socket close', () => {
     const port = createPort({
       sendPing: () => {
@@ -333,9 +425,11 @@ describe('keepalive/runtime', () => {
     const monitor = createKeepaliveMonitor(port, TIMINGS, true);
 
     monitor.watch('c1');
-    passOnePingInterval();
-    passOnePingInterval();
-    passOnePingInterval();
+    for (let i = 0; i < 3; i += 1) {
+      passOnePingInterval();
+      answerPongAfter(monitor, 'c1', 0);
+    }
+
     expect(port.sendPing).toHaveBeenCalledTimes(3);
 
     // Teardown removes the connection from the registry without ever

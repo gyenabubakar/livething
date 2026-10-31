@@ -7,12 +7,14 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import {
   buildLoadReplayQuery,
   buildReplayRow,
+  bumpAudienceWatermark,
   bumpReplayWatermark,
   ensureReplaySchema,
   getReplayRowByKey,
   isChannelReplayAuthorized,
   loadReplayRows,
   matchesReplayScope,
+  MAX_ANONYMOUS_BUDGETS,
   persistReplayMessage,
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
@@ -21,6 +23,8 @@ import {
   readReplayScope,
   readReplayWatermark,
   replayAudienceOf,
+  replayAudiencesOfRequester,
+  ReplayPruneGate,
   replayScopeKey,
   shouldStoreReplayMessage,
   storeReplayRow,
@@ -849,8 +853,8 @@ describe('replay/runtime', () => {
       pruneExpiredReplayRows(sql, { retention: { maxAgeMs: 50 }, now: 100, owner: SERVER_OWNER });
 
       const scope = { channel: null, channelFamily: null };
-      expect(readReplayGapWatermark(sql, scope, replayAudienceOf('bob', false))).toBe(1);
-      expect(readReplayGapWatermark(sql, scope, replayAudienceOf('alice', false))).toBe(2);
+      expect(readReplayGapWatermark(sql, scope, [replayAudienceOf('bob')])).toBe(1);
+      expect(readReplayGapWatermark(sql, scope, [replayAudienceOf('alice')])).toBe(2);
     });
 
     it('count prune limits each audience on its own, so one never pushes out another', () => {
@@ -863,33 +867,145 @@ describe('replay/runtime', () => {
       storeReplayRow(sql, makeRow({ rowKey: 'c4', seq: 4, ...room, userId: 'alice' }));
       storeReplayRow(sql, makeRow({ rowKey: 'c5', seq: 5, ...room, userId: 'alice' }));
 
-      for (const audience of [replayAudienceOf(null, false), replayAudienceOf('alice', false)]) {
+      for (const audience of [replayAudienceOf(null), replayAudienceOf('alice')]) {
         pruneReplayScopeRows(sql, { maxMessages: 1 }, { ...room, audience });
       }
 
       expect(replaySeqs(sql).sort((a, b) => a - b)).toEqual([3, 5]);
-      expect(readReplayGapWatermark(sql, room, replayAudienceOf('bob', false))).toBe(1);
-      expect(readReplayGapWatermark(sql, room, replayAudienceOf('alice', false))).toBe(4);
-      expect(readReplayGapWatermark(sql, room, null)).toBe(1);
+      expect(readReplayGapWatermark(sql, room, [replayAudienceOf('bob')])).toBe(1);
+      expect(readReplayGapWatermark(sql, room, [replayAudienceOf('alice')])).toBe(4);
+      expect(readReplayGapWatermark(sql, room, [])).toBe(1);
     });
 
-    it('rows sent to chosen anonymous connections share one audience apart from the shared log', () => {
+    it('each anonymous token has its own audience, apart from the shared log', () => {
       const sql = replayDb();
-      const anonymous = { recipients: JSON.stringify(['token-a']) };
-      storeReplayRow(sql, makeRow({ rowKey: 'a1', seq: 1, ...anonymous }));
-      storeReplayRow(sql, makeRow({ rowKey: 'a2', seq: 2, ...anonymous }));
-      storeReplayRow(sql, makeRow({ rowKey: 's3', seq: 3 }));
+      const toA = { recipients: [{ userId: '', resumeToken: 'token-a' }] };
+      const toB = { recipients: [{ userId: '', resumeToken: 'token-b' }] };
+      storeReplayRow(sql, makeRow({ rowKey: 'a1', seq: 1, ...toA }));
+      storeReplayRow(sql, makeRow({ rowKey: 'a2', seq: 2, ...toA }));
+
+      storeReplayRow(sql, makeRow({ rowKey: 'b3', seq: 3, ...toB }));
+      storeReplayRow(sql, makeRow({ rowKey: 's4', seq: 4 }));
 
       pruneReplayScopeRows(
         sql,
         { maxMessages: 1 },
-        { channel: null, channelFamily: null, audience: replayAudienceOf(null, true) },
+        { channel: null, channelFamily: null, audience: replayAudienceOf(null, 'token-a') },
       );
 
       const scope = { channel: null, channelFamily: null };
+      expect(replaySeqs(sql).sort((a, b) => a - b)).toEqual([2, 3, 4]);
+      expect(readReplayGapWatermark(sql, scope, [])).toBeNull();
+      expect(
+        readReplayGapWatermark(sql, scope, replayAudiencesOfRequester(null, ['token-a'])),
+      ).toBe(1);
+      expect(
+        readReplayGapWatermark(sql, scope, replayAudiencesOfRequester(null, ['token-b'])),
+      ).toBeNull();
+    });
+
+    it('keeps a frame until its last recipient evicts it', () => {
+      const sql = replayDb();
+      const recipients = [
+        { userId: 'alice', resumeToken: 'alice-1' },
+        { userId: 'bob', resumeToken: 'bob-1' },
+      ];
+      storeReplayRow(sql, makeRow({ rowKey: 'both', seq: 1, recipients }));
+      storeReplayRow(
+        sql,
+        makeRow({ rowKey: 'alice-2', seq: 2, recipients: recipients.slice(0, 1) }),
+      );
+
+      const top = { channel: null, channelFamily: null };
+      pruneReplayScopeRows(
+        sql,
+        { maxMessages: 1 },
+        { ...top, audience: replayAudienceOf('alice') },
+      );
+
+      expect(replaySeqs(sql).sort((a, b) => a - b)).toEqual([1, 2]);
+      expect(
+        loadReplayRows(sql, 0, {
+          channelFamily: null,
+          userId: 'alice',
+          resumeTokens: ['alice-1'],
+        }).map((row) => row.seq),
+      ).toEqual([2]);
+      expect(
+        loadReplayRows(sql, 0, { channelFamily: null, userId: 'bob', resumeTokens: ['bob-1'] }).map(
+          (row) => row.seq,
+        ),
+      ).toEqual([1]);
+
+      pruneReplayScopeRows(sql, { maxMessages: 1 }, { ...top, audience: replayAudienceOf('bob') });
+      storeReplayRow(sql, makeRow({ rowKey: 'bob-2', seq: 3, recipients: recipients.slice(1) }));
+      pruneReplayScopeRows(sql, { maxMessages: 1 }, { ...top, audience: replayAudienceOf('bob') });
+
       expect(replaySeqs(sql).sort((a, b) => a - b)).toEqual([2, 3]);
-      expect(readReplayGapWatermark(sql, scope, null)).toBeNull();
-      expect(readReplayGapWatermark(sql, scope, replayAudienceOf(null, true))).toBe(1);
+    });
+  });
+
+  describe('the limit on anonymous tokens', () => {
+    const top = { channel: null, channelFamily: null };
+    function toAnonymous(index: number): ReplayRow {
+      return {
+        rowKey: `anon-${index}`,
+        messageId: `msg_${index}`,
+        event: 'message',
+        payload: '{}',
+        ...top,
+        userId: null,
+        seq: index + 1,
+        recipients: [{ userId: '', resumeToken: `token-${index}` }],
+        snapshotKey: null,
+        createdAt: index,
+      };
+    }
+
+    function anonymousScope(index: number) {
+      return { ...top, audience: replayAudienceOf(null, `token-${index}`) };
+    }
+
+    it('holds the rows of one store to the total, and reports a gap for what it dropped', () => {
+      const sql = replayDb();
+      const gate = new ReplayPruneGate();
+      const owner = { channelKey: undefined, claimedChannelKeys: new Set<string>() };
+      const total = MAX_ANONYMOUS_BUDGETS + 1;
+      for (let index = 0; index < total; index += 1) {
+        storeReplayRow(sql, toAnonymous(index));
+        gate.prune(sql, {
+          retention: { maxMessages: 1 },
+          scopes: [anonymousScope(index)],
+          owner,
+          stamp: index,
+        });
+      }
+
+      expect(replaySeqs(sql).length).toBeLessThanOrEqual(MAX_ANONYMOUS_BUDGETS);
+      expect(replaySeqs(sql)).toContain(total);
+      const firstToken = replayAudiencesOfRequester(null, ['token-0']);
+      expect(readReplayGapWatermark(sql, top, firstToken)).toBeGreaterThanOrEqual(1);
+    });
+
+    it('folds the lowest token watermarks past the limit, so a real gap is still reported', () => {
+      const sql = replayDb();
+      const scopeKey = replayScopeKey(top);
+      for (let index = 0; index <= MAX_ANONYMOUS_BUDGETS; index += 1) {
+        bumpAudienceWatermark(sql, {
+          scopeKey,
+          evictedThroughSeq: index + 1,
+          audience: replayAudienceOf(null, `token-${index}`),
+        });
+      }
+
+      const row = sql
+        .exec<{ n: number }>('SELECT COUNT(*) AS n FROM __livething_replay_watermark')
+        .one();
+      expect(Number(row?.n)).toBeLessThanOrEqual(MAX_ANONYMOUS_BUDGETS + 1);
+      expect(readReplayGapWatermark(sql, top, replayAudiencesOfRequester(null, ['token-0']))).toBe(
+        1,
+      );
+      expect(readReplayGapWatermark(sql, top, [])).toBeNull();
     });
   });
 });
@@ -919,14 +1035,54 @@ describe('purgeReplayUser', () => {
     pruneReplayScopeRows(
       sql,
       { maxMessages: 1 },
-      { channel: null, channelFamily: null, audience: replayAudienceOf('bob', true) },
+      { channel: null, channelFamily: null, audience: replayAudienceOf('bob') },
     );
-    expect(readReplayGapWatermark(sql, topLevel, replayAudienceOf('bob', true))).toBe(3);
+    expect(readReplayGapWatermark(sql, topLevel, [replayAudienceOf('bob')])).toBe(3);
 
     purgeReplayUser(sql, 'bob');
 
-    expect(readReplayGapWatermark(sql, topLevel, replayAudienceOf('bob', true))).toBeNull();
+    expect(readReplayGapWatermark(sql, topLevel, [replayAudienceOf('bob')])).toBeNull();
     expect(readReplayWatermark(sql, replayScopeKey(familyScope))).toBe(7);
+  });
+
+  it('removes the user from a frame sent to several users, and keeps it for the others', () => {
+    const sql = replayDb();
+    const recipients = [
+      { userId: 'bob', resumeToken: 'bob-1' },
+      { userId: 'carol', resumeToken: 'carol-1' },
+    ];
+    const base = {
+      messageId: 'm',
+      event: 'message',
+      payload: '{}',
+      channel: null,
+      channelFamily: null,
+      userId: null,
+      snapshotKey: null,
+      createdAt: 1,
+    };
+
+    storeReplayRow(sql, { ...base, rowKey: 'both', seq: 1, recipients });
+    storeReplayRow(sql, {
+      ...base,
+      rowKey: 'only-bob',
+      seq: 2,
+      recipients: recipients.slice(0, 1),
+    });
+
+    purgeReplayUser(sql, 'bob');
+
+    expect(
+      loadReplayRows(sql, 0, { channelFamily: null, userId: 'bob', resumeTokens: ['bob-1'] }),
+    ).toEqual([]);
+    expect(
+      loadReplayRows(sql, 0, {
+        channelFamily: null,
+        userId: 'carol',
+        resumeTokens: ['carol-1'],
+      }).map((row) => row.rowKey),
+    ).toEqual(['both']);
+    expect(getReplayRowByKey(sql, 'only-bob')).toBeNull();
   });
 });
 
@@ -949,7 +1105,7 @@ describe('buildLoadReplayQuery', () => {
       userId: 'alice',
     });
     expect(query.sql).toMatch(/channelFamily\s+IS\s+\?/);
-    expect(query.params).toEqual(['room:1', 'rooms', 7, 'alice']);
+    expect(query.params).toEqual(['room:1', 'rooms', 7, 'user:alice']);
   });
 
   it('produces the family query when the family key equals the channel name', () => {
@@ -968,7 +1124,7 @@ describe('buildLoadReplayQuery', () => {
     const query = buildLoadReplayQuery(0, { channelFamily: null, userId: null });
     expect(query.sql).toMatch(/channel IS NULL/);
     expect(query.sql).toMatch(/channelFamily IS NULL/);
-    expect(query.sql).toMatch(/userId IS NULL OR userId = \?/);
+    expect(query.sql).toMatch(/audience = '' OR audience = \?/);
     expect(query.params).toEqual([0, null]);
   });
 });

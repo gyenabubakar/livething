@@ -34,8 +34,8 @@
     "format": "prettier --cache --log-level=error --write .",
     "format:check": "prettier --cache --log-level=error --check .",
     "clean": "pnpm -r --parallel run clean && rm -rf node_modules && rm -rf tests-e2e/node_modules && rm -rf .playwright-mcp",
-    "check": "pnpm format && pnpm typecheck && pnpm lint && pnpm knip && pnpm test && pnpm test:e2e",
-    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm knip && pnpm test && pnpm depcruise && pnpm bundle-check"
+    "check": "pnpm format && pnpm typecheck && pnpm docs:typecheck && pnpm lint && pnpm knip && pnpm test && pnpm test:e2e",
+    "check:ci": "pnpm format:check && pnpm typecheck && pnpm docs:typecheck && pnpm lint:check && pnpm knip && pnpm test && pnpm depcruise && pnpm bundle-check"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",

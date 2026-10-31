@@ -1,4 +1,4 @@
-import { WIRE_LIMITS } from '@livething/core';
+import { LiveThingConfigError, WIRE_LIMITS } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
@@ -28,6 +28,36 @@ beforeEach(() => {
 });
 afterEach(() => {
   restore();
+});
+
+describe('clientRequests — timeout range', () => {
+  const BAD_TIMEOUTS = [NaN, 0, -1, Infinity, 2 ** 31, '100'];
+
+  it.each(BAD_TIMEOUTS)('rejects the option timeout %s, naming the option', (timeout) => {
+    expect(() => clientRequests({ timeout: timeout as number })).toThrow(
+      expect.objectContaining({
+        constructor: LiveThingConfigError,
+        message: expect.stringContaining('clientRequests timeout'),
+      }),
+    );
+  });
+
+  it.each(BAD_TIMEOUTS)('rejects a request with timeout %s, naming the option', async (timeout) => {
+    const socket = client<C>()(connect('wss://test'), clientRequests());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    const request = socket.request('get-balance', { user: 'a' }, { timeout: timeout as number });
+
+    await expect(request).rejects.toThrow(LiveThingConfigError);
+    await expect(request).rejects.toThrow(/request timeout/);
+    expect(ws.sentFrames()).toHaveLength(0);
+  });
+
+  it.each([1, 10_000, 2 ** 31 - 1])('accepts timeout %s', (timeout) => {
+    expect(() => clientRequests({ timeout })).not.toThrow();
+  });
 });
 
 describe('clientRequests — buffered frame ownership', () => {

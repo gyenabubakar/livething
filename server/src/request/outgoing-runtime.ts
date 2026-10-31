@@ -9,6 +9,7 @@ import {
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
+import { assertTimerDelay } from '~/_engine/validation.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';
@@ -265,10 +266,13 @@ function createOutgoingRequestRuntime(
     const correlationId = engine.generateId('sreq');
 
     return new Promise((resolve, reject) => {
+      const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
+      assertTimerDelay(timeout, 'timeout', `ctx.request("${event}", ...)`);
+
       const timer = setTimeout(() => {
         pending.delete(correlationId);
         reject(Timeout());
-      }, options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS);
+      }, timeout);
 
       pending.set(correlationId, {
         kind: 'targeted',
@@ -325,6 +329,9 @@ function createOutgoingRequestRuntime(
     const declaration = serverRequests.get(declarationKey)!;
 
     return new Promise((resolve, reject) => {
+      const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
+      assertTimerDelay(timeout, 'timeout', `ctx.users.get(id).request("${event}", ...)`);
+
       const group: RaceGroup = {
         resolve,
         reject,
@@ -337,7 +344,7 @@ function createOutgoingRequestRuntime(
 
       group.timer = setTimeout(() => {
         finishRace(group, () => group.reject(Timeout()));
-      }, options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS);
+      }, timeout);
 
       let fanOut: ReturnType<EngineAccess['openServerRequestBroadcast']>;
       try {
@@ -517,7 +524,13 @@ export function makeServerRequestsPrimitive(
             if (to) {
               assertLocalRef(to, ctx.connection?.instance, 'ctx.channel.request({ to })');
               // Only a member of this channel can answer through it.
-              if (!channelHandle.members().some((member) => member.id === to.id)) {
+              if (
+                !engine.isConnectionInChannel(
+                  to.id,
+                  channelHandle.name,
+                  channelHandle.family ?? null,
+                )
+              ) {
                 return Promise.reject(NotAMember());
               }
             }

@@ -148,7 +148,6 @@ const handleSendMessage = archiveRoom.on('send-message', {
 });
 
 const typingIndicator = base.channel('typing-indicator', {
-  membership: 'ephemeral',
   capabilities: [emits({ 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() })],
 });
 

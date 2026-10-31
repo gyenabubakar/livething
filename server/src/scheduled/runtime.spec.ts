@@ -1,3 +1,4 @@
+import { LiveThingConfigError } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
 import { scheduleTask } from '~/_engine/scheduling.ts';
@@ -275,7 +276,7 @@ describe('scheduled/runtime', () => {
       bootstrapScheduledRuntime(runtime);
       expect(recurringRuns(scheduledRuns)).toHaveLength(1);
 
-      expect(cancelScheduledRuns(runtime, 'tick')).toEqual({ taskExists: true, removed: 1 });
+      cancelScheduledRuns(runtime, 'tick');
       bootstrapScheduledRuntime(runtime);
       bootstrapScheduledRuntime(runtime);
 
@@ -353,7 +354,7 @@ describe('scheduled/runtime', () => {
         { taskId: 'tick', options: { every: 1_000 }, handler },
       ]);
       handler.mockImplementation(async () => {
-        expect(cancelScheduledRuns(runtime, 'tick').removed).toBe(1);
+        cancelScheduledRuns(runtime, 'tick');
       });
       bootstrapScheduledRuntime(runtime);
 
@@ -421,12 +422,129 @@ describe('scheduled/runtime', () => {
       expect(stoppedRows()).toHaveLength(0);
     });
 
-    it('cancelling an already stopped task removes nothing', () => {
-      const { runtime } = createScheduledRuntime([{ taskId: 'tick', options: { every: 1_000 } }]);
+    it('cancelling an already stopped task changes nothing', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
       bootstrapScheduledRuntime(runtime);
       cancelScheduledRuns(runtime, 'tick');
 
-      expect(cancelScheduledRuns(runtime, 'tick')).toEqual({ taskExists: true, removed: 0 });
+      expect(() => cancelScheduledRuns(runtime, 'tick')).not.toThrow();
+
+      expect(scheduledRuns.size).toBe(0);
+      expect(sql.exec('SELECT taskId FROM __livething_scheduled_stopped').toArray()).toHaveLength(
+        1,
+      );
+    });
+  });
+
+  describe('a stored recurring run at boot', () => {
+    function storeRecurringRun(
+      sql: ReturnType<typeof createTestSql>,
+      everyMs: number,
+      time: number,
+    ) {
+      sql.exec(
+        `INSERT INTO __livething_scheduled (id, taskId, time, data, everyMs, attempts, recurring, retry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        'stored',
+        'tick',
+        time,
+        null,
+        everyMs,
+        0,
+        1,
+        1,
+      );
+    }
+
+    it('follows a longer every, keeping the stored next run', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 60_000 } },
+      ]);
+      const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+      storeRecurringRun(sql, 1_000, 10_500);
+
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.get('stored')).toMatchObject({ every: 60_000, time: 10_500 });
+      expect(scheduledTableRows(sql)).toEqual([
+        expect.objectContaining({ id: 'stored', everyMs: 60_000 }),
+      ]);
+      now.mockRestore();
+    });
+
+    it('follows a shorter every, moving the next run closer', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+      storeRecurringRun(sql, 3_600_000, 3_000_000);
+
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.get('stored')).toMatchObject({ every: 1_000, time: 11_000 });
+      now.mockRestore();
+    });
+
+    it('drops the run when every was removed', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([{ taskId: 'tick' }]);
+      storeRecurringRun(sql, 1_000, 10_500);
+
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.size).toBe(0);
+      expect(scheduledTableRows(sql)).toHaveLength(0);
+    });
+
+    it('leaves a one-shot run of a task that no longer recurs alone', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'tick' }]);
+      scheduleTaskRun(runtime, { taskId: 'tick', time: 50_000, data: undefined });
+
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.size).toBe(1);
+    });
+  });
+
+  describe('a time past what an alarm can hold', () => {
+    const LAST_ALARM_TIME = 9_223_372_036_854;
+
+    it('throws to the caller and stores nothing', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([{ taskId: 'flush' }]);
+      function schedule() {
+        scheduleTaskRun(runtime, { taskId: 'flush', time: LAST_ALARM_TIME + 1, data: undefined });
+      }
+
+      expect(schedule).toThrow(LiveThingConfigError);
+      expect(schedule).toThrow(
+        /\[livething\] ctx\.schedule\("flush", \.\.\.\): 'time' must be at most/,
+      );
+      expect(scheduledRuns.size).toBe(0);
+      expect(scheduledTableRows(sql)).toHaveLength(0);
+    });
+
+    it('does not restart a stopped task', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+      cancelScheduledRuns(runtime, 'tick');
+
+      expect(() =>
+        scheduleTaskRun(runtime, { taskId: 'tick', time: LAST_ALARM_TIME + 1, data: undefined }),
+      ).toThrow(/'time' must be at most/);
+
+      bootstrapScheduledRuntime(runtime);
+      expect(scheduledRuns.size).toBe(0);
+    });
+
+    it('accepts the last time an alarm can hold', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+      scheduleTaskRun(runtime, { taskId: 'flush', time: LAST_ALARM_TIME, data: undefined });
+
+      expect(scheduledRuns.size).toBe(1);
     });
   });
 

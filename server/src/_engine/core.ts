@@ -15,7 +15,7 @@ import {
   UnsupportedProtocol,
   ValidationFailed,
 } from '@livething/core';
-import { createAsyncContext } from '~/_engine/async-context.ts';
+import { createAsyncContext, getInvocationScope } from '~/_engine/async-context.ts';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
 import {
@@ -38,6 +38,9 @@ import type { Validator } from '~/types.ts';
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 type ActiveStream = EngineRuntimeTypes.ActiveStream;
 type Primitive = PrimitiveCore.Primitive;
+
+/** How many purged users `isUserPurging` remembers for handlers that started before their purge. */
+const MAX_PURGE_RECORDS = 10_000;
 
 /**
  * Holds every piece of state one engine needs at runtime. No behaviour —
@@ -197,6 +200,15 @@ export class EngineCore {
     UnsupportedProtocol.code,
   ]);
 
+  /** How many `purgeUser` calls are running, per user. Use `isUserPurging` to ask about a user. */
+  private readonly runningPurges = new Map<string, number>();
+
+  /** Counts `purgeUser` calls. An invocation scope keeps the value it started with. */
+  purgeEpoch = 0;
+
+  /** The epoch of each user's latest purge, oldest purge first, at most `MAX_PURGE_RECORDS`. */
+  readonly lastPurgeEpochs = new Map<string, number>();
+
   readonly connections = new Map<string, RuntimeConnection>();
   // User-key → members index (fan-out for `ctx.user`/`ctx.users`, and total-user
   // lookups), maintained on accept, close, and hibernation wake.
@@ -329,6 +341,43 @@ export class EngineCore {
     return this.tagGroupsRegistered.ephemeral || this.tagGroupsRegistered.persistent;
   }
 
+  /** Start a purge: from now on, nothing may write this user's durable rows. */
+  markUserPurging(userId: string): void {
+    this.runningPurges.set(userId, (this.runningPurges.get(userId) ?? 0) + 1);
+    this.purgeEpoch += 1;
+    this.lastPurgeEpochs.delete(userId);
+    this.lastPurgeEpochs.set(userId, this.purgeEpoch);
+    // The record stays bounded by forgetting the oldest purge. A handler that
+    // outlives MAX_PURGE_RECORDS later purges can therefore still write its user's rows.
+    if (this.lastPurgeEpochs.size > MAX_PURGE_RECORDS) {
+      const [oldest] = this.lastPurgeEpochs.keys();
+      this.lastPurgeEpochs.delete(oldest!);
+    }
+  }
+
+  /** End one purge. The user stays guarded until every overlapping purge has ended. */
+  unmarkUserPurging(userId: string): void {
+    const running = this.runningPurges.get(userId) ?? 0;
+    if (running > 1) this.runningPurges.set(userId, running - 1);
+    else this.runningPurges.delete(userId);
+  }
+
+  /**
+   * Whether the running code must not write this user's durable rows: a purge is
+   * running, or the running invocation started before the user's latest purge. An
+   * invocation that started after it (the same user id signing in again) may write.
+   */
+  isUserPurging(userId: string): boolean {
+    if (this.runningPurges.has(userId)) return true;
+
+    const purgedAt = this.lastPurgeEpochs.get(userId);
+    if (purgedAt === undefined) return false;
+
+    const scope = getInvocationScope(this.asyncContext);
+
+    return scope !== null && scope.purgeEpoch < purgedAt;
+  }
+
   isChannelDurable(channelKey: string): boolean {
     return this.channelDurabilityOverrides.get(channelKey) === true;
   }
@@ -345,7 +394,7 @@ export class EngineCore {
   /**
    * Does a `(channelName, channelFamily)` pair from a durable row still match a
    * durable channel? Used by boot reconcile to find orphan rows from
-   * removed or `membership: 'ephemeral'` channels.
+   * channels that were removed or are no longer `membership: 'persistent'`.
    */
   isDurableMembershipPairDurable(channelName: string, channelFamily: string | null): boolean {
     if (channelFamily === null) {

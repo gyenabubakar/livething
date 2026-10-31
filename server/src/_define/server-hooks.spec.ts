@@ -99,6 +99,90 @@ describe('hooks written in server({ ... })', () => {
     expect(calls).toContain('onShutdown');
   });
 
+  it('passes each hook its ctx and frame', async () => {
+    const seen: Record<string, unknown> = {};
+    function userOf(ctx: { connection: { userId: string } }) {
+      return ctx.connection.userId;
+    }
+
+    const base = server({
+      capabilities: [emits({ pong: t<{ text: string }>() })],
+      onConnect(ctx) {
+        seen.onConnect = userOf(ctx);
+      },
+      onDisconnect(ctx) {
+        seen.onDisconnect = userOf(ctx);
+      },
+      onPing(ctx) {
+        seen.onPing = userOf(ctx);
+      },
+      onPong(ctx) {
+        seen.onPong = userOf(ctx);
+      },
+      onError(ctx, error, event) {
+        seen.onError = { user: userOf(ctx), message: (error as Error).message, event };
+      },
+      intercept(ctx, frame) {
+        seen.intercept = { user: userOf(ctx), frame };
+      },
+      onOutgoing(ctx, frame) {
+        seen.onOutgoing = { user: ctx && userOf(ctx), frame };
+      },
+    });
+    const handleSay = base.on('say', {
+      input: v.object({}),
+      run(ctx) {
+        ctx.send('pong', { text: 'hi' });
+      },
+    });
+    const handleFail = base.on('fail', {
+      input: v.object({}),
+      run() {
+        throw new Error('boom');
+      },
+    });
+
+    const engine = await startEngine(base.assemble({ handlers: [handleSay, handleFail] }));
+    const { handle } = await connect(engine);
+    const connectionId = [...engine.core.connections.keys()].at(-1);
+    await handle.handleMessage('ping');
+    await handle.handleMessage('pong');
+
+    await handle.handleMessage(JSON.stringify(['say', {}, null]));
+
+    expect(seen.intercept).toEqual({
+      user: 'ama',
+      frame: expect.objectContaining({
+        event: 'say',
+        payload: {},
+        kind: 'incoming',
+        owner: { kind: 'app' },
+      }),
+    });
+    expect(seen.onOutgoing).toEqual({
+      user: 'ama',
+      frame: {
+        event: 'pong',
+        payload: { text: 'hi' },
+        owner: { kind: 'app' },
+        channel: null,
+        target: { kind: 'connection', id: connectionId },
+        recipients: 1,
+      },
+    });
+
+    await handle.handleMessage(JSON.stringify(['fail', {}, null]));
+    await handle.handleClose(1000, 'bye');
+
+    expect(seen).toMatchObject({
+      onConnect: 'ama',
+      onPing: 'ama',
+      onPong: 'ama',
+      onError: { user: 'ama', message: 'boom', event: 'fail' },
+      onDisconnect: 'ama',
+    });
+  });
+
   it('gives a hook the same ctx a handler gets', async () => {
     const base = server({
       upgrade: () => ({ userId: 'ama', meta: { name: 'Ama' } }),

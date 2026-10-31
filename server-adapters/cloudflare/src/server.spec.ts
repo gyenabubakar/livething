@@ -447,8 +447,21 @@ describe('hibernation wake callbacks', () => {
     const state = makeFakeDOState();
     const instance = new Cls(state as unknown as DurableObjectState, {});
 
-    await instance.webSocketClose({} as WebSocket, 1001, 'going away', true);
+    const ws = { close: vi.fn() } as unknown as WebSocket;
+    await instance.webSocketClose(ws, 1001, 'going away', true);
+    expect(ws.close).toHaveBeenCalledWith(1001, 'going away');
     expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(1001, 'going away');
+  });
+
+  it.each([1005, 1006])('webSocketClose answers a %i close with no code', async (code) => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    const ws = { close: vi.fn() } as unknown as WebSocket;
+    await instance.webSocketClose(ws, code, '', false);
+    expect(ws.close).toHaveBeenCalledWith();
+    expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(code, '');
   });
 
   it('webSocketError forwards the error without crashing', async () => {
@@ -459,6 +472,7 @@ describe('hibernation wake callbacks', () => {
     const err = new Error('ws-fail');
     await expect(instance.webSocketError({} as WebSocket, err)).resolves.toBeUndefined();
     expect(fake.connectionHandle.handleError).toHaveBeenCalledWith(err);
+    expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(1006, 'socket error');
   });
 });
 
@@ -578,7 +592,7 @@ describe('engine wiring in the constructor', () => {
     const calls = [
       instance.fetch(upgradeRequest()),
       instance.webSocketMessage({} as WebSocket, 'hello'),
-      instance.webSocketClose({} as WebSocket, 1000, 'bye'),
+      instance.webSocketClose({ close: vi.fn() } as unknown as WebSocket, 1000, 'bye'),
       instance.webSocketError({} as WebSocket, failure),
       instance.alarm(),
       instance.shutdown(),
@@ -734,6 +748,29 @@ describe('LiveThingDurableObject admin()', () => {
     ]) {
       expect(target).toBeInstanceOf(RpcTargetFake);
     }
+  });
+
+  it('channels.get does not throw for an unknown channel; the later call does', async () => {
+    const { admin } = await adminOf();
+    const channels = fake.adminApi.channels as { get: ReturnType<typeof vi.fn> };
+    channels.get.mockImplementation(() => {
+      throw new Error('channel-not-found');
+    });
+
+    const channel = admin.channels.get('nope' as never);
+
+    expect(() => channel.members()).toThrow('channel-not-found');
+    expect(() => channel.kick({ __livething: 'tag-ref' } as never, { reason: 'x' })).toThrow(
+      'channel-not-found',
+    );
+  });
+
+  it('a connection handle from a missing ref throws a [livething] error when used', async () => {
+    const { admin } = await adminOf();
+    const connection = admin.connections.get(undefined as never);
+
+    expect(() => connection.send('evt' as never, {} as never)).toThrow(/\[livething\]/);
+    expect(() => connection.close()).toThrow(/\[livething\]/);
   });
 
   it('channel kick treats a user ref built in the Worker as local to this instance', async () => {

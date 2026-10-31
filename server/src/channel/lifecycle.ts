@@ -16,8 +16,7 @@ export type SubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 /**
  * Handler called only on a TRUE leave — when the client sends `__unsubscribe__`
  * or is kicked. The user has left the group; for persistent channels the
- * durable membership row has been deleted too, unless the kick was a
- * non-revoking one (in which case the row survives so the user auto-rejoins).
+ * durable membership row has been deleted too.
  * NOT fired on plain disconnect of a persistent channel — that case fires
  * `onSessionEnd` instead.
  *

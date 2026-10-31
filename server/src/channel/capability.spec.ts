@@ -314,9 +314,8 @@ describe('channels() capability', () => {
   });
 
   it('registers channel serverRequests with the root runtime', () => {
-    const reqCap = serverRequests();
-    const base = server({ capabilities: [reqCap, channels()] });
-    base.channel('room', {
+    const base = server({ capabilities: [serverRequests(), channels()] });
+    const room = base.channel('room', {
       capabilities: [
         serverRequests({
           'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
@@ -324,7 +323,10 @@ describe('channels() capability', () => {
         }),
       ],
     });
-    const declarations = (reqCap as unknown as { __serverRequests: ReadonlyMap<string, any> })
+    const carrier = base
+      .assemble({ handlers: [room] })
+      .primitives.find((primitive) => primitive.__livething === 'server-requests');
+    const declarations = (carrier as unknown as { __serverRequests: ReadonlyMap<string, any> })
       .__serverRequests;
     // Channel declarations are keyed by the channel definition so they never collide
     // with another channel's or with a top-level declaration of the same name.

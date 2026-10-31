@@ -43,7 +43,7 @@ describe('keepalive — missed pong force close', () => {
 
     vi.advanceTimersByTime(1000);
     expect(socket.quality.get()).toBe('poor');
-    expect(ws.sent.filter((s) => s === 'ping').length).toBe(2);
+    expect(ws.sent.filter((s) => s === 'ping').length).toBe(1);
   });
 
   it('force-closes the socket with CloseCodes.IDLE once missedPongs reaches maxMissedPongs', () => {

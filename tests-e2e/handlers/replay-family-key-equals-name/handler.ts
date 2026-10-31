@@ -16,10 +16,6 @@ const base = server({
 });
 
 const rooms = base.channel(['rooms', 'rooms'], {
-  // Ephemeral: the replay-after-reconnect test closes the socket and opens a
-  // fresh one, then sends an explicit __subscribe__ itself rather than
-  // relying on auto-rejoin — it needs a real subscribe/ack cycle to run.
-  membership: 'ephemeral',
   replay: true,
   capabilities: [emits({ 'room-message': t<v.InferOutput<typeof RoomMessage>>() })],
 });

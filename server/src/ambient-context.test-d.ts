@@ -77,7 +77,7 @@ base.channel('gated', {
   },
 });
 
-// The lifecycle hooks (subscribe, unsubscribe, sessionEnd) have a channel's own handles. The gate
+// The lifecycle hooks (onSubscribe, onUnsubscribe, onSessionEnd) have a channel's own handles. The gate
 // hooks (check, commit, revalidate) do not, so their accessor must not promise them.
 const inboxChannel = base.channel('inboxed', { capabilities: [inbox()] });
 context.channelLifecycle(inboxChannel).channel.inbox;

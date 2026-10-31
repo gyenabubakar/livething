@@ -3,13 +3,12 @@ import { CloseCodes } from '@livething/core';
 import { getInvocationScope, withConnectionCall } from '~/_engine/async-context.ts';
 import { assertPayloadRecord } from '~/_engine/runtime/json-guard.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
-import { createChannelMembershipKey } from '~/channel/runtime.ts';
+import { createChannelMembershipKey, hasChannelMembership } from '~/channel/runtime.ts';
 import * as InboxRuntime from '~/inbox/runtime.ts';
 import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
-import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 
 type OptsParameter = { taskId: string; time: number; data: unknown };
 type OptsParameter2 = {
@@ -38,7 +37,7 @@ export interface EngineAccessDeps {
   /** Queue one future scheduled task run. */
   scheduleTask(opts: OptsParameter): void;
   /** Remove queued runs for one scheduled task id. */
-  cancelScheduled(opts: OptsParameter2): ScheduledCancelResult;
+  cancelScheduled(opts: OptsParameter2): void;
   /** Recompute the next scheduled callback from the queued-run table. */
   rescheduleAlarm(): void;
   /**
@@ -157,7 +156,7 @@ export function createEngineAccess(
     setBuilderUpgradeHook: (handler) => {
       if (core.hooks.builderUpgrade !== undefined) {
         throw new Error(
-          '[livething] The builder onUpgrade hook is already set. Compose multiple upgrade-time concerns inside one .onUpgrade(...) handler.',
+          '[livething] The `upgrade` hook is already set. Compose multiple upgrade-time concerns inside the one `upgrade` function of server({ ... }).',
         );
       }
 
@@ -307,8 +306,7 @@ export function createEngineAccess(
       const connection = core.connections.get(connectionId);
       if (!connection) return false;
 
-      connection.descriptor.send('ping');
-      return true;
+      return connection.descriptor.send('ping') !== false;
     },
     setConnectionLatency: (connectionId, latency, quality) => {
       const connection = core.connections.get(connectionId);
@@ -444,7 +442,14 @@ export function createEngineAccess(
         .filter((connection) => connection.userId === userId)
         .map((connection) => connection.id);
     },
+    isConnectionInChannel: (connectionId, channelName, channelFamily) => {
+      const connection = core.connections.get(connectionId);
+      return connection !== undefined
+        ? hasChannelMembership(connection, channelName, channelFamily)
+        : false;
+    },
     getConnectionIdentity: (connectionId) => core.connections.get(connectionId)?.userId,
+    isUserPurging: (userId) => core.isUserPurging(userId),
     broadcastToChannel: (opts) => deps.broadcastToChannel(opts),
     channelMemberCount: (channelName, channelFamily) =>
       deps.channelMemberCount(channelName, channelFamily),

@@ -160,6 +160,48 @@ describe('scheduled() capability', () => {
     });
   });
 
+  describe('a declaration that is not an object', () => {
+    it.each([[undefined], ['daily'], [42], [true], [[]]])('refuses %j', (def) => {
+      function declare() {
+        return scheduled({ cleanup: def as never });
+      }
+
+      expect(declare).toThrow(LiveThingConfigError);
+      expect(declare).toThrow(/\[livething\] scheduled\("cleanup"\): .*must be null or an object/);
+    });
+  });
+
+  describe('a delay past what an alarm can hold', () => {
+    const TOO_LONG = 9_223_372_036_854;
+
+    it('refuses an every that would run after the last alarm time', () => {
+      function declare() {
+        return scheduled({ heartbeat: { every: TOO_LONG } });
+      }
+
+      expect(declare).toThrow(LiveThingConfigError);
+      expect(declare).toThrow(/'every' must be at most/);
+    });
+
+    it('refuses a retry delay that would run after the last alarm time', () => {
+      function declare() {
+        return scheduled({ report: { retry: [100, TOO_LONG] } });
+      }
+
+      expect(declare).toThrow(LiveThingConfigError);
+      expect(declare).toThrow(/'retry\[1\]' must be at most/);
+    });
+
+    it('accepts a delay of one hundred years', () => {
+      const year = 365 * 24 * 60 * 60 * 1_000;
+      expect(() => scheduled({ heartbeat: { every: 100 * year } })).not.toThrow();
+    });
+  });
+
+  it("names 'every' without a leading dot", () => {
+    expect(() => scheduled({ heartbeat: { every: 0 } })).toThrow(/'every' must be/);
+  });
+
   describe('retry array validation', () => {
     function declare(retry: readonly number[]) {
       return () => scheduled({ report: { data: t<{ userId: string }>(), retry } });
@@ -167,6 +209,7 @@ describe('scheduled() capability', () => {
 
     it('rejects an empty array', () => {
       expect(declare([])).toThrow(/at least one entry/);
+      expect(declare([])).toThrow(LiveThingConfigError);
     });
 
     it('rejects zero entries', () => {

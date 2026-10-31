@@ -129,7 +129,7 @@ describe('a channel frame sent right after its subscribe', () => {
     expect(said).toEqual(['ada']);
   });
 
-  it('does not hold the answer to a request the subscribe hook is waiting for', async () => {
+  it('does not hold the answer to a request the onSubscribe hook is waiting for', async () => {
     const base = server({
       upgrade: () => ({ userId: 'unused' }),
       capabilities: [channels(), serverRequests({})],

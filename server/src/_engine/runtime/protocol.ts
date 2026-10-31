@@ -50,14 +50,17 @@ const ExchangeMetadata = v.pipe(
   v.strictObject({ id: v.optional(WireId), source: v.optional(Source) }),
   v.check((value) => Object.keys(value).length > 0),
 );
-const ChannelMetadata = v.strictObject({
-  name: ChannelName,
-  family: v.optional(ChannelFamily),
-  unsubscribeId: v.optional(WireId),
-  membership: v.optional(v.picklist(['persistent', 'ephemeral'])),
-  inbox: v.optional(v.boolean()),
-  readReceipts: v.optional(v.boolean()),
-});
+const ChannelMetadata = v.strictObject(
+  {
+    name: ChannelName,
+    family: v.optional(ChannelFamily),
+    unsubscribeId: v.optional(WireId),
+    membership: v.optional(v.picklist(['persistent', 'ephemeral'])),
+    inbox: v.optional(v.boolean()),
+    readReceipts: v.optional(v.boolean()),
+  },
+  "The 'channel' metadata must be an object with a 'name'.",
+);
 const DeliveryMetadata = v.pipe(
   v.strictObject({ id: v.optional(WireId), seq: v.optional(NonNegativeSafeInt) }),
   v.check((value) => Object.keys(value).length > 0),
@@ -197,7 +200,7 @@ function requiredMetadata<Groups extends keyof MetadataObject>(
 ): v.GenericSchema<unknown, MetadataWithGroups<Groups>> {
   return v.pipe(
     Metadata,
-    v.check((value) => value !== null && group in value),
+    v.check((value) => value !== null && group in value, `This frame needs '${group}' metadata.`),
   ) as unknown as v.GenericSchema<unknown, MetadataWithGroups<Groups>>;
 }
 
@@ -206,7 +209,7 @@ const exchangeMeta = requiredMetadata('exchange');
 const streamMeta = requiredMetadata('stream');
 const queryMeta = v.pipe(
   exchangeMeta,
-  v.check((value) => 'channel' in value),
+  v.check((value) => value !== null && 'channel' in value, "This frame needs 'channel' metadata."),
 ) as v.GenericSchema<unknown, MetadataWithGroups<'exchange' | 'channel'>>;
 
 export const SubscribeFrame = frame('__subscribe__', v.unknown(), channelMeta);
@@ -248,17 +251,41 @@ const ReadQueryFrame = frame(
   v.strictObject({ seq: NonNegativeSafeInt }),
   queryMeta,
 );
-export const IncomingProtocolFrame = v.union([
-  SubscribeFrame,
-  UnsubscribeFrame,
-  ReplayFrame,
-  StreamCancelFrame,
-  ContinueStreamFrame,
-  ReceivedFrame,
-  ReadFrame,
-  ReceivedQueryFrame,
-  ReadQueryFrame,
-]);
+const INCOMING_FRAMES = {
+  __subscribe__: SubscribeFrame,
+  __unsubscribe__: UnsubscribeFrame,
+  __replay__: ReplayFrame,
+  __streamCancel__: StreamCancelFrame,
+  __continueStream__: ContinueStreamFrame,
+  __received__: ReceivedFrame,
+  __read__: ReadFrame,
+  __receivedQuery__: ReceivedQueryFrame,
+  __readQuery__: ReadQueryFrame,
+};
+
+export const IncomingProtocolFrame = v.union(Object.values(INCOMING_FRAMES));
+
+/**
+ * Parse an incoming protocol frame with the schema of the event it names, so an
+ * issue says what is wrong with that frame, not that no frame of the union fits.
+ */
+export function parseIncomingProtocolFrame(input: unknown): IncomingProtocolFrame {
+  const event = Array.isArray(input) ? (input[0] as unknown) : undefined;
+  if (typeof event === 'string' && Object.hasOwn(INCOMING_FRAMES, event)) {
+    return v.parse(
+      INCOMING_FRAMES[event as keyof typeof INCOMING_FRAMES] as v.GenericSchema<
+        unknown,
+        IncomingProtocolFrame
+      >,
+      input,
+    );
+  }
+
+  return v.parse(
+    v.custom<IncomingProtocolFrame>(() => false, 'This is not a known protocol frame.'),
+    input,
+  );
+}
 
 export const SubscribeOkFrame = frame('__subscribeOk__', EmptyPayload, channelMeta);
 const UnsubscribeOkFrame = frame('__unsubscribeOk__', EmptyPayload, channelMeta);

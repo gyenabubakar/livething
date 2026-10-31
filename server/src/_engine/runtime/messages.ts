@@ -22,7 +22,14 @@ import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import { resolveChannel, routingFromLiveThing } from './scope.ts';
-import { runConnectionWork } from './work-queue.ts';
+import {
+  abandonSubscribes,
+  beginSubscribe,
+  finishSubscribe,
+  subscribeKey,
+} from './subscribe-order.ts';
+import { connectionBusy, MAX_PENDING_CONNECTION_WORK, runConnectionWork } from './work-queue.ts';
+import type { SubscribeAttempt, SubscribeGate } from './subscribe-order.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 type MessageParameter = { event: string; payload: unknown };
@@ -193,10 +200,7 @@ function toValidationFailed(event: string, error: unknown): LiveThingError {
     });
   }
 
-  return ValidationFailed({
-    event,
-    issues: [{ message: error instanceof Error ? error.message : String(error) }],
-  });
+  return ValidationFailed({ event, issues: [{ message: 'The frame is malformed.' }] });
 }
 
 /**
@@ -267,6 +271,16 @@ export interface DispatchIncomingOptions {
   // The already-resolved scope from processTextMessage, so a channel frame isn't
   // resolved twice.
   scope?: EngineRuntimeTypes.ResolvedChannel;
+  /** The frame already paid its rate limit on arrival, while it waited behind a subscribe. */
+  charged?: boolean;
+}
+
+/** The intercepts a frame still has to pass, given what it already paid on arrival. */
+function interceptsToRun(
+  intercepts: readonly InterceptPrimitive.InterceptPrimitive[],
+  charged: boolean | undefined,
+): readonly InterceptPrimitive.InterceptPrimitive[] {
+  return charged ? intercepts.filter((intercept) => !intercept.__chargedOnArrival) : intercepts;
 }
 
 interface HandleDispatchErrorOptions {
@@ -366,7 +380,7 @@ export async function dispatchIncoming(
       };
 
       frame = await runIntercepts(runtime, connection, {
-        intercepts: runtime.compiled.intercepts,
+        intercepts: interceptsToRun(runtime.compiled.intercepts, opts.charged),
         frame,
         getCtx,
         call: { kind: 'connection', getCtx },
@@ -564,7 +578,7 @@ async function dispatchProtocolFrame(
 ): Promise<void> {
   let frame: Protocol.IncomingProtocolFrame;
   try {
-    frame = v.parse(Protocol.IncomingProtocolFrame, parsed);
+    frame = Protocol.parseIncomingProtocolFrame(parsed);
   } catch (error) {
     const rawEvent = Array.isArray(parsed) ? parsed[0] : undefined;
     const event = typeof rawEvent === 'string' ? rawEvent : 'protocol';
@@ -695,6 +709,7 @@ interface StreamNudgeBufferInput {
   frame: Protocol.UserEventFrame;
   livething: Protocol.LiveThingProtocol | undefined;
   triggerScope: EngineRuntimeTypes.ResolvedChannel;
+  charged: boolean;
 }
 
 /**
@@ -724,7 +739,7 @@ async function runPluginConnectionHooks(
 }
 
 async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boolean> {
-  const { runtime, connection, event, frame, livething, triggerScope } = input;
+  const { runtime, connection, event, frame, livething, triggerScope, charged } = input;
   if (!livething?.streamId) return false;
 
   const activeStream = runtime.activeStreams.get(livething.streamId);
@@ -758,7 +773,7 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
 
   let payload = frame.payload;
   const interceptScope = activeStream?.scope ?? triggerScope;
-  const topIntercepts = runtime.compiled.intercepts;
+  const topIntercepts = interceptsToRun(runtime.compiled.intercepts, charged);
   const channelIntercepts = interceptScope.channel?.intercepts;
   let sharedCtx: Record<PropertyKey, unknown> | undefined;
 
@@ -846,23 +861,32 @@ export async function processTextMessage(
   data: string,
 ): Promise<void> {
   const parsed = data === 'ping' || data === 'pong' ? undefined : parseFrame(data);
-  // Registered before the first await, so a later frame for the same channel
-  // finds it even when hooks below make this frame wait.
-  const subscribed = trackSubscribe(connection, parsed);
+  // Before the first await, so frames take their place in the order they arrived
+  // even when hooks below make this frame wait.
+  const place = placeFrame(connection, parsed);
 
   try {
-    await processParsedMessage(runtime, connection, { data, parsed });
+    await processParsedMessage(runtime, connection, { data, parsed, place });
   } finally {
-    subscribed?.();
+    if (place.attempt) finishSubscribe(connection, place.attempt);
   }
 }
 
 const INVALID_FRAME = Symbol('invalid-frame');
 
+/** A frame's place in its channel's order. */
+interface FramePlace {
+  /** Set when the frame is a `__subscribe__`. */
+  attempt?: SubscribeAttempt;
+  /** The subscribes that were running when the frame arrived. It runs after them. */
+  gate?: SubscribeGate;
+}
+
 /** One text frame as received, plus its JSON (or `INVALID_FRAME`; `undefined` for ping/pong). */
 interface IncomingText {
   data: string;
   parsed: unknown;
+  place: FramePlace;
 }
 
 function parseFrame(data: string): unknown {
@@ -880,45 +904,121 @@ function frameChannelKey(parsed: unknown): string | undefined {
   const channel = (parsed[2] as { channel?: { name?: unknown; family?: unknown } } | null)?.channel;
   if (typeof channel?.name !== 'string') return undefined;
 
-  const family = typeof channel.family === 'string' ? channel.family : '';
-
-  return `${family}\u0000${channel.name}`;
+  return subscribeKey(channel.name, typeof channel.family === 'string' ? channel.family : null);
 }
 
 /**
- * The client sends a channel's subscribe before anything else for that channel.
- * Keep that order: a subscribe can be slow (an async `check`).
+ * Give a frame its place among its channel's subscribes, since a subscribe can
+ * be slow (an async `check`). The last request wins: a `__subscribe__` replaces
+ * an earlier one still in `check`, and an `__unsubscribe__` cancels it. Any other
+ * frame runs after the subscribes running now, in the order the client sent it.
  */
-async function waitForSubscribe(connection: RuntimeConnection, parsed: unknown): Promise<void> {
+function placeFrame(connection: RuntimeConnection, parsed: unknown): FramePlace {
   const key = frameChannelKey(parsed);
-  const subscribing = key === undefined ? undefined : connection.pendingSubscribes?.get(key);
-  if (subscribing) await subscribing;
+  if (key === undefined) return {};
+
+  const event = (parsed as unknown[])[0];
+  if (event === '__subscribe__') return { attempt: beginSubscribe(connection, key, 'client') };
+
+  if (event === '__unsubscribe__') abandonSubscribes(connection, key);
+
+  return { gate: connection.pendingSubscribes?.get(key) };
+}
+
+function isHeld(gate: SubscribeGate | undefined): gate is SubscribeGate {
+  return gate !== undefined && gate.attempts.size > 0;
+}
+
+interface HeldFrame {
+  gate: SubscribeGate | undefined;
+  event: string;
+  routing: Protocol.LiveThingRouting | undefined;
 }
 
 /**
- * Mark a `__subscribe__` frame as running for its channel. Returns the function
- * that clears the mark once the frame is handled.
+ * Wait until the frame's turn comes. The wait is limited per connection, so a
+ * `check` that never settles can't make the frames behind it fill the memory.
+ * Returns whether to go on with the frame.
  */
-function trackSubscribe(connection: RuntimeConnection, parsed: unknown): (() => void) | undefined {
-  if (!Array.isArray(parsed) || parsed[0] !== '__subscribe__') return undefined;
+async function waitForTurn(
+  runtime: Pick<DispatchRuntime, 'handleRuntimeError'>,
+  connection: RuntimeConnection,
+  held: HeldFrame,
+): Promise<boolean> {
+  const { gate, event, routing } = held;
+  if (!isHeld(gate)) return true;
 
-  const key = frameChannelKey(parsed);
-  if (key === undefined) return undefined;
+  const heldFrames = connection.heldFrames ?? 0;
+  if (heldFrames >= MAX_PENDING_CONNECTION_WORK) {
+    await runtime.handleRuntimeError(connection, { error: connectionBusy(), event, routing });
+    return false;
+  }
 
-  let finish!: () => void;
-  const done = new Promise<void>((resolve) => (finish = resolve));
-  const previous = connection.pendingSubscribes?.get(key);
-  const pending = previous ? previous.then(() => done) : done;
-  connection.pendingSubscribes ??= new Map();
+  connection.heldFrames = heldFrames + 1;
+  await gate.opened;
+  connection.heldFrames -= 1;
 
-  connection.pendingSubscribes.set(key, pending);
+  return !connection.closing;
+}
 
-  return () => {
-    finish();
-    if (connection.pendingSubscribes?.get(key) === pending) {
-      connection.pendingSubscribes.delete(key);
-    }
-  };
+/** The routing of a frame refused before dispatch. A refused nudge doesn't end its stream. */
+function refusalRouting(
+  livething: Protocol.LiveThingProtocol | undefined,
+): Protocol.LiveThingRouting | undefined {
+  const routing = routingFromLiveThing(livething);
+  if (routing && livething?.streamNudgeId !== undefined) routing.streamTerminated = false;
+
+  return routing;
+}
+
+/** The routing of a protocol frame not parsed yet, or none when its metadata is malformed. */
+function rawFrameRouting(parsed: unknown): Protocol.LiveThingRouting | undefined {
+  try {
+    return routingFromLiveThing(Protocol.parseUserEventFrame(parsed).__livething);
+  } catch {
+    return undefined;
+  }
+}
+
+interface ArrivalCharge {
+  event: string;
+  payload: unknown;
+  livething: Protocol.LiveThingProtocol | undefined;
+  scope: EngineRuntimeTypes.ResolvedChannel;
+}
+
+/**
+ * Charge the rate limit of a frame about to wait behind a subscribe, so a flood
+ * is refused when it arrives, not after the subscribe ends. Returns whether the
+ * frame may go on.
+ */
+async function chargeOnArrival(
+  runtime: DispatchRuntime,
+  connection: RuntimeConnection,
+  charge: ArrivalCharge,
+): Promise<boolean> {
+  const { event, payload, livething, scope } = charge;
+  try {
+    await runIntercepts(runtime, connection, {
+      intercepts: runtime.compiled.intercepts.filter((intercept) => intercept.__chargedOnArrival),
+      frame: {
+        event,
+        payload,
+        kind: 'unknown',
+        routing: buildInterceptRouting(livething),
+        owner: frameOwner(event),
+      },
+      getCtx: () => runtime.buildConnectionContext(connection, scope),
+    });
+    return true;
+  } catch (error) {
+    await runtime.handleRuntimeError(connection, {
+      error,
+      event,
+      routing: refusalRouting(livething),
+    });
+    return false;
+  }
 }
 
 async function processParsedMessage(
@@ -926,7 +1026,7 @@ async function processParsedMessage(
   connection: RuntimeConnection,
   message: IncomingText,
 ): Promise<void> {
-  const { data, parsed } = message;
+  const { data, parsed, place } = message;
   const observed = { connectionId: connection.id, logger: runtime.logger };
 
   if (runtime.activityHooks.length > 0) {
@@ -1006,8 +1106,15 @@ async function processParsedMessage(
     // Protocol frames skip dedup and nudge buffering — a retried one must still
     // reach its handler.
     if (Protocol.isProtocolEventName(event)) {
-      if (event !== '__subscribe__') await waitForSubscribe(connection, parsed);
-      await dispatchProtocolFrame(runtime, connection, parsed);
+      if (place.attempt?.abandoned) return;
+
+      const routing = isHeld(place.gate) ? rawFrameRouting(parsed) : undefined;
+      // A subscribe has no turn to wait for, and starts here with no await.
+      const turn = { gate: place.gate, event, routing };
+      if (place.attempt || (await waitForTurn(runtime, connection, turn))) {
+        await dispatchProtocolFrame(runtime, connection, parsed);
+      }
+
       return;
     }
 
@@ -1015,11 +1122,13 @@ async function processParsedMessage(
     try {
       frame = Protocol.parseUserEventFrame(parsed);
     } catch (error) {
-      await waitForSubscribe(connection, parsed);
-      await runtime.handleRuntimeError(connection, {
-        error: toValidationFailed(event, error),
-        event,
-      });
+      if (await waitForTurn(runtime, connection, { gate: place.gate, event, routing: undefined })) {
+        await runtime.handleRuntimeError(connection, {
+          error: toValidationFailed(event, error),
+          event,
+        });
+      }
+
       return;
     }
 
@@ -1036,9 +1145,6 @@ async function processParsedMessage(
         if (hook(connection.id, { event, payload: frame.payload, livething })) return;
       }
     }
-
-    // Wait only after the answer hooks: the subscribe hook may be the one waiting for an answer.
-    await waitForSubscribe(connection, parsed);
 
     // Dedup here so every frame with a `messageId` shares one idempotency budget.
     if (
@@ -1057,6 +1163,23 @@ async function processParsedMessage(
     } catch (error) {
       scopeError = error;
     }
+
+    // After the answer hooks: the onSubscribe hook may be the one waiting for an answer.
+    const charged = isHeld(place.gate) && !scopeError;
+    if (
+      charged &&
+      !(await chargeOnArrival(runtime, connection, {
+        event,
+        payload: frame.payload,
+        livething,
+        scope: triggerScope,
+      }))
+    ) {
+      return;
+    }
+
+    const turn = { gate: place.gate, event, routing: refusalRouting(livething) };
+    if (!(await waitForTurn(runtime, connection, turn))) return;
 
     // A scoped frame whose channel doesn't match the declared scope must not
     // silently fall through to top-level nudge buffering — that lets a wrong
@@ -1084,7 +1207,15 @@ async function processParsedMessage(
       : runtime.compiled.streams.has(event) || runtime.compiled.recordedStreams.has(event);
     if (
       !isStreamTrigger &&
-      (await bufferNudgeIfNeeded({ runtime, connection, event, frame, livething, triggerScope }))
+      (await bufferNudgeIfNeeded({
+        runtime,
+        connection,
+        event,
+        frame,
+        livething,
+        triggerScope,
+        charged,
+      }))
     )
       return;
 
@@ -1095,6 +1226,7 @@ async function processParsedMessage(
       // Reuse the scope resolved above; on a resolve failure pass none so
       // dispatchIncoming re-resolves and routes the error.
       scope: scopeError ? undefined : triggerScope,
+      charged,
     });
   } catch (error) {
     await runtime.handleRuntimeError(connection, {

@@ -1,5 +1,14 @@
 import { LiveThingConfigError } from '@livething/core';
 
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+/**
+ * The last time a Cloudflare Durable Object alarm takes, 2262-04-11T23:47:16.854Z,
+ * found by running workerd. One millisecond later `setAlarm` throws, with a message
+ * that says 2189.
+ */
+const MAX_ALARM_TIME_MS = 9_223_372_036_854;
+
 interface AllowedValueLocation {
   field: string;
   context: string;
@@ -19,6 +28,43 @@ export function assertPositiveInteger(value: unknown, field: string, context: st
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new LiveThingConfigError(
       `${context}: '${field}' must be a positive safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
+    );
+  }
+}
+
+/**
+ * A positive integer that a timer can hold. `setTimeout` and `setInterval` treat
+ * anything above `2 ** 31 - 1` ms as 1 ms, so such a value would fire constantly.
+ */
+export function assertTimerDelay(value: unknown, field: string, context: string): void {
+  assertPositiveInteger(value, field, context);
+  if ((value as number) > MAX_TIMER_DELAY_MS) {
+    throw new LiveThingConfigError(
+      `${context}: '${field}' must be at most ${MAX_TIMER_DELAY_MS} ms, the longest a timer can hold, got ${String(value)}.`,
+    );
+  }
+}
+
+/**
+ * A positive integer time, in Unix milliseconds, that every platform's alarm can
+ * hold. Past the limit, the alarm write would fail after the run was stored.
+ */
+export function assertAlarmTime(value: unknown, field: string, context: string): void {
+  assertPositiveInteger(value, field, context);
+  if ((value as number) > MAX_ALARM_TIME_MS) {
+    throw new LiveThingConfigError(
+      `${context}: '${field}' must be at most ${MAX_ALARM_TIME_MS} (April 2262), the latest time an alarm can hold, got ${String(value)}.`,
+    );
+  }
+}
+
+/** A positive integer delay in milliseconds whose run, starting now, an alarm can hold. */
+export function assertAlarmDelay(value: unknown, field: string, context: string): void {
+  assertPositiveInteger(value, field, context);
+  const longest = MAX_ALARM_TIME_MS - Date.now();
+  if ((value as number) > longest) {
+    throw new LiveThingConfigError(
+      `${context}: '${field}' must be at most ${longest} ms, or the run would land after the latest time an alarm can hold (April 2262), got ${String(value)}.`,
     );
   }
 }

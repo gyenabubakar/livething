@@ -1,3 +1,4 @@
+import { LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
@@ -197,7 +198,7 @@ describe('connect-failed catch — reconnection handoff', () => {
 
     try {
       socket.connect();
-      await expect(thrown).resolves.toMatchObject({ code: 'internal-error' });
+      await expect(thrown).resolves.toMatchObject({ message: 'DNS failed' });
     } finally {
       process.setUncaughtExceptionCaptureCallback(null);
     }
@@ -478,5 +479,61 @@ describe('the url function runs again on reconnect (auth token refresh)', () => 
     await vi.advanceTimersByTimeAsync(2000);
 
     expect(MockWebSocket.last().url).toBe('wss://host/ws?token=second');
+  });
+});
+
+describe('a url function that returns a non-string', () => {
+  it('reports its config error once and does not retry', async () => {
+    vi.useFakeTimers();
+    const urlFn = vi.fn(() => undefined as unknown as string);
+    const socket = c(connect(urlFn), reconnection());
+    const errors: unknown[] = [];
+    socket.onError((error) => errors.push(error));
+
+    socket.connect();
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(urlFn).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(LiveThingConfigError);
+    expect(socket.state.get()).toBe('closed');
+    expect(socket.reconnection.get().retrying).toBe(false);
+  });
+
+  it('stops the retry loop when it starts returning a non-string on a reconnect', async () => {
+    vi.useFakeTimers();
+    let url: unknown = 'wss://host/ws';
+    const urlFn = vi.fn(() => url as string);
+    const socket = c(connect(urlFn), reconnection());
+    const errors: unknown[] = [];
+
+    socket.onError((error) => errors.push(error));
+
+    socket.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    MockWebSocket.last().open();
+    url = 42;
+    MockWebSocket.last().serverClose(1006);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(urlFn).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveLength(1);
+    expect(socket.state.get()).toBe('closed');
+    expect(socket.reconnection.get().retrying).toBe(false);
+  });
+
+  it('still retries when the url function throws its own config error', async () => {
+    vi.useFakeTimers();
+    const urlFn = vi.fn(() => {
+      throw new LiveThingConfigError('token settings are wrong');
+    });
+    const socket = c(connect(urlFn), reconnection({ maxAttempts: 2 }));
+    socket.onError(() => undefined);
+
+    socket.connect();
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(urlFn).toHaveBeenCalledTimes(3);
   });
 });

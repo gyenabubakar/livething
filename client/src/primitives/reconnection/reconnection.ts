@@ -1,4 +1,5 @@
-import { CloseCodes } from '@livething/core';
+import { CloseCodes, LiveThingConfigError } from '@livething/core';
+import { MAX_TIMER_DELAY_MS, timerDelayError } from '~/internal/config.ts';
 import { signalBus } from '~/internal/signals.ts';
 import { createStore } from '~/internal/store.ts';
 import type { ReadableStore } from '~/internal/store.ts';
@@ -39,7 +40,16 @@ interface ReconnectionTypeFn extends TypeFn {
  */
 export function reconnection(options: ReconnectionOptions = {}): Primitive<ReconnectionTypeFn> {
   const maxAttempts = options.maxAttempts ?? 10;
+  if (!(maxAttempts === Infinity || (Number.isInteger(maxAttempts) && maxAttempts >= 0))) {
+    throw new LiveThingConfigError(
+      `reconnection maxAttempts must be a whole number, 0 or more, or Infinity, got ${maxAttempts}.`,
+    );
+  }
+
   const maxDelay = options.maxDelay ?? 30_000;
+  const maxDelayError = timerDelayError(maxDelay, 'reconnection maxDelay');
+  if (maxDelayError) throw maxDelayError;
+
   const nonRetryable = new Set([
     ...DEFAULT_NON_RETRYABLE_CODES,
     ...(options.nonRetryableCodes ?? []),
@@ -171,6 +181,10 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
         onClose() {
           clearTimer();
         },
+
+        onReconnectFailed() {
+          if (store.get().retrying) set({ retrying: false, attempt, nextRetryAt: null });
+        },
       };
     },
   };
@@ -186,5 +200,5 @@ reconnection.tag = 'reconnection';
 function backoffDelay(attempt: number, maxDelay: number): number {
   const base = Math.min(1000 * Math.pow(2, attempt), maxDelay);
   const jitter = base * 0.3;
-  return base - jitter + Math.random() * jitter * 2;
+  return Math.min(base - jitter + Math.random() * jitter * 2, MAX_TIMER_DELAY_MS);
 }

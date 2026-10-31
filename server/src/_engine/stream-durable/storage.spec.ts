@@ -43,7 +43,6 @@ describe('durable-stream/storage', () => {
         seq,
         messageId: `m-${seq}`,
         payload: JSON.stringify({ n: seq }),
-        now: 1_000 + seq,
       });
     }
 
@@ -111,7 +110,6 @@ describe('durable-stream/storage', () => {
       seq: 1,
       messageId: 'm-1',
       payload: '{}',
-      now: 1_001,
     });
     Storage.deleteStream(sql, 'u-1', 's-1');
     expect(Storage.readStream(sql, 'u-1', 's-1')).toBeNull();
@@ -225,7 +223,6 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       seq: 1,
       messageId: 'm-1',
       payload: '{}',
-      now: 1_001,
     });
     Storage.insertStream(sql, {
       userId: 'u-2',
@@ -240,7 +237,6 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       seq: 1,
       messageId: 'm-1',
       payload: '{}',
-      now: 1_001,
     });
 
     Storage.purgeStreamsByUser(sql, 'u-1');
@@ -320,7 +316,6 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       seq: 1,
       messageId: 'm-1',
       payload: '{}',
-      now: 1_001,
     });
     Storage.seedSubscriber(sql, {
       storageUserId: '__bcast:ch:room__',

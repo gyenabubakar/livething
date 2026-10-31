@@ -1,5 +1,6 @@
 export { adapter } from './adapter.ts';
 export { normalizeCloseReason } from './close.ts';
+export { isValidCloseCode } from '~/_engine/close-code.ts';
 export {
   rejectAsyncTransactionCallback,
   rejectAsyncTransactionResult,

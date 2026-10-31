@@ -13,10 +13,10 @@ export interface ReconnectionInfo {
 
 /** Options for `reconnection()`. */
 export interface ReconnectionOptions {
-  /** How many times to retry before giving up. Use `Infinity` for no limit. Default: `10`. */
+  /** How many times to retry before giving up: a whole number, 0 or more, or `Infinity` for no limit. Default: `10`. */
   maxAttempts?: number;
 
-  /** Longest wait between attempts, in ms. Default: `30_000`. */
+  /** Longest base wait between attempts, in ms, from 1 to `2 ** 31 - 1`. Default: `30_000`. */
   maxDelay?: number;
 
   /**

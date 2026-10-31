@@ -64,6 +64,10 @@ export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
   options?: RequestOptions<TPayload>,
 ): RequestPrimitive<TEvent, TPayload, TResponse, TCtx> {
   assertValidLiveThingIdentifier(event, 'request() event name');
+  if (typeof handler !== 'function') {
+    throw new Error(`[livething] request('${event}'): 'run' must be a function.`);
+  }
+
   return {
     __livething: 'request',
     __identity: [REQUEST_KEY, event],

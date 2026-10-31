@@ -158,7 +158,7 @@ const h = server({
   onOutgoing(ctx) {
     // The outgoing-hook ctx is resolved per send: it is the ctx of the connection
     // whose handler, intercept or onConnect hook is running (the sender, for a
-    // broadcast), and undefined when none is (a subscribe hook, onDisconnect, a
+    // broadcast), and undefined when none is (an onSubscribe hook, onDisconnect, a
     // scheduled task). Guard before touching this DO's state through it.
     if (ctx) getState(ctx.platform as Platform).outgoingCount++;
   },

@@ -35,6 +35,8 @@ import type { Logger } from '~/context.ts';
 import type { SharedSend, SharedSendOptions } from '~/outgoing/runtime.ts';
 import * as Storage from './storage.ts';
 
+const USER_PURGED = 'user-purged';
+
 type OptsParameter = {
   event: string;
   payload: Record<string, unknown>;
@@ -351,8 +353,37 @@ function rollbackContinueAttachment(attachment: ContinueAttachment, persist = tr
 }
 
 /**
+ * A new connection took a running stream from a connection still attached to it
+ * (another tab, or this client's half-open old socket). The old connection gets a
+ * terminal `stream-aborted` with reason `taken-over`, so it is not left waiting.
+ * A socket that cannot take the frame anymore needs no telling.
+ */
+function endStreamForPreviousConnection(
+  attachment: ContinueAttachment,
+  routing: Protocol.LiveThingRouting,
+): void {
+  const { runtime, connection, streamId, previousConnection, previousDetached } = attachment;
+  if (previousDetached || !previousConnection || previousConnection === connection) return;
+
+  previousConnection.activeStreamIds?.delete(streamId);
+  runtime.persistAttachment(previousConnection);
+  if (previousConnection.closing) return;
+
+  try {
+    runtime.sendProtocolMessage(previousConnection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'taken-over' as const } },
+      livething: { ...routing, streamTerminated: true },
+    });
+  } catch {
+    // The takeover already happened; the old socket is on its way out.
+  }
+}
+
+/**
  * Handle a client `__continueStream__` frame. Replays the chunks the client
- * missed, then: reattaches a creator to a still-running generator, leaves a
+ * missed, then: reattaches a creator to a still-running generator (ending the
+ * stream for a connection still attached to it, with reason `taken-over`), leaves a
  * subscriber on the live broadcast, sends `__streamEnd__` for a stream that
  * finished, or a terminal `stream-aborted` `'interrupted'` error for a stream
  * whose generator stopped before it finished.
@@ -373,6 +404,18 @@ export async function continueDurableStream(
   }
 
   if (!row) {
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
+      livething: { streamId },
+    });
+    return;
+  }
+
+  // Membership comes first: someone outside the channel may not delete a row, or
+  // learn that it expired.
+  const resolved = resolveDef(row);
+  if (!resolved) {
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
@@ -424,16 +467,6 @@ export async function continueDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'unsubscribed' as const } },
-      livething: { streamId },
-    });
-    return;
-  }
-
-  const resolved = resolveDef(row);
-  if (!resolved) {
-    runtime.sendProtocolMessage(connection, {
-      event: '__error__',
-      payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
       livething: { streamId },
     });
     return;
@@ -506,11 +539,14 @@ export async function continueDurableStream(
     try {
       if (!sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })) {
         rollbackContinueAttachment(attachment);
+        return;
       }
     } catch (error) {
       rollbackContinueAttachment(attachment);
       throw error;
     }
+
+    endStreamForPreviousConnection(attachment, { ...scopeMarkers, streamId });
 
     return;
   }
@@ -747,6 +783,8 @@ async function runGenerator(
       // The wrapped iterator runs inside the connection's async context, so plugin
       // APIs the generator calls (e.g. hooks.getState()) resolve to the stream owner.
       const result = await iterator.next(nextInput);
+      if (abortController.signal.reason === USER_PURGED) return;
+
       if (result.done) break;
 
       // A reconnect/replace took over this streamId while next() was pending. This
@@ -769,7 +807,6 @@ async function runGenerator(
         seq,
         messageId: null,
         payload: chunkJson,
-        now,
       });
 
       if (def.maxChunks !== undefined) {
@@ -890,6 +927,8 @@ async function runGenerator(
     // When LiveThing refused a chunk, the generator still waits at its yield. Close it, so its
     // finally blocks run. A generator that threw has already finished, so this does nothing.
     await iterator?.return(undefined).catch(() => {});
+
+    if (abortController.signal.reason === USER_PURGED) return;
 
     // A config error must propagate, but the row still has to leave 'active' or
     // it blocks every future start/continue — mark it ended before rethrowing.
@@ -1034,41 +1073,83 @@ function endDurableStreamForEveryone(
   opts: EndDurableStreamForEveryoneOptions,
 ): void {
   const { row, scope } = opts;
+  if (row.broadcast) tellBroadcastPeersStreamEnded(runtime, connection, { row, scope });
+
+  Storage.deleteStream(runtime.sql, row.userId, row.streamId);
+}
+
+function tellBroadcastPeersStreamEnded(
+  runtime: BroadcastPeersRuntime,
+  connection: RuntimeConnection,
+  opts: EndDurableStreamForEveryoneOptions,
+): void {
+  const { row, scope } = opts;
   const { streamId } = row;
-  if (row.broadcast) {
-    const peerTargets = resolveBroadcastTargets({
-      runtime,
-      excludeConnectionId: connection.id,
-      scope,
-      extraFilter: (candidate) => {
-        const sub = Storage.getSubscriber(runtime.sql, {
-          storageUserId: row.userId,
-          streamId,
-          subscriberUserId: connectionStorageKeyOf(candidate),
-        });
-        return sub !== null && sub.unsubscribedAt === null;
-      },
-    });
-    const endLiveThing = {
-      ...buildScopeRouting(scope),
-      streamId,
-      streamSeq: row.lastSeq,
-      eventName: row.event,
-    };
+  const peerTargets = resolveBroadcastTargets({
+    runtime,
+    excludeConnectionId: connection.id,
+    scope,
+    extraFilter: (candidate) => {
+      const sub = Storage.getSubscriber(runtime.sql, {
+        storageUserId: row.userId,
+        streamId,
+        subscriberUserId: connectionStorageKeyOf(candidate),
+      });
+      return sub !== null && sub.unsubscribedAt === null;
+    },
+  });
+  const endLiveThing = {
+    ...buildScopeRouting(scope),
+    streamId,
+    streamSeq: row.lastSeq,
+    eventName: row.event,
+  };
 
-    forEachIsolated(
-      peerTargets,
-      (target) =>
-        runtime.sendProtocolMessage(target, {
-          event: '__streamEnd__',
-          payload: {},
-          livething: endLiveThing,
-        }),
-      { context: `durable broadcast __streamEnd__ on end streamId="${streamId}"` },
-    );
+  forEachIsolated(
+    peerTargets,
+    (target) =>
+      runtime.sendProtocolMessage(target, {
+        event: '__streamEnd__',
+        payload: {},
+        livething: endLiveThing,
+      }),
+    { context: `durable broadcast __streamEnd__ on end streamId="${streamId}"` },
+  );
+}
+
+type BroadcastPeersRuntime = Pick<
+  DurableStreamRuntime,
+  'connections' | 'sql' | 'sendProtocolMessage'
+>;
+
+type PurgedStreamsRuntime = BroadcastPeersRuntime & Pick<DurableStreamRuntime, 'activeStreams'>;
+
+/**
+ * Stop every recorded stream a purged user started: fire `ctx.stream.signal`, end the
+ * generator, and tell broadcast subscribers it's over. Call it before the stream rows are
+ * deleted, since the subscriber rows pick who to tell. It doesn't wait for the generator,
+ * which may be stuck in a long `await`; the run stops at its next step.
+ */
+export function stopStreamsOfPurgedUser(runtime: PurgedStreamsRuntime, userId: string): void {
+  for (const stream of [...runtime.activeStreams.values()]) {
+    const owner = stream.connection;
+    if (!stream.durable || owner?.userId !== userId) continue;
+
+    stream.closed = true;
+    stream.abortController.abort(USER_PURGED);
+    stream.generator.return(undefined).catch(() => {});
+    runtime.activeStreams.delete(stream.id);
+    owner.activeStreamIds?.delete(stream.id);
+
+    const row = Storage.readStreamOfCreator(runtime.sql, userId, stream.id);
+    if (!row) continue;
+
+    if (row.broadcast && stream.scope) {
+      tellBroadcastPeersStreamEnded(runtime, owner, { row, scope: stream.scope });
+    }
+
+    Storage.markEnded(runtime.sql, { userId: row.userId, streamId: row.streamId, now: Date.now() });
   }
-
-  Storage.deleteStream(runtime.sql, row.userId, streamId);
 }
 
 export interface EndDurableStreamOnLeaveOptions {

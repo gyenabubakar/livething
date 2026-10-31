@@ -78,7 +78,7 @@ export class LiveThingError<TCode extends string = string, TDetail = unknown> ex
   readonly detail: TDetail;
 
   constructor(code: TCode, detail: TDetail) {
-    super(`LiveThingError: ${code}`);
+    super(code);
     this.name = 'LiveThingError';
     this.code = code;
     this.detail = detail;
@@ -595,6 +595,8 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  *   stream ran). A continue replays the chunks that were saved, then ends the
  *   stream with this reason so the app can tell it apart from a stream that
  *   really finished.
+ * - `'taken-over'` — another connection continued this running stream, for
+ *   example a second tab, so this connection no longer reads it.
  * - `'aborted'` — catch-all when the framework had to tear the stream down
  *   for an internal reason that does not match any of the above.
  *
@@ -613,15 +615,7 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  * }
  * ```
  */
-export type StreamAbortedReason =
-  | 'cancelled'
-  | 'buffer-full'
-  | 'expired'
-  | 'not-found'
-  | 'hibernation-wake'
-  | 'unsubscribed'
-  | 'interrupted'
-  | 'aborted';
+export type StreamAbortedReason = (typeof STREAM_ABORTED_REASONS)[number];
 
 const STREAM_ABORTED_REASONS = [
   'cancelled',
@@ -631,6 +625,7 @@ const STREAM_ABORTED_REASONS = [
   'hibernation-wake',
   'unsubscribed',
   'interrupted',
+  'taken-over',
   'aborted',
 ] as const;
 

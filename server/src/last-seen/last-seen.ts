@@ -100,20 +100,16 @@ function buildLastSeenContext(engine: EngineAccess) {
   });
 }
 
-/** The connection's user id, read off the internal connection marker; `''` when anonymous. */
-function userIdFromContext(ctx: unknown): string {
-  const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
-    ENGINE_INTERNAL_CONNECTION
-  ];
-  return connection?.userId ?? '';
+function connectionFromContext(ctx: unknown): RuntimeConnection | undefined {
+  return (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[ENGINE_INTERNAL_CONNECTION];
 }
 
-/** Stamp the connection's user. */
+/** Stamp the connection's user, unless that user was purged. */
 function stampFromContext(engine: EngineAccess, ctx: unknown): void {
-  const userId = userIdFromContext(ctx);
-  if (!userId) return;
+  const connection = connectionFromContext(ctx);
+  if (!connection?.userId || connection.purged || engine.isUserPurging?.(connection.userId)) return;
 
-  stampLastSeen(engine.storage.sql, { userId, now: Date.now() });
+  stampLastSeen(engine.storage.sql, { userId: connection.userId, now: Date.now() });
 }
 
 /**
@@ -127,7 +123,7 @@ function registerActivityStamp(engine: EngineAccess, throttleMs: number): void {
   const lastStampByUserId = new Map<string, number>();
   engine.onMessageActivity((connectionId) => {
     const userId = engine.getConnectionIdentity(connectionId);
-    if (!userId) return;
+    if (!userId || engine.isUserPurging?.(userId)) return;
 
     const now = Date.now();
     const previous = lastStampByUserId.get(userId);
@@ -139,7 +135,7 @@ function registerActivityStamp(engine: EngineAccess, throttleMs: number): void {
   // Disconnect hooks run after the closed connection has left the user index,
   // so isUserOnline() is false here only when that was the user's last one.
   engine.onDisconnect((ctx) => {
-    const userId = userIdFromContext(ctx);
+    const userId = connectionFromContext(ctx)?.userId;
     if (userId && !engine.isUserOnline(userId)) lastStampByUserId.delete(userId);
   });
 }

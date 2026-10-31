@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidLiveThingIdentifier, WIRE_LIMITS } from '@livething/core';
+import { assertValidLiveThingIdentifier, LiveThingConfigError, WIRE_LIMITS } from '@livething/core';
 import { parsePluginWireName } from '~/plugin-scope.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -122,8 +122,8 @@ function visitCompiledPrimitives(
 
       if (typeof primitive.pattern === 'string') {
         if (compiled.channelFamilies.has(primitive.pattern)) {
-          throw new Error(
-            `[livething] Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
+          throw new LiveThingConfigError(
+            `Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
@@ -134,8 +134,8 @@ function visitCompiledPrimitives(
         });
       } else {
         if (compiled.channels.has(primitive.pattern.key)) {
-          throw new Error(
-            `[livething] Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
+          throw new LiveThingConfigError(
+            `Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
@@ -234,14 +234,14 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
   if (!hasReplay) return;
 
   if (!hasDedup) {
-    throw new Error(
-      `[livething] replay needs the dedup() capability. Replay stores every recorded message by the message id that dedup stamps. List dedup() in server({ capabilities: [...] }).`,
+    throw new LiveThingConfigError(
+      `replay needs the dedup() capability. Replay stores every recorded message by the message id that dedup stamps. List dedup() in server({ capabilities: [...] }).`,
     );
   }
 
   if (!hasPersistentSequence) {
-    throw new Error(
-      `[livething] replay needs a persistent sequence. Replay orders stored rows by seq, which only survives restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
+    throw new LiveThingConfigError(
+      `replay needs a persistent sequence. Replay orders stored rows by seq, which only survives restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
     );
   }
 }
@@ -275,8 +275,8 @@ function validateScopeAndEventNameSyntax(
     // the plugin declared follows the same rules as an app channel name.
     if (declaredPluginChannels.has(name)) {
       if (name.length > limit) {
-        throw new Error(
-          `[livething] ${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
+        throw new LiveThingConfigError(
+          `${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
         );
       }
 
@@ -294,15 +294,15 @@ function validateScopeAndEventNameSyntax(
     assertValidLiveThingIdentifier(name, `${kind} name`);
 
     if (name.startsWith('@') || name.startsWith('#')) {
-      throw new Error(
-        `[livething] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
+      throw new LiveThingConfigError(
+        `${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
           `Those prefixes are reserved for the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
 
     if (name.includes('::')) {
-      throw new Error(
-        `[livething] ${kind} name '${name}' contains '::', which is reserved as the separator in ` +
+      throw new LiveThingConfigError(
+        `${kind} name '${name}' contains '::', which is reserved as the separator in ` +
           `the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
@@ -317,15 +317,15 @@ function validateScopeAndEventNameSyntax(
     const declaredName = declared ? declared.name : event;
     if (declaredName.includes('::')) {
       const where = declared ? `plugin '${declared.id}' (${scopeLabel})` : scopeLabel;
-      throw new Error(
-        `[livething] Event name '${declaredName}' in ${where} contains '::', which is reserved as the ` +
+      throw new LiveThingConfigError(
+        `Event name '${declaredName}' in ${where} contains '::', which is reserved as the ` +
           `separator in plugin names and the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
 
     if (event.length > WIRE_LIMITS.event) {
-      throw new Error(
-        `[livething] Event name in ${scopeLabel} is ${event.length} characters; the wire protocol limit ` +
+      throw new LiveThingConfigError(
+        `Event name in ${scopeLabel} is ${event.length} characters; the wire protocol limit ` +
           `is ${WIRE_LIMITS.event}. A longer name can't travel over the wire, so no client could reach it.`,
       );
     }
@@ -395,8 +395,8 @@ function validateNoCrossPrimitiveEventCollisions(
       if (recorded.has(event)) where.push('recordedStream');
 
       if (where.length > 1) {
-        throw new Error(
-          `[livething] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
+        throw new LiveThingConfigError(
+          `Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
             `An event name can only belong to one of incoming/request/stream/recordedStream within a scope — pick a different name.`,
         );
       }
@@ -490,8 +490,8 @@ function validateNoReservedEventNames(
     // shape) — anything else with the prefix is a user-declared event that would
     // clash with the protocol.
     if (event.startsWith('__') && !declaredPluginEvents.has(event)) {
-      throw new Error(
-        `[livething] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
+      throw new LiveThingConfigError(
+        `'${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
           `That prefix is reserved for livething protocol and plugin events — pick a different name.`,
       );
     }

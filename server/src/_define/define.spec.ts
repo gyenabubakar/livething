@@ -1,3 +1,4 @@
+import { LiveThingConfigError } from '@livething/core';
 import { t } from '~/_api/definitions.ts';
 import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
@@ -26,6 +27,74 @@ function makeBase() {
     capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound])],
   });
 }
+
+describe('server() option checks', () => {
+  it.each([[undefined], [null], ['nope'], [42]])('refuses %s as the config', (config) => {
+    function build() {
+      return server(config as never);
+    }
+
+    expect(build).toThrow(LiveThingConfigError);
+    expect(build).toThrow(/\[livething\] server\(\)/);
+  });
+
+  it.each([['false'], [1], [null]])('refuses %j as hibernation', (hibernation) => {
+    function build() {
+      return server({ hibernation: hibernation as never });
+    }
+
+    expect(build).toThrow(LiveThingConfigError);
+    expect(build).toThrow(/'hibernation' must be a boolean/);
+  });
+
+  it('accepts a boolean hibernation, or none', () => {
+    for (const config of [{ hibernation: true }, { hibernation: false }, {}]) {
+      expect(() => server(config)).not.toThrow();
+    }
+  });
+
+  it('refuses a misspelled users.onExceed', () => {
+    const base = server({ users: { maxConnections: 2, onExceed: 'replce' as never } });
+    function build() {
+      return base.assemble({ handlers: [] });
+    }
+
+    expect(build).toThrow(LiveThingConfigError);
+    expect(build).toThrow(/'onExceed' must be one of 'replace', 'reject', got "replce"/);
+  });
+
+  it('throws LiveThingConfigError for an unknown option and a hook that is not a function', () => {
+    expect(() => server({ hibernat: true } as never)).toThrow(LiveThingConfigError);
+    expect(() => server({ upgrade: 'nope' } as never)).toThrow(LiveThingConfigError);
+  });
+
+  it('throws LiveThingConfigError for a capability listed twice', () => {
+    expect(() => server({ capabilities: [channels(), channels()] as never })).toThrow(
+      LiveThingConfigError,
+    );
+  });
+
+  it('throws LiveThingConfigError for bad assemble() input', () => {
+    const base = server({});
+    expect(() => base.assemble({} as never)).toThrow(LiveThingConfigError);
+    expect(() => base.assemble({ handlers: [null] as never })).toThrow(LiveThingConfigError);
+  });
+
+  it('throws LiveThingConfigError when a method needs a capability that is not listed', () => {
+    const base = server({}) as unknown as Record<'channel' | 'request', (...a: unknown[]) => void>;
+    expect(() => base.channel('room', {})).toThrow(LiveThingConfigError);
+    expect(() => base.request('ask', { run() {} })).toThrow(LiveThingConfigError);
+  });
+
+  it('throws LiveThingConfigError for one event bound twice', () => {
+    const base = server({ capabilities: [clientRequests()] });
+    const asEvent = base.on('shared', { input: v.object({}), run() {} });
+    const asRequest = base.request('shared', { input: v.object({}), run() {} });
+    expect(() => base.assemble({ handlers: [asEvent, asRequest] as never })).toThrow(
+      LiveThingConfigError,
+    );
+  });
+});
 
 describe('server() send/receive core', () => {
   it('rejects a capability listed more than once', () => {

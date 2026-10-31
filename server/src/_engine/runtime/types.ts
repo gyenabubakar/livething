@@ -8,6 +8,7 @@ import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type { SharedSend, SharedSendOptions } from '~/outgoing/runtime.ts';
 import type * as ValidationTypes from '~/types.ts';
+import type { SubscribeGate } from './subscribe-order.ts';
 
 type MessageParameter = { event: string; payload: unknown };
 type FrameParameter = {
@@ -79,6 +80,8 @@ export interface WireBroadcastMessage {
   userId?: string;
   /** The connections this frame was sent to, when it went to chosen connections. */
   recipients?: readonly FrameRecipient[];
+  /** The resume token of the sender a broadcast left out. */
+  excludedResumeToken?: string;
 }
 
 /** One connection a frame was sent to: its user (`''` when anonymous) and its resume token. */
@@ -279,7 +282,7 @@ export interface RegisteredEngineHooks {
       }>)[];
 
   /**
-   * The single user-facing `.onUpgrade(...)` hook from the builder.
+   * The single user-facing `upgrade` hook from `server({ ... })`.
    * Runs last in the upgrade phase; its meta keys override any internal
    * hook on conflict. The lifecycle primitive registers through
    * `setBuilderUpgradeHook`, which throws if called twice.
@@ -435,11 +438,13 @@ export interface RuntimeConnection {
   cancellingStreams?: Map<string, Promise<void>>;
 
   /**
-   * `__subscribe__` frames still running, by channel key. A later frame for the
-   * same channel waits for its subscribe, so the server handles it in the
-   * order the client sent it.
+   * Subscribes still running, by channel key. A later frame for the same channel
+   * waits for its gate, so the server handles it in the order the client sent it.
    */
-  pendingSubscribes?: Map<string, Promise<void>>;
+  pendingSubscribes?: Map<string, SubscribeGate>;
+
+  /** How many frames wait behind `pendingSubscribes` right now, capped at the connection work limit. */
+  heldFrames?: number;
 
   /**
    * While set and `active`, the engine is inside the connection-accept window
@@ -455,6 +460,9 @@ export interface RuntimeConnection {
    * hibernation row for a dead connection.
    */
   closing?: boolean;
+
+  /** `purgeUser` closed this connection, so its close must not write that user's rows again. */
+  purged?: boolean;
 
   /**
    * Fingerprint of the last connection row written to durable storage. The
@@ -530,8 +538,8 @@ export interface ActiveStream {
   /**
    * Per-stream stop signal. Its `.signal` is exposed as `ctx.stream.signal` so
    * generator code can pass it into slow awaited work (`fetch`, timers, …). The
-   * runtime aborts it on client cancel, owning-connection disconnect, and server
-   * shutdown — always before `generator.return()` so in-flight work stops first.
+   * runtime aborts it on client cancel, owning-connection disconnect, user purge,
+   * and server shutdown — always before `generator.return()` so in-flight work stops first.
    */
   abortController: AbortController;
 

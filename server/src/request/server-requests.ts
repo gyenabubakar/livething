@@ -44,10 +44,10 @@ export interface ServerRequestsCapability<
 > {
   readonly __channelServerRequests: TDeclarations;
   readonly __serverRequests: ReadonlyMap<string, ResolvedServerRequest>;
-  readonly __registerServerRequests: (
+  readonly __resolveChannelServerRequests: (
     channelKey: string,
     declarations: Record<string, ServerRequestDeclaration>,
-  ) => void;
+  ) => ReadonlyMap<string, ResolvedServerRequest>;
 }
 
 function resolveServerRequest(declaration: ServerRequestDeclaration): ResolvedServerRequest {
@@ -73,15 +73,18 @@ export const serverRequests = withCapabilityKind(function serverRequests<
   const writable = cap as {
     __channelServerRequests: TDeclarations;
     __serverRequests: ServerRequestsCapability['__serverRequests'];
-    __registerServerRequests: ServerRequestsCapability['__registerServerRequests'];
+    __resolveChannelServerRequests: ServerRequestsCapability['__resolveChannelServerRequests'];
   };
   writable.__channelServerRequests = declarations;
   writable.__serverRequests = resolved;
-  writable.__registerServerRequests = (channelKey, channelDeclarations) => {
+  writable.__resolveChannelServerRequests = (channelKey, channelDeclarations) => {
+    const channelRequests = new Map<string, ResolvedServerRequest>();
     for (const [event, declaration] of Object.entries(channelDeclarations)) {
       assertValidLiveThingIdentifier(event, 'serverRequests() event name', WIRE_LIMITS.event);
-      resolved.set(serverRequestKey(channelKey, event), resolveServerRequest(declaration));
+      channelRequests.set(serverRequestKey(channelKey, event), resolveServerRequest(declaration));
     }
+
+    return channelRequests;
   };
 
   return stampKind(cap, CAPABILITY_KIND.serverRequests);

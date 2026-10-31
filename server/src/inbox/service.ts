@@ -14,7 +14,7 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
  */
 const inboxService: InboxService = {
   fanOut(core: EngineCore, opts) {
-    fanOutToInbox(core, opts);
+    fanOutToInbox(core, { ...opts, isUserPurging: (userId) => core.isUserPurging(userId) });
   },
   drainOnReconnect(core: EngineCore, connection: RuntimeConnection) {
     drainInboxOnReconnect(core, connection);

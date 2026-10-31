@@ -279,7 +279,6 @@ describe('durable stream runtime', () => {
       seq: 1,
       messageId: null,
       payload: '{}',
-      now: Date.now(),
     });
 
     await cancelDurableStream(runtime as never, connection, { streamId: 's-1', cancelScope: {} });
@@ -378,7 +377,6 @@ describe('durable stream runtime', () => {
       seq: 1,
       messageId: null,
       payload: JSON.stringify({ i: 1 }),
-      now: Date.now(),
     });
 
     // The old socket died without a close frame, so its generator still runs
@@ -403,7 +401,10 @@ describe('durable stream runtime', () => {
     expect(returnSpy).not.toHaveBeenCalled();
     expect(live.connection).toBe(connection);
     expect(live.closed).toBe(false);
-    expect(protocolMessages.find((m) => m.event === '__error__')).toBeUndefined();
+    // The server cannot tell a half-open socket from a healthy tab, so the old one is told too.
+    const errors = protocolMessages.filter((m) => m.event === '__error__');
+    expect(errors.map((m) => m.targetId)).toEqual(['c-old']);
+    expect(errors[0]?.payload).toMatchObject({ detail: { reason: 'taken-over' } });
     expect(protocolMessages.find((m) => m.event === '__streamOk__')?.targetId).toBe('c-new');
 
     expect(wireChunks(connection).map((f) => f.__livething.streamSeq)).toEqual([1]);
@@ -564,7 +565,6 @@ describe('durable stream runtime', () => {
         seq,
         messageId: `m-${seq}`,
         payload: JSON.stringify({ i: seq }),
-        now: Date.now(),
       });
     }
 
@@ -580,6 +580,34 @@ describe('durable stream runtime', () => {
     const replayed = wireChunks(connection).filter((f) => f.event === 'e');
     expect(replayed.map((f) => f.__livething.streamSeq)).toEqual([3, 4, 5]);
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeDefined();
+  });
+
+  it('continueDurableStream — a non-member continuing an expired row gets not-found and the row stays', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const longAgo = Date.now() - 60_000;
+    Storage.insertStream(sql, {
+      userId: 'u1',
+      streamId: 's-old',
+      event: 'e',
+      payload: '{}',
+      now: longAgo,
+      maxAgeMs: 1_000,
+    });
+
+    Storage.markSuspended(sql, { userId: 'u1', streamId: 's-old', now: longAgo });
+
+    await continueDurableStream(runtime as never, createConnection('c2', 'u2'), {
+      resolveDef: () => undefined,
+      row: Storage.readStream(sql, 'u1', 's-old'),
+      streamId: 's-old',
+      lastKnownSeq: 0,
+    });
+
+    const err = protocolMessages.find((m) => m.event === '__error__');
+    expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('not-found');
+    expect(Storage.readStream(sql, 'u1', 's-old')).not.toBeNull();
   });
 
   it('continueDurableStream — suspended row past maxAgeMs surfaces stream-aborted expired and deletes the row', async () => {
@@ -824,7 +852,6 @@ describe('durable stream runtime', () => {
         seq,
         messageId: null,
         payload: JSON.stringify({ i: seq }),
-        now: Date.now(),
       });
     }
 
@@ -1721,7 +1748,6 @@ describe('recorded stream cut off before it finished', () => {
         seq,
         messageId: null,
         payload: JSON.stringify({ token: `t${seq}` }),
-        now: Date.now(),
       });
     }
 

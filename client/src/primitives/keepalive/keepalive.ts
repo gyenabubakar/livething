@@ -1,4 +1,5 @@
 import { CloseCodes, LiveThingConfigError } from '@livething/core';
+import { MAX_TIMER_DELAY_MS } from '~/internal/config.ts';
 import { createStore } from '~/internal/store.ts';
 import { KeepaliveLoop } from '~/primitives/keepalive/loop.ts';
 import type { ReadableStore } from '~/internal/store.ts';
@@ -8,12 +9,13 @@ import type { ConnectionQuality } from '~/types.ts';
 
 /** Options for `keepalive()`. */
 export interface KeepaliveOptions {
-  /** How often to ping, in ms. Must be 1 or more. Default: `30_000`. */
+  /** How often to ping, in ms. Must be from 1 to `2 ** 31 - 1`, the longest a timer can hold. Default: `30_000`. */
   interval?: number;
-  /** How many pongs can be missed before the socket is force-closed. Default: `2`. */
+  /** How many pongs can be missed before the socket is force-closed. Must be a whole number, 1 or more. Default: `2`. */
   maxMissedPongs?: number;
   /**
-   * Latency cut-offs (ms) for the quality tiers. Default:
+   * Latency cut-offs (ms) for the quality tiers. All three must be numbers, 0 or
+   * more, with `excellent <= good <= degraded`. Default:
    * `{ excellent: 100, good: 300, degraded: 1000 }`, the same table the server uses.
    */
   thresholds?: QualityThresholds;
@@ -42,6 +44,15 @@ interface KeepaliveTypeFn extends TypeFn {
   readonly _api: QualityApi;
 }
 
+function areValidThresholds(thresholds: QualityThresholds): boolean {
+  const cutOffs = [thresholds?.excellent, thresholds?.good, thresholds?.degraded];
+  return (
+    cutOffs.every((cutOff) => Number.isFinite(cutOff) && cutOff! >= 0) &&
+    thresholds.excellent <= thresholds.good &&
+    thresholds.good <= thresholds.degraded
+  );
+}
+
 /**
  * Adds client pings so a quiet connection isn't dropped by proxies, tracks
  * round-trip latency to report connection quality, and closes a connection
@@ -53,11 +64,27 @@ interface KeepaliveTypeFn extends TypeFn {
  * `keepalive()`.
  */
 export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTypeFn> {
-  const { interval } = options;
-  if (interval !== undefined && !(Number.isFinite(interval) && interval >= 1)) {
+  const { interval, maxMissedPongs, thresholds } = options;
+  if (
+    interval !== undefined &&
+    !(Number.isFinite(interval) && interval >= 1 && interval <= MAX_TIMER_DELAY_MS)
+  ) {
     throw new LiveThingConfigError(
-      `keepalive interval must be a number of ms, 1 or more, got ${interval}. ` +
+      `keepalive interval must be a number of ms from 1 to ${MAX_TIMER_DELAY_MS}, got ${interval}. ` +
         `To turn keepalive off, leave keepalive() out.`,
+    );
+  }
+
+  if (maxMissedPongs !== undefined && !(Number.isInteger(maxMissedPongs) && maxMissedPongs >= 1)) {
+    throw new LiveThingConfigError(
+      `keepalive maxMissedPongs must be a whole number, 1 or more, got ${maxMissedPongs}.`,
+    );
+  }
+
+  if (thresholds !== undefined && !areValidThresholds(thresholds)) {
+    throw new LiveThingConfigError(
+      `keepalive thresholds must be numbers of ms, 0 or more, with excellent <= good <= degraded, ` +
+        `got ${JSON.stringify(thresholds)}.`,
     );
   }
 
@@ -72,8 +99,8 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
       const loop = new KeepaliveLoop(
         {
           interval,
-          maxMissedPongs: options.maxMissedPongs,
-          thresholds: options.thresholds,
+          maxMissedPongs,
+          thresholds,
         },
         {
           sendPing: () => helpers.sendPing(),

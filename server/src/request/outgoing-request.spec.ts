@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RequestInvalidResponse } from '@livething/core';
+import { LiveThingConfigError, RequestInvalidResponse } from '@livething/core';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { CrossInstanceRef } from '~/errors/errors.ts';
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
@@ -41,7 +41,9 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
 
   const live = new Set<string>(['c1', 'peer']);
 
+  const notInChannel = new Set<string>();
   const engine = {
+    isConnectionInChannel: (id: string) => !notInChannel.has(id),
     generateId: (prefix?: string) => `${prefix}_${(idCounter += 1)}`,
     onAnswerFrame: (h: any) => (answerHook = h),
     onDisconnect: (h: any) => (disconnectHook = h),
@@ -109,7 +111,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     return ctx;
   }
 
-  return { answerHook, disconnectHook, buildCtx, sent, live, member };
+  return { answerHook, disconnectHook, buildCtx, sent, live, member, notInChannel };
 }
 
 const PERMISSION = new Map<string, ResolvedServerRequest>([
@@ -189,6 +191,32 @@ describe('server→client request — outgoing runtime', () => {
     });
     await expect(promise).rejects.toSatisfy((e: unknown) => RequestInvalidResponse.matches(e));
   });
+
+  it.each([0, -1, 1.5, Number.NaN, 2 ** 31])(
+    'rejects a request with a timeout of %d and sends nothing',
+    async (timeout) => {
+      const env = install(topDeclarations(PERMISSION));
+      const ctx = env.buildCtx('c1');
+
+      await expect(ctx.request('ask', { action: 'x' }, { timeout })).rejects.toBeInstanceOf(
+        LiveThingConfigError,
+      );
+      expect(env.sent).toHaveLength(0);
+    },
+  );
+
+  it.each([0, -1, 1.5, Number.NaN, 2 ** 31])(
+    'rejects a user request with a timeout of %d and sends nothing',
+    async (timeout) => {
+      const env = install(topDeclarations(VOLUNTEER));
+      const ctx = env.buildCtx('c1', undefined, { user: ['a'] });
+
+      await expect(
+        ctx.users.get('a').request('volunteer', { turn: 1 }, { timeout }),
+      ).rejects.toBeInstanceOf(LiveThingConfigError);
+      expect(env.sent).toHaveLength(0);
+    },
+  );
 
   it('rejects with timeout when no answer arrives', async () => {
     vi.useFakeTimers();
@@ -306,7 +334,6 @@ describe('server→client request — outgoing runtime', () => {
           name: 'room-1',
           family: 'rooms',
           send: () => true,
-          members: () => ['c1', 'peer'].map(env.member),
         },
       },
     );
@@ -344,7 +371,6 @@ describe('server→client request — outgoing runtime', () => {
           name: 'room-1',
           family: 'rooms',
           send: () => true,
-          members: () => [env.member('peer')],
         },
       },
     );
@@ -371,10 +397,10 @@ describe('server→client request — outgoing runtime', () => {
           name: 'room-1',
           family: 'rooms',
           send: () => true,
-          members: () => [env.member('c1')],
         },
       },
     );
+    env.notInChannel.add('peer');
 
     await expect(
       ctx.channel.request(

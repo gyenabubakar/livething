@@ -126,6 +126,11 @@ export interface InterceptPrimitive<TCtx = any> extends Primitive<'intercept'> {
   readonly handler: InterceptHandler<TCtx>;
   /** Set by plugin namespacing when a plugin contributes this intercept; absent ⇒ app-owned. @internal */
   readonly __owner?: FrameOwner;
+  /**
+   * Runs when a frame arrives behind a pending subscribe, and is skipped when the
+   * frame runs later. The rate limit sets this. @internal
+   */
+  readonly __chargedOnArrival?: boolean;
 }
 
 /**

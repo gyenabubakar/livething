@@ -294,7 +294,7 @@ describe('context.channel, context.channelGate and context.channelLifecycle', ()
     return { base, lobby, say, seen };
   }
 
-  it('returns the channel ctx in handlers and the lifecycle ctx in subscribe', async () => {
+  it('returns the channel ctx in handlers and the lifecycle ctx in onSubscribe', async () => {
     const { base, lobby, say, seen } = setup();
     const engine = buildEngine(base.assemble({ handlers: [lobby, say] }));
     await engine.initialize();
@@ -309,7 +309,7 @@ describe('context.channel, context.channelGate and context.channelLifecycle', ()
     expect(seen.wrongKind).toMatch(/'channel' invocation/);
   });
 
-  it('gives check and commit the gate accessor and subscribe, unsubscribe and sessionEnd the lifecycle accessor', async () => {
+  it('gives check and commit the gate accessor and onSubscribe, onUnsubscribe and onSessionEnd the lifecycle accessor', async () => {
     const base = server({ capabilities: [channels()] });
     const seen: Record<string, unknown> = {};
     // The hooks below run later, after `lobby` is assigned.

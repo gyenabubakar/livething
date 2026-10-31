@@ -1,6 +1,6 @@
 import { LiveThingConfigError } from '@livething/core';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
-import { assertPositiveInteger } from '~/_engine/validation.ts';
+import { assertTimerDelay } from '~/_engine/validation.ts';
 import { createKeepaliveMonitor } from '~/keepalive/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -62,8 +62,9 @@ function connectionIdOf(ctx: unknown): string {
  * the engine always replies `pong` on its own, so a server that never lists
  * `keepalive()` still lets a client measure it.
  *
- * Both options default (`pingIntervalMs` 30 s, `idleTimeoutMs` 60 s).
- * `pingIntervalMs` must be strictly less than `idleTimeoutMs`, or the ping
+ * Both options default (`pingIntervalMs` 30 s, `idleTimeoutMs` 60 s), and both
+ * must be whole numbers no larger than `2 ** 31 - 1`, the longest a timer can
+ * hold. `pingIntervalMs` must be strictly less than `idleTimeoutMs`, or the ping
  * could not land before the idle window closes and live clients would be
  * dropped. Enable this by listing the `keepalive()` capability from
  * `@livething/server/keepalive` in `server({ capabilities: [...] })` instead of
@@ -72,8 +73,8 @@ function connectionIdOf(ctx: unknown): string {
 export function keepalive(options: KeepaliveOptions = {}): KeepalivePrimitive {
   const pingIntervalMs = options.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
-  assertPositiveInteger(pingIntervalMs, 'pingIntervalMs', 'keepalive()');
-  assertPositiveInteger(idleTimeoutMs, 'idleTimeoutMs', 'keepalive()');
+  assertTimerDelay(pingIntervalMs, 'pingIntervalMs', 'keepalive()');
+  assertTimerDelay(idleTimeoutMs, 'idleTimeoutMs', 'keepalive()');
   if (pingIntervalMs >= idleTimeoutMs) {
     throw new LiveThingConfigError(
       `keepalive pingIntervalMs (${pingIntervalMs}) must be less than idleTimeoutMs ` +

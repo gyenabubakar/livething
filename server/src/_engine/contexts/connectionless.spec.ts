@@ -38,7 +38,7 @@ function makeDeps(overrides: Partial<EngineContextTypes.CreateConnectionlessCont
     }),
     toConnectionInfo: (c: ReturnType<typeof conn>) => ({ id: c.id, userId: c.userId }),
     scheduleTask: vi.fn(),
-    cancelScheduled: vi.fn(() => ({ removed: 1, taskExists: true })),
+    cancelScheduled: vi.fn(),
     purgeUser: vi.fn(() => Promise.resolve()),
     ...overrides,
   } as unknown as EngineContextTypes.CreateConnectionlessContextDeps;

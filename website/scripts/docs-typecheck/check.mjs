@@ -1,9 +1,13 @@
-// Compiles every TypeScript example in website/content against the real packages, and checks that
-// an event name has one payload shape across the docs.
+// Compiles every TypeScript, JavaScript, TSX, Vue and Svelte example in website/content against the real
+// packages, and checks that an event name has one payload shape across the docs.
 //
-// An example of up to SHORT_LINES lines may use names from fixtures/ (`ctx`, `socket`, `base`...)
-// without declaring them. A longer one must bring its own imports and setup. An app helper from
-// fixtures/helpers.ts may be used in any example.
+// TSX files use the JSX types of fixtures/modules (React, or Solid on the Solid page). Vue files go through
+// vue-tsc's language plugin and Svelte files through svelte2tsx, so templates are type checked too. Both are
+// parsed by the framework's own compiler first. An error in a Svelte file reports the fence's first line, plus
+// the generated code that failed.
+//
+// An example of up to SHORT_LINES lines may use names from fixtures/ (`ctx`, `socket`, `base`, app
+// helpers...) without declaring them. A longer one must bring its own imports and setup.
 //
 // Tabs of one ::code-group are one small project: a tab can import another by its title.
 // `<!-- docs-check: skip -->` on the line before a fence leaves that example out.
@@ -22,6 +26,11 @@ import {
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
+import { proxyCreateProgram } from '@volar/typescript';
+import { compileScript, compileTemplate, parse as parseVue } from '@vue/compiler-sfc';
+import { createVueLanguagePlugin, getDefaultCompilerOptions } from '@vue/language-core';
+import { compile as compileSvelte, VERSION as SVELTE_VERSION } from 'svelte/compiler';
+import { svelte2tsx } from 'svelte2tsx';
 
 const repo = resolve(new URL('../../..', import.meta.url).pathname);
 const require = createRequire(join(repo, 'package.json'));
@@ -39,7 +48,16 @@ const PACKAGES = {
   '@livething/server-node': 'server-adapters/node',
   '@livething/server-cloudflare': 'server-adapters/cloudflare',
 };
+const MODULE_FIXTURES = {
+  react: 'react',
+  'react/jsx-runtime': 'react',
+  'react-native': 'react-native',
+  'solid-js': 'solid-js',
+  'solid-js/jsx-runtime': 'solid-js',
+};
 const NAME_CODES = new Set([2304, 2552, 2503, 18004, 2580, 2591, 2582, 2583, 2584]);
+const UNTYPED_CALL_WITH_TYPE_ARGS = 2347;
+const JS_IMPLICIT_ANY_CODES = new Set([7006, 7031, 7053]);
 
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -67,11 +85,14 @@ function readExamples() {
       }
       if (/^\s*::code-group/.test(line)) group = `${page}:${i + 1}`;
       else if (/^\s*::\s*$/.test(line)) group = null;
-      const match = line.match(/^(\s*)```(ts|typescript)(?=\s|$)(?:\s+\[(.+?)\])?/);
+      const match = line.match(
+        /^(\s*)```(ts|typescript|js|tsx|vue|svelte)(?=\s|$)(?:\s+\[(.+?)\])?/,
+      );
       if (!match) return;
       open = {
         page,
         line: i + 1,
+        lang: match[2],
         indent: match[1].length,
         title: match[3] ?? '',
         group,
@@ -86,9 +107,12 @@ function readExamples() {
   return examples.filter((e) => !e.skip);
 }
 
-function tabPath(title, index) {
+function tabPath(title, lang, index) {
   const cleaned = title.replace(/:\s*/g, '/').replace(/\s+/g, '-');
-  const path = /\.(ts|tsx|mts|cts)$/.test(cleaned) ? cleaned : `example-${index}.ts`;
+  const isFile = /\.(ts|tsx|mts|cts|js|mjs|vue|svelte)$/.test(cleaned);
+  const fallback = { vue: '.vue', svelte: '.svelte', tsx: '.tsx' }[lang] ?? '.ts';
+  const file = isFile ? cleaned : `example-${index}${fallback}`;
+  const path = lang === 'svelte' ? `${file}.ts` : file;
   return path.replace(/^\/+/, '').replace(/\.\.\//g, '');
 }
 
@@ -128,7 +152,7 @@ writeFileSync(clientSocketPath, clientExample.code);
 const shim = join(workDir, 'shims.d.ts');
 writeFileSync(
   shim,
-  "declare module '*';\ndeclare const process: any;\ndeclare const Buffer: any;\ninterface ImportMeta { env: Record<string, any> }\n",
+  "declare module '*';\ndeclare module 'hono' { export const Hono: any; export type Context = any; export type Next = any; }\ndeclare const process: any;\ndeclare const Buffer: any;\ninterface ImportMeta { env: Record<string, any> }\n",
 );
 
 function exportTarget(specifier) {
@@ -142,6 +166,27 @@ function exportTarget(specifier) {
   return types ? join(dir, types) : undefined;
 }
 
+/**
+ * One file per fence on a framework page, so `./use-store` finds the page's own `use-store.ts`. Other
+ * pages show parts of a file, so their `./socket` still means Huddle's full client socket.
+ */
+const pageFiles = new Map();
+const fileExamples = new Map();
+const pageFileKey = (page, name) => `${page}\0${name}`;
+const withoutExtension = (path) => basename(path).replace(/(\.svelte)?\.\w+$/, '');
+function pageFile(containing, name) {
+  const example = fileExamples.get(containing);
+  if (!example?.page.startsWith('6.recipes/01.framework-hooks/')) return undefined;
+  const path = pageFiles.get(pageFileKey(example.page, name));
+  return path && path !== containing ? path : undefined;
+}
+
+function huddleUiFixture(containing) {
+  if (containing.endsWith('.vue')) return 'huddle-ui-vue';
+  if (containing.endsWith('.svelte.ts')) return 'huddle-ui-svelte';
+  return containing.includes('04.solid') ? 'huddle-ui-solid' : 'huddle-ui';
+}
+
 const unknownModules = [];
 function resolveModule(specifier, containing) {
   if (!containing.startsWith(workDir) && !containing.startsWith(fixtures)) {
@@ -153,6 +198,15 @@ function resolveModule(specifier, containing) {
     return ts.resolveModuleName(specifier, join(repo, 'server/src/index.ts'), options, ts.sys)
       .resolvedModule?.resolvedFileName;
   }
+  if (specifier in MODULE_FIXTURES) {
+    return join(fixtures, 'modules', `${MODULE_FIXTURES[specifier]}.ts`);
+  }
+  if (/^(vue|svelte)(\/|$)/.test(specifier)) {
+    return ts.resolveModuleName(specifier, join(repo, 'website/package.json'), options, ts.sys)
+      .resolvedModule?.resolvedFileName;
+  }
+  // Build output, such as `./build/handler.js`, does not exist until the app builds.
+  if (/^\.\/(build|dist)\//.test(specifier)) return undefined;
   const target = exportTarget(specifier);
   if (target) return target;
   if (target === undefined) {
@@ -165,6 +219,11 @@ function resolveModule(specifier, containing) {
       const local = resolve(dirname(containing), specifier).replace(/\.(js|mjs|ts|mts)$/, '');
       if (existsSync(`${local}.ts`) && !local.startsWith(fixtures)) return `${local}.ts`;
       if (existsSync(`${local}.ts`)) return `${local}.ts`;
+      const sibling = pageFile(containing, name);
+      if (sibling) return sibling;
+      if (name === 'huddle-ui' && containing.startsWith(workDir)) {
+        return join(fixtures, `${huddleUiFixture(containing)}.ts`);
+      }
     }
     if (name === 'base') return basePath;
     if (name === 'huddle-definition' || name === 'huddle' || name === 'socket-types')
@@ -185,7 +244,11 @@ const options = {
   noEmit: true,
   skipLibCheck: true,
   allowImportingTsExtensions: true,
+  allowJs: true,
+  checkJs: true,
   jsx: ts.JsxEmit.Preserve,
+  // Internal to TypeScript. It lets `.vue` files be root files, as vue-tsc's patched tsc does.
+  allowNonTsExtensions: true,
   lib: ['lib.es2023.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
   types: [],
 };
@@ -207,7 +270,74 @@ function compile(files) {
         };
       return { resolvedModule: undefined };
     });
-  return ts.createProgram([...files, shim], options, host);
+  const createProgram = proxyCreateProgram(ts, ts.createProgram, (proxiedTs) => ({
+    languagePlugins: [createVueLanguagePlugin(proxiedTs, options, vueOptions, (id) => id)],
+  }));
+  return createProgram({ rootNames: [...files, shim, ...svelteShims], options, host });
+}
+
+const vueOptions = getDefaultCompilerOptions(options.target, 'vue', true);
+const websiteModules = join(repo, 'website/node_modules');
+const svelteShims = [
+  join(websiteModules, 'svelte2tsx/svelte-shims-v4.d.ts'),
+  join(websiteModules, 'svelte/svelte-html.d.ts'),
+  join(websiteModules, 'svelte/types/index.d.ts'),
+];
+
+/** Syntax errors from Vue's and Svelte's own compilers. Such a file can't go on to the type check. */
+function compilerErrors(example) {
+  const filename = example.title || `example.${example.lang}`;
+  const errors = [];
+  const attempt = (run) => {
+    try {
+      run();
+    } catch (error) {
+      const line = (error.loc?.start.line ?? error.start?.line ?? 1) - 1;
+      errors.push({ line, message: error.message });
+    }
+  };
+  if (example.lang === 'svelte') {
+    attempt(() => compileSvelte(example.code, { filename, generate: false }));
+  } else if (example.lang === 'vue') {
+    const { descriptor, errors: parseErrors } = parseVue(example.code, { filename });
+    for (const error of parseErrors) {
+      errors.push({ line: (error.loc?.start.line ?? 1) - 1, message: error.message });
+    }
+    if (descriptor.scriptSetup || descriptor.script) {
+      attempt(() => compileScript(descriptor, { id: filename }));
+    }
+    if (descriptor.template) {
+      const { content, loc } = descriptor.template;
+      const result = compileTemplate({ source: content, filename, id: filename });
+      for (const error of result.errors) {
+        const line = typeof error === 'string' ? 0 : (error.loc?.start.line ?? 1) - 1;
+        const message = typeof error === 'string' ? error : error.message;
+        errors.push({ line: loc.start.line - 1 + line, message });
+      }
+    }
+  }
+  return errors;
+}
+
+/** The file that represents a fence in the program, with the fixture imports it needs. */
+function projectSource(example, addition, path) {
+  if (example.lang === 'vue') {
+    return example.code.replace('</script>', () => `${addition}\n</script>`);
+  }
+  if (example.lang === 'svelte') {
+    const { code } = svelte2tsx(example.code, {
+      filename: basename(path, '.ts'),
+      isTsFile: true,
+      mode: 'ts',
+      version: SVELTE_VERSION,
+    });
+    // svelteShims load the same types; this program has no type roots to find a reference in.
+    return `${code.replace('///<reference types="svelte" />', '')}\n${addition}\n`;
+  }
+  const jsxSource = example.page.includes('04.solid') ? 'solid-js' : 'react';
+  // On the first line, so the line numbers still match the fence.
+  const pragma = example.lang === 'tsx' ? `/** @jsxImportSource ${jsxSource} */ ` : '';
+  return `${pragma}${example.code}\nexport {};\n${addition}\n`;
 }
 
 function writeProjects(withPrelude) {
@@ -216,14 +346,17 @@ function writeProjects(withPrelude) {
   const byPath = new Map();
   examples.forEach((example, index) => {
     if (filter && !example.page.startsWith(filter)) return;
-    if (example.page === HUDDLE_PAGE) return;
+    if (example.page === HUDDLE_PAGE || unparsable.has(example)) return;
     const project = example.group ?? `${example.page}:${example.line}`;
     const projectDir = join(dir, project.replace(/[^\w.-]+/g, '_'));
-    const path = join(projectDir, tabPath(example.title, index));
+    const path = join(projectDir, tabPath(example.title, example.lang, index));
     mkdirSync(dirname(path), { recursive: true });
     const addition = withPrelude?.get(`${example.page}:${example.line}`) ?? '';
-    writeFileSync(path, `${example.code}\nexport {};\n${addition}\n`);
+    writeFileSync(path, projectSource(example, addition, path));
     byPath.set(path, example);
+    fileExamples.set(path, example);
+    const key = pageFileKey(example.page, withoutExtension(path));
+    pageFiles.set(key, pageFiles.has(key) ? null : path);
   });
   return byPath;
 }
@@ -232,19 +365,34 @@ const report = [];
 function add(example, line, message) {
   report.push(`${example.page}:${example.line + 1 + line}  ${message}`);
 }
+/** Where a TypeScript error sits in the fence. Svelte has no line map, so it shows the generated code. */
+function addDiagnostic(example, d, message) {
+  const { line } = d.file.getLineAndCharacterOfPosition(d.start);
+  if (example.lang !== 'svelte') return add(example, line, message);
+  const generated = d.file.text.split('\n')[line].trim().slice(0, 120);
+  add(example, 0, `${message} (in generated code: ${generated})`);
+}
+
+const unparsable = new Set();
+for (const example of examples) {
+  if (filter && !example.page.startsWith(filter)) continue;
+  for (const { line, message } of compilerErrors(example)) {
+    add(example, line, `${example.lang} compiler: ${message}`);
+    unparsable.add(example);
+  }
+}
 
 // Pass 1: what does each example leave undeclared?
+pageFiles.clear();
 const alone = writeProjects(null);
 const first = compile([...alone.keys()]);
 const additions = new Map();
 for (const [path, example] of alone) {
   const sf = first.getSourceFile(path);
+  // With no file, the diagnostic calls below would return those of the whole program.
+  if (!sf) throw new Error(`${path} is not in the program`);
   for (const d of first.getSyntacticDiagnostics(sf)) {
-    add(
-      example,
-      sf.getLineAndCharacterOfPosition(d.start).line,
-      `TS${d.code} ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`,
-    );
+    addDiagnostic(example, d, `TS${d.code} ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`);
   }
   const free = new Set();
   for (const d of first.getSemanticDiagnostics(sf)) {
@@ -256,38 +404,80 @@ for (const [path, example] of alone) {
   const short = example.lineCount <= SHORT_LINES;
   for (const name of free) {
     if (name === 'v' && short) imports.push("import * as v from 'valibot';");
-    else if (helpers.has(name))
+    else if (helpers.has(name) && short)
       imports.push(`import { ${name} } from '${join(fixtures, 'helpers.ts')}';`);
     else if (prelude.has(name) && short)
       imports.push(`import { ${name} } from '${join(fixtures, 'prelude.ts')}';`);
-    else if (prelude.has(name) || name === 'v')
+    else if (helpers.has(name) || prelude.has(name) || name === 'v')
       add(example, 0, `long example (${example.lineCount} lines) must import or declare '${name}'`);
     else
       add(
         example,
         0,
-        `'${name}' is not defined: import it, declare it, or add it to fixtures/helpers.ts`,
+        `'${name}' is not defined: import it, declare it, or, for an example of up to ${SHORT_LINES} lines, add it to fixtures/helpers.ts`,
       );
   }
   additions.set(`${example.page}:${example.line}`, imports.join('\n'));
 }
 
+function nodeAt(sf, position) {
+  let node = sf;
+  for (;;) {
+    const child = ts.forEachChild(node, (c) =>
+      c.getStart(sf) <= position && position < c.getEnd() ? c : undefined,
+    );
+    if (!child) return node;
+    node = child;
+  }
+}
+
+/**
+ * True when a callback's parameter gets no type only because the function it is passed to comes
+ * from a package the repo doesn't install (`declare module '*'` makes that function `any`).
+ */
+function isCallbackToUninstalledPackage(checker, sf, position) {
+  let node = nodeAt(sf, position);
+  while (node && !ts.isFunctionLike(node)) node = node.parent;
+  let parent = node?.parent;
+  while (
+    parent &&
+    (ts.isObjectLiteralExpression(parent) ||
+      ts.isPropertyAssignment(parent) ||
+      ts.isArrayLiteralExpression(parent) ||
+      ts.isParenthesizedExpression(parent))
+  ) {
+    parent = parent.parent;
+  }
+  if (!parent || !(ts.isCallExpression(parent) || ts.isNewExpression(parent))) return false;
+  return Boolean(checker.getTypeAtLocation(parent.expression).flags & ts.TypeFlags.Any);
+}
+
 // Pass 2: the real type errors, with the fixture names filled in.
+pageFiles.clear();
 const filled = writeProjects(additions);
 unknownModules.length = 0;
 const second = compile([...filled.keys(), basePath, huddlePath, clientSocketPath]);
+const checker = second.getTypeChecker();
 for (const [path, example] of filled) {
   const sf = second.getSourceFile(path);
   const ownLines = example.code.split('\n').length;
   for (const d of second.getSemanticDiagnostics(sf)) {
     if (NAME_CODES.has(d.code) || d.start === undefined) continue;
-    // A callback passed to a framework the repo doesn't install has no type to infer from.
-    if (d.code === 7006 && /from '(?!@livething|valibot|\.|\/)/.test(example.code)) continue;
-    const line = sf.getLineAndCharacterOfPosition(d.start).line;
-    if (line >= ownLines) continue;
-    add(
+    if (
+      d.code === 7006 &&
+      example.lang !== 'vue' &&
+      isCallbackToUninstalledPackage(checker, sf, d.start)
+    )
+      continue;
+    // A package the repo doesn't install is `any`, so its generic call can't take type arguments.
+    if (d.code === UNTYPED_CALL_WITH_TYPE_ARGS) continue;
+    // JavaScript has no way to write the type these name.
+    if (/\.m?js$/.test(path) && JS_IMPLICIT_ANY_CODES.has(d.code)) continue;
+    const { line } = d.file.getLineAndCharacterOfPosition(d.start);
+    if (example.lang !== 'svelte' && line >= ownLines) continue;
+    addDiagnostic(
       example,
-      line,
+      d,
       `TS${d.code} ${ts.flattenDiagnosticMessageText(d.messageText, ' ').slice(0, 400)}`,
     );
   }
@@ -322,13 +512,85 @@ const VERBS = new Set([
   'broadcastTo',
 ]);
 const shapes = new Map();
+const typeShapes = new Map();
+function tally(map, event, shape, where) {
+  if (!map.has(event)) map.set(event, new Map());
+  const seen = map.get(event);
+  if (!seen.has(shape)) seen.set(shape, []);
+  seen.get(shape).push(where);
+}
 function record(event, keys, where) {
   if (keys === null || keys.includes('...')) return;
-  if (!shapes.has(event)) shapes.set(event, new Map());
-  const seen = shapes.get(event);
-  const key = keys.join(',');
-  if (!seen.has(key)) seen.set(key, []);
-  seen.get(key).push(where);
+  tally(shapes, event, keys.join(','), where);
+}
+function normalize(text) {
+  return text
+    .replace(/\s+/g, '')
+    .replace(/[;,]([}\]])/g, '$1')
+    .replace(/;/g, ',');
+}
+/** Named types and schemas that one example declares at its top level. */
+function declaredNames(sf) {
+  const types = new Map();
+  const schemas = new Map();
+  for (const s of sf.statements) {
+    if (ts.isTypeAliasDeclaration(s)) types.set(s.name.text, normalize(s.type.getText()));
+    if (ts.isVariableStatement(s)) {
+      for (const d of s.declarationList.declarations) {
+        if (d.initializer) schemas.set(d.name.getText(), normalize(d.initializer.getText()));
+      }
+    }
+  }
+  return { types, schemas };
+}
+function parseExample(example) {
+  const isComponent = example.lang === 'vue' || example.lang === 'svelte';
+  const code = isComponent
+    ? (example.code.match(/<script[^>]*>([\s\S]*?)<\/script>/)?.[1] ?? '')
+    : example.code;
+  return ts.createSourceFile(
+    example.lang === 'tsx' ? 'x.tsx' : 'x.ts',
+    code,
+    ts.ScriptTarget.ES2022,
+    true,
+  );
+}
+const huddleNames = examples
+  .filter((e) => e.page === HUDDLE_PAGE)
+  .map((e) => declaredNames(parseExample(e)));
+function lookup(local, kind, name) {
+  return (
+    local[kind].get(name) ?? huddleNames.map((n) => n[kind].get(name)).find((v) => v !== undefined)
+  );
+}
+/** `Status` and `v.picklist(['a'])`'s inferred type print the same as the union they stand for. */
+function canonicalType(text, local) {
+  return text
+    .split('|')
+    .map((part) => {
+      const inferred = part.match(/^v\.InferOutput<typeof(\w+)>$/)?.[1];
+      const schema = inferred && lookup(local, 'schemas', inferred);
+      const picklist = schema?.match(/^v\.picklist\(\[(.*)\]\)$/)?.[1];
+      if (picklist) return picklist.split(',').join('|');
+      const named = lookup(local, 'types', part);
+      return named && named !== text ? canonicalType(named, local) : part;
+    })
+    .join('|');
+}
+/** A named schema prints as its definition. `v.pipe` checks add rules but keep the value type. */
+function canonicalSchema(text, local) {
+  const named = lookup(local, 'schemas', text);
+  const schema = named ?? text;
+  return schema.match(/^v\.pipe\((v\.\w+\(\)),.*\)$/)?.[1] ?? schema;
+}
+/** A declared payload's property types, or a schema's validators, as comparable text. */
+function recordTypes(event, source, entries, where) {
+  if (entries.some(([name]) => name === '...')) return;
+  const shape = entries
+    .map(([name, value]) => `${name}: ${value}`)
+    .sort()
+    .join(', ');
+  tally(typeShapes, `${source} '${event}'`, shape, where);
 }
 function objectKeys(node) {
   if (!node || !ts.isObjectLiteralExpression(node)) return null;
@@ -336,12 +598,25 @@ function objectKeys(node) {
     .map((p) => (ts.isSpreadAssignment(p) ? '...' : p.name.getText().replace(/['"]/g, '')))
     .sort();
 }
+function schemaEntries(node, local) {
+  return node.properties.map((p) => [
+    ts.isSpreadAssignment(p) ? '...' : p.name.getText().replace(/['"]/g, ''),
+    ts.isPropertyAssignment(p) ? canonicalSchema(normalize(p.initializer.getText()), local) : '',
+  ]);
+}
 function typeKeys(node) {
   if (!node || !ts.isTypeLiteralNode(node)) return null;
   return node.members.map((m) => m.name?.getText().replace(/['"]/g, '') ?? '...').sort();
 }
+function typeEntries(node, local) {
+  return node.members.map((m) => [
+    `${m.name?.getText().replace(/['"]/g, '') ?? '...'}${m.questionToken ? '?' : ''}`,
+    m.type ? canonicalType(normalize(m.type.getText()), local) : '',
+  ]);
+}
 for (const example of examples) {
-  const sf = ts.createSourceFile('x.ts', example.code, ts.ScriptTarget.ES2022, true);
+  const sf = parseExample(example);
+  const local = declaredNames(sf);
   const where = `${example.page}:${example.line}`;
   function visit(node) {
     if (ts.isCallExpression(node)) {
@@ -353,11 +628,11 @@ for (const example of examples) {
       ) {
         for (const prop of node.arguments[0].properties) {
           if (ts.isPropertyAssignment(prop) && ts.isCallExpression(prop.initializer)) {
-            record(
-              prop.name.getText().replace(/['"]/g, ''),
-              typeKeys(prop.initializer.typeArguments?.[0]),
-              where,
-            );
+            const event = prop.name.getText().replace(/['"]/g, '');
+            const type = prop.initializer.typeArguments?.[0];
+            record(event, typeKeys(type), where);
+            if (type && ts.isTypeLiteralNode(type))
+              recordTypes(event, 'emitted', typeEntries(type, local), where);
           }
         }
       }
@@ -368,8 +643,20 @@ for (const example of examples) {
           if (keys?.includes('run')) {
             const input = second.properties.find((p) => p.name?.getText() === 'input');
             const schema = input && ts.isPropertyAssignment(input) ? input.initializer : null;
-            if (schema && ts.isCallExpression(schema) && schema.expression.getText() === 'v.object')
+            if (
+              schema &&
+              ts.isCallExpression(schema) &&
+              schema.expression.getText() === 'v.object'
+            ) {
               record(first.text, objectKeys(schema.arguments[0]), where);
+              if (ts.isObjectLiteralExpression(schema.arguments[0]))
+                recordTypes(
+                  first.text,
+                  'input of',
+                  schemaEntries(schema.arguments[0], local),
+                  where,
+                );
+            }
           } else if (node.expression.name.text !== 'on') record(first.text, keys, where);
         }
       }
@@ -384,6 +671,12 @@ for (const [event, seen] of [...shapes].sort()) {
   if (!inScope) continue;
   const parts = [...seen].map(([keys, where]) => `{${keys}} x${where.length} (${where[0]})`);
   report.push(`event '${event}' has ${seen.size} shapes: ${parts.join('; ')}`);
+}
+for (const [event, seen] of [...typeShapes].sort()) {
+  if (seen.size < 2) continue;
+  if (![...seen.values()].flat().some((w) => w.startsWith(filter))) continue;
+  const parts = [...seen].map(([shape, where]) => `{${shape}} x${where.length} (${where[0]})`);
+  report.push(`${event} has ${seen.size} value-type shapes: ${parts.join('; ')}`);
 }
 
 rmSync(workDir, { recursive: true, force: true });

@@ -3,6 +3,7 @@ import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import {
+  dropQueuedReplaySnapshots,
   ensureReplaySchema,
   isChannelReplayAuthorized,
   loadReplayRows,
@@ -14,14 +15,20 @@ import {
   readReplayContextScope,
   readReplayGapWatermark,
   readReplayScope,
-  replayAudienceOf,
+  replayAudiencesOfRequester,
+  replayAudiencesOfRow,
   ReplayPruneGate,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import { createSendReplayExtender, readConnectionId } from '~/replay/send-replay.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { EngineCore } from '~/_engine/core.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
-import type { RuntimeConnection, WireBroadcastMessage } from '~/_engine/runtime/types.ts';
+import type {
+  FrameRecipient,
+  RuntimeConnection,
+  WireBroadcastMessage,
+} from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplaySnapshotEntry, ReplayStoreOwner } from '~/replay/runtime.ts';
@@ -58,10 +65,13 @@ const REPLAY_KEY = Symbol('replay');
  *   never receives it.
  * - A send to chosen connections (`ctx.send`, `ctx.connections.get(ref).send`,
  *   `ctx.channel.send`, `broadcastTo` a connection, tag or group, and a tag
- *   broadcast) is recorded once per user it reached, under the resume tokens of
- *   those connections. Each connection gets its secret token in `__resume__`.
- *   The frame replays only to a client that shows one of those tokens and has
- *   the same user (or is anonymous, when the connection was).
+ *   broadcast) is recorded once, with the resume tokens of those connections.
+ *   Each connection gets its secret token in `__resume__`. The frame replays
+ *   only to a client that shows one of those tokens and has the same user (or
+ *   is anonymous, when the connection was). `maxMessages` counts it once for
+ *   each user and each anonymous token it reached.
+ * - A broadcast that left out its sender replays to anyone but a client showing
+ *   that sender's token. Another tab of the same user still gets it.
  * - Request replies, server requests and stream chunks are never recorded.
  *
  * **Cascade behavior.** A server-level `replay: true` captures every outgoing
@@ -171,15 +181,22 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
       }
 
       engine.onProtocolMessage('__replay__', installer.protocolHandler);
-      engine.onPurgeUser((_core, userId) => purgeReplayUser(engine.storage.sql, userId));
+      engine.onPurgeUser((core, userId) => {
+        dropQueuedReplaySnapshots(
+          (core as EngineCore).pendingSnapshotFlushes as Map<string, ReplaySnapshotEntry>,
+          userId,
+        );
+        purgeReplayUser(engine.storage.sql, userId);
+      });
     },
   };
 }
 
-/** Who one stored row is for: one user, and, for a frame sent to chosen connections, their tokens. */
+/** Who one stored row is for: one user, or the chosen connections a frame was sent to. */
 interface ReplayRowAudience {
-  userId: string | undefined;
-  recipients?: readonly string[];
+  userId?: string;
+  recipients?: readonly FrameRecipient[];
+  excludedToken?: string;
 }
 
 interface ReplayInstallerOptions {
@@ -221,7 +238,11 @@ class ReplayInstaller {
     claimedChannelKeys: this.engine.getReplayClaimedChannelKeys(),
   });
 
-  /** Persist one outgoing frame to the replay table: one row per user it was addressed to. */
+  /**
+   * Persist one outgoing frame. In history mode that is one row, plus one recipient row per
+   * connection when it went to chosen ones. In snapshot mode each user or anonymous token keeps
+   * its own current value, so it is one row for each.
+   */
   persist = (wireMessage: WireBroadcastMessage): void => {
     if (
       !shouldStoreReplayMessage(wireMessage.event, {
@@ -233,30 +254,34 @@ class ReplayInstaller {
     )
       return;
 
+    const isSnapshot = (this.opts.type ?? 'history') === 'snapshot';
     if (!wireMessage.recipients) {
-      this.persistRow(wireMessage, { userId: wireMessage.userId });
+      this.persistRow(wireMessage, {
+        userId: wireMessage.userId,
+        // A snapshot is the current value, so even the sender it left out reads it on replay.
+        excludedToken: isSnapshot ? undefined : wireMessage.excludedResumeToken,
+      });
       return;
     }
 
-    const tokensByUser = new Map<string, string[]>();
-    for (const { userId, resumeToken } of wireMessage.recipients) {
-      const tokens = tokensByUser.get(userId);
-      if (tokens) tokens.push(resumeToken);
-      else tokensByUser.set(userId, [resumeToken]);
-    }
+    const recipients = wireMessage.recipients.filter(
+      (recipient) => !(recipient.userId && this.engine.isUserPurging?.(recipient.userId)),
+    );
+    if (recipients.length === 0) return;
 
-    const isSnapshot = (this.opts.type ?? 'history') === 'snapshot';
     const audiences: ReplayRowAudience[] = [];
-    for (const [userId, recipients] of tokensByUser) {
-      if (!isSnapshot) {
-        audiences.push({ userId, recipients });
-      } else if (userId) {
-        // A snapshot is the user's current value, so a new connection of that user reads it as-is.
-        audiences.push({ userId });
-      } else {
-        // An anonymous connection has only its token, so each token keeps its own current value.
-        for (const token of recipients) audiences.push({ userId, recipients: [token] });
+    if (isSnapshot) {
+      // A snapshot is the user's current value, so a new connection of that user reads it as-is.
+      for (const userId of new Set(recipients.map((recipient) => recipient.userId))) {
+        if (userId) audiences.push({ userId });
       }
+
+      // An anonymous connection has only its token, so each token keeps its own current value.
+      for (const recipient of recipients) {
+        if (!recipient.userId) audiences.push({ recipients: [recipient] });
+      }
+    } else {
+      audiences.push({ recipients });
     }
 
     // A strict send that fails on one row must keep none: SQL rows roll back with the
@@ -267,9 +292,12 @@ class ReplayInstaller {
       for (const audience of audiences) this.persistRow(wireMessage, audience);
     };
     try {
-      // A Cloudflare transaction costs extra queries, so one row is written without one.
-      if (audiences.length > 1) this.engine.storage.sql.transaction(writeAll);
-      else writeAll();
+      // A Cloudflare transaction costs extra queries, so a user's one snapshot row skips it.
+      if (audiences.length > 1 || audiences[0]?.recipients) {
+        this.engine.storage.sql.transaction(writeAll);
+      } else {
+        writeAll();
+      }
     } catch (error) {
       if (queue && queuedBefore) {
         queue.clear();
@@ -291,6 +319,8 @@ class ReplayInstaller {
   }
 
   private persistRow(wireMessage: WireBroadcastMessage, audience: ReplayRowAudience): void {
+    if (audience.userId && this.engine.isUserPurging?.(audience.userId)) return;
+
     const { sql } = this.engine.storage;
     const scope = this.engine.getInvocationScope() as {
       pendingSnapshotFlushes: Map<string, ReplaySnapshotEntry>;
@@ -299,17 +329,25 @@ class ReplayInstaller {
     // limit, `channel`/`channelFamily` pick the store (top level or one channel)
     // and `audience` picks the budget inside it.
     const replayScope = readReplayScope(wireMessage.livething);
-    const audienceScope = {
-      ...replayScope,
-      audience: replayAudienceOf(audience.userId || null, audience.recipients !== undefined),
-    };
+    const audienceScopes = replayAudiencesOfRow(audience.userId, audience.recipients).map(
+      (replayAudience) => ({ ...replayScope, audience: replayAudience }),
+    );
 
     const retention = this.opts.retention;
     const owner = this.owner();
+    const { pruneGate } = this;
+
+    function pruneSnapshotRows(
+      sqlForPrune: Pick<SQLProvider, 'exec' | 'limits'>,
+      now: number,
+    ): void {
+      pruneExpiredReplayRows(sqlForPrune, { retention, now, owner });
+      for (const one of audienceScopes) pruneReplayScopeRows(sqlForPrune, retention, one);
+      pruneGate.pruneAnonymousTotal(sqlForPrune, retention, audienceScopes);
+    }
 
     function runPrune(sqlForPrune: Pick<SQLProvider, 'exec' | 'limits'>): void {
-      pruneExpiredReplayRows(sqlForPrune, { retention, now: Date.now(), owner });
-      pruneReplayScopeRows(sqlForPrune, retention, audienceScope);
+      pruneSnapshotRows(sqlForPrune, Date.now());
     }
 
     const row = persistReplayMessage(sql, {
@@ -319,6 +357,7 @@ class ReplayInstaller {
       livething: wireMessage.livething,
       userId: audience.userId,
       recipients: audience.recipients,
+      excludedToken: audience.excludedToken,
       now: Date.now(),
       scope,
       postFlush: runPrune,
@@ -349,10 +388,9 @@ class ReplayInstaller {
       if (isHistory) {
         // History stores one new row per message, so the gate can count exactly
         // and skip the prune whenever the store is under its caps.
-        this.pruneGate.prune(sql, { retention, scope: audienceScope, owner, stamp });
+        this.pruneGate.prune(sql, { retention, scopes: audienceScopes, owner, stamp });
       } else {
-        pruneExpiredReplayRows(sql, { retention, now: stamp, owner });
-        pruneReplayScopeRows(sql, retention, audienceScope);
+        pruneSnapshotRows(sql, stamp);
       }
     }
   }
@@ -387,12 +425,10 @@ class ReplayInstaller {
     // Detected against the eviction watermark, not MIN(seq): the global seq counter is sparse.
     const resumeTokens = frame.payload.resume ?? [];
     if ((this.opts.type ?? 'history') === 'history' && since > 0) {
-      // An anonymous client has rows of its own only when it shows a resume token.
-      const userId = connection?.userId || null;
       const watermark = readReplayGapWatermark(
         sql,
         { channel: scope.channelName ?? null, channelFamily: scope.channelFamily ?? null },
-        userId || resumeTokens.length > 0 ? replayAudienceOf(userId, true) : null,
+        replayAudiencesOfRequester(connection?.userId || null, resumeTokens),
       );
       if (watermark !== null && since < watermark) {
         this.engine.sendGap(connectionId, {

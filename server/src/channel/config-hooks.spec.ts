@@ -250,12 +250,14 @@ describe('assemble() refuses the same event twice in one scope', () => {
     expect(() => base.assemble({ handlers: list })).not.toThrow();
   });
 
-  it('counts one channel handler passed twice in plain lists once', () => {
+  it('throws for one channel handler passed twice', () => {
     const base = server({ capabilities: [channels()] });
     const handleSay = base.channel('room').on('say', { input: v.object({}), run() {} });
     const list = [handleSay];
 
-    expect(() => base.assemble({ handlers: [...list, ...list] })).not.toThrow();
+    expect(() => base.assemble({ handlers: [...list, ...list] })).toThrow(
+      /Duplicate event 'say' on channel 'room'/,
+    );
   });
 });
 

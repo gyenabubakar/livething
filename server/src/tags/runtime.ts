@@ -44,6 +44,9 @@ export interface TagsRuntime {
   persistAttachment(connection: RuntimeConnection): void;
 
   getStorage(): { sql: Pick<SQLProvider, 'exec'> };
+
+  /** Whether `purgeUser` is running for this user. A persistent tag add does nothing then. */
+  isUserPurging?(userId: string): boolean;
 }
 
 function assertGroupDeclared(
@@ -175,6 +178,8 @@ export function buildGroupHandle(
         runtime.persistAttachment(connection);
         return;
       }
+
+      if (runtime.isUserPurging?.(connection.userId)) return;
 
       const lacking = userConnections().filter((c) => !readBag(c, kind).get(group)?.has(key));
       if (lacking.length === 0) return;

@@ -156,6 +156,25 @@ describe('fanOutToInbox', () => {
     });
   });
 
+  it('writes no row for a user being purged', () => {
+    const { core, sql } = createCore(new Map([['room', deliver]]));
+    insertMembership(sql, { userId: 'alice', channelName: 'room', channelFamily: null });
+    insertMembership(sql, { userId: 'bob', channelName: 'room', channelFamily: null });
+
+    fanOutToInbox(core, {
+      channelName: 'room',
+      channelFamily: null,
+      event: 'msg',
+      payload: { text: 'hi' },
+      deliverySeq: 1,
+      messageId: 'm1',
+      isUserPurging: (userId) => userId === 'alice',
+    });
+
+    expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
+    expect(loadUndeliveredRows(sql, 'bob')).toHaveLength(1);
+  });
+
   it('excludeUserId skips that member entirely', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
     insertMembership(sql, { userId: 'alice', channelName: 'room', channelFamily: null });

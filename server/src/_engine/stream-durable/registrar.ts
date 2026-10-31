@@ -1,9 +1,11 @@
+import { sendProtocolMessage } from '~/_engine/runtime/wire.ts';
 import { registerScheduledService } from '~/_engine/scheduling.ts';
 import { definePrimitive } from '~/primitive.ts';
 import { registerActiveStreamOps } from '~/stream/active-ops.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { PurgeUserOptions } from '~/_engine/runtime/purge-user.ts';
 import { durableStreamService } from './dispatch.ts';
+import { stopStreamsOfPurgedUser } from './runtime.ts';
 import {
   ensureDurableStreamSchema,
   purgeStreamsByUser,
@@ -26,7 +28,18 @@ export const recordedDurableRegistrar = definePrimitive({
       });
 
       engine.onPurgeUser((core, userId, options?: PurgeUserOptions) => {
-        purgeStreamsByUser((core as EngineCore).storage.sql, userId, options);
+        const engineCore = core as EngineCore;
+        stopStreamsOfPurgedUser(
+          {
+            activeStreams: engineCore.activeStreams,
+            connections: engineCore.connections,
+            sql: engineCore.storage.sql,
+            sendProtocolMessage: (connection, opts) =>
+              sendProtocolMessage(engineCore, connection, opts),
+          },
+          userId,
+        );
+        purgeStreamsByUser(engineCore.storage.sql, userId, options);
       });
     });
     registerActiveStreamOps(engine);

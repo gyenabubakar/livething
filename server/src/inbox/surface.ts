@@ -23,6 +23,8 @@ export function buildInboxSurface<
   const { channelName, channelFamily } = scope;
   return {
     backfill(userId: string, messages: readonly ChannelBackfillMessage<TOutgoing>[]): void {
+      if (engine.isUserPurging?.(userId)) return;
+
       // Seqs come from the counter live sends use, so a backfilled row never
       // takes a seq a later live message needs. A failed write leaves a gap,
       // which is harmless.

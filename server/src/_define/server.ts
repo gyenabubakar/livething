@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { LiveThingConfigError } from '@livething/core';
 import { collectUnique } from '~/_engine/compile/utils.ts';
-import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
-import { adaptChannelContext } from '~/channel/ctx-adapter.ts';
+import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import {
@@ -51,7 +51,7 @@ import type {
   PayloadObject,
   Validator,
 } from '~/types.ts';
-import { assertUniqueCapabilityKinds } from './capability-checks.ts';
+import { assertConfigShape, assertUniqueCapabilityKinds } from './capability-checks.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugins.ts` — it is a package entry, so a
 // bundler retains it whole, and one binding would pull the plugin runtime into apps
@@ -71,6 +71,7 @@ import type {
   MergeSlots,
   SlotOr,
   SlotsOf,
+  UnionToIntersection,
   UniqueCapabilityKinds,
 } from './capability.ts';
 import type { BuildContract, InferInput } from './contract.ts';
@@ -197,14 +198,15 @@ interface ServerHooks<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
    * Watch every app frame the server sends, once per send, after the frame
    * went out. A send to many connections is one call: `frame.target` says who
    * it was addressed to and `frame.recipients` how many sockets got it. The
-   * hook cannot change or stop a frame.
+   * hook cannot change or stop a frame. A send made inside the hook goes out
+   * but is not shown to any `onOutgoing` hook.
    *
    * `ctx` is the context of the connection whose `on`, `request` or `stream`
-   * handler, intercept, or `onConnect` hook is running when the frame is sent.
-   * For a broadcast from that code, `ctx` is the sender, not each receiver. In
-   * every other case `ctx` is `undefined` — for example, a send from a channel
-   * `onSubscribe` hook, `onDisconnect`, `onError`, a scheduled task, `onInit`,
-   * `onShutdown`, or the admin API.
+   * handler, intercept, or `onConnect`, `onError`, `onPing` or `onPong` hook is
+   * running when the frame is sent. For a broadcast from that code, `ctx` is the
+   * sender, not each receiver. In every other case `ctx` is `undefined` — for
+   * example, a send from a channel `onSubscribe` hook, `onDisconnect`, a scheduled
+   * task, `onInit`, `onShutdown`, or the admin API.
    */
   readonly onOutgoing?: (
     ctx: AppCtx<TSlots, TMeta, TCaps> | undefined,
@@ -1557,6 +1559,16 @@ type MissingTask<
 
 type TaskIdOf<THandler> = THandler extends ScheduledHandlerValue<infer TTaskId> ? TTaskId : never;
 
+/** One member of a union: inferring from an intersection of functions reads the last overload. */
+type OneMemberOf<TUnion> =
+  UnionToIntersection<TUnion extends unknown ? () => TUnion : never> extends () => infer TMember
+    ? TMember
+    : never;
+
+type MissingTaskMessage<TTask> = TTask extends string
+  ? `Scheduled task '${TTask}' has no handler. Pass base.scheduled('${TTask}', ...) to assemble().`
+  : never;
+
 /**
  * `assemble()`'s `handlers` type. It stays the list itself when the list is valid, and
  * becomes a readable message when it isn't, so the compile error says what to fix. A list
@@ -1568,7 +1580,7 @@ type CheckedHandlers<THandlers extends readonly unknown[], TDeclaredTasks extend
 ] extends [never]
   ? [MissingTask<THandlers, TDeclaredTasks>] extends [never]
     ? THandlers
-    : `Scheduled task '${MissingTask<THandlers, TDeclaredTasks>}' has no handler. Pass base.scheduled('${MissingTask<THandlers, TDeclaredTasks>}', ...) to assemble().`
+    : MissingTaskMessage<OneMemberOf<MissingTask<THandlers, TDeclaredTasks>>>
   : DuplicateNameMessage<FirstDuplicateName<THandlers>>;
 
 /** The rate-limit slots `assemble(...)` reads off a collected channel object. @internal */
@@ -1607,8 +1619,8 @@ function assertUniqueHandlers(handlers: readonly Primitive[]): void {
 
     const id = registrationId ?? '';
     if (registered.has(id)) {
-      throw new Error(
-        `[livething] Duplicate ${handler.__livething} handler` +
+      throw new LiveThingConfigError(
+        `Duplicate ${handler.__livething} handler` +
           `${registrationId ? ` for '${registrationId}'` : ''} passed to assemble(). ` +
           'An event can only be bound once — drop the duplicate.',
       );
@@ -1621,8 +1633,8 @@ function assertUniqueHandlers(handlers: readonly Primitive[]): void {
       if (event !== undefined) {
         const owner = routedEvents.get(event);
         if (owner !== undefined && owner !== handler.__livething) {
-          throw new Error(
-            `[livething] Event name '${event}' is bound by both a ${owner} handler and a ` +
+          throw new LiveThingConfigError(
+            `Event name '${event}' is bound by both a ${owner} handler and a ` +
               `${handler.__livething} handler passed to assemble(). An event name can only be one ` +
               'kind within a scope — pick a different name.',
           );
@@ -1655,8 +1667,8 @@ function mergeServerRequestPrimitives(primitives: Primitive[]): void {
   for (const [, carrier] of carriers) {
     for (const [key, declaration] of carrier.__serverRequests) {
       if (declarations.has(key)) {
-        throw new Error(
-          `[livething] duplicate serverRequests() declaration for '${key}'. ` +
+        throw new LiveThingConfigError(
+          `duplicate serverRequests() declaration for '${key}'. ` +
             'Each request can only be declared once per scope.',
         );
       }
@@ -1671,29 +1683,57 @@ function mergeServerRequestPrimitives(primitives: Primitive[]): void {
   for (const [index] of rest.reverse()) primitives.splice(index, 1);
 }
 
-/** Build the primitives for the hooks written in `server({ ... })`. */
-function buildHookPrimitives(config: ServerHooks<any, any, any>): Primitive[] {
-  const { onError: onErrorHook } = config;
-  const primitives: Primitive[] = [];
-  if (config.onInit) primitives.push(onInit(config.onInit));
-  if (config.onConnect) primitives.push(onConnect(config.onConnect));
-  if (config.onDisconnect) primitives.push(onDisconnect(config.onDisconnect));
+/** The hooks written in `server({ ... })` and their primitives, in the order they register. */
+const SERVER_HOOK_PRIMITIVES = {
+  onInit,
+  onConnect,
+  onDisconnect,
+  onPing,
+  onPong,
+  onError,
+  onShutdown,
+  intercept: interceptFactory,
+  onOutgoing: outgoingHookFactory,
+} as const satisfies Record<string, (hook: any) => Primitive>;
 
-  if (config.onPing) primitives.push(onPing(config.onPing));
-  if (config.onPong) primitives.push(onPong(config.onPong));
-  if (onErrorHook) {
-    primitives.push(
-      onError((ctx: any, error: unknown, event?: string) =>
-        onErrorHook(adaptChannelContext(ctx) as any, error, event),
-      ),
-    );
+const SERVER_CONFIG = {
+  hooks: ['upgrade', ...Object.keys(SERVER_HOOK_PRIMITIVES)],
+  options: ['capabilities', 'hibernation', 'users', 'scope'],
+};
+
+/** Build the primitives for the hooks written in `server({ ... })`. */
+function buildHookPrimitives(config: Record<string, unknown>): Primitive[] {
+  const primitives: Primitive[] = [];
+  for (const [hook, build] of Object.entries(SERVER_HOOK_PRIMITIVES)) {
+    if (config[hook]) primitives.push((build as (hook: unknown) => Primitive)(config[hook]));
   }
 
-  if (config.onShutdown) primitives.push(onShutdown(config.onShutdown));
-  if (config.intercept) primitives.push(interceptFactory(config.intercept as any));
-  if (config.onOutgoing) primitives.push(outgoingHookFactory(config.onOutgoing as any));
-
   return primitives;
+}
+
+/** Put the `serverRequests(...)` of the channels in this definition into its request table. */
+function addChannelServerRequests(primitives: Primitive[], channels: readonly object[]): void {
+  const requests = new Map<string, ResolvedServerRequest>();
+  for (const channel of channels as readonly ChannelBuilder[]) {
+    for (const [key, request] of channel.__serverRequests) requests.set(key, request);
+  }
+
+  const carrier = primitives.find((primitive) => primitive.__livething === 'server-requests');
+  if (requests.size > 0 && carrier) {
+    primitives.push((carrier as ServerRequestsPrimitive).__withServerRequests(requests));
+  }
+}
+
+/** Refuse a handler or channel made by another `server()`. It would run with the wrong capabilities. */
+function assertFromBase(item: object, baseId: symbol): void {
+  const { __baseId: owner } =
+    (item as { __channel?: { __baseId?: symbol } }).__channel ?? (item as { __baseId?: symbol });
+  if (owner !== undefined && owner !== baseId) {
+    throw new LiveThingConfigError(
+      'A value passed to assemble() comes from a different server() base. ' +
+        'Create handlers and channels on the base you call assemble() on.',
+    );
+  }
 }
 
 /**
@@ -1710,8 +1750,8 @@ function mergeScheduled(
   for (const [taskId, declaration] of declarations) {
     const body = bodies.get(taskId);
     if (!body) {
-      throw new Error(
-        `[livething] Scheduled task '${taskId}' has no handler. ` +
+      throw new LiveThingConfigError(
+        `Scheduled task '${taskId}' has no handler. ` +
           `Pass base.scheduled('${taskId}', ...) to assemble().`,
       );
     }
@@ -1721,8 +1761,8 @@ function mergeScheduled(
 
   for (const taskId of bodies.keys()) {
     if (!declarations.has(taskId)) {
-      throw new Error(
-        `[livething] base.scheduled('${taskId}') has no matching declaration. ` +
+      throw new LiveThingConfigError(
+        `base.scheduled('${taskId}') has no matching declaration. ` +
           `Declare it in the scheduled({ ... }) capability.`,
       );
     }
@@ -1789,9 +1829,10 @@ function scopedUpgradePrimitive(handler: UpgradeHandler, baseId: symbol): Primit
 }
 
 /**
- * Create a LiveThing server. `server(...)` holds only bootstrap (`upgrade`,
- * `hibernation`); every feature is a capability you list. It returns a `base`
- * builder whose methods are typed against your metadata and capabilities.
+ * Create a LiveThing server. `server(...)` holds the options (`upgrade`,
+ * `hibernation`, `users`, `scope`) and the app-wide hooks; every other feature is a
+ * capability you list. It returns a `base` builder whose methods are typed against
+ * your metadata and capabilities.
  *
  * ```ts
  * import { server, emits, t } from '@livething/server';
@@ -1825,6 +1866,19 @@ export function server<
   config: ScopedServerConfig<TMeta, TCaps>,
 ): Base<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps, true>;
 export function server(config: any): any {
+  if (typeof config !== 'object' || config === null) {
+    throw new LiveThingConfigError(
+      `server() needs a config object, got ${String(config)}. Pass {} for a server with no options.`,
+    );
+  }
+
+  assertConfigShape(config, SERVER_CONFIG, 'server()');
+  if (config.hibernation !== undefined && typeof config.hibernation !== 'boolean') {
+    throw new LiveThingConfigError(
+      `server(): 'hibernation' must be a boolean, got ${JSON.stringify(config.hibernation)}.`,
+    );
+  }
+
   assertUniqueCapabilityKinds(config.capabilities ?? [], 'server({ capabilities: [...] })');
 
   const scoped = config.scope === 'plugin';
@@ -1842,8 +1896,8 @@ export function server(config: any): any {
       if (built?.kind === kind) return built.build;
     }
 
-    throw new Error(
-      `[livething] base.${method}() needs the ${capabilityName} capability. ` +
+    throw new LiveThingConfigError(
+      `base.${method}() needs the ${capabilityName} capability. ` +
         `Add ${capabilityName} to capabilities.`,
     );
   }
@@ -1851,8 +1905,8 @@ export function server(config: any): any {
   function buildRateLimitPrimitive(
     handlerPrimitives: readonly Primitive[],
     channelObjects: ReadonlyMap<
-      { __build(selectedHandlers: ReadonlySet<Primitive>): Primitive },
-      ReadonlySet<Primitive>
+      { __build(selectedHandlers: readonly Primitive[]): Primitive },
+      readonly Primitive[]
     >,
   ): Primitive | null {
     let buildRateLimit: RateLimitCapability['__buildRateLimit'] | undefined;
@@ -1861,8 +1915,8 @@ export function server(config: any): any {
       if (!build) continue;
 
       if (buildRateLimit) {
-        throw new Error(
-          '[livething] rateLimit() is listed more than once. Set one global rule, or none.',
+        throw new LiveThingConfigError(
+          'rateLimit() is listed more than once. Set one global rule, or none.',
         );
       }
 
@@ -1897,8 +1951,8 @@ export function server(config: any): any {
 
     const hasOverrides = overrides.size > 0 || channelRules.size > 0;
     if (!buildRateLimit && hasOverrides) {
-      throw new Error(
-        '[livething] a per-handler rateLimit override needs the rateLimit() capability. ' +
+      throw new LiveThingConfigError(
+        'a per-handler rateLimit override needs the rateLimit() capability. ' +
           'Add rateLimit() to capabilities.',
       );
     }
@@ -1907,6 +1961,10 @@ export function server(config: any): any {
   }
 
   const baseId = Symbol('livething.base');
+
+  function fromThisBase<T extends object>(value: T): T {
+    return Object.assign(value, { __baseId: baseId });
+  }
 
   const base = {
     __baseId: baseId,
@@ -1919,7 +1977,7 @@ export function server(config: any): any {
         (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = onConfig.rateLimit;
       }
 
-      return primitive;
+      return fromThisBase(primitive);
     },
     request(event: string, requestConfig: ServerRequestConfigParameter) {
       type Build = (e: string, c: ServerCParameter) => Primitive;
@@ -1930,8 +1988,8 @@ export function server(config: any): any {
       }
 
       if (!build) {
-        throw new Error(
-          '[livething] base.request() needs clientRequests(). Add clientRequests() to capabilities.',
+        throw new LiveThingConfigError(
+          'base.request() needs clientRequests(). Add clientRequests() to capabilities.',
         );
       }
 
@@ -1945,16 +2003,18 @@ export function server(config: any): any {
         (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = requestConfig.rateLimit;
       }
 
-      return primitive;
+      return fromThisBase(primitive);
     },
     scheduled(taskId: string, taskConfig: ServerConfigParameter) {
-      return { __livethingScheduledTask: true, taskId, run: taskConfig.run };
+      return fromThisBase({ __livethingScheduledTask: true, taskId, run: taskConfig.run });
     },
     stream(event: string, streamConfig: unknown) {
-      return streamBuilder('plain', 'stream', 'stream()')(event, streamConfig);
+      return fromThisBase(streamBuilder('plain', 'stream', 'stream()')(event, streamConfig));
     },
     recordedStream(event: string, streamConfig: unknown) {
-      return streamBuilder('recorded', 'recordedStream', 'recordedStream()')(event, streamConfig);
+      return fromThisBase(
+        streamBuilder('recorded', 'recordedStream', 'recordedStream()')(event, streamConfig),
+      );
     },
     channel(pattern: unknown, channelConfig?: unknown) {
       let factory: ((p: unknown, c: unknown, deps: unknown) => unknown) | undefined;
@@ -1962,7 +2022,7 @@ export function server(config: any): any {
       let buildReplay: unknown;
       let buildClientRequest: unknown;
 
-      let registerServerRequests: unknown;
+      let resolveServerRequests: unknown;
       for (const cap of config.capabilities ?? []) {
         const candidate = (
           cap as { __channelFactory?: (p: unknown, c: unknown, deps: unknown) => unknown }
@@ -1977,13 +2037,14 @@ export function server(config: any): any {
         const request = (cap as { __buildClientRequest?: unknown }).__buildClientRequest;
         if (request) buildClientRequest = request;
 
-        const registerSR = (cap as { __registerServerRequests?: unknown }).__registerServerRequests;
-        if (registerSR) registerServerRequests = registerSR;
+        const resolveSR = (cap as { __resolveChannelServerRequests?: unknown })
+          .__resolveChannelServerRequests;
+        if (resolveSR) resolveServerRequests = resolveSR;
       }
 
       if (!factory) {
-        throw new Error(
-          '[livething] base.channel() needs the channels() capability. Add channels() to capabilities.',
+        throw new LiveThingConfigError(
+          'base.channel() needs the channels() capability. Add channels() to capabilities.',
         );
       }
 
@@ -1992,10 +2053,14 @@ export function server(config: any): any {
         streamBuilders,
         buildReplay,
         buildClientRequest,
-        registerServerRequests,
+        resolveServerRequests,
       });
     },
     assemble(assembleConfig: ServerAssembleConfigParameter) {
+      if (!Array.isArray(assembleConfig?.handlers)) {
+        throw new LiveThingConfigError("assemble() requires a 'handlers' array.");
+      }
+
       const items = assembleConfig.handlers;
       const api = assembleConfig.api;
       assertUniquePluginIds(config.capabilities ?? []);
@@ -2004,14 +2069,23 @@ export function server(config: any): any {
 
       const handlerPrimitives: Primitive[] = [];
       const channelObjects = new Map<
-        { __build(selectedHandlers: ReadonlySet<Primitive>): Primitive },
-        Set<Primitive>
+        { __build(selectedHandlers: readonly Primitive[]): Primitive },
+        Primitive[]
       >();
       const scheduledBodies = new Map<string, ScheduledHandlerValue['run']>();
-      for (const item of items) {
+      for (const [index, item] of items.entries()) {
+        if (typeof item !== 'object' || item === null) {
+          throw new LiveThingConfigError(
+            `assemble() got ${String(item)} at handlers[${index}]. ` +
+              'Pass handler values and channel objects.',
+          );
+        }
+
+        assertFromBase(item, baseId);
+
         if ((item as { __livethingCapability?: unknown }).__livethingCapability) {
-          throw new Error(
-            '[livething] A capability was passed to assemble(). List capabilities in ' +
+          throw new LiveThingConfigError(
+            'A capability was passed to assemble(). List capabilities in ' +
               'server({ capabilities: [...] }) and pass routed handler values or channel objects to assemble().',
           );
         }
@@ -2019,8 +2093,8 @@ export function server(config: any): any {
         const task = item as Partial<ScheduledHandlerValue>;
         if (task.__livethingScheduledTask) {
           if (scheduledBodies.has(task.taskId!)) {
-            throw new Error(
-              `[livething] Duplicate scheduled task '${task.taskId}' passed to assemble(). ` +
+            throw new LiveThingConfigError(
+              `Duplicate scheduled task '${task.taskId}' passed to assemble(). ` +
                 'Two handlers run this task. Remove one.',
             );
           }
@@ -2031,17 +2105,17 @@ export function server(config: any): any {
 
         const channel = (
           item as {
-            __channel?: { __build(selectedHandlers: ReadonlySet<Primitive>): Primitive };
+            __channel?: { __build(selectedHandlers: readonly Primitive[]): Primitive };
           }
         ).__channel;
         if (channel) {
           if ((item as { __livethingChannel?: boolean }).__livethingChannel) {
-            if (!channelObjects.has(channel)) channelObjects.set(channel, new Set());
+            if (!channelObjects.has(channel)) channelObjects.set(channel, []);
           } else {
             const handler = (item as { __handler?: Primitive }).__handler;
             if (handler) {
-              if (!channelObjects.has(channel)) channelObjects.set(channel, new Set());
-              channelObjects.get(channel)?.add(handler);
+              if (!channelObjects.has(channel)) channelObjects.set(channel, []);
+              channelObjects.get(channel)?.push(handler);
             }
           }
 
@@ -2091,6 +2165,8 @@ export function server(config: any): any {
       primitives.push(...handlerPrimitives);
       primitives.push(...scheduledPrimitives);
       primitives.push(...channelPrimitives);
+      addChannelServerRequests(primitives, [...channelObjects.keys()]);
+
       mergeServerRequestPrimitives(primitives);
 
       const declaredErrors = primitives
@@ -2105,8 +2181,8 @@ export function server(config: any): any {
         (p) => p.__livething === 'replay' && !(p as { disabled?: boolean }).disabled,
       ).length;
       if (replayCount > 1) {
-        throw new Error(
-          '[livething] replay (replay.history() / replay.snapshot()) is listed more than ' +
+        throw new LiveThingConfigError(
+          'replay (replay.history() / replay.snapshot()) is listed more than ' +
             'once. Use one replay strategy per scope.',
         );
       }
@@ -2154,6 +2230,10 @@ export function server(config: any): any {
           'maxConnections',
           'server({ users })',
         );
+        assertOneOf(config.users.onExceed, ['replace', 'reject'], {
+          field: 'onExceed',
+          context: 'server({ users })',
+        });
       }
 
       return Object.freeze({

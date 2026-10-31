@@ -127,7 +127,7 @@ describe('onOutgoing ctx — which connection, if any, it belongs to', () => {
     expect(seen).toEqual([{ event: 'note', userId: 'alice' }]);
   });
 
-  it('is undefined for a send from a channel subscribe hook and from onDisconnect', async () => {
+  it('is undefined for a send from a channel onSubscribe hook and from onDisconnect', async () => {
     const { engine, seen } = buildApp();
     await engine.initialize();
     const alice = await open(engine, 'alice');

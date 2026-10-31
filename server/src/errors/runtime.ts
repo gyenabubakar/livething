@@ -1,4 +1,4 @@
-import { InternalError, LiveThingError } from '@livething/core';
+import { InternalError, LiveThingError, NotAMember } from '@livething/core';
 import { withConnectionLevelCall } from '~/_engine/async-context.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -75,6 +75,9 @@ export interface SendRuntimeErrorOptions {
 
   routing?: Protocol.LiveThingRouting;
 
+  /** The plugin that failed, when the event and routing can't tell, as in its `onConnect`. */
+  pluginId?: string;
+
   /** The socket itself failed, such as a reset connection. No handler threw. */
   fromSocket?: boolean;
 }
@@ -91,7 +94,10 @@ export async function sendRuntimeError(
   const { error, event, routing } = options;
   if (error instanceof LiveThingError && !deps.declaredErrorCodes.has(error.code)) {
     deps.logger.warn(
-      '[livething] Thrown LiveThingError was not declared in the contract errors: [...] list',
+      // Server-only by design, so the client gets internal-error and a declaration is no fix.
+      NotAMember.matches(error)
+        ? '[livething] A handler did not catch NotAMember, thrown when ctx.channel.request(..., { to }) targets a connection outside the channel.'
+        : '[livething] Thrown LiveThingError was not declared in the contract errors: [...] list',
       {
         code: error.code,
         event,

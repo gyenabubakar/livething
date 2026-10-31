@@ -51,6 +51,10 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
   options?: IncomingOptions<TPayload>,
 ): IncomingPrimitive<TEvent, TPayload, TCtx> {
   assertValidLiveThingIdentifier(event, 'incoming() event name');
+  if (typeof handler !== 'function') {
+    throw new Error(`[livething] on('${event}'): 'run' must be a function.`);
+  }
+
   return {
     __livething: 'incoming',
     __identity: [INCOMING_KEY, event],

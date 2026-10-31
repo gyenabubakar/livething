@@ -298,9 +298,6 @@ describe('MessageBuffer — staggered flushInterval tick loop', () => {
 
     vi.advanceTimersByTime(100);
     expect(send).toHaveBeenCalledTimes(3);
-    expect(buffer.isFlushing).toBe(true);
-
-    vi.advanceTimersByTime(100);
     expect(buffer.isFlushing).toBe(false);
   });
 
@@ -362,6 +359,42 @@ describe('MessageBuffer — staggered flushInterval tick loop', () => {
 
     expect(send).not.toHaveBeenCalled();
     expect(buffer.isFlushing).toBe(false);
+  });
+});
+
+describe('buffering — a send after a staggered flush empties the buffer', () => {
+  it('goes straight out, without waiting one more interval', () => {
+    vi.useFakeTimers();
+    const socket = buildSocket(buffering({ flushInterval: 100 }));
+    socket.connect();
+    const ws = MockWebSocket.last();
+
+    socket.send('typing', { channelId: 'a' });
+    socket.send('typing', { channelId: 'b' });
+    ws.open();
+    vi.advanceTimersByTime(100);
+    expect(ws.sentFrames()).toHaveLength(2);
+
+    socket.send('typing', { channelId: 'c' });
+
+    expect(ws.sentFrames()).toHaveLength(3);
+  });
+
+  it('still queues a send behind messages that have not gone out', () => {
+    vi.useFakeTimers();
+    const socket = buildSocket(buffering({ flushInterval: 100 }));
+    socket.connect();
+    const ws = MockWebSocket.last();
+
+    socket.send('typing', { channelId: 'a' });
+    socket.send('typing', { channelId: 'b' });
+    ws.open();
+    socket.send('typing', { channelId: 'c' });
+    expect(ws.sentFrames()).toHaveLength(1);
+
+    vi.advanceTimersByTime(200);
+
+    expect(ws.sentFrames().map((frame) => frame.payload.channelId)).toEqual(['a', 'b', 'c']);
   });
 });
 

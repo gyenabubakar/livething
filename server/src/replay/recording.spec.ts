@@ -182,7 +182,7 @@ function failReplayInserts(engine: Engine, fails: (insert: number) => boolean): 
   const exec = sql.exec.bind(sql);
   let inserts = 0;
   sql.exec = ((query: string, ...params: unknown[]) => {
-    if (/INTO __livething_replay\s/.test(query) && fails(++inserts)) {
+    if (/INTO __livething_replay(_recipient)?\s/.test(query) && fails(++inserts)) {
       throw new Error('disk full');
     }
 
@@ -775,7 +775,7 @@ describe('strict replay that cannot store a frame', () => {
     expect(bob.frames.map(([event]) => event)).not.toContain('secret');
   });
 
-  it('keeps no row for any user when one user row of a blocked send fails', async () => {
+  it('keeps no row when the recipients of a blocked send cannot be written', async () => {
     const { engine } = await buildEngine();
     const alice = await connect(engine, 'alice');
     const bob = await connect(engine, 'bob');
@@ -814,13 +814,13 @@ describe('strict replay that cannot store a frame', () => {
     expect(countReplayRows(engine)).toBe(0);
   });
 
-  it('writes a frame for one user without a transaction', async () => {
+  it('writes a frame addressed to one user without a transaction', async () => {
     const { engine } = await buildEngine();
     const alice = await connect(engine, 'alice');
     const { sql } = engine.core.storage;
     const transaction = vi.spyOn(sql, 'transaction');
 
-    await alice.send(['say-secret', { text: 'one row' }]);
+    await alice.send(['send-to-user', { userId: 'bob' }]);
 
     expect(countReplayRows(engine)).toBe(1);
     expect(transaction).not.toHaveBeenCalled();
@@ -840,9 +840,9 @@ describe('purgeUser and replay', () => {
 
     function watermarks(): string[] {
       return engine.core.storage.sql
-        .exec<{ scope_key: string }>('SELECT scope_key FROM __livething_replay_watermark')
+        .exec<{ audience: string }>('SELECT audience FROM __livething_replay_watermark')
         .toArray()
-        .map((row) => row.scope_key);
+        .map((row) => row.audience);
     }
 
     expect(watermarks().some((key) => key.includes('user:bob'))).toBe(true);
@@ -852,9 +852,7 @@ describe('purgeUser and replay', () => {
     expect(countReplayRows(engine, 'userId = ?', 'bob')).toBe(0);
     expect(watermarks().some((key) => key.includes('user:bob'))).toBe(false);
     const aliceAgain = await connect(engine, 'alice');
-    expect(await requestReplay(aliceAgain, undefined, [alice.token])).toEqual([
-      'secret:alice-own',
-      'news:top-news',
-    ]);
+    expect(await requestReplay(aliceAgain, undefined, [alice.token])).toEqual(['secret:alice-own']);
+    expect(await requestReplay(aliceAgain)).toEqual(['news:top-news']);
   });
 });

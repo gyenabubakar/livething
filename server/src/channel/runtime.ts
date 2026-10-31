@@ -9,11 +9,18 @@ import {
 import { markPromiseHandled } from '~/_adapters/sync-transaction.ts';
 import { withCallContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import {
+  beginSubscribe,
+  finishSubscribe,
+  pendingClientSubscribe,
+  subscribeKey,
+} from '~/_engine/runtime/subscribe-order.ts';
 import { userKeyOf } from '~/_engine/runtime/user-key.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
+import type { SubscribeAttempt } from '~/_engine/runtime/subscribe-order.ts';
 import type { ChannelHooks, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { MembershipInsert, StoredMembership } from '~/channel/storage.ts';
 import type { ConnectionInfo, Logger } from '~/context.ts';
@@ -562,6 +569,9 @@ interface RunSubscribeFlowOptions {
    * plus `__memberJoin__` first when a kick had ended the membership.
    */
   rejoining?: boolean;
+
+  /** This subscribe's place in the channel's order. A later request can abandon it. */
+  attempt?: SubscribeAttempt;
 }
 
 interface SubscribeGatesInput {
@@ -644,7 +654,7 @@ async function runSubscribeFlow(
   connection: RuntimeConnection,
   opts: RunSubscribeFlowOptions,
 ): Promise<void> {
-  const { source, rejoining = false } = opts;
+  const { source, rejoining = false, attempt } = opts;
   const scope: ResolvedChannelTarget = opts;
 
   if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily)) {
@@ -653,7 +663,20 @@ async function runSubscribeFlow(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
 
-  const runCommitGate = await runSubscribeGates({ runtime, connection, opts, scope });
+  let runCommitGate: () => void;
+  try {
+    runCommitGate = await runSubscribeGates({ runtime, connection, opts, scope });
+  } catch (error) {
+    if (!attempt?.abandoned) throw error;
+
+    rethrowIfConfigError(error);
+    return;
+  }
+
+  // Everything that can end this subscribe during the async gates: a later
+  // request, the socket closing, or `purgeUser`.
+  if (attempt?.abandoned || connection.closing) return;
+
   if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily))
     return;
 
@@ -672,6 +695,7 @@ async function runSubscribeFlow(
   const memberWasPresent = userSeat && userHasLiveConnectionIn(runtime, scope, connection);
   const memberAlreadyJoined = memberWasPresent || (userSeat && stored !== undefined);
 
+  if (attempt) attempt.committed = true;
   runCommitGate();
 
   // Write the durable membership row first. If the SQL write throws, the
@@ -895,7 +919,12 @@ export async function subscribeConnection(
     throw ChannelNotFound();
   }
 
-  await runSubscribeFlow(runtime, connection, { ...scope, data: opts.data, source: 'client' });
+  await runSubscribeFlow(runtime, connection, {
+    ...scope,
+    data: opts.data,
+    source: 'client',
+    attempt: pendingClientSubscribe(connection, subscribeKey(opts.channelName, opts.channelFamily)),
+  });
 }
 
 export interface SubscribeConnectionAsServerOptions {
@@ -916,6 +945,10 @@ export interface SubscribeConnectionAsServerOptions {
  * channel — calling subscribe on an existing membership is treated as
  * "make sure they are in", not as a re-subscribe. The wire-level no-op means
  * no extra `__subscribeOk__` and no extra `__memberJoin__` reach the client.
+ *
+ * That connection's later frames for the channel wait for this subscribe, as they
+ * do for its own. Its `__unsubscribe__` during `check` cancels this subscribe,
+ * which then resolves with no membership.
  */
 export async function subscribeConnectionAsServer(
   runtime: ChannelRuntime,
@@ -930,14 +963,20 @@ export async function subscribeConnectionAsServer(
 
   if (hasChannelMembership(connection, channelName, channelFamily)) return;
 
-  await runSubscribeFlow(runtime, connection, {
-    channel,
-    channelName,
-    channelFamily,
-    data: payload,
-    source: 'server',
-    rejoining,
-  });
+  const attempt = beginSubscribe(connection, subscribeKey(channelName, channelFamily), 'server');
+  try {
+    await runSubscribeFlow(runtime, connection, {
+      channel,
+      channelName,
+      channelFamily,
+      data: payload,
+      source: 'server',
+      rejoining,
+      attempt,
+    });
+  } finally {
+    finishSubscribe(connection, attempt);
+  }
 }
 
 export interface UnsubscribeConnectionOptions extends ChannelMembership {

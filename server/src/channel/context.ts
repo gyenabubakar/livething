@@ -67,6 +67,7 @@ export function buildChannelHandle(
         event,
         payload,
         excludeConnectionId: connection.id,
+        excludeResumeToken: connection.resumeToken,
         channelFamily: scope.channelFamily,
         includeSelf: options?.includeSelf,
       });

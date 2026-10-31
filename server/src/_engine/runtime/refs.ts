@@ -8,15 +8,16 @@ type AssertLocalRefRefParameter = { readonly instance: string | undefined };
 /** The slice of engine deps the connection handle needs to route a send. */
 type ConnectionHandleDeps = Pick<
   EngineContextTypes.ContextCommonDeps,
-  'instanceId' | 'logger' | 'sendThroughPipeline'
+  'instanceId' | 'sendThroughPipeline'
 > & { connections: Map<string, EngineRuntimeTypes.RuntimeConnection> };
 
 /**
  * Build the connection-handle factory backing `ctx.connections.get(ref)`,
  * shared by the connection and connectionless contexts. The returned handle's
  * `send` routes only to the addressed connection. A ref naming another instance
- * is refused via `assertLocalRef`; a ref to a connection no longer live logs and
- * returns `false`.
+ * is refused via `assertLocalRef`. A ref to a connection no longer live is normal,
+ * since a client can leave at any time: `send` returns `false`, `close` does
+ * nothing, and neither logs.
  */
 export function buildConnectionHandle(deps: ConnectionHandleDeps): {
   connection: (ref: PublicApi.ConnectionRef) => PublicApi.ConnectionHandle;
@@ -27,27 +28,13 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
         send: (event, payload) => {
           assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).send');
           const target = deps.connections.get(ref.id);
-          if (!target) {
-            deps.logger.error('[livething] ctx.connections.get(ref).send target not found', {
-              connectionId: ref.id,
-              event,
-            });
-            return false;
-          }
+          if (!target) return false;
 
           return deps.sendThroughPipeline(target, { routing: undefined, event, payload });
         },
         close: (code, reason) => {
           assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).close');
-          const target = deps.connections.get(ref.id);
-          if (!target) {
-            deps.logger.error('[livething] ctx.connections.get(ref).close target not found', {
-              connectionId: ref.id,
-            });
-            return;
-          }
-
-          target.descriptor.close(code, reason);
+          deps.connections.get(ref.id)?.descriptor.close(code, reason);
         },
       };
     },

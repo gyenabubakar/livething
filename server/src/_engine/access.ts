@@ -250,7 +250,7 @@ export interface EngineAccess {
    * Different primitives may each register their own hook; the engine
    * runs them all and merges the results.
    *
-   * The user-facing builder hook registered via
+   * The user-facing `upgrade` hook registered via
    * `setBuilderUpgradeHook` always runs last and its meta keys
    * override any internal hook on conflict.
    */
@@ -267,9 +267,9 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Register the user-facing builder upgrade hook. Throws if called more
-   * than once. The lifecycle primitive routes `.onUpgrade(...)` through
-   * this slot so the user's hook always wins on key conflict against
+   * Register the user-facing upgrade hook. Throws if called more than once.
+   * The lifecycle primitive routes the `upgrade` option of `server({ ... })`
+   * through this slot so the user's hook always wins on key conflict against
    * any internal-primitive hooks registered via `onUpgrade(...)`.
    */
   setBuilderUpgradeHook(
@@ -684,10 +684,7 @@ export interface EngineAccess {
    *
    * @internal
    */
-  cancelScheduled(
-    taskId: string,
-    filter?: Record<string, unknown>,
-  ): ScheduledPrimitive.ScheduledCancelResult;
+  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
   /**
    * Look up one declared scheduled task by task id.
@@ -905,6 +902,18 @@ export interface EngineAccess {
   ): string[];
 
   /**
+   * Whether one live connection is in the given channel, without building the
+   * channel's roster.
+   *
+   * @internal
+   */
+  isConnectionInChannel(
+    connectionId: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): boolean;
+
+  /**
    * The identity of one live connection by id, or `undefined` when no such
    * connection is live on this instance. Read by the `lastSeen()` capability's
    * activity stamp, which only gets a connection id.
@@ -912,6 +921,14 @@ export interface EngineAccess {
    * @internal
    */
   getConnectionIdentity(connectionId: string): string | undefined;
+
+  /**
+   * Whether the running code must not write this user's durable rows: `purgeUser`
+   * is running for them, or this invocation started before their latest purge.
+   *
+   * @internal
+   */
+  isUserPurging?(userId: string): boolean;
 
   /**
    * Broadcast one already-built protocol frame (e.g. a `__received__` /

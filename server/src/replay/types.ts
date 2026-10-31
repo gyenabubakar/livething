@@ -1,3 +1,5 @@
+import type { FrameRecipient } from '~/_engine/runtime/types.ts';
+
 /**
  * How replay stores and resends messages for one scope.
  *
@@ -142,10 +144,12 @@ export interface ReplayRow {
    */
   userId: string | null;
   /**
-   * JSON array of the resume tokens of the connections the frame was sent to, or `null` when it
-   * was not sent to chosen connections.
+   * The connections the frame was sent to, or `null` when it was not sent to chosen connections.
+   * They are stored in `__livething_replay_recipient`, so a row read back has `null` here.
    */
-  recipients: string | null;
+  recipients: readonly FrameRecipient[] | null;
+  /** The resume token of the sender a broadcast left out, written with the row. */
+  excludedToken?: string | null;
   snapshotKey: string | null;
   createdAt: number;
   /** Forward-compat blob (see the metadata column); not yet read or written. */

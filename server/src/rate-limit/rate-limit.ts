@@ -61,6 +61,7 @@ export function rateLimit(plan: ResolvedRateLimitPlan): RateLimitPrimitive {
   });
   return {
     ...primitive,
+    __chargedOnArrival: true,
     __setup(engine: EngineAccess) {
       engine.onConnectionCleanup((connectionId) => runtime.forgetConnection(connectionId));
     },

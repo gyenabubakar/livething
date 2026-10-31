@@ -1,4 +1,4 @@
-import { CloseCodes } from '@livething/core';
+import { CloseCodes, LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
@@ -24,6 +24,37 @@ function build<const P extends readonly Primitive<any, any>[]>(
 
   return { socket, ws };
 }
+
+describe('reconnection — option ranges', () => {
+  it.each([NaN, -1, 1.5, '3'])('rejects maxAttempts %s, naming the option', (maxAttempts) => {
+    expect(() => reconnection({ maxAttempts: maxAttempts as number })).toThrow(
+      expect.objectContaining({
+        constructor: LiveThingConfigError,
+        message: expect.stringContaining('reconnection maxAttempts'),
+      }),
+    );
+  });
+
+  it.each([0, 1, 10, Infinity])('accepts maxAttempts %s', (maxAttempts) => {
+    expect(() => reconnection({ maxAttempts })).not.toThrow();
+  });
+
+  it.each([NaN, 0, -1, Infinity, 2 ** 31, '100'])(
+    'rejects maxDelay %s, naming the option',
+    (maxDelay) => {
+      expect(() => reconnection({ maxDelay: maxDelay as number })).toThrow(
+        expect.objectContaining({
+          constructor: LiveThingConfigError,
+          message: expect.stringContaining('reconnection maxDelay'),
+        }),
+      );
+    },
+  );
+
+  it.each([1, 30_000, 2 ** 31 - 1])('accepts maxDelay %s', (maxDelay) => {
+    expect(() => reconnection({ maxDelay })).not.toThrow();
+  });
+});
 
 function mockEnvironment() {
   let net: ((v: boolean) => void) | null = null;
@@ -115,6 +146,20 @@ describe('backoff growth and jitter', () => {
     expect(MockWebSocket.instances).toHaveLength(2);
     vi.advanceTimersByTime(1);
     expect(MockWebSocket.instances).toHaveLength(3);
+  });
+
+  it('never schedules a wait longer than a timer can hold, even with jitter on the largest maxDelay', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(1);
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    build(reconnection({ maxDelay: 2 ** 31 - 1, maxAttempts: Infinity }));
+
+    for (let attempt = 0; attempt < 24; attempt++) {
+      MockWebSocket.last().serverClose(1006);
+      vi.advanceTimersByTime(2 ** 31 - 1);
+    }
+
+    const delays = setTimeoutSpy.mock.calls.map((call) => call[1] ?? 0);
+    expect(Math.max(...delays)).toBe(2 ** 31 - 1);
   });
 
   it('caps delay at maxDelay regardless of attempt count', () => {

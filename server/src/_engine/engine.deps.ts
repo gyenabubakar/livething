@@ -150,6 +150,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     logger: core.logger,
     platform: core.platform,
     getStorage: () => core.storage,
+    isUserPurging: (userId) => core.isUserPurging(userId),
     getStorageView: () =>
       (storageView ??= createLazyStorageView(core.options.storage, core.userTransactions)),
     scheduleTask: (taskId, time, data) =>
@@ -162,10 +163,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       core.scheduledService?.cancelScheduled(core, connectionlessContextFactory(core), {
         taskId,
         filter,
-      }) ?? {
-        removed: 0,
-        taskExists: false,
-      },
+      }),
     broadcastToConnections: (connections, opts) => {
       OutgoingRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts);
     },
@@ -355,8 +353,11 @@ function buildChannelRuntime(core: EngineCore) {
 
     isChannelDurable: (channelKey: string) => core.isChannelDurable(channelKey),
 
-    persistMembership: (row: MembershipInsert) =>
-      core.channelMembershipService?.persistMembership(core, row),
+    persistMembership: (row: MembershipInsert) => {
+      if (!core.isUserPurging(row.userId)) {
+        core.channelMembershipService?.persistMembership(core, row);
+      }
+    },
 
     deleteDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
       core.channelMembershipService?.deleteDurableMembership(core, {
@@ -532,6 +533,12 @@ function buildConnectionRuntime(core: EngineCore) {
         connection,
         { error, event },
       ),
+    handlePluginConnectError: (connection: RuntimeConnection, error: unknown, pluginId: string) =>
+      EngineErrorRuntime.handleRuntimeError(
+        { core, buildConnectionContext: buildCtx },
+        connection,
+        { error, pluginId },
+      ),
     handleSocketError: (connection: RuntimeConnection, error: unknown) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },
@@ -580,10 +587,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
     scheduleTask: (opts) =>
       core.scheduledService?.scheduleTask(core, connectionlessContextFactory(core), opts),
     cancelScheduled: (opts) =>
-      core.scheduledService?.cancelScheduled(core, connectionlessContextFactory(core), opts) ?? {
-        removed: 0,
-        taskExists: false,
-      },
+      core.scheduledService?.cancelScheduled(core, connectionlessContextFactory(core), opts),
     rescheduleAlarm: () => rescheduleEngineAlarm(core),
     buildCurrentContext: () => {
       const activeId = core.asyncContext.getStore()?.connectionId;

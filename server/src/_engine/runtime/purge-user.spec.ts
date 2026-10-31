@@ -142,6 +142,28 @@ function withEveryOwningCapability(): ServerDefinition {
   return base.assemble({ handlers: [lobbyNoop, chatNoop] });
 }
 
+describe('purgeUser() — overlapping calls for one user', () => {
+  it('keeps the guard until the last purge ends', async () => {
+    const { engine } = await buildEngine(server({}).assemble({ handlers: [] }));
+    const finishHook: (() => void)[] = [];
+    engine.core.hooks.purgeUser.push(
+      () => new Promise<void>((resolve) => finishHook.push(resolve)),
+    );
+
+    const first = purgeUser(engine.core, 'alice');
+    const second = purgeUser(engine.core, 'alice');
+    expect(finishHook).toHaveLength(2);
+
+    finishHook[0]!();
+    await first;
+    expect(engine.core.isUserPurging('alice')).toBe(true);
+
+    finishHook[1]!();
+    await second;
+    expect(engine.core.isUserPurging('alice')).toBe(false);
+  });
+});
+
 describe('admin().purgeUser() — every owning capability enabled together', () => {
   it('removes one user from all seven tables while leaving another user intact', async () => {
     const { engine, sql } = await buildEngine(withEveryOwningCapability());

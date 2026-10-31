@@ -5,7 +5,7 @@
 # are pinned to commit SHAs. Never interpolate untrusted input into `run:`.
 name: CI
 
-# Docs-only changes skip CI; the pre-commit hook already formats and lints them.
+# Docs-only changes skip this workflow. docs.yml checks the docs examples on every change.
 on:
   pull_request:
     branches: [main]
@@ -90,9 +90,6 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
-
-      - name: Docs examples
-        run: pnpm docs:typecheck
 
       - name: Lint
         run: pnpm lint:check

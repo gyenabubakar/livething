@@ -18,6 +18,6 @@ export interface ClientRequestsTypeFn extends TypeFn {
 
 /** Options for `clientRequests()`. */
 export interface ClientRequestsOptions {
-  /** Default wait for a reply, in ms. Override per call. Default: `10_000`. */
+  /** Default wait for a reply, in ms, from 1 to `2 ** 31 - 1`. Override per call. Default: `10_000`. */
   timeout?: number;
 }

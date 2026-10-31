@@ -65,7 +65,7 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
     getStorage: () => baseStorage(),
     getStorageView: () => baseStorage(),
     scheduleTask: vi.fn(),
-    cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
+    cancelScheduled: vi.fn(),
     broadcastToConnections: vi.fn(),
     sendThroughPipeline: vi.fn(() => true),
     broadcastToChannel: vi.fn(),

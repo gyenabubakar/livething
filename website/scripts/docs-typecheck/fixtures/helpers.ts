@@ -109,6 +109,7 @@ export declare function renderReceivedBy(userIds: string[]): void;
 export declare function renderReadBy(userIds: string[]): void;
 export declare function showBanner(text: string): void;
 export declare function hideBanner(): void;
+export declare function appendToken(text: string): void;
 export declare function updateConnectionIndicator(
   quality: ConnectionQuality,
   latency: number | null,

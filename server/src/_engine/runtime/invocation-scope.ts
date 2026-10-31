@@ -83,6 +83,7 @@ function createScope(core: EngineCore): InvocationScopeState {
   return {
     dirtyConnections: new Set(),
     pendingSnapshotFlushes: core.pendingSnapshotFlushes,
+    purgeEpoch: core.purgeEpoch,
   };
 }
 

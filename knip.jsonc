@@ -14,6 +14,9 @@
     ".": {
       "entry": ["scripts/*.{mjs,ts}"],
       "project": ["scripts/**", "lint-rules/**", "*.{js,ts}"],
+      // The root `docs:typecheck` script runs website/scripts/docs-typecheck/check.mjs, whose
+      // dependencies are in the ignored website workspace.
+      "ignoreDependencies": ["@volar/typescript", "@vue/language-core", "svelte", "svelte2tsx"],
     },
     "core": {
       "entry": ["src/**/*.test.ts"],

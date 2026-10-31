@@ -1,5 +1,6 @@
 import { LiveThingConfigError } from '@livething/core';
 import { Disconnected, Dropped } from '~/errors.ts';
+import { assertValidTtl, MAX_TIMER_DELAY_MS } from '~/internal/config.ts';
 import type { FrameOwner, Message } from '~/internal/runtime.ts';
 
 /** Settings for the buffer. */
@@ -42,8 +43,21 @@ export class MessageBuffer {
       );
     }
 
-    this.defaultTtl = options.ttl ?? null;
+    const { ttl } = options;
+    if (ttl !== undefined) assertValidTtl(ttl, 'buffering');
+
+    this.defaultTtl = ttl ?? null;
+
     this.flushInterval = options.flushInterval ?? 0;
+    if (
+      !Number.isFinite(this.flushInterval) ||
+      this.flushInterval < 0 ||
+      this.flushInterval > MAX_TIMER_DELAY_MS
+    ) {
+      throw new LiveThingConfigError(
+        `buffering flushInterval must be a number of ms from 0 to ${MAX_TIMER_DELAY_MS}, got ${this.flushInterval}.`,
+      );
+    }
 
     this.ring = new Array(this.maxSize).fill(null);
   }
@@ -117,7 +131,7 @@ export class MessageBuffer {
       }
 
       sendOne(buffered);
-      this.flushTimer = setTimeout(tick, this.flushInterval);
+      this.flushTimer = this.count > 0 ? setTimeout(tick, this.flushInterval) : null;
     };
 
     tick();

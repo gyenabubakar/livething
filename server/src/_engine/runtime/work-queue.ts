@@ -4,7 +4,10 @@ import type { RuntimeConnection } from './types.ts';
 /** Maximum number of admitted but unfinished ordered handlers per connection. */
 export const MAX_PENDING_CONNECTION_WORK = 256;
 
-const CONNECTION_BUSY_RETRY_AFTER_MS = 1_000;
+/** The error for a connection that already holds as much work as it may. */
+export function connectionBusy(): ReturnType<typeof ConnectionBusy> {
+  return ConnectionBusy({ retryAfterMs: 1_000 });
+}
 
 /**
  * Run one connection's ordered work after the work already admitted for that
@@ -20,7 +23,7 @@ export function runConnectionWork<T>(
 
   const queue = (connection.workQueue ??= { tail: Promise.resolve(), pending: 0 });
   if (queue.pending >= MAX_PENDING_CONNECTION_WORK) {
-    return Promise.reject(ConnectionBusy({ retryAfterMs: CONNECTION_BUSY_RETRY_AFTER_MS }));
+    return Promise.reject(connectionBusy());
   }
 
   queue.pending += 1;

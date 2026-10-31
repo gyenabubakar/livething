@@ -18,6 +18,8 @@ export interface InvocationScopeState {
   dirtyConnections: Set<RuntimeConnection>;
   /** Shared by every open scope of one engine, so a later handler merges into queued values. */
   pendingSnapshotFlushes: Map<string, PendingScopeFlush>;
+  /** `core.purgeEpoch` when this invocation started: it cannot write for a user purged later. */
+  purgeEpoch: number;
 }
 
 export interface EngineAsyncContextStore {

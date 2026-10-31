@@ -1,12 +1,7 @@
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
-import { assertPositiveInteger } from '~/_engine/validation.ts';
-import type {
-  ScheduledCancelResult,
-  ScheduledDeadLetter,
-  ScheduledRun,
-  ScheduledRuntimeAccess,
-} from './types.ts';
+import { assertAlarmTime } from '~/_engine/validation.ts';
+import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from './types.ts';
 
 const SCHEDULED_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __livething_scheduled (
@@ -224,6 +219,14 @@ function getClaimedRunIds(runtime: ScheduledRuntimeAccess): Set<string> {
 }
 
 /**
+ * Dead letters a failed persist could not write, per durable object. They stay
+ * here until a later persist writes them, keyed like `claimedRunIds`. A restart
+ * loses this list, but the failed persist also left the run's row in storage,
+ * so the run fires again and reaches the dead-letter table that way.
+ */
+const pendingDeadLetters = new WeakMap<Map<string, ScheduledRun>, ScheduledDeadLetter[]>();
+
+/**
  * Persist scheduler state by writing only the rows that actually changed
  * since the previous persist. The snapshot maps mirror the durable table
  * contents — they are updated in lock-step with successful SQL writes so the
@@ -246,7 +249,9 @@ function getClaimedRunIds(runtime: ScheduledRuntimeAccess): Set<string> {
  *
  * Dead letters never change once written, so they are not diffed: the alarm
  * passes the runs that just failed for good, and each one is one `INSERT` in
- * the same transaction that deletes its queued row.
+ * the same transaction that deletes its queued row. If that transaction fails,
+ * they are kept and written by the next persist, so a dead letter is never lost
+ * to one failed write.
  */
 function persistSchedulerState(
   runtime: ScheduledRuntimeAccess,
@@ -262,14 +267,18 @@ function persistSchedulerState(
     (op) => op.kind !== 'delete' || !claimed.has(op.id),
   );
 
-  if (runOps.length === 0 && newDeadLetters.length === 0) {
+  const deadLetters = [...(pendingDeadLetters.get(runs) ?? []), ...newDeadLetters];
+
+  if (runOps.length === 0 && deadLetters.length === 0) {
     return;
   }
 
   runtime.logger.info('[livething] scheduler persist — applying diff', {
     runs: summarizeOps(runOps),
-    deadLetters: newDeadLetters.length,
+    deadLetters: deadLetters.length,
   });
+
+  pendingDeadLetters.set(runs, deadLetters);
 
   storage.sql.transaction(() => {
     for (const op of runOps) {
@@ -315,7 +324,7 @@ function persistSchedulerState(
       );
     }
 
-    for (const entry of newDeadLetters) {
+    for (const entry of deadLetters) {
       storage.sql.exec(
         `INSERT INTO __livething_scheduled_dlq
           (id, taskId, time, failedAt, data, attempts, error)
@@ -333,6 +342,7 @@ function persistSchedulerState(
     }
   });
 
+  pendingDeadLetters.delete(runs);
   applyDiffToSnapshot(runOps, runsSnapshot);
 }
 
@@ -374,21 +384,15 @@ function readStoppedTaskIds(runtime: ScheduledRuntimeAccess): Set<string> {
   return new Set(rows.map((row) => String(row.taskId)));
 }
 
-/** Record that a recurring task was stopped. Returns `false` when it already was. */
-function markTaskStopped(runtime: ScheduledRuntimeAccess, taskId: string): boolean {
-  const sql = runtime.getStorage().sql;
-  const existing = sql
-    .exec('SELECT 1 FROM __livething_scheduled_stopped WHERE taskId = ?', taskId)
-    .toArray();
-  if (existing.length > 0) return false;
-
-  sql.exec(
-    'INSERT INTO __livething_scheduled_stopped (taskId, stoppedAt) VALUES (?, ?)',
-    taskId,
-    Date.now(),
-  );
-
-  return true;
+/** Record that a recurring task was stopped. */
+function markTaskStopped(runtime: ScheduledRuntimeAccess, taskId: string): void {
+  runtime
+    .getStorage()
+    .sql.exec(
+      'INSERT OR IGNORE INTO __livething_scheduled_stopped (taskId, stoppedAt) VALUES (?, ?)',
+      taskId,
+      Date.now(),
+    );
 }
 
 /** Clear a stopped marker. Returns `true` when the task was stopped. */
@@ -438,6 +442,28 @@ function ensureRecurringRuns(runtime: ScheduledRuntimeAccess, stopped: ReadonlyS
         recurring: true,
         retry: task.options?.retry ?? true,
       });
+    }
+  }
+}
+
+/**
+ * Make stored recurring runs follow the `every` this deploy declares. A task that
+ * no longer declares it stops recurring: its run has no payload and no caller, so
+ * it is dropped. A changed value applies from the next run, which never lands later
+ * than one new interval from now.
+ */
+function applyDeclaredIntervals(runtime: ScheduledRuntimeAccess): void {
+  const scheduledRuns = runtime.getScheduledRuns();
+  const now = Date.now();
+
+  for (const [id, run] of scheduledRuns) {
+    if (!run.recurring) continue;
+
+    const every = runtime.getScheduledTask(run.taskId)?.options?.every;
+    if (every === undefined) {
+      scheduledRuns.delete(id);
+    } else if (every !== run.every) {
+      scheduledRuns.set(id, { ...run, every, time: Math.min(run.time, now + every) });
     }
   }
 }
@@ -531,6 +557,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
     if (run.recurring && stopped.has(run.taskId)) scheduledRuns.delete(id);
   }
 
+  applyDeclaredIntervals(runtime);
   ensureRecurringRuns(runtime, stopped);
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
@@ -692,8 +719,11 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
   }
 
   claimed.clear();
-  persistSchedulerState(runtime, deadLetters);
-  runtime.rescheduleAlarm();
+  try {
+    persistSchedulerState(runtime, deadLetters);
+  } finally {
+    runtime.rescheduleAlarm();
+  }
 }
 
 export interface ScheduleTaskRunOptions {
@@ -722,7 +752,7 @@ export function scheduleTaskRun(
     throw new Error(`[livething] scheduled task "${taskId}" is not registered.`);
   }
 
-  assertPositiveInteger(time, 'time', `ctx.schedule("${taskId}", ...)`);
+  assertAlarmTime(time, 'time', `ctx.schedule("${taskId}", ...)`);
   const id = runtime.generateId('task');
 
   let normalizedData = data;
@@ -773,7 +803,7 @@ export function cancelScheduledRuns(
   runtime: ScheduledRuntimeAccess,
   taskId: string,
   filter?: Record<string, unknown>,
-): ScheduledCancelResult {
+): void {
   // Reject explicit-undefined filter values up front. Otherwise
   // `dataMatchesFilter` matches runs whose data is missing the key entirely,
   // which silently cancels the wrong runs.
@@ -789,37 +819,17 @@ export function cancelScheduledRuns(
   }
 
   const scheduledRuns = runtime.getScheduledRuns();
-  const task = runtime.getScheduledTask(taskId);
-  let removed = 0;
-  let removedRecurring = false;
 
   for (const [id, run] of scheduledRuns) {
     if (run.taskId !== taskId) continue;
 
-    if (run.recurring) {
-      if (!filter) {
-        scheduledRuns.delete(id);
-        removed += 1;
-        removedRecurring = true;
-      }
-
-      continue;
-    }
-
-    if (dataMatchesFilter(run.data, filter)) {
-      scheduledRuns.delete(id);
-      removed += 1;
-    }
+    if (run.recurring ? !filter : dataMatchesFilter(run.data, filter)) scheduledRuns.delete(id);
   }
 
-  // Stopping counts as a removal even when no recurring run was queued — for
-  // example when the task cancels itself while its own run is in progress.
-  if (!filter && task?.options?.every && markTaskStopped(runtime, taskId) && !removedRecurring) {
-    removed += 1;
+  if (!filter && runtime.getScheduledTask(taskId)?.options?.every) {
+    markTaskStopped(runtime, taskId);
   }
 
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
-
-  return { taskExists: !!task, removed };
 }

@@ -5,7 +5,6 @@ import type * as WireRuntime from '~/_engine/runtime/wire.ts';
 import type * as ChannelRuntime from '~/channel/runtime.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
-import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type { Validator } from '~/types.ts';
 
 type OptsParameter = {
@@ -58,12 +57,15 @@ export interface ContextCommonDeps {
 
   getStorage(): PublicApi.StorageProvider;
 
+  /** Whether `purgeUser` is running for this user, so a new durable row must not be written. */
+  isUserPurging(userId: string): boolean;
+
   /** The engine's shared `sql` / `kv` view, built once and reused by every context. */
   getStorageView(): { sql: PublicApi.SQLProvider; kv: PublicApi.KVProvider };
 
   scheduleTask(taskId: string, time: number, data: unknown): void;
 
-  cancelScheduled(taskId: string, filter?: Record<string, unknown>): ScheduledCancelResult;
+  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
   broadcastToConnections(
     connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,

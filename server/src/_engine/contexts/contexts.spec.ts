@@ -53,7 +53,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     getStorage: () => baseStorage(),
     getStorageView: () => baseStorage(),
     scheduleTask: vi.fn(),
-    cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
+    cancelScheduled: vi.fn(),
     broadcastToConnections: vi.fn(),
     sendThroughPipeline: vi.fn(() => true),
     broadcastToChannel: vi.fn(),
@@ -316,13 +316,7 @@ describe('ctx.connections.get(ref).send', () => {
 
     expect(result).toBe(false);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
-    expect(deps.logger.error).toHaveBeenCalledWith(
-      '[livething] ctx.connections.get(ref).send target not found',
-      {
-        connectionId: 'nonexistent-id',
-        event: 'evt',
-      },
-    );
+    expect(deps.logger.error).not.toHaveBeenCalled();
   });
 
   it('connectionless context connections.get(ref).send returns false for unknown ids', () => {
@@ -330,13 +324,7 @@ describe('ctx.connections.get(ref).send', () => {
     const task = createConnectionlessContext(deps);
 
     expect(task.connections.get(localRef('missing')).send('evt', {})).toBe(false);
-    expect(deps.logger.error).toHaveBeenCalledWith(
-      '[livething] ctx.connections.get(ref).send target not found',
-      {
-        connectionId: 'missing',
-        event: 'evt',
-      },
-    );
+    expect(deps.logger.error).not.toHaveBeenCalled();
   });
 
   it('returns the pipeline result and routes to the addressed connection when it exists', () => {
@@ -770,7 +758,7 @@ describe('storage view in init and connectionless contexts', () => {
       getStorage,
       getStorageView: getStorage,
       scheduleTask: vi.fn(),
-      cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
+      cancelScheduled: vi.fn(),
       broadcastToConnections: vi.fn(),
       sendThroughPipeline: vi.fn(() => true),
       broadcastToChannel: vi.fn(),

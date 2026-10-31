@@ -35,8 +35,23 @@ export interface CallContext extends CallDescriptor {
  */
 let callAsyncContext: AsyncContext<CallContext | undefined> | undefined;
 
+/** Set for the whole run of an `onOutgoing` hook, across its awaits. */
+let outgoingHookAsyncContext: AsyncContext<true | undefined> | undefined;
+
 export function registerCallContext(factory: AsyncContextFactory): void {
   callAsyncContext ??= factory<CallContext | undefined>();
+  outgoingHookAsyncContext ??= factory<true | undefined>();
+}
+
+/** Run an `onOutgoing` hook: no call context, and sends inside it are not shown to the hooks. */
+export function runOutgoingHook<T>(fn: () => T): T {
+  return outgoingHookAsyncContext
+    ? outgoingHookAsyncContext.run(true, () => runOutsideCall(fn))
+    : runOutsideCall(fn);
+}
+
+export function isInsideOutgoingHook(): boolean {
+  return outgoingHookAsyncContext?.getStore() === true;
 }
 
 export function runInCall<T>(call: CallContext, fn: () => T): T {
@@ -44,7 +59,7 @@ export function runInCall<T>(call: CallContext, fn: () => T): T {
 }
 
 /** Run `fn` with no call context, so `context.*` throws inside it instead of reading the caller's `ctx`. */
-export function runOutsideCall<T>(fn: () => T): T {
+function runOutsideCall<T>(fn: () => T): T {
   return callAsyncContext ? callAsyncContext.run(undefined, fn) : fn();
 }
 
@@ -55,4 +70,5 @@ export function getCurrentCall(): CallContext | undefined {
 /** Forget the shared store so the next engine registers its own. For tests that mix factories. */
 export function resetCallContextForTests(): void {
   callAsyncContext = undefined;
+  outgoingHookAsyncContext = undefined;
 }

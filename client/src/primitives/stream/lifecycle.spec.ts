@@ -207,6 +207,25 @@ describe('durable stream lazy hold across failed reconnects', () => {
   });
 });
 
+describe('taken-over', () => {
+  it('ends the stream with the error and sends no continue frame', async () => {
+    const { socket, ws } = build();
+    const { handle, sid } = await start(socket, ws, { streamDurability: 'persistent' });
+
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'stream-aborted', detail: { reason: 'taken-over' } },
+      metadata: { stream: { id: sid, terminated: true } },
+    });
+
+    await expect(collect(handle)).rejects.toMatchObject({
+      code: 'stream-aborted',
+      detail: { reason: 'taken-over' },
+    });
+    expect(ws.sentFrames().some((frame) => frame.event === '__continueStream__')).toBe(false);
+  });
+});
+
 describe('hibernation-wake continue', () => {
   it('re-sends __continueStream__ on stream-aborted/hibernation-wake without ending the stream', async () => {
     const { socket, ws } = build();

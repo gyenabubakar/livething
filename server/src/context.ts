@@ -697,14 +697,14 @@ export interface ChannelHandle<
 
   /**
    * The channel family key when this handle was resolved from a dynamic
-   * family registered with `scope(key, template)`, or `null` when the handle
+   * family registered with `base.channel([key, template])`, or `null` when the handle
    * targets a static channel registered with a string name.
    */
   readonly family: string | null;
 
   /**
    * The `{name}` captures from the matched channel name, typed from the
-   * `scope()` template (e.g. `scope('rooms', 'room:{id}')` →
+   * template (e.g. `base.channel(['rooms', 'room:{id}'])` →
    * `params.id`). Empty object for static channels and templates with no
    * params.
    */
@@ -807,7 +807,7 @@ export interface ChannelHandle<
 /**
  * Look up a channel handle from any handler. Use the single-argument overload
  * for static channel names, and the two-argument overload for dynamic channel
- * families declared with `scope(key, pattern)`. The returned handle is bound to
+ * families declared with `base.channel([key, template])`. The returned handle is bound to
  * the resolved channel so members and kicks never cross into a different family.
  *
  * Available as `ctx.channels` when the `channels()` capability is listed.
