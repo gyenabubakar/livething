@@ -261,6 +261,18 @@ describe('MessageBuffer — TTL expiry on flush', () => {
     expect(events).toEqual(['pinned']);
   });
 
+  it('logs one debug line for a buffered send, as the debug logging docs show', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const socket = buildSocket(buffering());
+    socket.setDebug(true);
+
+    socket.send('typing', { channelId: 'x' });
+
+    const lines = log.mock.calls.map((call) => call.join(' ')).filter((l) => l.includes('typing'));
+    log.mockRestore();
+    expect(lines).toEqual(["[livething] buffered 'typing'"]);
+  });
+
   it('ttl option on buffering() primitive is respected end-to-end', () => {
     vi.useFakeTimers();
 

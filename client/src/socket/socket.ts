@@ -851,10 +851,7 @@ export class LiveThingSocket {
     // Offer to the outgoing fallback (buffering) first: it takes the message
     // while offline, or while a staggered flush is still draining so a live send
     // can't jump ahead of not-yet-flushed messages. It declines when open and idle.
-    if (this._outgoingFallback?.(outgoing, options)) {
-      if (this._debug) this._log(`send('${outgoing.event}') buffered`);
-      return 'buffered';
-    }
+    if (this._outgoingFallback?.(outgoing, options)) return 'buffered';
 
     if (this._state !== 'open' || !this.ws) {
       if (this._debug) this._log(`send('${outgoing.event}') not sent — not connected`);

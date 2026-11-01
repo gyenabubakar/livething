@@ -81,6 +81,15 @@ describe('rateLimit() capability', () => {
     );
   });
 
+  it('keeps the rule it was given when the caller edits the config object afterwards', () => {
+    const config = { windowMs: 60_000, max: 100 };
+    const capability = rateLimit(config);
+
+    config.max = 1;
+
+    expect(capability.__rateLimit).toEqual({ windowMs: 60_000, max: 100 });
+  });
+
   it('throws when rateLimit() is listed more than once', () => {
     const capabilities: AnyCapability[] = [rateLimit({ max: 10 }), rateLimit({ max: 20 })];
     expect(() => server({ capabilities })).toThrow(/rateLimit\(\) is listed more than once/);

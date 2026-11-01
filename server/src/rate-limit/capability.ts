@@ -90,7 +90,7 @@ export interface RateLimitCapability extends Capability<
 export const rateLimit = withCapabilityKind(function rateLimit(
   config?: RateLimitGlobalConfig,
 ): RateLimitCapability {
-  const rule: RateLimitConfig | undefined = config;
+  const rule: RateLimitConfig | undefined = config ? { ...config } : undefined;
   const cap = capability<{}, never, 'rateLimit', typeof CAPABILITY_KIND.rateLimit>(
     [],
   ) as RateLimitCapability;

@@ -29,17 +29,20 @@ export const recordedDurableRegistrar = definePrimitive({
 
       engine.onPurgeUser((core, userId, options?: PurgeUserOptions) => {
         const engineCore = core as EngineCore;
-        stopStreamsOfPurgedUser(
-          {
-            activeStreams: engineCore.activeStreams,
-            connections: engineCore.connections,
-            sql: engineCore.storage.sql,
-            sendProtocolMessage: (connection, opts) =>
-              sendProtocolMessage(engineCore, connection, opts),
-          },
-          userId,
-        );
-        purgeStreamsByUser(engineCore.storage.sql, userId, options);
+        try {
+          stopStreamsOfPurgedUser(
+            {
+              activeStreams: engineCore.activeStreams,
+              connections: engineCore.connections,
+              sql: engineCore.storage.sql,
+              sendProtocolMessage: (connection, opts) =>
+                sendProtocolMessage(engineCore, connection, opts),
+            },
+            userId,
+          );
+        } finally {
+          purgeStreamsByUser(engineCore.storage.sql, userId, options);
+        }
       });
     });
     registerActiveStreamOps(engine);

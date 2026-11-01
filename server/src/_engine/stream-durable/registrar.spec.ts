@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { sweepDurableStreams } from './runtime.ts';
+import * as Storage from './storage.ts';
 import { ensureDurableStreamSchema, insertStream, readStream } from './storage.ts';
 
 function buildEngine(
@@ -74,6 +75,36 @@ describe('durable-stream registrar — purgeUser', () => {
 
     expect(readStream(sql, 'u-1', 's-1')).toBeNull();
     expect(readStream(sql, 'u-2', 's-2')).not.toBeNull();
+  });
+
+  it("deletes the purged user's stream rows even when stopping a running stream throws", async () => {
+    const base = server({ capabilities: [recordedStream()] });
+    const engine = buildEngine(base.assemble({ handlers: [] }));
+    await engine.initialize();
+
+    const sql = engine.core.storage.sql;
+    ensureDurableStreamSchema(sql);
+    insertStream(sql, { userId: 'u-1', streamId: 's-1', event: 'e', payload: '{}', now: 1_000 });
+    engine.core.activeStreams.set('s-1', {
+      id: 's-1',
+      durable: true,
+      closed: false,
+      connection: { userId: 'u-1', activeStreamIds: new Set(['s-1']) },
+      abortController: new AbortController(),
+      generator: { return: async () => ({ done: true, value: undefined }) },
+    } as never);
+    const markEnded = vi.spyOn(Storage, 'markEnded').mockImplementation(() => {
+      throw new Error('storage write failed');
+    });
+
+    try {
+      await expect(
+        (async () => engine.core.hooks.purgeUser[0]!(engine.core, 'u-1'))(),
+      ).rejects.toThrow('storage write failed');
+      expect(readStream(sql, 'u-1', 's-1')).toBeNull();
+    } finally {
+      markEnded.mockRestore();
+    }
   });
 
   it('forwards purgeUser options through to purgeStreamsByUser', async () => {

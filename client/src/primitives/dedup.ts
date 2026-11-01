@@ -14,7 +14,7 @@ export interface DedupOptions {
  * without one always goes through.
  */
 export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
-  const windowMs = options.windowMs ?? 60_000;
+  const windowMs = options.windowMs === undefined ? 60_000 : options.windowMs;
   if (!Number.isFinite(windowMs) || windowMs <= 0) {
     throw new LiveThingConfigError(
       `dedup windowMs must be a finite number of ms, above 0, got ${windowMs}.`,

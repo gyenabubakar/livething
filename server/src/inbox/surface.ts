@@ -2,6 +2,7 @@ import { serializePayload } from '~/_engine/runtime/json-guard.ts';
 import { loadInboxBacklog } from '~/inbox/backlog.ts';
 import { listReceivers } from '~/inbox/receipts-storage.ts';
 import { backfillInbox, channelKeyFor } from '~/inbox/runtime.ts';
+import { loadInboxWatermarks } from '~/inbox/storage.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { ChannelBackfillMessage, ChannelInbox, InboxBacklogEntry } from '~/context.ts';
 import type { InboxFrame } from '~/inbox/storage.ts';
@@ -53,14 +54,24 @@ export function buildInboxSurface<
 
       // A member in the channel right now gets the new rows straight away, the
       // same frames the reconnect drain sends. Otherwise its ack of a later live
-      // message would settle these rows before it ever saw them.
-      if (stored.length === 0) return;
+      // message would settle these rows before it ever saw them, and clear the
+      // watermark of any row retention dropped, so the gap goes first.
+      const connectionIds = engine.userConnectionIdsInChannel(userId, channelName, channelFamily);
+      if (connectionIds.length === 0) return;
 
-      for (const connectionId of engine.userConnectionIdsInChannel(
-        userId,
-        channelName,
-        channelFamily,
-      )) {
+      const watermark = loadInboxWatermarks(engine.storage.sql, userId).find(
+        (row) => row.channelName === channelName && row.channelFamily === channelFamily,
+      );
+
+      for (const connectionId of connectionIds) {
+        if (watermark) {
+          engine.sendGap(connectionId, {
+            channelName,
+            channelFamily,
+            missedThrough: watermark.evictedThroughSeq,
+          });
+        }
+
         for (const frame of stored) {
           engine.sendReplay(connectionId, {
             channelName,

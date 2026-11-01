@@ -7,6 +7,10 @@ describe('dedup() config checks', () => {
     expect(() => dedup({ windowMs })).toThrow(LiveThingConfigError);
   });
 
+  it('throws for a null windowMs', () => {
+    expect(() => dedup({ windowMs: null as unknown as number })).toThrow(LiveThingConfigError);
+  });
+
   it('accepts a positive windowMs', () => {
     expect(() => dedup({ windowMs: 1000 })).not.toThrow();
   });

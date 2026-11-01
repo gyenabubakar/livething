@@ -20,8 +20,9 @@ function backfillFrame(
   };
 }
 
-function harness(config?: Partial<ResolvedInboxOptions>) {
+function harness(config?: Partial<ResolvedInboxOptions>, connectionIds: string[] = []) {
   const sql = createTestSql();
+  const sent: string[] = [];
   ensureInboxSchema(sql);
   ensureReceiptsSchema(sql);
 
@@ -34,12 +35,16 @@ function harness(config?: Partial<ResolvedInboxOptions>) {
     allocateDeliverySeq: () => (lastSeq += 1),
     storage: { sql },
     isUserOnline: () => false,
-    userConnectionIdsInChannel: () => [],
+    userConnectionIdsInChannel: () => connectionIds,
+    sendGap: (_id: string, opts: { missedThrough: number }) =>
+      sent.push(`gap:${opts.missedThrough}`),
+    sendReplay: (_id: string, opts: { wire: { deliverySeq: number } }) =>
+      sent.push(`replay:${opts.wire.deliverySeq}`),
     getLastSeenService: () => undefined,
     getInboxChannel: () => resolved,
   } as unknown as EngineAccess;
 
-  return { sql, surface: buildInboxSurface(engine, SCOPE) };
+  return { sql, sent, surface: buildInboxSurface(engine, SCOPE) };
 }
 
 describe('inbox surface — backfill()', () => {
@@ -149,6 +154,19 @@ describe('inbox surface — backfill()', () => {
     expect(loadInboxWatermarks(sql, 'newcomer')).toEqual([
       { channelName: 'room', channelFamily: null, evictedThroughSeq: 2 },
     ]);
+  });
+
+  it('tells an online member about the rows retention dropped, before the rows that survived', () => {
+    const { sent, surface } = harness({ retention: { maxMessages: 2 } }, ['conn-1']);
+
+    surface.backfill('newcomer', [
+      backfillFrame(1),
+      backfillFrame(2),
+      backfillFrame(3),
+      backfillFrame(4),
+    ]);
+
+    expect(sent).toEqual(['gap:2', 'replay:3', 'replay:4']);
   });
 
   it('a channel with no inbox settings backfills without retention', () => {
