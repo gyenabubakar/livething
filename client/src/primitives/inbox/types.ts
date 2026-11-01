@@ -59,12 +59,12 @@ export interface ChannelReadReceiptsApi {
 }
 
 /** Inbox adds no socket-level surface — its methods live on the channel handle. */
-export interface InboxTypeFn extends TypeFn {
+interface InboxTypeFn extends TypeFn {
   readonly _api: {};
 }
 
 /** Read receipts add no socket-level surface — their methods live on the channel handle. */
-export interface ReadReceiptsTypeFn extends TypeFn {
+interface ReadReceiptsTypeFn extends TypeFn {
   readonly _api: {};
 }
 
@@ -72,7 +72,7 @@ export interface ReadReceiptsTypeFn extends TypeFn {
  * The channel-handle surface `inbox()` contributes: present only on channels
  * whose contract sets `inbox: true`, and only because `inbox()` is registered.
  */
-export interface InboxChannelTypeFn extends ChannelTypeFn {
+interface InboxChannelTypeFn extends ChannelTypeFn {
   readonly _api: this['_contract'] extends { inbox: true } ? ChannelInboxApi : {};
 }
 
@@ -81,7 +81,7 @@ export interface InboxChannelTypeFn extends ChannelTypeFn {
  * channels whose contract sets `readReceipts: true`, and only because
  * `readReceipts()` is registered.
  */
-export interface ReadReceiptsChannelTypeFn extends ChannelTypeFn {
+interface ReadReceiptsChannelTypeFn extends ChannelTypeFn {
   readonly _api: this['_contract'] extends { readReceipts: true } ? ChannelReadReceiptsApi : {};
 }
 

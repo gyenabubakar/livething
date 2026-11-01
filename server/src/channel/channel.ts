@@ -16,10 +16,8 @@ import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { CustomReplayPrimitive } from '~/replay/custom/custom.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
-import type { CursorStreamGeneratePrimitive } from '~/stream-cursor/stream-cursor.ts';
 import type { RecordedStreamGeneratePrimitive } from '~/stream-recorded/stream-recorded.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
 
@@ -41,21 +39,16 @@ type AnyGenerate = GeneratePrimitive<
 type ChannelStatePrimitive =
   | AnyOutgoing
   | ReplayPrimitive
-  | CustomReplayPrimitive
   | AnyIntercept
   | AnyIncoming
   | AnyRequest
   | AnyGenerate
-  | CursorStreamGeneratePrimitive
   | RecordedStreamGeneratePrimitive;
 
 /**
  * Extract the `{name}` parameters from a channel template literal type as an
- * object of string values. Best-effort: escaped braces (`{{`/`}}`) are not
- * modelled at the type level — the runtime parser handles them, so a template
- * that uses literal braces may infer a param the runtime ignores (or vice
- * versa). That trade-off keeps the type tractable; the runtime is the source of
- * truth.
+ * object of string values. `ValidChannelTemplate` rejects stray braces, so
+ * every `{...}` this sees is a real capture.
  *
  * @example
  * ```ts
@@ -65,12 +58,31 @@ type ChannelStatePrimitive =
  * ```
  */
 export type ExtractParams<S extends string> = S extends `${string}{${infer Name}}${infer Rest}`
-  ? Name extends `${string}{${string}`
+  ? Name extends ''
     ? ExtractParams<Rest>
-    : Name extends ''
-      ? ExtractParams<Rest>
-      : Record<Name, string> & ExtractParams<Rest>
+    : Record<Name, string> & ExtractParams<Rest>
   : {};
+
+type HasBrace<S extends string> = S extends `${string}${'{' | '}'}${string}` ? true : false;
+
+/**
+ * `S` when every brace in the template belongs to a `{name}` capture, else
+ * `never`, so a stray `{` or `}` fails to type-check. The runtime check in
+ * `compileChannelTemplate` is the source of truth; this only catches it sooner.
+ */
+export type ValidChannelTemplate<S extends string> = string extends S
+  ? S
+  : S extends `${infer Head}{${infer Name}}${infer Rest}`
+    ? HasBrace<Head> extends true
+      ? never
+      : HasBrace<Name> extends true
+        ? never
+        : [ValidChannelTemplate<Rest>] extends [never]
+          ? never
+          : S
+    : HasBrace<S> extends true
+      ? never
+      : S;
 
 /**
  * A named dynamic channel pattern used in `scope()`. Groups many matching
@@ -86,12 +98,12 @@ export type ExtractParams<S extends string> = S extends `${string}{${infer Name}
  * // A `[familyKey, pattern]` tuple declares a channel family that matches
  * // `room:<anything>` subscriptions. The family key ('rooms') is used in
  * // `ctx.channels.get(key, name)` lookups.
- * const rooms = base.channel(['rooms', 'room:{id}']);
- *
- * rooms.subscribe((ctx) => {
- *   // ctx.channel.family is the family key ('rooms')
- *   // ctx.channel.name is the matched path (e.g. 'room:alpha-42')
- *   // ctx.channel.params.id is the captured segment (e.g. 'alpha-42')
+ * const rooms = base.channel(['rooms', 'room:{id}'], {
+ *   onSubscribe(ctx) {
+ *     // ctx.channel.family is the family key ('rooms')
+ *     // ctx.channel.name is the matched path (e.g. 'room:alpha-42')
+ *     // ctx.channel.params.id is the captured segment (e.g. 'alpha-42')
+ *   },
  * });
  * ```
  */
@@ -124,7 +136,7 @@ export type ChannelPattern = string | ScopeDeclaration<string>;
  * Every primitive type that can appear as a lifecycle child of a channel.
  * Lifecycle children handle subscribe and unsubscribe events.
  */
-export type ChannelLifecycleChild =
+type ChannelLifecycleChild =
   | CheckPrimitive<any, any, any>
   | CommitPrimitive<any, any>
   | SubscribePrimitive<any>
@@ -202,8 +214,8 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
  * `ctx.channel.name`, the family key at `ctx.channel.family`, and each `{name}`
  * capture at `ctx.channel.params.name`.
  *
- * The template grammar is just literals plus `{name}` captures (`{{`/`}}` for a
- * literal brace). LiveThing compiles it to a matcher itself, built only from
+ * The template grammar is just literals plus `{name}` captures; a brace outside
+ * a capture is an error. LiveThing compiles it to a matcher itself, built only from
  * escaped literals and lazy `.+?` groups. In the worst case, matching takes time
  * polynomial in the name length, with the number of `{name}` captures as the
  * power (linear for one, quadratic for two), and never exponential. Channel
@@ -265,7 +277,6 @@ export function channel<
 
   return {
     __livething: 'channel',
-    __kind: 'scope',
     __identity: [CHANNEL_KEY, typeof pattern === 'string' ? pattern : pattern.key],
     __requires: {},
     pattern,
@@ -274,8 +285,3 @@ export function channel<
     __validateDisjoint: validateChannelFamilyPatternsDisjointFromStaticNames,
   };
 }
-
-/**
- * Symbol key used to reference this primitive in dependency declarations.
- */
-channel.__key = CHANNEL_KEY;

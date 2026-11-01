@@ -11,6 +11,7 @@ import {
   insertInboxRowsForUserId,
   listExpiredInboxRetentionTargets,
   listInboxRetentionTargets,
+  listStoredInboxSeqs,
   loadInboxWatermarks,
   loadUndeliveredRows,
   nextInboxRetentionAt,
@@ -18,7 +19,6 @@ import {
 } from '~/inbox/storage.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
-import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { InboxFrame, InboxRetention } from '~/inbox/storage.ts';
@@ -53,6 +53,8 @@ interface InboxFanOutOptions {
   deliverySeq: number;
   messageId: string;
   excludeUserId?: string;
+  /** A user `purgeUser` is wiping gets no new row. */
+  isUserPurging?: (userId: string) => boolean;
 }
 
 interface InboxRetentionDeadlineOptions {
@@ -71,7 +73,6 @@ interface InboxAckOptions {
   channelName: string;
   channelFamily: string | null;
   receivedThrough: number;
-  onDelivered: ResolvedInboxOptions['onDelivered'];
 }
 
 interface InboxMemberKey {
@@ -115,7 +116,7 @@ export function fanOutToInbox(core: EngineCore, opts: InboxFanOutOptions): void 
 
   const { sql } = core.storage;
   const userIds = listIdentitiesByChannel(sql, opts.channelName, opts.channelFamily).filter(
-    (userId) => userId !== '' && userId !== opts.excludeUserId,
+    (userId) => userId !== '' && userId !== opts.excludeUserId && !opts.isUserPurging?.(userId),
   );
   if (userIds.length === 0) return;
 
@@ -264,22 +265,10 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
   }
 }
 
-/** Apply a member's `__received__` ack: drop or mark-delivered up to `receivedThrough`. */
+/** Apply a member's `__received__` ack: delete rows up to `receivedThrough`. */
 export function applyInboxAck(sql: Pick<SQLProvider, 'exec'>, opts: InboxAckOptions): void {
-  ackInboxRows(sql, {
-    userId: opts.userId,
-    channelName: opts.channelName,
-    channelFamily: opts.channelFamily,
-    receivedThrough: opts.receivedThrough,
-    onDelivered: opts.onDelivered,
-    now: Date.now(),
-  });
-  clearInboxWatermarkThrough(sql, {
-    userId: opts.userId,
-    channelName: opts.channelName,
-    channelFamily: opts.channelFamily,
-    receivedThrough: opts.receivedThrough,
-  });
+  ackInboxRows(sql, opts);
+  clearInboxWatermarkThrough(sql, opts);
 }
 
 /** Drop a member's rows for a channel it has left. */
@@ -306,9 +295,10 @@ export function clearInboxForChannel(core: EngineCore, key: InboxMemberKey): voi
 }
 
 /**
- * Back a user's inbox from a set of full frames. Each frame keeps its own
- * deliverySeq/messageId so ordering and dedup stay consistent with live traffic; the
- * rows drain on the member's next reconnect, or arrive live if it is connected.
+ * Back a user's inbox from a set of full frames whose seqs the caller took from
+ * the server's sequence counter, in seq order. Returns the frames that are now
+ * stored, in seq order: not the ones skipped because the member already held
+ * that message id, and not the ones retention pruned straight away.
  *
  * Runs the inserted rows through the same retention and overflow-watermark
  * path `fanOutToInbox` uses, so a backfill that pushes a member over its
@@ -318,38 +308,37 @@ export function clearInboxForChannel(core: EngineCore, key: InboxMemberKey): voi
 export function backfillInbox(
   sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
   opts: InboxBackfillOptions,
-): void {
-  if (!opts.userId) return;
+): InboxFrame[] {
+  if (!opts.userId) return [];
 
-  if (opts.frames.length === 0) return;
+  if (opts.frames.length === 0) return [];
 
-  insertInboxRowsForUserId(sql, {
+  const scope = {
     userId: opts.userId,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
-    frames: opts.frames,
-    now: Date.now(),
+  };
+
+  insertInboxRowsForUserId(sql, { ...scope, frames: opts.frames, now: Date.now() });
+
+  if (opts.retention) applyInboxRetention(sql, { ...scope, retention: opts.retention });
+
+  // The seqs are fresh from the counter, so any of them still stored is a row this call wrote.
+  const stored = listStoredInboxSeqs(sql, {
+    ...scope,
+    fromSeq: opts.frames[0]!.deliverySeq,
+    toSeq: opts.frames.at(-1)!.deliverySeq,
   });
 
-  if (!opts.retention) return;
-
-  applyInboxRetention(sql, {
-    userId: opts.userId,
-    channelName: opts.channelName,
-    channelFamily: opts.channelFamily,
-    retention: opts.retention,
-  });
+  return opts.frames.filter((frame) => stored.has(frame.deliverySeq));
 }
 
 /**
- * Prune a member's channel rows past its retention limits and, if an
- * undelivered row was evicted, raise its overflow watermark so a later drain
- * turns that loss into a gap. The deletes and watermark write happen in one
- * transaction.
+ * Prune a member's channel rows past its retention limits and, if a row was
+ * evicted, raise its overflow watermark so a later drain turns that loss into a
+ * gap. The deletes and watermark write happen in one transaction.
  * Shared by the live fan-out path and `backfillInbox` so both enforce retention
- * the same way. Returns the highest evicted seq (including delivered rows), or
- * `null` when nothing was pruned. The watermark is based only on evicted
- * undelivered rows.
+ * the same way. Returns the highest evicted seq, or `null` when nothing was pruned.
  */
 function applyInboxRetention(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,

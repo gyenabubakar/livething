@@ -45,7 +45,7 @@ const Chat = plugin<ChatWire, ChatApi>()({
 });
 
 // The id must be the literal 'acme:chat', NOT string. If it collapsed to string,
-// the app socket would strip every `__x::` name (the bug this pins against).
+// the app socket would strip every `__x::` name.
 expectTypeOf<typeof Chat.id>().toEqualTypeOf<'acme:chat'>();
 expectTypeOf<ReturnType<typeof Chat>['_plugin']['id']>().toEqualTypeOf<'acme:chat'>();
 

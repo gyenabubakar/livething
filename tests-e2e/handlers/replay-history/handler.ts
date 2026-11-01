@@ -72,10 +72,9 @@ const base = server({
     stream(),
     ReplayPlugin(),
   ],
-});
-
-base.onError((_ctx, error, event) => {
-  console.error(`[replay] error in ${event}:`, error);
+  onError(_ctx, error, event) {
+    console.error(`[replay] error in ${event}:`, error);
+  },
 });
 
 export const handleSendMsg = base.on('send-msg', {
@@ -93,8 +92,8 @@ export const handleSendCursor = base.on('send-cursor', {
   },
 });
 
-// A private reply to the caller only. Replay never records it, so no other
-// connection can read it back.
+// A private reply to the caller only. Replay records it under the caller's
+// resume token, so only a client that comes back from this connection reads it.
 export const handleSendPrivate = base.on('send-private', {
   input: SendMsg,
   run(ctx, payload) {

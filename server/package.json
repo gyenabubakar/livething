@@ -69,10 +69,6 @@
       "types": "./dist/tags/capability.d.ts",
       "import": "./dist/tags.js"
     },
-    "./intercepts": {
-      "types": "./dist/intercept/index.d.ts",
-      "import": "./dist/intercepts.js"
-    },
     "./plugins": {
       "types": "./dist/_define/plugins.d.ts",
       "import": "./dist/plugins.js"

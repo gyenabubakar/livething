@@ -63,7 +63,9 @@ describe('LiveThingError', () => {
     expect(err.code).toBe('forbidden');
     expect(err.detail).toEqual({ reason: 'nope' });
     expect(err.name).toBe('LiveThingError');
-    expect(err.message).toBe('LiveThingError: forbidden');
+    expect(err.message).toBe('forbidden');
+
+    expect(String(err)).toBe('LiveThingError: forbidden');
   });
 
   it('has a stack trace', () => {
@@ -517,7 +519,8 @@ describe('StreamAborted', () => {
     'not-found',
     'hibernation-wake',
     'unsubscribed',
-    'cursor-invalid',
+    'interrupted',
+    'taken-over',
     'aborted',
   ] as const;
 
@@ -726,7 +729,7 @@ describe('error() reserved-code guard', () => {
     expect(() => error('timeout')).toThrow(/reserved/);
     expect(() => error('disconnected')).toThrow(/reserved/);
     expect(() => error('dropped')).toThrow(/reserved/);
-    expect(() => error('defer-exhausted')).toThrow(/reserved/);
+    expect(() => error('not-a-member')).toThrow(/reserved/);
   });
 
   it('allows a non-reserved code', () => {

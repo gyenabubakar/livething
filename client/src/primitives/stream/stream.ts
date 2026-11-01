@@ -727,7 +727,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         },
 
         onClose(...args) {
-          const [code, reason, intentional, suspended] = args;
+          const [, , intentional, suspended] = args;
           for (const trigger of triggers.values()) {
             if (trigger.timer) clearTimeout(trigger.timer);
             helpers.lazyRelease();
@@ -754,11 +754,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             // actually reconnect; otherwise the reconnect that would revive its queue
             // never comes, so finish it (the for-await loop throws Disconnected
             // instead of hanging forever).
-            if (
-              state.durable &&
-              !intentional &&
-              (suspended || helpers.willReconnect(code, reason))
-            ) {
+            if (state.durable && !intentional && (suspended || helpers.willReconnect())) {
               // Keep the stream for the reconnect window but release its hold. The
               // idempotent release means a second onClose (a failed first reconnect
               // attempt) can't double-release and corrupt the global lazy count.
@@ -775,7 +771,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
           // Keep each run's last seq across a drop that will reconnect: a reconnect
           // resends stored chunks, and onChunk must not see those twice.
-          if (intentional || !(suspended || helpers.willReconnect(code, reason))) {
+          if (intentional || !(suspended || helpers.willReconnect())) {
             broadcastRuns.clear();
           }
         },

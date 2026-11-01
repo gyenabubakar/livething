@@ -6,7 +6,6 @@ import type { Validator } from '~/types.ts';
 type StartOptionsParameter = {
   broadcast?: boolean;
   allowConcurrent?: boolean;
-  highWaterMark?: number;
 };
 
 /**
@@ -96,7 +95,7 @@ export function nudge(event: string, validator?: Validator): NudgeDeclaration {
  * The shape of a single nudge message, as received by the generator's `yield`
  * return value.
  */
-export interface NudgeMessage<TEvent extends string = string, TPayload = unknown> {
+interface NudgeMessage<TEvent extends string = string, TPayload = unknown> {
   /** The event name of this nudge. */
   readonly event: TEvent;
   /** The validated nudge payload. */
@@ -107,7 +106,7 @@ export interface NudgeMessage<TEvent extends string = string, TPayload = unknown
  * A tuple of all nudge messages that arrived since the last `yield`, typed
  * from the `TNudges` declaration tuple.
  */
-export type StreamNudgeMessages<TNudges extends readonly NudgeDeclaration[]> = readonly {
+type StreamNudgeMessages<TNudges extends readonly NudgeDeclaration[]> = readonly {
   [TIndex in keyof TNudges]: TNudges[TIndex] extends NudgeDeclaration<infer TEvent, infer TPayload>
     ? NudgeMessage<TEvent, TPayload>
     : never;
@@ -118,7 +117,7 @@ export type StreamNudgeMessages<TNudges extends readonly NudgeDeclaration[]> = r
  * `ctx.nudges(rawValue)` to deserialise and type the nudge messages that
  * arrived since the last yield.
  */
-export interface StreamNudgesApi<TNudges extends readonly NudgeDeclaration[]> {
+interface StreamNudgesApi<TNudges extends readonly NudgeDeclaration[]> {
   /**
    * Parse the raw value returned from a stream `yield` into typed nudge messages.
    *
@@ -163,11 +162,6 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
    * `stream-already-active`.
    */
   readonly allowConcurrent?: boolean;
-  /**
-   * Outbound backpressure limit in bytes. `ctx.stream.drain()` resolves once the
-   * connection's buffered amount is below this mark. Defaults to 256 KB.
-   */
-  readonly highWaterMark?: number;
 }
 
 /**
@@ -199,11 +193,6 @@ export interface StreamPrimitive<
    * rejected with `stream-already-active`.
    */
   readonly allowConcurrent: boolean;
-  /**
-   * Outbound backpressure limit in bytes used by `ctx.stream.drain()`. Undefined
-   * means the runtime default (256 KB) applies.
-   */
-  readonly highWaterMark?: number;
 }
 
 /** Extracts the payload type from a `StreamPrimitive`. */
@@ -267,7 +256,6 @@ export function stream<
 ): StreamPrimitive<TEvent, TPayload, TChunks, TNudges> {
   return {
     __livething: 'stream',
-    __kind: 'handler',
     __identity: [STREAM_KEY, startDeclaration.event],
     __requires: {},
     event: startDeclaration.event,
@@ -275,7 +263,6 @@ export function stream<
     nudges,
     broadcast: startDeclaration.broadcast ?? false,
     allowConcurrent: startDeclaration.allowConcurrent ?? false,
-    highWaterMark: startDeclaration.highWaterMark,
   };
 }
 
@@ -301,7 +288,6 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
 ): GeneratePrimitive<TStream, TBaseCtx, TNext> {
   return {
     __livething: 'stream-generate',
-    __kind: 'handler',
     __identity: [GENERATE_KEY, streamDeclaration.event],
     __requires: {},
     stream: streamDeclaration,
@@ -321,7 +307,7 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
 export function start<TEvent extends string>(
   name: TEvent,
   validator?: undefined,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean },
 ): StreamStartDeclaration<TEvent, unknown>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
@@ -334,7 +320,7 @@ export function start<TEvent extends string>(
 export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
   name: TEvent,
   validator: TSchema,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean },
 ): StreamStartDeclaration<TEvent, StandardSchemaV1.InferOutput<TSchema>>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
@@ -354,11 +340,5 @@ export function start(
     validator,
     broadcast: options?.broadcast,
     allowConcurrent: options?.allowConcurrent,
-    highWaterMark: options?.highWaterMark,
   };
 }
-
-/** Symbol key used to reference the stream primitive in dependency declarations. */
-stream.__key = STREAM_KEY;
-/** Symbol key used to reference the generate primitive in dependency declarations. */
-generate.__key = GENERATE_KEY;

@@ -1,21 +1,16 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { RateLimited } from '@livething/core';
-import { registerInterceptRuntime } from '~/intercept/capability.ts';
 import { intercept } from '~/intercept/intercept.ts';
+import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive } from '~/primitive.ts';
 import { connectionBudgetKey, RateLimitRuntime } from './runtime.ts';
 import type { ResolvedRateLimitPlan } from './runtime.ts';
 
 /**
- * Public configuration shape for `rateLimit:` on the contract and channels,
- * and for the per-handler `.rateLimit(event, config)` override.
- *
- * Same shape at every level so cascade works by partial override:
- * a channel's `{ max: 200 }` keeps the parent's `windowMs` and `per`.
+ * One rate-limit rule. Same shape at every level so cascade works by partial
+ * override: a channel's `{ max: 200 }` keeps the parent's `windowMs` and `per`.
  */
-export interface RateLimitConfig {
-  /** Switch the rule on or off at this scope/event. `false` disables and stops cascade. */
-  readonly enabled: boolean;
+interface RateLimitRule {
   /** Length of the rolling window, in milliseconds. Default: `60_000` (one minute). */
   readonly windowMs?: number;
   /** Maximum events per window. Default: `60`. */
@@ -29,6 +24,12 @@ export interface RateLimitConfig {
   readonly per?: (ctx: any) => string;
 }
 
+/**
+ * The `rateLimit` field on a channel or handler config. An object turns
+ * limiting on with that rule; `false` turns it off for that channel or handler.
+ */
+export type RateLimitConfig = false | RateLimitRule;
+
 export const RATE_LIMIT_DEFAULTS = Object.freeze({
   windowMs: 60_000,
   max: 60,
@@ -36,9 +37,6 @@ export const RATE_LIMIT_DEFAULTS = Object.freeze({
 });
 
 export interface RateLimitPrimitive extends Primitive<'intercept'> {}
-
-/** @internal */
-const RATE_LIMIT_KEY = Symbol('rate-limit');
 
 /**
  * Build the rate-limit primitive from a resolved cascade plan. The primitive
@@ -61,7 +59,11 @@ export function rateLimit(plan: ResolvedRateLimitPlan): RateLimitPrimitive {
     const verdict = runtime.check(ctx, message.event);
     if (verdict) throw RateLimited({ retryAfterMs: verdict.retryAfterMs });
   });
-  return { ...primitive, __setup: registerInterceptRuntime } as unknown as RateLimitPrimitive;
+  return {
+    ...primitive,
+    __chargedOnArrival: true,
+    __setup(engine: EngineAccess) {
+      engine.onConnectionCleanup((connectionId) => runtime.forgetConnection(connectionId));
+    },
+  } as unknown as RateLimitPrimitive;
 }
-
-rateLimit.__key = RATE_LIMIT_KEY;

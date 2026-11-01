@@ -1,12 +1,12 @@
 /* oxlint-disable no-unused-vars */
-import { t } from '~/_api/index.ts';
+import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox } from '~/inbox/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { expectTypeOf } from 'vitest';
-import type { InitContext, TaskContext } from '~/context.ts';
+import type { InitContext } from '~/context.ts';
 import { context } from './ambient-context.ts';
 
 const base = server({
@@ -39,12 +39,16 @@ plainCtx.send('pong', { ok: true });
 plainCtx.schedule;
 
 // task, init, shutdown, upgrade.
-expectTypeOf(context.task(base)).toEqualTypeOf<TaskContext<{ role: 'admin' }>>();
+expectTypeOf(context.task(base)).toEqualTypeOf(context.shutdown(base));
+expectTypeOf(context.task(base).connections.all()[0]!.meta.role).toEqualTypeOf<'admin'>();
+context.task(base).broadcast('ping', { n: 1 });
+// @ts-expect-error not an event this base emits
+context.task(base).broadcast('pong', { ok: true });
 // @ts-expect-error a task ctx has no connection, so no `user`
 context.task(base).user;
 expectTypeOf(context.init(base)).toEqualTypeOf<InitContext>();
 expectTypeOf(context.upgrade(base)).toEqualTypeOf<InitContext>();
-context.shutdown(base).closeAll();
+context.shutdown(base).closeConnections();
 
 // channel: params and events come from the channel itself.
 const roomsCtx = context.channel(rooms);
@@ -73,7 +77,7 @@ base.channel('gated', {
   },
 });
 
-// The lifecycle hooks (subscribe, unsubscribe, sessionEnd) have a channel's own handles. The gate
+// The lifecycle hooks (onSubscribe, onUnsubscribe, onSessionEnd) have a channel's own handles. The gate
 // hooks (check, commit, revalidate) do not, so their accessor must not promise them.
 const inboxChannel = base.channel('inboxed', { capabilities: [inbox()] });
 context.channelLifecycle(inboxChannel).channel.inbox;

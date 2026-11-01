@@ -5,10 +5,11 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { RawData, WebSocket } from 'ws';
 import { closeWebSocket } from './close.ts';
+import { sendWhenOpen } from './socket.ts';
 import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
 import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
 
-export function upgradeRejection(decision: UpgradeDecision): { body: string; status: number } {
+function upgradeRejection(decision: UpgradeDecision): { body: string; status: number } {
   const status =
     decision.code !== undefined && decision.code >= 400 && decision.code <= 599
       ? decision.code
@@ -181,7 +182,7 @@ async function writeHttpResponse(socket: Duplex, response: Response): Promise<vo
 
 function webSocketTransport(socket: WebSocket) {
   return {
-    send: (data: string) => socket.send(data),
+    send: (data: string) => sendWhenOpen(socket.readyState, () => socket.send(data)),
     close: (code?: number, reason?: string) => socket.close(code, reason),
     bufferedAmount: () => socket.bufferedAmount,
     backpressureSupported: true,

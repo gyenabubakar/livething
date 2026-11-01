@@ -13,8 +13,6 @@ const REQUEST_RUNTIME_KEY = Symbol('request-runtime');
 export const requestRuntimePrimitive = definePrimitive({
   tag: 'request-runtime',
   key: REQUEST_RUNTIME_KEY,
-  kind: 'infrastructure',
-  create: () => ({}),
   setup(engine) {
     engine.setRequestDispatch((runtime: any, _connection, options) =>
       handleRequest(

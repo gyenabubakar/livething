@@ -47,7 +47,7 @@ describe('lazy kv — reserved-key guard (kv namespace hardening)', () => {
     expect(kvImpl.delete).not.toHaveBeenCalled();
   });
 
-  it('genuine plugin writes go through the privileged kv (#11)', async () => {
+  it('genuine plugin writes go through the privileged kv', async () => {
     const { kv, kvImpl } = view();
     const privileged = (kv as any)[PRIVILEGED_KV];
     await privileged.set('__acme:store::count', 1);
@@ -482,7 +482,7 @@ describe('ctx.sql after a transaction callback that returned a promise', () => {
   });
 });
 
-describe('lazy kv — list isolation (#12)', () => {
+describe('lazy kv — list isolation', () => {
   it('app list() with no prefix filters out every plugin key', async () => {
     const { kv } = view(['count', '__acme:store::secret', 'session', 'a::b']);
     expect(await kv.list()).toEqual(['count', 'session']);

@@ -1,10 +1,4 @@
-import {
-  assertSynchronousResult,
-  CloseCodes,
-  isLiveThingConfigError,
-  LiveThingConfigError,
-  StreamAborted,
-} from '@livething/core';
+import { assertSynchronousResult, CloseCodes, StreamAborted } from '@livething/core';
 import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
 import { withCallContext, withConnectionLevelCall } from '~/_engine/async-context.ts';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
@@ -13,15 +7,13 @@ import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtim
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { scopePluginContext } from '~/plugin-scope.ts';
-import { isTranslatorConfigError, markTranslatorConfigError } from '~/translation/error.ts';
-import { TranslationInputError } from '~/translation/translator.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
-import type { Translator, TranslatorFactory } from '~/translation/translator.ts';
+import { releaseSubscribes } from './subscribe-order.ts';
 import { serializeWireFrame } from './wire-serialize.ts';
 import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
@@ -30,12 +22,13 @@ type RunConnectionLifecycleRuntimeParameter = {
   connectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
   disconnectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
   /**
-   * New-model plugin connect/disconnect hooks, in registration order. Inbound
+   * Plugin connect/disconnect hooks, in registration order. Inbound
    * (`connect`) runs these head-first before the app; outbound (`disconnect`)
    * runs the app first, then these in reverse (LIFO) — the onion. The
    * handlers are already wrapped in a plugin-scoped context.
    */
   pluginConnectHooks?: readonly {
+    pluginId: string;
     handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
   }[];
   pluginDisconnectHooks?: readonly {
@@ -51,7 +44,7 @@ type CancelActiveStreamsForConnectionRuntimeParameter = {
       connectionId: string;
       generator: AsyncGenerator<unknown, void, unknown>;
       closed: boolean;
-      onDisconnect?: EngineRuntimeTypes.OnDisconnect;
+      durable?: boolean;
       detached?: boolean;
       abortController?: AbortController;
     }
@@ -69,7 +62,7 @@ type HandleUpgradeRuntimeParameter = {
         tags?: readonly PublicApi.TagRef[];
       }>)[];
   /**
-   * New-model plugin `upgrade` hooks, in registration order. Run before the
+   * Plugin `upgrade` hooks, in registration order. Run before the
    * app's builder hook (inbound onion). Each may own `userId`, but the
    * single-owner rule below allows at most one user id source overall.
    */
@@ -138,6 +131,9 @@ export { userKeyOf } from '~/_engine/runtime/user-key.ts';
  * slot, and so the same connection is never asked to close twice.
  */
 const pendingEvictions = new WeakSet<EngineRuntimeTypes.RuntimeConnection>();
+
+/** The WebSocket `readyState` of an open socket. */
+const WEB_SOCKET_OPEN = 1;
 
 /**
  * Add one connection to the user-key fan-out index, creating its set if
@@ -210,7 +206,9 @@ function rollbackConnectionIndexes(
  * which routes through the adapter's hibernation API.
  */
 interface HibernatableWebSocket {
-  send?(data: string | ArrayBuffer | ArrayBufferView): void;
+  /** `1` while open. A platform that sets it lets the engine skip sends to a closed socket. */
+  readyState?: number;
+  send?(data: string | ArrayBuffer | ArrayBufferView): unknown;
   close?(code?: number, reason?: string): void;
 }
 
@@ -222,8 +220,6 @@ interface ConnectionRuntime {
 
   hibernationEnabled?: boolean;
 
-  translatorFactory?: TranslatorFactory;
-
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   /** User-key → members index, maintained on accept, close, and hibernation wake. */
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
@@ -233,12 +229,17 @@ interface ConnectionRuntime {
 
   generateId(prefix?: string): string;
 
+  /** Whether a replay capability is listed, so each connection gets a resume token. */
+  replayEnabled?(): boolean;
+
+  /** Take the next delivery seq, for the `__resume__` frame's starting cursor. */
+  allocateDeliverySeq?(): number | undefined;
+
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
   /**
-   * Persist immediately, bypassing an invocation scope's end-of-callback batch.
-   * Outbound translation needs this before bytes reach the socket so its state
-   * snapshot cannot fail after the client has received a translated frame.
+   * Persist immediately, bypassing an invocation scope's end-of-callback batch,
+   * so a failed write is seen before the caller moves on.
    */
   flushAttachment?(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
@@ -282,6 +283,13 @@ interface ConnectionRuntime {
     connection: EngineRuntimeTypes.RuntimeConnection,
     error: unknown,
     event?: string,
+  ): Promise<void>;
+
+  /** Report a plugin's `onConnect` failure, so that plugin's `onError` sees it. */
+  handlePluginConnectError?(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    error: unknown,
+    pluginId: string,
   ): Promise<void>;
 
   /** Report an error that the socket raised, not one that a handler threw. */
@@ -329,13 +337,10 @@ function createHandle(
     handleMessage: async (data) => {
       try {
         await waitForLifecycle();
-        const translated = translateInbound(runtime, connection, data);
-        if (translated === undefined) return;
+        if (connection.closing) return;
 
-        await runtime.processTextMessage(connection, translated);
+        await runtime.processTextMessage(connection, data);
       } catch (error) {
-        if (isTranslatorConfigError(error)) throw error;
-
         await reportCallbackError(error);
       }
     },
@@ -368,102 +373,6 @@ function closedHandle(): EngineAdapterTypes.ConnectionHandle {
   };
 }
 
-interface TranslationFailure {
-  runtime: Pick<ConnectionRuntime, 'logger'>;
-  descriptor: EngineAdapterTypes.ConnectionDescriptor;
-  connection?: EngineRuntimeTypes.RuntimeConnection;
-  stage: string;
-  error: unknown;
-  code?: number;
-}
-
-function closeForTranslationFailure(failure: TranslationFailure): void {
-  const {
-    runtime,
-    descriptor,
-    connection,
-    stage,
-    error,
-    code = CloseCodes.INTERNAL_ERROR,
-  } = failure;
-  if (connection) connection.closing = true;
-  runtime.logger?.error('[livething] translator failed', {
-    stage,
-    error: error instanceof Error ? error.message : String(error),
-  });
-  descriptor.close(code, '[livething] translator failed');
-}
-
-function rethrowTranslatorConfigError(
-  error: unknown,
-  descriptor: EngineAdapterTypes.ConnectionDescriptor,
-  connection?: EngineRuntimeTypes.RuntimeConnection,
-): void {
-  if (!isLiveThingConfigError(error)) return;
-
-  // A translator shape error is a developer configuration failure: close the
-  // affected connection, then rethrow so the host process can see the error.
-  markTranslatorConfigError(error);
-  if (connection?.closing) throw error;
-
-  if (connection) {
-    connection.closing = true;
-    connection.preserveStateOnClose = true;
-  }
-
-  descriptor.close(CloseCodes.INTERNAL_ERROR, '[livething] translator configuration failed');
-  throw error;
-}
-
-function assertTranslator(value: unknown): Translator {
-  if (!value || typeof value !== 'object' || typeof (value as Translator).inbound !== 'function') {
-    throw new LiveThingConfigError('translator factory did not return inbound(raw).');
-  }
-
-  const translator = value as Translator;
-  if (translator.outbound !== undefined && typeof translator.outbound !== 'function') {
-    throw new LiveThingConfigError('translator outbound must be a function when provided.');
-  }
-
-  if (
-    translator.hibernation !== undefined &&
-    (!translator.hibernation ||
-      typeof translator.hibernation !== 'object' ||
-      typeof translator.hibernation.serialize !== 'function' ||
-      typeof translator.hibernation.restore !== 'function')
-  ) {
-    throw new LiveThingConfigError(
-      'translator hibernation must provide both serialize() and restore().',
-    );
-  }
-
-  return translator;
-}
-
-function createTranslator(
-  runtime: Pick<ConnectionRuntime, 'translatorFactory' | 'logger'>,
-  descriptor: EngineAdapterTypes.ConnectionDescriptor,
-): Translator | null | undefined {
-  if (!runtime.translatorFactory) return undefined;
-
-  try {
-    return assertTranslator(
-      assertSynchronousResult(runtime.translatorFactory(), 'translator factory'),
-    );
-  } catch (error) {
-    rethrowTranslatorConfigError(error, descriptor);
-    closeForTranslationFailure({ runtime, descriptor, stage: 'factory', error });
-    return null;
-  }
-}
-
-interface TranslatedDescriptorOptions {
-  runtime: ConnectionRuntime;
-  descriptor: EngineAdapterTypes.ConnectionDescriptor;
-  translator: Translator | undefined;
-  getConnection: () => EngineRuntimeTypes.RuntimeConnection | undefined;
-}
-
 interface RestoreWakeIndexesInput {
   runtime: ConnectionRuntime;
   connection: EngineRuntimeTypes.RuntimeConnection;
@@ -471,109 +380,8 @@ interface RestoreWakeIndexesInput {
   restoredStreamIds: readonly string[];
 }
 
-function translatedDescriptor(
-  options: TranslatedDescriptorOptions,
-): EngineAdapterTypes.ConnectionDescriptor {
-  const { runtime, descriptor, translator, getConnection } = options;
-  if (!translator) return descriptor;
-
-  const translated: EngineAdapterTypes.ConnectionDescriptor = {
-    send(data) {
-      if (getConnection()?.closing) return false;
-
-      let outgoing = data;
-      if (translator.outbound) {
-        try {
-          const translated = assertSynchronousResult(
-            translator.outbound(data),
-            'translator.outbound',
-          );
-          if (translated !== null && typeof translated !== 'string') {
-            throw new Error('[livething] translator outbound must return a string or null.');
-          }
-
-          if (translated !== null) outgoing = translated;
-        } catch (error) {
-          const connection = getConnection();
-          rethrowTranslatorConfigError(error, descriptor, connection);
-          closeForTranslationFailure({ runtime, descriptor, connection, stage: 'outbound', error });
-          return false;
-        }
-      }
-
-      try {
-        const connection = getConnection();
-        if (connection) {
-          (runtime.flushAttachment ?? runtime.persistAttachment)(connection);
-          if (connection.closing) return false;
-        }
-      } catch (error) {
-        const connection = getConnection();
-        rethrowTranslatorConfigError(error, descriptor, connection);
-        closeForTranslationFailure({ runtime, descriptor, connection, stage: 'outbound', error });
-        return false;
-      }
-
-      return descriptor.send(outgoing);
-    },
-    close(code, reason) {
-      descriptor.close(code, reason);
-    },
-    bufferedAmount() {
-      return descriptor.bufferedAmount();
-    },
-    userId: descriptor.userId,
-  };
-
-  if (descriptor.backpressureSupported !== undefined) {
-    translated.backpressureSupported = descriptor.backpressureSupported;
-  }
-
-  if (descriptor.meta !== undefined) translated.meta = descriptor.meta;
-
-  if (descriptor.tags !== undefined) translated.tags = descriptor.tags;
-
-  return translated;
-}
-
-function translateInbound(
-  runtime: ConnectionRuntime,
-  connection: EngineRuntimeTypes.RuntimeConnection,
-  data: string,
-): string | undefined {
-  if (connection.closing) return undefined;
-
-  if (!connection.translator) return data;
-
-  try {
-    const translated = assertSynchronousResult(
-      connection.translator.inbound(data),
-      'translator.inbound',
-    );
-    if (translated !== null && typeof translated !== 'string') {
-      throw new Error('[livething] translator inbound must return a string or null.');
-    }
-
-    runtime.persistAttachment(connection);
-    if (connection.closing) return undefined;
-
-    return translated ?? data;
-  } catch (error) {
-    rethrowTranslatorConfigError(error, connection.descriptor, connection);
-    closeForTranslationFailure({
-      runtime,
-      descriptor: connection.descriptor,
-      connection,
-      stage: 'inbound',
-      error,
-      code:
-        error instanceof TranslationInputError
-          ? CloseCodes.PROTOCOL_ERROR
-          : CloseCodes.INTERNAL_ERROR,
-    });
-    return undefined;
-  }
-}
+/** The plugin whose `onConnect` threw, by that connect's ctx, so its `onError` gets the failure. */
+const connectFailureOwner = new WeakMap<object, string>();
 
 /**
  * Run connect/disconnect hooks for both the handler and installed plugins.
@@ -586,9 +394,14 @@ export async function runConnectionLifecycle(
   const connectionId = (ctx as { connection?: { id?: string } }).connection?.id ?? '';
   return withConnectionLevelCall(runtime.asyncContext, { connectionId, ctx }, async () => {
     if (kind === 'connect') {
-      // Inbound onion: new-model plugins see the connection before the app.
+      // Inbound onion: plugins see the connection before the app.
       for (const entry of runtime.pluginConnectHooks ?? []) {
-        await entry.handler(ctx);
+        try {
+          await entry.handler(ctx);
+        } catch (error) {
+          connectFailureOwner.set(ctx, entry.pluginId);
+          throw error;
+        }
       }
 
       for (const hook of runtime.connectHooks) {
@@ -611,9 +424,9 @@ export async function runConnectionLifecycle(
 /**
  * Stop and forget any active streams owned by a connection that is going away.
  *
- * Streams declared with `onDisconnect: 'keep-running'` are left alone — the
- * generator continues producing into storage and a later `__continueStream__` from
- * the same user (or any broadcast subscriber) catches up from the buffer.
+ * Recorded streams are left alone — the generator keeps producing into storage
+ * and a later `__continueStream__` from the same user (or any broadcast
+ * subscriber) catches up from the buffer.
  */
 export async function cancelActiveStreamsForConnection(
   runtime: CancelActiveStreamsForConnectionRuntimeParameter,
@@ -622,7 +435,7 @@ export async function cancelActiveStreamsForConnection(
   for (const activeStream of [...runtime.activeStreams.values()]) {
     if (activeStream.connectionId !== connectionId) continue;
 
-    if (activeStream.onDisconnect === 'keep-running') {
+    if (activeStream.durable) {
       activeStream.detached = true;
       continue;
     }
@@ -723,14 +536,14 @@ async function closeConnection(
   await runtime.cancelActiveStreamsForConnection(connection.id);
 
   connection.closing = true;
+  releaseSubscribes(connection);
   runtime.connections.delete(connection.id);
   removeConnectionFromUserIndex(runtime.usersByKey, connection);
   pendingEvictions.delete(connection);
+
   runtime.wsToConnectionId.delete(connection.wsKey);
 
-  if (!connection.preserveStateOnClose) {
-    runtime.deleteConnectionState?.(connection.id);
-  }
+  runtime.deleteConnectionState?.(connection.id);
 
   // Inject the WebSocket close code and reason onto the disconnect ctx
   // so user code can branch on graceful (1000) vs kick (4xxx) vs
@@ -769,7 +582,6 @@ async function closeConnection(
         channel: resolved,
         channelName: membership.channelName,
         channelFamily: membership.channelFamily,
-        kickedReason: undefined,
         // disconnect: socket-close path. Persistent channels keep their
         // durable rows so the user is auto-rejoined on next connect.
         disconnect: true,
@@ -789,11 +601,6 @@ async function closeConnection(
   if (connection.keepaliveTimer !== undefined) {
     clearTimeout(connection.keepaliveTimer as ReturnType<typeof setTimeout>);
     connection.keepaliveTimer = undefined;
-  }
-
-  if (connection.deferTimers) {
-    for (const timer of connection.deferTimers) clearTimeout(timer);
-    connection.deferTimers.clear();
   }
 
   for (const hook of runtime.connectionCleanupHooks ?? []) {
@@ -825,16 +632,13 @@ export function acceptConnection(
     },
   });
 
-  assertUsableUserId(normalizedDescriptor.userId);
-
-  const translator = createTranslator(runtime, normalizedDescriptor);
-  if (translator === null) return closedHandle();
+  assertUsableUserId(descriptor.userId);
 
   // A per-user connection cap only applies to identified users — an anonymous
   // connection has no user identity to count against.
   const usersPolicy = runtime.compiled.usersPolicy;
-  if (usersPolicy?.maxConnections !== undefined && normalizedDescriptor.userId) {
-    const existing = runtime.usersByKey.get(normalizedDescriptor.userId);
+  if (usersPolicy?.maxConnections !== undefined && descriptor.userId) {
+    const existing = runtime.usersByKey.get(descriptor.userId);
     const held = existing?.size ?? 0;
     if (held >= usersPolicy.maxConnections) {
       if (usersPolicy.onExceed === 'reject') {
@@ -865,16 +669,11 @@ export function acceptConnection(
 
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
-    userId: normalizedDescriptor.userId,
+    userId: descriptor.userId,
     wsKey,
-    descriptor: translatedDescriptor({
-      runtime,
-      descriptor: normalizedDescriptor,
-      translator,
-      getConnection: () => connection,
-    }),
-    meta: normalizedDescriptor.meta ?? {},
-    ...(translator ? { translator } : {}),
+    descriptor: normalizedDescriptor,
+    meta: descriptor.meta ?? {},
+    ...(runtime.replayEnabled?.() ? { resumeToken: crypto.randomUUID() } : {}),
 
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships: new Map(),
@@ -883,7 +682,7 @@ export function acceptConnection(
     quality: 'good',
   };
 
-  for (const ref of normalizedDescriptor.tags ?? []) {
+  for (const ref of descriptor.tags ?? []) {
     if (ref.kind !== 'ephemeral') continue;
 
     addConnectionTag(runtime.tagMembers, connection, {
@@ -902,6 +701,18 @@ export function acceptConnection(
   // flush after the hook resolves.
   try {
     runtime.persistAttachment(connection);
+    if (connection.resumeToken && !connection.closing) {
+      // A fresh seq sits after every frame sent so far and before every later
+      // one, so a client that saw no frame yet still has a cursor to catch up from.
+      const seq = runtime.allocateDeliverySeq?.();
+      connection.descriptor.send(
+        serializeWireFrame('__resume__', {
+          token: connection.resumeToken,
+          ...(seq === undefined ? {} : { seq }),
+        }),
+      );
+    }
+
     if (connection.closing) {
       rollbackConnectionIndexes(runtime, connection);
       runtime.deleteConnectionState?.(connection.id);
@@ -938,7 +749,12 @@ export function acceptConnection(
     : runtime.runConnectionLifecycle('connect', ctx);
 
   connection.lifecycleReady = lifecyclePromise
-    .catch((error) => runtime.handleRuntimeError(connection, error, undefined))
+    .catch((error) => {
+      const pluginId = connectFailureOwner.get(ctx);
+      return pluginId && runtime.handlePluginConnectError
+        ? runtime.handlePluginConnectError(connection, error, pluginId)
+        : runtime.handleRuntimeError(connection, error, undefined);
+    })
     .finally(() => {
       // Flush the buffered state once, even if onConnect threw — the
       // current in-memory state is what the row should reflect.
@@ -998,7 +814,7 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
       (runtime.flushAttachment ?? runtime.persistAttachment)(connection);
       if (connection.closing) {
         rollbackConnectionIndexes(runtime, connection);
-        if (!connection.preserveStateOnClose) runtime.deleteConnectionState?.(connection.id);
+        runtime.deleteConnectionState?.(connection.id);
         return false;
       }
     }
@@ -1006,7 +822,7 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
     return true;
   } catch (error) {
     rollbackConnectionIndexes(runtime, connection);
-    if (!connection.preserveStateOnClose) runtime.deleteConnectionState?.(connection.id);
+    runtime.deleteConnectionState?.(connection.id);
     throw error;
   }
 }
@@ -1068,12 +884,6 @@ export function wakeHibernatedConnection(
     throw new Error(`[livething] hibernation restore found duplicate connection id "${id}".`);
   }
 
-  const ephemeralRefs: PublicApi.TagRef[] = (row?.ephemeral_tags ?? []).map((t) => ({
-    __livething: 'tag-ref' as const,
-    kind: 'ephemeral' as const,
-    group: t.group,
-    key: t.key,
-  }));
   // Both filled after the connection is created so the add* helpers can also
   // repopulate the engine-wide channel and tag member indexes.
   const channelMemberships = new Map<
@@ -1082,14 +892,16 @@ export function wakeHibernatedConnection(
   >();
   const restoredStreamIds = row?.active_stream_ids ?? [];
 
-  const rawDescriptor = normalizeConnectionDescriptor(
+  const descriptor = normalizeConnectionDescriptor(
     {
-      send: (data) => wsLike.send?.(data),
+      // Some platforms (workerd) throw on send() after close; refuse the frame instead.
+      send: (data) => {
+        if (wsLike.readyState !== undefined && wsLike.readyState !== WEB_SOCKET_OPEN) return false;
+
+        return wsLike.send?.(data) !== false;
+      },
       close: (code, reason) => wsLike.close?.(code, reason),
       bufferedAmount: () => 0,
-      userId,
-      meta,
-      tags: ephemeralRefs,
     },
     {
       onInvalidCloseCode: (code) => {
@@ -1102,44 +914,15 @@ export function wakeHibernatedConnection(
       },
     },
   );
-  const translator = createTranslator(runtime, rawDescriptor);
-  if (translator === null) {
-    if (row) runtime.deleteConnectionState?.(row.connection_id);
-    return closedHandle();
-  }
-
-  const translatorHibernation = translator?.hibernation;
-  if (translatorHibernation) {
-    try {
-      assertSynchronousResult(
-        translatorHibernation.restore(row?.translator_state),
-        'translator.hibernation.restore',
-      );
-    } catch (error) {
-      rethrowTranslatorConfigError(error, rawDescriptor);
-      closeForTranslationFailure({
-        runtime,
-        descriptor: rawDescriptor,
-        stage: 'restore',
-        error,
-      });
-      if (row) runtime.deleteConnectionState?.(row.connection_id);
-      return closedHandle();
-    }
-  }
-
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id,
     userId,
     wsKey,
-    descriptor: translatedDescriptor({
-      runtime,
-      descriptor: rawDescriptor,
-      translator,
-      getConnection: () => connection,
-    }),
+    descriptor,
     meta,
-    ...(translator ? { translator } : {}),
+    ...(typeof row?.metadata?.resumeToken === 'string'
+      ? { resumeToken: row.metadata.resumeToken }
+      : {}),
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships,
     ...(restoredStreamIds.length > 0 ? { activeStreamIds: new Set(restoredStreamIds) } : {}),
@@ -1330,19 +1113,19 @@ export async function handleShutdown(
     activeStreams?: ReadonlyMap<string, { abortController?: AbortController }>;
     shutdownHooks: readonly ((ctx: unknown) => void | Promise<void>)[];
     /**
-     * New-model plugin shutdown hooks, in registration order. Run after the
+     * Plugin shutdown hooks, in registration order. Run after the
      * app's, in reverse (LIFO) — the outbound onion. Already scoped.
      */
     pluginShutdownHooks?: readonly { handler: (ctx: unknown) => void | Promise<void> }[];
-    createShutdownContext(): unknown;
+    createContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
     logger?: Pick<PublicApi.Logger, 'error'>;
     asyncContext?: EngineAsyncContext;
   },
 ): Promise<void> {
-  // Fire every active stream's stop signal up front — including detached
-  // keep-running streams that the per-connection close below leaves alone — so
+  // Fire every active stream's stop signal up front — including recorded
+  // streams that the per-connection close below leaves alone — so
   // in-flight awaited work tied to ctx.stream.signal stops as the server goes
   // away. Idempotent: the per-connection close re-checks before aborting.
   if (runtime.activeStreams) {
@@ -1358,7 +1141,7 @@ export async function handleShutdown(
   // with logging; cleanup below always runs.
   for (const hook of runtime.shutdownHooks) {
     try {
-      const ctx = runtime.createShutdownContext();
+      const ctx = runtime.createContext();
       await withCallContext(runtime.asyncContext, { kind: 'shutdown', getCtx: () => ctx }, () =>
         hook(ctx),
       );
@@ -1369,11 +1152,11 @@ export async function handleShutdown(
     }
   }
 
-  // Outbound onion: new-model plugins unwind after the app, LIFO.
+  // Outbound onion: plugins unwind after the app, LIFO.
   const pluginShutdowns = runtime.pluginShutdownHooks ?? [];
   for (let i = pluginShutdowns.length - 1; i >= 0; i -= 1) {
     try {
-      const ctx = runtime.createShutdownContext();
+      const ctx = runtime.createContext();
       await withCallContext(runtime.asyncContext, { kind: 'shutdown', getCtx: () => ctx }, () =>
         pluginShutdowns[i]!.handler(ctx),
       );

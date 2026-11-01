@@ -15,9 +15,7 @@ import type { LastSeenOptions, ResolvedLastSeenOptions } from '~/last-seen/types
 import type { Primitive } from '~/primitive.ts';
 
 /** The primitive type produced by the `lastSeen()` capability. */
-export interface LastSeenPrimitive extends Primitive<'last-seen'> {
-  readonly options: ResolvedLastSeenOptions;
-}
+export interface LastSeenPrimitive extends Primitive<'last-seen'> {}
 
 /** @internal */
 const LAST_SEEN_KEY = Symbol('last-seen');
@@ -41,7 +39,7 @@ function resolveLastSeenOptions(config: LastSeenOptions): ResolvedLastSeenOption
  * Track each user's last-seen timestamp in a durable table. Stamps on
  * connect and disconnect; in `activity` mode it also stamps on each real inbound
  * message — protocol frames and app events, but not transport keepalive pings —
- * throttled per user. Exposes `ctx.lastSeen` (`at` / `atMany` / `online`) and
+ * throttled per user. Exposes `ctx.lastSeen` (`at` / `atMany`) and
  * fills the engine's `lastSeenService` slot so inbox backlog can read it without
  * importing this module.
  *
@@ -52,10 +50,8 @@ export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
 
   return {
     __livething: 'last-seen',
-    __kind: 'infrastructure',
     __identity: [LAST_SEEN_KEY],
     __requires: {},
-    options,
     __setup(engine) {
       engine.installOnce(LAST_SEEN_KEY, () => {
         engine.setLastSeenService(buildLastSeenService(engine));
@@ -81,19 +77,16 @@ export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
   };
 }
 
-/** Build the engine's `lastSeenService` slot: a durable read plus an in-memory online check. */
+/** Build the engine's `lastSeenService` slot: a durable read. */
 function buildLastSeenService(engine: EngineAccess): LastSeenService {
   return {
     at(userId: string): number | null {
       return readLastSeen(engine.storage.sql, userId);
     },
-    online(userId: string): boolean {
-      return engine.isUserOnline(userId);
-    },
   };
 }
 
-/** Build the `ctx.lastSeen` surface (at / atMany / online). */
+/** Build the `ctx.lastSeen` surface (at / atMany). */
 function buildLastSeenContext(engine: EngineAccess) {
   return (): Record<string, unknown> => ({
     lastSeen: {
@@ -103,35 +96,34 @@ function buildLastSeenContext(engine: EngineAccess) {
       atMany(userIds: string[]): Map<string, number> {
         return readLastSeenMany(engine.storage.sql, userIds);
       },
-      online(userId: string): boolean {
-        return engine.isUserOnline(userId);
-      },
     },
   });
 }
 
-/** Stamp the connection's user, reading it off the internal connection marker. */
-function stampFromContext(engine: EngineAccess, ctx: unknown): void {
-  const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
-    ENGINE_INTERNAL_CONNECTION
-  ];
-  const userId = connection?.userId ?? '';
-  if (!userId) return;
+function connectionFromContext(ctx: unknown): RuntimeConnection | undefined {
+  return (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[ENGINE_INTERNAL_CONNECTION];
+}
 
-  stampLastSeen(engine.storage.sql, { userId, now: Date.now() });
+/** Stamp the connection's user, unless that user was purged. */
+function stampFromContext(engine: EngineAccess, ctx: unknown): void {
+  const connection = connectionFromContext(ctx);
+  if (!connection?.userId || connection.purged || engine.isUserPurging?.(connection.userId)) return;
+
+  stampLastSeen(engine.storage.sql, { userId: connection.userId, now: Date.now() });
 }
 
 /**
  * Stamp on a real inbound message, at most once per `throttleMs` per user.
  * Uses message activity, not connection activity, so a keepalive ping on an
- * otherwise-idle connection does not keep bumping the mark. The per-user
- * last-stamp map lives in this closure for the engine's lifetime.
+ * otherwise-idle connection does not keep bumping the mark. A user's entry in
+ * the last-stamp map is dropped when their last connection on this instance
+ * closes, so the map only holds users who are online here.
  */
 function registerActivityStamp(engine: EngineAccess, throttleMs: number): void {
   const lastStampByUserId = new Map<string, number>();
   engine.onMessageActivity((connectionId) => {
     const userId = engine.getConnectionIdentity(connectionId);
-    if (!userId) return;
+    if (!userId || engine.isUserPurging?.(userId)) return;
 
     const now = Date.now();
     const previous = lastStampByUserId.get(userId);
@@ -140,7 +132,10 @@ function registerActivityStamp(engine: EngineAccess, throttleMs: number): void {
     lastStampByUserId.set(userId, now);
     stampLastSeen(engine.storage.sql, { userId, now });
   });
+  // Disconnect hooks run after the closed connection has left the user index,
+  // so isUserOnline() is false here only when that was the user's last one.
+  engine.onDisconnect((ctx) => {
+    const userId = connectionFromContext(ctx)?.userId;
+    if (userId && !engine.isUserOnline(userId)) lastStampByUserId.delete(userId);
+  });
 }
-
-/** Symbol identity for dependency declarations. */
-lastSeen.__key = LAST_SEEN_KEY;

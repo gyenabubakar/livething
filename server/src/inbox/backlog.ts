@@ -41,7 +41,7 @@ export function loadInboxBacklog(
           ON receipts.channel_name = inbox.channel_name
           AND receipts.channel_family = inbox.channel_family
           AND receipts.user_id = inbox.user_id
-        WHERE inbox.channel_name = ? AND inbox.channel_family = ? AND inbox.delivered_at IS NULL
+        WHERE inbox.channel_name = ? AND inbox.channel_family = ?
         GROUP BY inbox.user_id
         ORDER BY inbox.user_id ASC
       `,

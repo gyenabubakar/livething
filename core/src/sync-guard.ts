@@ -3,7 +3,7 @@
  * when a validator returns a Promise but only sync validators are supported.
  *
  * This is a developer mistake, not a runtime input failure, so the engine
- * lets it propagate up rather than routing it through `onValidationError`.
+ * lets it propagate up rather than routing it through `onError`.
  */
 export class LiveThingConfigError extends Error {
   readonly __livethingConfig = true as const;
@@ -29,7 +29,7 @@ export function isLiveThingConfigError(error: unknown): error is LiveThingConfig
  *
  * Use this at the start of every `catch` block that wraps validator calls or
  * the inbound dispatch pipeline. Config errors must always propagate to the
- * caller; routing them through `onValidationError` or `onError` would suppress
+ * caller; routing them through `onError` would suppress
  * the developer-facing signal that something is misconfigured.
  */
 export function rethrowIfConfigError(error: unknown): void {

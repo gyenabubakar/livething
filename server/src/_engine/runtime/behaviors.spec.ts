@@ -3,10 +3,10 @@ import { Block, LiveThingError } from '@livething/core';
 import { handleUpgrade, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
-import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
+import { Disconnect, RejectUpgrade } from '~/errors/errors.ts';
 import { cancelStream } from '~/stream/runtime.ts';
 import * as v from 'valibot';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
@@ -21,7 +21,6 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -45,7 +44,6 @@ function baseCompiled() {
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
     channels: new Map(),
@@ -66,8 +64,6 @@ function baseDispatchRuntime(
     protocolHandlers: new Map(),
     incomingHooks: [],
     outgoingHooks: [],
-    beforeSendHooks: [],
-    afterSendHooks: [],
     errorHooks: [],
     logger: { warn: vi.fn(), error: vi.fn() },
     generateId() {
@@ -99,7 +95,6 @@ function baseDispatchRuntime(
     sendReplay() {},
     persistAttachment() {},
     async handleRuntimeError() {},
-    async handleValidationError() {},
     async handleSubscribe() {},
     async handleUnsubscribe() {},
     streamCancel: cancelStream,
@@ -355,186 +350,26 @@ describe('handleUpgrade', () => {
   });
 });
 
-describe('defer retry behavior', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('re-enqueues handler on Defer and stops when the handler succeeds', async () => {
-    const connection = createConnection();
-    let attempts = 0;
-    const handler = vi.fn(async () => {
-      attempts += 1;
-      if (attempts === 1) throw Defer(10);
-    });
-
-    const errors: unknown[] = [];
-    const runtime = baseDispatchRuntime({
-      compiled: {
-        ...baseCompiled(),
-        incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
-      } as any,
-      connections: new Map([[connection.id, connection]]),
-      async handleRuntimeError(_c, error) {
-        errors.push(error);
-      },
-    });
-
-    await dispatchIncoming(runtime, connection, {
-      event: 'work',
-      payload: {},
-      livething: undefined,
-    });
-    expect(handler).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(10);
-
-    expect(handler).toHaveBeenCalledTimes(2);
-    expect(errors).toEqual([]);
-  });
-
-  it('fires DeferExhausted through onError hooks after 3 retries, without sending to client', async () => {
-    const connection = createConnection();
-    const handler = vi.fn(async () => {
-      throw Defer(1);
-    });
-
-    const errors: any[] = [];
-    const runtime = baseDispatchRuntime({
-      compiled: {
-        ...baseCompiled(),
-        incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
-      } as any,
-      connections: new Map([[connection.id, connection]]),
-      errorHooks: [
-        async (_ctx: unknown, error: unknown) => {
-          errors.push(error);
-        },
-      ],
-    });
-
-    await dispatchIncoming(runtime, connection, {
-      event: 'work',
-      payload: { id: 1 },
-      livething: undefined,
-    });
-    for (let i = 0; i < 5; i++) {
-      await vi.advanceTimersByTimeAsync(1);
-    }
-
-    expect(handler).toHaveBeenCalledTimes(4);
-    expect(errors).toHaveLength(1);
-    const err = errors[0];
-    expect(err.code).toBe('defer-exhausted');
-    expect(err.detail).toMatchObject({ event: 'work', payload: { id: 1 }, retries: 3 });
-  });
-
-  it('does not re-run the handler when the connection closed during the defer delay', async () => {
-    const connection = createConnection();
-    let attempts = 0;
-    const handler = vi.fn(async () => {
-      attempts += 1;
-      if (attempts === 1) throw Defer(10);
-    });
-
-    const runtime = baseDispatchRuntime({
-      compiled: {
-        ...baseCompiled(),
-        incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
-      } as any,
-      connections: new Map([[connection.id, connection]]),
-    });
-
-    await dispatchIncoming(runtime, connection, {
-      event: 'work',
-      payload: {},
-      livething: undefined,
-    });
-    expect(handler).toHaveBeenCalledTimes(1);
-
-    // Simulate the socket closing during the 10ms defer window: the close path
-    // sets `closing` and drops the connection from the live set.
-    connection.closing = true;
-    runtime.connections.delete(connection.id);
-
-    await vi.advanceTimersByTimeAsync(10);
-
-    // The retry must be a no-op — no side effects for a gone connection.
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not retry a Defer thrown from a request handler — surfaces it as an error', async () => {
-    // Defer re-queues the frame; a request would re-run and re-answer a
-    // correlation the client already settled. Only an on() handler may Defer, so
-    // a request-handler Defer runs once and routes to the error path
-    // (internal-error on the wire), never a retry.
-    const connection = createConnection();
-    const handler = vi.fn(async () => {
-      throw Defer(10);
-    });
-    const errors: any[] = [];
-    const runtime = baseDispatchRuntime({
-      compiled: {
-        ...baseCompiled(),
-        requests: new Map([['ask', { event: 'ask', handler, validator: undefined }]]),
-      } as any,
-      connections: new Map([[connection.id, connection]]),
-      requestDispatch: async (_rt: any, _c: any, opts: any) => {
-        await opts.request.handler({ respond() {} }, opts.payload);
-      },
-      async handleRuntimeError(_c: any, opts: any) {
-        errors.push(opts);
-      },
-    } as any);
-
-    await dispatchIncoming(runtime, connection, {
-      event: 'ask',
-      payload: {},
-      livething: { correlationId: 'c1' } as any,
-    });
-    await vi.advanceTimersByTimeAsync(20);
-
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(errors).toHaveLength(1);
-    expect(errors[0].error.__livething).toBe('defer');
-  });
-
-  it('does not retry a Defer thrown from an intercept — surfaces it as an error', async () => {
-    // An intercept fires on every frame kind, so a Defer there could re-queue a
-    // request or stream frame. It runs once and routes to the error path.
+describe('closing connection', () => {
+  it('does not run the handler for a connection that is already closing', async () => {
     const connection = createConnection();
     const handler = vi.fn(async () => {});
-    let interceptCalls = 0;
-    const errors: any[] = [];
     const runtime = baseDispatchRuntime({
       compiled: {
         ...baseCompiled(),
         incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
       } as any,
       connections: new Map([[connection.id, connection]]),
-      runIntercepts: async () => {
-        interceptCalls += 1;
-        throw Defer(10);
-      },
-      async handleRuntimeError(_c: any, opts: any) {
-        errors.push(opts);
-      },
-    } as any);
+    });
+    connection.closing = true;
 
     await dispatchIncoming(runtime, connection, {
       event: 'work',
       payload: {},
       livething: undefined,
     });
-    await vi.advanceTimersByTimeAsync(20);
 
-    expect(interceptCalls).toBe(1);
     expect(handler).not.toHaveBeenCalled();
-    expect(errors[0].error.__livething).toBe('defer');
   });
 });
 
@@ -753,14 +588,13 @@ describe('Block at dispatch', () => {
     expect(events).toEqual(['incoming:start', 'stream:start', 'incoming:end']);
   });
 
-  it('silently swallows Block — no onError, no validation error', async () => {
+  it('silently swallows Block — no onError', async () => {
     const connection = createConnection();
     const handler = vi.fn(async () => {
       throw Block;
     });
 
     const runtimeError = vi.fn();
-    const validationError = vi.fn();
     const runtime = baseDispatchRuntime({
       compiled: {
         ...baseCompiled(),
@@ -768,7 +602,6 @@ describe('Block at dispatch', () => {
       } as any,
       connections: new Map([[connection.id, connection]]),
       handleRuntimeError: runtimeError,
-      handleValidationError: validationError,
     });
 
     await dispatchIncoming(runtime, connection, {
@@ -779,7 +612,6 @@ describe('Block at dispatch', () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(runtimeError).not.toHaveBeenCalled();
-    expect(validationError).not.toHaveBeenCalled();
   });
 });
 
@@ -1175,36 +1007,5 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
     const connection = runtime.connections.get('hib_2');
     expect(connection).toBeDefined();
     expect(connection!.channelMemberships.size).toBe(0);
-  });
-});
-
-describe('onAfterSend async rejection', () => {
-  it('logs errors from an after-send hook that returns a rejecting promise', async () => {
-    const { sendThroughPipeline } = await import('~/outgoing/runtime.ts');
-
-    const connection = createConnection();
-    const error = vi.fn();
-
-    sendThroughPipeline(
-      {
-        compiled: {
-          ...baseCompiled(),
-          outgoing: new Map([['tick', { event: 'tick' }]]),
-        } as any,
-        outgoingHooks: [],
-        beforeSendHooks: [],
-        livethingStampHooks: [],
-        afterSendHooks: [() => Promise.reject(new Error('persist failed'))],
-        logger: { warn: vi.fn(), error },
-        generateId() {
-          return 'id_1';
-        },
-      },
-      connection,
-      { routing: undefined, event: 'tick', payload: { n: 1 } },
-    );
-
-    await Promise.resolve();
-    expect(error).toHaveBeenCalledWith('[livething] after-send hook failed', expect.any(Object));
   });
 });

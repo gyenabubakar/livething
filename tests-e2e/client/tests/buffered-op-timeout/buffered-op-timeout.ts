@@ -22,7 +22,7 @@ export function setup(): void {
     connect(wsUrl('persistence')),
     clientRequests(),
     reconnection(),
-    buffering({ enabled: true }),
+    buffering(),
   );
 
   socket.state.subscribe(() => {

@@ -4,11 +4,7 @@
 	let username = $state('testuser');
 	let echoResult = $state('');
 	let blockReply = $state('');
-	let deferResult = $state('');
-	let deferExhausted = $state('');
 	let validationError = $state('');
-	let chatSubscribed = $state(false);
-	let streamError = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -40,38 +36,15 @@
 					blockReply = `leaked:${data.payload?.leaked}`;
 					break;
 
-				case 'defer-result':
-					deferResult = 'deferred-received';
-					break;
-
-				case 'defer-exhausted-result':
-					deferExhausted = `${data.payload?.event}:retries=${data.payload?.retries}`;
-					break;
-
 				case 'validation-error-fired':
 					validationError = `validation-error:${data.payload?.event}`;
-					break;
-
-				case '__subscribeOk__':
-					chatSubscribed = true;
-					break;
-
-				case '__error__':
-					if (data.metadata?.stream?.id) {
-						streamError = `${data.payload.code}:${data.metadata.stream?.id}`;
-					}
-
 					break;
 			}
 		};
 	}
 
-	function send(
-		event: string,
-		payload: Record<string, unknown> | null = null,
-		metadata?: { channel?: { name: string; family?: string } },
-	) {
-		ws?.send(window.__livethingEncode(metadata ? { event, payload, metadata } : { event, payload }));
+	function send(event: string, payload: Record<string, unknown> | null = null) {
+		ws?.send(window.__livethingEncode({ event, payload }));
 	}
 </script>
 
@@ -81,8 +54,6 @@
 
 <button data-testid="do-echo" onclick={() => send('do-echo', { text: 'alive' })}>Do echo</button>
 <button data-testid="block-test" onclick={() => send('block-test', {})}>Block test</button>
-<button data-testid="defer-test" onclick={() => send('defer-test', {})}>Defer test</button>
-<button data-testid="always-defer" onclick={() => send('always-defer', {})}>Always defer</button>
 <button data-testid="manual-validation" onclick={() => send('manual-validation', {})}>
 	Manual validation failed
 </button>
@@ -92,27 +63,8 @@
 <button data-testid="disconnect-intercept" onclick={() => send('disconnect-intercept', {})}>
 	Disconnect from intercept
 </button>
-<button
-	data-testid="subscribe-chat"
-	onclick={() => send('__subscribe__', null, { channel: { name: 'chat' } })}
->
-	Subscribe chat
-</button>
-<button
-	data-testid="chat-always-defer"
-	onclick={() => send('chat-always-defer', {}, { channel: { name: 'chat' } })}
->
-	Chat always defer
-</button>
-<button data-testid="start-defer-stream" onclick={() => send('start-defer-stream', {})}>
-	Start defer stream
-</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="echo-result">{echoResult}</span>
 <span data-testid="block-reply">{blockReply}</span>
-<span data-testid="defer-result">{deferResult}</span>
-<span data-testid="defer-exhausted">{deferExhausted}</span>
 <span data-testid="validation-error">{validationError}</span>
-<span data-testid="chat-subscribed">{chatSubscribed ? 'yes' : 'no'}</span>
-<span data-testid="stream-error">{streamError}</span>

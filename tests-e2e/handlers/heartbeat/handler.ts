@@ -16,21 +16,19 @@ const probe = server({
       'plugin-pong-seen': t<{ connectionId: string }>(),
     }),
   ],
-});
-
-probe.onPing((ctx) => {
-  ctx.send('plugin-ping-seen', { connectionId: ctx.connection.id });
-});
-
-probe.onPong((ctx) => {
-  ctx.send('plugin-pong-seen', { connectionId: ctx.connection.id });
+  onPing(ctx) {
+    ctx.send('plugin-ping-seen', { connectionId: ctx.connection.id });
+  },
+  onPong(ctx) {
+    ctx.send('plugin-pong-seen', { connectionId: ctx.connection.id });
+  },
 });
 
 const HeartbeatProbe = plugin('e2e:heartbeat', { definition: probe.assemble({ handlers: [] }) });
 
 /**
  * A server with no `keepalive()`. It proves the heartbeat hooks are free: the
- * engine answers a client ping on its own, and `base.onPing` / `base.onPong`
+ * engine answers a client ping on its own, and `onPing` / `onPong`
  * still fire with no capability listed. It never sends a ping of its own. The
  * listed plugin observes the same frames.
  */
@@ -43,14 +41,12 @@ const base = server({
       'pong-seen': t<{ connectionId: string }>(),
     }),
   ],
-});
-
-base.onPing((ctx) => {
-  ctx.send('ping-seen', { connectionId: ctx.connection.id });
-});
-
-base.onPong((ctx) => {
-  ctx.send('pong-seen', { connectionId: ctx.connection.id });
+  onPing(ctx) {
+    ctx.send('ping-seen', { connectionId: ctx.connection.id });
+  },
+  onPong(ctx) {
+    ctx.send('pong-seen', { connectionId: ctx.connection.id });
+  },
 });
 
 export const heartbeatDefinition = base.assemble({ handlers: [] });

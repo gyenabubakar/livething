@@ -16,7 +16,7 @@ import {
 } from '~/errors.ts';
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import type { ErrorDef, ErrorDefWithFactory } from '~/errors.ts';
+import type { ErrorDef, ErrorDefWithFactory, StreamAbortedReason } from '~/errors.ts';
 
 // ===========================================================================
 // 1. CloseCodes — frozen, correct values
@@ -226,16 +226,6 @@ if (ValidationFailed.matches(maybeVf)) {
 
 const _saCode: 'stream-aborted' = StreamAborted.code;
 void _saCode;
-
-type StreamAbortedReason =
-  | 'cancelled'
-  | 'buffer-full'
-  | 'expired'
-  | 'not-found'
-  | 'hibernation-wake'
-  | 'unsubscribed'
-  | 'cursor-invalid'
-  | 'aborted';
 
 const saErr = StreamAborted({ reason: 'hibernation-wake' });
 const _saErrCode: 'stream-aborted' = saErr.code;

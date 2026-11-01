@@ -1,3 +1,4 @@
+import { LiveThingConfigError } from '@livething/core';
 import {
   capabilityDisplayName,
   CHANNEL_ONLY_CAPABILITY_KINDS,
@@ -107,8 +108,8 @@ export function resolveCapabilityRequirements(
               : 'capabilities';
           }
 
-          throw new Error(
-            `[livething] The ${name} capability is required by ${neededBy(primitives, kind)} but is not listed. Add ${name} to ${where}.`,
+          throw new LiveThingConfigError(
+            `The ${name} capability is required by ${neededBy(primitives, kind)} but is not listed. Add ${name} to ${where}.`,
           );
         }
       }

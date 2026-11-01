@@ -2,7 +2,6 @@ import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
@@ -10,7 +9,7 @@ import { describe, expectTypeOf, it } from 'vitest';
 
 /**
  * Phase 5 — `ctx.stream.signal` is an `AbortSignal` in every stream run
- * generator: plain, cursor, recorded, and channel-scoped.
+ * generator: plain, recorded, and channel-scoped.
  */
 describe('ctx.stream.signal type', () => {
   it('is an AbortSignal in a plain stream run', () => {
@@ -20,21 +19,6 @@ describe('ctx.stream.signal type', () => {
       async *run(ctx) {
         expectTypeOf(ctx.stream.signal).toEqualTypeOf<AbortSignal>();
         yield { i: 1 };
-      },
-    });
-  });
-
-  it('is an AbortSignal in a cursor stream run (alongside cursor)', () => {
-    const base = server({
-      capabilities: [cursorStream()],
-    });
-    base.cursorStream('paginate', {
-      input: v.object({}),
-      cursor: t<{ row: number }>(),
-      async *run(ctx) {
-        expectTypeOf(ctx.stream.signal).toEqualTypeOf<AbortSignal>();
-        expectTypeOf(ctx.stream.cursor).toEqualTypeOf<{ row: number } | null>();
-        yield ctx.stream.withCursor({ row: 1 }, { row: 1 });
       },
     });
   });

@@ -134,7 +134,7 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
     platform: core.platform,
     getStorageView: commonDeps(core).getStorageView,
   });
-  // Inbound onion: new-model plugin inits run before the app's. Their
+  // Inbound onion: plugin inits run before the app's. Their
   // handlers are already wrapped in a plugin-scoped context.
   for (const entry of core.hooks.pluginLifecycle.init) {
     await withCallContext(core.asyncContext, { kind: 'init', getCtx: () => initCtx }, () =>

@@ -9,7 +9,7 @@ function sqlThatThrows(message: string) {
   };
 }
 
-describe('readSchemaState (#4)', () => {
+describe('readSchemaState', () => {
   it('reports a fresh database when the meta table is missing', () => {
     expect(readSchemaState(sqlThatThrows('no such table: __livething_meta'))).toEqual({
       fresh: true,

@@ -1,8 +1,9 @@
+import { LiveThingConfigError } from '@livething/core';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
 /** Options for `dedup()`. */
 export interface DedupOptions {
-  /** How long to keep remembering a message id after it was last seen, in ms. Default: `60_000`. */
+  /** How long to keep remembering a message id after it was last seen, in ms. Must be above 0. Default: `60_000`. */
   windowMs?: number;
 }
 
@@ -13,7 +14,12 @@ export interface DedupOptions {
  * without one always goes through.
  */
 export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
-  const windowMs = options.windowMs ?? 60_000;
+  const windowMs = options.windowMs === undefined ? 60_000 : options.windowMs;
+  if (!Number.isFinite(windowMs) || windowMs <= 0) {
+    throw new LiveThingConfigError(
+      `dedup windowMs must be a finite number of ms, above 0, got ${windowMs}.`,
+    );
+  }
 
   return {
     _tag: 'dedup',

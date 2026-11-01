@@ -7,7 +7,7 @@ const CREATE_MEMBERSHIPS_TABLE_SQL = `
     channel_name  TEXT NOT NULL,
     channel_family TEXT NOT NULL DEFAULT '',
     joined_at     INTEGER NOT NULL,
-    -- JSON blob { meta, kicked? }. New per-row fields go here without a migration.
+    -- JSON blob { meta }. New per-row fields go here without a migration.
     metadata      TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (user_id, channel_name, channel_family)
   )
@@ -44,14 +44,11 @@ const MEMBERSHIP_SCHEMA_SQL = /* @__PURE__ */ [
 export interface DurableMembership {
   channelName: string;
   channelFamily: string | null;
-
-  joinedAt: number;
 }
 
 type RawMembershipRow = {
   channel_name: string;
   channel_family: string;
-  joined_at: number;
 };
 
 /**
@@ -75,27 +72,16 @@ export interface MembershipInsert extends MembershipKey {
   meta?: Record<string, unknown>;
 }
 
-/**
- * The stored state of one membership row.
- *
- * `kicked` is `true` after a kick that did not revoke the membership: the user
- * left the group and peers saw them leave, but the row stays so they rejoin on
- * their next connection.
- */
+/** The stored state of one membership row. */
 export interface StoredMembership {
   meta: Record<string, unknown>;
-  kicked: boolean;
 }
 
 /**
  * Insert or replace a durable membership row. Called on a successful subscribe
- * to a persistent channel. Writing the row again clears the `kicked` state.
+ * to a persistent channel.
  */
-export function insertMembership(
-  sql: Pick<SQLProvider, 'exec'>,
-  row: MembershipInsert,
-  joinedAt: number = Date.now(),
-): void {
+export function insertMembership(sql: Pick<SQLProvider, 'exec'>, row: MembershipInsert): void {
   sql.exec(
     `
       INSERT OR REPLACE INTO __livething_channel_memberships
@@ -105,31 +91,14 @@ export function insertMembership(
     row.userId,
     row.channelName,
     familyToDb(row.channelFamily),
-    joinedAt,
+    Date.now(),
     serializeJsonOrThrow({ meta: row.meta ?? {} }, `Channel membership meta for "${row.userId}"`),
   );
 }
 
 /**
- * Mark a durable membership row as kicked. The row stays, so the user still
- * rejoins on their next connection, but the member roster no longer lists them.
- */
-export function markMembershipKicked(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): void {
-  sql.exec(
-    `
-      UPDATE __livething_channel_memberships
-      SET metadata = json_set(metadata, '$.kicked', json('true'))
-      WHERE user_id = ? AND channel_name = ? AND channel_family = ?
-    `,
-    key.userId,
-    key.channelName,
-    familyToDb(key.channelFamily),
-  );
-}
-
-/**
  * Delete a single durable membership row. Called on a true leave (client
- * `__unsubscribe__`, a revoking `kick`) of a persistent channel.
+ * `__unsubscribe__`, a `kick`) of a persistent channel.
  */
 export function deleteMembership(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): void {
   sql.exec(
@@ -154,7 +123,7 @@ export function listMembershipsByUser(
   const rows = sql
     .exec<RawMembershipRow>(
       `
-        SELECT channel_name, channel_family, joined_at
+        SELECT channel_name, channel_family
         FROM __livething_channel_memberships
         WHERE user_id = ?
       `,
@@ -164,7 +133,6 @@ export function listMembershipsByUser(
   return rows.map((row) => ({
     channelName: row.channel_name,
     channelFamily: familyFromDb(row.channel_family),
-    joinedAt: row.joined_at,
   }));
 }
 
@@ -191,7 +159,7 @@ export function listIdentitiesByChannel(
     .map((row) => row.user_id);
 }
 
-/** Read every durable member of one channel with its stored meta and kicked state. */
+/** Read every durable member of one channel with its stored meta. */
 export function listMembersByChannel(
   sql: Pick<SQLProvider, 'exec'>,
   channelName: string,
@@ -240,7 +208,7 @@ export function purgeMembershipsByUser(sql: Pick<SQLProvider, 'exec'>, userId: s
 
 /**
  * Delete every membership row for one channel. Used by boot-time cleanup
- * when a channel is removed or marked `membership: 'ephemeral'` between deploys.
+ * when a channel is removed or stops being `membership: 'persistent'` between deploys.
  */
 export function deleteMembershipsByChannel(
   sql: Pick<SQLProvider, 'exec'>,
@@ -287,7 +255,6 @@ function parseStoredMembership(raw: string): StoredMembership {
   const fields = isPlainObject(parsed) ? parsed : {};
   return {
     meta: isPlainObject(fields.meta) ? fields.meta : {},
-    kicked: fields.kicked === true,
   };
 }
 

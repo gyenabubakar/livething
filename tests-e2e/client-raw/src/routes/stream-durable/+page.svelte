@@ -6,13 +6,11 @@
 	let sinceInput = $state('0');
 	let tokenChunks = $state<number[]>([]);
 	let paginateRows = $state<number[]>([]);
-	let paginateBareRows = $state<number[]>([]);
 	let lastErrorCode = $state<string | null>(null);
 	let lastErrorReason = $state<string | null>(null);
 	let lastErrorStreamId = $state<string | null>(null);
 	let streamEndCount = $state(0);
 	let allMsgCount = $state(0);
-	let attemptValue = $state<number | null>(null);
 	let bufferChunkCount = $state(0);
 
 	function connect() {
@@ -46,10 +44,6 @@
 				tokenChunks = [...tokenChunks, data.payload.idx];
 			} else if (data.event === 'paginate' && typeof data.payload?.row === 'number') {
 				paginateRows = [...paginateRows, data.payload.row];
-			} else if (data.event === 'paginate-bare' && typeof data.payload?.row === 'number') {
-				paginateBareRows = [...paginateBareRows, data.payload.row];
-			} else if (data.event === 'attempt-stream' && typeof data.payload?.attempt === 'number') {
-				attemptValue = data.payload.attempt;
 			} else if (data.event === 'buffer-full-demo' && typeof data.payload?.n === 'number') {
 				bufferChunkCount += 1;
 			} else if (data.event === '__streamEnd__') {
@@ -84,18 +78,6 @@
 		paginateRows = [];
 		streamEndCount = 0;
 		send('paginate', {}, { stream: { id: streamIdInput } });
-	}
-
-	function startPaginateBare() {
-		paginateBareRows = [];
-		streamEndCount = 0;
-		send('paginate-bare', {}, { stream: { id: streamIdInput } });
-	}
-
-	function startAttemptStream() {
-		attemptValue = null;
-		streamEndCount = 0;
-		send('attempt-stream', {}, { stream: { id: streamIdInput } });
 	}
 
 	function startBufferFullDemo() {
@@ -133,8 +115,6 @@
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="start-count-tokens" onclick={startCountTokens}>Start count-tokens</button>
 <button data-testid="start-paginate" onclick={startPaginate}>Start paginate</button>
-<button data-testid="start-paginate-bare" onclick={startPaginateBare}>Start paginate-bare</button>
-<button data-testid="start-attempt" onclick={startAttemptStream}>Start attempt-stream</button>
 <button data-testid="start-buffer-full" onclick={startBufferFullDemo}>Start buffer-full-demo</button>
 <button data-testid="drop-socket" onclick={dropSocket}>Drop socket</button>
 <button data-testid="send-continue" onclick={sendContinue}>Send continue</button>
@@ -145,12 +125,9 @@
 <span data-testid="token-chunk-count">{tokenChunks.length}</span>
 <span data-testid="paginate-rows">{paginateRows.join(',')}</span>
 <span data-testid="paginate-row-count">{paginateRows.length}</span>
-<span data-testid="paginate-bare-rows">{paginateBareRows.join(',')}</span>
-<span data-testid="paginate-bare-row-count">{paginateBareRows.length}</span>
 <span data-testid="stream-end-count">{streamEndCount}</span>
 <span data-testid="last-error-code">{lastErrorCode ?? ''}</span>
 <span data-testid="last-error-reason">{lastErrorReason ?? ''}</span>
 <span data-testid="last-error-stream-id">{lastErrorStreamId ?? ''}</span>
 <span data-testid="all-msg-count">{allMsgCount}</span>
-<span data-testid="attempt-value">{attemptValue ?? ''}</span>
 <span data-testid="buffer-chunk-count">{bufferChunkCount}</span>

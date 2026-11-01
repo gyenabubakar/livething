@@ -64,7 +64,6 @@ describe('channels.kick end-to-end', () => {
       incoming: new Map(),
       requests: new Map(),
       streams: new Map(),
-      cursorStreams: new Map(),
       recordedStreams: new Map(),
       intercepts: [],
     };
@@ -124,7 +123,6 @@ describe('channels.kick end-to-end', () => {
       }: BroadcastToChannelOptions) {
         broadcasts.push({ channelName, event, payload, excludeConnectionId });
       },
-      async handleValidationError() {},
       isChannelDurable: () => false,
       persistMembership() {},
       deleteDurableMembership() {},
@@ -196,7 +194,6 @@ describe('channels.kick end-to-end', () => {
       incoming: new Map(),
       requests: new Map(),
       streams: new Map(),
-      cursorStreams: new Map(),
       recordedStreams: new Map(),
       intercepts: [],
     };
@@ -246,7 +243,6 @@ describe('channels.kick end-to-end', () => {
       persistAttachment() {},
       sendProtocolMessage() {},
       broadcastToChannel() {},
-      async handleValidationError() {},
       isChannelDurable: () => false,
       persistMembership() {},
       deleteDurableMembership() {},
@@ -345,14 +341,12 @@ describe('channels.kick end-to-end', () => {
       persistAttachment() {},
       sendProtocolMessage() {},
       broadcastToChannel() {},
-      async handleValidationError() {},
       isChannelDurable: (_key: string) => true,
       persistMembership() {},
       deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null) {
         deletedRows.push({ userId, channelName, channelFamily });
       },
-      getDurableMembership: () => ({ meta: {}, kicked: false }),
-      markDurableMembershipKicked() {},
+      getDurableMembership: () => ({ meta: {} }),
       listDurableMembers: () => [],
     };
 
@@ -372,7 +366,6 @@ describe('channels.kick end-to-end', () => {
         },
         reason: 'spam',
         channelFamily: 'room',
-        revoke: true,
       },
     );
 

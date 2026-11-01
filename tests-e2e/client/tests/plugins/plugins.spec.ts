@@ -13,14 +13,10 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('plugins (conformance)', () => {
-  test('the plugin-owned event arrives under its :: prefix with the outgoing hook stamp', async ({
-    page,
-  }, testInfo) => {
+  test('the plugin-owned event arrives under its :: prefix', async ({ page }, testInfo) => {
     await open(page, `plg-ready-${testInfo.testId}`);
-    // drizzle-ready is pushed on connect under __e2e:drizzle::, and the plugin's
-    // outgoing hook stamps hooked:true on it.
+    // drizzle-ready is pushed on connect under __e2e:drizzle::.
     await expect(page.getByTestId('drizzle-ready')).toHaveText('records');
-    await expect(page.getByTestId('drizzle-hooked')).toHaveText('yes');
   });
 
   test('a plugin hook acts on a typed frame', async ({ page }, testInfo) => {

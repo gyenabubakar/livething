@@ -1,8 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { scope } from '~/channel/channel.ts';
-import { channel } from '~/channel/definition.ts';
-import { incoming } from '~/incoming/definition.ts';
-import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { resolvePlan } from './plan.ts';
 import type { RateLimitConfig } from './rate-limit.ts';
@@ -13,7 +9,7 @@ describe('resolvePlan — cascade', () => {
   it('returns null when nothing is configured anywhere', () => {
     const plan = resolvePlan({
       contractRateLimit: undefined,
-      definitions: [],
+      channels: [],
       overrides: emptyOverrides,
     });
     expect(plan).toBeNull();
@@ -21,8 +17,8 @@ describe('resolvePlan — cascade', () => {
 
   it('attaches a rule to top when contract has rateLimit', () => {
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60 },
-      definitions: [],
+      contractRateLimit: { max: 60 },
+      channels: [],
       overrides: emptyOverrides,
     });
     expect(plan).not.toBeNull();
@@ -31,8 +27,8 @@ describe('resolvePlan — cascade', () => {
 
   it('inherits parent rule for scopes with no rateLimit', () => {
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60 },
-      definitions: [channel('ai', { definitions: [] })],
+      contractRateLimit: { max: 60 },
+      channels: [{ key: 'ai' }],
       overrides: emptyOverrides,
     });
     expect(plan!.scopeRules.get('channel:ai')?.id).toBe(plan!.scopeRules.get('top')?.id);
@@ -40,8 +36,8 @@ describe('resolvePlan — cascade', () => {
 
   it('partial override at a child scope keeps parent fields', () => {
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60, windowMs: 30_000 },
-      definitions: [channel('ai', { rateLimit: { enabled: true, max: 100 }, definitions: [] })],
+      contractRateLimit: { max: 60, windowMs: 30_000 },
+      channels: [{ key: 'ai', rateLimit: { max: 100 } }],
       overrides: emptyOverrides,
     });
     const chRule = plan!.scopeRules.get('channel:ai');
@@ -52,13 +48,8 @@ describe('resolvePlan — cascade', () => {
 
   it('disable at a child scope nulls that scope', () => {
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60 },
-      definitions: [
-        channel('public', {
-          rateLimit: { enabled: false },
-          definitions: [incoming('msg', v.object({}))],
-        }),
-      ],
+      contractRateLimit: { max: 60 },
+      channels: [{ key: 'public', rateLimit: false }],
       overrides: emptyOverrides,
     });
     expect(plan!.scopeRules.get('channel:public')).toBeNull();
@@ -66,40 +57,19 @@ describe('resolvePlan — cascade', () => {
 
   it('child can re-enable inside a disabled parent', () => {
     const plan = resolvePlan({
-      contractRateLimit: { enabled: false },
-      definitions: [
-        channel('strict', {
-          rateLimit: { enabled: true, max: 5 },
-          definitions: [],
-        }),
-      ],
+      contractRateLimit: false,
+      channels: [{ key: 'strict', rateLimit: { max: 5 } }],
       overrides: emptyOverrides,
     });
     expect(plan!.scopeRules.get('top')).toBeNull();
     expect(plan!.scopeRules.get('channel:strict')?.max).toBe(5);
   });
 
-  it('uses family key (not concrete name) for dynamic channels', () => {
-    const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60 },
-      definitions: [
-        channel(scope('rooms', 'room-{id}'), {
-          rateLimit: { enabled: true, max: 200 },
-          definitions: [],
-        }),
-      ],
-      overrides: emptyOverrides,
-    });
-    expect(plan!.scopeRules.get('channel:rooms')?.max).toBe(200);
-  });
-
   it('per-event override merges against the resolved scope rule', () => {
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60, windowMs: 30_000 },
-      definitions: [],
-      overrides: new Map([
-        ['top', new Map([['expensive', { enabled: true, max: 5 } as RateLimitConfig]])],
-      ]),
+      contractRateLimit: { max: 60, windowMs: 30_000 },
+      channels: [],
+      overrides: new Map([['top', new Map([['expensive', { max: 5 } as RateLimitConfig]])]]),
     });
     const override = plan!.eventOverrides.get('top')?.get('expensive');
     expect(override?.max).toBe(5);
@@ -109,24 +79,17 @@ describe('resolvePlan — cascade', () => {
 
   it('per-event override can disable for one event', () => {
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60 },
-      definitions: [],
-      overrides: new Map([
-        ['top', new Map([['public-ping', { enabled: false } as RateLimitConfig]])],
-      ]),
+      contractRateLimit: { max: 60 },
+      channels: [],
+      overrides: new Map([['top', new Map([['public-ping', false as RateLimitConfig]])]]),
     });
     expect(plan!.eventOverrides.get('top')?.get('public-ping')).toBeNull();
   });
 
-  it('uses the string as the scope key for static channels', () => {
+  it('keys a channel scope as channel:<key>', () => {
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60 },
-      definitions: [
-        channel('lobby', {
-          rateLimit: { enabled: true, max: 10 },
-          definitions: [],
-        }),
-      ],
+      contractRateLimit: { max: 60 },
+      channels: [{ key: 'lobby', rateLimit: { max: 10 } }],
       overrides: emptyOverrides,
     });
     expect(plan!.scopeRules.get('channel:lobby')?.max).toBe(10);
@@ -134,15 +97,10 @@ describe('resolvePlan — cascade', () => {
 
   it('per-event override under a channel scope merges against the channel rule', () => {
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60 },
-      definitions: [
-        channel('rooms', {
-          rateLimit: { enabled: true, max: 200 },
-          definitions: [],
-        }),
-      ],
+      contractRateLimit: { max: 60 },
+      channels: [{ key: 'rooms', rateLimit: { max: 200 } }],
       overrides: new Map([
-        ['channel:rooms', new Map([['expensive', { enabled: true, max: 5 } as RateLimitConfig]])],
+        ['channel:rooms', new Map([['expensive', { max: 5 } as RateLimitConfig]])],
       ]),
     });
     const override = plan!.eventOverrides.get('channel:rooms')?.get('expensive');
@@ -157,8 +115,8 @@ describe('resolvePlan — cascade', () => {
     }
 
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60, per: perByUserId },
-      definitions: [channel('ai', { rateLimit: { enabled: true, max: 100 }, definitions: [] })],
+      contractRateLimit: { max: 60, per: perByUserId },
+      channels: [{ key: 'ai', rateLimit: { max: 100 } }],
       overrides: emptyOverrides,
     });
     expect(plan!.scopeRules.get('channel:ai')?.per).toBe(perByUserId);
@@ -167,10 +125,8 @@ describe('resolvePlan — cascade', () => {
   it('emits a plan when only per-event overrides exist (no scope rules)', () => {
     const plan = resolvePlan({
       contractRateLimit: undefined,
-      definitions: [],
-      overrides: new Map([
-        ['top', new Map([['critical', { enabled: true, max: 1 } as RateLimitConfig]])],
-      ]),
+      channels: [],
+      overrides: new Map([['top', new Map([['critical', { max: 1 } as RateLimitConfig]])]]),
     });
     expect(plan).not.toBeNull();
     expect(plan!.eventOverrides.get('top')?.get('critical')?.max).toBe(1);

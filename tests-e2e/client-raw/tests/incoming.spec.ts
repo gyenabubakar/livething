@@ -32,7 +32,7 @@ test.describe('incoming', () => {
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     // Send a frame with invalid payload (text is number instead of string).
-    // Validator should reject it, handler should not run, onValidationError fires.
+    // Validator should reject it, handler should not run, onError gets ValidationFailed.
     await page.getByTestId('send-bad').click();
     await expect(page.getByTestId('validation-error')).toHaveText('echo-ping');
     // Verify handler never ran: echoed should still be empty.

@@ -1,5 +1,4 @@
 import { emits, error, errors, server, t } from '@livething/server';
-import { intercepts } from '@livething/server/intercepts';
 import { plugin } from '@livething/server/plugins';
 import { scheduled } from '@livething/server/scheduled';
 import { count, eq } from 'drizzle-orm';
@@ -102,82 +101,67 @@ const h = server({
       'drizzle-query-dlq': null,
       'drizzle-task-with-data': { data: taskDataSchema },
     }),
-    intercepts(),
   ],
-});
+  onInit(ctx) {
+    const db = getDb(ctx.platform as Platform);
 
-h.onInit((ctx) => {
-  const db = getDb(ctx.platform as Platform);
+    db.run(
+      `CREATE TABLE IF NOT EXISTS records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        value TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )`,
+    );
 
-  db.run(
-    `CREATE TABLE IF NOT EXISTS records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      value TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    )`,
-  );
+    db.run(
+      `CREATE TABLE IF NOT EXISTS plugin_meta (
+        key TEXT PRIMARY KEY,
+        value INTEGER NOT NULL
+      )`,
+    );
+    db.run(`INSERT OR IGNORE INTO plugin_meta (key, value) VALUES ('shutdown_count', 0)`);
+  },
+  onConnect(ctx) {
+    const state = getState(ctx.platform as Platform);
+    state.lastGeneratedId = `drizzle-${ctx.connection.id}`;
+    const self = ctx.connections.all().find((c) => c.id === ctx.connection.id);
+    const meta = ctx.meta as { username?: unknown };
+    state.lastState = {
+      id: ctx.connection.id,
+      username: typeof meta.username === 'string' ? meta.username : null,
+      tags: (self?.tags ?? []).map((tag) => ({ group: tag.group, key: tag.key })),
+    };
 
-  db.run(
-    `CREATE TABLE IF NOT EXISTS plugin_meta (
-      key TEXT PRIMARY KEY,
-      value INTEGER NOT NULL
-    )`,
-  );
-  db.run(`INSERT OR IGNORE INTO plugin_meta (key, value) VALUES ('shutdown_count', 0)`);
-});
-
-h.onConnect((ctx) => {
-  const state = getState(ctx.platform as Platform);
-  state.lastGeneratedId = `drizzle-${ctx.connection.id}`;
-  const self = ctx.connections.all().find((c) => c.id === ctx.connection.id);
-  const meta = ctx.meta as { username?: unknown };
-  state.lastState = {
-    id: ctx.connection.id,
-    username: typeof meta.username === 'string' ? meta.username : null,
-    tags: (self?.tags ?? []).map((tag) => ({ group: tag.group, key: tag.key })),
-  };
-
-  ctx.send('drizzle-ready', { tables: ['records'] });
-});
-
-h.onDisconnect((ctx) => {
-  getState(ctx.platform as Platform).disconnectCount++;
-});
-
-h.onShutdown((ctx) => {
-  getDb(ctx.platform as Platform).run(
-    "INSERT INTO plugin_meta (key, value) VALUES ('shutdown_count', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1",
-  );
-});
-
-h.intercept((ctx, frame) => {
-  getState(ctx.platform as Platform).messageCount++;
-  if (
-    frame.owner.kind === 'app' &&
-    frame.event === REWRITE_PROBE &&
-    frame.payload &&
-    typeof frame.payload === 'object'
-  ) {
-    const payload = frame.payload as { text: string };
-    return { ...payload, text: `rewritten:${payload.text}`, rewritten: true };
-  }
-});
-
-h.onOutgoing((ctx, frame) => {
-  // The outgoing-hook ctx is resolved per send: it is the ctx of the connection
-  // whose handler, intercept or onConnect hook is running (the sender, for a
-  // broadcast), and undefined when none is (a subscribe hook, onDisconnect, a
-  // scheduled task). Guard before touching this DO's state through it.
-  if (ctx) getState(ctx.platform as Platform).outgoingCount++;
-  if (
-    frame.owner.kind === 'plugin' &&
-    frame.event === 'drizzle-ready' &&
-    frame.payload &&
-    typeof frame.payload === 'object'
-  ) {
-    return { ...(frame.payload as Record<string, unknown>), hooked: true };
-  }
+    ctx.send('drizzle-ready', { tables: ['records'] });
+  },
+  onDisconnect(ctx) {
+    getState(ctx.platform as Platform).disconnectCount++;
+  },
+  onShutdown(ctx) {
+    getDb(ctx.platform as Platform).run(
+      "INSERT INTO plugin_meta (key, value) VALUES ('shutdown_count', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1",
+    );
+  },
+  intercept(ctx, frame) {
+    getState(ctx.platform as Platform).messageCount++;
+    if (
+      frame.owner.kind === 'app' &&
+      frame.event === REWRITE_PROBE &&
+      frame.payload &&
+      typeof frame.payload === 'object'
+    ) {
+      const payload = frame.payload as { text: string };
+      return { ...payload, text: `rewritten:${payload.text}`, rewritten: true };
+    }
+  },
+  onOutgoing(ctx) {
+    // The outgoing-hook ctx is resolved per send: it is the ctx of the connection
+    // whose handler, intercept or onConnect hook is running (the sender, for a
+    // broadcast), and undefined when none is (an onSubscribe hook, onDisconnect, a
+    // scheduled task). Guard before touching this DO's state through it.
+    if (ctx) getState(ctx.platform as Platform).outgoingCount++;
+  },
 });
 
 const triggerDenied = h.on('trigger-plugin-denied', {
@@ -244,13 +228,13 @@ const triggerTaskWithData = h.on('trigger-plugin-task-with-data', {
   },
 });
 
-h.scheduled('drizzle-vacuum', {
+const runVacuum = h.scheduled('drizzle-vacuum', {
   run(ctx) {
     ctx.broadcast('drizzle-vacuum-done', { timestamp: Date.now() });
   },
 });
 
-h.scheduled('drizzle-every-tick', {
+const runEveryTick = h.scheduled('drizzle-every-tick', {
   run(ctx) {
     const state = getState(ctx.platform as Platform);
     state.everyTickCount++;
@@ -258,7 +242,7 @@ h.scheduled('drizzle-every-tick', {
   },
 });
 
-h.scheduled('drizzle-flaky', {
+const runFlaky = h.scheduled('drizzle-flaky', {
   run(ctx) {
     const state = getState(ctx.platform as Platform);
     state.flakyAttempts++;
@@ -269,13 +253,13 @@ h.scheduled('drizzle-flaky', {
   },
 });
 
-h.scheduled('drizzle-module-always-fail', {
+const runModuleAlwaysFail = h.scheduled('drizzle-module-always-fail', {
   run() {
     throw new Error('module permanent failure');
   },
 });
 
-h.scheduled('drizzle-query-dlq', {
+const runQueryDlq = h.scheduled('drizzle-query-dlq', {
   run(ctx) {
     const rows = ctx.sql
       .exec<{
@@ -298,7 +282,7 @@ h.scheduled('drizzle-query-dlq', {
   },
 });
 
-h.scheduled('drizzle-task-with-data', {
+const runTaskWithData = h.scheduled('drizzle-task-with-data', {
   run(ctx, data) {
     ctx.broadcast('plugin-task-data-result', {
       result: `validated-data-received:${data.value}`,
@@ -317,6 +301,12 @@ export const Drizzle = plugin('e2e:drizzle', {
       triggerAlwaysFail,
       triggerQueryDlq,
       triggerTaskWithData,
+      runVacuum,
+      runEveryTick,
+      runFlaky,
+      runModuleAlwaysFail,
+      runQueryDlq,
+      runTaskWithData,
     ],
     api: (ctx) => {
       const db = getDb(ctx.platform as Platform);

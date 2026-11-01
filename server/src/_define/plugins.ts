@@ -1,8 +1,9 @@
+import { LiveThingConfigError } from '@livething/core';
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { capability } from '~/_define/capability.ts';
 import { namespacePluginPrimitives } from '~/_define/plugin-namespace.ts';
 import { scopePluginContext } from '~/plugin-scope.ts';
-import type { AnyCapability, Capability, CapabilityFactory } from '~/_define/capability.ts';
+import type { AnyCapability, Capability } from '~/_define/capability.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { ClientPluginContract } from '~/infer-client.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -30,7 +31,6 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'request',
   'outgoing',
   'stream-generate',
-  'cursor-stream-generate',
   'recorded-stream-generate',
   'channel',
   'scheduled',
@@ -43,7 +43,6 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'onDisconnect',
   'onShutdown',
   'onError',
-  'onValidationError',
   'onUpgrade',
   'onPing',
   'onPong',
@@ -58,9 +57,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'server-requests',
   'request-runtime',
   'stream-runtime',
-  'cursor-stream-runtime',
   'recorded-stream-runtime',
-  'intercept-runtime',
   'channel-runtime',
 ]);
 
@@ -107,7 +104,6 @@ function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<str
 function pluginSurfacePrimitive(): Primitive {
   return {
     __livething: 'pluginSurface',
-    __kind: 'plugin',
     __identity: [PLUGIN_SURFACE_KEY],
     __requires: {},
     __setup(engine) {
@@ -179,8 +175,6 @@ export interface PluginCapability<
 > extends Capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never> {
   /** The plugin's id, for identification at assembly. @internal */
   readonly __pluginId: string;
-  /** Capabilities the host must list; a missing one is a build error. @internal */
-  readonly __pluginDependsOn: readonly CapabilityFactory[];
   /**
    * Capability identity tokens the host must provide: the explicit `dependsOn`
    * plus the host-owned requirements auto-derived from the plugin's own
@@ -235,7 +229,6 @@ export type InferPluginClient<TPlugin> = TPlugin extends () => PluginCapability<
 function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primitive {
   return {
     __livething: 'pluginApi',
-    __kind: 'plugin',
     __identity: [PLUGIN_API_KEY, id],
     __requires: {},
     __setup(engine) {
@@ -248,8 +241,8 @@ function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primiti
 function assertSupported(id: string, primitive: Primitive): void {
   if (ALLOWED_PLUGIN_KINDS.has(primitive.__livething)) return;
 
-  throw new Error(
-    `[livething] plugin('${id}') uses '${primitive.__livething}', which a plugin cannot contribute. ` +
+  throw new LiveThingConfigError(
+    `plugin('${id}') uses '${primitive.__livething}', which a plugin cannot contribute. ` +
       'Host-owned engines (dedup, replay, rateLimit, …) belong on the host — list ' +
       'them there and reach them from the plugin with dependsOn.',
   );
@@ -301,14 +294,14 @@ export function plugin<
   manifest: PluginManifest<TContract, TApi, TScopedCtx>,
 ): () => PluginCapability<TId, TContract, TApi> {
   if (!PLUGIN_ID.test(id)) {
-    throw new Error(
-      `[livething] Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`,
+    throw new LiveThingConfigError(
+      `Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`,
     );
   }
 
   if (!manifest.definition.__scoped) {
-    throw new Error(
-      `[livething] plugin('${id}') definition must be built with server({ scope: 'plugin' }). ` +
+    throw new LiveThingConfigError(
+      `plugin('${id}') definition must be built with server({ scope: 'plugin' }). ` +
         'Author the plugin as a scoped server definition, then pass its assemble() result here.',
     );
   }
@@ -330,11 +323,9 @@ export function plugin<
   ) as PluginCapability<TId, TContract, TApi>;
   const writable = cap as {
     __pluginId: string;
-    __pluginDependsOn: readonly CapabilityFactory[];
     __pluginRequiredKinds: readonly string[];
   };
   writable.__pluginId = id;
-  writable.__pluginDependsOn = manifest.dependsOn ?? [];
   // Host requirements = explicit dependsOn + what the plugin's own capabilities
   // imply, recorded at assemble.
   const explicitKinds = (manifest.dependsOn ?? [])

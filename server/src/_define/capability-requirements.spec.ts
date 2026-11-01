@@ -12,7 +12,6 @@ function makePrimitive(
 ): Primitive {
   return {
     __livething: livething,
-    __kind: 'infrastructure',
     __identity: [Symbol(livething)],
     __requires: {},
     __requiresCapabilities: requiresCapabilities,
@@ -24,7 +23,6 @@ function makeCapability(kind: string): AnyCapability {
   return {
     __livethingCapability: true,
     __primitives: [],
-    __features: [],
     __capabilityKind: kind,
   } as unknown as AnyCapability;
 }
@@ -158,10 +156,10 @@ describe('resolveCapabilityRequirements', () => {
         'room',
         { capabilities: [provides(), needsProvider()] },
         { streamBuilders: {} },
-      ) as unknown as { __build: () => Primitive };
+      ) as unknown as { __build: (selectedHandlers: readonly unknown[]) => Primitive };
 
       expect(() =>
-        resolveCapabilityRequirements([channelBuilder.__build()], [], { scoped: false }),
+        resolveCapabilityRequirements([channelBuilder.__build([])], [], { scoped: false }),
       ).not.toThrow();
     },
   );

@@ -5,9 +5,9 @@ import type { NudgeDef } from '~/stream/definition.ts';
 import type { Validator } from '~/types.ts';
 
 /**
- * Helpers shared by every stream capability (plain, cursor, recorded). They
- * live apart from the plain-stream engine so that listing only `cursorStream`
- * or `recordedStream` does not pull the plain stream engine into the bundle.
+ * Helpers shared by both stream capabilities (plain, recorded). They live
+ * apart from the plain-stream engine so that listing only `recordedStream`
+ * does not pull the plain stream engine into the bundle.
  */
 
 /** The nudge map a stream config accepts: event name → schema, or `null` for no payload. @internal */

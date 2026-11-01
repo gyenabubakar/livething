@@ -16,8 +16,7 @@ export type SubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 /**
  * Handler called only on a TRUE leave — when the client sends `__unsubscribe__`
  * or is kicked. The user has left the group; for persistent channels the
- * durable membership row has been deleted too, unless the kick was a
- * non-revoking one (in which case the row survives so the user auto-rejoins).
+ * durable membership row has been deleted too.
  * NOT fired on plain disconnect of a persistent channel — that case fires
  * `onSessionEnd` instead.
  *
@@ -148,7 +147,6 @@ export function check<TCtx, TData = unknown, TResult = unknown>(
 ): CheckPrimitive<TCtx, TData, TResult> {
   return {
     __livething: 'check',
-    __kind: 'lifecycle',
     __identity: [ON_CHECK_KEY],
     __requires: {},
     handler,
@@ -183,16 +181,15 @@ export function check<TCtx, TData = unknown, TResult = unknown>(
 export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePrimitive<TCtx> {
   return {
     __livething: 'revalidate',
-    __kind: 'lifecycle',
     __identity: [ON_REVALIDATE_KEY],
     __requires: {},
     handler,
     __validate(view: ValidationView) {
       if (view.channelKey && !view.isChannelDurable(view.channelKey)) {
         throw new Error(
-          `[livething] Channel "${view.channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
+          `[livething] Channel "${view.channelKey}" has a revalidate hook but is not persistent, so it would ` +
             `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
-            `Remove \`membership: 'ephemeral'\` from this channel, or remove the .revalidate() hook (use \`.check()\` ` +
+            `Set \`membership: 'persistent'\` on this channel, or remove the revalidate hook (use \`check\` ` +
             `for first-subscribe authorization).`,
         );
       }
@@ -238,7 +235,6 @@ export function commit<TCtx, TCheck = unknown>(
 ): CommitPrimitive<TCtx, TCheck> {
   return {
     __livething: 'commit',
-    __kind: 'lifecycle',
     __identity: [ON_COMMIT_KEY],
     __requires: {},
     handler,
@@ -257,17 +253,16 @@ export function commit<TCtx, TCheck = unknown>(
  * ```ts
  * const notifications = base.channel('notifications', {
  *   capabilities: [emits({ notifications: t<Item[]>() })],
- * });
- * notifications.subscribe(async (ctx) => {
- *   const items = await db.getUnread(ctx.meta.userId);
- *   ctx.channel.send('notifications', items);
+ *   async onSubscribe(ctx) {
+ *     const items = await db.getUnread(ctx.meta.userId);
+ *     ctx.channel.send('notifications', items);
+ *   },
  * });
  * ```
  */
 export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePrimitive<TCtx> {
   return {
     __livething: 'onSubscribe',
-    __kind: 'lifecycle',
     __identity: [ON_SUBSCRIBE_KEY],
     __requires: {},
     handler,
@@ -286,7 +281,6 @@ export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePri
 export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): UnsubscribePrimitive<TCtx> {
   return {
     __livething: 'onUnsubscribe',
-    __kind: 'lifecycle',
     __identity: [ON_UNSUBSCRIBE_KEY],
     __requires: {},
     handler,
@@ -305,7 +299,6 @@ export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): Unsubscr
 export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEndPrimitive<TCtx> {
   return {
     __livething: 'onSessionEnd',
-    __kind: 'lifecycle',
     __identity: [ON_SESSION_END_KEY],
     __requires: {},
     handler,
@@ -314,16 +307,3 @@ export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEnd
     },
   };
 }
-
-/** Symbol key used to reference `check` in dependency declarations. */
-check.__key = ON_CHECK_KEY;
-/** Symbol key used to reference `revalidate` in dependency declarations. */
-revalidate.__key = ON_REVALIDATE_KEY;
-/** Symbol key used to reference `commit` in dependency declarations. */
-commit.__key = ON_COMMIT_KEY;
-/** Symbol key used to reference `onSubscribe` in dependency declarations. */
-onSubscribe.__key = ON_SUBSCRIBE_KEY;
-/** Symbol key used to reference `onUnsubscribe` in dependency declarations. */
-onUnsubscribe.__key = ON_UNSUBSCRIBE_KEY;
-/** Symbol key used to reference `onSessionEnd` in dependency declarations. */
-onSessionEnd.__key = ON_SESSION_END_KEY;

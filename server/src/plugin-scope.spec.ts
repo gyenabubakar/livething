@@ -61,7 +61,6 @@ describe('scopePluginContext — sendReplay (S1)', () => {
     const scoped = scopePluginContext(ID, {});
 
     expect(scoped.request).toBeUndefined();
-    expect(scoped.broadcastRequest).toBeUndefined();
     expect(scoped.sendReplay).toBeUndefined();
   });
 });
@@ -82,27 +81,41 @@ describe('scopePluginContext — channel broadcastTo', () => {
     expect(channelBroadcastTo).toHaveBeenCalledWith(target, '__acme:feed::feed', { n: 1 });
     expect(handleBroadcastTo).toHaveBeenCalledWith(target, '__acme:feed::feed', { n: 2 });
   });
+
+  it('namespaces the channel and the event of channels.broadcast', () => {
+    const handleBroadcast = vi.fn();
+    const get = vi.fn(() => ({ broadcast: handleBroadcast }));
+    const scoped = scopePluginContext(ID, { channels: { get, broadcast: vi.fn() } });
+
+    scoped.channels.broadcast('room', 'feed', { n: 1 });
+    scoped.channels.broadcast({ family: 'rooms', name: 'room:1' }, 'feed', { n: 2 });
+
+    expect(get).toHaveBeenNthCalledWith(1, '__acme:feed::room');
+    expect(get).toHaveBeenNthCalledWith(2, '__acme:feed::rooms', 'room:1');
+    expect(handleBroadcast).toHaveBeenNthCalledWith(1, '__acme:feed::feed', { n: 1 });
+    expect(handleBroadcast).toHaveBeenNthCalledWith(2, '__acme:feed::feed', { n: 2 });
+  });
 });
 
-describe('scopePluginContext — tag broadcastRequest (S2)', () => {
-  it('namespaces the group and the broadcastRequest event, on the group and on .ref(key)', () => {
-    const groupBroadcastRequest = vi.fn();
-    const refBroadcastRequest = vi.fn();
+describe('scopePluginContext — tag broadcast (S2)', () => {
+  it('namespaces the group and the broadcast event, on the group and on .ref(key)', () => {
+    const groupBroadcast = vi.fn();
+    const refBroadcast = vi.fn();
     const ephemeral = vi.fn((group: string) => ({
       group,
-      broadcastRequest: groupBroadcastRequest,
-      ref: (key: string) => ({ key, broadcastRequest: refBroadcastRequest }),
+      broadcast: groupBroadcast,
+      ref: (key: string) => ({ key, broadcast: refBroadcast }),
     }));
     const scoped = scopePluginContext(ID, { tags: { ephemeral } });
 
     const handle = scoped.tags.ephemeral('team');
     expect(ephemeral).toHaveBeenCalledWith('__acme:feed::team');
 
-    handle.broadcastRequest('confirm', { q: 1 });
-    expect(groupBroadcastRequest).toHaveBeenCalledWith('__acme:feed::confirm', { q: 1 });
+    handle.broadcast('feed', { n: 1 });
+    expect(groupBroadcast).toHaveBeenCalledWith('__acme:feed::feed', { n: 1 });
 
-    handle.ref('eng').broadcastRequest('confirm', { q: 1 });
-    expect(refBroadcastRequest).toHaveBeenCalledWith('__acme:feed::confirm', { q: 1 });
+    handle.ref('eng').broadcast('feed', { n: 2 });
+    expect(refBroadcast).toHaveBeenCalledWith('__acme:feed::feed', { n: 2 });
   });
 });
 
@@ -137,7 +150,6 @@ describe('frameMatches — plugin intercept on its own event (S3)', () => {
     incoming: new Map([['__acme:feed::ping', { validator: undefined }]]),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     channels: new Map(),
     channelFamilies: new Map(),

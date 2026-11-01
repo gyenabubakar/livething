@@ -24,14 +24,14 @@ describe('assertPositiveInteger', () => {
     expect(String(captured)).toMatch(/maxChunks.*must be a positive safe integer/);
   });
 
-  it('rejects negative numbers — setTimeout(negative) collapses to a 0ms retry loop', () => {
-    expect(() => assertPositiveInteger(-1, 'delay', 'Defer()')).toThrow(
+  it('rejects negative numbers — setTimeout(negative) collapses to a 0ms timer', () => {
+    expect(() => assertPositiveInteger(-1, 'pingIntervalMs', 'keepalive()')).toThrow(
       /must be a positive safe integer/,
     );
   });
 
   it('rejects NaN', () => {
-    expect(() => assertPositiveInteger(Number.NaN, 'delay', 'Defer()')).toThrow();
+    expect(() => assertPositiveInteger(Number.NaN, 'pingIntervalMs', 'keepalive()')).toThrow();
   });
 
   it('rejects Infinity', () => {

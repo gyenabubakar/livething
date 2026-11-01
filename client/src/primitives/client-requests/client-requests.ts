@@ -1,4 +1,5 @@
 import { Disconnected, Timeout } from '~/errors.ts';
+import { timerDelayError } from '~/internal/config.ts';
 import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
@@ -40,6 +41,8 @@ export function clientRequests(
   options: ClientRequestsOptions = {},
 ): Primitive<ClientRequestsTypeFn> {
   const defaultTimeout = options.timeout ?? 10_000;
+  const defaultTimeoutError = timerDelayError(defaultTimeout, 'clientRequests timeout');
+  if (defaultTimeoutError) throw defaultTimeoutError;
 
   return {
     _tag: 'clientRequests',
@@ -64,6 +67,10 @@ export function clientRequests(
         const eventError = wireIdError(event, event, 'event');
         if (eventError) return Promise.reject(eventError);
 
+        const timeout = callOptions.timeout ?? defaultTimeout;
+        const timeoutError = timerDelayError(timeout, 'request timeout');
+        if (timeoutError) return Promise.reject(timeoutError);
+
         const correlationId = idGenerator(helpers)('req');
 
         helpers.lazyAcquire();
@@ -79,7 +86,7 @@ export function clientRequests(
           const timer = setTimeout(() => {
             done();
             reject(Timeout());
-          }, callOptions.timeout ?? defaultTimeout);
+          }, timeout);
 
           pending.set(correlationId, {
             resolve: (value) => {

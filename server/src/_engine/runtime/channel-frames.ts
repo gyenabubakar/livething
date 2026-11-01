@@ -8,12 +8,7 @@ import type * as PublicApi from '~/context.ts';
 import { assertLocalRef } from './refs.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
-type OptsParameter = {
-  event: string;
-  validationError: unknown;
-  scope?: EngineRuntimeTypes.ResolvedChannel;
-};
-type OptsParameter2 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
+type OptsParameter = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
 type SubscribeFromServerRefParameter = {
   __livething: 'connection-ref';
   id: string;
@@ -31,12 +26,6 @@ interface ChannelRuntime
     channelName: string,
     channelFamily: string | null,
   ): StoredMembership | undefined;
-
-  markDurableMembershipKicked(
-    userId: string,
-    channelName: string,
-    channelFamily: string | null,
-  ): void;
 
   listDurableMembers(
     channelName: string,
@@ -57,14 +46,9 @@ interface ChannelRuntime
 
   broadcastToChannel(opts: ChannelPrimitive.BroadcastToChannelOptions): void;
 
-  handleValidationError(
-    connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: OptsParameter,
-  ): Promise<void>;
-
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: OptsParameter2,
+    opts: OptsParameter,
   ): Promise<void>;
 
   isChannelDurable(channelKey: string): boolean;
@@ -102,13 +86,7 @@ export function kickChannelMembers(
   runtime: ChannelRuntime &
     Pick<
       OutgoingRuntime.OutgoingRuntime,
-      | 'afterSendHooks'
-      | 'beforeSendHooks'
-      | 'compiled'
-      | 'generateId'
-      | 'logger'
-      | 'outgoingHooks'
-      | 'livethingStampHooks'
+      'compiled' | 'generateId' | 'logger' | 'outgoingHooks' | 'livethingStampHooks'
     > & {
       leaveChannel(
         connection: EngineRuntimeTypes.RuntimeConnection,
@@ -127,13 +105,7 @@ export async function handleSubscribe(
   runtime: ChannelRuntime &
     Pick<
       OutgoingRuntime.OutgoingRuntime,
-      | 'afterSendHooks'
-      | 'beforeSendHooks'
-      | 'compiled'
-      | 'generateId'
-      | 'logger'
-      | 'outgoingHooks'
-      | 'livethingStampHooks'
+      'compiled' | 'generateId' | 'logger' | 'outgoingHooks' | 'livethingStampHooks'
     >,
   connection: EngineRuntimeTypes.RuntimeConnection,
   frame: Protocol.SubscribeFrame,
@@ -169,13 +141,7 @@ export async function subscribeFromServer(
   runtime: ChannelRuntime &
     Pick<
       OutgoingRuntime.OutgoingRuntime,
-      | 'afterSendHooks'
-      | 'beforeSendHooks'
-      | 'compiled'
-      | 'generateId'
-      | 'logger'
-      | 'outgoingHooks'
-      | 'livethingStampHooks'
+      'compiled' | 'generateId' | 'logger' | 'outgoingHooks' | 'livethingStampHooks'
     > & { instanceId: string | undefined },
   ref: SubscribeFromServerRefParameter,
   opts: SubscribeFromServerOptions,
@@ -202,42 +168,13 @@ export async function subscribeFromServer(
 }
 
 /**
- * Handle a client `__memberSync__` request — a best-effort "please resend the
- * roster". Re-sends the current member snapshot to the requesting connection.
- * Fire-and-forget: a non-member or unknown channel is a silent no-op.
- */
-export function handleMemberSync(
-  runtime: Pick<
-    ChannelRuntime,
-    | 'compiled'
-    | 'channelMembers'
-    | 'sendProtocolMessage'
-    | 'isChannelDurable'
-    | 'listDurableMembers'
-  >,
-  connection: EngineRuntimeTypes.RuntimeConnection,
-  frame: Protocol.MemberSyncRequestFrame,
-): void {
-  ChannelPrimitive.resyncChannelMembers(runtime, connection, {
-    channelName: frame.__livething.channel,
-    channelFamily: frame.__livething.channelFamily,
-  });
-}
-
-/**
  * Handle the `__unsubscribe__` protocol frame for a channel.
  */
 export async function handleUnsubscribe(
   runtime: ChannelRuntime &
     Pick<
       OutgoingRuntime.OutgoingRuntime,
-      | 'afterSendHooks'
-      | 'beforeSendHooks'
-      | 'compiled'
-      | 'generateId'
-      | 'logger'
-      | 'outgoingHooks'
-      | 'livethingStampHooks'
+      'compiled' | 'generateId' | 'logger' | 'outgoingHooks' | 'livethingStampHooks'
     > & {
       leaveChannel(
         connection: EngineRuntimeTypes.RuntimeConnection,

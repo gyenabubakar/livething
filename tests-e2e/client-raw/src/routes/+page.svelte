@@ -20,7 +20,6 @@
 		'plugins',
 		'protocol-pings',
 		'replay',
-		'replay-custom',
 		'replay-snapshot',
 		'request',
 		'scheduled',

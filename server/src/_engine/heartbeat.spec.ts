@@ -51,12 +51,11 @@ type ServerOptions = {
 
 function buildEngine(options: ServerOptions = {}): Engine {
   const base = server({
-    ...(options.hibernation ? { hibernation: { enabled: true } } : {}),
+    ...(options.hibernation ? { hibernation: true } : {}),
     capabilities: options.withKeepalive ? [keepalive(options.withKeepalive)] : [],
+    ...(options.onPing ? { onPing: options.onPing } : {}),
+    ...(options.onPong ? { onPong: options.onPong } : {}),
   });
-
-  if (options.onPing) base.onPing(options.onPing);
-  if (options.onPong) base.onPong(options.onPong);
 
   const noop = base.on('noop', { run() {} });
   const definition = base.assemble({ handlers: [noop] });
@@ -94,6 +93,38 @@ async function connect(engine: Engine) {
   return { socket, handle };
 }
 
+describe('a ping the socket refused', () => {
+  it('reports the send as failed, so a later pong measures nothing', async () => {
+    vi.useFakeTimers();
+    try {
+      const engine = buildEngine({
+        withKeepalive: { pingIntervalMs: 1_000, idleTimeoutMs: 10_000 },
+      });
+      await engine.initialize();
+      const pingAttempts: string[] = [];
+      const handle = engine.accept(Symbol('ws'), {
+        send: (data: string) => {
+          if (data === 'ping') pingAttempts.push(data);
+          return data !== 'ping';
+        },
+        close: () => {},
+        bufferedAmount: () => 0,
+        userId: 'tester',
+      });
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await handle.handleMessage('pong');
+
+      const [connection] = engine.core.connections.values();
+      expect(pingAttempts).toHaveLength(1);
+      expect(connection?.latency).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('the heartbeat hooks', () => {
   describe('a server with no keepalive()', () => {
     it('still answers a client ping with a pong', async () => {
@@ -123,7 +154,7 @@ describe('the heartbeat hooks', () => {
     });
   });
 
-  describe('base.onPing', () => {
+  describe('onPing', () => {
     it('runs after the engine has already answered the client', async () => {
       // The hook reads the frames written so far, so it can prove the engine's
       // own pong reply went out before the app hook was given a turn.
@@ -163,7 +194,7 @@ describe('the heartbeat hooks', () => {
     });
   });
 
-  describe('base.onPong', () => {
+  describe('onPong', () => {
     it('does not fire on a ping', async () => {
       const onPong = vi.fn();
       const { handle } = await connect(buildEngine({ onPong }));

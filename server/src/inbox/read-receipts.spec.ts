@@ -96,7 +96,6 @@ describe('readReceipts registers only read and read-query handlers', () => {
 describe('readReceipts __read__ handler', () => {
   it('advances the cursor, fans out __read__, and settles inbox rows up to received_through', () => {
     const inboxConfig: ResolvedInboxOptions = {
-      onDelivered: 'delete',
       broadcastReceipts: true,
       maxReceiptAudience: 256,
     };
@@ -132,7 +131,6 @@ describe('readReceipts __read__ handler', () => {
 
   it('settles inbox rows but withholds the __received__ tick when inbox broadcastReceipts is off', () => {
     const inboxConfig: ResolvedInboxOptions = {
-      onDelivered: 'delete',
       broadcastReceipts: false,
       maxReceiptAudience: 256,
     };

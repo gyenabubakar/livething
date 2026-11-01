@@ -13,9 +13,7 @@ import type { Validator } from '~/types.ts';
  * validation on `add()`). `TValue` is constrained to `string` because a tag
  * value is stored as a string key.
  */
-export type TagValueType<TValue extends string> =
-  | TypeMarker<TValue>
-  | StandardSchemaV1<unknown, TValue>;
+type TagValueType<TValue extends string> = TypeMarker<TValue> | StandardSchemaV1<unknown, TValue>;
 
 /** One tag group declared through the contract's `tags:` builder. */
 export interface TagGroupDef<
@@ -23,7 +21,6 @@ export interface TagGroupDef<
   TName extends string = string,
   TValue extends string = string,
 > {
-  readonly __livething_tag_def: true;
   readonly kind: TKind;
   readonly name: TName;
   /** Runtime validator — present only when the group was declared with a Standard Schema. */
@@ -54,7 +51,6 @@ function isStandardSchema(value: unknown): value is Validator {
 function makeTagGroupBuilder<TKind extends TagKind>(kind: TKind): TagGroupBuilder<TKind> {
   function builder(name: string, type?: unknown): TagGroupDef<TKind, string, string> {
     return {
-      __livething_tag_def: true,
       kind,
       name,
       schema: isStandardSchema(type) ? type : undefined,
@@ -127,7 +123,6 @@ export function tagGroups<TKind extends TagKind>(
   const key = kind === 'ephemeral' ? TAG_GROUPS_EPHEMERAL_KEY : TAG_GROUPS_PERSISTENT_KEY;
   return {
     __livething: 'tag-groups',
-    __kind: 'infrastructure',
     __identity: [key],
     __requires: {},
     kind,
@@ -140,6 +135,3 @@ export function tagGroups<TKind extends TagKind>(
     },
   };
 }
-
-tagGroups.__ephemeralKey = TAG_GROUPS_EPHEMERAL_KEY;
-tagGroups.__persistentKey = TAG_GROUPS_PERSISTENT_KEY;

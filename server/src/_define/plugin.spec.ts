@@ -10,7 +10,6 @@ import { createChannelMembershipKey, subscribeConnection } from '~/channel/runti
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox } from '~/inbox/capability.ts';
-import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
 import { replay } from '~/replay/replay.ts';
@@ -118,8 +117,7 @@ describe('plugin() — scoped server definition + manifest', () => {
   });
 
   it('reroutes a plugin connect hook into the plugin lifecycle registry', () => {
-    const h = server({ scope: 'plugin' });
-    h.onConnect(() => {});
+    const h = server({ scope: 'plugin', onConnect() {} });
     const { __primitives } = plugin('acme:presence', {
       definition: h.assemble({ handlers: [] }),
     })();
@@ -175,7 +173,6 @@ describe('plugin() — scoped server definition + manifest', () => {
       errorHooks: [],
       buildConnectionContext: () => ({ connection: { id: connection.id }, send }),
       async handleRuntimeError() {},
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendProtocolMessage() {},
@@ -291,10 +288,13 @@ describe('plugin() — scoped server definition + manifest', () => {
 
 describe('plugin() — hook ownership', () => {
   function buildHookPlugin() {
-    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() }), intercepts()] });
+    const h = server({
+      scope: 'plugin',
+      capabilities: [emits({ tick: t<{}>() })],
+      intercept() {},
+      onOutgoing() {},
+    });
     const beat = h.on('tick', { input: v.object({}), run() {} });
-    h.intercept(() => {});
-    h.onOutgoing(() => {});
 
     return plugin('acme:obs', { definition: h.assemble({ handlers: [beat] }) });
   }
@@ -430,13 +430,11 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
         persistAttachment() {},
         sendProtocolMessage() {},
         broadcastToChannel() {},
-        async handleValidationError() {},
         async handleRuntimeError() {},
         isChannelDurable: () => false,
         persistMembership: () => {},
         deleteDurableMembership: () => {},
-        getDurableMembership: () => ({ meta: {}, kicked: false }),
-        markDurableMembershipKicked: () => {},
+        getDurableMembership: () => ({ meta: {} }),
         listDurableMembers: () => [],
       },
     };

@@ -2,7 +2,6 @@
 import { setUniqueOrThrow } from '~/_engine/compile/utils.ts';
 import { matchesFamilyPattern } from '~/channel/runtime.ts';
 import type {
-  AnyCursorStream,
   AnyGenerate,
   AnyIncoming,
   AnyIntercept,
@@ -26,7 +25,6 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
     __plugin: (primitive as { __plugin?: string }).__plugin,
@@ -56,15 +54,6 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
       case 'stream-generate': {
         const p = child as AnyGenerate;
         setUniqueOrThrow(scope.streams, p.event, { value: p, kind: `stream in ${scopeLabel}` });
-        break;
-      }
-
-      case 'cursor-stream-generate': {
-        const p = child as AnyCursorStream;
-        setUniqueOrThrow(scope.cursorStreams, p.event, {
-          value: p,
-          kind: `cursorStream in ${scopeLabel}`,
-        });
         break;
       }
 

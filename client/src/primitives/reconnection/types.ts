@@ -13,10 +13,10 @@ export interface ReconnectionInfo {
 
 /** Options for `reconnection()`. */
 export interface ReconnectionOptions {
-  /** How many times to retry before giving up. Use `Infinity` for no limit. Default: `10`. */
+  /** How many times to retry before giving up: a whole number, 0 or more, or `Infinity` for no limit. Default: `10`. */
   maxAttempts?: number;
 
-  /** Longest wait between attempts, in ms. Default: `30_000`. */
+  /** Longest base wait between attempts, in ms, from 1 to `2 ** 31 - 1`. Default: `30_000`. */
   maxDelay?: number;
 
   /**
@@ -25,7 +25,11 @@ export interface ReconnectionOptions {
    */
   shouldReconnect?: (code: number, reason: string) => boolean | void;
 
-  /** Close codes that should never trigger a retry (e.g. "banned"). */
+  /**
+   * More close codes that don't trigger a retry, unless `shouldReconnect` returns
+   * `true`. These add to the built-in list: `AUTH_INVALID` (4002), `DUPLICATE`
+   * (4003) and `BANNED` (4009).
+   */
   nonRetryableCodes?: number[];
 
   /** Pause retries while the device is offline (needs a platform environment). Default: `true`. */

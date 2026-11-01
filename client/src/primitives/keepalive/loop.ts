@@ -1,5 +1,11 @@
-import type { QualityThresholds } from '~/internal/config.ts';
 import type { ConnectionQuality } from '~/types.ts';
+
+/** Latency cut-offs (ms) for each quality tier. A round trip below a cut-off gets that tier. */
+export interface QualityThresholds {
+  excellent: number;
+  good: number;
+  degraded: number;
+}
 
 /** Settings for the ping loop. */
 export interface KeepaliveLoopOptions {
@@ -23,17 +29,20 @@ interface KeepaliveCallbacks {
 /** How many recent samples the quality tier is averaged over, to smooth out spikes. */
 const QUALITY_WINDOW = 5;
 
-/** Default latency cut-offs. The server measures quality on its own side. */
-const DEFAULT_THRESHOLDS: QualityThresholds = { excellent: 50, good: 150, degraded: 500 };
+/** Default latency cut-offs, the same table the server uses for `ctx.quality`. */
+const DEFAULT_THRESHOLDS: QualityThresholds = { excellent: 100, good: 300, degraded: 1000 };
 
 /**
- * Sends pings on a timer and watches for the matching pongs. Each pong gives a
- * round-trip time, which sets the quality tier. If too many pongs go missing the
+ * Sends pings on a timer and watches for the matching pongs. Only one ping is in
+ * flight at a time: a tick with a ping still unanswered counts one miss and sends
+ * nothing. Each pong gives a round-trip time, which sets the quality tier, even
+ * when it arrives after one or more ticks. If too many pongs go missing the
  * connection is treated as dead and force-closed.
  */
 export class KeepaliveLoop {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
-  private pingSentAt: number | null = null;
+  /** Send time of the unanswered ping. Pongs carry no id, so only one can be in flight. */
+  private outstandingPingSentAt: number | null = null;
   private missedPongs = 0;
   private samples: number[] = [];
   private quality: ConnectionQuality = 'disconnected';
@@ -53,10 +62,7 @@ export class KeepaliveLoop {
   /** Begin pinging. Call once the socket is open. */
   start(): void {
     this.stop();
-    if (this.interval <= 0) return;
 
-    this.missedPongs = 0;
-    this.pingSentAt = null;
     // No initial quality guess — the socket stays at the default until the first
     // pong arrives and fires a qualityChange with a real measurement.
 
@@ -72,7 +78,7 @@ export class KeepaliveLoop {
       this.pingTimer = null;
     }
 
-    this.pingSentAt = null;
+    this.outstandingPingSentAt = null;
     this.missedPongs = 0;
     this.samples = [];
     // Clear the stale round-trip time first, then route the tier through
@@ -85,10 +91,10 @@ export class KeepaliveLoop {
 
   /** Call when a pong arrives: record the round-trip time and refresh quality. */
   onPong(): void {
-    if (this.pingSentAt === null) return;
+    if (this.outstandingPingSentAt === null) return;
 
-    const latency = Date.now() - this.pingSentAt;
-    this.pingSentAt = null;
+    const latency = Date.now() - this.outstandingPingSentAt;
+    this.outstandingPingSentAt = null;
     this.missedPongs = 0;
     this.recordSample(latency);
     // reportLatency reflects the latest single ping; the quality tier uses the
@@ -98,7 +104,7 @@ export class KeepaliveLoop {
   }
 
   private tick(): void {
-    if (this.pingSentAt !== null) {
+    if (this.outstandingPingSentAt !== null) {
       this.missedPongs++;
       this.callbacks.log(`missed pong ${this.missedPongs}/${this.maxMissedPongs}`);
       if (this.missedPongs >= this.maxMissedPongs) {
@@ -112,9 +118,10 @@ export class KeepaliveLoop {
       // the 'poor' change (and getLatency()) report null, not a healthy-looking value.
       this.callbacks.reportLatency(null);
       this.setQuality('poor');
+      return;
     }
 
-    this.pingSentAt = Date.now();
+    this.outstandingPingSentAt = Date.now();
     this.callbacks.sendPing();
   }
 

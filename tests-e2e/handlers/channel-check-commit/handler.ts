@@ -44,10 +44,9 @@ const room = base.channel('room', {
     // Throwing here prevents the subscriber from being added.
     if (ctx.channel.members().length >= 2) throw new Error('room is full');
   },
-});
-
-room.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  },
 });
 
 const handleRoomSend = room.on('send', {
@@ -64,10 +63,9 @@ const checkOnly = base.channel('check-only', {
     await new Promise((r) => setTimeout(r, 5));
     if (ctx.meta.username === 'no-access') throw new Error('no-access user is not allowed');
   },
-});
-
-checkOnly.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  },
 });
 
 // Uses only commit — shows that check is optional.
@@ -77,10 +75,9 @@ const commitOnly = base.channel('commit-only', {
     if (ctx.channel.members().length >= 1)
       throw new Error('commit-only room allows one subscriber');
   },
-});
-
-commitOnly.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  },
 });
 
 // A slow async check followed by a one-member cap in commit. Two subscribes that
@@ -107,12 +104,8 @@ const asyncCommit = base.channel('async-commit', {
 
 // A check that rejects a token it has already seen (nonce / replay protection).
 // Used to prove the client re-subscribes with a FRESH payload on reconnect: a
-// stale (reused) token is refused, a function-generated one is admitted. Stays
-// ephemeral (`membership: 'ephemeral'`) so a reconnect requires a real client-driven
-// re-subscribe through `check`, instead of a server auto-rejoin through
-// `revalidate`.
+// stale (reused) token is refused, a function-generated one is admitted.
 const nonceRoom = base.channel('nonce-room', {
-  membership: 'ephemeral',
   capabilities: [emits({ joined: t<{ username: string }>() })],
   subscribe: v.object({ token: v.string() }),
   async check(ctx, input) {
@@ -126,10 +119,9 @@ const nonceRoom = base.channel('nonce-room', {
 
     await ctx.kv.set(key, true);
   },
-});
-
-nonceRoom.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
+  },
 });
 
 // Test support: a server-initiated retryable close so the client reconnects

@@ -19,23 +19,21 @@ const base = server({
       'scoped-error-observed': t<{ channel: string; family: string; event: string }>(),
     }),
   ],
-});
+  onError(ctx, error, eventName) {
+    const c = ctx as unknown as { channel?: { name?: string; family?: string | null } };
+    if (ValidationFailed.matches(error)) {
+      ctx.send('validation-observed', {
+        channel: c.channel?.name ?? '<top-level>',
+        event: eventName ?? '<unknown>',
+      });
+    }
 
-base.onError((ctx, _error, eventName) => {
-  const c = ctx as unknown as { channel?: { name?: string; family?: string | null } };
-  ctx.send('scoped-error-observed', {
-    channel: c.channel?.name ?? '<top-level>',
-    family: c.channel?.family ?? '<no-family>',
-    event: eventName ?? '<unknown>',
-  });
-});
-
-base.onValidationError((ctx, eventName) => {
-  const c = ctx as unknown as { channel?: { name?: string } };
-  ctx.send('validation-observed', {
-    channel: c.channel?.name ?? '<top-level>',
-    event: eventName,
-  });
+    ctx.send('scoped-error-observed', {
+      channel: c.channel?.name ?? '<top-level>',
+      family: c.channel?.family ?? '<no-family>',
+      event: eventName ?? '<unknown>',
+    });
+  },
 });
 
 const handleTopOnlyAction = base.on('top-only-action', {
@@ -53,9 +51,6 @@ const handleTriggerServerSubscribeDynamic = base.on('trigger-server-subscribe-dy
 });
 
 const room = base.channel(['room', 'room:{id}'], {
-  // Ephemeral: the leave test drops a connection and expects the
-  // onUnsubscribe system broadcast, which needs a true leave on disconnect.
-  membership: 'ephemeral',
   capabilities: [
     emits({
       'room-message': t<{ channel: string; text: string; from: string; kind: string }>(),
@@ -76,24 +71,22 @@ const room = base.channel(['room', 'room:{id}'], {
       await new Promise((r) => setTimeout(r, 50));
     }
   },
-});
-
-room.subscribe((ctx) => {
-  ctx.channel.broadcast('room-message', {
-    channel: ctx.channel.name,
-    text: `${ctx.meta.username} entered`,
-    from: 'system',
-    kind: 'system',
-  });
-});
-
-room.unsubscribe((ctx) => {
-  ctx.channel.broadcast('room-message', {
-    channel: ctx.channel.name,
-    text: `${ctx.meta.username} left`,
-    from: 'system',
-    kind: 'system',
-  });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('room-message', {
+      channel: ctx.channel.name,
+      text: `${ctx.meta.username} entered`,
+      from: 'system',
+      kind: 'system',
+    });
+  },
+  onUnsubscribe(ctx) {
+    ctx.channel.broadcast('room-message', {
+      channel: ctx.channel.name,
+      text: `${ctx.meta.username} left`,
+      from: 'system',
+      kind: 'system',
+    });
+  },
 });
 
 const handleSendMessage = room.on('send-message', {

@@ -6,18 +6,24 @@ export interface PurgeUserOptions {
   /**
    * Keep the content of broadcast streams the user created — the channel-owned
    * stream and its recorded chunks. Default `false`: that content is deleted
-   * along with everything else the user owns. Either way, the user is cleared
-   * as the stream's creator.
+   * along with everything else the user owns. Either way, a stream still running
+   * stops, and the user is cleared as the stream's creator.
    */
   keepBroadcastContent?: boolean;
 }
 
 /**
- * "This user is gone, wipe them everywhere." Runs every registered
- * `onPurgeUser` hook — each capability that owns per-user durable rows
- * (channel membership, persistent tags, ...) cleans up its own — then closes
- * every live socket belonging to the user. With nothing registered this only
- * closes sockets and touches no storage.
+ * "This user is gone, wipe them everywhere." Stops the user first: their open
+ * sockets take no more frames and get no more app frames, a subscribe waiting in `check` ends with no
+ * membership, and nothing writes a new durable row for them while the purge
+ * runs. A handler or task already running when the purge starts stays barred
+ * from writing that user's membership, replay, tag, inbox or last-seen rows
+ * after the purge ends too (see `EngineCore.isUserPurging`); work that starts
+ * after the purge, such as the same user id signing in again, may write.
+ * Then runs every registered `onPurgeUser` hook — each capability that
+ * owns per-user durable rows (channel membership, persistent tags, ...) cleans
+ * up its own — and closes every live socket belonging to the user. With nothing
+ * registered this only closes sockets and touches no storage.
  *
  * Every hook runs even when one throws, and every socket is closed even when
  * one close throws: a purge that reports "3 of 4 steps done" is far better
@@ -38,6 +44,14 @@ export async function purgeUser(
 
   const failures: unknown[] = [];
 
+  core.markUserPurging(userId);
+  for (const connection of core.connections.values()) {
+    if (connection.userId === userId) {
+      connection.closing = true;
+      connection.purged = true;
+    }
+  }
+
   for (const hook of core.hooks.purgeUser) {
     try {
       await hook(core, userId, options);
@@ -48,6 +62,8 @@ export async function purgeUser(
 
   for (const connection of core.connections.values()) {
     if (connection.userId === userId) {
+      connection.closing = true;
+      connection.purged = true;
       try {
         connection.descriptor.close(CloseCodes.NORMAL, 'user purged');
       } catch (err) {
@@ -55,6 +71,8 @@ export async function purgeUser(
       }
     }
   }
+
+  core.unmarkUserPurging(userId);
 
   if (failures.length > 0) {
     throw new AggregateError(

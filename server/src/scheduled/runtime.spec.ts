@@ -1,3 +1,4 @@
+import { LiveThingConfigError } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
 import { scheduleTask } from '~/_engine/scheduling.ts';
@@ -47,7 +48,6 @@ async function buildEngine(
         timers: {
           setAlarm: vi.fn(async () => {}),
           deleteAlarm: vi.fn(async () => {}),
-          getAlarm: vi.fn(async () => null),
         },
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
@@ -80,17 +80,10 @@ function createScheduledRuntime(
   }> = [],
 ) {
   const scheduledRuns = new Map<string, ScheduledRun>();
-  const deadLetters = new Map<string, ScheduledDeadLetter>();
   const runsPersisted = new Map<string, string>();
-  const dlqPersisted = new Map<string, string>();
   let idCounter = 0;
 
   const sql = createTestSql();
-  const timers = {
-    setAlarm: vi.fn(async () => {}),
-    deleteAlarm: vi.fn(async () => {}),
-    getAlarm: vi.fn(async () => null),
-  };
 
   const taskMap = new Map(tasks.map((task) => [task.taskId, task]));
 
@@ -105,15 +98,12 @@ function createScheduledRuntime(
         list: async () => [],
       },
     }),
-    getTimers: () => timers,
     generateId: () => `task_${++idCounter}`,
     getScheduledRuns: () => scheduledRuns,
-    getScheduledDlq: () => deadLetters,
     getScheduledRunsPersisted: () => runsPersisted,
-    getScheduledDlqPersisted: () => dlqPersisted,
     getScheduledTask: (taskId) => taskMap.get(taskId) as never,
     getScheduledTasks: () => taskMap.values() as never,
-    createTaskContext: () => ({ ok: true }),
+    createContext: () => ({ ok: true }),
     rescheduleAlarm: () => {
       runtime.alarms += 1;
     },
@@ -122,7 +112,21 @@ function createScheduledRuntime(
 
   ensureScheduledSchema(runtime);
 
-  return { runtime, scheduledRuns, deadLetters, sql, timers };
+  function deadLetters() {
+    return new Map(
+      sql
+        .exec<{ id: string; taskId: string; attempts: number; error: string }>(
+          'SELECT id, taskId, attempts, error FROM __livething_scheduled_dlq',
+        )
+        .toArray()
+        .map((row) => [
+          row.id,
+          { ...row, error: JSON.parse(row.error) as ScheduledDeadLetter['error'] },
+        ]),
+    );
+  }
+
+  return { runtime, scheduledRuns, deadLetters, sql };
 }
 
 describe('scheduled/runtime', () => {
@@ -191,6 +195,12 @@ describe('scheduled/runtime', () => {
     await handleScheduledAlarm(runtime);
 
     expect([...scheduledRuns.values()]).toHaveLength(0);
+  });
+
+  it('refuses to cancel a task that was never declared, like schedule does', () => {
+    const { runtime } = createScheduledRuntime([{ taskId: 'flush', hasData: false }]);
+
+    expect(() => cancelScheduledRuns(runtime, 'flsuh')).toThrow(/"flsuh" is not registered/);
   });
 
   it('queues one-shot runs and cancels matching queued runs', () => {
@@ -272,7 +282,7 @@ describe('scheduled/runtime', () => {
       bootstrapScheduledRuntime(runtime);
       expect(recurringRuns(scheduledRuns)).toHaveLength(1);
 
-      expect(cancelScheduledRuns(runtime, 'tick')).toEqual({ taskExists: true, removed: 1 });
+      cancelScheduledRuns(runtime, 'tick');
       bootstrapScheduledRuntime(runtime);
       bootstrapScheduledRuntime(runtime);
 
@@ -350,7 +360,7 @@ describe('scheduled/runtime', () => {
         { taskId: 'tick', options: { every: 1_000 }, handler },
       ]);
       handler.mockImplementation(async () => {
-        expect(cancelScheduledRuns(runtime, 'tick').removed).toBe(1);
+        cancelScheduledRuns(runtime, 'tick');
       });
       bootstrapScheduledRuntime(runtime);
 
@@ -418,12 +428,129 @@ describe('scheduled/runtime', () => {
       expect(stoppedRows()).toHaveLength(0);
     });
 
-    it('cancelling an already stopped task removes nothing', () => {
-      const { runtime } = createScheduledRuntime([{ taskId: 'tick', options: { every: 1_000 } }]);
+    it('cancelling an already stopped task changes nothing', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
       bootstrapScheduledRuntime(runtime);
       cancelScheduledRuns(runtime, 'tick');
 
-      expect(cancelScheduledRuns(runtime, 'tick')).toEqual({ taskExists: true, removed: 0 });
+      expect(() => cancelScheduledRuns(runtime, 'tick')).not.toThrow();
+
+      expect(scheduledRuns.size).toBe(0);
+      expect(sql.exec('SELECT taskId FROM __livething_scheduled_stopped').toArray()).toHaveLength(
+        1,
+      );
+    });
+  });
+
+  describe('a stored recurring run at boot', () => {
+    function storeRecurringRun(
+      sql: ReturnType<typeof createTestSql>,
+      everyMs: number,
+      time: number,
+    ) {
+      sql.exec(
+        `INSERT INTO __livething_scheduled (id, taskId, time, data, everyMs, attempts, recurring, retry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        'stored',
+        'tick',
+        time,
+        null,
+        everyMs,
+        0,
+        1,
+        1,
+      );
+    }
+
+    it('follows a longer every, keeping the stored next run', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 60_000 } },
+      ]);
+      const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+      storeRecurringRun(sql, 1_000, 10_500);
+
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.get('stored')).toMatchObject({ every: 60_000, time: 10_500 });
+      expect(scheduledTableRows(sql)).toEqual([
+        expect.objectContaining({ id: 'stored', everyMs: 60_000 }),
+      ]);
+      now.mockRestore();
+    });
+
+    it('follows a shorter every, moving the next run closer', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+      storeRecurringRun(sql, 3_600_000, 3_000_000);
+
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.get('stored')).toMatchObject({ every: 1_000, time: 11_000 });
+      now.mockRestore();
+    });
+
+    it('drops the run when every was removed', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([{ taskId: 'tick' }]);
+      storeRecurringRun(sql, 1_000, 10_500);
+
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.size).toBe(0);
+      expect(scheduledTableRows(sql)).toHaveLength(0);
+    });
+
+    it('leaves a one-shot run of a task that no longer recurs alone', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'tick' }]);
+      scheduleTaskRun(runtime, { taskId: 'tick', time: 50_000, data: undefined });
+
+      bootstrapScheduledRuntime(runtime);
+
+      expect(scheduledRuns.size).toBe(1);
+    });
+  });
+
+  describe('a time past what an alarm can hold', () => {
+    const LAST_ALARM_TIME = 9_223_372_036_854;
+
+    it('throws to the caller and stores nothing', () => {
+      const { runtime, scheduledRuns, sql } = createScheduledRuntime([{ taskId: 'flush' }]);
+      function schedule() {
+        scheduleTaskRun(runtime, { taskId: 'flush', time: LAST_ALARM_TIME + 1, data: undefined });
+      }
+
+      expect(schedule).toThrow(LiveThingConfigError);
+      expect(schedule).toThrow(
+        /\[livething\] ctx\.schedule\("flush", \.\.\.\): 'time' must be at most/,
+      );
+      expect(scheduledRuns.size).toBe(0);
+      expect(scheduledTableRows(sql)).toHaveLength(0);
+    });
+
+    it('does not restart a stopped task', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([
+        { taskId: 'tick', options: { every: 1_000 } },
+      ]);
+      bootstrapScheduledRuntime(runtime);
+      cancelScheduledRuns(runtime, 'tick');
+
+      expect(() =>
+        scheduleTaskRun(runtime, { taskId: 'tick', time: LAST_ALARM_TIME + 1, data: undefined }),
+      ).toThrow(/'time' must be at most/);
+
+      bootstrapScheduledRuntime(runtime);
+      expect(scheduledRuns.size).toBe(0);
+    });
+
+    it('accepts the last time an alarm can hold', () => {
+      const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+      scheduleTaskRun(runtime, { taskId: 'flush', time: LAST_ALARM_TIME, data: undefined });
+
+      expect(scheduledRuns.size).toBe(1);
     });
   });
 
@@ -577,7 +704,7 @@ describe('scheduled/runtime', () => {
     now.mockReturnValue(32_000);
     await handleScheduledAlarm(runtime);
     expect(scheduledRuns.has('run_1')).toBe(false);
-    expect(deadLetters.get('run_1')).toMatchObject({
+    expect(deadLetters().get('run_1')).toMatchObject({
       taskId: 'flush',
       attempts: 4,
       error: { message: 'fourth', name: 'Error' },
@@ -619,7 +746,7 @@ describe('scheduled/runtime', () => {
     now.mockReturnValue(130);
     await handleScheduledAlarm(runtime);
     expect(scheduledRuns.has('run_1')).toBe(false);
-    expect(deadLetters.get('run_1')).toMatchObject({
+    expect(deadLetters().get('run_1')).toMatchObject({
       taskId: 'quick',
       attempts: 3,
       error: { message: 'fail-3' },
@@ -644,7 +771,7 @@ describe('scheduled/runtime', () => {
 
     now.mockReturnValue(100);
     await handleScheduledAlarm(runtime);
-    expect(deadLetters.size).toBe(1);
+    expect(deadLetters().size).toBe(1);
 
     recurring = [...scheduledRuns.values()].find((r) => r.recurring);
     expect(recurring).toBeDefined();
@@ -652,7 +779,7 @@ describe('scheduled/runtime', () => {
 
     now.mockReturnValue(200);
     await handleScheduledAlarm(runtime);
-    expect(deadLetters.size).toBe(2);
+    expect(deadLetters().size).toBe(2);
 
     recurring = [...scheduledRuns.values()].find((r) => r.recurring);
     expect(recurring).toBeDefined();
@@ -660,7 +787,7 @@ describe('scheduled/runtime', () => {
 
     now.mockReturnValue(300);
     await handleScheduledAlarm(runtime);
-    expect(deadLetters.size).toBe(3);
+    expect(deadLetters().size).toBe(3);
 
     recurring = [...scheduledRuns.values()].find((r) => r.recurring);
     expect(recurring).toBeDefined();
@@ -690,7 +817,7 @@ describe('scheduled/runtime', () => {
 
     await handleScheduledAlarm(runtime);
 
-    expect(deadLetters.get('run_1')).toMatchObject({
+    expect(deadLetters().get('run_1')).toMatchObject({
       taskId: 'oneshot',
       attempts: 1,
       error: { message: 'boom' },
@@ -759,7 +886,7 @@ describe('scheduled/runtime', () => {
 
     // After the alarm settles (dead-letters the failed run, since retry is
     // false), the original run row is gone from storage — this is the
-    // legitimate "actually finished" cleanup, not the bug.
+    // normal "actually finished" cleanup.
     const finalRows = scheduledTableRows(sql);
     expect(finalRows.map((r) => r.taskId)).not.toContain('processRefund');
     expect(finalRows.map((r) => r.taskId)).toContain('sendReceipt');
@@ -818,7 +945,7 @@ describe('scheduled/runtime', () => {
     await expect(handleScheduledAlarm(runtime)).resolves.toBeUndefined();
 
     expect(scheduledRuns.has('run_1')).toBe(false);
-    const dlq = deadLetters.get('run_1');
+    const dlq = deadLetters().get('run_1');
     expect(dlq).toBeDefined();
     expect(typeof dlq!.error.message).toBe('string');
     expect(dlq!.error.message).toBe('1');
@@ -834,7 +961,7 @@ describe('scheduled/runtime — through the real engine', () => {
     const base = server({
       capabilities: [scheduled({ processRefund: { retry: false }, sendReceipt: null })],
     });
-    base.scheduled('processRefund', {
+    const processRefund = base.scheduled('processRefund', {
       run(ctx) {
         ctx.schedule('sendReceipt', { time: Date.now() + 5000 });
         rowsDuringHandler.push(
@@ -842,9 +969,9 @@ describe('scheduled/runtime — through the real engine', () => {
         );
       },
     });
-    base.scheduled('sendReceipt', { run() {} });
+    const sendReceipt = base.scheduled('sendReceipt', { run() {} });
 
-    const { engine } = await buildEngine(base.assemble({ handlers: [] }));
+    const { engine } = await buildEngine(base.assemble({ handlers: [processRefund, sendReceipt] }));
 
     scheduleTask(engine.core, () => ({}), {
       taskId: 'processRefund',
@@ -859,5 +986,63 @@ describe('scheduled/runtime — through the real engine', () => {
       (row) => (row as { taskId: string }).taskId,
     );
     expect(taskIdsDuringHandler).toContain('processRefund');
+  });
+
+  it('does not grow the work of ctx.schedule with the dead-letter queue, and keeps no deleted dead letter', async () => {
+    const base = server({
+      capabilities: [
+        scheduled({ chargeCard: { retry: false }, sendReceipt: null, clearFailedCharges: null }),
+      ],
+    });
+    const chargeCard = base.scheduled('chargeCard', {
+      run() {
+        throw new Error('card declined');
+      },
+    });
+    const sendReceipt = base.scheduled('sendReceipt', { run() {} });
+    const clearFailedCharges = base.scheduled('clearFailedCharges', {
+      run(ctx) {
+        ctx.sql.exec('DELETE FROM __livething_scheduled_dlq');
+      },
+    });
+
+    const { engine, sql } = await buildEngine(
+      base.assemble({ handlers: [chargeCard, sendReceipt, clearFailedCharges] }),
+    );
+    function queue(taskId: string) {
+      scheduleTask(engine.core, () => ({}), { taskId, time: 1, data: undefined });
+    }
+
+    function deadLetterCount() {
+      return sql
+        .exec<{ count: number }>('SELECT COUNT(*) AS count FROM __livething_scheduled_dlq')
+        .one()?.count;
+    }
+
+    const stringify = vi.spyOn(JSON, 'stringify');
+    async function stringifyCallsForOneSchedule() {
+      stringify.mockClear();
+      queue('sendReceipt');
+      const calls = stringify.mock.calls.length;
+      await engine.handleAlarm();
+
+      return calls;
+    }
+
+    try {
+      const withNoDeadLetters = await stringifyCallsForOneSchedule();
+
+      for (let i = 0; i < 50; i += 1) queue('chargeCard');
+      await engine.handleAlarm();
+      expect(deadLetterCount()).toBe(50);
+      expect.soft(await stringifyCallsForOneSchedule()).toBe(withNoDeadLetters);
+
+      queue('clearFailedCharges');
+      await engine.handleAlarm();
+      expect(deadLetterCount()).toBe(0);
+      expect.soft(await stringifyCallsForOneSchedule()).toBe(withNoDeadLetters);
+    } finally {
+      stringify.mockRestore();
+    }
   });
 });

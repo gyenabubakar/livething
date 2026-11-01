@@ -148,16 +148,7 @@ export function serializePayload(event: string, payload: unknown): string {
 }
 
 /**
- * The payload as every recipient of one fan-out gets it: checked and turned into JSON once, so a
- * `toJSON()` runs once and every recipient gets the same payload.
- */
-export function payloadForFanOut(event: string, payload: unknown): Record<string, unknown> {
-  assertPayloadRecord(event, payload);
-  return JSON.parse(serializePayload(event, payload)) as Record<string, unknown>;
-}
-
-/**
- * The JSON of one cursor or recorded stream chunk: an object chunk as its own JSON, and any other
+ * The JSON of one recorded stream chunk: an object chunk as its own JSON, and any other
  * chunk (a primitive, `null`, an array, a `Date`) wrapped as `{ "value": ... }`. It is built
  * from one `JSON.stringify` call. A chunk with no JSON (a function without `toJSON()`, or
  * `undefined`) and an iterable without `toJSON()` (a `Map`) are refused.
@@ -177,15 +168,4 @@ export function serializeDurableChunk(event: string, chunk: unknown): string {
   if (toJsonGaveIterable(chunk, root)) throw durableChunkError(event, ITERABLE_GOT);
 
   return json.startsWith('{') ? json : `{"value":${json}}`;
-}
-
-/** Parse a nullable JSON storage value, recovering to undefined when it is invalid. */
-export function parseJsonOrUndefined(value: string | null): unknown {
-  if (value === null) return undefined;
-
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return undefined;
-  }
 }

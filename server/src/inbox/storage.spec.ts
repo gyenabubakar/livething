@@ -9,7 +9,6 @@ import {
 import {
   ackInboxRows,
   bumpInboxWatermark,
-  clearInboxWatermarks,
   deleteInboxRowsForChannel,
   deleteInboxRowsOutsideScopes,
   deleteInboxWatermarkForChannel,
@@ -20,7 +19,6 @@ import {
   loadInboxWatermarks,
   loadUndeliveredRows,
   nextInboxRetentionAt,
-  pruneInboxRetention,
   pruneInboxRetentionAndBumpWatermark,
 } from './storage.ts';
 import type { InboxFrame } from './storage.ts';
@@ -88,42 +86,6 @@ describe('inbox/storage — insert and load', () => {
     expect(JSON.parse(rows[0]!.payload)).toEqual({ n: 1 });
   });
 
-  it('a duplicate insert never makes an acknowledged row unread', () => {
-    const sql = setup();
-    insertInboxRows(sql, {
-      userIds: ['alice'],
-      channelName: 'room',
-      channelFamily: null,
-      frame: frame(5),
-      now: 1000,
-    });
-    ackInboxRows(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      receivedThrough: 5,
-      onDelivered: 'retain',
-      now: 2000,
-    });
-
-    // The same message arrives again — the import ran twice, or the frame is re-fanned-out.
-    insertInboxRows(sql, {
-      userIds: ['alice'],
-      channelName: 'room',
-      channelFamily: null,
-      frame: frame(5),
-      now: 3000,
-    });
-
-    const row = sql
-      .exec<{
-        delivered_at: number | null;
-      }>('SELECT delivered_at FROM __livething_inbox WHERE user_id = ? AND seq = 5', 'alice')
-      .one();
-    expect(row?.delivered_at).toBe(2000);
-    expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
-  });
-
   it('orders undelivered rows by channel then family then seq', () => {
     const sql = setup();
     insertInboxRows(sql, {
@@ -167,6 +129,37 @@ describe('inbox/storage — insert and load', () => {
 
     expect(loadUndeliveredRows(sql, 'carol').map((r) => r.seq)).toEqual([3, 7]);
     expect(loadUndeliveredRows(sql, 'carol')[0]?.channelFamily).toBe('tenants');
+  });
+
+  it('skips a row whose message id the member already holds on that channel, on both insert paths', () => {
+    const sql = setup();
+    insertInboxRowsForUserId(sql, {
+      userId: 'carol',
+      channelName: 'room',
+      channelFamily: null,
+      frames: [frame(1, { messageId: 'shared' })],
+      now: 1,
+    });
+    insertInboxRows(sql, {
+      userIds: ['carol', 'dave'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(2, { messageId: 'shared' }),
+      now: 1,
+    });
+    insertInboxRowsForUserId(sql, {
+      userId: 'carol',
+      channelName: 'other',
+      channelFamily: null,
+      frames: [frame(3, { messageId: 'shared' })],
+      now: 1,
+    });
+
+    expect(loadUndeliveredRows(sql, 'carol').map((r) => [r.channelName, r.seq])).toEqual([
+      ['other', 3],
+      ['room', 1],
+    ]);
+    expect(loadUndeliveredRows(sql, 'dave').map((r) => r.seq)).toEqual([2]);
   });
 
   it('keys a static channel under an empty family and a family channel under its key', () => {
@@ -303,7 +296,7 @@ describe('inbox/storage — ack lifecycle', () => {
     }
   }
 
-  it('delete mode drops rows up to receivedThrough', () => {
+  it('an ack drops rows up to receivedThrough', () => {
     const sql = setup();
     seedThree(sql);
 
@@ -312,14 +305,12 @@ describe('inbox/storage — ack lifecycle', () => {
       channelName: 'room',
       channelFamily: null,
       receivedThrough: 2,
-      onDelivered: 'delete',
-      now: 2000,
     });
 
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([3]);
   });
 
-  it('delete mode with a lower/repeated receivedThrough is a no-op', () => {
+  it('an ack with a lower/repeated receivedThrough is a no-op', () => {
     const sql = setup();
     seedThree(sql);
     function ack(receivedThrough: number) {
@@ -328,8 +319,6 @@ describe('inbox/storage — ack lifecycle', () => {
         channelName: 'room',
         channelFamily: null,
         receivedThrough,
-        onDelivered: 'delete',
-        now: 2000,
       });
     }
 
@@ -337,58 +326,6 @@ describe('inbox/storage — ack lifecycle', () => {
     ack(1);
     ack(2);
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([3]);
-  });
-
-  it('retain mode stamps delivered_at only on still-NULL rows and stays owed until then', () => {
-    const sql = setup();
-    seedThree(sql);
-
-    ackInboxRows(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      receivedThrough: 2,
-      onDelivered: 'retain',
-      now: 2000,
-    });
-
-    // Kept rows still exist but are no longer owed (delivered_at set); seq 3 stays owed.
-    expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([3]);
-    const delivered = sql
-      .exec<{
-        seq: number;
-        delivered_at: number;
-      }>('SELECT seq, delivered_at FROM __livething_inbox WHERE user_id = ? ORDER BY seq', 'alice')
-      .toArray();
-    expect(delivered.map((r) => [r.seq, r.delivered_at])).toEqual([
-      [1, 2000],
-      [2, 2000],
-      [3, null],
-    ]);
-  });
-
-  it('retain mode does not clobber an earlier delivered_at on a repeated ack', () => {
-    const sql = setup();
-    seedThree(sql);
-    function ack(now: number) {
-      ackInboxRows(sql, {
-        userId: 'alice',
-        channelName: 'room',
-        channelFamily: null,
-        receivedThrough: 1,
-        onDelivered: 'retain',
-        now,
-      });
-    }
-
-    ack(2000);
-    ack(9000);
-    const first = sql
-      .exec<{
-        delivered_at: number;
-      }>('SELECT delivered_at FROM __livething_inbox WHERE user_id = ? AND seq = 1', 'alice')
-      .one();
-    expect(first?.delivered_at).toBe(2000);
   });
 });
 
@@ -469,7 +406,7 @@ describe('inbox/storage — retention and watermark', () => {
       [1, 2, 3, 4, 5].map((seq) => ({ seq, now: seq })),
     );
 
-    const evicted = pruneInboxRetention(sql, {
+    const evicted = pruneInboxRetentionAndBumpWatermark(sql, {
       userId: 'alice',
       channelName: 'room',
       channelFamily: null,
@@ -489,7 +426,7 @@ describe('inbox/storage — retention and watermark', () => {
       { seq: 3, now: 90 },
     ]);
 
-    const evicted = pruneInboxRetention(sql, {
+    const evicted = pruneInboxRetentionAndBumpWatermark(sql, {
       userId: 'alice',
       channelName: 'room',
       channelFamily: null,
@@ -653,7 +590,7 @@ describe('inbox/storage — retention and watermark', () => {
       { seq: 5, now: 97 },
     ]);
 
-    const evicted = pruneInboxRetention(sql, {
+    const evicted = pruneInboxRetentionAndBumpWatermark(sql, {
       userId: 'alice',
       channelName: 'room',
       channelFamily: null,
@@ -666,117 +603,14 @@ describe('inbox/storage — retention and watermark', () => {
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([4, 5]);
   });
 
-  it('eviction and its overflow watermark commit together for mixed delivered and undelivered rows', () => {
-    const sql = setup();
-    seed(
-      sql,
-      [1, 2, 3].map((seq) => ({ seq, now: seq })),
-    );
-    ackInboxRows(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      receivedThrough: 1,
-      onDelivered: 'retain',
-      now: 10,
-    });
-
-    const evicted = pruneInboxRetentionAndBumpWatermark(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      retention: { maxMessages: 1 },
-      now: 100,
-    });
-
-    expect(evicted).toBe(2);
-    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([3]);
-    expect(
-      sql
-        .exec<{
-          delivered_at: number | null;
-        }>('SELECT delivered_at FROM __livething_inbox WHERE user_id = ? AND seq = ?', 'alice', 3)
-        .one()?.delivered_at,
-    ).toBeNull();
-    expect(loadInboxWatermarks(sql, 'alice')).toEqual([
-      { channelName: 'room', channelFamily: null, evictedThroughSeq: 2 },
-    ]);
-  });
-
-  it('does not raise a gap when retention removes only delivered rows', () => {
-    const sql = setup();
-    seed(sql, [{ seq: 1, now: 10 }]);
-    ackInboxRows(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      receivedThrough: 1,
-      onDelivered: 'retain',
-      now: 20,
-    });
-
-    expect(
-      pruneInboxRetentionAndBumpWatermark(sql, {
-        userId: 'alice',
-        channelName: 'room',
-        channelFamily: null,
-        retention: { maxAgeMs: 50 },
-        now: 100,
-      }),
-    ).toBe(1);
-    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
-  });
-
-  it('does not raise a gap when maxMessages evicts only delivered rows', () => {
-    const sql = setup();
-    seed(
-      sql,
-      [1, 2, 3].map((seq) => ({ seq, now: seq })),
-    );
-    ackInboxRows(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      receivedThrough: 3,
-      onDelivered: 'retain',
-      now: 10,
-    });
-
-    expect(
-      pruneInboxRetentionAndBumpWatermark(sql, {
-        userId: 'alice',
-        channelName: 'room',
-        channelFamily: null,
-        retention: { maxMessages: 1 },
-        now: 100,
-      }),
-    ).toBe(2);
-    expect(
-      sql
-        .exec<{
-          seq: number;
-          delivered_at: number | null;
-        }>('SELECT seq, delivered_at FROM __livething_inbox ORDER BY seq')
-        .toArray(),
-    ).toEqual([{ seq: 3, delivered_at: 10 }]);
-    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
-  });
-
-  it('does not raise a gap when combined retention ages out only a delivered row', () => {
+  it('keeps the higher evicted seq when the age pass removes a later seq than the count pass', () => {
     const sql = setup();
     seed(sql, [
-      { seq: 1, now: 10 },
-      { seq: 2, now: 90 },
-      { seq: 3, now: 95 },
+      { seq: 3, now: 10 },
+      { seq: 1, now: 90 },
+      { seq: 2, now: 95 },
+      { seq: 4, now: 96 },
     ]);
-    ackInboxRows(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      receivedThrough: 1,
-      onDelivered: 'retain',
-      now: 20,
-    });
 
     expect(
       pruneInboxRetentionAndBumpWatermark(sql, {
@@ -786,55 +620,10 @@ describe('inbox/storage — retention and watermark', () => {
         retention: { maxAgeMs: 50, maxMessages: 2 },
         now: 100,
       }),
-    ).toBe(1);
-    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([2, 3]);
-    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
-  });
-
-  it('raises a watermark only through the highest evicted undelivered row', () => {
-    const sql = setup();
-    insertInboxRows(sql, {
-      userIds: ['alice'],
-      channelName: 'room',
-      channelFamily: null,
-      frame: frame(2),
-      now: 2,
-    });
-    ackInboxRows(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      receivedThrough: 2,
-      onDelivered: 'retain',
-      now: 10,
-    });
-    insertInboxRows(sql, {
-      userIds: ['alice'],
-      channelName: 'room',
-      channelFamily: null,
-      frame: frame(1),
-      now: 1,
-    });
-    insertInboxRows(sql, {
-      userIds: ['alice'],
-      channelName: 'room',
-      channelFamily: null,
-      frame: frame(3),
-      now: 3,
-    });
-
-    expect(
-      pruneInboxRetentionAndBumpWatermark(sql, {
-        userId: 'alice',
-        channelName: 'room',
-        channelFamily: null,
-        retention: { maxMessages: 1 },
-        now: 100,
-      }),
-    ).toBe(2);
-    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([3]);
+    ).toBe(3);
+    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([2, 4]);
     expect(loadInboxWatermarks(sql, 'alice')).toEqual([
-      { channelName: 'room', channelFamily: null, evictedThroughSeq: 1 },
+      { channelName: 'room', channelFamily: null, evictedThroughSeq: 3 },
     ]);
   });
 
@@ -905,7 +694,7 @@ describe('inbox/storage — retention and watermark', () => {
     const sql = setup();
     seed(sql, [{ seq: 1, now: 90 }]);
     expect(
-      pruneInboxRetention(sql, {
+      pruneInboxRetentionAndBumpWatermark(sql, {
         userId: 'alice',
         channelName: 'room',
         channelFamily: null,
@@ -915,7 +704,7 @@ describe('inbox/storage — retention and watermark', () => {
     ).toBeNull();
   });
 
-  it('bumpInboxWatermark never lowers, and clearInboxWatermarks removes all for the user id', () => {
+  it('bumpInboxWatermark never lowers', () => {
     const sql = setup();
     function bump(evictedThroughSeq: number) {
       bumpInboxWatermark(sql, {
@@ -931,8 +720,5 @@ describe('inbox/storage — retention and watermark', () => {
     expect(loadInboxWatermarks(sql, 'alice')[0]?.evictedThroughSeq).toBe(10);
     bump(20);
     expect(loadInboxWatermarks(sql, 'alice')[0]?.evictedThroughSeq).toBe(20);
-
-    clearInboxWatermarks(sql, 'alice');
-    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
   });
 });

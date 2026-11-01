@@ -40,7 +40,7 @@ export function persistMembership(core: EngineCore, row: ChannelStorage.Membersh
 
 /**
  * Delete a durable channel-membership row. Called on a real leave (client
- * `__unsubscribe__`, a revoking `kick`) of a persistent channel. No-op for
+ * `__unsubscribe__`, a `kick`) of a persistent channel. No-op for
  * an empty user id — nothing was ever written for one (see persistMembership).
  */
 export function deleteDurableMembership(core: EngineCore, key: MembershipKey): void {
@@ -61,17 +61,6 @@ export function getDurableMembership(
   if (!key.userId) return undefined;
 
   return ChannelStorage.readMembership(core.storage.sql, key);
-}
-
-/**
- * Mark a durable membership row as kicked: the user stays set to rejoin on
- * their next connection, but is no longer listed as a member. No-op for an
- * empty user id.
- */
-export function markDurableMembershipKicked(core: EngineCore, key: MembershipKey): void {
-  if (!key.userId) return;
-
-  ChannelStorage.markMembershipKicked(core.storage.sql, key);
 }
 
 /** Read every durable member of one channel, for the member roster. */
@@ -133,7 +122,6 @@ export async function purgeChannelMembership(core: EngineCore, userId: string): 
         channelFamily,
         target,
         reason: 'user purged',
-        revoke: true,
       });
     } catch (error) {
       failures.push(error);
@@ -180,7 +168,6 @@ export async function autoRejoinIdentity(
           userId,
           channelName,
           channelFamily,
-          revoke: true,
         }),
       logger: core.logger,
     },

@@ -279,11 +279,11 @@ test.describe('channel-dynamic', () => {
     expect(errors[0]!.payload.code).toBe('validation-failed');
   });
 
-  test('onValidationError sees ctx.channel for a manually-thrown ValidationFailed inside a channel handler', async ({
+  test('onError sees ctx.channel for a manually-thrown ValidationFailed inside a channel handler', async ({
     page,
   }, testInfo) => {
     // A manually thrown ValidationFailed keeps its channel scope when the
-    // onValidationError hook runs.
+    // onError hook runs.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('sub-general').click();
     await expect(page.getByTestId('subscribe-ok')).toContainText('room:general');

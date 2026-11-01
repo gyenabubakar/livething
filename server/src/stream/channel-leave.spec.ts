@@ -6,7 +6,6 @@ import { readStream } from '~/_engine/stream-durable/storage.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import { tags } from '~/tags/capability.ts';
@@ -34,7 +33,6 @@ function buildDefinition(runs: Map<string, Run>) {
     capabilities: [
       channels(),
       stream(),
-      cursorStream(),
       recordedStream(),
       tags((ephemeral) => [ephemeral('role', t<string>())]),
     ],
@@ -56,7 +54,7 @@ function buildDefinition(runs: Map<string, Run>) {
     };
   }
 
-  const room = base.channel('room', {});
+  const room = base.channel('room', { membership: 'persistent' });
   const other = base.channel('other', {});
 
   const handlers = [
@@ -67,13 +65,6 @@ function buildDefinition(runs: Map<string, Run>) {
       broadcast: true,
       run: ticks('broadcast-ticks'),
     }),
-    room.cursorStream('cursor-ticks', {
-      input: Empty,
-      chunk: Tick,
-      maxAgeMs: 60_000,
-      retentionAfterEndMs: 60_000,
-      run: ticks('cursor-ticks'),
-    }),
     room.recordedStream('recorded-ticks', {
       input: Empty,
       chunk: Tick,
@@ -81,15 +72,6 @@ function buildDefinition(runs: Map<string, Run>) {
       maxAgeMs: 60_000,
       retentionAfterEndMs: 60_000,
       run: ticks('recorded-ticks'),
-    }),
-    room.recordedStream('detached-ticks', {
-      input: Empty,
-      chunk: Tick,
-      maxChunks: 100_000,
-      maxAgeMs: 60_000,
-      retentionAfterEndMs: 60_000,
-      onDisconnect: 'keep-running',
-      run: ticks('detached-ticks'),
     }),
     other.stream('other-ticks', { input: Empty, chunk: Tick, run: ticks('other-ticks') }),
     room.on('kick-me', {
@@ -286,27 +268,12 @@ describe('leaving a channel stops the streams scoped to it', () => {
     await expectNoMoreChunks(bob, 's-bcast');
   });
 
-  it('stops a cursor channel stream and deletes it so it cannot be continued', async () => {
-    const runs = new Map<string, Run>();
-    const engine = await buildEngine(runs);
-    const alice = await connect(engine, 'alice');
-    await subscribe(alice);
-    await startStream(alice, 'cursor-ticks', 's-cursor');
-
-    await unsubscribe(alice);
-
-    expect(runs.get('cursor-ticks')).toEqual({ reason: 'unsubscribed', finished: true });
-    expect(abortedFrame(alice, 's-cursor')).toBeDefined();
-    await expectNoMoreChunks(alice, 's-cursor');
-    expect(readStream(engine.core.storage.sql, 'alice', 's-cursor')).toBeNull();
-  });
-
-  it('stops a keep-running stream of a dropped tab once the user has no tab left in the channel', async () => {
+  it('stops a recorded stream of a dropped tab once the user has no tab left in the channel', async () => {
     const runs = new Map<string, Run>();
     const engine = await buildEngine(runs);
     const firstTab = await connect(engine, 'alice');
     await subscribe(firstTab);
-    await startStream(firstTab, 'detached-ticks', 's-detached');
+    await startStream(firstTab, 'recorded-ticks', 's-detached');
 
     await firstTab.close();
     expect(engine.core.activeStreams.get('s-detached')?.detached).toBe(true);
@@ -314,17 +281,17 @@ describe('leaving a channel stops the streams scoped to it', () => {
     const secondTab = await connect(engine, 'alice');
     await unsubscribe(secondTab);
 
-    expect(runs.get('detached-ticks')).toEqual({ reason: 'unsubscribed', finished: true });
+    expect(runs.get('recorded-ticks')).toEqual({ reason: 'unsubscribed', finished: true });
     expect(engine.core.activeStreams.has('s-detached')).toBe(false);
     expect(readStream(engine.core.storage.sql, 'alice', 's-detached')).toBeNull();
   });
 
-  it('keeps a keep-running stream of a dropped tab while another tab of the user stays in the channel', async () => {
+  it('keeps a recorded stream of a dropped tab while another tab of the user stays in the channel', async () => {
     const runs = new Map<string, Run>();
     const engine = await buildEngine(runs);
     const firstTab = await connect(engine, 'alice');
     await subscribe(firstTab);
-    await startStream(firstTab, 'detached-ticks', 's-kept');
+    await startStream(firstTab, 'recorded-ticks', 's-kept');
 
     await firstTab.close();
 
@@ -332,11 +299,11 @@ describe('leaving a channel stops the streams scoped to it', () => {
     const thirdTab = await connect(engine, 'alice');
     await unsubscribe(secondTab);
 
-    expect(runs.get('detached-ticks')?.finished).toBe(false);
+    expect(runs.get('recorded-ticks')?.finished).toBe(false);
     expect(engine.core.activeStreams.get('s-kept')?.detached).toBe(true);
 
     await unsubscribe(thirdTab);
-    expect(runs.get('detached-ticks')?.finished).toBe(true);
+    expect(runs.get('recorded-ticks')?.finished).toBe(true);
   });
 
   it('stops a recorded channel stream and deletes it so it cannot be continued', async () => {

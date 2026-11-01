@@ -99,8 +99,7 @@ describe('HibernationClient — streams', () => {
     }>();
   });
 
-  it('start-slow-stream has no cursor or nudges', () => {
-    expectTypeOf<HibernationClient['streams']['start-slow-stream']>().not.toHaveProperty('cursor');
+  it('start-slow-stream has no nudges', () => {
     expectTypeOf<HibernationClient['streams']['start-slow-stream']>().not.toHaveProperty('nudges');
     expectTypeOf<HibernationClient['streams']['start-slow-stream']>().not.toHaveProperty(
       'broadcast',

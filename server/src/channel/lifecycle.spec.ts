@@ -14,7 +14,6 @@ describe('channel lifecycle primitives', () => {
     const primitive = check(handler, { validator });
 
     expect(primitive.__livething).toBe('check');
-    expect(primitive.__kind).toBe('lifecycle');
     expect(primitive.validator).toBe(validator);
 
     primitive.__setup?.(engine as unknown as EngineAccess);
@@ -37,7 +36,6 @@ describe('channel lifecycle primitives', () => {
     const primitive = commit(handler);
 
     expect(primitive.__livething).toBe('commit');
-    expect(primitive.__kind).toBe('lifecycle');
     expect(primitive.handler).toBe(handler);
 
     primitive.__setup?.(engine as unknown as EngineAccess);

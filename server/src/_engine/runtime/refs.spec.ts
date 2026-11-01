@@ -60,7 +60,7 @@ describe('ctx.connections.get(ref).close', () => {
     (handle as any).close(4000, 'bye');
 
     expect(self.descriptor.close).not.toHaveBeenCalled();
-    expect(deps.logger.error).toHaveBeenCalled();
+    expect(deps.logger.error).not.toHaveBeenCalled();
   });
 });
 

@@ -994,14 +994,14 @@ describe('subscribe wire-limit validation', () => {
     expect(ws.sentFrames().at(-1)).toMatchObject({ event: '__subscribe__' });
   });
 
-  it('rejects an empty channel name with validation-failed (#3)', async () => {
+  it('rejects an empty channel name with validation-failed', async () => {
     const { socket } = build(channels());
     const room = socket.channel('rooms', '');
     await expect(room.subscribe()).rejects.toMatchObject({ code: 'validation-failed' });
   });
 });
 
-describe('subscribe before connect (#12)', () => {
+describe('subscribe before connect', () => {
   it('rejects with Disconnected on a closed non-lazy socket', async () => {
     // Built but never connected: state is 'closed' and non-lazy, so the frame
     // can't go out and no flush is coming. It must fail fast, not hang.
@@ -1012,7 +1012,7 @@ describe('subscribe before connect (#12)', () => {
   });
 });
 
-describe('subscribe setup failure cleanup (#13)', () => {
+describe('subscribe setup failure cleanup', () => {
   it('rejects and releases the lazy hold when the payload factory throws synchronously', async () => {
     const { socket } = build(channels());
     const room = socket.channel('general');
@@ -1027,7 +1027,7 @@ describe('subscribe setup failure cleanup (#13)', () => {
   });
 });
 
-describe('stale payload rejection guard (#14)', () => {
+describe('stale payload rejection guard', () => {
   it('a stale payload rejection does not reject a newer subscribe', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');

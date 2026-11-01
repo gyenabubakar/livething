@@ -36,7 +36,7 @@ function buildEngine(definition: ServerDefinition): Engine {
         storage: makeStorage(),
 
         platform: {},
-        timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+        timers: { setAlarm() {}, deleteAlarm() {} } as never,
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};
@@ -100,7 +100,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
     expect('unsafeCast' in ctx).toBe(true);
   });
 
-  it('ctx.matches / ctx.unsafeCast work on a server without intercepts()', async () => {
+  it('ctx.matches / ctx.unsafeCast work on a server with no capabilities', async () => {
     const ctx = await captureCtx(probeServer(createServerDefinition({})));
 
     const frame = {
@@ -118,8 +118,8 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
 
   it('scheduled() adds ctx.schedule / ctx.cancelScheduled that call through', async () => {
     const base = createServerDefinition({ capabilities: [scheduled({ cleanup: null })] });
-    base.scheduled('cleanup', { run() {} });
-    const ctx = await captureCtx(probeServer(base));
+    const cleanup = base.scheduled('cleanup', { run() {} });
+    const ctx = await captureCtx(probeServer(base, cleanup));
 
     expect('schedule' in ctx).toBe(true);
     expect('cancelScheduled' in ctx).toBe(true);

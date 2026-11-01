@@ -1,5 +1,4 @@
 import type {
-  ApiOf,
   ConnectionHandle,
   ServerDefinition,
   UpgradeDecision,
@@ -48,11 +47,11 @@ export interface NodeAcceptedUpgrade {
 }
 
 /** One LiveThing definition prepared for a host integration to upgrade. */
-export interface NodeBindingEndpoint<TApi = unknown> {
+export interface NodeBindingEndpoint<TAdmin = NodeAdmin> {
   ready(): Promise<void>;
   prepare(request: Request, options?: NodePrepareOptions): Promise<NodeUpgrade>;
   prepareNode(request: IncomingMessage, options?: { signal?: AbortSignal }): Promise<NodeUpgrade>;
-  admin(): Promise<NodeAdmin<TApi>>;
+  admin(): Promise<TAdmin>;
 }
 
 /**
@@ -70,7 +69,7 @@ export interface NodeBinding {
   bind<TDefinition extends ServerDefinition>(
     definition: TDefinition,
     options: NodeEndpointOptions,
-  ): NodeBindingEndpoint<ApiOf<TDefinition>>;
+  ): NodeBindingEndpoint<NodeAdmin<TDefinition>>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -112,9 +111,9 @@ export function binding(): NodeBinding {
   };
 }
 
-function createBindingEndpoint<TApi>(
-  endpoint: NodeEndpointInternals<TApi>,
-): NodeBindingEndpoint<TApi> {
+function createBindingEndpoint<TAdmin>(
+  endpoint: NodeEndpointInternals<TAdmin>,
+): NodeBindingEndpoint<TAdmin> {
   return {
     ready: () => endpoint.ready,
     async prepare(request, options) {
@@ -127,9 +126,9 @@ function createBindingEndpoint<TApi>(
   };
 }
 
-function toNodeUpgrade<TApi>(
+function toNodeUpgrade<TAdmin>(
   decision: UpgradeDecision,
-  endpoint: NodeEndpointInternals<TApi>,
+  endpoint: NodeEndpointInternals<TAdmin>,
 ): NodeUpgrade {
   if (!decision.reject) {
     let accepted = false;

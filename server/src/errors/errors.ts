@@ -1,6 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertPositiveInteger } from '~/_engine/validation.ts';
-
 export {
   error,
   LiveThingError,
@@ -10,9 +8,9 @@ export {
   ChannelNotFound,
   ChannelNotSubscribed,
   CrossInstanceRef,
-  DeferExhausted,
   DurableStreamRequiresUser,
   InternalError,
+  NotAMember,
   NudgeOverflow,
   RateLimited,
   ConnectionBusy,
@@ -70,39 +68,4 @@ export function Disconnect(code: number, reason: string) {
  */
 export function RejectUpgrade(code: number, reason: string) {
   return Object.freeze({ __livething: 'reject-upgrade' as const, code, reason });
-}
-
-/**
- * Re-enqueue the current message for processing after a delay (milliseconds).
- *
- * Valid **only in `on()` handlers**. Re-queuing replays the whole frame, which
- * only makes sense there: a `request` handler would re-run and re-answer a
- * correlation the client already settled, an intercept fires on every frame kind
- * (a request or stream frame, not just an `on()` event), and a stream generator
- * that already yielded chunks cannot restart from the top. Thrown from any of
- * those, `Defer` is treated as an unrecognized error and surfaces to the client
- * as `internal-error`.
- *
- * Up to 3 retries per message, so the handler runs **at most 4 times total**
- * (the initial attempt plus 3 retries). After the third retry still throws
- * `Defer`, the message is dropped and `onError` fires with a `DeferExhausted`
- * error whose `detail.retries` is `3`.
- *
- * ```ts
- * // pseudo-code — `tryAcquireLock` is a placeholder for your own lock helper
- * import { Defer } from '@livething/server/errors';
- *
- * const handleProcessJob = base.on('process-job', {
- *   input: ProcessJob,
- *   async run(ctx, input) {
- *     const lock = await tryAcquireLock(input.resourceId);
- *     if (!lock) throw Defer(1000); // retry in 1 second
- *   },
- * });
- * base.assemble({ handlers: [handleProcessJob] });
- * ```
- */
-export function Defer(delay: number) {
-  assertPositiveInteger(delay, 'delay', 'Defer()');
-  return Object.freeze({ __livething: 'defer' as const, delay });
 }

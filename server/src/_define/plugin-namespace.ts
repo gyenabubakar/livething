@@ -21,7 +21,6 @@ const EVENT_KINDS = new Set([
   'request',
   'outgoing',
   'stream-generate',
-  'cursor-stream-generate',
   'recorded-stream-generate',
 ]);
 
@@ -49,7 +48,6 @@ const LIFECYCLE_KINDS: Record<string, PluginLifecycleKind> = {
   onDisconnect: 'disconnect',
   onShutdown: 'shutdown',
   onError: 'error',
-  onValidationError: 'validationError',
   onPing: 'ping',
   onPong: 'pong',
 };
@@ -60,7 +58,6 @@ type PluginLifecycleKind =
   | 'disconnect'
   | 'shutdown'
   | 'error'
-  | 'validationError'
   | 'ping'
   | 'pong';
 
@@ -163,7 +160,7 @@ function namespaceLifecycle(
     id,
     shortCodes,
     (ctx: any, ...rest: any[]): void | Promise<void> =>
-      runAsPlugin(scope, ctx, (scoped) => handler(scoped, ...rest)) as void | Promise<void>,
+      runAsPlugin(scope, ctx, (pluginCtx) => handler(pluginCtx, ...rest)) as void | Promise<void>,
   );
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
@@ -355,8 +352,9 @@ function ownHook(scope: PluginScope, primitive: Primitive): Primitive {
  */
 function ownOutgoingHook(scope: PluginScope, primitive: Primitive): Primitive {
   const { id, shortCodes } = scope;
-  const origHandler = (primitive as unknown as { handler: (ctx: any, frame: any) => unknown })
-    .handler;
+  const origHandler = (
+    primitive as unknown as { handler: (ctx: any, frame: any) => void | Promise<void> }
+  ).handler;
   const handler = scopePluginThrow(id, shortCodes, (ctx: any, frame: any) =>
     runAsPlugin(scope, ctx, (scoped) => origHandler(scoped, frame)),
   );

@@ -10,7 +10,7 @@ test.describe('stream-durable scoped (channel)', () => {
     await installRig(page);
   });
 
-  test('channel-scoped cursorStream survives reconnect via persistence auto-rejoin', async ({
+  test('channel-scoped recordedStream survives reconnect via persistence auto-rejoin', async ({
     page,
   }, testInfo) => {
     const room = `sds-${testInfo.testId}-${Date.now()}`;
@@ -78,7 +78,7 @@ test.describe('stream-durable scoped (channel)', () => {
     expect([...combined].sort((x, y) => x - y)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  test('channel-scoped cursorStream continue is live: continues from the latest cursor, no replay of seen rows', async ({
+  test('channel-scoped recordedStream continue sends only the rows after lastKnownSeq', async ({
     page,
   }, testInfo) => {
     const room = `sds-${testInfo.testId}-${Date.now()}`;
@@ -247,145 +247,5 @@ test.describe('stream-durable scoped (channel)', () => {
       await ctxA.close();
       await ctxB.close();
     }
-  });
-
-  test('nudge on a channel-scoped cursor stream pauses the generator', async ({
-    page,
-  }, testInfo) => {
-    const room = `sds-${testInfo.testId}-${Date.now()}`;
-    const streamId = 'paused-1';
-
-    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-    await send(page, a, {
-      event: '__subscribe__',
-      payload: null,
-      metadata: { channel: { name: 'rooms' } },
-    });
-    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
-
-    await send(page, a, {
-      event: 'paused-feed',
-      payload: {},
-      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
-    });
-
-    await page.waitForFunction(
-      ([sid]) =>
-        (window.__livethingFrames!(sid as string) ?? []).filter(
-          (f: WireFrame) => f.event === 'paused-feed' && typeof f.payload?.row === 'number',
-        ).length >= 2,
-      [a],
-    );
-
-    await send(page, a, {
-      event: 'pause',
-      payload: { at: Date.now() },
-      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
-    });
-
-    await waitForFrame(page, a, {
-      match: (f) =>
-        f.event === '__streamEnd__' &&
-        f.metadata?.stream?.id === streamId &&
-        f.metadata?.channel?.name === 'rooms',
-    });
-
-    await page.waitForTimeout(500);
-    const rowsAfter = (await frames(page, a)).filter(
-      (f) => f.event === 'paused-feed' && typeof f.payload.row === 'number',
-    ).length;
-    // The pause stops the stream well before its natural end of 20. A few more
-    // rows may still arrive before the generator notices the pause — how many
-    // depends on the generator's own loop, not on LiveThing, so we don't check an
-    // exact number.
-    expect(rowsAfter).toBeLessThan(20);
-  });
-
-  // A pause nudge ends this generator attempt. A reconnect must still start a
-  // new attempt from the last row this client confirmed, because the browser
-  // may have missed items before it saw the old end frame.
-  test('an ended cursor stream restarts from the client-confirmed row on reconnect', async ({
-    page,
-  }, testInfo) => {
-    const room = `sds-${testInfo.testId}-${Date.now()}`;
-    const streamId = 'paused-continue-1';
-
-    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-    await send(page, a, {
-      event: '__subscribe__',
-      payload: null,
-      metadata: { channel: { name: 'rooms' } },
-    });
-    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
-
-    await send(page, a, {
-      event: 'paused-feed',
-      payload: {},
-      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
-    });
-
-    await page.waitForFunction(
-      ([sid]) =>
-        (window.__livethingFrames!(sid as string) ?? []).filter(
-          (f: WireFrame) => f.event === 'paused-feed' && typeof f.payload?.row === 'number',
-        ).length >= 2,
-      [a],
-    );
-
-    await send(page, a, {
-      event: 'pause',
-      payload: { at: Date.now() },
-      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
-    });
-
-    await waitForFrame(page, a, {
-      match: (f) =>
-        f.event === '__streamEnd__' &&
-        f.metadata?.stream?.id === streamId &&
-        f.metadata?.channel?.name === 'rooms',
-    });
-
-    const rowsBeforeDrop = (await frames(page, a)).filter(
-      (f) => f.event === 'paused-feed' && typeof f.payload.row === 'number',
-    );
-    const rowSeqs = rowsBeforeDrop
-      .map((f) => f.metadata?.stream?.seq)
-      .filter((seq): seq is number => typeof seq === 'number');
-    expect(rowSeqs).not.toHaveLength(0);
-    const lastKnownSeq = Math.max(...rowSeqs);
-
-    await closeSocket(page, a);
-    // closeSocket() doesn't wait for the close handshake to finish server
-    // side, so give the disconnect real time to land before reconnecting
-    // with the same identity (auto-rejoin depends on it).
-    await page.waitForTimeout(300);
-
-    const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-    const rejoin = await waitForFrame(page, b, {
-      match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'rooms',
-    });
-    expect(rejoin.metadata?.exchange?.source).toBe('server');
-
-    await send(page, b, {
-      event: '__continueStream__',
-      payload: { lastKnownSeq },
-      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
-    });
-
-    await waitForFrame(page, b, {
-      match: (f) =>
-        f.event === '__streamEnd__' &&
-        f.metadata?.stream?.id === streamId &&
-        f.metadata?.channel?.name === 'rooms',
-    });
-
-    const rowsAfterContinue = (await frames(page, b))
-      .filter((f) => f.event === 'paused-feed' && typeof f.payload.row === 'number')
-      .map((f) => f.payload.row as number);
-
-    expect(rowsAfterContinue).toEqual(
-      Array.from({ length: 20 - lastKnownSeq }, (_, i) => lastKnownSeq + i + 1),
-    );
-    expect(rowsBeforeDrop.length).toBeLessThan(20);
   });
 });

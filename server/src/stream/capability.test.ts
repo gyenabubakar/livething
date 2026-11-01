@@ -1,6 +1,4 @@
-import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
@@ -8,24 +6,13 @@ import type { InferClient } from '~/infer-client.ts';
 import { stream } from './capability.ts';
 
 const base = server({
-  capabilities: [stream(), cursorStream(), recordedStream()],
+  capabilities: [stream(), recordedStream()],
 });
 
 const feed = base.stream('feed', {
   input: v.object({ count: v.number() }),
   async *run() {
     yield { index: 1 };
-  },
-});
-
-const paginate = base.cursorStream('paginate', {
-  input: v.object({}),
-  // Cursor chunk type comes from an explicit `chunk` — `withCursor` makes
-  // yield-inference circular, so it cannot be inferred from what is yielded.
-  chunk: t<{ row: number }>(),
-  cursor: t<{ row: number }>(),
-  async *run(ctx) {
-    yield ctx.stream.withCursor({ row: 1 }, { row: 1 });
   },
 });
 
@@ -36,7 +23,7 @@ const tokens = base.recordedStream('tokens', {
   },
 });
 
-const definition = base.assemble({ handlers: [feed, paginate, tokens] });
+const definition = base.assemble({ handlers: [feed, tokens] });
 type C = InferClient<typeof definition>;
 
 describe('stream typing', () => {
@@ -45,10 +32,9 @@ describe('stream typing', () => {
     expectTypeOf<C['streams']['tokens']['chunk']>().toEqualTypeOf<{ token: string }>();
   });
 
-  it('surfaces all three kinds under the client streams slot', () => {
-    expectTypeOf<C['streams']['paginate']['chunk']>().toEqualTypeOf<{ row: number }>();
+  it('surfaces both kinds under the client streams slot', () => {
     expectTypeOf<C['streams']['feed']['kind']>().toEqualTypeOf<'ephemeral'>();
-    expectTypeOf<C['streams']['paginate']['kind']>().toEqualTypeOf<'persistent'>();
+    expectTypeOf<C['streams']['tokens']['kind']>().toEqualTypeOf<'persistent'>();
   });
 
   it('types ctx.stream.nudges from the declared nudge map', () => {

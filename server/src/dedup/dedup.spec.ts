@@ -49,16 +49,15 @@ function installDedup(): {
 }
 
 describe('dedup', () => {
-  it('produces correct tag and kind', () => {
+  it('produces correct tag', () => {
     const p = dedup();
     expect(p.__livething).toBe('dedup');
-    expect(p.__kind).toBe('infrastructure');
   });
 
   it('uses singleton identity', () => {
     const p = dedup();
     expect(p.__identity).toHaveLength(1);
-    expect(p.__identity[0]).toBe(dedup.__key);
+    expect(typeof p.__identity[0]).toBe('symbol');
   });
 
   it('instances have empty dependencies and requires', () => {

@@ -16,7 +16,6 @@ describe('sweepDurableStreams', () => {
       streamId: 's1',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: Date.now(),
       maxAgeMs: 60_000,
     });
@@ -37,7 +36,6 @@ describe('sweepDurableStreams', () => {
       streamId: 's1',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: longAgo,
       maxAgeMs: 1,
     });
@@ -57,7 +55,6 @@ describe('sweepDurableStreams', () => {
       streamId: 's2',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: longAgo,
       retentionAfterEndMs: 1,
     });
@@ -78,7 +75,6 @@ describe('sweepDurableStreams', () => {
       streamId: 'expired-suspended',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: longAgo,
       maxAgeMs: 1,
     });
@@ -89,7 +85,6 @@ describe('sweepDurableStreams', () => {
       streamId: 'expired-ended',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: longAgo,
       retentionAfterEndMs: 1,
     });
@@ -100,7 +95,6 @@ describe('sweepDurableStreams', () => {
       streamId: 'fresh',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: Date.now(),
       maxAgeMs: 60_000,
     });

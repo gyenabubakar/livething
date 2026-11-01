@@ -3,7 +3,6 @@ import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SocketConfig } from '~/internal/config.ts';
 import type { Message } from '~/internal/runtime.ts';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 import type { SocketContract } from '~/types.ts';
@@ -45,11 +44,6 @@ function connected<const P extends readonly Primitive<any, any>[]>(
   return { socket, ws: MockWebSocket.last() };
 }
 
-/** Build a primitive spec that only applies config, for injecting parseBinary etc. */
-function configPrimitive(apply: (config: SocketConfig) => void): Primitive {
-  return { _tag: 'test-config', applyConfig: apply };
-}
-
 let primitiveCounter = 0;
 
 /** Build a primitive runtime with a given onIncoming hook. Each call gets a unique tag. */
@@ -64,12 +58,7 @@ function incomingPrimitive(onIncoming: (message: Message) => Message | null): Pr
 describe('incoming pipeline — malformed text frame', () => {
   it('swallows an unparseable text frame and keeps the socket alive', () => {
     const handler = vi.fn();
-    const parseSpec = configPrimitive((config) => {
-      config.parse = () => {
-        throw new SyntaxError('bad json');
-      };
-    });
-    const { socket, ws } = connected(parseSpec);
+    const { socket, ws } = connected();
     socket.on('anything', handler);
 
     ws.emitRaw('this is not valid json');
@@ -143,7 +132,7 @@ describe('incoming pipeline — binary frame', () => {
   });
 });
 
-describe('incoming pipeline — defaultParse event field validation', () => {
+describe('incoming pipeline — event field validation', () => {
   it('drops a syntactically valid JSON frame whose event field is not a string', () => {
     const handler = vi.fn();
     const { socket, ws } = connected();
@@ -313,13 +302,13 @@ describe('handler registered inside a dispatch does not receive the triggering m
     // firstHandler is the only 'm' listener when the first message arrives,
     // so dispatchToHandlers iterates the live Set (size === 1, no snapshot).
     // Inside the loop it calls socket.on('m', lateHandler), which mutates that
-    // same Set. The bug causes lateHandler to be called for the triggering message.
+    // same Set.
     socket.on('message', () => {
       socket.on('message', lateHandler);
     });
 
     // First message: lateHandler is registered DURING dispatch of this message.
-    // Correct behavior: lateHandler must NOT be called for this message.
+    // lateHandler must NOT be called for this message.
     ws.emit({ event: 'message', payload: { text: 'first' } });
 
     expect(lateHandler).not.toHaveBeenCalled();

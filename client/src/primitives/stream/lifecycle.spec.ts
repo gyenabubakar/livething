@@ -207,6 +207,25 @@ describe('durable stream lazy hold across failed reconnects', () => {
   });
 });
 
+describe('taken-over', () => {
+  it('ends the stream with the error and sends no continue frame', async () => {
+    const { socket, ws } = build();
+    const { handle, sid } = await start(socket, ws, { streamDurability: 'persistent' });
+
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'stream-aborted', detail: { reason: 'taken-over' } },
+      metadata: { stream: { id: sid, terminated: true } },
+    });
+
+    await expect(collect(handle)).rejects.toMatchObject({
+      code: 'stream-aborted',
+      detail: { reason: 'taken-over' },
+    });
+    expect(ws.sentFrames().some((frame) => frame.event === '__continueStream__')).toBe(false);
+  });
+});
+
 describe('hibernation-wake continue', () => {
   it('re-sends __continueStream__ on stream-aborted/hibernation-wake without ending the stream', async () => {
     const { socket, ws } = build();
@@ -434,9 +453,8 @@ describe('per-chunk timeout must not start at reconnect for a continued stream',
       // The reconnect sends a __continueStream__ frame. We have NOT yet received
       // the first continued chunk. Advance past the full per-chunk timeout — the
       // stream is still waiting for its first continued chunk and must NOT be aborted.
-      // If the timer started at reconnect (the bug), advancing past 1000ms fires
-      // Timeout before the first chunk arrives. Correct behavior: the timer should
-      // only start when the first continued chunk is received.
+      // The timer only starts when the first continued chunk is received, so
+      // advancing past 1000ms must not fire Timeout.
       vi.advanceTimersByTime(1100);
 
       second.emit({
@@ -637,7 +655,7 @@ describe('durable stream without keepalive warns in debug mode', () => {
   it('does not warn when keepalive is installed', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const socket = client<C>()(connect('wss://test'), stream(), keepalive({ interval: 0 }));
+      const socket = client<C>()(connect('wss://test'), stream(), keepalive());
       socket.setDebug(true);
       socket.connect();
       const ws = MockWebSocket.last();

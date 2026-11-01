@@ -522,7 +522,7 @@ describe('channels-reconnect-refreshes-function-subscribe-payload', () => {
   });
 });
 
-describe('channels-reconnect-payload-refresh-failure-reaches-onError (#22)', () => {
+describe('channels-reconnect-payload-refresh-failure-reaches-onError', () => {
   it('reports a throwing subscribe payload refresh via onError', async () => {
     vi.useFakeTimers();
     try {

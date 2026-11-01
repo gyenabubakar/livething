@@ -21,9 +21,8 @@ interface Contract extends SocketContract {
     'plugin-rewrite-result': { text: string; rewritten?: boolean };
     'message-count': { count: number };
     'outgoing-count': { count: number };
-    // Plugin-owned emit, namespaced by the `__<id>::` wire prefix. The outgoing
-    // hook stamps `hooked: true` on it.
-    '__e2e:drizzle::drizzle-ready': { tables: string[]; hooked?: boolean };
+    // Plugin-owned emit, namespaced by the `__<id>::` wire prefix.
+    '__e2e:drizzle::drizzle-ready': { tables: string[] };
     // The Feed plugin's own emit, sent in reply to its `hello` incoming handler.
     '__e2e:feed::welcome': { name: string };
   };
@@ -71,7 +70,6 @@ export function setup(): void {
     <button data-testid="feed-sub-room">feed-sub-room</button>
     <span data-testid="status"></span>
     <span data-testid="drizzle-ready"></span>
-    <span data-testid="drizzle-hooked"></span>
     <span data-testid="inserted-id"></span>
     <span data-testid="rewrite-result"></span>
     <span data-testid="msg-count-result"></span>
@@ -101,11 +99,9 @@ export function setup(): void {
     el('status').textContent = socket.state.get();
   });
 
-  // Plugin-owned event under the `__<id>::` prefix. The outgoing hook stamps
-  // `hooked: true` on the plugin's own emit.
+  // Plugin-owned event under the `__<id>::` prefix.
   socket.on('__e2e:drizzle::drizzle-ready', (data) => {
     el('drizzle-ready').textContent = data.tables.join(',');
-    el('drizzle-hooked').textContent = data.hooked ? 'yes' : 'no';
   });
 
   socket.on('record-inserted', (data) => {

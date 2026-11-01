@@ -35,21 +35,12 @@ type BuildReceivedHandlerDepsParameter = {
 type BuildReceivedQueryHandlerDepsParameter = { engine: EngineAccess; channelKey: string };
 
 /** The primitive type produced by the `inbox()` capability for one channel. */
-export interface InboxPrimitive extends Primitive<'inbox'> {
-  readonly options: ResolvedInboxOptions;
-}
+export interface InboxPrimitive extends Primitive<'inbox'> {}
 
 /** @internal */
 const INBOX_KEY = Symbol('inbox');
 
-function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
-  const onDelivered = config.onDelivered ?? 'delete';
-  if (onDelivered === 'retain' && !config.retention) {
-    throw new Error(
-      "[livething] inbox `onDelivered: 'retain'` requires `retention` so kept rows can age out.",
-    );
-  }
-
+export function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
   if (config.retention) {
     assertOptionalPositiveInteger(config.retention.maxAgeMs, 'retention.maxAgeMs', 'inbox()');
     assertOptionalPositiveInteger(config.retention.maxMessages, 'retention.maxMessages', 'inbox()');
@@ -59,8 +50,8 @@ function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
   const maxReceiptAudience = config.maxReceiptAudience ?? DEFAULT_MAX_RECEIPT_AUDIENCE;
 
   return config.retention
-    ? { onDelivered, retention: config.retention, broadcastReceipts, maxReceiptAudience }
-    : { onDelivered, broadcastReceipts, maxReceiptAudience };
+    ? { retention: config.retention, broadcastReceipts, maxReceiptAudience }
+    : { broadcastReceipts, maxReceiptAudience };
 }
 
 /**
@@ -74,7 +65,6 @@ export function inbox(config: InboxOptions): InboxPrimitive {
 
   return {
     __livething: 'inbox',
-    __kind: 'infrastructure',
     __identity: [INBOX_KEY],
     __requires: {},
     __requiresCapabilities: [
@@ -94,12 +84,11 @@ export function inbox(config: InboxOptions): InboxPrimitive {
         throw new Error(
           `[livething] Channel "${view.channelKey}" has inbox() but is not persistent, so guaranteed ` +
             `delivery silently degrades to live-only — inbox fans out to the durable membership roster, ` +
-            `which stays empty on an ephemeral channel. Remove \`membership: 'ephemeral'\` from this ` +
+            `which stays empty on an ephemeral channel. Set \`membership: 'persistent'\` on this ` +
             `channel, or remove inbox().`,
         );
       }
     },
-    options,
     __setup(engine) {
       const { channelKey } = engine.getScopeInfo();
       if (!channelKey) {
@@ -206,7 +195,6 @@ function buildReceivedHandler(deps: BuildReceivedHandlerDepsParameter) {
         channelName,
         channelFamily,
         receivedThrough: frame.payload.receivedThrough,
-        onDelivered: options.onDelivered,
       });
       engine.invalidateInboxMemberCount?.(channelName, channelFamily, userId);
 
@@ -288,6 +276,3 @@ function isMember(
 ): boolean {
   return !!connection && hasChannelMembership(connection, channelName, channelFamily);
 }
-
-/** Symbol identity for dependency declarations. */
-inbox.__key = INBOX_KEY;

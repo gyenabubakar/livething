@@ -1,4 +1,4 @@
-import { WIRE_LIMITS } from '@livething/core';
+import { LiveThingConfigError, WIRE_LIMITS } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
@@ -30,12 +30,42 @@ afterEach(() => {
   restore();
 });
 
+describe('clientRequests — timeout range', () => {
+  const BAD_TIMEOUTS = [NaN, 0, -1, Infinity, 2 ** 31, '100'];
+
+  it.each(BAD_TIMEOUTS)('rejects the option timeout %s, naming the option', (timeout) => {
+    expect(() => clientRequests({ timeout: timeout as number })).toThrow(
+      expect.objectContaining({
+        constructor: LiveThingConfigError,
+        message: expect.stringContaining('clientRequests timeout'),
+      }),
+    );
+  });
+
+  it.each(BAD_TIMEOUTS)('rejects a request with timeout %s, naming the option', async (timeout) => {
+    const socket = client<C>()(connect('wss://test'), clientRequests());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    const request = socket.request('get-balance', { user: 'a' }, { timeout: timeout as number });
+
+    await expect(request).rejects.toThrow(LiveThingConfigError);
+    await expect(request).rejects.toThrow(/request timeout/);
+    expect(ws.sentFrames()).toHaveLength(0);
+  });
+
+  it.each([1, 10_000, 2 ** 31 - 1])('accepts timeout %s', (timeout) => {
+    expect(() => clientRequests({ timeout })).not.toThrow();
+  });
+});
+
 describe('clientRequests — buffered frame ownership', () => {
   it('does not send a timed-out request after reconnect', async () => {
     vi.useFakeTimers();
     const socket = client<C>()(
       connect('wss://test'),
-      buffering({ enabled: true }),
+      buffering(),
       clientRequests({ timeout: 5000 }),
     );
     socket.connect();
@@ -83,7 +113,7 @@ describe('clientRequests — buffered frame ownership', () => {
 });
 
 describe('clientRequests', () => {
-  it('rejects and cleans up timer/pending when the payload will not serialize (#15)', async () => {
+  it('rejects and cleans up timer/pending when the payload will not serialize', async () => {
     vi.useFakeTimers();
     const { socket, ws } = build();
     const circular: Record<string, unknown> = {};
@@ -114,7 +144,7 @@ describe('clientRequests', () => {
     expect(ws.sentFrames()).toHaveLength(0);
   });
 
-  it('rejects an over-limit event name locally with validation-failed, no send (#3)', async () => {
+  it('rejects an over-limit event name locally with validation-failed, no send', async () => {
     const { socket, ws } = build();
     const longEvent = 'e'.repeat(WIRE_LIMITS.event + 1);
     await expect(

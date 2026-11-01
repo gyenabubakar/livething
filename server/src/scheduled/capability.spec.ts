@@ -21,8 +21,8 @@ function scheduledPrimitive(primitives: readonly { __livething: string }[]): Any
 describe('scheduled() capability', () => {
   it('registers a declaration body into one bootable task', () => {
     const base = server({ capabilities: [scheduled({ cleanup: null })] });
-    base.scheduled('cleanup', { run() {} });
-    const definition = base.assemble({ handlers: [] });
+    const cleanup = base.scheduled('cleanup', { run() {} });
+    const definition = base.assemble({ handlers: [cleanup] });
     const compiled = compileServerDefinition(definition);
     expect(compiled.scheduled.has('cleanup')).toBe(true);
 
@@ -33,8 +33,8 @@ describe('scheduled() capability', () => {
     const base = server({
       capabilities: [scheduled({ report: { data: t<{ userId: string }>(), retry: true } })],
     });
-    base.scheduled('report', { run() {} });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
+    const report = base.scheduled('report', { run() {} });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [report] }).primitives);
     expect(primitive.hasData).toBe(true);
     expect(primitive.options?.retry).toBe(true);
   });
@@ -43,8 +43,8 @@ describe('scheduled() capability', () => {
     const base = server({
       capabilities: [scheduled({ heartbeat: { every: 30_000 } })],
     });
-    base.scheduled('heartbeat', { run() {} });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
+    const heartbeat = base.scheduled('heartbeat', { run() {} });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [heartbeat] }).primitives);
     expect(primitive.options?.every).toBe(30_000);
   });
 
@@ -56,15 +56,20 @@ describe('scheduled() capability', () => {
 
   it('throws when a declared task has no body', () => {
     const base = server({ capabilities: [scheduled({ cleanup: null })] });
-    expect(() => base.assemble({ handlers: [] })).toThrow(/No body for scheduled task 'cleanup'/);
+    base.scheduled('cleanup', { run() {} });
+    const noHandlers: never[] = [];
+    expect(() => base.assemble({ handlers: noHandlers })).toThrow(
+      /Pass base\.scheduled\('cleanup', \.\.\.\) to assemble\(\)/,
+    );
   });
 
-  it('throws when the same task is registered twice', () => {
+  it('throws when the same task is passed twice', () => {
     const base = server({ capabilities: [scheduled({ cleanup: null })] });
-    base.scheduled('cleanup', { run() {} });
-    expect(() => base.scheduled('cleanup', { run() {} })).toThrow(
-      /Duplicate scheduled task 'cleanup'/,
-    );
+    const handlers = [
+      base.scheduled('cleanup', { run() {} }),
+      base.scheduled('cleanup', { run() {} }),
+    ];
+    expect(() => base.assemble({ handlers })).toThrow(/Duplicate scheduled task 'cleanup'/);
   });
 
   it('passes trusted data to the registered body at runtime', async () => {
@@ -72,8 +77,8 @@ describe('scheduled() capability', () => {
       capabilities: [scheduled({ report: { data: t<{ userId: string }>() } })],
     });
     const run = vi.fn();
-    base.scheduled('report', { run });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
+    const report = base.scheduled('report', { run });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [report] }).primitives);
 
     const ctx = {} as never;
     await primitive.handler(ctx, { userId: 'alice' });
@@ -83,8 +88,8 @@ describe('scheduled() capability', () => {
   it('runs a no-data task body with only the context', async () => {
     const base = server({ capabilities: [scheduled({ cleanup: null })] });
     const run = vi.fn();
-    base.scheduled('cleanup', { run });
-    const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
+    const cleanup = base.scheduled('cleanup', { run });
+    const primitive = scheduledPrimitive(base.assemble({ handlers: [cleanup] }).primitives);
 
     const ctx = {} as never;
     await primitive.handler(ctx);
@@ -95,10 +100,11 @@ describe('scheduled() capability', () => {
     const base = server({});
     const escapeHatch = base as unknown as {
       scheduled(taskId: string, config: { run: () => void }): unknown;
+      assemble(config: { handlers: unknown[] }): unknown;
     };
-    escapeHatch.scheduled('cleanup', { run() {} });
-    expect(() => base.assemble({ handlers: [] })).toThrow(
-      /base\.scheduled\('cleanup'\) has no matching declaration/,
+    const stray = escapeHatch.scheduled('cleanup', { run() {} });
+    expect(() => escapeHatch.assemble({ handlers: [stray] })).toThrow(
+      /'cleanup'.*no matching declaration/,
     );
   });
 
@@ -154,6 +160,59 @@ describe('scheduled() capability', () => {
     });
   });
 
+  describe('a declaration that is not an object', () => {
+    it.each([[undefined], ['daily'], [42], [true], [[]]])('refuses %j', (def) => {
+      function declare() {
+        return scheduled({ cleanup: def as never });
+      }
+
+      expect(declare).toThrow(LiveThingConfigError);
+      expect(declare).toThrow(/\[livething\] scheduled\("cleanup"\): .*must be null or an object/);
+    });
+  });
+
+  describe('a delay past what an alarm can hold', () => {
+    const TOO_LONG = 9_223_372_036_854;
+
+    it('refuses an every that would run after the last alarm time', () => {
+      function declare() {
+        return scheduled({ heartbeat: { every: TOO_LONG } });
+      }
+
+      expect(declare).toThrow(LiveThingConfigError);
+      expect(declare).toThrow(/'every' must be at most/);
+    });
+
+    it('refuses a retry delay that would run after the last alarm time', () => {
+      function declare() {
+        return scheduled({ report: { retry: [100, TOO_LONG] } });
+      }
+
+      expect(declare).toThrow(LiveThingConfigError);
+      expect(declare).toThrow(/'retry\[1\]' must be at most/);
+    });
+
+    it('refuses a delay over one hundred years, which could pass the limit as time goes by', () => {
+      const overLimit = 101 * 366 * 24 * 60 * 60 * 1_000;
+      expect(() => scheduled({ heartbeat: { every: overLimit } })).toThrow(
+        /'every' must be at most/,
+      );
+    });
+
+    it('reports a declaration JSON cannot print', () => {
+      expect(() => scheduled({ cleanup: 1n as never })).toThrow(LiveThingConfigError);
+    });
+
+    it('accepts a delay of one hundred years', () => {
+      const year = 365 * 24 * 60 * 60 * 1_000;
+      expect(() => scheduled({ heartbeat: { every: 100 * year } })).not.toThrow();
+    });
+  });
+
+  it("names 'every' without a leading dot", () => {
+    expect(() => scheduled({ heartbeat: { every: 0 } })).toThrow(/'every' must be/);
+  });
+
   describe('retry array validation', () => {
     function declare(retry: readonly number[]) {
       return () => scheduled({ report: { data: t<{ userId: string }>(), retry } });
@@ -161,6 +220,7 @@ describe('scheduled() capability', () => {
 
     it('rejects an empty array', () => {
       expect(declare([])).toThrow(/at least one entry/);
+      expect(declare([])).toThrow(LiveThingConfigError);
     });
 
     it('rejects zero entries', () => {

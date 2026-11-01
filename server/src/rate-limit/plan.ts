@@ -9,17 +9,14 @@
  *
  * Cascade rules:
  * - No `rateLimit:` at a scope → inherit parent's rule (same bucket).
- * - `rateLimit: { enabled: true, ... }` → new rule for this scope, partial
- *   fields override parent's, missing fields fall back to parent's then
- *   built-in defaults.
- * - `rateLimit: { enabled: false }` → disabled at this scope; cascade stops.
+ * - `rateLimit: { ... }` → new rule for this scope, partial fields override
+ *   parent's, missing fields fall back to parent's then built-in defaults.
+ * - `rateLimit: false` → disabled at this scope; cascade stops.
  * - Per-event override on a scope follows the same merge rules but against
  *   the scope's resolved rule, not the parent's.
  */
 
 import { assertPositiveInteger } from '~/_engine/validation.ts';
-import type { ChannelDef, Definition } from '~/_api/definitions.ts';
-import type { ScopeDeclaration } from '~/channel/channel.ts';
 import { RATE_LIMIT_DEFAULTS } from './rate-limit.ts';
 import type { RateLimitConfig } from './rate-limit.ts';
 import type { ResolvedRateLimitPlan, RuleInstance } from './runtime.ts';
@@ -28,7 +25,13 @@ import type { ResolvedRateLimitPlan, RuleInstance } from './runtime.ts';
  * Per-handler overrides collected from handler config during assembly. Keyed by scope key (same form as
  * `ResolvedRateLimitPlan.scopeRules`), then by event name.
  */
-export type RateLimitOverrideMap = ReadonlyMap<string, ReadonlyMap<string, RateLimitConfig>>;
+type RateLimitOverrideMap = ReadonlyMap<string, ReadonlyMap<string, RateLimitConfig>>;
+
+/** One channel scope: its key (the family key for a dynamic channel) and its own rule, if any. */
+interface PlanChannel {
+  readonly key: string;
+  readonly rateLimit?: RateLimitConfig;
+}
 
 /**
  * Inputs collected by the definition compiler at assembly time. Pass to `resolvePlan` to
@@ -36,7 +39,7 @@ export type RateLimitOverrideMap = ReadonlyMap<string, ReadonlyMap<string, RateL
  */
 export interface PlanInput {
   readonly contractRateLimit: RateLimitConfig | undefined;
-  readonly definitions: readonly Definition[];
+  readonly channels: readonly PlanChannel[];
   readonly overrides: RateLimitOverrideMap;
 }
 
@@ -65,7 +68,7 @@ function mergeRule(opts: MergeRuleOptions): RuleInstance | null {
   const { parent, self, alloc, context } = opts;
   if (self === undefined) return parent;
 
-  if (!self.enabled) return null;
+  if (self === false) return null;
 
   const windowMs = self.windowMs ?? parent?.windowMs ?? RATE_LIMIT_DEFAULTS.windowMs;
   const max = self.max ?? parent?.max ?? RATE_LIMIT_DEFAULTS.max;
@@ -81,17 +84,8 @@ function mergeRule(opts: MergeRuleOptions): RuleInstance | null {
   };
 }
 
-function channelKey(pattern: string | ScopeDeclaration<string>): string {
-  return typeof pattern === 'string' ? pattern : pattern.key;
-}
-
-function readChannelRateLimit(def: ChannelDef): RateLimitConfig | undefined {
-  const value = (def as unknown as { rateLimit?: RateLimitConfig }).rateLimit;
-  return value;
-}
-
 /**
- * Walk the contract once and compute the flat scope→rule plan.
+ * Compute the flat scope→rule plan.
  *
  * Returns `null` when no `rateLimit:` is set anywhere AND no per-handler
  * overrides exist — the caller should skip pushing the primitive in that
@@ -110,33 +104,17 @@ export function resolvePlan(input: PlanInput): ResolvedRateLimitPlan | null {
   });
   scopeRules.set('top', topRule);
 
-  function walk(
-    defs: readonly Definition[],
-    parentRule: RuleInstance | null,
-    parentKey: string,
-  ): void {
-    for (const def of defs) {
-      if (def._ === 'channel') {
-        const ch = def as ChannelDef;
-        const selfCfg = readChannelRateLimit(ch);
-        const key =
-          parentKey === 'top'
-            ? `channel:${channelKey(ch.pattern)}`
-            : `${parentKey}:channel:${channelKey(ch.pattern)}`;
-        const rule = mergeRule({
-          parent: parentRule,
-          self: selfCfg,
-          alloc,
-          context: `channel "${channelKey(ch.pattern)}"`,
-        });
-        scopeRules.set(key, rule);
-
-        walk(ch.definitions, rule, key);
-      }
-    }
+  for (const channel of input.channels) {
+    scopeRules.set(
+      `channel:${channel.key}`,
+      mergeRule({
+        parent: topRule,
+        self: channel.rateLimit,
+        alloc,
+        context: `channel "${channel.key}"`,
+      }),
+    );
   }
-
-  walk(input.definitions, topRule, 'top');
 
   // Per-event overrides — merge against the scope's resolved rule.
   let hasAnyOverride = false;

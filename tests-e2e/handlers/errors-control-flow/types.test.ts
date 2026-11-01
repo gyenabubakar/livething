@@ -5,10 +5,6 @@ describe('ErrorsControlFlowClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ErrorsControlFlowClient['incoming']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ErrorsControlFlowClient['clientRequests']>().not.toBeAny();
-    expectTypeOf<ErrorsControlFlowClient['streams']>().not.toBeAny();
-    expectTypeOf<ErrorsControlFlowClient['channels']>().not.toBeAny();
-
     expectTypeOf<ErrorsControlFlowClient['errors']>().not.toBeAny();
   });
 });
@@ -24,32 +20,15 @@ describe('ErrorsControlFlowClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('has defer-result', () => {
-    expectTypeOf<ErrorsControlFlowClient['incoming']['defer-result']>().toEqualTypeOf<{
-      received: boolean;
-    }>();
-  });
-
-  it('has defer-exhausted-result', () => {
-    expectTypeOf<ErrorsControlFlowClient['incoming']['defer-exhausted-result']>().toEqualTypeOf<{
-      event: string;
-      retries: number;
-    }>();
-  });
-
   it('has validation-error-fired', () => {
     expectTypeOf<ErrorsControlFlowClient['incoming']['validation-error-fired']>().toEqualTypeOf<{
       event: string;
     }>();
   });
 
-  it('exactly five events in incoming', () => {
+  it('exactly three events in incoming', () => {
     expectTypeOf<keyof ErrorsControlFlowClient['incoming']>().toEqualTypeOf<
-      | 'echoed'
-      | 'block-reply'
-      | 'defer-result'
-      | 'defer-exhausted-result'
-      | 'validation-error-fired'
+      'echoed' | 'block-reply' | 'validation-error-fired'
     >();
   });
 });
@@ -65,79 +44,12 @@ describe('ErrorsControlFlowClient — outgoing (server incoming)', () => {
     expectTypeOf<ErrorsControlFlowClient['outgoing']['block-test']>().toEqualTypeOf<{}>();
   });
 
-  it('has defer-test with empty payload', () => {
-    expectTypeOf<ErrorsControlFlowClient['outgoing']['defer-test']>().toEqualTypeOf<{}>();
-  });
-
-  it('has always-defer with empty payload', () => {
-    expectTypeOf<ErrorsControlFlowClient['outgoing']['always-defer']>().toEqualTypeOf<{}>();
-  });
-
   it('has manual-validation with empty payload', () => {
     expectTypeOf<ErrorsControlFlowClient['outgoing']['manual-validation']>().toEqualTypeOf<{}>();
   });
 
   it('has force-disconnect with empty payload', () => {
     expectTypeOf<ErrorsControlFlowClient['outgoing']['force-disconnect']>().toEqualTypeOf<{}>();
-  });
-});
-
-describe('ErrorsControlFlowClient — streams', () => {
-  it('has start-defer-stream', () => {
-    expectTypeOf<ErrorsControlFlowClient['streams']>().toHaveProperty('start-defer-stream');
-  });
-
-  it('start-defer-stream has correct payload and chunk', () => {
-    expectTypeOf<
-      ErrorsControlFlowClient['streams']['start-defer-stream']['payload']
-    >().toEqualTypeOf<{}>();
-    expectTypeOf<
-      ErrorsControlFlowClient['streams']['start-defer-stream']['chunk']
-    >().toEqualTypeOf<{
-      index: number;
-    }>();
-  });
-
-  it('start-defer-stream has no cursor or nudges', () => {
-    expectTypeOf<ErrorsControlFlowClient['streams']['start-defer-stream']>().not.toHaveProperty(
-      'cursor',
-    );
-    expectTypeOf<ErrorsControlFlowClient['streams']['start-defer-stream']>().not.toHaveProperty(
-      'nudges',
-    );
-    expectTypeOf<ErrorsControlFlowClient['streams']['start-defer-stream']>().not.toHaveProperty(
-      'broadcast',
-    );
-  });
-});
-
-describe('ErrorsControlFlowClient — stream kind', () => {
-  it('start-defer-stream is ephemeral', () => {
-    expectTypeOf<
-      ErrorsControlFlowClient['streams']['start-defer-stream']['kind']
-    >().toEqualTypeOf<'ephemeral'>();
-  });
-});
-
-describe('ErrorsControlFlowClient — channels', () => {
-  it('addressing: chat is a static channel', () => {
-    expectTypeOf<
-      ErrorsControlFlowClient['channels']['chat']['addressing']
-    >().toEqualTypeOf<'static'>();
-  });
-
-  it('has chat channel', () => {
-    expectTypeOf<ErrorsControlFlowClient['channels']>().toHaveProperty('chat');
-  });
-
-  it('chat channel outgoing has chat-always-defer (server incoming)', () => {
-    expectTypeOf<
-      ErrorsControlFlowClient['channels']['chat']['outgoing']['chat-always-defer']
-    >().toEqualTypeOf<{}>();
-  });
-
-  it('chat channel incoming is empty (no server outgoing in chat)', () => {
-    expectTypeOf<keyof ErrorsControlFlowClient['channels']['chat']['incoming']>().toBeNever();
   });
 });
 

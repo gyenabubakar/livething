@@ -44,20 +44,17 @@ export function ensureTagsSchema(sql: Pick<SQLProvider, 'exec'>): void {
 export interface DurableTag {
   group: string;
   key: string;
-  addedAt: number;
 }
 
 type RawTagRow = {
   group_name: string;
   key: string;
-  added_at: number;
 };
 
 export interface InsertTagInput {
   userId: string;
   group: string;
   key: string;
-  addedAt?: number;
 }
 
 /**
@@ -65,7 +62,6 @@ export interface InsertTagInput {
  * `ctx.tags.persistent(group).add(key)` runs.
  */
 export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput): void {
-  const addedAt = input.addedAt ?? Date.now();
   sql.exec(
     `
       INSERT OR REPLACE INTO __livething_tags
@@ -75,7 +71,7 @@ export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput)
     input.userId,
     input.group,
     input.key,
-    addedAt,
+    Date.now(),
   );
 }
 
@@ -112,7 +108,7 @@ export function listTagsByUser(
   const rows = sql
     .exec<RawTagRow>(
       `
-        SELECT group_name, key, added_at
+        SELECT group_name, key
         FROM __livething_tags
         WHERE user_id = ?
       `,
@@ -122,27 +118,7 @@ export function listTagsByUser(
   return rows.map((row) => ({
     group: row.group_name,
     key: row.key,
-    addedAt: row.added_at,
   }));
-}
-
-/**
- * Read every durable tag row in one group. Used by boot cleanup to find
- * orphaned groups that no longer match a declared persistent group.
- */
-export function listGroupNames(sql: Pick<SQLProvider, 'exec'>): readonly string[] {
-  const rows = sql
-    .exec<{ group_name: string }>('SELECT DISTINCT group_name FROM __livething_tags')
-    .toArray();
-  return rows.map((row) => row.group_name);
-}
-
-/**
- * Delete every row of one group. Used by boot cleanup when a group is
- * removed between deploys.
- */
-export function deleteGroup(sql: Pick<SQLProvider, 'exec'>, group: string): void {
-  sql.exec('DELETE FROM __livething_tags WHERE group_name = ?', group);
 }
 
 /**

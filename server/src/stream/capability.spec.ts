@@ -67,8 +67,9 @@ describe('stream() capability', () => {
     const base = server({ capabilities: [stream()] });
     const asStream = base.stream('shared', { async *run() {} });
     const asEvent = base.on('shared', { input: v.object({}), run() {} });
-    expect(() => base.assemble({ handlers: [asStream, asEvent] })).toThrow(
-      /Event name 'shared' is bound by both/,
-    );
+    expect(() =>
+      // @ts-expect-error: the same event twice in one scope is a compile error
+      base.assemble({ handlers: [asStream, asEvent] }),
+    ).toThrow(/Event name 'shared' is bound by both/);
   });
 });

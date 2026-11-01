@@ -3,12 +3,9 @@ import { collectUnique } from '~/_engine/compile/utils.ts';
 import { assertNonReservedEventName } from '~/event-name.ts';
 import { DURABLE_STREAM_DEFAULTS, validateDurableStreamConfig } from '~/stream/durable-config.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
-import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
 import type { CommonDurableStreamConfig } from '~/stream/durable-config.ts';
 import type { Validator } from '~/types.ts';
-
-export type { OnDisconnect };
 
 /**
  * Contract-side declaration produced internally when you register a stream with
@@ -46,18 +43,18 @@ interface RecordedStreamConfig<
 
 /**
  * Declare a server-pushed stream whose chunks are buffered in storage so a
- * reconnecting client can replay what it missed. Unlike `cursorStream`,
- * the generator does NOT re-run on reconnect — the client just receives the
- * chunks it missed from the buffer. Best for one-shot sources (LLM
- * tokens, third-party APIs).
+ * reconnecting client can replay what it missed. The generator keeps running
+ * when its client drops and never re-runs — the client just receives the
+ * chunks it missed from the buffer. Best for one-shot sources (LLM tokens,
+ * third-party APIs).
  *
  * If the buffer hits `maxChunks` the framework throws `StreamAborted` with
  * `reason: 'buffer-full'` into the generator's `yield`. Wrap the yield in
  * `try/catch` if you want to handle it gracefully.
  *
  * Nudges declared here behave exactly like nudges on a plain `stream(...)`.
- * The generator never re-runs, so with `onDisconnect: 'keep-running'` it
- * keeps the nudges it already received when the client reconnects.
+ * The generator keeps the nudges it already received when the client
+ * reconnects.
  *
  * @example
  * ```ts
@@ -115,10 +112,8 @@ export function recordedStream<
     nudges,
     allowConcurrent: config?.allowConcurrent ?? false,
     broadcast: config?.broadcast ?? false,
-    onDisconnect: config?.onDisconnect ?? DURABLE_STREAM_DEFAULTS.onDisconnect,
     maxAgeMs: config?.maxAgeMs ?? DURABLE_STREAM_DEFAULTS.maxAgeMs,
     retentionAfterEndMs: config?.retentionAfterEndMs ?? DURABLE_STREAM_DEFAULTS.retentionAfterEndMs,
     maxChunks: config?.maxChunks ?? 500,
-    highWaterMark: config?.highWaterMark,
   };
 }

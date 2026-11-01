@@ -109,54 +109,6 @@ test.describe('stream-cancel matrix', () => {
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });
 
-  test('cursorStream in a channel — _streamCancel deletes the row, continue returns not-found', async ({
-    page,
-  }, testInfo) => {
-    const room = `scm-${testInfo.testId}-${Date.now()}`;
-    await pageWithRig(page, '/stream-durable-scoped');
-    const a = await connect(page, {
-      path: '/ws/stream-durable-scoped',
-      username: 'alice',
-      room: room,
-    });
-    await send(page, a, {
-      event: '__subscribe__',
-      payload: null,
-      metadata: { channel: { name: 'rooms' } },
-    });
-    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
-
-    const streamId = 'paginate-cancel-1';
-    await send(page, a, {
-      event: 'paginate',
-      payload: {},
-      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
-    });
-    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
-    await page.waitForFunction(
-      ([sid]) =>
-        (window.__livethingFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'paginate' && typeof f.payload?.row === 'number',
-        ).length >= 1,
-      [a],
-    );
-
-    await send(page, a, {
-      event: '__streamCancel__',
-      payload: null,
-      metadata: { stream: { id: streamId } },
-    });
-    // No wait: the reconnect must see the cancel even when it arrives right after it.
-    await send(page, a, {
-      event: '__continueStream__',
-      payload: { lastKnownSeq: 0 },
-      metadata: { channel: { name: 'rooms' }, stream: { id: streamId } },
-    });
-    const err = await waitForFrame(page, a, { match: (f) => f.event === '__error__' });
-    expect(err.payload.code).toBe('stream-aborted');
-    expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
-  });
-
   test('cancel is idempotent — a second _streamCancel for the same id does not crash the connection', async ({
     page,
   }, testInfo) => {

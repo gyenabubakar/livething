@@ -15,7 +15,7 @@ describe('scheduled task data', () => {
       capabilities: [scheduled({ remind: { data: t<{ at: Date }>() } })],
     });
     const seen: unknown[] = [];
-    base.scheduled('remind', {
+    const remind = base.scheduled('remind', {
       run(_ctx, data) {
         seen.push(data);
       },
@@ -25,7 +25,7 @@ describe('scheduled task data', () => {
         ctx.schedule('remind', { time: Date.now() - 1, data: { at: new Date(0) } });
       },
     });
-    const definition = base.assemble({ handlers: [queue] });
+    const definition = base.assemble({ handlers: [queue, remind] });
 
     async function startEngine(storage: StorageProvider): Promise<Engine> {
       let captured: Engine | undefined;

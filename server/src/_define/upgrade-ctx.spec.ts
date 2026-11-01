@@ -18,7 +18,7 @@ function buildEngine(definition: ServerDefinition, platform: unknown = {}): Engi
       captured = createEngine({
         storage: createTestStorage(),
         platform,
-        timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+        timers: { setAlarm() {}, deleteAlarm() {} } as never,
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};
@@ -44,10 +44,10 @@ describe('upgrade(request, ctx)', () => {
 
         return { userId: session?.userId, meta: { role: session?.role ?? 'guest' } };
       },
-    });
-    base.onInit((ctx) => {
-      ctx.sql.exec('CREATE TABLE sessions (token TEXT, userId TEXT, role TEXT)');
-      ctx.sql.exec("INSERT INTO sessions VALUES ('abc', 'user-1', 'admin')");
+      onInit(ctx) {
+        ctx.sql.exec('CREATE TABLE sessions (token TEXT, userId TEXT, role TEXT)');
+        ctx.sql.exec("INSERT INTO sessions VALUES ('abc', 'user-1', 'admin')");
+      },
     });
 
     const engine = buildEngine(base.assemble({ handlers: [] }));
@@ -93,7 +93,7 @@ describe("a plugin's upgrade(request, ctx)", () => {
         captured = createEngine({
           storage,
           platform: { name: 'test-platform' },
-          timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+          timers: { setAlarm() {}, deleteAlarm() {} } as never,
           logger: { info() {}, warn() {}, error() {} },
         });
         return {};
@@ -208,7 +208,7 @@ describe('plugin upgrades and the single userId', () => {
   }
 
   async function upgradeWith(
-    base: ReturnType<typeof server>,
+    definition: ServerDefinition,
     logged: { message: string; data: Record<string, unknown> }[] = [],
   ) {
     let captured: Engine | undefined;
@@ -219,7 +219,7 @@ describe('plugin upgrades and the single userId', () => {
         captured = createEngine({
           storage: createTestStorage(),
           platform: {},
-          timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
+          timers: { setAlarm() {}, deleteAlarm() {} } as never,
           logger: {
             info() {},
             warn() {},
@@ -229,7 +229,7 @@ describe('plugin upgrades and the single userId', () => {
         });
         return {};
       },
-    })(base.assemble({ handlers: [] }), undefined as never);
+    })(definition, undefined as never);
     await captured!.initialize();
 
     return captured!.handleUpgrade(new Request('https://x/'));
@@ -249,7 +249,7 @@ describe('plugin upgrades and the single userId', () => {
     });
     const base = server({ capabilities: [Ok(), Failing()] });
 
-    const decision = await upgradeWith(base, logged);
+    const decision = await upgradeWith(base.assemble({ handlers: [] }), logged);
 
     expect(decision).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
     expect(logged).toHaveLength(1);
@@ -269,7 +269,7 @@ describe('plugin upgrades and the single userId', () => {
       },
     });
 
-    await upgradeWith(base, logged);
+    await upgradeWith(base.assemble({ handlers: [] }), logged);
 
     expect(logged[0]?.data).toMatchObject({ hook: 'the app', error: 'session store down' });
   });
@@ -281,7 +281,7 @@ describe('plugin upgrades and the single userId', () => {
       upgrade: () => ({ userId: 'u1', meta: { role: 'admin' } }),
     });
 
-    const decision = await upgradeWith(base);
+    const decision = await upgradeWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.userId).toBe('u1');
@@ -293,7 +293,7 @@ describe('plugin upgrades and the single userId', () => {
     const Second = pluginReturning('acme:second', { meta: { second: 2 } });
     const base = server({ capabilities: [First(), Second()] });
 
-    const decision = await upgradeWith(base);
+    const decision = await upgradeWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.meta).toEqual({ first: 1, second: 2 });
@@ -303,7 +303,7 @@ describe('plugin upgrades and the single userId', () => {
     const Plugin = pluginReturning('acme:auth', { userId: 'from-plugin' });
     const base = server({ capabilities: [Plugin()] });
 
-    const decision = await upgradeWith(base);
+    const decision = await upgradeWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.userId).toBe('from-plugin');
@@ -313,7 +313,7 @@ describe('plugin upgrades and the single userId', () => {
     const Plugin = pluginReturning('acme:auth', { userId: 'from-plugin' });
     const base = server({ capabilities: [Plugin()], upgrade: () => ({ meta: { role: 'admin' } }) });
 
-    const decision = await upgradeWith(base);
+    const decision = await upgradeWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.userId).toBe('from-plugin');
@@ -323,7 +323,7 @@ describe('plugin upgrades and the single userId', () => {
   it('leaves the userId out when no upgrade returns one, so the connection stays anonymous', async () => {
     const base = server({ upgrade: () => ({ meta: { role: 'guest' } }) });
 
-    const decision = await upgradeWith(base);
+    const decision = await upgradeWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.userId).toBeUndefined();
@@ -333,7 +333,7 @@ describe('plugin upgrades and the single userId', () => {
     const Plugin = pluginReturning('acme:auth', { userId: 'from-plugin' });
     const base = server({ capabilities: [Plugin()], upgrade: () => ({ userId: 'u1' }) });
 
-    const decision = await upgradeWith(base);
+    const decision = await upgradeWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBe(true);
   });

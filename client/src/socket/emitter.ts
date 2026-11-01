@@ -46,11 +46,6 @@ export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, 
     }
   }
 
-  /** Remove every listener. */
-  clear(): void {
-    this.listeners.clear();
-  }
-
   /** How many listeners an event has. */
   listenerCount<K extends keyof TEvents & string>(event: K): number {
     return this.listeners.get(event)?.size ?? 0;

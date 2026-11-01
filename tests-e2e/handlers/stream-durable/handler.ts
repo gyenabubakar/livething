@@ -1,6 +1,6 @@
 import { server, t } from '@livething/server';
 import { Disconnect, StreamAborted } from '@livething/server/errors';
-import { cursorStream, recordedStream } from '@livething/server/streams';
+import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -9,8 +9,6 @@ const CountTokensPayload = v.object({ hold: v.optional(v.boolean()) });
 const TokenChunk = t<{ idx: number }>();
 const PaginatePayload = v.object({});
 const RowChunk = t<{ row: number }>();
-const AttemptPayload = v.object({});
-const AttemptChunk = t<{ attempt: number }>();
 const BufferFullPayload = v.object({});
 const BufferChunk = t<{ n: number }>();
 const NumberChunk = t<number>();
@@ -19,7 +17,7 @@ const overflowGates = new Map<string, () => void>();
 
 const base = server({
   upgrade: (request) => requireUsername(request),
-  capabilities: [recordedStream(), cursorStream()],
+  capabilities: [recordedStream()],
 });
 
 const handleReleaseOverflow = base.on('release-overflow', {
@@ -43,42 +41,17 @@ const handleCountTokens = base.recordedStream('count-tokens', {
   },
 });
 
-const handlePaginate = base.cursorStream('paginate', {
+const handlePaginate = base.recordedStream('paginate', {
   input: PaginatePayload,
   chunk: RowChunk,
+  maxChunks: 100,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
-  async *run(ctx) {
-    const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
-    for (let i = startAt + 1; i <= 10; i += 1) {
-      yield ctx.stream.withCursor({ row: i }, { idx: i });
+  async *run() {
+    for (let i = 1; i <= 10; i += 1) {
+      yield { row: i };
       await new Promise((r) => setTimeout(r, 400));
     }
-  },
-});
-
-const handlePaginateBare = base.cursorStream('paginate-bare', {
-  input: PaginatePayload,
-  chunk: RowChunk,
-  maxAgeMs: 60_000,
-  retentionAfterEndMs: 30_000,
-  async *run(ctx) {
-    const offset = ctx.stream.cursor === null ? 0 : 100;
-    for (let i = 1; i <= 4; i += 1) {
-      yield { row: offset + i };
-      await new Promise((r) => setTimeout(r, 400));
-    }
-  },
-});
-
-const handleAttemptStream = base.cursorStream('attempt-stream', {
-  input: AttemptPayload,
-  chunk: AttemptChunk,
-  maxAgeMs: 60_000,
-  retentionAfterEndMs: 30_000,
-  async *run(ctx) {
-    yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
-    await new Promise((r) => setTimeout(r, 60_000));
   },
 });
 
@@ -145,23 +118,6 @@ const handleCountTokensNudged = base.recordedStream('count-tokens-nudged', {
   },
 });
 
-const handlePaginateNudged = base.cursorStream('paginate-nudged', {
-  input: PaginatePayload,
-  chunk: RowChunk,
-  nudges: { stop: StopPayload },
-  maxAgeMs: 60_000,
-  retentionAfterEndMs: 30_000,
-  async *run(ctx) {
-    const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
-    for (let i = startAt + 1; i <= 20; i += 1) {
-      const nudges = ctx.stream.nudges(yield ctx.stream.withCursor({ row: i }, { idx: i }));
-      if (nudges.some((n) => n.event === 'stop')) return;
-
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  },
-});
-
 // Test support: a client triggers a server-initiated close with a retryable
 // code so it reconnects in-session and a durable stream auto-reconnects.
 const handleServerDrop = base.on('server-drop', {
@@ -175,12 +131,9 @@ export const streamDurableDefinition = base.assemble({
   handlers: [
     handleCountTokens,
     handlePaginate,
-    handlePaginateBare,
-    handleAttemptStream,
     handleBufferFullDemo,
     handlePrimitiveRecorded,
     handleCountTokensNudged,
-    handlePaginateNudged,
     handleServerDrop,
     handleReleaseOverflow,
   ],

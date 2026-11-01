@@ -8,7 +8,7 @@
     "./*": "./*/handler.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.declaration.json",
     "clean": "rm -rf node_modules"
   },
   "dependencies": {

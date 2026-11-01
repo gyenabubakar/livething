@@ -37,7 +37,6 @@ function engineWithApi(makeApi: (ctx: unknown) => object) {
         timers: {
           setAlarm: async () => {},
           deleteAlarm: async () => {},
-          getAlarm: async () => null,
         },
         logger: { info: () => {}, warn: () => {}, error: () => {} },
       });

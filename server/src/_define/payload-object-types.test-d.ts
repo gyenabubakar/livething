@@ -4,7 +4,7 @@ import { emits } from '~/emits/emits.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
-import { cursorStream, recordedStream, stream } from '~/streams.ts';
+import { recordedStream, stream } from '~/streams.ts';
 import { expectTypeOf } from 'vitest';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { InferClient } from '~/infer-client.ts';
@@ -82,7 +82,6 @@ const base = server({
   capabilities: [
     stream(),
     recordedStream(),
-    cursorStream(),
     clientRequests(),
     emits({ cleared: t<{}>() }),
     serverRequests({ refresh: { out: t<{}>() } }),
@@ -132,14 +131,7 @@ const mixed = base.recordedStream('mixed', {
     yield { text: 'hi' };
   },
 });
-const pages = base.cursorStream('pages', {
-  chunk: t<number>(),
-  cursor: t<{ page: number }>(),
-  async *run(ctx) {
-    yield ctx.stream.withCursor(1, { page: 1 });
-  },
-});
-const durableDefinition = base.assemble({ handlers: [progress, mixed, pages] });
+const durableDefinition = base.assemble({ handlers: [progress, mixed] });
 type DurableClient = InferClient<typeof durableDefinition>;
 
 // The client sees what the wire carries: the object as it is, anything else inside `{ value }`.
@@ -149,9 +141,6 @@ expectTypeOf<DurableClient['streams']['progress']['chunk']>().toEqualTypeOf<{
 expectTypeOf<DurableClient['streams']['mixed']['chunk']>().toEqualTypeOf<
   { text: string } | { value: string[] } | { value: null }
 >();
-expectTypeOf<DurableClient['streams']['pages']['chunk']>().toEqualTypeOf<{
-  value: number | null;
-}>();
 // Decided on the chunk's JSON: a Date arrives as its string.
 expectTypeOf<DurableWireChunk<Date>>().toEqualTypeOf<{ value: string }>();
 expectTypeOf<DurableWireChunk<Room>>().toEqualTypeOf<Room>();

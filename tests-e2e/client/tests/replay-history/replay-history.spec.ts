@@ -24,6 +24,17 @@ async function openClient(
   return { page, close: () => ctx.close() };
 }
 
+// The private row is stored before the drop, and the first retry waits longer
+// than the handler's maxAgeMs. A server that restarts when its last socket
+// closes (the Node fixture does) prunes that row at boot, so a second client
+// keeps the server running.
+async function openWitness(
+  browser: Browser,
+  room: string,
+): Promise<{ page: Page; close: () => Promise<void> }> {
+  return openClient(browser, room, 'witness');
+}
+
 test.describe('replay-history (conformance)', () => {
   test('log-mode replay delivers every top-level message missed while offline', async ({
     browser,
@@ -52,6 +63,68 @@ test.describe('replay-history (conformance)', () => {
 
     await alice.close();
     await bob.close();
+  });
+
+  test('replay brings back a private send that was lost on the old connection', async ({
+    browser,
+  }, testInfo) => {
+    const room = `replay-private-${testInfo.testId}`;
+    const alice = await openClient(browser, room, 'alice');
+    const witness = await openWitness(browser, room);
+
+    await alice.page.getByTestId('send-m1').click();
+    await expect(alice.page.getByTestId('messages')).toHaveText('m1');
+
+    // The server sends `private-lost` to this connection only, and the page drops it.
+    await alice.page.getByTestId('send-private-lost').click();
+    await alice.page.waitForTimeout(200);
+    await expect(alice.page.getByTestId('messages')).toHaveText('m1');
+
+    await alice.page.getByTestId('drop').click();
+    await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
+
+    await expect(alice.page.getByTestId('messages')).toHaveText('m1,private-lost');
+
+    await alice.close();
+    await witness.close();
+  });
+
+  test('replay catches up a client that saw no message before it dropped', async ({
+    browser,
+  }, testInfo) => {
+    const room = `replay-fresh-${testInfo.testId}`;
+    const alice = await openClient(browser, room, 'alice');
+    const bob = await openClient(browser, room, 'bob');
+
+    await alice.page.getByTestId('drop').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('reconnecting');
+    await bob.page.getByTestId('send-m2').click();
+
+    await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
+    await expect(alice.page.getByTestId('messages')).toHaveText('m2');
+
+    await alice.close();
+    await bob.close();
+  });
+
+  test('replay brings back a lost private send that was the first message', async ({
+    browser,
+  }, testInfo) => {
+    const room = `replay-private-first-${testInfo.testId}`;
+    const alice = await openClient(browser, room, 'alice');
+    const witness = await openWitness(browser, room);
+
+    await alice.page.getByTestId('send-private-lost').click();
+    await alice.page.waitForTimeout(200);
+    await expect(alice.page.getByTestId('messages')).toHaveText('');
+
+    await alice.page.getByTestId('drop').click();
+    await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
+
+    await expect(alice.page.getByTestId('messages')).toHaveText('private-lost');
+
+    await alice.close();
+    await witness.close();
   });
 
   test('channel-scoped replay catches up a channel message missed while offline', async ({

@@ -1,7 +1,6 @@
 import { emits, errors, server, t } from '@livething/server';
 import { dedup } from '@livething/server/dedup';
 import { error } from '@livething/server/errors';
-import { intercepts } from '@livething/server/intercepts';
 import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -25,18 +24,16 @@ const base = server({
       'nudge-saw': t<{ events: string[] }>(),
     }),
     stream(),
-    intercepts(),
   ],
-});
-
-// A speed-up nudge with factor 0 is rejected by the intercept with a typed
-// error. Everything else passes through untouched, so the other nudge tests
-// are unaffected.
-base.intercept((ctx, frame) => {
-  if (frame.kind === 'nudge' && frame.event === 'speed-up') {
-    const p = frame.payload as { factor?: number };
-    if (p.factor === 0) throw NudgeRejected();
-  }
+  // A speed-up nudge with factor 0 is rejected by the intercept with a typed
+  // error. Everything else passes through untouched, so the other nudge tests
+  // are unaffected.
+  intercept(ctx, frame) {
+    if (frame.kind === 'nudge' && frame.event === 'speed-up') {
+      const p = frame.payload as { factor?: number };
+      if (p.factor === 0) throw NudgeRejected();
+    }
+  },
 });
 
 const handlePause = base.on('pause', {

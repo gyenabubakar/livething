@@ -78,7 +78,7 @@ export class LiveThingError<TCode extends string = string, TDetail = unknown> ex
   readonly detail: TDetail;
 
   constructor(code: TCode, detail: TDetail) {
-    super(`LiveThingError: ${code}`);
+    super(code);
     this.name = 'LiveThingError';
     this.code = code;
     this.detail = detail;
@@ -179,8 +179,10 @@ function createMatchesFn<TCode extends string, TDetail>(
  * the handler never fires (or stops executing if thrown mid-handler).
  *
  * ```ts
- * base.intercept((ctx, frame) => {
- *   if (isBanned(ctx.meta.userId)) throw Block;
+ * const base = server({
+ *   intercept(ctx, frame) {
+ *     if (isBanned(ctx.meta.userId)) throw Block;
+ *   },
  * });
  * ```
  */
@@ -240,10 +242,10 @@ const RESERVED_ERROR_CODES = new Set([
   'rate-limited',
   'connection-busy',
   'stream-already-active',
-  'defer-exhausted',
   'timeout',
   'disconnected',
   'dropped',
+  'not-a-member',
 ]);
 
 export function error<TCode extends string>(code: TCode): ErrorDefWithFactory<TCode, void>;
@@ -484,30 +486,21 @@ export const Disconnected = /* @__PURE__ */ buildErrorFactory('disconnected');
 export const Dropped = /* @__PURE__ */ buildErrorFactory('dropped');
 
 /**
- * Fired on your `onError` handler when a message deferred with `Defer(...)`
- * has been retried the maximum number of times (3) and still hasn't
- * succeeded. Use this to dead-letter the message — the detail gives you
- * the original event, payload, and retry count.
- *
- * Never sent to the client; this is a server-side signal only.
+ * `ctx.channel.request(event, payload, { to })` was aimed at a connection that
+ * is not a member of that channel right now. Nothing is sent. Raised on the
+ * server and never sent to the client.
  *
  * @example
  * ```ts
- * .onError((ctx, err, event) => {
- *   if (DeferExhausted.matches(err)) {
- *     deadLetter.push({ event: err.detail.event, payload: err.detail.payload });
- *   }
- * })
+ * try {
+ *   await ctx.channel.request('confirm-presence', {}, { to: member.ref() });
+ * } catch (err) {
+ *   if (NotAMember.matches(err)) return; // left the room before we asked
+ *   throw err;
+ * }
  * ```
  */
-export const DeferExhausted = /* @__PURE__ */ buildErrorFactory(
-  'defer-exhausted',
-  v.object({
-    event: v.string(),
-    payload: v.unknown(),
-    retries: v.pipe(v.number(), v.finite()),
-  }),
-);
+export const NotAMember = /* @__PURE__ */ buildErrorFactory('not-a-member');
 
 /**
  * Rejects a **server→client** request when the client produced no reply — it has
@@ -597,10 +590,13 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  * - `'unsubscribed'` — the client previously sent `__streamCancel__` on this
  *   broadcast stream's id, so the server has stopped fanning chunks to that
  *   identity. The stream itself stays running for everyone else.
- * - `'cursor-invalid'` — on reconnect, the stored cursor failed the validator
- *   declared on the `cursorStream`. The row stays in place; the continuing
- *   client gets this signal so it can pick a recovery strategy (drop the
- *   stream, start fresh, surface the bug).
+ * - `'interrupted'` — a recorded stream's generator stopped before it finished
+ *   (it threw, or the server restarted, crashed, or was evicted while the
+ *   stream ran). A continue replays the chunks that were saved, then ends the
+ *   stream with this reason so the app can tell it apart from a stream that
+ *   really finished.
+ * - `'taken-over'` — another connection continued this running stream, for
+ *   example a second tab, so this connection no longer reads it.
  * - `'aborted'` — catch-all when the framework had to tear the stream down
  *   for an internal reason that does not match any of the above.
  *
@@ -619,15 +615,7 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  * }
  * ```
  */
-export type StreamAbortedReason =
-  | 'cancelled'
-  | 'buffer-full'
-  | 'expired'
-  | 'not-found'
-  | 'hibernation-wake'
-  | 'unsubscribed'
-  | 'cursor-invalid'
-  | 'aborted';
+export type StreamAbortedReason = (typeof STREAM_ABORTED_REASONS)[number];
 
 const STREAM_ABORTED_REASONS = [
   'cancelled',
@@ -636,7 +624,8 @@ const STREAM_ABORTED_REASONS = [
   'not-found',
   'hibernation-wake',
   'unsubscribed',
-  'cursor-invalid',
+  'interrupted',
+  'taken-over',
   'aborted',
 ] as const;
 

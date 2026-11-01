@@ -3,12 +3,12 @@ import proxyaddr from '@fastify/proxy-addr';
 import type { IncomingMessage } from 'node:http';
 
 /** Use the TCP peer address as the client address. */
-export interface NodeDirectClientIpConfig {
+interface NodeDirectClientIpConfig {
   mode: 'direct';
 }
 
 /** Resolve a client address through an explicitly trusted proxy chain. */
-export interface NodeProxyClientIpConfig {
+interface NodeProxyClientIpConfig {
   mode: 'proxy';
   trustedProxies: readonly string[];
 }

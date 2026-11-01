@@ -50,7 +50,7 @@
         "caughtErrorsIgnorePattern": "^_"
       }
     ],
-    "no-shadow": "warn",
+    "no-shadow": "error",
     "no-var": "error",
     "prefer-const": "error",
     "no-debugger": "error",
@@ -137,7 +137,8 @@
         "tests-e2e/**"
       ],
       "rules": {
-        "eslint-js/no-restricted-syntax": "off"
+        "eslint-js/no-restricted-syntax": "off",
+        "no-shadow": "warn"
       }
     },
     {

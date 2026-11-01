@@ -9,8 +9,9 @@
  *   2. Otherwise the scope's default rule wins.
  *   3. If neither exists (or the rule is disabled), the frame passes through.
  *
- * Buckets are keyed by `<ruleId>|<perKey>` — each rule has its own bucket
- * space, so per-event overrides do not share buckets with the scope default.
+ * Each rule has its own bucket space, so per-event overrides do not share
+ * buckets with the scope default. A connection's own budget and a shared `per`
+ * key are kept apart, so closing a connection never erases a shared budget.
  */
 
 /**
@@ -46,7 +47,11 @@ export interface ResolvedRateLimitPlan {
 interface BucketState {
   tokens: number;
   lastRefillMs: number;
+  /** When the bucket is back to `max`. From then on it equals a fresh bucket, so it can go. */
+  fullAtMs: number;
 }
+
+const SWEEP_INTERVAL_MS = 60_000;
 
 /** The default budget key: one budget per connection. */
 export function connectionBudgetKey(ctx: any): string {
@@ -73,17 +78,50 @@ export class RateLimitRuntime {
   private readonly buckets = new Map<string, BucketState>();
   private readonly plan: ResolvedRateLimitPlan;
   private readonly now: () => number;
+  private readonly ruleIds: number[];
+  private lastSweepMs: number;
 
   constructor(plan: ResolvedRateLimitPlan, now: () => number = Date.now) {
     this.plan = plan;
     this.now = now;
+    this.lastSweepMs = now();
+    const rules = [
+      ...plan.scopeRules.values(),
+      ...[...plan.eventOverrides.values()].flatMap((overrides) => [...overrides.values()]),
+    ];
+    this.ruleIds = [...new Set(rules.flatMap((rule) => (rule ? [rule.id] : [])))];
+  }
+
+  /** How many buckets are held in memory. */
+  get size(): number {
+    return this.buckets.size;
+  }
+
+  /** Drop the per-connection buckets of a connection that has closed. */
+  forgetConnection(connectionId: string): void {
+    for (const id of this.ruleIds) this.buckets.delete(`${id}|connection|${connectionId}`);
+  }
+
+  /**
+   * Buckets keyed by something other than the connection (`per: ctx.user.id`)
+   * outlive any one socket. Drop the ones that have refilled, at most once
+   * per interval, so a long-running server does not keep every key it saw.
+   */
+  private sweep(now: number): void {
+    if (now - this.lastSweepMs < SWEEP_INTERVAL_MS) return;
+
+    this.lastSweepMs = now;
+    for (const [key, state] of this.buckets) {
+      if (now >= state.fullAtMs) this.buckets.delete(key);
+    }
   }
 
   /**
    * Resolve the rule that applies to this frame, then consume a token.
    * Returns `null` to let the frame through, or `{ retryAfterMs }` to reject.
-   * `retryAfterMs` is rounded up to the next whole millisecond so a client
-   * backing off by it has enough time for the next token to become available.
+   * `retryAfterMs` is the time until the next token, rounded up to a whole
+   * millisecond and never less than 1000, so a client backing off by it has
+   * enough time for that token to become available.
    */
   check(ctx: any, event: string): { retryAfterMs: number } | null {
     const scopeKey = resolveScopeKey(ctx);
@@ -94,10 +132,13 @@ export class RateLimitRuntime {
       : (this.plan.scopeRules.get(scopeKey) ?? null);
     if (!rule) return null;
 
-    const perKey = rule.per(ctx) || connectionBudgetKey(ctx);
-    const bucketKey = `${rule.id}|${perKey}`;
+    const perKey = rule.per === connectionBudgetKey ? '' : rule.per(ctx);
+    const bucketKey = perKey
+      ? `${rule.id}|shared|${perKey}`
+      : `${rule.id}|connection|${connectionBudgetKey(ctx)}`;
     const now = this.now();
     const refillRate = rule.max / rule.windowMs;
+    this.sweep(now);
 
     const state = this.buckets.get(bucketKey);
     let tokens: number;
@@ -110,11 +151,13 @@ export class RateLimitRuntime {
 
     if (tokens < 1) {
       const msUntilOne = (1 - tokens) / refillRate;
-      this.buckets.set(bucketKey, { tokens, lastRefillMs: now });
+      const fullAtMs = now + (rule.max - tokens) / refillRate;
+      this.buckets.set(bucketKey, { tokens, lastRefillMs: now, fullAtMs });
       return { retryAfterMs: Math.max(1_000, Math.ceil(msUntilOne)) };
     }
 
-    this.buckets.set(bucketKey, { tokens: tokens - 1, lastRefillMs: now });
+    const fullAtMs = now + (rule.max - tokens + 1) / refillRate;
+    this.buckets.set(bucketKey, { tokens: tokens - 1, lastRefillMs: now, fullAtMs });
 
     return null;
   }

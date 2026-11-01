@@ -54,10 +54,13 @@ describe('scope() template compilation', () => {
   it('names the base.channel() call, not an internal helper, in a template error', () => {
     const base = server({ capabilities: [channels()] });
 
-    expect(() => base.channel(['rooms', 'room:{id'])).toThrow(
-      `base.channel(['rooms', ...]) template "room:{id" has an unclosed '{'`,
-    );
-    expect(() => base.channel(['rooms', 'room:{id'])).not.toThrow(/scope\(\)/);
+    function declare() {
+      // @ts-expect-error — the type rejects the stray '{' too
+      return base.channel(['rooms', 'room:{id']);
+    }
+
+    expect(declare).toThrow(`base.channel(['rooms', ...]) template "room:{id" has a stray '{'`);
+    expect(declare).not.toThrow(/scope\(\)/);
   });
 });
 

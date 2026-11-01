@@ -1,6 +1,6 @@
 import { CloseCodes } from '@livething/core';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
-import type { ConnectionDescriptor } from './types.ts';
+import type { SocketDescriptor } from './types.ts';
 
 type NormalizeConnectionDescriptorOptionsParameter = {
   onInvalidCloseCode?: (code: unknown) => void;
@@ -35,9 +35,9 @@ export function normalizeCloseReason(reason?: string): string | undefined {
 
 /** Apply the shared close-reason rule to an accepted connection descriptor. */
 export function normalizeConnectionDescriptor(
-  descriptor: ConnectionDescriptor,
+  descriptor: SocketDescriptor,
   options: NormalizeConnectionDescriptorOptionsParameter = {},
-): ConnectionDescriptor {
+): SocketDescriptor {
   return {
     send(data) {
       return descriptor.send(data);
@@ -56,8 +56,5 @@ export function normalizeConnectionDescriptor(
       return descriptor.bufferedAmount();
     },
     backpressureSupported: descriptor.backpressureSupported,
-    userId: descriptor.userId,
-    meta: descriptor.meta,
-    tags: descriptor.tags,
   };
 }

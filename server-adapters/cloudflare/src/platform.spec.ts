@@ -28,7 +28,6 @@ function fakeState() {
         setAlarm: vi.fn(async (t: number) => {
           alarm = t;
         }),
-        getAlarm: vi.fn(async () => alarm),
         deleteAlarm: vi.fn(async () => {
           alarm = null;
         }),
@@ -178,15 +177,13 @@ describe('createStorage', () => {
 });
 
 describe('createTimers', () => {
-  it('round-trips setAlarm and getAlarm through state.storage', async () => {
+  it('sets and deletes the alarm through state.storage', async () => {
     const { state, getAlarm } = fakeState();
     const timers = createTimers(state as unknown as DurableObjectState);
 
     await timers.setAlarm!(1_700_000_000);
     expect(state.storage.setAlarm).toHaveBeenCalledWith(1_700_000_000);
     expect(getAlarm()).toBe(1_700_000_000);
-
-    await expect(timers.getAlarm!()).resolves.toBe(1_700_000_000);
 
     await timers.deleteAlarm!();
     expect(state.storage.deleteAlarm).toHaveBeenCalled();

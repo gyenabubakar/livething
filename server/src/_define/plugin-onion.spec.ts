@@ -34,7 +34,10 @@ describe('plugin onion ordering — connect/disconnect', () => {
     await runConnectionLifecycle(
       lifecycleRuntime(trace, {
         connectHooks: [push(trace, 'app')],
-        pluginConnectHooks: [{ handler: push(trace, 'p1') }, { handler: push(trace, 'p2') }],
+        pluginConnectHooks: [
+          { pluginId: 'p1', handler: push(trace, 'p1') },
+          { pluginId: 'p2', handler: push(trace, 'p2') },
+        ],
       }),
       'connect',
       { id: 'c1' },
@@ -63,7 +66,7 @@ describe('plugin onion ordering — shutdown', () => {
       connections: new Map(),
       shutdownHooks: [push(trace, 'app')],
       pluginShutdownHooks: [{ handler: push(trace, 'p1') }, { handler: push(trace, 'p2') }],
-      createShutdownContext: () => ({}),
+      createContext: () => ({}),
       cancelActiveStreamsForConnection: async () => {},
       handleConnectionClose: async () => {},
     } as any);

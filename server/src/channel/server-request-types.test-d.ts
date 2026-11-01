@@ -2,18 +2,15 @@
 /**
  * Compile-time fixture: a channel that declares its own server→client requests
  * with `serverRequests(...)`. Inside the channel handler, `ctx.channel.request`
- * (targeted) and `ctx.channel.broadcastRequest` (fan-out) are typed to the
- * channel's own declarations. Every declaration is callable through either
- * verb — the verb decides fan-out vs targeted, not the declaration.
+ * is typed to the channel's own declarations.
  */
-import { t } from '~/_api/index.ts';
+import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
-import type { ConnectionRef } from '~/context.ts';
 
 const base = server({
   capabilities: [serverRequests(), channels()],
@@ -30,19 +27,13 @@ const room = base.channel(['room', 'room:{id}'], {
 });
 
 const lobby = base.channel('lobby', {
-  capabilities: [
-    emits({ joined: t<{ who: string }>() }),
-    serverRequests({
-      greet: { out: t<{}>(), in: v.object({ hi: v.boolean() }) },
-    }),
-  ],
+  capabilities: [emits({ joined: t<{ who: string }>() })],
 });
 
 /**
  * From any handler, `ctx.channels.get(...)` is fully typed when passed a channel
- * declaration (static) or a family's `.at(params)` ref: `send`/`broadcastTo`/`broadcast` to the
- * channel's emits, `broadcastRequest` to its broadcast requests. `.at()` exists
- * only on dynamic family declarations.
+ * declaration (static) or a family's `.at(params)` ref: `send`/`broadcastTo`/`broadcast`
+ * to the channel's emits. `.at()` exists only on dynamic family declarations.
  */
 base.on('drive', {
   run(ctx) {
@@ -50,9 +41,6 @@ base.on('drive', {
     expectTypeOf(
       ctx.channels.get(lobby).broadcastTo(ctx.user.ref(), 'joined', { who: 'a' }),
     ).toEqualTypeOf<number>();
-    expectTypeOf(ctx.channels.get(lobby).broadcastRequest('greet', {})).toEqualTypeOf<
-      Promise<{ readonly response: { hi: boolean }; readonly from: ConnectionRef }>
-    >();
 
     // @ts-expect-error — an undeclared emit on the channel is rejected.
     void ctx.channels.get(lobby).send('nope', {});
@@ -62,36 +50,27 @@ base.on('drive', {
 
     const ref = room.at({ id: 'general' });
     expectTypeOf(ctx.channels.get(ref).send('tick', { n: 1 })).toEqualTypeOf<number>();
-    expectTypeOf(ctx.channels.get(ref).broadcastRequest('vol', {})).toEqualTypeOf<
-      Promise<{ readonly response: { r: boolean }; readonly from: ConnectionRef }>
-    >();
 
     // @ts-expect-error — the emit payload must match the channel's declaration.
     void ctx.channels.get(ref).send('tick', { n: 'x' });
 
     // @ts-expect-error — .at() needs the template's {id} param.
     void room.at({});
-
-    void ctx.channels.get(ref).broadcastRequest('confirm-kick', { target: 'x' });
   },
 });
 
 room.on('ping', {
   run(ctx) {
-    // Targeted declaration via request → Promise of its declared response.
     expectTypeOf(ctx.channel.request('confirm-kick', { target: 'x' })).toEqualTypeOf<
       Promise<{ ok: boolean }>
     >();
 
-    // Broadcast declaration via broadcastRequest → { response, from }.
-    expectTypeOf(ctx.channel.broadcastRequest('vol', {})).toEqualTypeOf<
-      Promise<{ readonly response: { r: boolean }; readonly from: ConnectionRef }>
-    >();
+    void ctx.channel.request('vol', {}, { to: ctx.connection });
 
-    void ctx.channel.request('vol', {});
-    void ctx.channel.broadcastRequest('confirm-kick', { target: 'x' });
+    // @ts-expect-error — `to` takes one connection, not a user.
+    void ctx.channel.request('vol', {}, { to: ctx.user.ref() });
 
-    // @ts-expect-error — the targeted request payload must match the declaration.
+    // @ts-expect-error — the request payload must match the declaration.
     void ctx.channel.request('confirm-kick', { target: 1 });
 
     // @ts-expect-error — an undeclared event is rejected.
@@ -102,7 +81,7 @@ room.on('ping', {
 /**
  * Without the root `serverRequests()` capability, declaring channel `serverRequests(...)` is a
  * compile-time error (excess property), matching the gating on the
- * `ctx.channel.request` / `broadcastRequest` verbs — not just a runtime throw.
+ * `ctx.channel.request` verb — not just a runtime throw.
  */
 const noRequests = server({
   capabilities: [channels()],

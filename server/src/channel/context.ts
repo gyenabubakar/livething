@@ -67,6 +67,7 @@ export function buildChannelHandle(
         event,
         payload,
         excludeConnectionId: connection.id,
+        excludeResumeToken: connection.resumeToken,
         channelFamily: scope.channelFamily,
         includeSelf: options?.includeSelf,
       });
@@ -83,7 +84,6 @@ export function buildChannelHandle(
         channelName: scope.channelName,
         target,
         reason: opts.reason,
-        revoke: opts.revoke,
         channelFamily: scope.channelFamily,
       }),
   };

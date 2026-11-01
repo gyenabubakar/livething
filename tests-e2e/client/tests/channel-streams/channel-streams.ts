@@ -5,9 +5,9 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 // Drives @livething/client's channel-scoped stream() / continueStream() against the
 // real `stream-durable-scoped` server definition, typed by the same contract the server
 // implements (StreamDurableScopedClient = InferClient<definition>). The `rooms`
-// channel exposes a cursor stream (`paginate`) and a recorded stream
-// (`history`); this proves both flow through the channel handle and that a
-// cursor stream continues from its cursor over the real wire.
+// channel exposes two recorded streams (`paginate`, `history`); this proves both
+// flow through the channel handle and that a stream continues from its last seq
+// over the real wire.
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
@@ -66,8 +66,8 @@ export function setup(): void {
     void drainRows(handle);
   });
 
-  // After the cursor stream ends, its cursor is retained. A manual `continueStream`
-  // from the saved cursor reattaches on the channel handle and ends cleanly.
+  // After the stream ends, its row is retained. A manual `continueStream` from the
+  // last seq reattaches on the channel handle and ends cleanly.
   button('continue-paginate', () => {
     el('rows-ended').textContent = 'no';
     const handle = rooms.continueStream('paginate', 'pages-1', { lastKnownSeq: rows.length });

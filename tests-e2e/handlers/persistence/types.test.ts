@@ -37,7 +37,7 @@ describe('PersistenceClient — outgoing (server incoming)', () => {
 
   it('has the declared top-level outgoing events', () => {
     expectTypeOf<keyof PersistenceClient['outgoing']>().toEqualTypeOf<
-      'remove-member' | 'kick-member' | 'ban' | 'server-drop'
+      'remove-member' | 'ban' | 'server-drop'
     >();
   });
 });
@@ -107,7 +107,7 @@ describe('PersistenceClient — empty slots', () => {
     >();
   });
 
-  it('exposes only the anon-stream cursor stream', () => {
+  it('exposes only the anon-stream recorded stream', () => {
     expectTypeOf<keyof PersistenceClient['streams']>().toEqualTypeOf<'anon-stream'>();
   });
 });

@@ -1,12 +1,13 @@
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
-import { context, server as createServerDefinition, emits, t, translator } from '@livething/server';
+import { context, server as createServerDefinition, emits, t } from '@livething/server';
+import { channels } from '@livething/server/channels';
 import { CloseCodes, RejectUpgrade } from '@livething/server/errors';
 import { scheduled } from '@livething/server/scheduled';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
-import type { ApiOf, KVProvider, Logger, ServerDefinition } from '@livething/server/adapters';
+import type { KVProvider, Logger, ServerDefinition } from '@livething/server/adapters';
 import type { Server } from 'node:http';
 import type { RawData } from 'ws';
 import { binding } from './binding.ts';
@@ -35,7 +36,7 @@ interface TestService<TApi = unknown> {
 function createTestService<TDefinition extends ServerDefinition>(
   definition: TDefinition,
   options: NodeServerEndpointOptions & { port: number },
-): TestService<NodeAdmin<ApiOf<TDefinition>>> {
+): TestService<NodeAdmin<TDefinition>> {
   const httpServer = createServer((_request, response) => {
     response.statusCode = 404;
     response.end();
@@ -108,12 +109,23 @@ function buildServerDefinition(state: IntegrationState) {
       }),
       scheduled({ 'integration-task': { data: t<{ text: string }>() } }),
     ],
-  });
-
-  base.onInit((ctx) => {
-    ctx.sql.exec(
-      'CREATE TABLE IF NOT EXISTS node_integration_values (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
-    );
+    onInit(ctx) {
+      ctx.sql.exec(
+        'CREATE TABLE IF NOT EXISTS node_integration_values (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      );
+    },
+    onConnect(ctx) {
+      ctx.send('connected', { role: ctx.meta.role });
+    },
+    onDisconnect(ctx) {
+      state.disconnect = { code: ctx.closeCode, reason: ctx.closeReason };
+    },
+    onError(_ctx, error) {
+      state.errors.push(error instanceof Error ? error.message : String(error));
+    },
+    onShutdown() {
+      state.shutdowns += 1;
+    },
   });
 
   const echo = base.on('echo', {
@@ -168,30 +180,14 @@ function buildServerDefinition(state: IntegrationState) {
     },
   });
 
-  base.scheduled('integration-task', {
+  const integrationTask = base.scheduled('integration-task', {
     run(ctx, data) {
       ctx.broadcast('scheduled', { text: data.text });
     },
   });
 
-  base.onConnect((ctx) => {
-    ctx.send('connected', { role: ctx.meta.role });
-  });
-
-  base.onDisconnect((ctx) => {
-    state.disconnect = { code: ctx.closeCode, reason: ctx.closeReason };
-  });
-
-  base.onError((_ctx, error) => {
-    state.errors.push(error instanceof Error ? error.message : String(error));
-  });
-
-  base.onShutdown(() => {
-    state.shutdowns += 1;
-  });
-
   return base.assemble({
-    handlers: [echo, store, schedule, buffered, invalidClose],
+    handlers: [echo, store, schedule, buffered, invalidClose, integrationTask],
     api: (ctx) => ({
       announce(text: string): number {
         ctx.broadcast('adminAnnouncement', { text });
@@ -212,11 +208,10 @@ function buildContextDefinition() {
       return { userId: user, meta: { role: row?.role ?? 'guest' } };
     },
     capabilities: [emits({ whoami: t<{ user: string; role: string }>() })],
-  });
-
-  base.onInit((ctx) => {
-    ctx.sql.exec('CREATE TABLE IF NOT EXISTS context_roles (user TEXT PRIMARY KEY, role TEXT)');
-    ctx.sql.exec("INSERT OR REPLACE INTO context_roles VALUES ('alice', 'admin')");
+    onInit(ctx) {
+      ctx.sql.exec('CREATE TABLE IF NOT EXISTS context_roles (user TEXT PRIMARY KEY, role TEXT)');
+      ctx.sql.exec("INSERT OR REPLACE INTO context_roles VALUES ('alice', 'admin')");
+    },
   });
 
   function describeCaller() {
@@ -232,45 +227,6 @@ function buildContextDefinition() {
   });
 
   return base.assemble({ handlers: [whoami] });
-}
-
-function createTranslatedHandler(state: IntegrationState) {
-  const base = createServerDefinition({
-    translate: translator(() => ({
-      inbound(raw) {
-        const frame = JSON.parse(raw) as { data?: unknown; type?: string };
-        if (frame.type === 'ignore') return null;
-
-        return JSON.stringify([frame.type, frame.data, null]);
-      },
-      outbound(raw) {
-        const [event, payload] = JSON.parse(raw) as [string, unknown, unknown];
-        return JSON.stringify({ type: event, data: payload });
-      },
-    })),
-    upgrade(request) {
-      state.upgradeRequest = request;
-      return { userId: 'translator-user', meta: { role: 'translated' } };
-    },
-    capabilities: [
-      emits({
-        connected: t<{ role: string }>(),
-        echoed: t<{ text: string }>(),
-      }),
-    ],
-  });
-
-  const echo = base.on('echo', {
-    run(ctx, input) {
-      ctx.send('echoed', { text: (input as { text: string }).text });
-    },
-  });
-
-  base.onConnect((ctx) => {
-    ctx.send('connected', { role: ctx.meta.role });
-  });
-
-  return base.assemble({ handlers: [echo] });
 }
 
 function serverPort(serverInstance: Server): number {
@@ -835,6 +791,45 @@ describe('Node server integration', () => {
     await vi.waitFor(() => expect(state.errors).toEqual(['transport failed']));
   });
 
+  it('reports a send to a closing socket as not delivered', async () => {
+    let releaseReply!: () => void;
+    const replyAllowed = new Promise<void>((resolve) => (releaseReply = resolve));
+    const sent: boolean[] = [];
+
+    const base = createServerDefinition({
+      upgrade: () => ({ userId: 'alice' }),
+      capabilities: [emits({ answer: t<{ text: string }>() })],
+    });
+    const handleAsk = base.on('ask', {
+      async run(ctx) {
+        await replyAllowed;
+        sent.push(ctx.send('answer', { text: 'late' }));
+      },
+    });
+
+    const captured = createCapturingWebSocketServer();
+    const service = createTestService(base.assemble({ handlers: [handleAsk] }), {
+      port: 0,
+      webSocketServer: captured.server,
+    });
+    services.push(service);
+    await service.ready;
+
+    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    clients.push(socket);
+    await waitForOpen(socket);
+    await vi.waitFor(() => expect(captured.getAccepted()).toBeDefined());
+
+    socket.send(JSON.stringify(['ask', {}, null]));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The socket is closing, but its close event has not reached LiveThing yet.
+    captured.getAccepted()!.terminate();
+    releaseReply();
+
+    await vi.waitFor(() => expect(sent).toEqual([false]));
+  });
+
   it('runs SQL, KV, and scheduled work through real handlers', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = createTestService(buildServerDefinition(state), { port: 0 });
@@ -972,6 +967,61 @@ describe('Node server integration', () => {
     ]);
   });
 
+  it("admin channels.broadcast reaches only that channel's members", async () => {
+    const base = createServerDefinition({
+      upgrade: (request) => ({
+        userId: new URL(request.url).searchParams.get('user') ?? 'anonymous',
+        meta: {},
+      }),
+      capabilities: [channels(), emits({ done: t<{}>() })],
+    });
+    const general = base.channel('general', {
+      capabilities: [emits({ huddleClosing: t<{ reason: string }>() })],
+    });
+    const rooms = base.channel(['rooms', 'room:{roomId}'], {
+      capabilities: [emits({ message: t<{ text: string }>() })],
+    });
+    const service = createTestService(base.assemble({ handlers: [general, rooms] }), { port: 0 });
+    services.push(service);
+
+    await service.ready;
+
+    async function join(user: string, channel: { name: string; family?: string }) {
+      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/?user=${user}`);
+      clients.push(socket);
+      const messages = createMessageQueue(socket);
+      await waitForOpen(socket);
+      socket.send(JSON.stringify(['__subscribe__', {}, { channel }]));
+
+      expect((await messages.next())[0]).toBe('__subscribeOk__');
+
+      return messages;
+    }
+
+    async function appFramesUntilDone(messages: ReturnType<typeof createMessageQueue>) {
+      const frames: unknown[] = [];
+      for (let frame = await messages.next(); frame[0] !== 'done'; frame = await messages.next()) {
+        if (!frame[0].startsWith('__')) frames.push(frame.slice(0, 2));
+      }
+
+      return frames;
+    }
+
+    const ada = await join('ada', { name: 'general' });
+    const ben = await join('ben', { name: 'room:42', family: 'rooms' });
+    const cy = await join('cy', { name: 'room:7', family: 'rooms' });
+
+    const admin = await service.admin();
+    admin.channels.broadcast('general', 'huddleClosing', { reason: 'maintenance' });
+    admin.channels.broadcast({ family: 'rooms', name: 'room:42' }, 'message', { text: 'hi' });
+    admin.channels.broadcast({ family: 'rooms', name: 'room:7' }, 'message', { text: 'seven' });
+    admin.broadcast('done', {});
+
+    expect(await appFramesUntilDone(ada)).toEqual([['huddleClosing', { reason: 'maintenance' }]]);
+    expect(await appFramesUntilDone(ben)).toEqual([['message', { text: 'hi' }]]);
+    expect(await appFramesUntilDone(cy)).toEqual([['message', { text: 'seven' }]]);
+  });
+
   it('reconciles stale persisted connections when a new Node service starts', async () => {
     const database = new Database(':memory:');
     databases.push(database);
@@ -1001,34 +1051,6 @@ describe('Node server integration', () => {
     await second.ready;
 
     expect((await second.admin()).connectionCount).toBe(0);
-  });
-
-  it('translates inbound and outbound frames through the real engine', async () => {
-    const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createTranslatedHandler(state), {
-      port: 0,
-    });
-    services.push(service);
-    await service.ready;
-
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
-    clients.push(socket);
-    const messages = createMessageQueue(socket);
-    await waitForOpen(socket);
-    await expect(messages.next()).resolves.toEqual({
-      type: 'connected',
-      data: { role: 'translated' },
-    });
-
-    // One socket's frames are handled in order, so a reply to the ignored frame
-    // would arrive before the echo.
-    socket.send(JSON.stringify({ type: 'ignore', data: {} }));
-    socket.send(JSON.stringify({ type: 'echo', data: { text: 'translated' } }));
-    await expect(messages.next()).resolves.toEqual({
-      type: 'echoed',
-      data: { text: 'translated' },
-    });
-    messages.dispose();
   });
 
   it('closes a connected real client with going-away during shutdown', async () => {

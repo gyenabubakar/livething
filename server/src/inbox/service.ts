@@ -12,9 +12,9 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
  * `inboxService` slot. Registered once by the `inbox()` capability even when
  * several channels enable inbox — a handler that lists none ships none of this.
  */
-export const inboxService: InboxService = {
+const inboxService: InboxService = {
   fanOut(core: EngineCore, opts) {
-    fanOutToInbox(core, opts);
+    fanOutToInbox(core, { ...opts, isUserPurging: (userId) => core.isUserPurging(userId) });
   },
   drainOnReconnect(core: EngineCore, connection: RuntimeConnection) {
     drainInboxOnReconnect(core, connection);

@@ -158,10 +158,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
       function trackIncoming(key: string, channel: string, message: Message): Message {
         if (message.metadata?.stream?.id !== undefined) return message;
 
-        const seq =
-          message.metadata?.stream?.id !== undefined
-            ? message.metadata.stream.seq
-            : message.metadata?.delivery?.seq;
+        const seq = message.metadata?.delivery?.seq;
         if (typeof seq !== 'number') return message;
 
         const channelFamily = message.metadata?.channel?.family;

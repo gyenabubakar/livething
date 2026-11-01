@@ -2,9 +2,8 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // Conformance: @livething/client's channel-scoped stream() / continueStream() against
-// the real `stream-durable-scoped` server definition. The `rooms` channel exposes a
-// cursor stream (`paginate`) and a recorded stream (`history`), both
-// reached through the typed channel handle. Adapter-oblivious — it talks to
+// the real `stream-durable-scoped` server definition. The `rooms` channel exposes two
+// recorded streams (`paginate`, `history`), both reached through the typed channel handle. Adapter-oblivious — it talks to
 // whatever server the run booted over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/channel-streams/index.html?room=${room}&username=alice`);
@@ -17,7 +16,7 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('channel-streams (conformance)', () => {
-  test('a channel cursor stream runs to completion', async ({ page }, testInfo) => {
+  test('a channel paginate stream runs to completion', async ({ page }, testInfo) => {
     await open(page, `cs-paginate-${testInfo.testId}`);
     await page.getByTestId('start-paginate').click();
 
@@ -26,7 +25,7 @@ test.describe('channel-streams (conformance)', () => {
     expect(rows).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  test('continueStream() reattaches a channel stream from its saved cursor', async ({
+  test('continueStream() reattaches a channel stream from its last seq', async ({
     page,
   }, testInfo) => {
     await open(page, `cs-continue-${testInfo.testId}`);
@@ -34,8 +33,8 @@ test.describe('channel-streams (conformance)', () => {
     await expect.poll(() => page.getByTestId('rows-ended').textContent()).toBe('yes');
     await expect(page.getByTestId('rows')).toHaveText('1,2,3,4,5,6,7,8,9,10');
 
-    // The cursor is retained after the stream ends. A manual `continueStream` from the saved
-    // cursor reattaches and ends cleanly with no new rows.
+    // The row is retained after the stream ends. A manual `continueStream` from the last
+    // seq reattaches and ends cleanly with no new rows.
     await page.getByTestId('continue-paginate').click();
     await expect.poll(() => page.getByTestId('rows-ended').textContent()).toBe('yes');
     await expect(page.getByTestId('rows')).toHaveText('1,2,3,4,5,6,7,8,9,10');

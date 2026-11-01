@@ -1,9 +1,10 @@
-import type { ApiOf, ServerDefinition } from '@livething/server/adapters';
+import type { ServerDefinition } from '@livething/server/adapters';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
+import { sendWhenOpen } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { isNodeWebSocketUpgrade } from '../../upgrade.ts';
 import type { NodeAdmin, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
@@ -16,10 +17,10 @@ export interface FastifyWebSocketRoute {
 }
 
 /** One LiveThing definition registered as a Fastify WebSocket route. */
-export interface FastifyEndpoint<TApi = unknown> {
+export interface FastifyEndpoint<TAdmin = NodeAdmin> {
   upgrade: FastifyWebSocketRoute;
   ready(): Promise<void>;
-  admin(): Promise<NodeAdmin<TApi>>;
+  admin(): Promise<TAdmin>;
 }
 
 /** Shared lifecycle for Fastify WebSocket routes. */
@@ -27,7 +28,7 @@ export interface FastifySetup {
   bind<TDefinition extends ServerDefinition>(
     definition: TDefinition,
     options: NodeEndpointOptions,
-  ): FastifyEndpoint<ApiOf<TDefinition>>;
+  ): FastifyEndpoint<NodeAdmin<TDefinition>>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -90,7 +91,7 @@ export function setup(): FastifySetup {
           let connection;
           try {
             connection = upgrade.accept({
-              send: (data) => socket.send(data),
+              send: (data) => sendWhenOpen(socket.readyState, () => socket.send(data)),
               close: (code, reason) => socket.close(code, reason),
               bufferedAmount: () => socket.bufferedAmount,
               backpressureSupported: true,

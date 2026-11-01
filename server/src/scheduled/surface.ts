@@ -18,14 +18,7 @@ function buildScheduleSurface(engine: EngineAccess): Record<string, unknown> {
       engine.scheduleTask(taskId, options.time, options.data);
     },
     cancelScheduled: (taskId: string, filter?: Record<string, unknown>) => {
-      const result = engine.cancelScheduled(taskId, filter);
-      if (result.removed === 0) {
-        engine.getLogger?.()?.error('[livething] cancelScheduled matched no runs', {
-          taskId,
-          filter,
-          taskExists: result.taskExists,
-        });
-      }
+      engine.cancelScheduled(taskId, filter);
     },
   };
 }
@@ -40,7 +33,6 @@ function buildScheduleSurface(engine: EngineAccess): Record<string, unknown> {
 export function scheduleSurfacePrimitive(): Primitive {
   return {
     __livething: 'scheduledSurface',
-    __kind: 'infrastructure',
     __identity: [SCHEDULE_SURFACE_KEY],
     __requires: {},
     __setup(engine) {

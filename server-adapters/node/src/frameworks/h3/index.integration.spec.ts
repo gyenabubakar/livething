@@ -33,6 +33,13 @@ const base = createServerDefinition({
       echoed: t<{ text?: string }>(),
     }),
   ],
+  onConnect(ctx) {
+    ctx.send('connected', { clientIp: lastClientIp });
+  },
+  onDisconnect(ctx) {
+    disconnects += 1;
+    lastDisconnect = { code: ctx.closeCode ?? 1000, reason: ctx.closeReason ?? '' };
+  },
 });
 
 const echo = base.on('echo', {
@@ -40,15 +47,6 @@ const echo = base.on('echo', {
     const text = (input as { text?: unknown } | null)?.text;
     ctx.send('echoed', typeof text === 'string' ? { text } : {});
   },
-});
-
-base.onConnect((ctx) => {
-  ctx.send('connected', { clientIp: lastClientIp });
-});
-
-base.onDisconnect((ctx) => {
-  disconnects += 1;
-  lastDisconnect = { code: ctx.closeCode ?? 1000, reason: ctx.closeReason ?? '' };
 });
 
 const assembled = base.assemble({ handlers: [echo] });

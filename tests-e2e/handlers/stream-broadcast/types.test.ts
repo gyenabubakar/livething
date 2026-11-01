@@ -27,10 +27,7 @@ describe('StreamBroadcastClient — top-level streams', () => {
     }>();
   });
 
-  it('start-broadcast has no cursor or nudges (broadcast does not surface in type)', () => {
-    expectTypeOf<StreamBroadcastClient['streams']['start-broadcast']>().not.toHaveProperty(
-      'cursor',
-    );
+  it('start-broadcast has no nudges (broadcast does not surface in type)', () => {
     expectTypeOf<StreamBroadcastClient['streams']['start-broadcast']>().not.toHaveProperty(
       'nudges',
     );

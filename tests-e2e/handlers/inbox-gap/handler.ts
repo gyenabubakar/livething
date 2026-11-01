@@ -37,6 +37,9 @@ export const handleServerDrop = base.on('server-drop', {
   },
 });
 
+const delayedRaceLeaves = new Map<string, () => void>();
+const raceLeaveAttempts = new Map<string, number>();
+
 const chat = base.channel('chat', {
   membership: 'persistent',
   capabilities: [
@@ -45,30 +48,26 @@ const chat = base.channel('chat', {
       'room-msg': t<RoomMsg>(),
     }),
   ],
-});
+  // Keep the first two real leave confirmations under test control. The browser
+  // duplicates the first leave frame so its early ack settles leave one; the
+  // original hook remains blocked until the second leave is already pending.
+  async onUnsubscribe(ctx) {
+    if (ctx.meta.username !== 'race-alice') return;
 
-const delayedRaceLeaves = new Map<string, () => void>();
-const raceLeaveAttempts = new Map<string, number>();
+    const connectionId = ctx.connection.id;
+    const attempt = (raceLeaveAttempts.get(connectionId) ?? 0) + 1;
+    raceLeaveAttempts.set(connectionId, attempt);
+    ctx.send('race-leave-hook-started', { attempt });
 
-// Keep the first two real leave confirmations under test control. The browser
-// duplicates the first leave frame so its early ack settles leave one; the
-// original hook remains blocked until the second leave is already pending.
-chat.unsubscribe(async (ctx) => {
-  if (ctx.meta.username !== 'race-alice') return;
+    if (attempt <= 2) {
+      await new Promise<void>((resolve) => {
+        delayedRaceLeaves.set(`${connectionId}:${attempt}`, resolve);
+      });
+      delayedRaceLeaves.delete(`${connectionId}:${attempt}`);
+    }
 
-  const connectionId = ctx.connection.id;
-  const attempt = (raceLeaveAttempts.get(connectionId) ?? 0) + 1;
-  raceLeaveAttempts.set(connectionId, attempt);
-  ctx.send('race-leave-hook-started', { attempt });
-
-  if (attempt <= 2) {
-    await new Promise<void>((resolve) => {
-      delayedRaceLeaves.set(`${connectionId}:${attempt}`, resolve);
-    });
-    delayedRaceLeaves.delete(`${connectionId}:${attempt}`);
-  }
-
-  ctx.send('race-leave-hook-finished', { attempt });
+    ctx.send('race-leave-hook-finished', { attempt });
+  },
 });
 
 export const handleReleaseRaceLeave = base.on('release-race-leave', {

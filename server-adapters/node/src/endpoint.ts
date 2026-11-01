@@ -1,7 +1,6 @@
 import { adapter } from '@livething/server/adapters';
 import type {
-  AdminContext,
-  ApiOf,
+  AdminOf,
   ConnectionHandle,
   Engine,
   EngineRuntimeOptions,
@@ -25,18 +24,22 @@ export interface NodeEndpointOptions extends Omit<NodeStorageOptions, 'logger'> 
   clientIp?: NodeClientIpConfig;
 }
 
-/** The in-process admin surface for one Node endpoint. */
-export type NodeAdmin<TApi = unknown> = AdminContext<Record<string, unknown>, unknown> & TApi;
+/**
+ * The in-process admin surface for one Node endpoint: the definition's
+ * connectionless `ctx`, typed against its own emits, plus the app's `api` methods.
+ */
+export type NodeAdmin<TDefinition extends ServerDefinition = ServerDefinition> =
+  AdminOf<TDefinition>;
 
 /** One initialized LiveThing endpoint, independent of any HTTP server. */
-export interface NodeEndpoint<TApi = unknown> {
+interface NodeEndpoint<TAdmin = NodeAdmin> {
   readonly ready: Promise<void>;
-  admin(): Promise<NodeAdmin<TApi>>;
+  admin(): Promise<TAdmin>;
   shutdown(): Promise<void>;
 }
 
 /** Internal endpoint operations used by framework route bindings. */
-export interface NodeEndpointInternals<TApi = unknown> extends NodeEndpoint<TApi> {
+export interface NodeEndpointInternals<TAdmin = NodeAdmin> extends NodeEndpoint<TAdmin> {
   decideNodeUpgrade(request: IncomingMessage, signal?: AbortSignal): Promise<UpgradeDecision>;
   decideWebUpgrade(request: Request, clientIp?: string): Promise<UpgradeDecision>;
   attachTransport(
@@ -128,7 +131,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 
       async admin() {
         await ready;
-        return engine.admin() as NodeAdmin<TApi>;
+        return engine.admin();
       },
 
       shutdown() {
@@ -166,6 +169,8 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 export function createNodeEndpoint<TDefinition extends ServerDefinition>(
   definition: TDefinition,
   options: NodeEndpointOptions,
-): NodeEndpointInternals<ApiOf<TDefinition>> {
-  return buildEndpoint(definition, options) as unknown as NodeEndpointInternals<ApiOf<TDefinition>>;
+): NodeEndpointInternals<NodeAdmin<TDefinition>> {
+  return buildEndpoint(definition, options) as unknown as NodeEndpointInternals<
+    NodeAdmin<TDefinition>
+  >;
 }

@@ -7,16 +7,11 @@ import type {
   TimerProvider,
 } from '~/context.ts';
 
-/**
- * The low-level send/close callbacks an adapter provides for each WebSocket.
- *
- * When you build a custom platform adapter, you create one of these for every
- * accepted connection so the engine can push data to the client.
- */
-export interface ConnectionDescriptor {
+/** The low-level send/close callbacks of one accepted WebSocket. */
+export interface SocketDescriptor {
   /**
    * Returning `false` means the descriptor deliberately did not put the frame
-   * on the wire. The outgoing pipeline uses this to skip `afterSend` hooks.
+   * on the wire. The outgoing pipeline does not count it as delivered.
    */
   send(data: string): unknown;
 
@@ -33,7 +28,16 @@ export interface ConnectionDescriptor {
    * a documented Cloudflare limitation, not a hidden difference.
    */
   backpressureSupported?: boolean;
+}
 
+/**
+ * The low-level send/close callbacks an adapter provides for each WebSocket,
+ * plus the identity its upgrade gave the connection.
+ *
+ * When you build a custom platform adapter, you create one of these for every
+ * accepted connection so the engine can push data to the client.
+ */
+export interface ConnectionDescriptor extends SocketDescriptor {
   /**
    * The user this socket belongs to, forwarded from the `onUpgrade` result.
    * Required because the descriptor is only built for an accepted upgrade — by
@@ -105,7 +109,7 @@ export interface UpgradeDecision {
  * }
  * ```
  */
-export interface HibernationApi {
+interface HibernationApi {
   persist(wsKey: unknown, snapshot: unknown): void;
 
   restore(wsKey: unknown): unknown;
@@ -138,7 +142,7 @@ export interface EngineOptions extends EngineRuntimeOptions {
    * Adapter-provided hibernation persistence mechanism. Present when the
    * adapter supports hibernation; omitted otherwise. The engine validates at
    * `initialize()` that this is present whenever the server definition sets
-   * `hibernation: { enabled: true }` and throws a clear error if the combination is
+   * `hibernation: true` and throws a clear error if the combination is
    * unsupported.
    */
   hibernation?: HibernationApi;
@@ -171,7 +175,7 @@ export interface AdapterConfig<TOptions, TService> {
   /**
    * Adapter-provided hibernation persistence. Adapters that don't support
    * hibernation omit this field; the engine then rejects any contract that
-   * set `hibernation: { enabled: true }` at `initialize()` time.
+   * set `hibernation: true` at `initialize()` time.
    */
   hibernation?: HibernationApi;
 

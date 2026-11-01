@@ -1,12 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RequestInvalidResponse } from '@livething/core';
+import { LiveThingConfigError, RequestInvalidResponse } from '@livething/core';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { CrossInstanceRef } from '~/errors/errors.ts';
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { ConnectionRef } from '~/context.ts';
-import type { ResolvedServerRequest } from '~/request/capability.ts';
+import type { ResolvedServerRequest } from '~/request/server-requests.ts';
 
 /** Re-key a bare-event declaration map under one channel's definition key. */
 function channelDeclarations(
@@ -41,7 +41,9 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
 
   const live = new Set<string>(['c1', 'peer']);
 
+  const notInChannel = new Set<string>();
   const engine = {
+    isConnectionInChannel: (id: string) => !notInChannel.has(id),
     generateId: (prefix?: string) => `${prefix}_${(idCounter += 1)}`,
     onAnswerFrame: (h: any) => (answerHook = h),
     onDisconnect: (h: any) => (disconnectHook = h),
@@ -50,6 +52,13 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       sent.push({ connectionId, opts });
       return live.has(connectionId);
     },
+    openServerRequestBroadcast: (opts: any) => ({
+      send(connectionId: string, correlationId: string) {
+        sent.push({ connectionId, opts: { ...opts, correlationId } });
+        return live.has(connectionId);
+      },
+      finish() {},
+    }),
   };
 
   makeServerRequestsPrimitive(declarations).__setup!(engine as any);
@@ -68,9 +77,6 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     scope?: any,
     opts?: {
       channel?: any;
-      connections?: string[];
-      channels?: Record<string, string[]>;
-      tags?: { group?: string[]; refs?: Record<string, string[]> };
       user?: string[];
     },
   ): any {
@@ -84,7 +90,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       [ENGINE_CHANNEL_META]: scope ?? {},
       connections: {
         get: (ref: ConnectionRef) => ({ send: () => true, __ref: ref }),
-        all: () => (opts?.connections ?? []).map(member),
+        all: () => [],
       },
     };
 
@@ -98,38 +104,6 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       ctx.users = { get: (_id: string) => userHandle(opts!.user!) };
     }
 
-    for (const id of [
-      ...(opts?.connections ?? []),
-      ...Object.values(opts?.channels ?? {}).flat(),
-      ...(opts?.tags?.group ?? []),
-      ...Object.values(opts?.tags?.refs ?? {}).flat(),
-    ]) {
-      live.add(id);
-    }
-
-    if (opts?.channels) {
-      ctx.channels = {
-        get: (name: string) => ({
-          name,
-          family: null,
-          members: () => (opts.channels![name] ?? []).map(member),
-        }),
-      };
-    }
-
-    function makeGroup() {
-      return {
-        connections: () => (opts!.tags!.group ?? []).map(member),
-        ref: (key: string) => ({
-          connections: () => (opts!.tags!.refs?.[key] ?? []).map(member),
-        }),
-      };
-    }
-
-    if (opts?.tags) {
-      ctx.tags = { ephemeral: makeGroup, persistent: makeGroup };
-    }
-
     // The core attaches ctx.channel before contextExtenders run, so mirror that.
     if (opts?.channel) ctx.channel = opts.channel;
     Object.assign(ctx, extender(ctx));
@@ -137,7 +111,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     return ctx;
   }
 
-  return { answerHook, disconnectHook, buildCtx, sent, live, member };
+  return { answerHook, disconnectHook, buildCtx, sent, live, member, notInChannel };
 }
 
 const PERMISSION = new Map<string, ResolvedServerRequest>([
@@ -217,6 +191,32 @@ describe('server→client request — outgoing runtime', () => {
     });
     await expect(promise).rejects.toSatisfy((e: unknown) => RequestInvalidResponse.matches(e));
   });
+
+  it.each([0, -1, 1.5, Number.NaN, 2 ** 31])(
+    'rejects a request with a timeout of %d and sends nothing',
+    async (timeout) => {
+      const env = install(topDeclarations(PERMISSION));
+      const ctx = env.buildCtx('c1');
+
+      await expect(ctx.request('ask', { action: 'x' }, { timeout })).rejects.toBeInstanceOf(
+        LiveThingConfigError,
+      );
+      expect(env.sent).toHaveLength(0);
+    },
+  );
+
+  it.each([0, -1, 1.5, Number.NaN, 2 ** 31])(
+    'rejects a user request with a timeout of %d and sends nothing',
+    async (timeout) => {
+      const env = install(topDeclarations(VOLUNTEER));
+      const ctx = env.buildCtx('c1', undefined, { user: ['a'] });
+
+      await expect(
+        ctx.users.get('a').request('volunteer', { turn: 1 }, { timeout }),
+      ).rejects.toBeInstanceOf(LiveThingConfigError);
+      expect(env.sent).toHaveLength(0);
+    },
+  );
 
   it('rejects with timeout when no answer arrives', async () => {
     vi.useFakeTimers();
@@ -334,7 +334,6 @@ describe('server→client request — outgoing runtime', () => {
           name: 'room-1',
           family: 'rooms',
           send: () => true,
-          members: () => ['c1', 'peer'].map(env.member),
         },
       },
     );
@@ -372,7 +371,6 @@ describe('server→client request — outgoing runtime', () => {
           name: 'room-1',
           family: 'rooms',
           send: () => true,
-          members: () => [env.member('peer')],
         },
       },
     );
@@ -389,7 +387,7 @@ describe('server→client request — outgoing runtime', () => {
     expect(env.sent).toHaveLength(0);
   });
 
-  it('ctx.channel.request({ to }) rejects a cross-instance UserRef before local matching', () => {
+  it('ctx.channel.request({ to }) rejects with not-a-member when the target is not a channel member', async () => {
     const env = install(channelDeclarations('rooms', PERMISSION));
     const ctx = env.buildCtx(
       'c1',
@@ -399,89 +397,21 @@ describe('server→client request — outgoing runtime', () => {
           name: 'room-1',
           family: 'rooms',
           send: () => true,
-          members: () => [env.member('peer')],
         },
       },
     );
+    env.notInChannel.add('peer');
 
-    expect(() =>
+    await expect(
       ctx.channel.request(
         'ask',
         { action: 'x' },
-        { to: { __livething: 'user-ref', id: 'peer', instance: 'other' } },
+        {
+          to: { __livething: 'connection-ref', id: 'peer', instance: undefined, userId: 'peer' },
+        },
       ),
-    ).toThrow(/cross-instance-ref/);
+    ).rejects.toMatchObject({ code: 'not-a-member' });
     expect(env.sent).toHaveLength(0);
-  });
-
-  it('ctx.channel.request({ to: userRef }) asks a same-instance user member', async () => {
-    const env = install(channelDeclarations('rooms', PERMISSION));
-    const ctx = env.buildCtx(
-      'c1',
-      { channelName: 'room-1', channelFamily: 'rooms' },
-      {
-        channel: {
-          name: 'room-1',
-          family: 'rooms',
-          send: () => true,
-          members: () => [env.member('peer')],
-        },
-      },
-    );
-
-    const promise = ctx.channel.request(
-      'ask',
-      { action: 'x' },
-      { to: { __livething: 'user-ref', id: 'peer', instance: undefined } },
-    );
-
-    expect(env.sent.map((entry) => entry.connectionId)).toEqual(['peer']);
-    const { correlationId } = env.sent[0]!.opts;
-    env.answerHook('peer', {
-      event: 'ask',
-      payload: { allowed: true },
-      livething: { correlationId },
-    });
-    await expect(promise).resolves.toEqual({ allowed: true });
-  });
-
-  it('ctx.channel.request({ to: userRef }) never asks an anonymous member', async () => {
-    vi.useFakeTimers();
-    const env = install(channelDeclarations('rooms', PERMISSION));
-    const anonymous = {
-      id: 'conn_abc123',
-      userId: '',
-      tags: [],
-      ref: env.member('conn_abc123').ref,
-    };
-
-    const ctx = env.buildCtx(
-      'c1',
-      { channelName: 'room-1', channelFamily: 'rooms' },
-      {
-        channel: {
-          name: 'room-1',
-          family: 'rooms',
-          send: () => true,
-          members: () => [env.member('c1'), anonymous],
-        },
-      },
-    );
-
-    const promise = ctx.channel.request(
-      'ask',
-      { action: 'x' },
-      {
-        to: { __livething: 'user-ref', id: 'conn_abc123' },
-        timeout: 1000,
-      },
-    );
-
-    expect(env.sent).toHaveLength(0);
-    const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
-    await vi.advanceTimersByTimeAsync(1001);
-    await rejection;
-    vi.useRealTimers();
   });
 });
 
@@ -489,27 +419,7 @@ const VOLUNTEER = new Map<string, ResolvedServerRequest>([
   ['volunteer', { responseValidator: v.object({ ready: v.boolean() }) }],
 ]);
 
-describe('server→client broadcast request — first answer wins', () => {
-  it('ctx.broadcastRequest resolves with the first valid answer and its from ref', async () => {
-    const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['c1', 'a', 'b', 'd'] });
-    const promise = ctx.broadcastRequest('volunteer', { turn: 5 });
-
-    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'd']);
-    const legB = env.sent.find((s) => s.connectionId === 'b')!;
-
-    env.answerHook('b', {
-      event: 'volunteer',
-      payload: { ready: true },
-      livething: { correlationId: legB.opts.correlationId },
-    });
-
-    await expect(promise).resolves.toEqual({
-      response: { ready: true },
-      from: expect.objectContaining({ id: 'b' }),
-    });
-  });
-
+describe('server→client user request — first answer wins', () => {
   it('ctx.user.request fans out to every socket the user holds and wins on the first answer', async () => {
     const env = install(topDeclarations(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { user: ['c1', 'u2'] });
@@ -549,10 +459,10 @@ describe('server→client broadcast request — first answer wins', () => {
     });
   });
 
-  it('ctx.broadcastRequest on a bare-marker ack resolves a void response with the winner ref', async () => {
+  it('a user request on a bare-marker ack resolves a void response with the winner ref', async () => {
     const env = install(topDeclarations(new Map([['ping', {}]])));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['c1', 'a', 'b'] });
-    const promise = ctx.broadcastRequest('ping', {});
+    const ctx = env.buildCtx('c1', undefined, { user: ['a', 'b'] });
+    const promise = ctx.users.get('u').request('ping', {});
 
     const legB = env.sent.find((s) => s.connectionId === 'b')!;
     env.answerHook('b', {
@@ -567,11 +477,11 @@ describe('server→client broadcast request — first answer wins', () => {
     });
   });
 
-  it('ctx.broadcastRequest rejects undeclared events before sending any wire requests', async () => {
+  it('a user request rejects undeclared events before sending any wire requests', async () => {
     const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
+    const ctx = env.buildCtx('c1', undefined, { user: ['a', 'b'] });
 
-    await expect(ctx.broadcastRequest('missing', {})).rejects.toMatchObject({
+    await expect(ctx.users.get('u').request('missing', {})).rejects.toMatchObject({
       code: 'request-not-declared',
       detail: { event: 'missing' },
     });
@@ -580,8 +490,8 @@ describe('server→client broadcast request — first answer wins', () => {
 
   it('ignores an invalid answer and resolves on a later valid one', async () => {
     const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
-    const promise = ctx.broadcastRequest('volunteer', { turn: 1 });
+    const ctx = env.buildCtx('c1', undefined, { user: ['a', 'b'] });
+    const promise = ctx.users.get('u').request('volunteer', { turn: 1 });
 
     const legA = env.sent.find((s) => s.connectionId === 'a')!;
     const legB = env.sent.find((s) => s.connectionId === 'b')!;
@@ -606,8 +516,8 @@ describe('server→client broadcast request — first answer wins', () => {
 
   it('drops a loser late answer after a winner already resolved', async () => {
     const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
-    const promise = ctx.broadcastRequest('volunteer', { turn: 1 });
+    const ctx = env.buildCtx('c1', undefined, { user: ['a', 'b'] });
+    const promise = ctx.users.get('u').request('volunteer', { turn: 1 });
     const legA = env.sent.find((s) => s.connectionId === 'a')!;
     const legB = env.sent.find((s) => s.connectionId === 'b')!;
 
@@ -632,8 +542,8 @@ describe('server→client broadcast request — first answer wins', () => {
   it('rejects with timeout when nobody answers in time', async () => {
     vi.useFakeTimers();
     const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
-    const promise = ctx.broadcastRequest('volunteer', { turn: 1 }, { timeout: 1000 });
+    const ctx = env.buildCtx('c1', undefined, { user: ['a', 'b'] });
+    const promise = ctx.users.get('u').request('volunteer', { turn: 1 }, { timeout: 1000 });
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
 
     await vi.advanceTimersByTimeAsync(1001);
@@ -641,11 +551,11 @@ describe('server→client broadcast request — first answer wins', () => {
     vi.useRealTimers();
   });
 
-  it('zero targets rejects with timeout', async () => {
+  it('a user with no live socket rejects with timeout', async () => {
     vi.useFakeTimers();
     const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['c1'] });
-    const promise = ctx.broadcastRequest('volunteer', { turn: 1 }, { timeout: 1000 });
+    const ctx = env.buildCtx('c1', undefined, { user: [] });
+    const promise = ctx.users.get('u').request('volunteer', { turn: 1 }, { timeout: 1000 });
     expect(env.sent).toHaveLength(0);
 
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
@@ -654,10 +564,10 @@ describe('server→client broadcast request — first answer wins', () => {
     vi.useRealTimers();
   });
 
-  it('one target disconnecting does not reject the broadcast', async () => {
+  it('one socket disconnecting does not reject the user request', async () => {
     const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
-    const promise = ctx.broadcastRequest('volunteer', { turn: 1 });
+    const ctx = env.buildCtx('c1', undefined, { user: ['a', 'b'] });
+    const promise = ctx.users.get('u').request('volunteer', { turn: 1 });
     const legB = env.sent.find((s) => s.connectionId === 'b')!;
 
     env.disconnectHook({ connection: { id: 'a' } });
@@ -669,112 +579,6 @@ describe('server→client broadcast request — first answer wins', () => {
     });
     await expect(promise).resolves.toEqual({
       response: { ready: true },
-      from: expect.objectContaining({ id: 'b' }),
-    });
-  });
-
-  it('ctx.channel.broadcastRequest fans out to channel members with channel routing', async () => {
-    const env = install(channelDeclarations('rooms', VOLUNTEER));
-    env.live.add('a');
-    env.live.add('b');
-    const ctx = env.buildCtx(
-      'c1',
-      { channelName: 'room-1', channelFamily: 'rooms' },
-      {
-        channel: {
-          name: 'room-1',
-          family: 'rooms',
-          send: () => true,
-          members: () => [
-            { id: 'a', ref: () => ({ __livething: 'connection-ref', id: 'a' }) },
-            { id: 'b', ref: () => ({ __livething: 'connection-ref', id: 'b' }) },
-          ],
-        },
-      },
-    );
-    const promise = ctx.channel.broadcastRequest('volunteer', { turn: 1 });
-
-    expect(env.sent).toHaveLength(2);
-    expect(env.sent[0]!.opts.channel).toBe('room-1');
-    expect(env.sent[0]!.opts.channelFamily).toBe('rooms');
-    const legA = env.sent.find((s) => s.connectionId === 'a')!;
-    env.answerHook('a', {
-      event: 'volunteer',
-      payload: { ready: true },
-      livething: { correlationId: legA.opts.correlationId },
-    });
-
-    await expect(promise).resolves.toEqual({
-      response: { ready: true },
-      from: expect.objectContaining({ id: 'a' }),
-    });
-  });
-
-  it('ctx.channels.get(name).broadcastRequest fans out to a named channel', async () => {
-    // ctx.channels.get(...) resolves the CHANNEL's own declaration, keyed by the channel
-    // (here the static name 'lobby'), matching the active ctx.channel handle.
-    const env = install(channelDeclarations('lobby', VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { channels: { lobby: ['a', 'b'] } });
-    const promise = ctx.channels.get('lobby').broadcastRequest('volunteer', { turn: 1 });
-    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
-    const legB = env.sent.find((s) => s.connectionId === 'b')!;
-
-    env.answerHook('b', {
-      event: 'volunteer',
-      payload: { ready: false },
-      livething: { correlationId: legB.opts.correlationId },
-    });
-    await expect(promise).resolves.toEqual({
-      response: { ready: false },
-      from: expect.objectContaining({ id: 'b' }),
-    });
-  });
-
-  it('ctx.channels.get(name).broadcastRequest rejects names missing from that channel declaration map', async () => {
-    const env = install(channelDeclarations('lobby', VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { channels: { lobby: ['a', 'b'] } });
-
-    await expect(ctx.channels.get('lobby').broadcastRequest('missing', {})).rejects.toMatchObject({
-      code: 'request-not-declared',
-      detail: { event: 'missing' },
-    });
-    expect(env.sent).toHaveLength(0);
-  });
-
-  it('ctx.tags group and ref broadcastRequest fan out to their members', async () => {
-    const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, {
-      tags: { group: ['a', 'b'], refs: { admin: ['b'] } },
-    });
-
-    const groupPromise = ctx.tags.ephemeral('role').broadcastRequest('volunteer', { turn: 1 });
-    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
-    const legA = env.sent.find((s) => s.connectionId === 'a')!;
-    env.answerHook('a', {
-      event: 'volunteer',
-      payload: { ready: true },
-      livething: { correlationId: legA.opts.correlationId },
-    });
-    await expect(groupPromise).resolves.toEqual({
-      response: { ready: true },
-      from: expect.objectContaining({ id: 'a' }),
-    });
-
-    env.sent.length = 0;
-    const refPromise = ctx.tags
-      .ephemeral('role')
-      .ref('admin')
-      .broadcastRequest('volunteer', { turn: 2 });
-    expect(env.sent.map((s) => s.connectionId)).toEqual(['b']);
-    const legB = env.sent[0]!;
-    env.answerHook('b', {
-      event: 'volunteer',
-      payload: { ready: false },
-      livething: { correlationId: legB.opts.correlationId },
-    });
-
-    await expect(refPromise).resolves.toEqual({
-      response: { ready: false },
       from: expect.objectContaining({ id: 'b' }),
     });
   });
@@ -874,10 +678,10 @@ describe('server→client request — only the asked connection may answer (Mino
     await expect(promise).resolves.toEqual({ allowed: false });
   });
 
-  it('ignores a broadcast leg answer from a connection other than that leg target', async () => {
+  it('ignores a user request leg answer from a connection other than that leg target', async () => {
     const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
-    const promise = ctx.broadcastRequest('volunteer', { turn: 1 });
+    const ctx = env.buildCtx('c1', undefined, { user: ['a', 'b'] });
+    const promise = ctx.users.get('u').request('volunteer', { turn: 1 });
     const legA = env.sent.find((s) => s.connectionId === 'a')!;
 
     // 'b' answering 'a's leg is ignored; the race stays open.
@@ -898,55 +702,6 @@ describe('server→client request — only the asked connection may answer (Mino
       response: { ready: false },
       from: expect.objectContaining({ id: 'b' }),
     });
-  });
-});
-
-describe('server→client broadcast request — self-exclusion (Major 6)', () => {
-  function channelCtx(env: ReturnType<typeof install>) {
-    env.live.add('a');
-    env.live.add('b');
-    return env.buildCtx(
-      'c1',
-      { channelName: 'room-1', channelFamily: 'rooms' },
-      {
-        channel: {
-          name: 'room-1',
-          family: 'rooms',
-          send: () => true,
-          members: () =>
-            ['c1', 'a', 'b'].map((id) => ({
-              id,
-              ref: () => ({ __livething: 'connection-ref', id }),
-            })),
-        },
-      },
-    );
-  }
-
-  /** These tests read only what was sent. Nobody answers, so the request later times out. */
-  function ignoreTimeout(request: Promise<unknown>): void {
-    request.catch(() => {});
-  }
-
-  it('ctx.channel.broadcastRequest excludes the caller by default', () => {
-    const env = install(channelDeclarations('rooms', VOLUNTEER));
-    const ctx = channelCtx(env);
-    ignoreTimeout(ctx.channel.broadcastRequest('volunteer', { turn: 1 }));
-    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
-  });
-
-  it('ctx.channel.broadcastRequest includes the caller with includeSelf: true', () => {
-    const env = install(channelDeclarations('rooms', VOLUNTEER));
-    const ctx = channelCtx(env);
-    ignoreTimeout(ctx.channel.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true }));
-    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
-  });
-
-  it('ctx.broadcastRequest includes the caller with includeSelf: true', () => {
-    const env = install(topDeclarations(VOLUNTEER));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['c1', 'a', 'b'] });
-    ignoreTimeout(ctx.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true }));
-    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
   });
 });
 

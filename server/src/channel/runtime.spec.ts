@@ -5,7 +5,6 @@ import {
   createChannelMembershipKey,
   leaveChannel,
   matchScopeParams,
-  resyncChannelMembers,
   subscribeConnection,
   subscribeConnectionAsServer,
   unsubscribeConnection,
@@ -64,7 +63,6 @@ function createRuntime(
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
   };
@@ -137,13 +135,11 @@ function createRuntime(
           channelFamily: channelFamily ?? undefined,
         });
       },
-      async handleValidationError() {},
       async handleRuntimeError() {},
       isChannelDurable: () => false,
       persistMembership: () => {},
       deleteDurableMembership: () => {},
-      getDurableMembership: (): StoredMembership | undefined => ({ meta: {}, kicked: false }),
-      markDurableMembershipKicked: () => {},
+      getDurableMembership: (): StoredMembership | undefined => ({ meta: {} }),
       listDurableMembers: (): (StoredMembership & { userId: string })[] => [],
     },
   };
@@ -269,6 +265,23 @@ describe('channel runtime', () => {
         channelFamily: 'rooms',
       },
     ]);
+  });
+
+  it('gives a replay connection a seq in __subscribeOk__, as its cursor for the channel', async () => {
+    const connection = Object.assign(createConnection('conn_1', { userId: 'a' }), {
+      resumeToken: 'token',
+    });
+    const { runtime, connections, protocol } = createRuntime(new Map());
+    connections.set(connection.id, connection);
+
+    await subscribeConnection({ ...runtime, allocateDeliverySeq: () => 12 }, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      data: undefined,
+    });
+
+    const ok = protocol.find((frame) => frame.event === '__subscribeOk__');
+    expect(ok?.payload).toEqual({ seq: 12 });
   });
 
   it('confirms a member leave with __unsubscribeOk__ echoing the unsubscribeId', async () => {
@@ -621,19 +634,19 @@ describe('channel runtime', () => {
     expect(members.map((m) => m.memberId)).toEqual(['rooms-member']);
   });
 
-  it('check with an async validator throws LiveThingConfigError without routing through handleValidationError', async () => {
+  it('check with an async validator throws LiveThingConfigError without routing through handleRuntimeError', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
 
-    const handleValidationError = vi.fn();
+    const handleRuntimeError = vi.fn();
     const hook = vi.fn();
 
     await expect(
       subscribeConnection(
         {
           ...runtime,
-          handleValidationError,
+          handleRuntimeError,
           checkHooks: new Map([['rooms', [{ handler: hook, validator: v.objectAsync({}) }]]]),
         },
         connection,
@@ -641,7 +654,7 @@ describe('channel runtime', () => {
       ),
     ).rejects.toThrow(/async validators are not supported/);
 
-    expect(handleValidationError).not.toHaveBeenCalled();
+    expect(handleRuntimeError).not.toHaveBeenCalled();
     expect(hook).not.toHaveBeenCalled();
   });
 
@@ -1263,7 +1276,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      getDurableMembership: () => ({ meta: {}, kicked: false }),
+      getDurableMembership: () => ({ meta: {} }),
       checkHooks: new Map([['rooms', [{ handler: checkHook, validator: undefined }]]]),
       revalidateHooks: new Map([['rooms', [revalidateHook]]]),
     };
@@ -1292,7 +1305,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      getDurableMembership: () => ({ meta: {}, kicked: false }),
+      getDurableMembership: () => ({ meta: {} }),
       commitHooks: new Map([['rooms', [{ handler: commitHook }]]]),
       subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
     };
@@ -1318,7 +1331,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      getDurableMembership: () => ({ meta: {}, kicked: false }),
+      getDurableMembership: () => ({ meta: {} }),
       deleteDurableMembership,
       clearInbox,
       sendProtocolMessage: () => {
@@ -1348,7 +1361,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      getDurableMembership: () => ({ meta: {}, kicked: false }),
+      getDurableMembership: () => ({ meta: {} }),
       revalidateHooks: new Map([
         [
           'rooms',
@@ -1388,7 +1401,7 @@ describe('subscribeConnectionAsServer', () => {
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
-      getDurableMembership: () => ({ meta: {}, kicked: false }),
+      getDurableMembership: () => ({ meta: {} }),
       revalidateHooks: new Map([
         [
           'rooms',
@@ -1522,7 +1535,6 @@ describe('subscribeConnectionAsServer', () => {
       incoming: new Map(),
       requests: new Map(),
       streams: new Map(),
-      cursorStreams: new Map(),
       recordedStreams: new Map(),
       intercepts: [],
     } as never);
@@ -1638,7 +1650,7 @@ describe('subscribeConnectionAsServer', () => {
     ).toBe(true);
   });
 
-  it('rolls back a subscribe when translated confirmation closes the connection', async () => {
+  it('rolls back a subscribe when the confirmation closes the connection', async () => {
     const { runtime, connections, channelMembers, broadcasts } = createRuntime();
     const target = createConnection('target');
     connections.set(target.id, target);
@@ -1662,7 +1674,7 @@ describe('subscribeConnectionAsServer', () => {
     expect(runtime.persistAttachment).toHaveBeenLastCalledWith(target, { force: true });
   });
 
-  it('persists the rollback when translated member sync closes the connection', async () => {
+  it('persists the rollback when member sync closes the connection', async () => {
     const { runtime, connections, channelMembers, broadcasts } = createRuntime();
     const target = createConnection('target');
     connections.set(target.id, target);
@@ -1682,12 +1694,12 @@ describe('subscribeConnectionAsServer', () => {
     expect(runtime.persistAttachment).toHaveBeenLastCalledWith(target, { force: true });
   });
 
-  it('rolls back a subscribe when translated confirmation throws', async () => {
+  it('rolls back a subscribe when the confirmation throws', async () => {
     const { runtime, connections, channelMembers, broadcasts } = createRuntime();
     const target = createConnection('target');
     connections.set(target.id, target);
     runtime.sendProtocolMessage = () => {
-      throw new LiveThingConfigError('translator outbound is invalid');
+      throw new LiveThingConfigError('adapter send is misconfigured');
     };
 
     await expect(
@@ -1880,76 +1892,14 @@ describe('server self-defense against untrusted client frames', () => {
   });
 });
 
-describe('resyncChannelMembers (client __memberSync__ request, bug #16)', () => {
-  it('re-sends the member snapshot with source: server to a member', async () => {
-    const channelMembers = new Map<string, Set<RuntimeConnection>>();
-    const first = createConnection('conn_1', { userId: 'a' });
-    const second = createConnection('conn_2', { userId: 'b' });
-    addChannelMembership(channelMembers, first, {
-      channelName: 'room:general',
-      channelFamily: 'rooms',
-    });
-    addChannelMembership(channelMembers, second, {
-      channelName: 'room:general',
-      channelFamily: 'rooms',
-    });
-
-    const { runtime, connections, protocol } = createRuntime(channelMembers);
-    connections.set(first.id, first);
-    connections.set(second.id, second);
-
-    resyncChannelMembers(runtime, second, {
-      channelName: 'room:general',
-      channelFamily: 'rooms',
-    });
-
-    expect(protocol).toEqual([
-      {
-        connectionId: 'conn_2',
-        event: '__memberSync__',
-        payload: { members: [{ memberId: 'conn_1', meta: { userId: 'a' }, online: true }] },
-        livething: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
-      },
-    ]);
-  });
-
-  it('is a silent no-op when the requester is not a member', () => {
-    const stranger = createConnection('conn_x');
-    const { runtime, connections, protocol } = createRuntime();
-    connections.set(stranger.id, stranger);
-
-    resyncChannelMembers(runtime, stranger, {
-      channelName: 'room:general',
-      channelFamily: 'rooms',
-    });
-
-    expect(protocol).toEqual([]);
-  });
-
-  it('is a silent no-op for an unknown channel', () => {
-    const connection = createConnection('conn_1');
-    const { runtime, connections, protocol } = createRuntime();
-    connections.set(connection.id, connection);
-
-    resyncChannelMembers(runtime, connection, {
-      channelName: 'missing',
-      channelFamily: null,
-    });
-
-    expect(protocol).toEqual([]);
-  });
-});
-
 describe('subscribe schema validation without a check handler (bug #5)', () => {
   it('validates the subscribe payload even when the channel has no check handler', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
 
-    const handleValidationError = vi.fn(async () => {});
     const runtimeWithValidator = {
       ...runtime,
-      handleValidationError,
       checkHooks: new Map([
         [
           'rooms',
@@ -1969,8 +1919,7 @@ describe('subscribe schema validation without a check handler (bug #5)', () => {
         channelFamily: 'rooms',
         data: { token: 123 },
       }),
-    ).rejects.toBeDefined();
-    expect(handleValidationError).toHaveBeenCalledOnce();
+    ).rejects.toMatchObject({ code: 'validation-failed' });
 
     await subscribeConnection(runtimeWithValidator, connection, {
       channelName: 'room:general',

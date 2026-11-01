@@ -18,7 +18,6 @@ import {
   sweepInboxRetention,
 } from './runtime.ts';
 import {
-  ackInboxRows,
   bumpInboxWatermark,
   ensureInboxSchema,
   insertInboxRows,
@@ -52,7 +51,6 @@ function connection(userId: string | null): RuntimeConnection {
 }
 
 const deliver: ResolvedInboxOptions = {
-  onDelivered: 'delete',
   broadcastReceipts: false,
   maxReceiptAudience: 256,
 };
@@ -156,6 +154,25 @@ describe('fanOutToInbox', () => {
     expect(sql.exec('SELECT COUNT(*) AS c FROM __livething_inbox').one() as { c: number }).toEqual({
       c: 0,
     });
+  });
+
+  it('writes no row for a user being purged', () => {
+    const { core, sql } = createCore(new Map([['room', deliver]]));
+    insertMembership(sql, { userId: 'alice', channelName: 'room', channelFamily: null });
+    insertMembership(sql, { userId: 'bob', channelName: 'room', channelFamily: null });
+
+    fanOutToInbox(core, {
+      channelName: 'room',
+      channelFamily: null,
+      event: 'msg',
+      payload: { text: 'hi' },
+      deliverySeq: 1,
+      messageId: 'm1',
+      isUserPurging: (userId) => userId === 'alice',
+    });
+
+    expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
+    expect(loadUndeliveredRows(sql, 'bob')).toHaveLength(1);
   });
 
   it('excludeUserId skips that member entirely', () => {
@@ -307,48 +324,6 @@ describe('quiet inbox retention sweep', () => {
     expect(nextInboxRetentionDeadline(sql, { channelKey: 'room', maxAgeMs: 50 })).toBe(141);
   });
 
-  it('removes expired delivered rows too, without deleting a newer row', () => {
-    const { sql } = createCore();
-    insertInboxRows(sql, {
-      userIds: ['alice'],
-      channelName: 'room',
-      channelFamily: null,
-      frame: { deliverySeq: 1, messageId: 'm1', event: 'msg', payload: {} },
-      now: 10,
-    });
-    ackInboxRows(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      receivedThrough: 1,
-      onDelivered: 'retain',
-      now: 20,
-    });
-    insertInboxRows(sql, {
-      userIds: ['alice'],
-      channelName: 'room',
-      channelFamily: null,
-      frame: { deliverySeq: 2, messageId: 'm2', event: 'msg', payload: {} },
-      now: 90,
-    });
-
-    sweepInboxRetention(sql, {
-      channelKey: 'room',
-      retention: { maxAgeMs: 50 },
-      now: 100,
-    });
-
-    expect(
-      sql
-        .exec<{
-          seq: number;
-          delivered_at: number | null;
-        }>('SELECT seq, delivered_at FROM __livething_inbox ORDER BY seq')
-        .toArray(),
-    ).toEqual([{ seq: 2, delivered_at: null }]);
-    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
-  });
-
   it('is idempotent after the first sweep', () => {
     const { sql } = createCore();
     insertInboxRows(sql, {
@@ -454,7 +429,7 @@ describe('drainInboxOnReconnect', () => {
     expect(seqs).toEqual([1, 2, 3]);
   });
 
-  it('stops reconnect delivery after a translated frame closes the connection', () => {
+  it('stops reconnect delivery after a frame closes the connection', () => {
     const { core, sql } = createCore();
     const reconnecting = connection('alice');
     const seqs: number[] = [];
@@ -566,7 +541,6 @@ describe('drainInboxOnReconnect', () => {
       channelName: 'room',
       channelFamily: null,
       receivedThrough: 7,
-      onDelivered: 'delete',
     });
 
     drainInboxOnReconnect(core, connection('alice'));

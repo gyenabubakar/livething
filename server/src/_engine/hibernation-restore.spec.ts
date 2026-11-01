@@ -1,10 +1,13 @@
 import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
-import { writeConnectionRow } from '~/_engine/runtime/connection-store.ts';
+import { buildConnectionRow, writeConnectionRow } from '~/_engine/runtime/connection-store.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
+import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { replay } from '~/replay/capability.ts';
+import { sequence } from '~/sequence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
@@ -50,10 +53,21 @@ function buildEngine(
   storage: { sql: SQLProvider; kv: KVProvider },
   restore: (wsKey: unknown) => unknown = (wsKey) =>
     (wsKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
+  withReplay = false,
 ): Engine {
   const base = server({
-    hibernation: { enabled: true },
-    capabilities: [channels()],
+    hibernation: true,
+    capabilities: [
+      channels(),
+      emits({ note: t<{ text: string }>() }),
+      ...(withReplay ? [dedup(), sequence({ persist: true }), replay.history()] : []),
+    ],
+  });
+  const noteToSelf = base.on('note-to-self', {
+    input: v.object({ text: v.string() }),
+    run(ctx, payload) {
+      ctx.send('note', { text: payload.text });
+    },
   });
   const room = base.channel('room', {
     capabilities: [emits({ 'room-message': t<{ text: string }>() })],
@@ -64,7 +78,7 @@ function buildEngine(
       ctx.channel.broadcast('room-message', { text: payload.text });
     },
   });
-  const definition = base.assemble({ handlers: [shout] });
+  const definition = base.assemble({ handlers: [shout, noteToSelf] });
 
   let engine!: Engine;
   const runAdapter = adapter({
@@ -81,7 +95,6 @@ function buildEngine(
         timers: {
           setAlarm: vi.fn(async () => {}),
           deleteAlarm: vi.fn(async () => {}),
-          getAlarm: vi.fn(async () => null),
         },
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
@@ -128,6 +141,90 @@ describe('hibernation restore — live delivery to a passive member', () => {
 
     expect(received(kofi)?.[1]).toEqual({ text: 'akwaaba' });
     expect(received(ama)?.[1]).toEqual({ text: 'akwaaba' });
+  });
+
+  it('keeps the resume token a connection had before it hibernated', async () => {
+    const storage = { sql: createTestSql(), kv: createTestKV() };
+    const engine = buildEngine(storage);
+    await engine.initialize();
+
+    const kofi = hibernatedSocket('kofi');
+    writeConnectionRow(storage.sql, {
+      connection_id: kofi.id,
+      user_id: kofi.id,
+      meta: {},
+      ephemeral_tags: [],
+      ephemeral_memberships: [],
+      active_stream_ids: [],
+      metadata: { resumeToken: 'token-before-sleep' },
+    });
+    await engine.restoreHibernatedConnections([kofi.ws]);
+
+    const restored = engine.core.connections.get('kofi');
+    expect(restored?.resumeToken).toBe('token-before-sleep');
+    expect(buildConnectionRow(restored!).metadata).toEqual({ resumeToken: 'token-before-sleep' });
+  });
+
+  it('replays a send made after a wake to a client showing the token from before the sleep', async () => {
+    const storage = { sql: createTestSql(), kv: createTestKV() };
+    const engine = buildEngine(storage, undefined, true);
+    await engine.initialize();
+
+    const kofi = hibernatedSocket('kofi');
+    writeConnectionRow(storage.sql, {
+      connection_id: kofi.id,
+      user_id: kofi.id,
+      meta: {},
+      ephemeral_tags: [],
+      ephemeral_memberships: [],
+      active_stream_ids: [],
+      metadata: { resumeToken: 'token-before-sleep' },
+    });
+    await engine
+      .handleHibernationWake(kofi.ws)
+      .handleMessage(JSON.stringify(['note-to-self', { text: 'medaase' }, null]));
+
+    const frames: string[] = [];
+    const again = engine.accept(Symbol('kofi-again'), {
+      send: (data: string) => void frames.push(data),
+      close: () => {},
+      bufferedAmount: () => 0,
+      userId: 'kofi',
+    });
+    await Promise.resolve();
+    await again.handleMessage(
+      JSON.stringify(['__replay__', { lastKnownSeq: 0, resume: ['token-before-sleep'] }, null]),
+    );
+
+    const notes = frames.map((frame) => JSON.parse(frame)).filter((frame) => frame[0] === 'note');
+    expect(notes.map((frame) => frame[1])).toEqual([{ text: 'medaase' }]);
+  });
+
+  it('returns false for a send to a restored socket that has closed', async () => {
+    const storage = { sql: createTestSql(), kv: createTestKV() };
+    const engine = buildEngine(storage);
+    await engine.initialize();
+
+    const kofi = hibernatedSocket('kofi');
+    writeConnectionRow(storage.sql, {
+      connection_id: kofi.id,
+      user_id: kofi.id,
+      meta: {},
+      ephemeral_tags: [],
+      ephemeral_memberships: [],
+      active_stream_ids: [],
+    });
+    await engine.restoreHibernatedConnections([kofi.ws]);
+
+    // workerd throws on send() once the socket has closed.
+    Object.assign(kofi.ws, {
+      readyState: 3,
+      send: () => {
+        throw new Error("Can't call WebSocket send() after close().");
+      },
+    });
+
+    expect(engine.core.connections.get('kofi')?.descriptor.send('frame')).toBe(false);
   });
 
   it('rejects boot restore failures instead of leaving an unobserved wake promise', async () => {

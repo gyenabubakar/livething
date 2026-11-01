@@ -1,9 +1,15 @@
-import { Block, CloseCodes, decodeMessage, encodeMessage } from '@livething/core';
+import {
+  Block,
+  CloseCodes,
+  decodeMessage,
+  encodeMessage,
+  LiveThingConfigError,
+} from '@livething/core';
+import { assertValidTtl } from '~/internal/config.ts';
 import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
 import { toLiveThingError } from '~/internal/error-frame.ts';
 import { NAMESPACE_DELIMITER } from '~/internal/namespace.ts';
 import { createStore } from '~/internal/store.ts';
-import { isThenable } from '~/internal/thenable.ts';
 import { isProtocolFrameEvent, isReservedEventName } from '~/internal/wire-validation.ts';
 import { Emitter } from '~/socket/emitter.ts';
 import type { LiveThingError } from '@livething/core';
@@ -50,16 +56,6 @@ interface TeardownOptions {
   suspended: boolean;
 }
 
-/** Default reader for the fixed LiveThing three-item tuple. */
-function defaultParse(raw: string): Message | null {
-  return decodeMessage(raw);
-}
-
-/** Default writer: turn a message into the JSON string sent over the wire. */
-function defaultSerialize(message: Message): string {
-  return encodeMessage(message);
-}
-
 function isValidCloseCode(code: unknown): code is number {
   return (
     typeof code === 'number' &&
@@ -70,6 +66,16 @@ function isValidCloseCode(code: unknown): code is number {
 
 function isValidCloseReason(reason: unknown): reason is string {
   return typeof reason === 'string' && new TextEncoder().encode(reason).byteLength <= 123;
+}
+
+/** The URL safe for a log line: no userinfo, query string or hash, which can carry credentials such as an auth token. */
+function redactUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin + parsed.pathname;
+  } catch {
+    return url.split(/[?#]/, 1)[0]!.replace(/\/\/[^/]*@/, '//');
+  }
 }
 
 /**
@@ -155,11 +161,6 @@ export class LiveThingSocket {
 
   private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
 
-  // One reconnect decision per close: stream cleanup (willReconnect) and the
-  // reconnection module must not re-evaluate a stateful policy and disagree.
-  private _reconnectDecision: { code: number; reason: string; result: boolean | undefined } | null =
-    null;
-
   private _pongHandlers: (() => void)[] = [];
 
   private _outgoingFallback: ((message: Message, options?: InternalSendOptions) => boolean) | null =
@@ -172,8 +173,6 @@ export class LiveThingSocket {
 
   private readonly _serverErrorRegistrations = new Set<ServerErrorRegistration>();
 
-  private readonly _parse: (raw: string) => Message | null;
-  private readonly _serialize: (message: Message) => string;
   private readonly _intercepts: readonly InterceptFn[];
 
   private readonly _logger: PrimitiveLogger = {
@@ -187,12 +186,7 @@ export class LiveThingSocket {
   /** @internal */
   constructor(config: SocketConfig) {
     this._config = config;
-    this._debug = config.debug ?? false;
-    this._logger.debug = this._debug;
     this._lazy = config.lazy ?? false;
-    this._parse = config.parse ?? defaultParse;
-
-    this._serialize = config.serialize ?? defaultSerialize;
     this._intercepts = config.intercepts ?? [];
   }
 
@@ -430,10 +424,7 @@ export class LiveThingSocket {
         this._unexpectedCloseHandler = handler;
       },
 
-      runShouldReconnect: (code, reason) => this._runShouldReconnect(code, reason),
-
-      willReconnect: (code, reason) =>
-        this._unexpectedCloseHandler !== null && this._runShouldReconnect(code, reason) !== false,
+      willReconnect: () => this._unexpectedCloseHandler !== null,
 
       onPong: (handler) => this._pongHandlers.push(handler),
 
@@ -445,21 +436,14 @@ export class LiveThingSocket {
 
       reportServerError: (error) => this._reportServerError(error),
 
-      disconnect: (code, reason) => this.disconnect(code, reason),
-
-      connect: () => this.connect(),
-
-      suspend: (code, reason) => this._suspend(code, reason),
+      suspend: () =>
+        this._teardown(CloseCodes.NORMAL, 'background', { intentional: false, suspended: true }),
 
       // Resuming a suspended transport is exactly a fresh connect: the session
       // was never reset (suspend keeps it), so `_openConnection` treats it as a
       // reconnect and primitives rejoin and continue their streams as usual.
       resume: () => this.connect(),
     };
-  }
-
-  private _suspend(code = 1000, reason = 'background'): void {
-    this._teardown(code, reason, { intentional: false, suspended: true });
   }
 
   /**
@@ -483,39 +467,6 @@ export class LiveThingSocket {
     if (emitEvent) this._emitter.emit('reconnectFailed');
   }
 
-  private _runShouldReconnect(code: number, reason: string): boolean | undefined {
-    if (
-      this._reconnectDecision &&
-      this._reconnectDecision.code === code &&
-      this._reconnectDecision.reason === reason
-    ) {
-      return this._reconnectDecision.result;
-    }
-
-    const result = this._evaluateShouldReconnect(code, reason);
-    this._reconnectDecision = { code, reason, result };
-    return result;
-  }
-
-  private _evaluateShouldReconnect(code: number, reason: string): boolean | undefined {
-    for (const primitive of this._primitives) {
-      if (!primitive.shouldReconnect) continue;
-
-      // Isolate each vote so a throwing policy can't abort the close flow.
-      let result: boolean | void;
-      try {
-        result = primitive.shouldReconnect(code, reason);
-      } catch (error) {
-        this._logger.report(error);
-        continue;
-      }
-
-      if (result === true || result === false) return result;
-    }
-
-    return undefined;
-  }
-
   private _setState(state: ConnectionState): void {
     if (this._state === state) return;
 
@@ -528,26 +479,18 @@ export class LiveThingSocket {
   private async _openConnection(): Promise<void> {
     const attemptId = ++this._connectAttemptId;
     this._setState('connecting');
+    let urlIsNotAString = false;
 
     try {
-      const baseUrl =
+      const url =
         typeof this._config.url === 'function' ? await this._config.url() : this._config.url;
       if (attemptId !== this._connectAttemptId) return; // a disconnect() cancelled us mid-resolve
 
-      // Let add-on modules rewrite the URL before connecting (e.g. query() adds
-      // params). They chain, each seeing the previous result. Only async hooks
-      // are awaited, so a connect with no URL hooks stays synchronous.
-      let finalUrl = baseUrl;
-      for (const primitive of this._primitives) {
-        if (!primitive.resolveUrl) continue;
-
-        const result = primitive.resolveUrl(finalUrl);
-        if (isThenable<string>(result)) {
-          finalUrl = await result;
-          if (attemptId !== this._connectAttemptId) return;
-        } else {
-          finalUrl = result;
-        }
+      if (typeof url !== 'string') {
+        urlIsNotAString = true;
+        throw new LiveThingConfigError(
+          `the connect() url must be a string, or a function that returns one, got ${url === null ? 'null' : typeof url}.`,
+        );
       }
 
       // On a reconnect, let add-on modules do any async work before the socket
@@ -570,9 +513,9 @@ export class LiveThingSocket {
         }
       }
 
-      this._log(`connecting to ${finalUrl}`);
+      this._log(`connecting to ${redactUrl(url)}`);
 
-      const ws = new WebSocket(finalUrl, this._config.protocols);
+      const ws = new WebSocket(url, this._config.protocols);
       if (this._config.binaryType) ws.binaryType = this._config.binaryType;
 
       ws.onopen = () => {
@@ -629,7 +572,6 @@ export class LiveThingSocket {
 
         this.ws = null;
         this.protocol = null;
-        this._reconnectDecision = null;
 
         for (const primitive of this._primitives) {
           try {
@@ -676,8 +618,7 @@ export class LiveThingSocket {
       if (attemptId !== this._connectAttemptId) return;
 
       this._log('connection failed', error);
-      this._reportError(toLiveThingError(error));
-      this._reconnectDecision = null;
+      this._reportError(error);
 
       // Run primitive close cleanup first (same order as ws.onclose), so a failed
       // first connect doesn't leave channel/request/ack state pending.
@@ -689,7 +630,10 @@ export class LiveThingSocket {
         }
       }
 
-      if (this._unexpectedCloseHandler) {
+      // A retry would call the same broken url function and report the same error.
+      if (urlIsNotAString) {
+        this._abandonReconnect(false);
+      } else if (this._unexpectedCloseHandler) {
         this._unexpectedCloseHandler(1006, 'connection failed');
       } else {
         this._setState('closed');
@@ -722,25 +666,15 @@ export class LiveThingSocket {
       return;
     }
 
-    let parsed: Message | null = null;
-    try {
-      parsed = this._parse(raw);
-    } catch {
+    const parsed = decodeMessage(raw);
+    if (!parsed) {
       this._log('could not parse message — dropping it');
       return;
     }
 
-    if (!parsed) return;
-
     this._processIncoming(parsed);
   }
 
-  /**
-   * @internal — the pipeline a parsed message runs through: add-on module
-   * `onIncoming` hooks, then the error-frame check, then your intercepts, then
-   * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
-   * can push a message through the same path without a live socket.
-   */
   /**
    * Run your intercepts on an app message. Returns the (maybe changed) message,
    * or null when an intercept threw Block. Protocol frames, request replies and
@@ -801,6 +735,12 @@ export class LiveThingSocket {
     return message;
   }
 
+  /**
+   * @internal — the pipeline a parsed message runs through: add-on module
+   * `onIncoming` hooks, then the error-frame check, then your intercepts, then
+   * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
+   * can push a message through the same path without a live socket.
+   */
   _processIncoming(parsed: Message): void {
     // Modules that must drop a message before the app sees it (dedup) run first.
     // Then your intercepts, before any module delivers the message to channel
@@ -832,7 +772,7 @@ export class LiveThingSocket {
     const metadata = message.metadata;
     if (metadata?.channel === undefined && metadata?.stream === undefined) {
       // Guard the log so the message string and args aren't built on every
-      // frame when debug is off (they would be, even though _logAt no-ops).
+      // frame when setDebug(true) was not called (they would be, even though _logAt no-ops).
       if (this._debug) this._log(`received '${message.event}'`, message.payload);
       this._dispatchMessage(message.event, message.payload);
     }
@@ -892,6 +832,8 @@ export class LiveThingSocket {
    * buffer, or drop it.
    */
   _send(message: Message, options?: InternalSendOptions): SendResult {
+    if (options?.ttl !== undefined) assertValidTtl(options.ttl, 'send');
+
     this._ensureConnected();
 
     let outgoing: Message | null = message;
@@ -909,10 +851,7 @@ export class LiveThingSocket {
     // Offer to the outgoing fallback (buffering) first: it takes the message
     // while offline, or while a staggered flush is still draining so a live send
     // can't jump ahead of not-yet-flushed messages. It declines when open and idle.
-    if (this._outgoingFallback?.(outgoing, options)) {
-      if (this._debug) this._log(`send('${outgoing.event}') buffered`);
-      return 'buffered';
-    }
+    if (this._outgoingFallback?.(outgoing, options)) return 'buffered';
 
     if (this._state !== 'open' || !this.ws) {
       if (this._debug) this._log(`send('${outgoing.event}') not sent — not connected`);
@@ -922,7 +861,7 @@ export class LiveThingSocket {
         : 'closed';
     }
 
-    this.ws.send(this._serialize(outgoing));
+    this.ws.send(encodeMessage(outgoing));
     if (this._debug) this._log(`send('${outgoing.event}')`, outgoing.payload);
 
     // A send counts as activity. In lazy mode with no active listeners the idle
@@ -965,7 +904,7 @@ export class LiveThingSocket {
       if (owner) {
         let serialized: string;
         try {
-          serialized = this._serialize(message);
+          serialized = encodeMessage(message);
         } catch (error) {
           owner.reject(error);
           this._reportError(error);
@@ -976,7 +915,7 @@ export class LiveThingSocket {
         return 'sent';
       }
 
-      this.ws.send(this._serialize(message));
+      this.ws.send(encodeMessage(message));
       return 'sent';
     }
 

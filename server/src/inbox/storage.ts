@@ -20,7 +20,6 @@ const CREATE_INBOX_TABLE_SQL = `
     event          TEXT NOT NULL,
     payload        TEXT NOT NULL,
     created_at     INTEGER NOT NULL,
-    delivered_at   INTEGER,
     metadata       TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (user_id, channel_name, channel_family, seq)
   )
@@ -29,6 +28,13 @@ const CREATE_INBOX_TABLE_SQL = `
 const CREATE_INBOX_MEMBER_INDEX_SQL = `
   CREATE INDEX IF NOT EXISTS __livething_idx_inbox_member
   ON __livething_inbox (user_id, seq)
+`;
+
+// One stored copy of a message per member per channel: every insert is
+// INSERT OR IGNORE, so a message id already held for that member is skipped.
+const CREATE_INBOX_MESSAGE_INDEX_SQL = `
+  CREATE UNIQUE INDEX IF NOT EXISTS __livething_idx_inbox_message
+  ON __livething_inbox (user_id, channel_name, channel_family, message_id)
 `;
 
 const CREATE_INBOX_WATERMARK_TABLE_SQL = `
@@ -46,6 +52,7 @@ const CREATE_INBOX_WATERMARK_TABLE_SQL = `
 const INBOX_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_INBOX_TABLE_SQL,
   CREATE_INBOX_MEMBER_INDEX_SQL,
+  CREATE_INBOX_MESSAGE_INDEX_SQL,
   CREATE_INBOX_WATERMARK_TABLE_SQL,
 ].join(';\n');
 
@@ -56,9 +63,6 @@ const INBOX_SCHEMA_SQL = /* @__PURE__ */ [
 export function ensureInboxSchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(INBOX_SCHEMA_SQL);
 }
-
-/** How a channel treats a member's rows once they ack them. */
-export type OnDelivered = 'delete' | 'retain';
 
 /**
  * Retention limits for a member's inbox rows. `maxAgeMs` is enforced on writes
@@ -90,13 +94,13 @@ export interface InboxFrame {
 }
 
 /**
- * A full frame the developer hands `ctx.channel.inbox().backfill(...)`, one
- * per message being seeded. Shaped like a message on the wire — `deliverySeq` and
- * `messageId` nest under `__livething` — but derived from {@link InboxFrame} so
- * the payload type can never drift from what storage actually accepts.
+ * A message the developer hands `ctx.channel.inbox().backfill(...)`, one per
+ * message being seeded. `messageId` nests under `__livething` as on the wire;
+ * the server picks the `deliverySeq`. Derived from {@link InboxFrame} so the
+ * payload type can never drift from what storage actually accepts.
  */
 export interface BackfillMessage extends Pick<InboxFrame, 'event' | 'payload'> {
-  __livething: { deliverySeq: number; messageId: string };
+  __livething: Pick<InboxFrame, 'messageId'>;
 }
 
 /** One stored inbox row, read back for drain or re-delivery. */
@@ -130,8 +134,6 @@ interface InboxAckParams {
   channelName: string;
   channelFamily: string | null;
   receivedThrough: number;
-  onDelivered: OnDelivered;
-  now: number;
 }
 
 interface InboxChannelScope {
@@ -182,9 +184,8 @@ const INBOX_ROW_PARAMS = 8;
  * across every row so a member's cumulative ack and the client's dedup both
  * key off one stable identity.
  *
- * An existing row for a `(user_id, channel_name, channel_family, seq)` is left
- * untouched rather than overwritten, so a re-run insert can never clobber a row
- * the member already acknowledged (see {@link ackInboxRows}) back to unread.
+ * A member that already holds a row with this seq or this message id keeps
+ * that row; the new one is skipped.
  */
 export function insertInboxRows(
   sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
@@ -209,11 +210,11 @@ export function insertInboxRows(
   const batches = chunkForBind(rows, INBOX_ROW_PARAMS, sql.limits);
   sql.transaction(() => {
     for (const batch of batches) {
-      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       sql.exec(
         `
           INSERT OR IGNORE INTO __livething_inbox
-            (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
+            (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at)
           VALUES ${placeholders}
         `,
         ...batch.flat(),
@@ -224,14 +225,12 @@ export function insertInboxRows(
 
 /**
  * Insert inbox rows for one user from a set of full frames. Backs
- * `ctx.channel.inbox.backfill(...)`. Each frame keeps its own deliverySeq/messageId so
- * ordering and dedup stay consistent with live traffic. Batched under the
- * adapter's bound-parameter cap and wrapped in a transaction, same as
- * {@link insertInboxRows}.
+ * `ctx.channel.inbox.backfill(...)`, whose frames carry seqs taken from the
+ * server's sequence counter. Batched under the adapter's bound-parameter cap and
+ * wrapped in a transaction, same as {@link insertInboxRows}.
  *
- * An existing row is left untouched rather than overwritten, so re-running a
- * backfill (an import script run twice, for example) can never turn an
- * already-acknowledged message back into an unread one.
+ * A message id the member already holds on this channel is skipped, so
+ * re-running a backfill (an import script run twice, for example) stores nothing new.
  */
 export function insertInboxRowsForUserId(
   sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
@@ -255,11 +254,11 @@ export function insertInboxRowsForUserId(
   const batches = chunkForBind(rows, INBOX_ROW_PARAMS, sql.limits);
   sql.transaction(() => {
     for (const batch of batches) {
-      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       sql.exec(
         `
           INSERT OR IGNORE INTO __livething_inbox
-            (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
+            (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at)
           VALUES ${placeholders}
         `,
         ...batch.flat(),
@@ -268,10 +267,31 @@ export function insertInboxRowsForUserId(
   });
 }
 
+/** The seqs in `[fromSeq, toSeq]` that a member still holds on one channel. */
+export function listStoredInboxSeqs(
+  sql: Pick<SQLProvider, 'exec'>,
+  params: InboxChannelScope & { fromSeq: number; toSeq: number },
+): Set<number> {
+  const rows = sql
+    .exec<{ seq: number }>(
+      `
+        SELECT seq FROM __livething_inbox
+        WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND seq BETWEEN ? AND ?
+      `,
+      params.userId,
+      params.channelName,
+      familyToDb(params.channelFamily),
+      params.fromSeq,
+      params.toSeq,
+    )
+    .toArray();
+
+  return new Set(rows.map((row) => Number(row.seq)));
+}
+
 /**
  * Read a member's undelivered rows across every channel, ordered by channel and
- * seq. In `delete` mode nothing is ever marked delivered, so every remaining row
- * is still owed; in `retain` mode a row stays owed until its `delivered_at` is set.
+ * seq. An ack deletes rows, so every stored row is still owed.
  */
 export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, userId: string): InboxRow[] {
   const rows = sql
@@ -286,7 +306,7 @@ export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, userId: stri
       `
         SELECT seq, message_id, event, payload, channel_name, channel_family
         FROM __livething_inbox
-        WHERE user_id = ? AND delivered_at IS NULL
+        WHERE user_id = ?
         ORDER BY channel_name, channel_family, seq ASC
       `,
       userId,
@@ -304,41 +324,19 @@ export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, userId: stri
 }
 
 /**
- * Apply one member's cumulative ack. In `delete` mode the acked rows are dropped
- * outright; in `retain` mode they are stamped `delivered_at` so retention can age
- * them out later. Both are idempotent — a repeated or lower `receivedThrough`
- * changes nothing already settled.
+ * Apply one member's cumulative ack by deleting the acked rows. Idempotent — a
+ * repeated or lower `receivedThrough` changes nothing.
  */
 export function ackInboxRows(sql: Pick<SQLProvider, 'exec'>, params: InboxAckParams): void {
-  const { userId, channelName, channelFamily, receivedThrough, onDelivered, now } = params;
-  const family = familyToDb(channelFamily);
-
-  if (onDelivered === 'delete') {
-    sql.exec(
-      `
-        DELETE FROM __livething_inbox
-        WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND seq <= ?
-      `,
-      userId,
-      channelName,
-      family,
-      receivedThrough,
-    );
-    return;
-  }
-
   sql.exec(
     `
-      UPDATE __livething_inbox
-      SET delivered_at = ?
-      WHERE user_id = ? AND channel_name = ? AND channel_family = ?
-        AND seq <= ? AND delivered_at IS NULL
+      DELETE FROM __livething_inbox
+      WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND seq <= ?
     `,
-    now,
-    userId,
-    channelName,
-    family,
-    receivedThrough,
+    params.userId,
+    params.channelName,
+    familyToDb(params.channelFamily),
+    params.receivedThrough,
   );
 }
 
@@ -449,47 +447,27 @@ export function listInboxRetentionTargets(
 
 /**
  * Enforce a member's retention limits for one channel by dropping the oldest
- * rows past the age or count cap — including undelivered rows, since a member
- * that falls too far behind is exactly the overflow case. Returns the highest
- * seq that was evicted, or `null` when nothing was dropped. The transactional
- * wrapper separately tracks whether an undelivered row was removed before
- * raising the member's overflow watermark.
+ * rows past the age or count cap. Every stored row is undelivered, so a member
+ * that falls too far behind is exactly the overflow case. Reports the highest
+ * evicted seq.
  */
-export function pruneInboxRetention(
+function pruneInboxRetentionRows(
   sql: Pick<SQLProvider, 'exec'>,
   params: InboxPruneParams,
 ): number | null {
-  return pruneInboxRetentionDetailed(sql, params).evictedThrough;
-}
-
-interface InboxRetentionEviction {
-  evictedThrough: number | null;
-  undeliveredEvictedThrough: number | null;
-}
-
-function pruneInboxRetentionDetailed(
-  sql: Pick<SQLProvider, 'exec'>,
-  params: InboxPruneParams,
-): InboxRetentionEviction {
   const { userId, channelName, channelFamily, retention, now } = params;
   const family = familyToDb(channelFamily);
-  let eviction: InboxRetentionEviction = {
-    evictedThrough: null,
-    undeliveredEvictedThrough: null,
-  };
+  let evictedThrough: number | null = null;
 
   if (retention.maxAgeMs !== undefined) {
     const cutoff = now - retention.maxAgeMs;
-    eviction = mergeRetentionEvictions(
-      eviction,
-      evictOldest(sql, {
-        userId,
-        channelName,
-        family,
-        where: 'created_at < ?',
-        bind: [cutoff],
-      }),
-    );
+    evictedThrough = evictOldest(sql, {
+      userId,
+      channelName,
+      family,
+      where: 'created_at < ?',
+      bind: [cutoff],
+    });
   }
 
   if (retention.maxMessages !== undefined) {
@@ -510,63 +488,53 @@ function pruneInboxRetentionDetailed(
       )
       .one();
     if (seqCap?.seq != null) {
-      eviction = mergeRetentionEvictions(
-        eviction,
-        evictOldest(sql, {
-          userId,
-          channelName,
-          family,
-          where: 'seq <= ?',
-          bind: [Number(seqCap.seq)],
-        }),
-      );
+      const evicted = evictOldest(sql, {
+        userId,
+        channelName,
+        family,
+        where: 'seq <= ?',
+        bind: [Number(seqCap.seq)],
+      });
+      if (evicted !== null) evictedThrough = Math.max(evictedThrough ?? evicted, evicted);
     }
   }
 
-  return eviction;
+  return evictedThrough;
 }
 
 /**
  * Prune a member's channel rows and persist the resulting overflow watermark
  * as one atomic operation. If either the deletes or the watermark write fails,
  * SQLite rolls the whole retention pass back so an undelivered row can never be
- * lost without the gap that describes it. Delivered rows are already
- * acknowledged and therefore do not create a new gap.
+ * lost without the gap that describes it.
  */
 export function pruneInboxRetentionAndBumpWatermark(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
   params: PruneInboxRetentionAndBumpWatermarkParamsParameter,
 ): number | null {
   return sql.transaction(() => {
-    const eviction = pruneInboxRetentionDetailed(sql, params);
-    if (eviction.evictedThrough === null) return null;
+    const evictedThrough = pruneInboxRetentionRows(sql, params);
+    if (evictedThrough === null) return null;
 
-    if (eviction.undeliveredEvictedThrough !== null) {
-      bumpInboxWatermark(sql, {
-        userId: params.userId,
-        channelName: params.channelName,
-        channelFamily: params.channelFamily,
-        evictedThroughSeq: eviction.undeliveredEvictedThrough,
-      });
-    }
+    bumpInboxWatermark(sql, {
+      userId: params.userId,
+      channelName: params.channelName,
+      channelFamily: params.channelFamily,
+      evictedThroughSeq: evictedThrough,
+    });
 
-    return eviction.evictedThrough;
+    return evictedThrough;
   });
 }
 
-/** Delete the member's rows matching `where` and report delivered state. */
-function evictOldest(
-  sql: Pick<SQLProvider, 'exec'>,
-  params: InboxEvictionParams,
-): InboxRetentionEviction {
+/** Delete the member's rows matching `where` and report the highest deleted seq. */
+function evictOldest(sql: Pick<SQLProvider, 'exec'>, params: InboxEvictionParams): number | null {
   const { userId, channelName, family, where, bind } = params;
   const scope = [userId, channelName, family];
   const highest = sql
-    .exec<{ seq: number | null; undelivered_seq: number | null }>(
+    .exec<{ seq: number | null }>(
       `
-        SELECT
-          MAX(seq) AS seq,
-          MAX(CASE WHEN delivered_at IS NULL THEN seq END) AS undelivered_seq
+        SELECT MAX(seq) AS seq
         FROM __livething_inbox
         WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND ${where}
       `,
@@ -574,9 +542,7 @@ function evictOldest(
       ...bind,
     )
     .one();
-  if (highest?.seq == null) {
-    return { evictedThrough: null, undeliveredEvictedThrough: null };
-  }
+  if (highest?.seq == null) return null;
 
   sql.exec(
     `
@@ -587,37 +553,11 @@ function evictOldest(
     ...bind,
   );
 
-  return {
-    evictedThrough: Number(highest.seq),
-    undeliveredEvictedThrough:
-      highest.undelivered_seq == null ? null : Number(highest.undelivered_seq),
-  };
-}
-
-function mergeRetentionEvictions(
-  first: InboxRetentionEviction,
-  second: InboxRetentionEviction,
-): InboxRetentionEviction {
-  return {
-    evictedThrough: maxNullable(first.evictedThrough, second.evictedThrough),
-    undeliveredEvictedThrough: maxNullable(
-      first.undeliveredEvictedThrough,
-      second.undeliveredEvictedThrough,
-    ),
-  };
-}
-
-function maxNullable(first: number | null, second: number | null): number | null {
-  if (first === null) return second;
-
-  if (second === null) return first;
-
-  return Math.max(first, second);
+  return Number(highest.seq);
 }
 
 /**
- * Raise a member's overflow watermark to the highest undelivered seq retention
- * evicted, so a later drain knows the member missed everything up to that point.
+ * Raise a member's overflow watermark to the highest seq retention evicted, so a later drain knows the member missed everything up to that point.
  * Never lowers an existing watermark.
  */
 export function bumpInboxWatermark(
@@ -675,15 +615,10 @@ export function loadInboxWatermarks(
     }));
 }
 
-/** Drop a member's overflow watermarks. Used by a full user purge. */
-export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec(`DELETE FROM __livething_inbox_watermark WHERE user_id = ?`, userId);
-}
-
 /** Drop a member's channel watermark once an acknowledgement covers its gap. */
 export function clearInboxWatermarkThrough(
   sql: Pick<SQLProvider, 'exec'>,
-  params: Omit<InboxAckParams, 'onDelivered' | 'now'>,
+  params: InboxAckParams,
 ): void {
   sql.exec(
     `

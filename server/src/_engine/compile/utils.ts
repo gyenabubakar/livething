@@ -64,24 +64,6 @@ export function setUniqueOrThrow<V>(map: Map<string, V>, key: string, entry: Uni
 }
 
 /**
- * Reject a non-positive or non-finite `highWaterMark`. The drain loop resolves
- * once the outbound buffer drops below this mark, so `0` (or a negative value)
- * makes that condition unreachable — `ctx.stream.drain()` would poll to its hard
- * cap (~50s) and only then resolve, looking like a hang. Omit it for the
- * default. `context` names the stream for a clear message.
- */
-export function assertValidHighWaterMark(value: number | undefined, context: string): void {
-  if (value === undefined) return;
-
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    throw new Error(
-      `[livething] ${context}: highWaterMark must be a positive number of bytes (got ${value}). ` +
-        'A zero or negative limit makes ctx.stream.drain() never resolve; omit it for the default.',
-    );
-  }
-}
-
-/**
  * Narrow a primitive to a channel block.
  */
 export function isChannelPrimitive(
@@ -159,11 +141,4 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
   }
 
   return value;
-}
-
-/**
- * Build the private wire event name for a plugin-owned event.
- */
-export function prefixedPluginEvent(pluginId: string, event: string): string {
-  return `__${pluginId}:${event}`;
 }

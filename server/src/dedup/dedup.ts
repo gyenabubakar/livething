@@ -37,7 +37,6 @@ export function dedup(options?: DedupOptionsParameter): DedupPrimitive {
 
   return {
     __livething: 'dedup',
-    __kind: 'infrastructure',
     __identity: [DEDUP_KEY],
     __requires: {},
     __setup(engine) {
@@ -51,9 +50,3 @@ export function dedup(options?: DedupOptionsParameter): DedupPrimitive {
     },
   };
 }
-
-/**
- * The identity of the `dedup` primitive. Pass `dedup` itself in a plugin's
- * `dependencies` array to declare that it must be registered.
- */
-dedup.__key = DEDUP_KEY;

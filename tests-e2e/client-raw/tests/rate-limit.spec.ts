@@ -44,9 +44,7 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('tock-count')).toHaveText('1');
   });
 
-  test('channel with rateLimit { enabled: false } is exempt from the top-level cap', async ({
-    page,
-  }) => {
+  test('channel with rateLimit: false is exempt from the top-level cap', async ({ page }) => {
     await page.getByTestId('subscribe-no-limit').click();
     await expect(page.getByTestId('subscribed-no-limit')).toHaveText('yes');
 

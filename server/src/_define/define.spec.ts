@@ -1,3 +1,4 @@
+import { LiveThingConfigError } from '@livething/core';
 import { t } from '~/_api/definitions.ts';
 import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
@@ -5,9 +6,7 @@ import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
-import { intercepts } from '~/intercept/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
-import { translator } from '~/translation/translator.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { plugin } from './plugins.ts';
@@ -25,9 +24,82 @@ function makeBase() {
       const username = new URL(request.url).searchParams.get('username') ?? 'anon';
       return { userId: username, meta: { username } };
     },
-    capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound]), intercepts()],
+    capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound])],
   });
 }
+
+describe('server() option checks', () => {
+  it.each([[undefined], [null], ['nope'], [42]])('refuses %s as the config', (config) => {
+    function build() {
+      return server(config as never);
+    }
+
+    expect(build).toThrow(LiveThingConfigError);
+    expect(build).toThrow(/\[livething\] server\(\)/);
+  });
+
+  it.each([['false'], [1], [null]])('refuses %j as hibernation', (hibernation) => {
+    function build() {
+      return server({ hibernation: hibernation as never });
+    }
+
+    expect(build).toThrow(LiveThingConfigError);
+    expect(build).toThrow(/'hibernation' must be a boolean/);
+  });
+
+  it('accepts a boolean hibernation, or none', () => {
+    for (const config of [{ hibernation: true }, { hibernation: false }, {}]) {
+      expect(() => server(config)).not.toThrow();
+    }
+  });
+
+  it('refuses a misspelled users.onExceed', () => {
+    const base = server({ users: { maxConnections: 2, onExceed: 'replce' as never } });
+    function build() {
+      return base.assemble({ handlers: [] });
+    }
+
+    expect(build).toThrow(LiveThingConfigError);
+    expect(build).toThrow(/'onExceed' must be one of 'replace', 'reject', got "replce"/);
+  });
+
+  it('throws LiveThingConfigError for an unknown option and a hook that is not a function', () => {
+    expect(() => server({ hibernat: true } as never)).toThrow(LiveThingConfigError);
+    expect(() => server({ upgrade: 'nope' } as never)).toThrow(LiveThingConfigError);
+  });
+
+  it.each([[true], [[]], ['lobby'], [7]])('refuses a channel config of %j', (config) => {
+    const base = server({ capabilities: [channels()] });
+    expect(() => base.channel('lobby', config as never)).toThrow(LiveThingConfigError);
+  });
+
+  it('throws LiveThingConfigError for a capability listed twice', () => {
+    expect(() => server({ capabilities: [channels(), channels()] as never })).toThrow(
+      LiveThingConfigError,
+    );
+  });
+
+  it('throws LiveThingConfigError for bad assemble() input', () => {
+    const base = server({});
+    expect(() => base.assemble({} as never)).toThrow(LiveThingConfigError);
+    expect(() => base.assemble({ handlers: [null] as never })).toThrow(LiveThingConfigError);
+  });
+
+  it('throws LiveThingConfigError when a method needs a capability that is not listed', () => {
+    const base = server({}) as unknown as Record<'channel' | 'request', (...a: unknown[]) => void>;
+    expect(() => base.channel('room', {})).toThrow(LiveThingConfigError);
+    expect(() => base.request('ask', { run() {} })).toThrow(LiveThingConfigError);
+  });
+
+  it('throws LiveThingConfigError for one event bound twice', () => {
+    const base = server({ capabilities: [clientRequests()] });
+    const asEvent = base.on('shared', { input: v.object({}), run() {} });
+    const asRequest = base.request('shared', { input: v.object({}), run() {} });
+    expect(() => base.assemble({ handlers: [asEvent, asRequest] as never })).toThrow(
+      LiveThingConfigError,
+    );
+  });
+});
 
 describe('server() send/receive core', () => {
   it('rejects a capability listed more than once', () => {
@@ -43,17 +115,22 @@ describe('server() send/receive core', () => {
   });
 
   it('assembles handlers, capabilities, and the upgrade hook into a bootable server', () => {
-    const base = makeBase();
+    const base = server({
+      upgrade(request) {
+        const username = new URL(request.url).searchParams.get('username') ?? 'anon';
+        return { userId: username, meta: { username } };
+      },
+      capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound])],
+      onConnect(ctx) {
+        ctx.send('welcome', { username: ctx.meta.username });
+      },
+    });
 
     const handlePing = base.on('echo', {
       input: v.object({ text: v.string() }),
       run(ctx, input) {
         ctx.send('welcome', { username: input.text });
       },
-    });
-
-    base.onConnect((ctx) => {
-      ctx.send('welcome', { username: ctx.meta.username });
     });
 
     const definition = base.assemble({ handlers: [handlePing] });
@@ -142,7 +219,6 @@ describe('server() send/receive core', () => {
         errorHooks: [],
         buildConnectionContext: () => ({ connection: { id: connection.id } }),
         async handleRuntimeError() {},
-        async handleValidationError() {},
         async handleSubscribe() {},
         async handleUnsubscribe() {},
         sendProtocolMessage() {},
@@ -196,9 +272,10 @@ describe('server() send/receive core', () => {
   });
 
   it('registers a single intercept', () => {
-    const base = makeBase();
-    base.intercept((_ctx, frame) => {
-      if (frame.event === 'blocked') throw new Error('blocked');
+    const base = server({
+      intercept(_ctx, frame) {
+        if (frame.event === 'blocked') throw new Error('blocked');
+      },
     });
     const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.intercepts).toHaveLength(1);
@@ -218,52 +295,24 @@ describe('server() send/receive core', () => {
     expect(compiled.outgoing.has('goodbye')).toBe(true);
   });
 
-  it('wires hibernation into a primitive and the feature set when enabled', () => {
-    const base = server({ hibernation: { enabled: true } });
+  it('wires hibernation into a primitive when enabled', () => {
+    const base = server({ hibernation: true });
     const definition = base.assemble({ handlers: [] });
     expect(definition.primitives.some((p) => p.__livething === 'hibernation')).toBe(true);
-    expect(definition.__features?.has('hibernation')).toBe(true);
   });
 
   it('omits hibernation when not enabled', () => {
-    const base = server({});
-    const definition = base.assemble({ handlers: [] });
-    expect(definition.primitives.some((p) => p.__livething === 'hibernation')).toBe(false);
-    expect(definition.__features?.has('hibernation')).toBe(false);
-  });
-
-  it('retains one translator factory on the assembled server definition', () => {
-    const translate = translator(() => ({ inbound: (raw) => raw }));
-    const base = server({ translate });
-
-    expect(base.assemble({ handlers: [] }).__translate).toBe(translate);
-  });
-
-  it.each([
-    'onInit',
-    'onConnect',
-    'onDisconnect',
-    'onError',
-    'onValidationError',
-    'onShutdown',
-  ] as const)('throws when the %s lifecycle hook is registered twice', (hook) => {
-    const base = makeBase();
-    (base[hook] as (handler: () => void) => void)(() => {});
-    expect(() => (base[hook] as (handler: () => void) => void)(() => {})).toThrow(
-      new RegExp(`Duplicate ${hook} hook`),
-    );
-  });
-
-  it('throws when a second intercept is registered', () => {
-    const base = makeBase();
-    base.intercept(() => {});
-    expect(() => base.intercept(() => {})).toThrow(/Duplicate intercept hook/);
+    for (const base of [server({}), server({ hibernation: false })]) {
+      const definition = base.assemble({ handlers: [] });
+      expect(definition.primitives.some((p) => p.__livething === 'hibernation')).toBe(false);
+    }
   });
 
   it('throws when the same event is bound by two handlers passed to assemble', () => {
     const base = makeBase();
     const first = base.on('echo', { input: v.object({ text: v.string() }), run() {} });
     const second = base.on('echo', { input: v.object({ text: v.string() }), run() {} });
+    // @ts-expect-error: the same event twice at the top level is a compile error
     expect(() => base.assemble({ handlers: [first, second] })).toThrow(
       /Duplicate incoming handler for 'echo'/,
     );
@@ -281,6 +330,7 @@ describe('server() send/receive core', () => {
     const base = server({ capabilities: [clientRequests()] });
     const asEvent = base.on('shared', { input: v.object({}), run() {} });
     const asRequest = base.request('shared', { input: v.object({}), run() {} });
+    // @ts-expect-error: the same event twice at the top level is a compile error
     expect(() => base.assemble({ handlers: [asEvent, asRequest] })).toThrow(
       /Event name 'shared' is bound by both a incoming handler and a request handler/,
     );

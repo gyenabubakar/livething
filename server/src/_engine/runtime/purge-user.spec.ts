@@ -17,6 +17,7 @@ import {
   listMembershipsByUser as listMembershipRows,
 } from '~/channel/storage.ts';
 import { dedup } from '~/dedup/capability.ts';
+import { emits } from '~/emits/emits.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
 import {
   advanceReceivedThrough,
@@ -26,7 +27,7 @@ import { insertInboxRows, loadUndeliveredRows } from '~/inbox/storage.ts';
 import { lastSeen } from '~/last-seen/capability.ts';
 import { readLastSeen, stampLastSeen } from '~/last-seen/storage.ts';
 import { sequence } from '~/sequence/capability.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
+import { recordedStream } from '~/stream-recorded/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import { insertTag, listTagsByUser } from '~/tags/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -69,7 +70,6 @@ async function buildEngine(
         timers: {
           setAlarm: vi.fn(async () => {}),
           deleteAlarm: vi.fn(async () => {}),
-          getAlarm: vi.fn(async () => null),
         },
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
@@ -129,16 +129,65 @@ function withEveryOwningCapability(): ServerDefinition {
       sequence({ persist: true }),
       dedup(),
       lastSeen(),
-      cursorStream(),
+      recordedStream(),
     ],
   });
   const lobby = base.channel('lobby');
-  const chat = base.channel('chat', { capabilities: [inbox(), readReceipts()] });
+  const chat = base.channel('chat', {
+    membership: 'persistent',
+    capabilities: [inbox(), readReceipts()],
+  });
   const lobbyNoop = lobby.on('noop', { run() {} });
   const chatNoop = chat.on('noop', { run() {} });
 
   return base.assemble({ handlers: [lobbyNoop, chatNoop] });
 }
+
+describe('purgeUser() — sends while the hooks run', () => {
+  it("sends no app frame to the purged user's sockets", async () => {
+    const base = server({ capabilities: [emits({ note: t<{ text: string }>() })] });
+    const { engine } = await buildEngine(base.assemble({ handlers: [] }));
+
+    const alice = fakeConnection('conn-1', 'alice');
+    const bob = fakeConnection('conn-2', 'bob');
+    engine.core.connections.set(alice.id, alice);
+    engine.core.connections.set(bob.id, bob);
+
+    const admin = engine.admin() as unknown as {
+      broadcast(event: string, payload: unknown): void;
+    };
+    engine.core.hooks.purgeUser.push(async () => {
+      admin.broadcast('note', { text: 'hello' });
+    });
+
+    await purgeUser(engine.core, 'alice');
+
+    expect(alice.descriptor.send).not.toHaveBeenCalled();
+    expect(bob.descriptor.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('purgeUser() — overlapping calls for one user', () => {
+  it('keeps the guard until the last purge ends', async () => {
+    const { engine } = await buildEngine(server({}).assemble({ handlers: [] }));
+    const finishHook: (() => void)[] = [];
+    engine.core.hooks.purgeUser.push(
+      () => new Promise<void>((resolve) => finishHook.push(resolve)),
+    );
+
+    const first = purgeUser(engine.core, 'alice');
+    const second = purgeUser(engine.core, 'alice');
+    expect(finishHook).toHaveLength(2);
+
+    finishHook[0]!();
+    await first;
+    expect(engine.core.isUserPurging('alice')).toBe(true);
+
+    finishHook[1]!();
+    await second;
+    expect(engine.core.isUserPurging('alice')).toBe(false);
+  });
+});
 
 describe('admin().purgeUser() — every owning capability enabled together', () => {
   it('removes one user from all seven tables while leaving another user intact', async () => {
@@ -190,7 +239,6 @@ describe('admin().purgeUser() — every owning capability enabled together', () 
       streamId: 'alice-stream',
       event: 'progress',
       payload: '{}',
-      kind: 'cursor',
       now,
     });
     insertStream(sql, {
@@ -198,7 +246,6 @@ describe('admin().purgeUser() — every owning capability enabled together', () 
       streamId: 'bob-stream',
       event: 'progress',
       payload: '{}',
-      kind: 'cursor',
       now,
     });
     seedSubscriber(sql, {
@@ -358,9 +405,9 @@ describe('admin().purgeUser() — one cleanup step throws', () => {
 });
 
 describe('admin().purgeUser() — durable-stream schema never created before purge', () => {
-  it('succeeds when cursorStream() is listed but no stream has ever been started', async () => {
+  it('succeeds when recordedStream() is listed but no stream has ever been started', async () => {
     const base = server({
-      capabilities: [cursorStream()],
+      capabilities: [recordedStream()],
     });
     const definition = base.assemble({ handlers: [] });
     const { engine } = await buildEngine(definition);
@@ -383,7 +430,6 @@ describe('purgeUser(core, userId, options) — broadcast stream content', () => 
       streamId: 's-broadcast',
       event: 'progress',
       payload: '{}',
-      kind: 'cursor',
       now,
       broadcast: true,
       creatorUserId: 'alice',
@@ -403,7 +449,6 @@ describe('purgeUser(core, userId, options) — broadcast stream content', () => 
       streamId: 's-broadcast',
       event: 'progress',
       payload: '{}',
-      kind: 'cursor',
       now,
       broadcast: true,
       creatorUserId: 'alice',

@@ -3,9 +3,8 @@ import { assertValidLiveThingIdentifier } from '@livething/core';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
-interface RequestOptions<TPayload, TResponse> {
+interface RequestOptions<TPayload> {
   validator?: Validator<TPayload>;
-  responseSchema?: Validator<TResponse>;
   allowInterleaving?: boolean;
 }
 
@@ -13,7 +12,7 @@ interface RequestOptions<TPayload, TResponse> {
  * The `respond` callback injected into the handler context for `.request()`
  * handlers. Sends the response back to the requesting client.
  */
-export interface RespondMethod<TResponse = unknown> {
+interface RespondMethod<TResponse = unknown> {
   respond(response: TResponse): void;
 }
 
@@ -46,19 +45,10 @@ export interface RequestPrimitive<
   readonly allowInterleaving: boolean;
   /**
    * Optional schema validator. When present, the engine validates the raw
-   * payload before calling `handler`. If validation fails, `onValidationError`
-   * fires instead.
+   * payload before calling `handler`. If validation fails, `onError` gets a
+   * `ValidationFailed` error instead.
    */
   readonly validator?: Validator<TPayload>;
-  /**
-   * Optional response schema recorded on the primitive for type inference and
-   * future runtime introspection (e.g. a dashboard reading the
-   * `ServerDefinition`). The engine does NOT validate `ctx.respond(value)` at
-   * send time — outgoing validation is intentional overhead the framework
-   * avoids; the type contract on the client side is the developer's
-   * responsibility.
-   */
-  readonly responseSchema?: Validator<TResponse>;
 }
 
 /** Unique symbol. The registration ID is the event name, so each event is its own singleton. */
@@ -71,23 +61,20 @@ const REQUEST_KEY = Symbol('request');
 export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
   event: TEvent,
   handler: RequestHandler<TCtx, TPayload, TResponse>,
-  options?: RequestOptions<TPayload, TResponse>,
+  options?: RequestOptions<TPayload>,
 ): RequestPrimitive<TEvent, TPayload, TResponse, TCtx> {
   assertValidLiveThingIdentifier(event, 'request() event name');
+  if (typeof handler !== 'function') {
+    throw new Error(`[livething] request('${event}'): 'run' must be a function.`);
+  }
+
   return {
     __livething: 'request',
-    __kind: 'handler',
     __identity: [REQUEST_KEY, event],
     __requires: {},
     event,
     handler,
     allowInterleaving: options?.allowInterleaving ?? true,
     validator: options?.validator,
-    responseSchema: options?.responseSchema,
   };
 }
-
-/**
- * Symbol key used to reference this primitive in dependency declarations.
- */
-request.__key = REQUEST_KEY;

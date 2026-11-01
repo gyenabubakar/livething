@@ -4,7 +4,7 @@ import { clientRequests } from '@livething/server/client-requests';
 import { error } from '@livething/server/errors';
 import { inbox } from '@livething/server/inbox';
 import { plugin } from '@livething/server/plugins';
-import { cursorStream, recordedStream, stream } from '@livething/server/streams';
+import { recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 
 // A plugin-declared error. It leaves the server namespaced as `__e2e:feed::room-full`;
@@ -13,8 +13,8 @@ const RoomFull = error('room-full', v.object({ limit: v.number() }));
 const PluginFailure = error('plugin-failure', v.object({ reason: v.string() }));
 
 // A pure-LiveThing plugin (no DO adapter) that OWNS every client-facing wire
-// surface a plugin can: an incoming handler, a client→server request, and all
-// three stream kinds. Every one travels under the plugin's `__e2e:feed::`
+// surface a plugin can: an incoming handler, a client→server request, and both
+// stream kinds. Every one travels under the plugin's `__e2e:feed::`
 // namespace, so this fixture exercises that the typed client can drive each
 // direction without the `__` prefix being mistaken for a protocol frame.
 //
@@ -25,7 +25,6 @@ const PluginFailure = error('plugin-failure', v.object({ reason: v.string() }));
 const h = server({
   scope: 'plugin',
   capabilities: [
-    cursorStream(),
     recordedStream(),
     stream(),
     clientRequests(),
@@ -46,6 +45,7 @@ const h = server({
 // write side (broadcast fan-out) and the read side (`__received__` acks) — a
 // mismatch there would silently drop delivery.
 const room = h.channel('room', {
+  membership: 'persistent',
   capabilities: [
     inbox(),
     emits({
@@ -61,10 +61,9 @@ const room = h.channel('room', {
   check(ctx) {
     if ((ctx.meta as { username?: string }).username === 'blocked') throw RoomFull({ limit: 5 });
   },
-});
-
-room.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { who: ctx.connection.id }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('joined', { who: ctx.connection.id }, { includeSelf: true });
+  },
 });
 
 const roomChat = room.on('chat', {
@@ -104,10 +103,9 @@ const thread = h.channel(['thread', 'thread:{id}'], {
       'thread-msg': t<{ thread: string; text: string }>(),
     }),
   ],
-});
-
-thread.subscribe((ctx) => {
-  ctx.channel.broadcast('posted', { thread: ctx.channel.name }, { includeSelf: true });
+  onSubscribe(ctx) {
+    ctx.channel.broadcast('posted', { thread: ctx.channel.name }, { includeSelf: true });
+  },
 });
 
 const threadPost = thread.on('post', {
@@ -151,16 +149,16 @@ const triggerRoomFullError = h.on('trigger-room-full-error', {
   },
 });
 
-// Cursor stream.
-const feed = h.cursorStream('feed', {
+// Recorded stream with a typed start payload.
+const feed = h.recordedStream('feed', {
   input: v.object({ from: v.number() }),
   chunk: t<{ row: number }>(),
+  maxChunks: 10,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
-  async *run(ctx, payload) {
-    const start = (ctx.stream.cursor as { row: number } | null)?.row ?? payload.from;
-    for (let i = start + 1; i <= start + 5; i += 1) {
-      yield ctx.stream.withCursor({ row: i }, { row: i });
+  async *run(_ctx, payload) {
+    for (let i = payload.from + 1; i <= payload.from + 5; i += 1) {
+      yield { row: i };
       await new Promise((r) => setTimeout(r, 5));
     }
   },

@@ -6,6 +6,7 @@
  * from it would pull the plugin factory, the wire-namespacing pass, and the
  * plugin-scoped context into every app, plugins or not.
  */
+import { LiveThingConfigError } from '@livething/core';
 import {
   capabilityDisplayName,
   CHANNEL_ONLY_CAPABILITY_KINDS,
@@ -24,7 +25,7 @@ import type { PluginCapability } from '~/_define/plugins.ts';
  * `stampKind`). The matcher reads the token off each `dependsOn` factory WITHOUT
  * calling it — so an arg-requiring factory such as `keepalive` never crashes —
  * and compares against the tokens of the host's listed capabilities. Distinct
- * tokens per stream variant mean `dependsOn: [cursorStream]` is never
+ * tokens per stream variant mean `dependsOn: [recordedStream]` is never
  * satisfied by a host that lists only `stream()`.
  */
 export function assertPluginDependencies(capabilities: readonly AnyCapability[]): void {
@@ -41,8 +42,8 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
       if (present.has(kind)) continue;
 
       const name = capabilityDisplayName(kind);
-      throw new Error(
-        `[livething] plugin('${pluginCap.__pluginId}') needs the ${name} capability the host does not ` +
+      throw new LiveThingConfigError(
+        `plugin('${pluginCap.__pluginId}') needs the ${name} capability the host does not ` +
           `list. Add ${name} to server({ capabilities: [...] }) — a plugin declares prerequisites ` +
           'instead of owning host engines.',
       );
@@ -63,8 +64,8 @@ export function assertNoChannelOnlyCapabilities(capabilities: readonly AnyCapabi
     if (!kind || !CHANNEL_ONLY_CAPABILITY_KINDS.has(kind)) continue;
 
     const name = capabilityDisplayName(kind);
-    throw new Error(
-      `[livething] ${name} is channel-only. List it in a channel's own \`capabilities\` array — ` +
+    throw new LiveThingConfigError(
+      `${name} is channel-only. List it in a channel's own \`capabilities\` array — ` +
         `base.channel(name, { capabilities: [${name}] }) — not in server({ capabilities: [...] }).`,
     );
   }
@@ -83,8 +84,8 @@ export function assertUniquePluginIds(capabilities: readonly AnyCapability[]): v
     if (id === undefined) continue;
 
     if (seen.has(id)) {
-      throw new Error(
-        `[livething] plugin('${id}') is listed more than once. Each plugin id owns a namespace and ` +
+      throw new LiveThingConfigError(
+        `plugin('${id}') is listed more than once. Each plugin id owns a namespace and ` +
           'must be unique — list it once, or give the second one a different id.',
       );
     }

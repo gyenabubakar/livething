@@ -1,3 +1,4 @@
+import { CloseCodes, LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
@@ -23,6 +24,37 @@ function build<const P extends readonly Primitive<any, any>[]>(
 
   return { socket, ws };
 }
+
+describe('reconnection — option ranges', () => {
+  it.each([NaN, -1, 1.5, '3'])('rejects maxAttempts %s, naming the option', (maxAttempts) => {
+    expect(() => reconnection({ maxAttempts: maxAttempts as number })).toThrow(
+      expect.objectContaining({
+        constructor: LiveThingConfigError,
+        message: expect.stringContaining('reconnection maxAttempts'),
+      }),
+    );
+  });
+
+  it.each([0, 1, 10, Infinity])('accepts maxAttempts %s', (maxAttempts) => {
+    expect(() => reconnection({ maxAttempts })).not.toThrow();
+  });
+
+  it.each([NaN, 0, -1, Infinity, 2 ** 31, '100'])(
+    'rejects maxDelay %s, naming the option',
+    (maxDelay) => {
+      expect(() => reconnection({ maxDelay: maxDelay as number })).toThrow(
+        expect.objectContaining({
+          constructor: LiveThingConfigError,
+          message: expect.stringContaining('reconnection maxDelay'),
+        }),
+      );
+    },
+  );
+
+  it.each([1, 30_000, 2 ** 31 - 1])('accepts maxDelay %s', (maxDelay) => {
+    expect(() => reconnection({ maxDelay })).not.toThrow();
+  });
+});
 
 function mockEnvironment() {
   let net: ((v: boolean) => void) | null = null;
@@ -114,6 +146,20 @@ describe('backoff growth and jitter', () => {
     expect(MockWebSocket.instances).toHaveLength(2);
     vi.advanceTimersByTime(1);
     expect(MockWebSocket.instances).toHaveLength(3);
+  });
+
+  it('never schedules a wait longer than a timer can hold, even with jitter on the largest maxDelay', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(1);
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    build(reconnection({ maxDelay: 2 ** 31 - 1, maxAttempts: Infinity }));
+
+    for (let attempt = 0; attempt < 24; attempt++) {
+      MockWebSocket.last().serverClose(1006);
+      vi.advanceTimersByTime(2 ** 31 - 1);
+    }
+
+    const delays = setTimeoutSpy.mock.calls.map((call) => call[1] ?? 0);
+    expect(Math.max(...delays)).toBe(2 ** 31 - 1);
   });
 
   it('caps delay at maxDelay regardless of attempt count', () => {
@@ -241,37 +287,56 @@ describe('shouldReconnect precedence', () => {
     ws.serverClose(4002);
     expect(socket.state.get()).toBe('closed');
   });
+});
 
-  it('primitive shouldReconnect hook returning false takes precedence over options.shouldReconnect', () => {
-    const vetoer = {
-      _tag: 'vetoer',
-      setup: () => ({
-        id: 'vetoer',
-        shouldReconnect: (_code: number, _reason: string): boolean | void => false,
-      }),
-    };
-
-    const { ws, socket } = build(reconnection({ shouldReconnect: () => true }), vetoer);
-    ws.serverClose(1006);
+describe('default non-retryable close codes', () => {
+  it.each([
+    ['AUTH_INVALID', CloseCodes.AUTH_INVALID],
+    ['DUPLICATE', CloseCodes.DUPLICATE],
+    ['BANNED', CloseCodes.BANNED],
+  ])('does not reconnect after %s with no options', (_name, code) => {
+    const { ws, socket } = build(reconnection());
+    ws.serverClose(code);
+    vi.advanceTimersByTime(60_000);
     expect(socket.state.get()).toBe('closed');
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 
-  it('primitive shouldReconnect hook returning true takes precedence over nonRetryableCodes', () => {
-    const approver = {
-      _tag: 'approver',
-      setup: () => ({
-        id: 'approver',
-        shouldReconnect: (_code: number, _reason: string): boolean | void => true,
-      }),
-    };
+  it('adds nonRetryableCodes to the defaults instead of replacing them', () => {
+    const { ws, socket } = build(reconnection({ nonRetryableCodes: [4100] }));
+    ws.serverClose(CloseCodes.BANNED);
+    vi.advanceTimersByTime(60_000);
+    expect(socket.state.get()).toBe('closed');
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
 
-    const { ws, socket } = build(reconnection({ nonRetryableCodes: [4003] }), approver);
-    ws.serverClose(4003);
+  it('lets shouldReconnect returning true retry a default non-retryable code', () => {
+    const { ws, socket } = build(
+      reconnection({
+        shouldReconnect: (code) => (code === CloseCodes.DUPLICATE ? true : undefined),
+      }),
+    );
+    ws.serverClose(CloseCodes.DUPLICATE);
     expect(socket.state.get()).toBe('reconnecting');
+  });
+
+  it('stops after one replaced connection when every reopen is closed with DUPLICATE', () => {
+    const { ws } = build(reconnection({ maxAttempts: 3 }));
+    ws.serverClose(CloseCodes.DUPLICATE);
+    for (let round = 0; round < 50; round++) {
+      vi.advanceTimersByTime(60_000);
+      const latest = MockWebSocket.last();
+      if (latest.readyState === 0) {
+        latest.open();
+        latest.serverClose(CloseCodes.DUPLICATE);
+      }
+    }
+
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 });
 
-describe('reconnect policy error isolation (#18)', () => {
+describe('reconnect policy error isolation', () => {
   it('reports a throwing user shouldReconnect and still reconnects by default', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const errors: unknown[] = [];

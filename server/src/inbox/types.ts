@@ -1,7 +1,12 @@
 import type { InboxRetention } from '~/inbox/storage.ts';
 
-/** Inbox settings shared by both `onDelivered` modes. */
-interface InboxOptionsBase {
+/**
+ * Per-channel inbox settings. An acknowledged row is deleted, so `retention`
+ * bounds the undelivered queue: pruning a row raises an overflow gap.
+ * `maxAgeMs` is also swept by the shared durable alarm while a channel is quiet.
+ */
+export interface InboxOptions {
+  readonly retention?: InboxRetention;
   /**
    * Push a member's delivered `__received__` tick to the other members so they
    * can show the grey double-check. Off by default: the received cursor is always
@@ -17,20 +22,6 @@ interface InboxOptionsBase {
    */
   readonly maxReceiptAudience?: number;
 }
-
-/**
- * Per-channel inbox settings. `retention` is required with `onDelivered: 'retain'`
- * (kept rows need a bound so they can age out) — omitting it is a type error and
- * the capability throws the same at build time. In the default `delete` mode
- * `retention` is optional: acknowledged rows are already gone, so
- * `maxMessages` bounds the undelivered queue. In `retain` mode both delivered
- * and undelivered rows count toward `maxMessages`; pruning a delivered row
- * never raises an overflow gap, while pruning an undelivered row does.
- * `maxAgeMs` is also swept by the shared durable alarm while a channel is quiet.
- */
-export type InboxOptions =
-  | (InboxOptionsBase & { readonly onDelivered?: 'delete'; readonly retention?: InboxRetention })
-  | (InboxOptionsBase & { readonly onDelivered: 'retain'; readonly retention: InboxRetention });
 
 /** Read-receipts settings accepted for one channel. */
 export interface ReadReceiptsOptions {

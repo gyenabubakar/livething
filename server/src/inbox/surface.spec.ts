@@ -10,42 +10,55 @@ import type { BackfillMessage } from './storage.ts';
 const SCOPE = { channelName: 'room', channelFamily: null } as const;
 
 function backfillFrame(
-  seq: number,
+  n: number,
   overrides: { payload?: Record<string, unknown> } = {},
 ): BackfillMessage {
   return {
     event: 'msg',
-    payload: overrides.payload ?? { n: seq },
-    __livething: { deliverySeq: seq, messageId: `m${seq}` },
+    payload: overrides.payload ?? { n },
+    __livething: { messageId: `m${n}` },
   };
 }
 
-function harness(config?: Partial<ResolvedInboxOptions>) {
+function harness(config?: Partial<ResolvedInboxOptions>, connectionIds: string[] = []) {
   const sql = createTestSql();
+  const sent: string[] = [];
   ensureInboxSchema(sql);
   ensureReceiptsSchema(sql);
 
   const resolved: ResolvedInboxOptions | undefined = config
-    ? { onDelivered: 'delete', broadcastReceipts: false, maxReceiptAudience: 256, ...config }
+    ? { broadcastReceipts: false, maxReceiptAudience: 256, ...config }
     : undefined;
 
+  let lastSeq = 0;
   const engine = {
+    allocateDeliverySeq: () => (lastSeq += 1),
     storage: { sql },
     isUserOnline: () => false,
+    userConnectionIdsInChannel: () => connectionIds,
+    sendGap: (_id: string, opts: { missedThrough: number }) =>
+      sent.push(`gap:${opts.missedThrough}`),
+    sendReplay: (_id: string, opts: { wire: { deliverySeq: number } }) =>
+      sent.push(`replay:${opts.wire.deliverySeq}`),
     getLastSeenService: () => undefined,
     getInboxChannel: () => resolved,
   } as unknown as EngineAccess;
 
-  return { sql, surface: buildInboxSurface(engine, SCOPE) };
+  return { sql, sent, surface: buildInboxSurface(engine, SCOPE) };
 }
 
 describe('inbox surface — backfill()', () => {
-  it('writes one row per frame keeping each frame own seq/messageId', () => {
+  it('writes one row per message, taking each seq from the server counter in order', () => {
     const { sql, surface } = harness();
 
     surface.backfill('newcomer', [backfillFrame(1), backfillFrame(2)]);
 
-    expect(loadUndeliveredRows(sql, 'newcomer').map((r) => r.seq)).toEqual([1, 2]);
+    expect(
+      loadUndeliveredRows(sql, 'newcomer').map((r) => ({ seq: r.seq, messageId: r.messageId })),
+    ).toEqual([
+      { seq: 1, messageId: 'm1' },
+      { seq: 2, messageId: 'm2' },
+    ]);
   });
 
   it('is a no-op for an anonymous (empty) user id', () => {
@@ -64,7 +77,7 @@ describe('inbox surface — backfill()', () => {
     const bad = {
       event: 'msg',
       payload: 'not-an-object',
-      __livething: { deliverySeq: 1, messageId: 'm1' },
+      __livething: { messageId: 'm1' },
     } as unknown as BackfillMessage;
 
     expect(() => surface.backfill('newcomer', [bad])).toThrow();
@@ -79,7 +92,7 @@ describe('inbox surface — backfill()', () => {
     const bad = {
       event: 'msg',
       payload,
-      __livething: { deliverySeq: 1, messageId: 'm1' },
+      __livething: { messageId: 'm1' },
     } as unknown as BackfillMessage;
 
     expect(() => surface.backfill('newcomer', [bad])).toThrow(/plain object/);
@@ -91,7 +104,7 @@ describe('inbox surface — backfill()', () => {
     const bad = {
       event: 'msg',
       payload: { toJSON: () => 'not-an-object' },
-      __livething: { deliverySeq: 1, messageId: 'm1' },
+      __livething: { messageId: 'm1' },
     } as unknown as BackfillMessage;
 
     expect(() => surface.backfill('newcomer', [bad])).toThrow(/must be a plain object/);
@@ -141,6 +154,19 @@ describe('inbox surface — backfill()', () => {
     expect(loadInboxWatermarks(sql, 'newcomer')).toEqual([
       { channelName: 'room', channelFamily: null, evictedThroughSeq: 2 },
     ]);
+  });
+
+  it('tells an online member about the rows retention dropped, before the rows that survived', () => {
+    const { sent, surface } = harness({ retention: { maxMessages: 2 } }, ['conn-1']);
+
+    surface.backfill('newcomer', [
+      backfillFrame(1),
+      backfillFrame(2),
+      backfillFrame(3),
+      backfillFrame(4),
+    ]);
+
+    expect(sent).toEqual(['gap:2', 'replay:3', 'replay:4']);
   });
 
   it('a channel with no inbox settings backfills without retention', () => {

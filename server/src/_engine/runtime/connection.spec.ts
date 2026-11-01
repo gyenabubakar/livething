@@ -35,7 +35,6 @@ describe('connection runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -89,7 +88,6 @@ describe('connection runtime', () => {
           incoming: new Map(),
           requests: new Map(),
           streams: new Map(),
-          cursorStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
           channels: new Map(),
@@ -145,7 +143,6 @@ describe('connection runtime', () => {
           incoming: new Map(),
           requests: new Map(),
           streams: new Map(),
-          cursorStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
           channels: new Map(),
@@ -217,7 +214,6 @@ describe('connection runtime', () => {
           incoming: new Map(),
           requests: new Map(),
           streams: new Map(),
-          cursorStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
           channels: new Map(),
@@ -298,7 +294,6 @@ describe('connection runtime', () => {
           incoming: new Map(),
           requests: new Map(),
           streams: new Map(),
-          cursorStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
           channels: new Map(),
@@ -369,7 +364,6 @@ describe('connection runtime', () => {
       incoming: new Map(),
       requests: new Map(),
       streams: new Map(),
-      cursorStreams: new Map(),
       recordedStreams: new Map(),
       intercepts: [],
       channels: new Map(),
@@ -440,7 +434,6 @@ describe('connection runtime', () => {
             incoming: new Map(),
             requests: new Map(),
             streams: new Map(),
-            cursorStreams: new Map(),
             recordedStreams: new Map(),
             intercepts: [],
             channels: new Map(),
@@ -505,7 +498,6 @@ describe('connection runtime', () => {
           incoming: new Map(),
           requests: new Map(),
           streams: new Map(),
-          cursorStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
           channels: new Map(),
@@ -573,7 +565,6 @@ describe('connection runtime', () => {
           incoming: new Map(),
           requests: new Map(),
           streams: new Map(),
-          cursorStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
           channels: new Map(),
@@ -626,7 +617,6 @@ describe('connection runtime', () => {
           incoming: new Map(),
           requests: new Map(),
           streams: new Map(),
-          cursorStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
           channels: new Map(),
@@ -695,7 +685,6 @@ describe('connection runtime', () => {
             incoming: new Map(),
             requests: new Map(),
             streams: new Map(),
-            cursorStreams: new Map(),
             recordedStreams: new Map(),
             intercepts: [],
             channels: new Map(),
@@ -773,7 +762,6 @@ describe('connection runtime', () => {
             incoming: new Map(),
             requests: new Map(),
             streams: new Map(),
-            cursorStreams: new Map(),
             recordedStreams: new Map(),
             intercepts: [],
             channels: new Map(),
@@ -846,7 +834,7 @@ describe('connection runtime', () => {
     const shutdownPromise = handleShutdown({
       connections: connections as never,
       shutdownHooks: [],
-      createShutdownContext: () => ({}),
+      createContext: () => ({}),
       async cancelActiveStreamsForConnection() {},
       async handleConnectionClose() {
         order.push('close-start');
@@ -894,7 +882,7 @@ describe('connection runtime', () => {
           },
         },
       ],
-      createShutdownContext() {
+      createContext() {
         return { kind: 'shutdown-context' };
       },
       async cancelActiveStreamsForConnection(connectionId: string) {
@@ -955,7 +943,7 @@ describe('connection runtime', () => {
           },
         },
       ],
-      createShutdownContext() {
+      createContext() {
         return { kind: 'shutdown-context' };
       },
       async cancelActiveStreamsForConnection() {},
@@ -1043,7 +1031,6 @@ describe('connection runtime', () => {
         send() {},
         close() {},
         bufferedAmount: () => 0,
-        userId: 'c1',
       },
       userId: 'c1',
       meta: {},

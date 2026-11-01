@@ -29,10 +29,7 @@ describe('StreamDurableScopedClient — top-level streams', () => {
     }>();
   });
 
-  it('start-concurrent has no cursor or nudges', () => {
-    expectTypeOf<StreamDurableScopedClient['streams']['start-concurrent']>().not.toHaveProperty(
-      'cursor',
-    );
+  it('start-concurrent has no nudges', () => {
     expectTypeOf<StreamDurableScopedClient['streams']['start-concurrent']>().not.toHaveProperty(
       'nudges',
     );
@@ -48,28 +45,12 @@ describe('StreamDurableScopedClient — top-level streams', () => {
     }>();
   });
 
-  it('has short-window (cursorStream — no cursor validator)', () => {
-    expectTypeOf<StreamDurableScopedClient['streams']>().toHaveProperty('short-window');
-  });
-
-  it('short-window has correct chunk', () => {
-    expectTypeOf<StreamDurableScopedClient['streams']['short-window']['chunk']>().toEqualTypeOf<{
-      row: number;
-    }>();
-  });
-
-  it('short-window has no cursor (no cursor validator declared)', () => {
-    expectTypeOf<StreamDurableScopedClient['streams']['short-window']>().not.toHaveProperty(
-      'cursor',
-    );
-  });
-
   it('has short-retention (recordedStream)', () => {
     expectTypeOf<StreamDurableScopedClient['streams']>().toHaveProperty('short-retention');
   });
 
-  it('has keep-running-feed (recordedStream)', () => {
-    expectTypeOf<StreamDurableScopedClient['streams']>().toHaveProperty('keep-running-feed');
+  it('has background-feed (recordedStream)', () => {
+    expectTypeOf<StreamDurableScopedClient['streams']>().toHaveProperty('background-feed');
   });
 });
 
@@ -80,13 +61,10 @@ describe('StreamDurableScopedClient — channels.rooms streams', () => {
     >().toEqualTypeOf<'static'>();
   });
 
-  it('rooms has paginate (cursorStream — no cursor)', () => {
+  it('rooms has paginate (recordedStream)', () => {
     expectTypeOf<StreamDurableScopedClient['channels']['rooms']['streams']>().toHaveProperty(
       'paginate',
     );
-    expectTypeOf<
-      StreamDurableScopedClient['channels']['rooms']['streams']['paginate']
-    >().not.toHaveProperty('cursor');
   });
 
   it('rooms has history (recordedStream)', () => {
@@ -103,24 +81,6 @@ describe('StreamDurableScopedClient — channels.rooms streams', () => {
     }>();
   });
 
-  it('rooms has paused-feed (cursorStream with nudges)', () => {
-    expectTypeOf<StreamDurableScopedClient['channels']['rooms']['streams']>().toHaveProperty(
-      'paused-feed',
-    );
-  });
-
-  it('paused-feed has nudges (nudge declared)', () => {
-    expectTypeOf<
-      StreamDurableScopedClient['channels']['rooms']['streams']['paused-feed']
-    >().toHaveProperty('nudges');
-  });
-
-  it('paused-feed has no cursor (no cursor validator declared)', () => {
-    expectTypeOf<
-      StreamDurableScopedClient['channels']['rooms']['streams']['paused-feed']
-    >().not.toHaveProperty('cursor');
-  });
-
   it('rooms has channel-tokens (basic stream with nudges)', () => {
     expectTypeOf<StreamDurableScopedClient['channels']['rooms']['streams']>().toHaveProperty(
       'channel-tokens',
@@ -131,12 +91,6 @@ describe('StreamDurableScopedClient — channels.rooms streams', () => {
     expectTypeOf<
       StreamDurableScopedClient['channels']['rooms']['streams']['channel-tokens']
     >().toHaveProperty('nudges');
-  });
-
-  it('channel-tokens has no cursor (basic stream)', () => {
-    expectTypeOf<
-      StreamDurableScopedClient['channels']['rooms']['streams']['channel-tokens']
-    >().not.toHaveProperty('cursor');
   });
 
   it('rooms has history-nudged (recordedStream with nudges)', () => {
@@ -170,13 +124,10 @@ describe('StreamDurableScopedClient — stream kind', () => {
       StreamDurableScopedClient['streams']['boom-mid']['kind']
     >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
-      StreamDurableScopedClient['streams']['short-window']['kind']
-    >().toEqualTypeOf<'persistent'>();
-    expectTypeOf<
       StreamDurableScopedClient['streams']['short-retention']['kind']
     >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
-      StreamDurableScopedClient['streams']['keep-running-feed']['kind']
+      StreamDurableScopedClient['streams']['background-feed']['kind']
     >().toEqualTypeOf<'persistent'>();
   });
 
@@ -186,9 +137,6 @@ describe('StreamDurableScopedClient — stream kind', () => {
     >().toEqualTypeOf<'ephemeral'>();
     expectTypeOf<
       StreamDurableScopedClient['channels']['rooms']['streams']['paginate']['kind']
-    >().toEqualTypeOf<'persistent'>();
-    expectTypeOf<
-      StreamDurableScopedClient['channels']['rooms']['streams']['paused-feed']['kind']
     >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
       StreamDurableScopedClient['channels']['rooms']['streams']['history']['kind']

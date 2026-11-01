@@ -39,12 +39,6 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
       )`,
     );
 
-    const columns = sql.exec<{ name: string }>(`PRAGMA table_info(${ALARM_TABLE})`).toArray();
-
-    if (!columns.some((column) => column.name === 'generation')) {
-      sql.exec(`ALTER TABLE ${ALARM_TABLE} ADD COLUMN generation INTEGER NOT NULL DEFAULT 0`);
-    }
-
     tableReady = true;
   }
 
@@ -71,10 +65,6 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     await ensureTable();
     sql.exec(`DELETE FROM ${ALARM_TABLE} WHERE id = 1`);
     clearTimeoutIfSet();
-  }
-
-  async function getAlarm(): Promise<number | null> {
-    return (await getAlarmRecord())?.timeMs ?? null;
   }
 
   async function getAlarmRecord(): Promise<AlarmRecord | null> {
@@ -109,7 +99,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
 
     if (deliveryActive) return;
 
-    const deadline = await getAlarm();
+    const deadline = (await getAlarmRecord())?.timeMs ?? null;
     if (!started || deliveryActive || deadline === null) return;
 
     // Node timers cannot represent delays larger than a signed 32-bit integer.
@@ -189,5 +179,5 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     }
   }
 
-  return { setAlarm, deleteAlarm, getAlarm, start, stop, drain };
+  return { setAlarm, deleteAlarm, start, stop, drain };
 }

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidLiveThingIdentifier, WIRE_LIMITS } from '@livething/core';
+import { assertValidLiveThingIdentifier, LiveThingConfigError, WIRE_LIMITS } from '@livething/core';
 import { parsePluginWireName } from '~/plugin-scope.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -12,14 +12,12 @@ type CheckEventsInScopeScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-  cursorStreams?: ReadonlyMap<string, EngineCompileTypes.AnyCursorStream>;
   recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
 };
 type CheckScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, unknown>;
-  cursorStreams?: ReadonlyMap<string, unknown>;
   recordedStreams?: ReadonlyMap<string, unknown>;
 };
 type CollectFromScopeScopeParameter = {
@@ -27,7 +25,6 @@ type CollectFromScopeScopeParameter = {
   requests: ReadonlyMap<string, unknown>;
   outgoing: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-  cursorStreams?: ReadonlyMap<string, EngineCompileTypes.AnyCursorStream>;
   recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
 };
 type CheckScopeScopeParameter = {
@@ -35,7 +32,6 @@ type CheckScopeScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-  cursorStreams?: ReadonlyMap<string, EngineCompileTypes.AnyCursorStream>;
   recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
 };
 
@@ -97,15 +93,6 @@ function visitCompiledPrimitives(
         continue;
       }
 
-      case 'cursor-stream-generate': {
-        const p = primitive as EngineCompileTypes.AnyCursorStream;
-        EngineCompileUtils.setUniqueOrThrow(compiled.cursorStreams, p.event, {
-          value: p,
-          kind: 'cursorStream',
-        });
-        continue;
-      }
-
       case 'recorded-stream-generate': {
         const p = primitive as EngineCompileTypes.AnyRecordedStream;
         EngineCompileUtils.setUniqueOrThrow(compiled.recordedStreams, p.event, {
@@ -135,8 +122,8 @@ function visitCompiledPrimitives(
 
       if (typeof primitive.pattern === 'string') {
         if (compiled.channelFamilies.has(primitive.pattern)) {
-          throw new Error(
-            `[livething] Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
+          throw new LiveThingConfigError(
+            `Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
@@ -147,8 +134,8 @@ function visitCompiledPrimitives(
         });
       } else {
         if (compiled.channels.has(primitive.pattern.key)) {
-          throw new Error(
-            `[livething] Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
+          throw new LiveThingConfigError(
+            `Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
@@ -178,7 +165,6 @@ export function compileServerDefinition(
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
     channels: new Map(),
@@ -229,10 +215,6 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
  * restarts and replay cannot order rows. Fail fast at compile so the misconfig
  * surfaces at boot instead of on the first message. This is the one place the
  * persistent-sequence rule for replay is checked.
- *
- * `replay.custom()` has the same rule: its hooks read `msg.wire.messageId`
- * (from dedup) and `msg.wire.deliverySeq` (from sequence), and a custom store
- * that keeps rows across restarts needs a seq that survives them too.
  */
 function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive[]): void {
   // dedup and sequence are top-level only — they have no meaning nested inside
@@ -241,27 +223,10 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
   // catch nested cases that the top-level scan would miss.
   let hasDedup = false;
   let hasPersistentSequence = false;
-  let hasCustomReplay = false;
   for (const primitive of primitives) {
     if (primitive.__livething === 'dedup') hasDedup = true;
     if (primitive.__livething === 'sequence' && (primitive as { persist?: boolean }).persist) {
       hasPersistentSequence = true;
-    }
-
-    if (primitive.__livething === 'replayCustomSend') hasCustomReplay = true;
-  }
-
-  if (hasCustomReplay) {
-    if (!hasDedup) {
-      throw new Error(
-        `[livething] replay.custom() needs the dedup() capability. Custom replay hooks get every broadcast's msg.wire.messageId from dedup. List dedup() in server({ capabilities: [...] }).`,
-      );
-    }
-
-    if (!hasPersistentSequence) {
-      throw new Error(
-        `[livething] replay.custom() needs a persistent sequence. Custom replay hooks get every broadcast's msg.wire.deliverySeq from sequence, and a stored seq only stays valid across restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
-      );
     }
   }
 
@@ -269,14 +234,14 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
   if (!hasReplay) return;
 
   if (!hasDedup) {
-    throw new Error(
-      `[livething] replay needs the dedup() capability. Replay stores every recorded message by the message id that dedup stamps. List dedup() in server({ capabilities: [...] }).`,
+    throw new LiveThingConfigError(
+      `replay needs the dedup() capability. Replay stores every recorded message by the message id that dedup stamps. List dedup() in server({ capabilities: [...] }).`,
     );
   }
 
   if (!hasPersistentSequence) {
-    throw new Error(
-      `[livething] replay needs a persistent sequence. Replay orders stored rows by seq, which only survives restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
+    throw new LiveThingConfigError(
+      `replay needs a persistent sequence. Replay orders stored rows by seq, which only survives restarts when sequence persists. List sequence({ persist: true }) in server({ capabilities: [...] }) instead of sequence().`,
     );
   }
 }
@@ -310,8 +275,8 @@ function validateScopeAndEventNameSyntax(
     // the plugin declared follows the same rules as an app channel name.
     if (declaredPluginChannels.has(name)) {
       if (name.length > limit) {
-        throw new Error(
-          `[livething] ${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
+        throw new LiveThingConfigError(
+          `${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
         );
       }
 
@@ -329,15 +294,15 @@ function validateScopeAndEventNameSyntax(
     assertValidLiveThingIdentifier(name, `${kind} name`);
 
     if (name.startsWith('@') || name.startsWith('#')) {
-      throw new Error(
-        `[livething] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
+      throw new LiveThingConfigError(
+        `${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
           `Those prefixes are reserved for the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
 
     if (name.includes('::')) {
-      throw new Error(
-        `[livething] ${kind} name '${name}' contains '::', which is reserved as the separator in ` +
+      throw new LiveThingConfigError(
+        `${kind} name '${name}' contains '::', which is reserved as the separator in ` +
           `the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
@@ -352,15 +317,15 @@ function validateScopeAndEventNameSyntax(
     const declaredName = declared ? declared.name : event;
     if (declaredName.includes('::')) {
       const where = declared ? `plugin '${declared.id}' (${scopeLabel})` : scopeLabel;
-      throw new Error(
-        `[livething] Event name '${declaredName}' in ${where} contains '::', which is reserved as the ` +
+      throw new LiveThingConfigError(
+        `Event name '${declaredName}' in ${where} contains '::', which is reserved as the ` +
           `separator in plugin names and the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
 
     if (event.length > WIRE_LIMITS.event) {
-      throw new Error(
-        `[livething] Event name in ${scopeLabel} is ${event.length} characters; the wire protocol limit ` +
+      throw new LiveThingConfigError(
+        `Event name in ${scopeLabel} is ${event.length} characters; the wire protocol limit ` +
           `is ${WIRE_LIMITS.event}. A longer name can't travel over the wire, so no client could reach it.`,
       );
     }
@@ -376,13 +341,6 @@ function validateScopeAndEventNameSyntax(
       // Nudges travel as their own user-event frames, so a nudge name too long
       // for the wire can't be reached either — validate it like any event name.
       for (const nudge of generate.stream.nudges) checkEventName(nudge.event, scopeLabel);
-    }
-
-    if (scope.cursorStreams) {
-      for (const [event, generate] of scope.cursorStreams) {
-        checkEventName(event, scopeLabel);
-        for (const nudge of generate.nudges) checkEventName(nudge.event, scopeLabel);
-      }
     }
 
     if (scope.recordedStreams) {
@@ -408,8 +366,7 @@ function validateScopeAndEventNameSyntax(
 
 /**
  * Refuse to boot when an event name is registered as more than one of
- * `incoming` / `request` / `stream` / `cursorStream` / `recordedStream`
- * within the same scope. The dispatcher picks the first match in that order,
+ * `incoming` / `request` / `stream` / `recordedStream` within the same scope. The dispatcher picks the first match in that order,
  * so the loser is unreachable — a client `request(...)` against a shadowed
  * name hangs forever, and a stream trigger against a recorded-stream name
  * shadowed by an incoming handler never starts a stream.
@@ -421,13 +378,11 @@ function validateNoCrossPrimitiveEventCollisions(
   compiled: EngineCompileTypes.CompiledServer,
 ): void {
   function check(scope: CheckScopeParameter, label: string): void {
-    const cursor = scope.cursorStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const recorded = scope.recordedStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const allNames = new Set<string>([
       ...scope.incoming.keys(),
       ...scope.requests.keys(),
       ...scope.streams.keys(),
-      ...cursor.keys(),
       ...recorded.keys(),
     ]);
 
@@ -437,14 +392,12 @@ function validateNoCrossPrimitiveEventCollisions(
       if (scope.incoming.has(event)) where.push('incoming');
       if (scope.requests.has(event)) where.push('request');
       if (scope.streams.has(event)) where.push('stream');
-
-      if (cursor.has(event)) where.push('cursorStream');
       if (recorded.has(event)) where.push('recordedStream');
 
       if (where.length > 1) {
-        throw new Error(
-          `[livething] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
-            `An event name can only belong to one of incoming/request/stream/cursorStream/recordedStream within a scope — pick a different name.`,
+        throw new LiveThingConfigError(
+          `Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
+            `An event name can only belong to one of incoming/request/stream/recordedStream within a scope — pick a different name.`,
         );
       }
     }
@@ -468,7 +421,7 @@ function validateNoCrossPrimitiveEventCollisions(
 function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
   const names = new Set<string>();
 
-  // New-model plugins contribute namespaced incoming/request/outgoing/stream
+  // Plugins contribute namespaced incoming/request/outgoing/stream
   // primitives that carry a `__plugin` provenance marker. Collecting their wire
   // names here is what lets the reserved-name guards allow the framework-managed
   // `__<id>::name` form while still rejecting any hand-declared reserved name.
@@ -498,13 +451,6 @@ function collectFromScope(scope: CollectFromScopeScopeParameter, names: Set<stri
 
     names.add(event);
     for (const nudge of generate.stream.nudges) names.add(nudge.event);
-  }
-
-  for (const [event, generate] of scope.cursorStreams ?? []) {
-    if (!(generate as { __plugin?: string }).__plugin) continue;
-
-    names.add(event);
-    for (const nudge of generate.nudges) names.add(nudge.event);
   }
 
   for (const [event, generate] of scope.recordedStreams ?? []) {
@@ -544,8 +490,8 @@ function validateNoReservedEventNames(
     // shape) — anything else with the prefix is a user-declared event that would
     // clash with the protocol.
     if (event.startsWith('__') && !declaredPluginEvents.has(event)) {
-      throw new Error(
-        `[livething] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
+      throw new LiveThingConfigError(
+        `'${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
           `That prefix is reserved for livething protocol and plugin events — pick a different name.`,
       );
     }
@@ -566,15 +512,6 @@ function validateNoReservedEventNames(
       // has to walk the actual nudge list too.
       for (const nudge of generate.stream.nudges) {
         check(nudge.event, `${label} stream '${streamEvent}' nudge`);
-      }
-    }
-
-    if (scope.cursorStreams) {
-      for (const [streamEvent, primitive] of scope.cursorStreams) {
-        check(streamEvent, `${label} cursorStream`);
-        for (const nudge of primitive.nudges) {
-          check(nudge.event, `${label} cursorStream '${streamEvent}' nudge`);
-        }
       }
     }
 

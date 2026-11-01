@@ -43,10 +43,10 @@ function mockEnvironment() {
 }
 
 /**
- * A primitive that captures every signal of the given name emitted on the shared bus.
- * Registers its onSignal listener at setup time (before the socket opens).
+ * A primitive that captures every `online` signal emitted on the shared bus.
+ * Registers its listener at setup time (before the socket opens).
  */
-function makeSignalCapture(signal: 'visibility' | 'online' = 'visibility'): {
+function makeOnlineCapture(): {
   primitive: Primitive<EmptyTypeFn>;
   received: boolean[];
 } {
@@ -54,7 +54,7 @@ function makeSignalCapture(signal: 'visibility' | 'online' = 'visibility'): {
   const primitive: Primitive<EmptyTypeFn> = {
     _tag: 'signal-capture',
     setup(helpers) {
-      signalBus(helpers).on(signal, (value) => received.push(value));
+      signalBus(helpers).on('online', (value) => received.push(value));
       return { id: 'signal-capture' };
     },
   };
@@ -110,7 +110,7 @@ describe('network-change listener lifecycle via selfDisconnecting flag', () => {
   it('network listener stays live after a background disconnect and still routes signals after reopen', () => {
     const m = mockEnvironment();
     const { capture, received } = (() => {
-      const r = makeSignalCapture('online');
+      const r = makeOnlineCapture();
       return { capture: r.primitive, received: r.received };
     })();
     build(platform({ environment: m.environment, backgroundDisconnectMs: 500 }), capture);
@@ -129,63 +129,26 @@ describe('network-change listener lifecycle via selfDisconnecting flag', () => {
   });
 });
 
-describe('visibility signal routing via onSignal', () => {
-  it('emits a visibility signal with value=false when the app is hidden', () => {
+describe('visibility without backgroundDisconnectMs', () => {
+  it('does not watch visibility, and going hidden does not drop the socket', () => {
     const m = mockEnvironment();
-    const { primitive, received } = makeSignalCapture();
-    build(platform({ environment: m.environment, backgroundDisconnectMs: 1000 }), primitive);
+    const { socket } = build(platform({ environment: m.environment }));
 
-    m.setVisible(false);
-
-    expect(received).toEqual([false]);
-  });
-
-  it('emits a visibility signal with value=true when the app becomes visible again', () => {
-    const m = mockEnvironment();
-    const { primitive, received } = makeSignalCapture();
-    build(platform({ environment: m.environment, backgroundDisconnectMs: 1000 }), primitive);
-
-    m.setVisible(false);
-    m.setVisible(true);
-
-    expect(received).toEqual([false, true]);
-  });
-
-  it('emits a signal on every flip, not just the first', () => {
-    const m = mockEnvironment();
-    const { primitive, received } = makeSignalCapture();
-    build(platform({ environment: m.environment, backgroundDisconnectMs: 2000 }), primitive);
-
-    m.setVisible(false);
-    vi.advanceTimersByTime(500);
-    m.setVisible(true);
-    m.setVisible(false);
-
-    expect(received).toEqual([false, true, false]);
-  });
-
-  it('emits the visibility signal even when backgroundDisconnectMs is not set', () => {
-    const m = mockEnvironment();
-    const { primitive, received } = makeSignalCapture();
-    const { socket } = build(platform({ environment: m.environment }), primitive);
-
-    m.setVisible(false);
-    m.setVisible(true);
-
-    expect(received).toEqual([false, true]);
-
-    // And without backgroundDisconnectMs, going hidden must NOT drop the socket.
     m.setVisible(false);
     vi.advanceTimersByTime(60_000);
     expect(socket.state.get()).toBe('open');
+
+    socket.disconnect();
+    expect(m.visUnsub).not.toHaveBeenCalled();
+    expect(m.netUnsub).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('signal handler isolation (#20)', () => {
+describe('signal handler isolation', () => {
   it('a throwing signal handler does not block later handlers and is reported', () => {
     const m = mockEnvironment();
     const errors: unknown[] = [];
-    const second = makeSignalCapture('online');
+    const second = makeOnlineCapture();
     const thrower: Primitive<EmptyTypeFn> = {
       _tag: 'signal-thrower',
       setup(helpers) {
@@ -211,7 +174,7 @@ describe('signal handler isolation (#20)', () => {
   });
 });
 
-describe('environment cleanup isolation (#21)', () => {
+describe('environment cleanup isolation', () => {
   it('one throwing cleanup still detaches the other listeners', () => {
     const visUnsub = vi.fn();
     const env = environment({

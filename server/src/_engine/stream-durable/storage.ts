@@ -2,10 +2,9 @@
 import { StreamIdCollision } from '@livething/core';
 
 /**
- * Storage layer for durable streams. `__livething_streams` has one row per stream.
- * `__livething_stream_chunks` stores recorded-stream payloads and
- * `__livething_stream_checkpoints` stores cursor-stream cursors. Both child
- * tables cascade when their stream row is deleted.
+ * Storage layer for recorded streams. `__livething_streams` has one row per
+ * stream. `__livething_stream_chunks` stores the recorded chunks and cascades
+ * when its stream row is deleted.
  */
 
 const CREATE_STREAMS_TABLE_SQL = `
@@ -14,15 +13,13 @@ const CREATE_STREAMS_TABLE_SQL = `
     stream_id                 TEXT NOT NULL,
     event                     TEXT NOT NULL,
     payload                   TEXT NOT NULL,
-    kind                      TEXT NOT NULL,
     status                    TEXT NOT NULL DEFAULT 'active',
     last_seq                  INTEGER NOT NULL DEFAULT 0,
-    attempt                   INTEGER NOT NULL DEFAULT 1,
+    interrupted               INTEGER NOT NULL DEFAULT 0,
     channel_key               TEXT,
     channel_family             TEXT,
     broadcast                 INTEGER NOT NULL DEFAULT 0,
     creator_user_id           TEXT,
-    started_at                INTEGER NOT NULL,
     last_activity_at          INTEGER NOT NULL,
     ended_at                  INTEGER,
     max_chunks                INTEGER,
@@ -46,21 +43,8 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
     seq          INTEGER NOT NULL,
     message_id   TEXT,
     payload      TEXT NOT NULL,
-    emitted_at   INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata     TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (user_id, stream_id, seq),
-    FOREIGN KEY (user_id, stream_id) REFERENCES __livething_streams (user_id, stream_id) ON DELETE CASCADE
-  )
-`;
-
-const CREATE_STREAM_CHECKPOINTS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __livething_stream_checkpoints (
-    user_id      TEXT NOT NULL,
-    stream_id    TEXT NOT NULL,
-    seq          INTEGER NOT NULL,
-    cursor       TEXT NOT NULL,
-    saved_at     INTEGER NOT NULL,
     PRIMARY KEY (user_id, stream_id, seq),
     FOREIGN KEY (user_id, stream_id) REFERENCES __livething_streams (user_id, stream_id) ON DELETE CASCADE
   )
@@ -82,11 +66,8 @@ const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
   )
 `;
 
-/** Which durable-stream primitive owns the row. */
-export type DurableStreamDurability = 'cursor' | 'recorded';
-
 /** Lifecycle state of a durable stream row. */
-export type DurableStreamStatus = 'active' | 'suspended' | 'ended';
+type DurableStreamStatus = 'active' | 'suspended' | 'ended';
 
 /** One row from `__livething_streams`, decoded into typed fields. */
 export interface DurableStreamRow {
@@ -94,13 +75,12 @@ export interface DurableStreamRow {
   streamId: string;
   event: string;
   payload: string;
-  kind: DurableStreamDurability;
   status: DurableStreamStatus;
 
   lastSeq: number;
 
-  /** How many times the generator has run: 1 on the first run, +1 on every reconnect that re-runs it. */
-  attempt: number;
+  /** True when the stream ended without its generator finishing (it threw or stopped mid-stream). */
+  interrupted: boolean;
 
   channelKey: string | null;
   channelFamily: string | null;
@@ -108,15 +88,12 @@ export interface DurableStreamRow {
   broadcast: boolean;
   creatorUserId: string | null;
 
-  startedAt: number;
   lastActivityAt: number;
   endedAt: number | null;
 
   maxChunks: number | null;
   maxAgeMs: number | null;
   retentionAfterEndMs: number | null;
-  /** Forward-compat blob (see the metadata column); not yet read or written. */
-  metadata?: Record<string, unknown>;
 }
 
 /** One row from `__livething_stream_chunks`, decoded into typed fields. */
@@ -128,18 +105,6 @@ export interface DurableStreamChunkRow {
   messageId: string | null;
 
   payload: string;
-  emittedAt: number;
-  /** Forward-compat blob (see the metadata column); not yet read or written. */
-  metadata?: Record<string, unknown>;
-}
-
-/** One cursor checkpoint from `__livething_stream_checkpoints`. */
-export interface DurableStreamCursorCheckpointRow {
-  userId: string;
-  streamId: string;
-  seq: number;
-  cursor: string;
-  savedAt: number;
 }
 
 interface SqlExec {
@@ -171,7 +136,6 @@ const DURABLE_STREAM_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_STREAMS_TABLE_SQL,
   CREATE_STREAMS_STATUS_INDEX_SQL,
   CREATE_STREAM_CHUNKS_TABLE_SQL,
-  CREATE_STREAM_CHECKPOINTS_TABLE_SQL,
   CREATE_STREAM_SUBSCRIBERS_TABLE_SQL,
 ].join(';\n');
 
@@ -186,15 +150,13 @@ function rowToStream(row: Record<string, unknown>): DurableStreamRow {
     streamId: row.stream_id as string,
     event: row.event as string,
     payload: row.payload as string,
-    kind: row.kind as DurableStreamDurability,
     status: row.status as DurableStreamStatus,
     lastSeq: Number(row.last_seq ?? 0),
-    attempt: Number(row.attempt ?? 1),
+    interrupted: Number(row.interrupted ?? 0) === 1,
     channelKey: (row.channel_key as string | null) ?? null,
     channelFamily: (row.channel_family as string | null) ?? null,
     broadcast: Number(row.broadcast ?? 0) === 1,
     creatorUserId: (row.creator_user_id as string | null) ?? null,
-    startedAt: Number(row.started_at ?? 0),
     lastActivityAt: Number(row.last_activity_at ?? 0),
     endedAt: row.ended_at == null ? null : Number(row.ended_at),
     maxChunks: row.max_chunks == null ? null : Number(row.max_chunks),
@@ -210,7 +172,6 @@ export interface InsertStreamInput {
   streamId: string;
   event: string;
   payload: string;
-  kind: DurableStreamDurability;
   now: number;
 
   channelKey?: string | null;
@@ -235,18 +196,16 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
   try {
     sql.exec(
       `INSERT INTO __livething_streams
-       (user_id, stream_id, event, payload, kind, status, last_seq, channel_key, channel_family, broadcast, creator_user_id, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
-       VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (user_id, stream_id, event, payload, status, last_seq, channel_key, channel_family, broadcast, creator_user_id, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
+       VALUES (?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.userId,
       input.streamId,
       input.event,
       input.payload,
-      input.kind,
       input.channelKey ?? null,
       input.channelFamily ?? null,
       input.broadcast ? 1 : 0,
       input.creatorUserId ?? null,
-      input.now,
       input.now,
       input.maxChunks ?? null,
       input.maxAgeMs ?? null,
@@ -290,7 +249,7 @@ export function readStream(
   return rows.length > 0 ? rowToStream(rows[0]!) : null;
 }
 
-/** Persist the latest last_seq + activity timestamp. Used when no cursor is yielded. */
+/** Persist the latest last_seq + activity timestamp. */
 export function updateLastSeq(
   sql: SqlExec,
   opts: StreamRef & { lastSeq: number; now: number },
@@ -303,28 +262,6 @@ export function updateLastSeq(
     userId,
     streamId,
   );
-}
-
-/**
- * Rewind a cursor stream to the cursor the reconnecting client confirmed,
- * mark it active for the re-run, and count that run. Returns the new attempt
- * number.
- */
-export function rewindCursorStream(
-  sql: SqlExec,
-  opts: StreamRef & { lastSeq: number; now: number },
-): number {
-  sql.exec(
-    `UPDATE __livething_streams
-     SET last_seq = ?, status = 'active', last_activity_at = ?, attempt = attempt + 1
-     WHERE user_id = ? AND stream_id = ?`,
-    opts.lastSeq,
-    opts.now,
-    opts.userId,
-    opts.streamId,
-  );
-
-  return readStream(sql, opts.userId, opts.streamId)?.attempt ?? 1;
 }
 
 /** Move an active row to suspended so the sweep can age it out after `maxAgeMs`. */
@@ -353,12 +290,20 @@ export function suspendOrphanedStreams(sql: SqlExec, now: number): void {
   );
 }
 
-/** Mark a row ended and stamp `ended_at` so the retention window starts ticking. */
-export function markEnded(sql: SqlExec, opts: StreamRef & { now: number }): void {
-  const { userId, streamId, now } = opts;
+/**
+ * Mark a row ended and stamp `ended_at` so the retention window starts ticking.
+ * Pass `interrupted: true` when the generator stopped without finishing, so a
+ * later continue reports the cut-off instead of a normal end.
+ */
+export function markEnded(
+  sql: SqlExec,
+  opts: StreamRef & { now: number; interrupted?: boolean },
+): void {
+  const { userId, streamId, now, interrupted = false } = opts;
   sql.exec(
-    `UPDATE __livething_streams SET status = 'ended', ended_at = ?, last_activity_at = ?
+    `UPDATE __livething_streams SET status = 'ended', interrupted = ?, ended_at = ?, last_activity_at = ?
      WHERE user_id = ? AND stream_id = ?`,
+    interrupted ? 1 : 0,
     now,
     now,
     userId,
@@ -380,20 +325,18 @@ export interface AppendChunkInput {
   messageId: string | null;
 
   payload: string;
-  now: number;
 }
 
 /** Append one chunk to the buffer for replay on reconnect. */
 export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
   sql.exec(
-    `INSERT INTO __livething_stream_chunks (user_id, stream_id, seq, message_id, payload, emitted_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO __livething_stream_chunks (user_id, stream_id, seq, message_id, payload)
+     VALUES (?, ?, ?, ?, ?)`,
     input.userId,
     input.streamId,
     input.seq,
     input.messageId,
     input.payload,
-    input.now,
   );
 }
 
@@ -419,7 +362,6 @@ export function readChunksSince(
     seq: Number(row.seq),
     messageId: (row.message_id as string | null) ?? null,
     payload: row.payload as string,
-    emittedAt: Number(row.emitted_at),
   }));
 }
 
@@ -454,70 +396,6 @@ export function trimOldestChunks(sql: SqlExec, opts: StreamRef & { keepNewest: n
     userId,
     streamId,
     keepNewest,
-  );
-}
-
-/** Inputs accepted by `appendCursorCheckpoint`. */
-export interface AppendCursorCheckpointInput {
-  userId: string;
-  streamId: string;
-  seq: number;
-  cursor: string;
-  now: number;
-}
-
-/** Save the cursor that can restart a cursor stream after `seq`. */
-export function appendCursorCheckpoint(sql: SqlExec, input: AppendCursorCheckpointInput): void {
-  sql.exec(
-    `INSERT INTO __livething_stream_checkpoints (user_id, stream_id, seq, cursor, saved_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    input.userId,
-    input.streamId,
-    input.seq,
-    input.cursor,
-    input.now,
-  );
-}
-
-/** Read the newest cursor checkpoint at or before a client sequence. */
-export function readCursorCheckpointAtOrBefore(
-  sql: SqlExec,
-  opts: StreamRef & { seq: number },
-): DurableStreamCursorCheckpointRow | null {
-  const row = sql
-    .exec(
-      `SELECT * FROM __livething_stream_checkpoints
-       WHERE user_id = ? AND stream_id = ? AND seq <= ?
-       ORDER BY seq DESC
-       LIMIT 1`,
-      opts.userId,
-      opts.streamId,
-      opts.seq,
-    )
-    .toArray()[0];
-
-  if (!row) return null;
-
-  return {
-    userId: row.user_id as string,
-    streamId: row.stream_id as string,
-    seq: Number(row.seq),
-    cursor: row.cursor as string,
-    savedAt: Number(row.saved_at),
-  };
-}
-
-/** Remove checkpoints for chunks the client did not confirm receiving. */
-export function deleteCursorCheckpointsAfter(
-  sql: SqlExec,
-  opts: StreamRef & { seq: number },
-): void {
-  sql.exec(
-    `DELETE FROM __livething_stream_checkpoints
-     WHERE user_id = ? AND stream_id = ? AND seq > ?`,
-    opts.userId,
-    opts.streamId,
-    opts.seq,
   );
 }
 
@@ -633,6 +511,24 @@ export interface PurgeStreamsByUserOptions {
    * purged user can never stay on record as a stream's creator.
    */
   keepBroadcastContent?: boolean;
+}
+
+/** Read a stream this user started. A broadcast stream is filed under its channel, not the user. */
+export function readStreamOfCreator(
+  sql: SqlExec,
+  creatorUserId: string,
+  streamId: string,
+): DurableStreamRow | null {
+  const row = sql
+    .exec(
+      'SELECT user_id FROM __livething_streams WHERE stream_id = ? AND (user_id = ? OR creator_user_id = ?)',
+      streamId,
+      creatorUserId,
+      creatorUserId,
+    )
+    .toArray()[0];
+
+  return row ? readStream(sql, row.user_id as string, streamId) : null;
 }
 
 /**

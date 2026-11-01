@@ -2,11 +2,19 @@ import { channelKey } from '~/internal/channel-key.ts';
 import type { LiveThingMetadata, Message } from '~/internal/runtime.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
+/** How many past connections' resume tokens are kept; the server accepts at most this many. */
+const MAX_RESUME_TOKENS = 8;
+
 /**
  * Catches you up after a reconnect. As messages arrive it remembers the highest
  * sequence number (`metadata.stream.seq` or `metadata.delivery.seq`) it has seen, per scope. When the socket
  * reconnects it asks the server for everything after that, so you don't miss
  * what happened while you were away.
+ *
+ * Each connection also gets a secret resume token from the server
+ * (`__resume__`). The request shows the tokens of the last few connections, so
+ * the server also resends what it sent to those connections only (`ctx.send`,
+ * a tag, a connection ref).
  *
  * It needs `dedup()`, because the server may resend a few messages you already
  * had and dedup is what filters those out.
@@ -22,6 +30,7 @@ export function replay(): Primitive<EmptyTypeFn> {
       // Highest seq seen per scope. The '' key is the top level; channel names
       // are their own keys so each channel catches up on its own.
       const lastSeq = new Map<string, { seq: number; channel?: string; channelFamily?: string }>();
+      const resumeTokens: string[] = [];
 
       function remember(
         seq: number,
@@ -60,7 +69,38 @@ export function replay(): Primitive<EmptyTypeFn> {
         return message;
       }
 
-      function handleIncoming(message: Message): Message {
+      function handleIncoming(message: Message): Message | null {
+        if (message.event === '__resume__') {
+          const payload = message.payload as { token?: unknown; seq?: unknown } | null;
+          if (typeof payload?.token === 'string') {
+            resumeTokens.push(payload.token);
+            if (resumeTokens.length > MAX_RESUME_TOKENS) resumeTokens.shift();
+          }
+
+          // The seq is where this connection started: a cursor for a client that
+          // has seen no frame yet. A cursor it already has is never moved forward.
+          if (typeof payload?.seq === 'number' && !lastSeq.has('')) {
+            remember(payload.seq, undefined, undefined);
+          }
+
+          return null;
+        }
+
+        // Same for a channel: a cursor for a member that hears nothing before a drop.
+        if (message.event === '__subscribeOk__') {
+          const seq = (message.payload as { seq?: unknown } | null)?.seq;
+          const channel = message.metadata?.channel;
+          if (
+            typeof seq === 'number' &&
+            channel &&
+            !lastSeq.has(channelKey(channel.family, channel.name))
+          ) {
+            remember(seq, channel.name, channel.family);
+          }
+
+          return message;
+        }
+
         if (message.event === '__gap__') return handleGap(message);
 
         if (message.event === '__error__') return handleError(message);
@@ -94,7 +134,10 @@ export function replay(): Primitive<EmptyTypeFn> {
 
             requests.push({
               event: '__replay__',
-              payload: { lastKnownSeq: info.seq },
+              payload:
+                resumeTokens.length > 0
+                  ? { lastKnownSeq: info.seq, resume: [...resumeTokens] }
+                  : { lastKnownSeq: info.seq },
               metadata,
             });
           }

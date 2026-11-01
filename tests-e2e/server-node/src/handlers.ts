@@ -1,5 +1,4 @@
 import { adminDefinition } from '@livething/tests-e2e-handlers/admin';
-import { broadcastRequestDefinition } from '@livething/tests-e2e-handlers/broadcast-request';
 import { channelCheckCommitDefinition } from '@livething/tests-e2e-handlers/channel-check-commit';
 import { channelDynamicDefinition } from '@livething/tests-e2e-handlers/channel-dynamic';
 import { channelFamilyIsolationDefinition } from '@livething/tests-e2e-handlers/channel-family-isolation';
@@ -38,12 +37,9 @@ import { persistenceDefinition } from '@livething/tests-e2e-handlers/persistence
 import { protocolPingsDefinition } from '@livething/tests-e2e-handlers/protocol-pings';
 import { rateLimitDefinition } from '@livething/tests-e2e-handlers/rate-limit';
 import { receiptsDefinition } from '@livething/tests-e2e-handlers/receipts';
-import { replayCustomDefinition } from '@livething/tests-e2e-handlers/replay-custom';
-import { replayCustomCascadeDefinition } from '@livething/tests-e2e-handlers/replay-custom-cascade';
 import { replayFamilyKeyEqualsNameDefinition } from '@livething/tests-e2e-handlers/replay-family-key-equals-name';
 import { replayGapDefinition } from '@livething/tests-e2e-handlers/replay-gap';
 import { replayDefinition } from '@livething/tests-e2e-handlers/replay-history';
-import { replayMembershipGateDefinition } from '@livething/tests-e2e-handlers/replay-membership-gate';
 import { replaySnapshotDefinition } from '@livething/tests-e2e-handlers/replay-snapshot';
 import { requestDefinition } from '@livething/tests-e2e-handlers/request';
 import { scheduledDefinition } from '@livething/tests-e2e-handlers/scheduled';
@@ -58,11 +54,6 @@ import { streamDurableBroadcastDefinition } from '@livething/tests-e2e-handlers/
 import { streamDurableScopedDefinition } from '@livething/tests-e2e-handlers/stream-durable-scoped';
 import { streamNudgesDefinition } from '@livething/tests-e2e-handlers/stream-nudges';
 import { streamSignalDefinition } from '@livething/tests-e2e-handlers/stream-signal';
-import {
-  translationDefinition,
-  translationInboundOnlyDefinition,
-  translationPassThroughDefinition,
-} from '@livething/tests-e2e-handlers/translation';
 import { typedTagsDefinition } from '@livething/tests-e2e-handlers/typed-tags';
 import type { ServerDefinition } from '@livething/server/adapters';
 import { pluginsDefinition } from './plugins.ts';
@@ -72,7 +63,6 @@ export const FEATURE_DEFINITIONS: Record<string, ServerDefinition> = {
   '/ws/incoming': incomingDefinition,
   '/ws/request': requestDefinition,
   '/ws/server-request': serverRequestDefinition,
-  '/ws/broadcast-request': broadcastRequestDefinition,
   '/ws/stream-basic': streamBasicDefinition,
   '/ws/stream-signal': streamSignalDefinition,
   '/ws/stream-backpressure': streamBackpressureDefinition,
@@ -85,8 +75,6 @@ export const FEATURE_DEFINITIONS: Record<string, ServerDefinition> = {
   '/ws/channel-family-isolation': channelFamilyIsolationDefinition,
   '/ws/channel-key-collision': channelKeyCollisionDefinition,
   '/ws/error-hook-isolation': errorHookIsolationDefinition,
-  '/ws/replay-membership-gate': replayMembershipGateDefinition,
-  '/ws/replay-custom-cascade': replayCustomCascadeDefinition,
   '/ws/static-vs-family-isolation': staticVsFamilyIsolationDefinition,
   '/ws/replay-family-key-equals-name': replayFamilyKeyEqualsNameDefinition,
   '/ws/lifecycle-hooks': lifecycleHooksDefinition,
@@ -125,12 +113,8 @@ export const FEATURE_DEFINITIONS: Record<string, ServerDefinition> = {
   '/ws/inbox-gap': inboxGapDefinition,
   '/ws/inbox-handle': inboxHandleDefinition,
   '/ws/last-seen': lastSeenDefinition,
-  '/ws/translation': translationDefinition,
-  '/ws/translation-inbound-only': translationInboundOnlyDefinition,
-  '/ws/translation-pass-through': translationPassThroughDefinition,
   '/ws/plugins': pluginsDefinition,
   '/ws/replay': replayDefinition,
   '/ws/replay-gap': replayGapDefinition,
-  '/ws/replay-custom': replayCustomDefinition,
   '/ws/replay-snapshot': replaySnapshotDefinition,
 };

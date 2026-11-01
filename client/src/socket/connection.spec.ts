@@ -1,6 +1,6 @@
+import { LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { query } from '~/primitives/query.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,6 +34,21 @@ describe('url-as-function / async url resolution', () => {
     socket.connect();
     await Promise.resolve();
     expect(MockWebSocket.last().url).toBe('wss://sync/ws');
+  });
+
+  it('awaits a thenable that is not instanceof Promise (cross-realm)', async () => {
+    const foreign = {
+      then(onFulfilled: (value: string) => unknown) {
+        return Promise.resolve(onFulfilled('wss://xrealm/ws'));
+      },
+    };
+
+    expect(foreign instanceof Promise).toBe(false);
+
+    const socket = c(connect(() => foreign as unknown as Promise<string>));
+    socket.connect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(MockWebSocket.last().url).toBe('wss://xrealm/ws');
   });
 
   it('cancels the open when disconnect() bumps attemptId before the async url resolves', async () => {
@@ -183,7 +198,7 @@ describe('connect-failed catch — reconnection handoff', () => {
 
     try {
       socket.connect();
-      await expect(thrown).resolves.toMatchObject({ code: 'internal-error' });
+      await expect(thrown).resolves.toMatchObject({ message: 'DNS failed' });
     } finally {
       process.setUncaughtExceptionCaptureCallback(null);
     }
@@ -206,29 +221,6 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.connect();
     await Promise.resolve();
 
-    expect(socket.state.get()).toBe('closed');
-  });
-
-  it('hands off to reconnection when searchParams function rejects', async () => {
-    const socket = c(
-      connect('wss://host/ws'),
-      query(() => Promise.reject(new Error('token error'))),
-      reconnection(),
-    );
-    socket.onError(() => undefined);
-    socket.connect();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(socket.state.get()).toBe('reconnecting');
-  });
-
-  it('goes to closed when searchParams rejects and no reconnection is installed', async () => {
-    const socket = c(
-      connect('wss://host/ws'),
-      query(() => Promise.reject(new Error('token error'))),
-    );
-    socket.onError(() => undefined);
-    socket.connect();
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(socket.state.get()).toBe('closed');
   });
 
@@ -264,8 +256,7 @@ describe('url-function rejection fires close event (no reconnection)', () => {
     await Promise.resolve();
 
     expect(socket.state.get()).toBe('closed');
-    // BUG: the catch path calls _setState('closed') but never emits 'close'.
-    // Correct behaviour: onClose must fire so callers know the attempt ended.
+    // onClose must fire so callers know the attempt ended.
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
@@ -293,10 +284,9 @@ describe('a connect attempt that fails before the socket exists fires onClose', 
     expect(statesSeen).toEqual(['reconnecting']);
   });
 
-  it('fires onClose once with reconnection() when a query() resolver throws', async () => {
+  it('fires onClose once with reconnection() when the url function throws', async () => {
     const socket = c(
-      connect('wss://host/ws'),
-      query(() => {
+      connect(() => {
         throw new Error('no token');
       }),
       reconnection(),
@@ -336,7 +326,7 @@ describe('a connect attempt that fails before the socket exists fires onClose', 
   });
 });
 
-describe('failed first connection runs primitive close cleanup (#2)', () => {
+describe('failed first connection runs primitive close cleanup', () => {
   it('runs primitive onClose even when reconnection takes over', async () => {
     const onClose = vi.fn();
     const probe = {
@@ -366,9 +356,7 @@ describe('url-function rejection surfaces error event (with reconnection)', () =
     await Promise.resolve();
 
     expect(socket.state.get()).toBe('reconnecting');
-    // BUG: the catch path forwards (1006, 'connection failed') to the unexpectedCloseHandler
-    // and retries silently — the real Error is never surfaced via an 'error' event.
-    // Correct behaviour: an error event must be emitted so the caller sees what failed.
+    // An error event must be emitted so the caller sees what failed.
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
@@ -432,9 +420,7 @@ describe('disconnect() mid-first-hook skips second onBeforeReopen', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // BUG: the cancel check only runs AFTER the whole onBeforeReopen loop finishes,
-    // so the second primitive's hook has already run.
-    // Correct behaviour: once disconnect() is detected, the second hook must NOT run.
+    // Once disconnect() is detected, the second hook must NOT run.
     expect(secondHookRan).not.toHaveBeenCalled();
   });
 });
@@ -474,58 +460,12 @@ describe('ws.onerror reaches onError as a raw Event', () => {
   });
 });
 
-describe('searchParams URL separator', () => {
-  it("appends with '?' when the base url has no query string", async () => {
-    const socket = c(
-      connect('wss://host/ws'),
-      query(() => ({ token: 'abc' })),
-    );
-    socket.connect();
-    await Promise.resolve();
-    expect(MockWebSocket.last().url).toBe('wss://host/ws?token=abc');
-  });
-
-  it("appends with '&' when the base url already contains a query string", async () => {
-    const socket = c(
-      connect('wss://host/ws?version=2'),
-      query(() => ({ token: 'abc' })),
-    );
-    socket.connect();
-    await Promise.resolve();
-    expect(MockWebSocket.last().url).toBe('wss://host/ws?version=2&token=abc');
-  });
-
-  it('does not add any separator when searchParams returns an empty object', async () => {
-    const socket = c(
-      connect('wss://host/ws?version=2'),
-      query(() => ({})),
-    );
-    socket.connect();
-    await Promise.resolve();
-    expect(MockWebSocket.last().url).toBe('wss://host/ws?version=2');
-  });
-
-  it("uses '&' with an async url function that resolves to a url with a query string", async () => {
-    const urlFn = vi.fn().mockResolvedValue('wss://host/ws?env=prod');
-    const socket = c(
-      connect(urlFn),
-      query(() => ({ token: 'xyz' })),
-    );
-    socket.connect();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(MockWebSocket.last().url).toBe('wss://host/ws?env=prod&token=xyz');
-  });
-});
-
-describe('query() re-resolves on reconnect (auth token refresh)', () => {
+describe('the url function runs again on reconnect (auth token refresh)', () => {
   it('sends the freshly resolved token on the reconnect attempt, not the stale one', async () => {
     vi.useFakeTimers();
     let token = 'first';
     const socket = c(
-      connect('wss://host/ws'),
-      query(() => ({ token })),
+      connect(async () => `wss://host/ws?${new URLSearchParams({ token })}`),
       reconnection({ maxAttempts: 1 }),
     );
 
@@ -539,5 +479,61 @@ describe('query() re-resolves on reconnect (auth token refresh)', () => {
     await vi.advanceTimersByTimeAsync(2000);
 
     expect(MockWebSocket.last().url).toBe('wss://host/ws?token=second');
+  });
+});
+
+describe('a url function that returns a non-string', () => {
+  it('reports its config error once and does not retry', async () => {
+    vi.useFakeTimers();
+    const urlFn = vi.fn(() => undefined as unknown as string);
+    const socket = c(connect(urlFn), reconnection());
+    const errors: unknown[] = [];
+    socket.onError((error) => errors.push(error));
+
+    socket.connect();
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(urlFn).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(LiveThingConfigError);
+    expect(socket.state.get()).toBe('closed');
+    expect(socket.reconnection.get().retrying).toBe(false);
+  });
+
+  it('stops the retry loop when it starts returning a non-string on a reconnect', async () => {
+    vi.useFakeTimers();
+    let url: unknown = 'wss://host/ws';
+    const urlFn = vi.fn(() => url as string);
+    const socket = c(connect(urlFn), reconnection());
+    const errors: unknown[] = [];
+
+    socket.onError((error) => errors.push(error));
+
+    socket.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    MockWebSocket.last().open();
+    url = 42;
+    MockWebSocket.last().serverClose(1006);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(urlFn).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveLength(1);
+    expect(socket.state.get()).toBe('closed');
+    expect(socket.reconnection.get().retrying).toBe(false);
+  });
+
+  it('still retries when the url function throws its own config error', async () => {
+    vi.useFakeTimers();
+    const urlFn = vi.fn(() => {
+      throw new LiveThingConfigError('token settings are wrong');
+    });
+    const socket = c(connect(urlFn), reconnection({ maxAttempts: 2 }));
+    socket.onError(() => undefined);
+
+    socket.connect();
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(urlFn).toHaveBeenCalledTimes(3);
   });
 });

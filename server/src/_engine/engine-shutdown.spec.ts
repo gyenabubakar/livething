@@ -50,7 +50,6 @@ describe('engine shutdown', () => {
     const engine = buildEngine({
       setAlarm,
       deleteAlarm: vi.fn(async () => {}),
-      getAlarm: vi.fn(async () => null),
     });
     registerAlarmSource(engine.core, Symbol('test alarm'), () => 20_000);
 
@@ -71,7 +70,6 @@ describe('engine shutdown', () => {
     const engine = buildEngine({
       setAlarm,
       deleteAlarm: vi.fn(async () => {}),
-      getAlarm: vi.fn(async () => null),
     });
     registerAlarmSource(engine.core, Symbol('test alarm'), () => 20_000);
 
@@ -83,17 +81,16 @@ describe('engine shutdown', () => {
     expect(setAlarm).toHaveBeenCalledTimes(2);
   });
 
-  it('does not make a non-terminal drain wait for best-effort after-send work', async () => {
+  it('does not make a non-terminal drain wait for best-effort background work', async () => {
     const engine = buildEngine({
       setAlarm: vi.fn(async () => {}),
       deleteAlarm: vi.fn(async () => {}),
-      getAlarm: vi.fn(async () => null),
     });
     let finish!: () => void;
-    const pendingAfterSend = new Promise<void>((resolve) => {
+    const pendingWork = new Promise<void>((resolve) => {
       finish = resolve;
     });
-    engine.core.trackBackgroundWork(pendingAfterSend);
+    engine.core.trackBackgroundWork(pendingWork);
     let shutdownFinished = false;
 
     const shutdown = engine.handleShutdown().then(() => {
@@ -116,7 +113,6 @@ describe('engine shutdown', () => {
     const engine = buildEngine({
       setAlarm: vi.fn(async () => {}),
       deleteAlarm: vi.fn(async () => {}),
-      getAlarm: vi.fn(async () => null),
     });
     let finish!: () => void;
     const pending = new Promise<void>((resolve) => {

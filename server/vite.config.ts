@@ -33,14 +33,12 @@ export default defineConfig({
         'last-seen': resolve(__dirname, 'src/last-seen/capability.ts'),
         streams: resolve(__dirname, 'src/streams.ts'),
         // Each stream capability is its own entry so a consumer importing only
-        // one of them from `@livething/server/streams` does not pull the engines of
-        // the others — the barrel re-exports these separable chunks.
+        // one of them from `@livething/server/streams` does not pull the engine of
+        // the other — the barrel re-exports these separable chunks.
         'stream/capability': resolve(__dirname, 'src/stream/capability.ts'),
-        'stream-cursor/capability': resolve(__dirname, 'src/stream-cursor/capability.ts'),
         'stream-recorded/capability': resolve(__dirname, 'src/stream-recorded/capability.ts'),
         channels: resolve(__dirname, 'src/channel/index.ts'),
         tags: resolve(__dirname, 'src/tags/capability.ts'),
-        intercepts: resolve(__dirname, 'src/intercept/index.ts'),
         plugins: resolve(__dirname, 'src/_define/plugins.ts'),
       },
       formats: ['es'],

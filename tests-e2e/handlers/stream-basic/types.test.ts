@@ -45,8 +45,7 @@ describe('StreamBasicClient — streams', () => {
     }>();
   });
 
-  it('start-tokens has no cursor, nudges, or broadcast', () => {
-    expectTypeOf<StreamBasicClient['streams']['start-tokens']>().not.toHaveProperty('cursor');
+  it('start-tokens has no nudges or broadcast', () => {
     expectTypeOf<StreamBasicClient['streams']['start-tokens']>().not.toHaveProperty('nudges');
     expectTypeOf<StreamBasicClient['streams']['start-tokens']>().not.toHaveProperty('broadcast');
   });

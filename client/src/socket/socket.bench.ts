@@ -2,7 +2,6 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
-import { debug as debugMode } from '~/primitives/debug.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { bench, describe } from 'vitest';
 import type { SocketContract } from '~/types.ts';
@@ -26,14 +25,11 @@ interface Contract extends SocketContract {
 
 function connected(debug: boolean) {
   const restore = installMockWebSocket();
-  const socket = client<Contract>()(
-    connect('wss://bench'),
-    debugMode(debug),
-    channels(),
-    clientRequests(),
-  );
+  const socket = client<Contract>()(connect('wss://bench'), channels(), clientRequests());
+  socket.setDebug(debug);
   socket.connect();
   const ws = MockWebSocket.last();
+
   ws.open();
 
   socket.on('message', () => {});

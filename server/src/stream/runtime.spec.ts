@@ -7,6 +7,7 @@ import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type {
   BroadcastToConnectionsOptions,
   SendThroughPipelineOptions,
+  SharedSendOptions,
 } from '~/outgoing/runtime.ts';
 import { bufferStreamNudge, cancelStream, runStream } from './runtime.ts';
 import { wrapStreamGenerator } from './shared.ts';
@@ -28,7 +29,6 @@ function createConnection(id = 'c1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -85,6 +85,18 @@ function createStreamRuntime() {
         });
         return true;
       },
+      openSharedSend: ({ event, payload, routing }: SharedSendOptions) => ({
+        deliver(conn: RuntimeConnection) {
+          pipelineSends.push({
+            connId: conn.id,
+            event,
+            payload,
+            routing: routing as Record<string, unknown> | undefined,
+          });
+          return true;
+        },
+        finish() {},
+      }),
       broadcastToConnections: (
         conns: readonly RuntimeConnection[],
         { event, payload, options, excludeConnectionId }: BroadcastToConnectionsOptions,
@@ -108,7 +120,6 @@ function createStreamRuntime() {
       ) => void | Promise<void>)[],
       declaredErrorCodes: new Set<string>(),
       async handleRuntimeError() {},
-      async handleValidationError() {},
     },
   };
 }
@@ -138,7 +149,7 @@ describe('stream/runtime', () => {
     expect(streamEnd!.livething.channelFamily).toBe('rooms');
   });
 
-  it('stops a stream when its translated connection rejects a chunk', async () => {
+  it('stops a stream when its connection rejects a chunk', async () => {
     const { runtime, protocolMessages, pipelineSends } = createStreamRuntime();
     const connection = createConnection();
     runtime.sendThroughPipeline = vi.fn(() => false);
@@ -209,9 +220,12 @@ describe('stream/runtime', () => {
     runtime.connections.set(peer.id, peer);
 
     const pipelineTargets: string[] = [];
-    runtime.sendThroughPipeline = vi.fn((target: RuntimeConnection) => {
-      pipelineTargets.push(target.id);
-      return target.id !== creator.id;
+    runtime.openSharedSend = () => ({
+      deliver(target: RuntimeConnection) {
+        pipelineTargets.push(target.id);
+        return target.id !== creator.id;
+      },
+      finish() {},
     });
 
     await runStream(runtime as Parameters<typeof runStream>[0], creator, {
@@ -611,36 +625,6 @@ describe('stream/runtime', () => {
     });
 
     expect(broadcasts).toHaveLength(0);
-  });
-
-  it('Defer thrown from a stream handler logs an error, fires onError hooks, and sends __error__ with internal-error code', async () => {
-    const { runtime, protocolMessages } = createStreamRuntime();
-    const connection = createConnection();
-    const handleRuntimeError = vi.fn();
-    runtime.handleRuntimeError = handleRuntimeError;
-
-    const stream = {
-      stream: { nudges: [], broadcast: false },
-      generator: async function* () {
-        throw Object.freeze({ __livething: 'defer' as const, delay: 500 });
-        yield; // make it a generator
-      },
-    };
-
-    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
-      scope: {},
-      event: 'stream-event',
-      stream: stream as never,
-      payload: {},
-    });
-
-    expect(handleRuntimeError).not.toHaveBeenCalled();
-    expect((runtime.logger.error as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatch(/Defer/);
-    const errMsg = protocolMessages.find((m) => m.event === '__error__');
-    expect(errMsg).toBeDefined();
-    expect(errMsg!.payload.code).toBe('internal-error');
-
-    expect(errMsg!.livething.streamId).toBe('stream_1');
   });
 
   it('bufferStreamNudge surfaces __error__ and returns true for an unknown streamId', async () => {
@@ -1044,11 +1028,11 @@ describe('stream/runtime', () => {
     expect(result).toBe(false);
   });
 
-  it('bufferStreamNudge throws LiveThingConfigError without routing through handleValidationError when the nudge validator is async', async () => {
+  it('bufferStreamNudge throws LiveThingConfigError without routing through handleRuntimeError when the nudge validator is async', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
-    const handleValidationError = vi.fn();
-    runtime.handleValidationError = handleValidationError;
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
 
     const activeStream: ActiveStream = {
       id: 'stream_1',
@@ -1071,7 +1055,7 @@ describe('stream/runtime', () => {
       }),
     ).rejects.toThrow(/async validators are not supported/);
 
-    expect(handleValidationError).not.toHaveBeenCalled();
+    expect(handleRuntimeError).not.toHaveBeenCalled();
     expect(activeStream.nudges).toHaveLength(0);
   });
 
@@ -1084,8 +1068,6 @@ describe('stream/runtime', () => {
     // .incoming() handler.
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
-    const handleValidationError = vi.fn();
-    runtime.handleValidationError = handleValidationError;
 
     const activeStream: ActiveStream = {
       id: 'stream_1',
@@ -1115,11 +1097,6 @@ describe('stream/runtime', () => {
     );
 
     expect(result).toBe(true);
-    expect(handleValidationError).toHaveBeenCalledTimes(1);
-    expect(handleValidationError).toHaveBeenCalledWith(connection, {
-      event: 'pause',
-      validationError: expect.any(Error),
-    });
     // The wire `__error__` must reach the client with `streamId` routing so the
     // client can correlate the failure to the right stream-error handler.
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
@@ -1414,47 +1391,6 @@ describe('stream/runtime', () => {
     expect(runtime.activeStreams.has('existing_1')).toBe(true);
   });
 
-  it('Defer thrown inside a stream fires onError hooks and sends an __error__ with code internal-error', async () => {
-    const { runtime, protocolMessages } = createStreamRuntime();
-    const connection = createConnection();
-
-    const hookCalls: { error: unknown; event?: string }[] = [];
-    runtime.errorHooks = [
-      (_ctx, error, event) => {
-        hookCalls.push({ error, event });
-      },
-    ];
-
-    const stream = {
-      stream: { nudges: [], broadcast: false },
-      generator: async function* () {
-        throw {
-          __livething: 'defer',
-          delay: 100,
-        };
-        yield { token: 'never' };
-      },
-    };
-
-    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
-      scope: {},
-      event: 'feed',
-      stream: stream as never,
-      payload: { seed: 1 },
-    });
-
-    expect(hookCalls).toHaveLength(1);
-    expect(hookCalls[0]!.event).toBe('feed');
-    const err = hookCalls[0]!.error as { code?: string; detail?: { retries?: number } };
-    expect(err.code).toBe('internal-error');
-
-    const wire = protocolMessages.find((m) => m.event === '__error__');
-    expect(wire).toBeDefined();
-    expect(wire!.payload.code).toBe('internal-error');
-    expect(wire!.livething.streamId).toBe('stream_1');
-    expect(wire!.payload.detail).toBeUndefined();
-  });
-
   it('adopts a client-supplied streamId from the trigger frame livething', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
@@ -1555,13 +1491,12 @@ describe('stream/runtime', () => {
           return reads >= 3 ? 0 : 1_000_000;
         },
         backpressureSupported: true,
-        userId: connection.id,
       };
       // The run ctx is the object buildConnectionContext returns; drain is
       // installed on it before the generator runs. Capture it from the ctx.
       let sawDrain: unknown;
       const stream = {
-        stream: { nudges: [], broadcast: false, highWaterMark: 1000 },
+        stream: { nudges: [], broadcast: false },
         generator: wrapStreamGenerator(async function* (ctx: {
           stream: { drain: () => Promise<void> };
         }) {
@@ -1597,10 +1532,9 @@ describe('stream/runtime', () => {
           return 1_000_000;
         },
         backpressureSupported: false,
-        userId: connection.id,
       };
       const stream = {
-        stream: { nudges: [], broadcast: false, highWaterMark: 1000 },
+        stream: { nudges: [], broadcast: false },
         generator: wrapStreamGenerator(async function* (ctx: {
           stream: { drain: () => Promise<void> };
         }) {

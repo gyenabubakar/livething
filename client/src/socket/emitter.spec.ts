@@ -51,60 +51,6 @@ describe('Emitter.listenerCount', () => {
   });
 });
 
-describe('Emitter.clear', () => {
-  it('wipes all listeners so no handlers fire after clear()', () => {
-    const emitter = new Emitter<Events>();
-    let called = false;
-    emitter.on('open', () => {
-      called = true;
-    });
-    emitter.clear();
-    emitter.emit('open');
-
-    expect(called).toBe(false);
-  });
-
-  it('resets listenerCount to 0 for every registered event', () => {
-    const emitter = new Emitter<Events>();
-    emitter.on('open', () => {});
-    emitter.on('message', () => {});
-    emitter.on('close', () => {});
-    emitter.clear();
-
-    expect(emitter.listenerCount('open')).toBe(0);
-    expect(emitter.listenerCount('message')).toBe(0);
-    expect(emitter.listenerCount('close')).toBe(0);
-  });
-
-  it('is safe to call on an already-empty emitter', () => {
-    const emitter = new Emitter<Events>();
-    expect(() => emitter.clear()).not.toThrow();
-    expect(emitter.listenerCount('open')).toBe(0);
-  });
-
-  it('new listeners added after clear() work normally', () => {
-    const emitter = new Emitter<Events>();
-    emitter.on('open', () => {});
-    emitter.clear();
-
-    let called = false;
-    emitter.on('open', () => {
-      called = true;
-    });
-    emitter.emit('open');
-    expect(called).toBe(true);
-    expect(emitter.listenerCount('open')).toBe(1);
-  });
-
-  it('calling clear() twice in a row is safe', () => {
-    const emitter = new Emitter<Events>();
-    emitter.on('message', () => {});
-    emitter.clear();
-    expect(() => emitter.clear()).not.toThrow();
-    expect(emitter.listenerCount('message')).toBe(0);
-  });
-});
-
 describe('Emitter.emit — mid-emit mutation isolation', () => {
   it('a listener added inside another listener during emit must not run in the same emit cycle', () => {
     const emitter = new Emitter<Events>();

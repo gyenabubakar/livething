@@ -12,10 +12,11 @@ declare const LOCAL_KEY_TYPE: unique symbol;
  */
 export interface LocalKey<T> {
   readonly [LOCAL_KEY_TYPE]: T;
-  /** Stable unique identity used for `provide` / `inject` lookup. */
+  /**
+   * Stable unique identity used for `provide` / `inject` lookup. Its
+   * description is the optional debug name.
+   */
   readonly id: symbol;
-  /** Optional debug name, surfaced in errors and tooling. */
-  readonly name?: string;
 }
 
 /**
@@ -29,17 +30,18 @@ export interface LocalKey<T> {
  * ```ts
  * export const UserKey = localKey<User>()
  *
- * .intercept(async (ctx, frame) => {
- *   ctx.provide(UserKey, await db.getUser(frame.payload.userId))
+ * const base = server({
+ *   async intercept(ctx, frame) {
+ *     ctx.provide(UserKey, await db.getUser(frame.payload.userId))
+ *   },
  * })
- * .on('message', (ctx, payload) => {
- *   const user = ctx.inject(UserKey) // User | undefined
+ * const handleMessage = base.on('message', {
+ *   run(ctx) {
+ *     const user = ctx.inject(UserKey) // User | undefined
+ *   },
  * })
  * ```
  */
 export function localKey<T>(name?: string): LocalKey<T> {
-  return Object.freeze({
-    id: Symbol(name),
-    ...(name !== undefined ? { name } : {}),
-  }) as unknown as LocalKey<T>;
+  return Object.freeze({ id: Symbol(name) }) as unknown as LocalKey<T>;
 }

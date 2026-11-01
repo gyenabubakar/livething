@@ -1,5 +1,5 @@
 import { WebSocketServer } from 'ws';
-import type { ApiOf, ServerDefinition } from '@livething/server/adapters';
+import type { ServerDefinition } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { binding } from './binding.ts';
@@ -13,10 +13,10 @@ export interface NodeServerEndpointOptions extends NodeEndpointOptions {
 }
 
 /** One definition bound to a Node HTTP or HTTPS upgrade listener. */
-export interface NodeEndpointBinding<TApi = unknown> {
+export interface NodeEndpointBinding<TAdmin = NodeAdmin> {
   upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void;
   ready(): Promise<void>;
-  admin(): Promise<NodeAdmin<TApi>>;
+  admin(): Promise<TAdmin>;
 }
 
 /** Shared lifecycle for Node endpoints bound by one application. */
@@ -24,7 +24,7 @@ export interface NodeSetup {
   bind<TDefinition extends ServerDefinition>(
     definition: TDefinition,
     options: NodeServerEndpointOptions,
-  ): NodeEndpointBinding<ApiOf<TDefinition>>;
+  ): NodeEndpointBinding<NodeAdmin<TDefinition>>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }

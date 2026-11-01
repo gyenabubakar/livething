@@ -43,8 +43,8 @@ describe('tags typing', () => {
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
 
-    // @ts-expect-error 'nope' is not a declared ephemeral group
     server({
+      // @ts-expect-error 'nope' is not a declared ephemeral group
       upgrade() {
         return { userId: 'a', tags: { ephemeral: { nope: 'x' } } };
       },

@@ -15,7 +15,7 @@ describe('framework alarm multiplexer', () => {
     const deleteAlarm = vi.fn(async () => {});
     const core = {
       alarmSources: new Map<symbol, () => number | null>(),
-      timers: { setAlarm, deleteAlarm, getAlarm: vi.fn(async () => null) },
+      timers: { setAlarm, deleteAlarm },
     };
 
     registerAlarmSource(core, Symbol('later'), () => 500);
@@ -34,7 +34,7 @@ describe('framework alarm multiplexer', () => {
     const deleteAlarm = vi.fn(async () => {});
     const core = {
       alarmSources: new Map<symbol, () => number | null>(),
-      timers: { setAlarm, deleteAlarm, getAlarm: vi.fn(async () => null) },
+      timers: { setAlarm, deleteAlarm },
     };
 
     registerAlarmSource(core, Symbol('empty'), () => null);
@@ -50,7 +50,7 @@ describe('framework alarm multiplexer', () => {
     const deleteAlarm = vi.fn(async () => {});
     const core = {
       alarmSources: new Map<symbol, () => number | null>(),
-      timers: { setAlarm, deleteAlarm, getAlarm: vi.fn(async () => null) },
+      timers: { setAlarm, deleteAlarm },
     };
 
     const key = Symbol('same-source');
@@ -70,7 +70,7 @@ describe('framework alarm multiplexer', () => {
     const error = vi.fn();
     const core = {
       alarmSources: new Map<symbol, () => number | null>(),
-      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
+      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}) },
       logger: { info: vi.fn(), warn: vi.fn(), error },
     };
 
@@ -102,7 +102,7 @@ describe('framework alarm multiplexer', () => {
     );
     const core = {
       alarmSources: new Map<symbol, () => number | null>(),
-      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
+      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}) },
     };
 
     const key = Symbol('changing-source');
@@ -139,7 +139,7 @@ describe('framework alarm multiplexer', () => {
     const error = vi.fn();
     const core = {
       alarmSources: new Map<symbol, () => number | null>(),
-      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
+      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}) },
       logger: { info: vi.fn(), warn: vi.fn(), error },
     };
 
@@ -171,7 +171,7 @@ describe('framework alarm multiplexer', () => {
     });
     const core = {
       alarmSources: new Map<symbol, () => number | null>(),
-      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
+      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}) },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     };
 
@@ -198,7 +198,7 @@ describe('framework alarm multiplexer', () => {
     });
     const core = {
       alarmSources: new Map<symbol, () => number | null>(),
-      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
+      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}) },
       storage,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     };
@@ -232,7 +232,7 @@ describe('framework alarm multiplexer', () => {
     });
     const core = {
       alarmSources: new Map<symbol, () => number | null>(),
-      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
+      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}) },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     };
 
@@ -262,7 +262,6 @@ describe('framework alarm multiplexer', () => {
           throw new Error('provider unavailable');
         }),
         deleteAlarm: vi.fn(async () => {}),
-        getAlarm: vi.fn(async () => null),
       },
       storage,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -279,7 +278,7 @@ describe('framework alarm multiplexer', () => {
       const setAlarm = vi.fn(async () => {});
       const restartedCore = {
         alarmSources: new Map<symbol, () => number | null>(),
-        timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
+        timers: { setAlarm, deleteAlarm: vi.fn(async () => {}) },
         storage,
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       };
@@ -309,7 +308,6 @@ describe('framework alarm multiplexer', () => {
       timers: {
         setAlarm: firstSetAlarm,
         deleteAlarm: vi.fn(async () => {}),
-        getAlarm: vi.fn(async () => null),
       },
       storage,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -330,7 +328,6 @@ describe('framework alarm multiplexer', () => {
         timers: {
           setAlarm: restartedSetAlarm,
           deleteAlarm: vi.fn(async () => {}),
-          getAlarm: vi.fn(async () => null),
         },
         storage,
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -366,7 +363,7 @@ describe('framework alarm multiplexer', () => {
 
       const core = {
         alarmSources: new Map<symbol, () => number | null>(),
-        timers: { setAlarm, deleteAlarm, getAlarm: vi.fn(async () => null) },
+        timers: { setAlarm, deleteAlarm },
         logger: { info: vi.fn(), warn: vi.fn(), error },
       };
 

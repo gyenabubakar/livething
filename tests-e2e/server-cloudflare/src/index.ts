@@ -1,6 +1,5 @@
 export { ReplayServer } from './replay-history.ts';
 export { ReplayGapServer } from './replay-gap.ts';
-export { ReplayCustomServer } from './replay-custom.ts';
 export { ReplaySnapshotServer } from './replay-snapshot.ts';
 export { PluginsServer } from './plugins.ts';
 export { AdminServer } from './admin.ts';
@@ -8,7 +7,6 @@ export { RejectHttpServer } from './lifecycle-hooks-http-reject.ts';
 export { IncomingServer } from './incoming.ts';
 export { RequestServer } from './request.ts';
 export { ServerRequestServer } from './server-request.ts';
-export { BroadcastRequestServer } from './broadcast-request.ts';
 export { StreamBasicServer } from './stream-basic.ts';
 export { StreamSignalServer } from './stream-signal.ts';
 export { StreamBackpressureServer } from './stream-backpressure.ts';
@@ -21,8 +19,6 @@ export { TypedTagsServer } from './typed-tags.ts';
 export { ChannelFamilyIsolationServer } from './channel-family-isolation.ts';
 export { ChannelKeyCollisionServer } from './channel-key-collision.ts';
 export { ErrorHookIsolationServer } from './error-hook-isolation.ts';
-export { ReplayMembershipGateServer } from './replay-membership-gate.ts';
-export { ReplayCustomCascadeServer } from './replay-custom-cascade.ts';
 export { StaticVsFamilyIsolationServer } from './static-vs-family-isolation.ts';
 export { ReplayFamilyKeyEqualsNameServer } from './replay-family-key-equals-name.ts';
 export { LifecycleHooksServer } from './lifecycle-hooks.ts';
@@ -62,12 +58,6 @@ export { ReceiptsServer } from './receipts.ts';
 export { InboxGapServer } from './inbox-gap.ts';
 export { InboxHandleServer } from './inbox-handle.ts';
 export { LastSeenServer } from './last-seen.ts';
-export { TranslationServer } from './translation.ts';
-export {
-  TranslationHibernationServer,
-  TranslationInboundOnlyServer,
-  TranslationPassThroughServer,
-} from './translation.ts';
 
 /** Returned when a route names an op that has no case below. */
 const UNKNOWN_OP = Symbol('unknown-op');
@@ -122,48 +112,63 @@ function runAdminOp(admin: AdminStub, op: string, args: AdminOpArgs): Promise<un
   return operation ? operation(admin, args) : UNKNOWN_OP;
 }
 
-/** Drive one built-in flat op the Cloudflare adapter projects onto the stub. */
+/** Drive one built-in op on the stub, through the same nested shape the Node admin has. */
 async function runAdminBuiltIn(
   admin: AdminStub,
   op: string,
-  { text, userId, channel, url }: AdminOpArgs,
+  { text, userId, url }: Omit<AdminOpArgs, 'channel'>,
 ): Promise<unknown> {
   switch (op) {
     case 'connection-count':
-      return admin.connectionCount();
+      return admin.connectionCount;
 
-    case 'list-connections':
-      return (await admin.listConnections()).map((info) => ({
-        id: info.id,
-        userId: info.userId,
-        hasRef: 'ref' in info,
-      }));
+    case 'list-connections': {
+      const all = await admin.connections.all();
+      return Promise.all(
+        all.map(async (info) => ({
+          id: info.id,
+          userId: info.userId,
+          refId: (await info.ref()).id,
+          lastSeen: info.lastSeen ? await info.lastSeen() : 'missing',
+        })),
+      );
+    }
 
-    case 'send-to-connection':
-      return admin.sendToConnection(url.searchParams.get('connectionId') ?? '', 'poked', { text });
+    case 'send-to-connection': {
+      const connectionId = url.searchParams.get('connectionId') ?? '';
+      const info = (await admin.connections.all()).find((c) => c.id === connectionId);
+      // An unknown id still goes through the stub, so the engine reports the miss.
+      const ref = info
+        ? await info.ref()
+        : ({
+            __livething: 'connection-ref',
+            id: connectionId,
+            userId: '',
+            instance: undefined,
+          } as const);
+      return admin.connections.get(ref).send('poked', { text });
+    }
 
     case 'send-to-user':
-      return admin.sendToUser(userId, 'notified', { text });
+      return admin.users.get(userId).broadcast('notified', { text });
 
     case 'close-user':
-      return admin.closeUser(userId, 4321, 'booted by admin') ?? null;
+      return (await admin.users.get(userId).close(4321, 'booted by admin')) ?? null;
 
     case 'broadcast':
-      return admin.broadcast('announced', { text }) ?? null;
+      return (await admin.broadcast('announced', { text })) ?? null;
 
     case 'channel-broadcast':
-      return admin.channelBroadcast(channel, 'room-notice', { text }) ?? null;
+      return (await admin.channels.broadcast('lobby', 'room-notice', { text })) ?? null;
 
     case 'channel-members':
-      return (await admin.channelMembers(channel)).map((info) => info.userId);
+      return (await admin.channels.get('lobby').members()).map((info) => info.userId);
 
     case 'channel-kick':
       return (
-        (await admin.channelKick(
-          channel,
-          { __livething: 'user-ref', id: userId, instance: undefined },
-          { reason: 'admin kick' },
-        )) ?? null
+        (await admin.channels
+          .get('lobby')
+          .kick(await admin.users.get(userId).ref(), { reason: 'admin kick' })) ?? null
       );
 
     default:
@@ -176,7 +181,6 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
   '/ws/request': 'REQUEST_SERVER',
   '/ws/server-request': 'SERVER_REQUEST_SERVER',
-  '/ws/broadcast-request': 'BROADCAST_REQUEST_SERVER',
   '/ws/stream-basic': 'STREAM_BASIC_SERVER',
   '/ws/stream-signal': 'STREAM_SIGNAL_SERVER',
   '/ws/stream-backpressure': 'STREAM_BACKPRESSURE_SERVER',
@@ -189,8 +193,6 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/channel-family-isolation': 'CHANNEL_FAMILY_ISOLATION_SERVER',
   '/ws/channel-key-collision': 'CHANNEL_KEY_COLLISION_SERVER',
   '/ws/error-hook-isolation': 'ERROR_HOOK_ISOLATION_SERVER',
-  '/ws/replay-membership-gate': 'REPLAY_MEMBERSHIP_GATE_SERVER',
-  '/ws/replay-custom-cascade': 'REPLAY_CUSTOM_CASCADE_SERVER',
   '/ws/static-vs-family-isolation': 'STATIC_VS_FAMILY_ISOLATION_SERVER',
   '/ws/replay-family-key-equals-name': 'REPLAY_FAMILY_KEY_EQUALS_NAME_SERVER',
   '/ws/lifecycle-hooks': 'LIFECYCLE_HOOKS_SERVER',
@@ -230,9 +232,6 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/inbox-gap': 'INBOX_GAP_SERVER',
   '/ws/inbox-handle': 'INBOX_HANDLE_SERVER',
   '/ws/last-seen': 'LAST_SEEN_SERVER',
-  '/ws/translation': 'TRANSLATION_SERVER',
-  '/ws/translation-inbound-only': 'TRANSLATION_INBOUND_ONLY_SERVER',
-  '/ws/translation-pass-through': 'TRANSLATION_PASS_THROUGH_SERVER',
 };
 
 export default {
@@ -248,11 +247,6 @@ export default {
     if (url.pathname === '/ws/replay-gap') {
       const id = env.REPLAY_GAP_SERVER.idFromName(room);
       return env.REPLAY_GAP_SERVER.get(id).fetch(request);
-    }
-
-    if (url.pathname === '/ws/replay-custom') {
-      const id = env.REPLAY_CUSTOM_SERVER.idFromName(room);
-      return env.REPLAY_CUSTOM_SERVER.get(id).fetch(request);
     }
 
     if (url.pathname === '/ws/replay-snapshot') {
@@ -306,7 +300,7 @@ export default {
       return Response.json({ result });
     }
 
-    // Built-in flat ops on the stub itself, distinct from the app's `api`.
+    // Built-in ops on the stub itself, distinct from the app's `api`.
     if (url.pathname.startsWith('/ws/admin/builtin/')) {
       const op = url.pathname.slice('/ws/admin/builtin/'.length);
       const id = env.ADMIN_SERVER.idFromName(room);
@@ -314,9 +308,7 @@ export default {
       const text = url.searchParams.get('text') ?? '';
       const userId = url.searchParams.get('userId') ?? '';
 
-      const channel = url.searchParams.get('channel') ?? 'lobby';
-
-      const result = await runAdminBuiltIn(admin, op, { text, userId, channel, url });
+      const result = await runAdminBuiltIn(admin, op, { text, userId, url });
       if (result === UNKNOWN_OP) return new Response(`unknown builtin op: ${op}`, { status: 404 });
 
       return Response.json({ result });

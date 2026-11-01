@@ -1,6 +1,5 @@
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
-import { payloadForFanOut } from '~/_engine/runtime/json-guard.ts';
 import {
   addConnectionTag,
   connectionTagRefs,
@@ -13,6 +12,7 @@ import { deleteTag, insertTag } from '~/tags/storage.ts';
 import type { TagKey } from '~/_engine/runtime/tag-index.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo, SQLProvider, TagRef } from '~/context.ts';
+import type { OutgoingTarget } from '~/intercept/intercept.ts';
 import type { TagGroupHandle, TagKind, TagRefHandle, TagsApi } from '~/tags/types.ts';
 import type { Validator } from '~/types.ts';
 
@@ -25,6 +25,9 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 export interface TagsRuntime {
   tagMembers: Map<string, Set<RuntimeConnection>>;
 
+  /** Live connections by user id. A persistent tag belongs to the user, so it changes on all of them. */
+  usersByKey: Map<string, Set<RuntimeConnection>>;
+
   isTagGroupDeclared(kind: TagKind, group: string): boolean;
 
   /** The runtime validator for a tag group, or `undefined` when it has none. */
@@ -32,11 +35,18 @@ export interface TagsRuntime {
 
   toConnectionInfo(connection: RuntimeConnection): ConnectionInfo<Record<string, unknown>>;
 
-  sendThroughPipeline(connection: RuntimeConnection, event: string, payload: unknown): void;
+  /** Send one event to the given connections as one shared frame. Returns how many got it. */
+  sendToConnections(
+    connections: Iterable<RuntimeConnection>,
+    opts: { event: string; payload: unknown; target: OutgoingTarget },
+  ): number;
 
   persistAttachment(connection: RuntimeConnection): void;
 
   getStorage(): { sql: Pick<SQLProvider, 'exec'> };
+
+  /** Whether `purgeUser` is running for this user. A persistent tag add does nothing then. */
+  isUserPurging?(userId: string): boolean;
 }
 
 function assertGroupDeclared(
@@ -58,35 +68,28 @@ function readBag(connection: RuntimeConnection, kind: TagKind): Map<string, Set<
 interface MemberBroadcast {
   event: string;
   payload: unknown;
+  target: OutgoingTarget;
   /** The label that a failure is logged under. */
   context: string;
 }
 
 /**
- * Send one payload to every member. It is turned into JSON once, so a `toJSON()` runs once and
- * every member gets the same payload. A payload that cannot be sent is logged, like a send that
- * fails for one member.
+ * Send one frame to every member: the payload is turned into JSON and stamped once, so every
+ * member gets the same payload and delivery metadata. A payload that cannot be sent is logged.
  */
 function broadcastToMembers(
-  runtime: Pick<TagsRuntime, 'sendThroughPipeline'>,
+  runtime: Pick<TagsRuntime, 'sendToConnections'>,
   members: Iterable<EngineRuntimeTypes.RuntimeConnection>,
   opts: MemberBroadcast,
 ): void {
-  const { event, context } = opts;
-  forEachIsolated(
-    [opts.payload],
-    (payload) => {
-      const shared = payloadForFanOut(event, payload);
-      forEachIsolated(members, (target) => runtime.sendThroughPipeline(target, event, shared), {
-        context,
-      });
-    },
-    { context },
-  );
+  const { event, payload, target, context } = opts;
+  forEachIsolated([members], (all) => runtime.sendToConnections(all, { event, payload, target }), {
+    context,
+  });
 }
 
 function makeRefHandle(
-  runtime: Pick<TagsRuntime, 'tagMembers' | 'toConnectionInfo' | 'sendThroughPipeline'>,
+  runtime: Pick<TagsRuntime, 'tagMembers' | 'toConnectionInfo' | 'sendToConnections'>,
   tag: TagKey,
 ): TagRefHandle {
   const { kind, group, key } = tag;
@@ -96,12 +99,11 @@ function makeRefHandle(
     group,
     key,
     broadcast(event: string, payload: unknown) {
-      const members = runtime.tagMembers.get(tagRefIndexKey(kind, group, key));
-      if (!members) return;
-
+      const members = runtime.tagMembers.get(tagRefIndexKey(kind, group, key)) ?? [];
       broadcastToMembers(runtime, members, {
         event,
         payload,
+        target: { kind: 'tag', tagKind: kind, group, key },
         context: `tag ref broadcast '${kind}:${group}/${key}' event="${event}"`,
       });
     },
@@ -146,6 +148,12 @@ export function buildGroupHandle(
 
   const persistsDurably = connection.userId.length > 0;
 
+  // The caller is added by hand: an anonymous connection is never in usersByKey,
+  // and a closing one may already be out of it.
+  function userConnections(): RuntimeConnection[] {
+    return [...new Set([...(runtime.usersByKey.get(connection.userId) ?? []), connection])];
+  }
+
   return {
     __livething: 'group-handle',
     kind,
@@ -171,8 +179,10 @@ export function buildGroupHandle(
         return;
       }
 
-      // Skip if already held (matches addConnectionTag's idempotency).
-      if (readBag(connection, kind).get(group)?.has(key)) return;
+      if (runtime.isUserPurging?.(connection.userId)) return;
+
+      const lacking = userConnections().filter((c) => !readBag(c, kind).get(group)?.has(key));
+      if (lacking.length === 0) return;
 
       // Durable write before the live mutation, so a failed SQL write cannot
       // leave the tag live with nothing saved.
@@ -180,7 +190,9 @@ export function buildGroupHandle(
         insertTag(runtime.getStorage().sql, { userId: connection.userId, group, key });
       }
 
-      addConnectionTag(runtime.tagMembers, connection, { kind, group, key });
+      for (const target of lacking) {
+        addConnectionTag(runtime.tagMembers, target, { kind, group, key });
+      }
     },
 
     remove(key: string) {
@@ -195,15 +207,17 @@ export function buildGroupHandle(
         return;
       }
 
-      // Skip if not held (matches removeConnectionTag's guard).
-      if (!readBag(connection, kind).get(group)?.has(key)) return;
+      const holding = userConnections().filter((c) => readBag(c, kind).get(group)?.has(key));
+      if (holding.length === 0) return;
 
       // Durable delete before the live mutation, for the same reason as add().
       if (persistsDurably) {
         deleteTag(runtime.getStorage().sql, { userId: connection.userId, group, key });
       }
 
-      removeConnectionTag(runtime.tagMembers, connection, { kind, group, key });
+      for (const target of holding) {
+        removeConnectionTag(runtime.tagMembers, target, { kind, group, key });
+      }
     },
 
     has(key: string): boolean {
@@ -211,12 +225,11 @@ export function buildGroupHandle(
     },
 
     broadcast(event: string, payload: unknown) {
-      const members = runtime.tagMembers.get(tagGroupIndexKey(kind, group));
-      if (!members) return;
-
+      const members = runtime.tagMembers.get(tagGroupIndexKey(kind, group)) ?? [];
       broadcastToMembers(runtime, members, {
         event,
         payload,
+        target: { kind: 'tag', tagKind: kind, group },
         context: `tag group broadcast '${kind}:${group}' event="${event}"`,
       });
     },

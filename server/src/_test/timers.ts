@@ -4,9 +4,10 @@ import type { TimerProvider } from '~/context.ts';
  * An in-memory `TimerProvider` for tests that need a real (non-throwing)
  * adapter timer implementation, but don't care about an actual platform
  * alarm firing. Tracks the single current alarm time the way a durable
- * alarm API would — a later `setAlarm` replaces the earlier one.
+ * alarm API would — a later `setAlarm` replaces the earlier one — and
+ * `getAlarm()` lets a test read it.
  */
-export function createTestTimers(): TimerProvider {
+export function createTestTimers(): TimerProvider & { getAlarm(): number | null } {
   let alarm: number | null = null;
   return {
     async setAlarm(timeMs) {
@@ -15,7 +16,7 @@ export function createTestTimers(): TimerProvider {
     async deleteAlarm() {
       alarm = null;
     },
-    async getAlarm() {
+    getAlarm() {
       return alarm;
     },
   };

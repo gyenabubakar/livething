@@ -309,9 +309,7 @@ test.describe('replay handler', () => {
     await waitForText(page, 'room-history-injected', 'true');
   });
 
-  test('top-level ctx.sendReplay forwards channelFamily onto the wire (built-in replay)', async ({
-    page,
-  }) => {
+  test('top-level ctx.sendReplay forwards channelFamily onto the wire', async ({ page }) => {
     // A family-scoped replay frame keeps both the concrete channel name and
     // family key so the client can route it to the right handle.
     const frame = await page.evaluate(async () => {
@@ -344,7 +342,7 @@ test.describe('replay handler', () => {
   test('channel replay:false opts out of the cascade: optout-room stores nothing, replay-room does', async ({
     page,
   }) => {
-    // The contract enables built-in replay at the top level, which normally
+    // The contract enables replay at the top level, which normally
     // cascades into every channel that did not configure its own replay.
     // `optout-room` declares `replay: false`, which claims the channel scope
     // with a DISABLED replay primitive: the top-level store skips it (it is in

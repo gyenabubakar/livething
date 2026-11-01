@@ -27,16 +27,12 @@ describe('StreamDurableClient — streams', () => {
     }>();
   });
 
-  it('count-tokens has no cursor (recordedStream does not have a cursor validator)', () => {
-    expectTypeOf<StreamDurableClient['streams']['count-tokens']>().not.toHaveProperty('cursor');
-  });
-
   it('count-tokens has no nudges or broadcast key', () => {
     expectTypeOf<StreamDurableClient['streams']['count-tokens']>().not.toHaveProperty('nudges');
     expectTypeOf<StreamDurableClient['streams']['count-tokens']>().not.toHaveProperty('broadcast');
   });
 
-  it('has paginate (cursorStream)', () => {
+  it('has paginate (recordedStream)', () => {
     expectTypeOf<StreamDurableClient['streams']>().toHaveProperty('paginate');
   });
 
@@ -44,20 +40,6 @@ describe('StreamDurableClient — streams', () => {
     expectTypeOf<StreamDurableClient['streams']['paginate']['payload']>().toEqualTypeOf<{}>();
     expectTypeOf<StreamDurableClient['streams']['paginate']['chunk']>().toEqualTypeOf<{
       row: number;
-    }>();
-  });
-
-  it('paginate has no cursor (no cursor validator declared in cursorStream config)', () => {
-    expectTypeOf<StreamDurableClient['streams']['paginate']>().not.toHaveProperty('cursor');
-  });
-
-  it('has attempt-stream (cursorStream)', () => {
-    expectTypeOf<StreamDurableClient['streams']>().toHaveProperty('attempt-stream');
-  });
-
-  it('attempt-stream chunk is correct', () => {
-    expectTypeOf<StreamDurableClient['streams']['attempt-stream']['chunk']>().toEqualTypeOf<{
-      attempt: number;
     }>();
   });
 
@@ -75,21 +57,15 @@ describe('StreamDurableClient — streams', () => {
     expectTypeOf<keyof StreamDurableClient['streams']>().toEqualTypeOf<
       | 'count-tokens'
       | 'paginate'
-      | 'paginate-bare'
-      | 'attempt-stream'
       | 'buffer-full-demo'
       | 'primitive-recorded'
       | 'count-tokens-nudged'
-      | 'paginate-nudged'
     >();
   });
 });
 
 describe('StreamDurableClient — stream kind', () => {
   it('all streams are persistent', () => {
-    expectTypeOf<
-      StreamDurableClient['streams']['attempt-stream']['kind']
-    >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
       StreamDurableClient['streams']['paginate']['kind']
     >().toEqualTypeOf<'persistent'>();

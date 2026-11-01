@@ -116,10 +116,7 @@ describe('ChannelStaticClient — channels', () => {
     }>();
   });
 
-  it('start-channel-stream has no cursor or nudges (basic stream)', () => {
-    expectTypeOf<
-      ChannelStaticClient['channels']['room']['streams']['start-channel-stream']
-    >().not.toHaveProperty('cursor');
+  it('start-channel-stream has no nudges (basic stream)', () => {
     expectTypeOf<
       ChannelStaticClient['channels']['room']['streams']['start-channel-stream']
     >().not.toHaveProperty('nudges');

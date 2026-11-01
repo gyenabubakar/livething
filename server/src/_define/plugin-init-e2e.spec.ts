@@ -39,16 +39,21 @@ describe('plugin init — onion order end-to-end', () => {
   it('runs the plugin init before the app init through a real engine boot', async () => {
     const trace: string[] = [];
 
-    const ph = server({ scope: 'plugin', capabilities: [emits({ ready: t<{}>() })] });
-    ph.onInit(() => {
-      trace.push('plugin');
+    const ph = server({
+      scope: 'plugin',
+      capabilities: [emits({ ready: t<{}>() })],
+      onInit() {
+        trace.push('plugin');
+      },
     });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Plug = plugin('acme:boot', { definition: ph.assemble({ handlers: [beat] }) });
 
-    const base = server({ capabilities: [Plug()] });
-    base.onInit(() => {
-      trace.push('app');
+    const base = server({
+      capabilities: [Plug()],
+      onInit() {
+        trace.push('app');
+      },
     });
     const definition = base.assemble({
       handlers: [base.on('noop', { input: v.object({}), run() {} })],

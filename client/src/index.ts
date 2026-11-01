@@ -10,12 +10,8 @@ export type {
 } from '~/primitives/reconnection/index.ts';
 export { keepalive } from '~/primitives/keepalive/index.ts';
 export type { KeepaliveOptions, QualityApi } from '~/primitives/keepalive/index.ts';
-export { quality } from '~/primitives/quality.ts';
-export type { QualityOptions } from '~/primitives/quality.ts';
 export { buffering } from '~/primitives/buffering/index.ts';
 export type { BufferingOptions } from '~/primitives/buffering/index.ts';
-export { query } from '~/primitives/query.ts';
-export type { QueryFn } from '~/primitives/query.ts';
 export { serialization } from '~/primitives/serialization/index.ts';
 export type {
   ParsedFrame,
@@ -24,7 +20,6 @@ export type {
 } from '~/primitives/serialization/index.ts';
 export { intercept } from '~/primitives/intercept.ts';
 export type { InterceptFn } from '~/primitives/intercept.ts';
-export { debug } from '~/primitives/debug.ts';
 export { platform } from '~/primitives/platform.ts';
 export type { PlatformApi, PlatformOptions } from '~/primitives/platform.ts';
 export { plugin } from '~/plugins/index.ts';
@@ -41,7 +36,6 @@ export type {
 
 export { channels } from '~/primitives/channels/index.ts';
 export type {
-  ChannelsOptions,
   ChannelMessaging,
   ChannelMember,
   ChannelStatus,
@@ -51,7 +45,6 @@ export type {
 export { clientRequests } from '~/primitives/client-requests/index.ts';
 export type { ClientRequestsOptions } from '~/primitives/client-requests/index.ts';
 export { serverRequests } from '~/primitives/server-requests/index.ts';
-export type { ServerRequestsOptions } from '~/primitives/server-requests/index.ts';
 export { dedup } from '~/primitives/dedup.ts';
 export type { DedupOptions } from '~/primitives/dedup.ts';
 export { replay } from '~/primitives/replay.ts';
@@ -99,9 +92,7 @@ export type {
   ClientRequestsOf,
   ServerRequestsOf,
   ErrorsOf,
-  Requires,
   Simplify,
-  StaticApi,
   RequestMethod,
   ScopedMessaging,
   ScopedApi,

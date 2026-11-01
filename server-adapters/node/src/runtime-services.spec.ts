@@ -296,6 +296,16 @@ describe('createKv', () => {
 });
 
 describe('createTimers', () => {
+  function storedAlarm(sql: SQLProvider): number | null {
+    return (
+      sql
+        .exec<{
+          timeMs: number;
+        }>('SELECT time_ms AS timeMs FROM __livething_node_alarm WHERE id = 1')
+        .one()?.timeMs ?? null
+    );
+  }
+
   it('persists an alarm and invokes the callback when it becomes due', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(100_000);
@@ -305,7 +315,7 @@ describe('createTimers', () => {
       const onAlarm = vi.fn(async () => {});
 
       await timers.setAlarm(101_000);
-      expect(await timers.getAlarm()).toBe(101_000);
+      expect(storedAlarm(sql.provider)).toBe(101_000);
       await timers.start(onAlarm);
 
       await vi.advanceTimersByTimeAsync(999);
@@ -313,7 +323,7 @@ describe('createTimers', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       expect(onAlarm).toHaveBeenCalledOnce();
-      expect(await timers.getAlarm()).toBeNull();
+      expect(storedAlarm(sql.provider)).toBeNull();
     } finally {
       sql.close();
       vi.useRealTimers();
@@ -363,32 +373,6 @@ describe('createTimers', () => {
     }
   });
 
-  it('restores alarms written before delivery generations were added', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(350_000);
-    const sql = createSql();
-    try {
-      sql.database!.exec(`
-        CREATE TABLE __livething_node_alarm (
-          id INTEGER PRIMARY KEY CHECK (id = 1),
-          time_ms INTEGER NOT NULL
-        );
-        INSERT INTO __livething_node_alarm (id, time_ms) VALUES (1, 351000)
-      `);
-      const timers = createTimers(sql.provider);
-      const onAlarm = vi.fn(async () => {});
-
-      await timers.start(onAlarm);
-      await vi.advanceTimersByTimeAsync(1_000);
-
-      expect(onAlarm).toHaveBeenCalledOnce();
-      expect(await timers.getAlarm()).toBeNull();
-    } finally {
-      sql.close();
-      vi.useRealTimers();
-    }
-  });
-
   it('stops an armed alarm without deleting its persisted deadline', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(400_000);
@@ -403,7 +387,7 @@ describe('createTimers', () => {
       await vi.advanceTimersByTimeAsync(1000);
 
       expect(onAlarm).not.toHaveBeenCalled();
-      expect(await timers.getAlarm()).toBe(401_000);
+      expect(storedAlarm(sql.provider)).toBe(401_000);
     } finally {
       sql.close();
       vi.useRealTimers();
@@ -522,7 +506,7 @@ describe('createTimers', () => {
         error: 'temporary alarm delete failure',
       });
       expect(onAlarm).toHaveBeenCalledOnce();
-      expect(await timers.getAlarm()).toBe(101_000);
+      expect(storedAlarm(sql.provider)).toBe(101_000);
 
       sql.database!.prepare('UPDATE alarm_failure_control SET fail = 0').run();
       await vi.advanceTimersByTimeAsync(2_000);
@@ -552,12 +536,12 @@ describe('createTimers', () => {
 
       await vi.advanceTimersByTimeAsync(1);
       expect(callback).toHaveBeenCalledOnce();
-      expect(await timers.getAlarm()).toBe(200_001);
+      expect(storedAlarm(sql.provider)).toBe(200_001);
 
       await vi.advanceTimersByTimeAsync(2_000);
 
       expect(callback).toHaveBeenCalledTimes(2);
-      expect(await timers.getAlarm()).toBeNull();
+      expect(storedAlarm(sql.provider)).toBeNull();
       expect(logger.error).toHaveBeenCalledWith('[livething] Node durable alarm delivery failed', {
         error: 'retry was not persisted',
       });
@@ -588,7 +572,7 @@ describe('createTimers', () => {
       }
 
       expect(callback).toHaveBeenCalledTimes(7);
-      expect(await timers.getAlarm()).toBe(250_001);
+      expect(storedAlarm(sql.provider)).toBe(250_001);
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       sql.close();
@@ -643,7 +627,7 @@ describe('createTimers', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       expect(onAlarm).toHaveBeenCalledOnce();
-      expect(await timers.getAlarm()).toBe(300_001);
+      expect(storedAlarm(sql.provider)).toBe(300_001);
     } finally {
       sql.close();
       vi.useRealTimers();
@@ -742,7 +726,6 @@ describe('createRuntime', () => {
       expect(runtime.platform).toEqual({});
       expect(runtime.storage.kv).toBe(kv);
       expect(runtime.storage.sql.limits.maxBoundParams).toBe(32_766);
-      expect(runtime.asyncContextFactory().getStore()).toBeUndefined();
       expect(runtime.logger).toBe(logger);
     } finally {
       await runtime.close();

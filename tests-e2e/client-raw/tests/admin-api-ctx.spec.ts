@@ -70,7 +70,7 @@ async function callApi(page: Page, op: string, params: Record<string, string>): 
   return callRoute(page, `/ws/admin/api/${op}?${new URLSearchParams(params).toString()}`);
 }
 
-/** Call one of the adapter's built-in flat ops. */
+/** Call one of the built-in admin operations on the stub. */
 async function callBuiltIn(
   page: Page,
   op: string,
@@ -320,8 +320,8 @@ test.describe('api(ctx) members over the stub', () => {
   });
 });
 
-test.describe('built-in flat ops on the stub', () => {
-  test('connectionCount() and listConnections() report the live sockets as plain data', async ({
+test.describe('built-in ops on the stub, in the same nested shape as Node', () => {
+  test('connectionCount and connections.all() report the live sockets', async ({
     page,
   }, testInfo) => {
     const room = `admin-builtin-list-${RUN}-${testInfo.testId}`;
@@ -335,14 +335,18 @@ test.describe('built-in flat ops on the stub', () => {
     const listed = (await callBuiltIn(page, 'list-connections', { room })) as {
       id: string;
       userId: string;
-      hasRef: boolean;
+      refId: string;
+      lastSeen: unknown;
     }[];
     expect(listed.map((c) => c.userId).sort()).toEqual(['alice', 'bob']);
-    // ref() is a method, so it cannot survive the trip to the Worker.
-    expect(listed.every((c) => c.hasRef === false)).toBe(true);
+    // ref() and lastSeen() cross the stub as callable stubs.
+    expect(listed.every((c) => c.refId === c.id)).toBe(true);
+    expect(listed.every((c) => typeof c.lastSeen === 'number')).toBe(true);
   });
 
-  test('sendToConnection and sendToUser deliver over the stub', async ({ page }, testInfo) => {
+  test('connections.get(ref).send and users.get(id).broadcast deliver over the stub', async ({
+    page,
+  }, testInfo) => {
     const room = `admin-builtin-send-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
@@ -369,7 +373,7 @@ test.describe('built-in flat ops on the stub', () => {
     expect(seen).toEqual({ alicePoked: 1, bobNotified: 1, bobPoked: 0 });
   });
 
-  test('sendToConnection reports false for an unknown id', async ({ page }, testInfo) => {
+  test('connections.get(ref).send reports false for an unknown id', async ({ page }, testInfo) => {
     const room = `admin-builtin-miss-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
@@ -380,7 +384,7 @@ test.describe('built-in flat ops on the stub', () => {
     ).toBe(false);
   });
 
-  test('closeUser drops that user only', async ({ page }, testInfo) => {
+  test('users.get(id).close drops that user only', async ({ page }, testInfo) => {
     const room = `admin-builtin-close-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');

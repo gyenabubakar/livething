@@ -38,11 +38,9 @@ describe('recordedStream build-time validation', () => {
     expect(() => base.assemble({ handlers: [handle] })).not.toThrow();
   });
 
-  // FLAGGED: the new API has no "declaration without a handler" state — a
-  // base.recordedStream(...) call always carries its generator, so the missing-
-  // generator path in compile.ts is unreachable through server()/assemble(). The
-  // assertion is preserved by driving compileRecordedStreamDef directly with an
-  // empty handler map, the same path the capability builder feeds.
+  // base.recordedStream(...) always carries its generator, so server()/assemble()
+  // can't reach the missing-handler path. Call compileRecordedStreamDef directly
+  // with an empty handler map, the same path the capability builder feeds.
   it('throws when a recordedStream handler is not assembled', () => {
     const def = recordedStreamDef('tokens', {
       payload: v.object({}),

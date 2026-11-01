@@ -7,7 +7,6 @@ import { emits } from '~/emits/emits.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
-import { cursorStream } from '~/stream-cursor/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
@@ -21,37 +20,22 @@ import { compileServerDefinition } from './compile.ts';
 // collision before the engine ever sees it). To exercise the engine guard
 // directly we hand-build the server definition the bypass path would produce —
 // the same primitives the new builders emit, gathered without assemble().
-function serverDef(
-  primitives: readonly Primitive[],
-  features: readonly string[] = [],
-): ServerDefinition {
+function serverDef(primitives: readonly Primitive[]): ServerDefinition {
   return {
     __livething: 'server',
     primitives: Object.freeze([...primitives]),
-    __features: Object.freeze(new Set(features)),
   } as ServerDefinition;
 }
 
 describe('boot-time cross-primitive collision guard', () => {
-  it('rejects the same event used as both stream and cursorStream at top level', () => {
+  it('rejects the same event used as both stream and recordedStream at top level', () => {
     const base = server({
-      capabilities: [stream(), cursorStream()],
+      capabilities: [stream(), recordedStream()],
     });
     const asStream = base.stream('feed', { async *run() {} });
-    const asCursor = base.cursorStream('feed', { async *run() {} });
-    expect(() => compileServerDefinition(serverDef([asStream, asCursor]))).toThrow(
-      /Event name 'feed' is registered as both 'stream' and 'cursorStream'/,
-    );
-  });
-
-  it('rejects the same event used as both cursorStream and recordedStream', () => {
-    const base = server({
-      capabilities: [cursorStream(), recordedStream()],
-    });
-    const asCursor = base.cursorStream('feed', { async *run() {} });
     const asRecorded = base.recordedStream('feed', { async *run() {} });
-    expect(() => compileServerDefinition(serverDef([asCursor, asRecorded]))).toThrow(
-      /Event name 'feed' is registered as both 'cursorStream' and 'recordedStream'/,
+    expect(() => compileServerDefinition(serverDef([asStream, asRecorded]))).toThrow(
+      /Event name 'feed' is registered as both 'stream' and 'recordedStream'/,
     );
   });
 
@@ -71,20 +55,22 @@ describe('boot-time cross-primitive collision guard', () => {
     const rooms = base.channel('rooms', {});
     const plain = rooms.stream('feed', { async *run() {} });
     const recorded = rooms.recordedStream('feed', { async *run() {} });
+    // @ts-expect-error: the same name twice on one channel
     expect(() => compileServerDefinition(base.assemble({ handlers: [plain, recorded] }))).toThrow(
-      /Event name 'feed' is registered as both 'stream' and 'recordedStream' in channel 'rooms'/,
+      /Duplicate event 'feed' on channel 'rooms'/,
     );
   });
 
   it('rejects the collision inside a channel-family scope', () => {
     const base = server({
-      capabilities: [channels(), stream(), cursorStream()],
+      capabilities: [channels(), stream(), recordedStream()],
     });
     const rooms = base.channel(['rooms', 'room:{id}'], {});
     const plain = rooms.stream('feed', { async *run() {} });
-    const cursor = rooms.cursorStream('feed', { async *run() {} });
-    expect(() => compileServerDefinition(base.assemble({ handlers: [plain, cursor] }))).toThrow(
-      /Event name 'feed' is registered as both 'stream' and 'cursorStream' in channel family 'rooms'/,
+    const recorded = rooms.recordedStream('feed', { async *run() {} });
+    // @ts-expect-error: the same name twice on one channel
+    expect(() => compileServerDefinition(base.assemble({ handlers: [plain, recorded] }))).toThrow(
+      /Duplicate event 'feed' on channel 'rooms'/,
     );
   });
 
@@ -252,18 +238,6 @@ describe('scope and event name syntax — reserved characters', () => {
     );
   });
 
-  it('rejects a cursor stream nudge name over the wire limit', () => {
-    const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
-    const base = server({ capabilities: [cursorStream()] });
-    const handle = base.cursorStream('feed', {
-      nudges: { [tooLong]: v.object({}) },
-      async *run() {},
-    });
-    expect(() => compileServerDefinition(base.assemble({ handlers: [handle] }))).toThrow(
-      /the wire protocol limit\s+is 128/,
-    );
-  });
-
   it('rejects a recorded stream nudge name over the wire limit', () => {
     const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
     const base = server({ capabilities: [recordedStream()] });
@@ -308,8 +282,9 @@ describe('boot-time same-kind duplicate guard', () => {
     const room = base.channel('room', {});
     const first = room.on('msg', { run() {} });
     const second = room.on('msg', { run() {} });
-    expect(() => compileServerDefinition(base.assemble({ handlers: [first, second] }))).toThrow(
-      /Duplicate incoming in channel "room" declaration for "msg"/,
-    );
+    expect(() =>
+      // @ts-expect-error: the same event twice in one channel is a compile error
+      compileServerDefinition(base.assemble({ handlers: [first, second] })),
+    ).toThrow(/Duplicate event 'msg' on channel 'room'/);
   });
 });

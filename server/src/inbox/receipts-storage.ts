@@ -31,7 +31,7 @@ export function ensureReceiptsSchema(sql: Pick<SQLProvider, 'exec'>): void {
 }
 
 /** One member's receipt cursors for a channel. */
-export interface ReceiptCursors {
+interface ReceiptCursors {
   receivedThrough: number;
   readThrough: number;
 }

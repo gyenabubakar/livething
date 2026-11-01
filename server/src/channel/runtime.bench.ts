@@ -21,7 +21,6 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: id,
     },
     meta: { username: id },
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -42,7 +41,6 @@ function createRuntime(memberCount: number) {
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
   };
@@ -82,13 +80,11 @@ function createRuntime(memberCount: number) {
     },
     broadcastToChannel: () => {},
     livethingStampHooks: [],
-    handleValidationError: async () => {},
     handleRuntimeError: async () => {},
     isChannelDurable: () => false,
     persistMembership: () => {},
     deleteDurableMembership: () => {},
     getDurableMembership: () => undefined,
-    markDurableMembershipKicked: () => {},
     listDurableMembers: () => [],
     logger: { error() {} },
   };

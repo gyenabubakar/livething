@@ -13,11 +13,6 @@ test.describe('errors-control-flow', () => {
     await expect(page.getByTestId('status')).toHaveText('disconnected');
   });
 
-  test('Defer: message retried after the delay eventually succeeds', async ({ page }) => {
-    await page.getByTestId('defer-test').click();
-    await expect(page.getByTestId('defer-result')).toHaveText('deferred-received');
-  });
-
   test('Block in intercept: handler never runs, no reply leaks', async ({ page }) => {
     await page.getByTestId('block-test').click();
     // Follow up with a real echo to prove the connection + pipeline are alive.
@@ -26,16 +21,11 @@ test.describe('errors-control-flow', () => {
     await expect(page.getByTestId('block-reply')).toHaveText('');
   });
 
-  test('manual ValidationFailed triggers onValidationError', async ({ page }) => {
+  test('manual ValidationFailed reaches onError', async ({ page }) => {
     await page.getByTestId('manual-validation').click();
     await expect(page.getByTestId('validation-error')).toHaveText(
       'validation-error:manual-validation',
     );
-  });
-
-  test('DeferExhausted fires onError after retries exhaust', async ({ page }) => {
-    await page.getByTestId('always-defer').click();
-    await expect(page.getByTestId('defer-exhausted')).toContainText('always-defer:retries=3');
   });
 
   test('Disconnect(code, reason) closes the wire with the given code and reason', async ({
@@ -84,21 +74,5 @@ test.describe('errors-control-flow', () => {
 
     expect(closed.code).toBe(4011);
     expect(closed.reason).toBe('intercepted disconnect');
-  });
-
-  test('chat channel: always-defer exhausts and fires onError inside the channel', async ({
-    page,
-  }) => {
-    await page.getByTestId('subscribe-chat').click();
-    await expect(page.getByTestId('chat-subscribed')).toHaveText('yes');
-    await page.getByTestId('chat-always-defer').click();
-    await expect(page.getByTestId('defer-exhausted')).toContainText('chat-always-defer:retries=');
-  });
-
-  test('Defer thrown inside a stream is treated as an internal error and sends _error with code internal-error', async ({
-    page,
-  }) => {
-    await page.getByTestId('start-defer-stream').click();
-    await expect(page.getByTestId('stream-error')).toContainText('internal-error:');
   });
 });

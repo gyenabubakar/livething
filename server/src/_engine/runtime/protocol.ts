@@ -50,14 +50,17 @@ const ExchangeMetadata = v.pipe(
   v.strictObject({ id: v.optional(WireId), source: v.optional(Source) }),
   v.check((value) => Object.keys(value).length > 0),
 );
-const ChannelMetadata = v.strictObject({
-  name: ChannelName,
-  family: v.optional(ChannelFamily),
-  unsubscribeId: v.optional(WireId),
-  membership: v.optional(v.picklist(['persistent', 'ephemeral'])),
-  inbox: v.optional(v.boolean()),
-  readReceipts: v.optional(v.boolean()),
-});
+const ChannelMetadata = v.strictObject(
+  {
+    name: ChannelName,
+    family: v.optional(ChannelFamily),
+    unsubscribeId: v.optional(WireId),
+    membership: v.optional(v.picklist(['persistent', 'ephemeral'])),
+    inbox: v.optional(v.boolean()),
+    readReceipts: v.optional(v.boolean()),
+  },
+  "The 'channel' metadata must be an object with a 'name'.",
+);
 const DeliveryMetadata = v.pipe(
   v.strictObject({ id: v.optional(WireId), seq: v.optional(NonNegativeSafeInt) }),
   v.check((value) => Object.keys(value).length > 0),
@@ -82,7 +85,6 @@ export const MetadataSchema = v.pipe(
   MetadataObjectSchema,
   v.check((value) => Object.keys(value).length > 0),
 );
-export const LiveThingProtocolSchema = MetadataSchema;
 const Metadata = v.nullable(MetadataSchema);
 const NoPayload = v.null();
 const EmptyPayload = v.strictObject({});
@@ -198,7 +200,7 @@ function requiredMetadata<Groups extends keyof MetadataObject>(
 ): v.GenericSchema<unknown, MetadataWithGroups<Groups>> {
   return v.pipe(
     Metadata,
-    v.check((value) => value !== null && group in value),
+    v.check((value) => value !== null && group in value, `This frame needs '${group}' metadata.`),
   ) as unknown as v.GenericSchema<unknown, MetadataWithGroups<Groups>>;
 }
 
@@ -207,14 +209,20 @@ const exchangeMeta = requiredMetadata('exchange');
 const streamMeta = requiredMetadata('stream');
 const queryMeta = v.pipe(
   exchangeMeta,
-  v.check((value) => 'channel' in value),
+  v.check((value) => value !== null && 'channel' in value, "This frame needs 'channel' metadata."),
 ) as v.GenericSchema<unknown, MetadataWithGroups<'exchange' | 'channel'>>;
 
 export const SubscribeFrame = frame('__subscribe__', v.unknown(), channelMeta);
 export const UnsubscribeFrame = frame('__unsubscribe__', NoPayload, channelMeta);
+/** How many resume tokens one `__replay__` may show: the client keeps its last few connections'. */
+export const MAX_RESUME_TOKENS = 8;
+const ResumeToken = v.pipe(v.string(), v.minLength(1), v.maxLength(64));
 export const ReplayFrame = frame(
   '__replay__',
-  v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
+  v.strictObject({
+    lastKnownSeq: v.optional(NonNegativeSafeInt),
+    resume: v.optional(v.pipe(v.array(ResumeToken), v.maxLength(MAX_RESUME_TOKENS))),
+  }),
   Metadata,
 );
 export const StreamCancelFrame = frame('__streamCancel__', NoPayload, streamMeta);
@@ -223,12 +231,7 @@ export const ContinueStreamFrame = frame(
   v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
   streamMeta,
 );
-export const MemberSyncRequestFrame = frame(
-  '__memberSync__',
-  v.nullable(v.strictObject({})),
-  channelMeta,
-);
-export const ReceivedFrame = frame(
+const ReceivedFrame = frame(
   '__received__',
   v.strictObject({ receivedThrough: NonNegativeSafeInt }),
   channelMeta,
@@ -238,40 +241,67 @@ export const ReadFrame = frame(
   v.strictObject({ readThrough: NonNegativeSafeInt }),
   channelMeta,
 );
-export const ReceivedQueryFrame = frame(
+const ReceivedQueryFrame = frame(
   '__receivedQuery__',
   v.strictObject({ seq: NonNegativeSafeInt }),
   queryMeta,
 );
-export const ReadQueryFrame = frame(
+const ReadQueryFrame = frame(
   '__readQuery__',
   v.strictObject({ seq: NonNegativeSafeInt }),
   queryMeta,
 );
-export const IncomingProtocolFrame = v.union([
-  SubscribeFrame,
-  UnsubscribeFrame,
-  ReplayFrame,
-  StreamCancelFrame,
-  ContinueStreamFrame,
-  MemberSyncRequestFrame,
-  ReceivedFrame,
-  ReadFrame,
-  ReceivedQueryFrame,
-  ReadQueryFrame,
-]);
+const INCOMING_FRAMES = {
+  __subscribe__: SubscribeFrame,
+  __unsubscribe__: UnsubscribeFrame,
+  __replay__: ReplayFrame,
+  __streamCancel__: StreamCancelFrame,
+  __continueStream__: ContinueStreamFrame,
+  __received__: ReceivedFrame,
+  __read__: ReadFrame,
+  __receivedQuery__: ReceivedQueryFrame,
+  __readQuery__: ReadQueryFrame,
+};
 
-export const SubscribeOkFrame = frame('__subscribeOk__', EmptyPayload, channelMeta);
-export const UnsubscribeOkFrame = frame('__unsubscribeOk__', EmptyPayload, channelMeta);
-export const StreamOkFrame = frame('__streamOk__', EmptyPayload, streamMeta);
-export const NudgeOkFrame = frame('__nudgeOk__', EmptyPayload, streamMeta);
-export const StreamEndFrame = frame('__streamEnd__', EmptyPayload, streamMeta);
-export const ErrorFrame = frame(
+export const IncomingProtocolFrame = v.union(Object.values(INCOMING_FRAMES));
+
+/**
+ * Parse an incoming protocol frame with the schema of the event it names, so an
+ * issue says what is wrong with that frame, not that no frame of the union fits.
+ */
+export function parseIncomingProtocolFrame(input: unknown): IncomingProtocolFrame {
+  const event = Array.isArray(input) ? (input[0] as unknown) : undefined;
+  if (typeof event === 'string' && Object.hasOwn(INCOMING_FRAMES, event)) {
+    return v.parse(
+      INCOMING_FRAMES[event as keyof typeof INCOMING_FRAMES] as v.GenericSchema<
+        unknown,
+        IncomingProtocolFrame
+      >,
+      input,
+    );
+  }
+
+  return v.parse(
+    v.custom<IncomingProtocolFrame>(() => false, 'This is not a known protocol frame.'),
+    input,
+  );
+}
+
+export const SubscribeOkFrame = frame(
+  '__subscribeOk__',
+  v.strictObject({ seq: v.optional(NonNegativeSafeInt) }),
+  channelMeta,
+);
+const UnsubscribeOkFrame = frame('__unsubscribeOk__', EmptyPayload, channelMeta);
+const StreamOkFrame = frame('__streamOk__', EmptyPayload, streamMeta);
+const NudgeOkFrame = frame('__nudgeOk__', EmptyPayload, streamMeta);
+const StreamEndFrame = frame('__streamEnd__', EmptyPayload, streamMeta);
+const ErrorFrame = frame(
   '__error__',
   v.strictObject({ code: v.string(), detail: v.optional(v.unknown()) }),
   Metadata,
 );
-export const KickedFrame = frame('__kicked__', v.strictObject({ reason: v.string() }), channelMeta);
+const KickedFrame = frame('__kicked__', v.strictObject({ reason: v.string() }), channelMeta);
 /**
  * `memberId` is the user id on a persistent channel (stable across reconnects
  * and tabs) and the connection id on an ephemeral channel or for an anonymous
@@ -281,10 +311,10 @@ const MemberPayload = v.strictObject({
   memberId: v.string(),
   meta: v.optional(v.record(v.string(), v.unknown())),
 });
-export const MemberJoinFrame = frame('__memberJoin__', MemberPayload, channelMeta);
-export const MemberLeaveFrame = frame('__memberLeave__', MemberPayload, channelMeta);
-export const MemberOnlineFrame = frame('__memberOnline__', MemberPayload, channelMeta);
-export const MemberOfflineFrame = frame(
+const MemberJoinFrame = frame('__memberJoin__', MemberPayload, channelMeta);
+const MemberLeaveFrame = frame('__memberLeave__', MemberPayload, channelMeta);
+const MemberOnlineFrame = frame('__memberOnline__', MemberPayload, channelMeta);
+const MemberOfflineFrame = frame(
   '__memberOffline__',
   v.strictObject({ memberId: v.string() }),
   channelMeta,
@@ -298,37 +328,39 @@ const SyncMemberPayload = v.strictObject({
   meta: v.optional(v.record(v.string(), v.unknown())),
   online: v.boolean(),
 });
-export const MemberSyncFrame = frame(
+const MemberSyncFrame = frame(
   '__memberSync__',
   v.strictObject({ members: v.array(SyncMemberPayload) }),
   channelMeta,
 );
-export const ReceivedFanoutFrame = frame(
+const ReceivedFanoutFrame = frame(
   '__received__',
   v.strictObject({ userId: v.string(), receivedThrough: NonNegativeSafeInt }),
   channelMeta,
 );
-export const ReadFanoutFrame = frame(
+const ReadFanoutFrame = frame(
   '__read__',
   v.strictObject({ userId: v.string(), readThrough: NonNegativeSafeInt }),
   channelMeta,
 );
-export const ReceivedQueryResultFrame = frame(
+const ReceivedQueryResultFrame = frame(
   '__receivedQuery__',
   v.strictObject({ userIds: v.array(v.string()) }),
   queryMeta,
 );
-export const ReadQueryResultFrame = frame(
+const ReadQueryResultFrame = frame(
   '__readQuery__',
   v.strictObject({ userIds: v.array(v.string()) }),
   queryMeta,
 );
-export const GapFrame = frame(
-  '__gap__',
-  v.strictObject({ missedThrough: NonNegativeSafeInt }),
+const GapFrame = frame('__gap__', v.strictObject({ missedThrough: NonNegativeSafeInt }), Metadata);
+const ResumeFrame = frame(
+  '__resume__',
+  v.strictObject({ token: ResumeToken, seq: v.optional(NonNegativeSafeInt) }),
   Metadata,
 );
 export const OutgoingProtocolFrame = v.union([
+  ResumeFrame,
   SubscribeOkFrame,
   UnsubscribeOkFrame,
   StreamOkFrame,
@@ -349,7 +381,6 @@ export const OutgoingProtocolFrame = v.union([
 ]);
 
 const UserEventWireFrame = v.strictTuple([EventName, v.unknown(), Metadata]);
-export const WireFrameSchema = UserEventWireFrame;
 export const UserEventFrameSchema = v.pipe(
   UserEventWireFrame,
   v.transform((tuple) => {
@@ -485,28 +516,27 @@ export type UnsubscribeFrame = v.InferOutput<typeof UnsubscribeFrame>;
 export type ReplayFrame = v.InferOutput<typeof ReplayFrame>;
 export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ContinueStreamFrame = v.InferOutput<typeof ContinueStreamFrame>;
-export type MemberSyncRequestFrame = v.InferOutput<typeof MemberSyncRequestFrame>;
-export type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
+type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
 export type ReadFrame = v.InferOutput<typeof ReadFrame>;
-export type ReceivedQueryFrame = v.InferOutput<typeof ReceivedQueryFrame>;
-export type ReadQueryFrame = v.InferOutput<typeof ReadQueryFrame>;
+type ReceivedQueryFrame = v.InferOutput<typeof ReceivedQueryFrame>;
+type ReadQueryFrame = v.InferOutput<typeof ReadQueryFrame>;
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
-export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
-export type StreamOkFrame = v.InferOutput<typeof StreamOkFrame>;
-export type NudgeOkFrame = v.InferOutput<typeof NudgeOkFrame>;
-export type StreamEndFrame = v.InferOutput<typeof StreamEndFrame>;
-export type ErrorFrame = v.InferOutput<typeof ErrorFrame>;
-export type KickedFrame = v.InferOutput<typeof KickedFrame>;
-export type MemberJoinFrame = v.InferOutput<typeof MemberJoinFrame>;
-export type MemberLeaveFrame = v.InferOutput<typeof MemberLeaveFrame>;
-export type MemberOnlineFrame = v.InferOutput<typeof MemberOnlineFrame>;
-export type MemberOfflineFrame = v.InferOutput<typeof MemberOfflineFrame>;
-export type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
-export type ReceivedFanoutFrame = v.InferOutput<typeof ReceivedFanoutFrame>;
-export type ReadFanoutFrame = v.InferOutput<typeof ReadFanoutFrame>;
-export type ReceivedQueryResultFrame = v.InferOutput<typeof ReceivedQueryResultFrame>;
-export type ReadQueryResultFrame = v.InferOutput<typeof ReadQueryResultFrame>;
-export type GapFrame = v.InferOutput<typeof GapFrame>;
+type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
+type StreamOkFrame = v.InferOutput<typeof StreamOkFrame>;
+type NudgeOkFrame = v.InferOutput<typeof NudgeOkFrame>;
+type StreamEndFrame = v.InferOutput<typeof StreamEndFrame>;
+type ErrorFrame = v.InferOutput<typeof ErrorFrame>;
+type KickedFrame = v.InferOutput<typeof KickedFrame>;
+type MemberJoinFrame = v.InferOutput<typeof MemberJoinFrame>;
+type MemberLeaveFrame = v.InferOutput<typeof MemberLeaveFrame>;
+type MemberOnlineFrame = v.InferOutput<typeof MemberOnlineFrame>;
+type MemberOfflineFrame = v.InferOutput<typeof MemberOfflineFrame>;
+type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
+type ReceivedFanoutFrame = v.InferOutput<typeof ReceivedFanoutFrame>;
+type ReadFanoutFrame = v.InferOutput<typeof ReadFanoutFrame>;
+type ReceivedQueryResultFrame = v.InferOutput<typeof ReceivedQueryResultFrame>;
+type ReadQueryResultFrame = v.InferOutput<typeof ReadQueryResultFrame>;
+type GapFrame = v.InferOutput<typeof GapFrame>;
 
 const INCOMING_NAMES = [
   '__subscribe__',
@@ -514,7 +544,6 @@ const INCOMING_NAMES = [
   '__replay__',
   '__streamCancel__',
   '__continueStream__',
-  '__memberSync__',
   '__received__',
   '__read__',
   '__receivedQuery__',
@@ -538,9 +567,9 @@ const OUTGOING_NAMES = [
   '__receivedQuery__',
   '__readQuery__',
   '__gap__',
+  '__resume__',
 ] as const;
 export type IncomingProtocolEvent = (typeof INCOMING_NAMES)[number];
-export type OutgoingProtocolEvent = (typeof OUTGOING_NAMES)[number];
 export const OUTGOING_PROTOCOL_EVENT_NAMES: ReadonlySet<string> = new Set(OUTGOING_NAMES);
 
 export function isProtocolEventName(name: unknown): name is `__${string}__` {

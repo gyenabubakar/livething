@@ -10,10 +10,9 @@ import { requireUsername } from '../_shared/upgrade.ts';
 import { SendRoomMsg } from '../inbox/events.ts';
 import type { RoomMsg } from '../inbox/events.ts';
 
-// This server definition deliberately keeps delivered rows (`onDelivered: 'retain'`) so
-// the raw-wire probe can observe both kinds of row disappearing on the shared
-// durable alarm. The top-level recurring task proves that the inbox alarm does
-// not replace another capability's scheduled work.
+// The raw-wire probe watches held rows age out on the shared durable alarm. The
+// top-level recurring task proves that the inbox alarm does not replace another
+// capability's scheduled work.
 const RETENTION_MS = 1_000;
 
 const base = server({
@@ -27,7 +26,6 @@ const base = server({
       'retention-heartbeat': t<{ at: number }>(),
       'retention-answer': t<{
         rows: number;
-        deliveredRows: number;
         watermarkRows: number;
         maxEvictedThrough: number | null;
       }>(),
@@ -38,10 +36,7 @@ const base = server({
 const chat = base.channel('chat', {
   membership: 'persistent',
   capabilities: [
-    inbox({
-      onDelivered: 'retain',
-      retention: { maxAgeMs: RETENTION_MS },
-    }),
+    inbox({ retention: { maxAgeMs: RETENTION_MS } }),
     emits({
       'room-msg': t<RoomMsg>(),
     }),
@@ -51,7 +46,7 @@ const chat = base.channel('chat', {
 const countChat = base.channel('count', {
   membership: 'persistent',
   capabilities: [
-    inbox({ onDelivered: 'retain', retention: { maxMessages: 2 } }),
+    inbox({ retention: { maxMessages: 2 } }),
     emits({
       'room-msg': t<RoomMsg>(),
     }),
@@ -72,7 +67,7 @@ export const handleSendCountMsg = countChat.on('send-room-msg', {
   },
 });
 
-base.scheduled('retention-heartbeat', {
+const handleRetentionHeartbeat = base.scheduled('retention-heartbeat', {
   run(ctx) {
     ctx.broadcast('retention-heartbeat', { at: Date.now() });
   },
@@ -82,14 +77,7 @@ export const handleRetentionProbe = base.on('probe-retention', {
   input: v.object({}),
   run(ctx) {
     const rows = ctx.sql
-      .exec<{ count: number; delivered: number }>(
-        `
-          SELECT
-            COUNT(*) AS count,
-            SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) AS delivered
-          FROM __livething_inbox
-        `,
-      )
+      .exec<{ count: number }>('SELECT COUNT(*) AS count FROM __livething_inbox')
       .one();
     const watermark = ctx.sql
       .exec<{ count: number; max_evicted_through: number | null }>(
@@ -101,7 +89,6 @@ export const handleRetentionProbe = base.on('probe-retention', {
       .one();
     ctx.send('retention-answer', {
       rows: Number(rows?.count ?? 0),
-      deliveredRows: Number(rows?.delivered ?? 0),
       watermarkRows: Number(watermark?.count ?? 0),
       maxEvictedThrough:
         watermark?.max_evicted_through == null ? null : Number(watermark.max_evicted_through),
@@ -110,7 +97,14 @@ export const handleRetentionProbe = base.on('probe-retention', {
 });
 
 export const inboxRetentionDefinition = base.assemble({
-  handlers: [handleSendRoomMsg, handleSendCountMsg, handleRetentionProbe, chat, countChat],
+  handlers: [
+    handleSendRoomMsg,
+    handleSendCountMsg,
+    handleRetentionProbe,
+    handleRetentionHeartbeat,
+    chat,
+    countChat,
+  ],
 });
 
 export type InboxRetentionClient = InferClient<typeof inboxRetentionDefinition>;

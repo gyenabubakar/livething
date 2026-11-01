@@ -1,0 +1,64 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  // Nuxt auto-imports components and composables, which knip can't follow, so it
+  // reports nearly every component as unused.
+  "ignoreWorkspaces": ["website"],
+  // Tag an export `@declarationEmit` when nothing imports it, but tsc needs it
+  // exported to write another file's .d.ts (error TS4058).
+  "tags": ["-declarationEmit"],
+  // Knip reads each package's `exports` and finds the src file behind each dist
+  // path, and reads vitest configs for `*.spec.ts`. The entries below only list
+  // what those miss: `*.test.ts` and `*.test-d.ts` type tests that `tsc` checks,
+  // and files that a non-JS runner loads.
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.{mjs,ts}"],
+      "project": ["scripts/**", "lint-rules/**", "*.{js,ts}"],
+      // The root `docs:typecheck` script runs website/scripts/docs-typecheck/check.mjs, whose
+      // dependencies are in the ignored website workspace.
+      "ignoreDependencies": ["@volar/typescript", "@vue/language-core", "svelte", "svelte2tsx"],
+    },
+    "core": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.ts"],
+    },
+    "client": {
+      "entry": ["src/**/*.test.ts", "src/**/*.test-d.ts"],
+      "project": ["src/**/*.ts"],
+    },
+    "server": {
+      "entry": ["src/**/*.test.ts", "src/**/*.test-d.ts"],
+      "project": ["src/**/*.ts"],
+    },
+    "server-adapters/cloudflare": {
+      "entry": ["src/**/*.test-d.ts"],
+      "project": ["src/**/*.ts"],
+      // `cloudflare:workers` is a runtime module, not an npm package.
+      "ignoreDependencies": ["cloudflare"],
+    },
+    "server-adapters/node": {
+      "entry": ["src/**/*.test-d.ts"],
+      "project": ["src/**/*.ts"],
+    },
+    "tests-e2e/handlers": {
+      // tsconfig.declaration.json compiles this file; nothing imports it.
+      "entry": ["declaration-emit/*.ts"],
+    },
+    "tests-e2e/client": {
+      // Each test page's index.html loads its own script, next to its spec.
+      // Shared helpers sit in tests/ itself, so knip checks that they are used.
+      "entry": ["tests/*/*.ts"],
+      "project": ["tests/**/*.ts"],
+      // `pnpm --filter` in this package's scripts starts these servers.
+      "ignoreDependencies": [
+        "@livething/tests-e2e-server-cloudflare",
+        "@livething/tests-e2e-server-node",
+      ],
+    },
+    "tests-e2e/server-cloudflare": {
+      "entry": ["src/**/*.test.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignoreDependencies": ["cloudflare"],
+    },
+  },
+}

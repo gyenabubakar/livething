@@ -1,0 +1,44 @@
+# Compiles the docs examples on every change, including docs-only ones that ci.yml skips.
+#
+# Security: same rules as ci.yml. `pull_request` only, no secrets, actions pinned to commit SHAs.
+name: Docs
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-typecheck:
+    name: Docs examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # The postinstall script builds the packages, which the docs check reads.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Docs examples
+        run: pnpm docs:typecheck

@@ -39,11 +39,6 @@ test.describe('plugins handler', () => {
     await waitForText(page, 'record-list', /test-item/);
   });
 
-  test('plugin onOutgoing can transform a plugin-owned outgoing event', async ({ page }) => {
-    await waitForText(page, 'drizzle-ready-payload', /"tables":\["records"\]/);
-    await waitForText(page, 'drizzle-ready-payload', /"hooked":true/);
-  });
-
   test('get single record via plugin API', async ({ page }) => {
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id:/);

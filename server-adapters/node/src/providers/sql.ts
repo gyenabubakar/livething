@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapters';
 
 /** The limits reported to LiveThing by better-sqlite3. */
-export const BETTER_SQLITE3_LIMITS: SqlLimits = {
+const BETTER_SQLITE3_LIMITS: SqlLimits = {
   maxBoundParams: 32_766,
   maxStatementBytes: 1_000_000_000,
   maxValueBytes: 1_000_000_000,

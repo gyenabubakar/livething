@@ -20,8 +20,6 @@ const STREAM_RUNTIME_KEY = Symbol('stream-runtime');
 const streamRuntimePrimitive = definePrimitive({
   tag: 'stream-runtime',
   key: STREAM_RUNTIME_KEY,
-  kind: 'infrastructure',
-  create: () => ({}),
   setup(engine) {
     engine.setStreamTrigger(runStream);
     registerActiveStreamOps(engine);
@@ -68,7 +66,6 @@ export const stream = withCapabilityKind(function stream(): StreamCapability {
         nudges: toNudgeDefs(config.nudges),
         broadcast: config.broadcast,
         allowConcurrent: config.allowConcurrent,
-        highWaterMark: config.highWaterMark,
       });
       const handlers = new Map([[event, wrapStreamGenerator(config.run)]]);
       return compileStreamDef(def, handlers);

@@ -11,11 +11,8 @@ type WireParameter = {
   channel?: string;
   channelFamily?: string | null;
 };
-type OptsParameter2 = { reason: string; revoke?: boolean };
+type OptsParameter2 = { reason: string };
 type OptionsParameter3 = { time: number; data?: unknown };
-type OptionsParameter4 = { time: number; data?: unknown };
-type OptionsParameter5 = { time: number; data?: unknown };
-type OptsParameter3 = { reason: string; revoke?: boolean };
 type FilterParameter = { userId?: string };
 type OptionsParameter6 = { time: number; data?: unknown };
 
@@ -190,10 +187,8 @@ export interface StorageProvider {
  * Plain JavaScript timers (`setTimeout` / `clearTimeout`) come from the
  * runtime directly and are not part of this interface — this interface is
  * only the adapter's durable alarm API, which survives hibernation and
- * restarts.
- *
- * Prefer `ctx.schedule(...)` for most use cases — it is higher-level. Use
- * these methods only when you need low-level control.
+ * restarts. The engine sets it to wake the server for `ctx.schedule(...)` tasks
+ * and its own timed cleanup.
  */
 export interface TimerProvider {
   /**
@@ -205,9 +200,6 @@ export interface TimerProvider {
 
   /** Cancel the current durable alarm. It must be safe to run twice, like `setAlarm`. */
   deleteAlarm(): Promise<void>;
-
-  /** Read the time of the current durable alarm, or `null` if none is set. */
-  getAlarm(): Promise<number | null>;
 }
 
 /**
@@ -390,12 +382,11 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   readonly bufferedAmount: number;
 
   /**
-   * This connection's last-seen timestamp (ms), filled only when the
-   * `lastSeen()` capability is listed; `null` when it has never been stamped.
-   * The field is optional on every server: without `lastSeen()` it is always
-   * `undefined`.
+   * Read this connection's user's last-seen timestamp (ms); `null` when it has
+   * never been stamped. Present only when the `lastSeen()` capability is
+   * listed. Each call reads storage, so listing connections stays free.
    */
-  readonly lastSeen?: number | null;
+  lastSeen?(): number | null;
 
   /**
    * Build a `ConnectionRef` for this connection — pass it to engine methods
@@ -458,9 +449,6 @@ export interface UserInfo<Meta = Record<string, unknown>> {
   /** The user id. */
   readonly id: string;
 
-  /** Whether this user has at least one live connection right now. */
-  readonly online: boolean;
-
   /** Snapshot of this user's live connections. */
   connections(): ConnectionInfo<Meta>[];
 
@@ -471,11 +459,11 @@ export interface UserInfo<Meta = Record<string, unknown>> {
   readonly tags: readonly TagRef[];
 
   /**
-   * This user's last-seen timestamp (ms), filled only when the `lastSeen()`
-   * capability is listed; `null` when it has never been stamped. The field is
-   * optional on every server: without `lastSeen()` it is always `undefined`.
+   * Read this user's last-seen timestamp (ms); `null` when it has never been
+   * stamped. Present only when the `lastSeen()` capability is listed. Each
+   * call reads storage.
    */
-  readonly lastSeen?: number | null;
+  lastSeen?(): number | null;
 
   /** Build a `UserRef` for this user — pass it to engine methods that act on the whole user (such as `kick`). */
   ref(): UserRef;
@@ -524,6 +512,13 @@ export interface UserHandle<Meta = Record<string, unknown>> {
 
   /** A snapshot of this user, or `null` when the user has no live connections. */
   info(): UserInfo<Meta> | null;
+
+  /**
+   * Whether this user has at least one live connection on this server
+   * instance (one Durable Object on Cloudflare, one process on Node). Cheaper
+   * than `info() !== null`: it builds no snapshot.
+   */
+  isOnline(): boolean;
 }
 
 /**
@@ -661,7 +656,10 @@ export type ChannelBackfillMessage<
 }[keyof TOutgoing & string];
 
 export interface ChannelInbox<TOutgoing extends Record<string, unknown> = Record<string, unknown>> {
-  /** Seed one user's inbox with full frames, drained on their next reconnect. */
+  /**
+   * Seed one user's inbox with full frames. A user in this channel right now gets
+   * them straight away; otherwise they drain on the user's next connect.
+   */
   backfill(userId: string, messages: readonly ChannelBackfillMessage<TOutgoing>[]): void;
   /** User ids whose received cursor has reached `seq`. */
   receiversOf(seq: number): string[];
@@ -699,14 +697,14 @@ export interface ChannelHandle<
 
   /**
    * The channel family key when this handle was resolved from a dynamic
-   * family registered with `scope(key, template)`, or `null` when the handle
+   * family registered with `base.channel([key, template])`, or `null` when the handle
    * targets a static channel registered with a string name.
    */
   readonly family: string | null;
 
   /**
    * The `{name}` captures from the matched channel name, typed from the
-   * `scope()` template (e.g. `scope('rooms', 'room:{id}')` →
+   * template (e.g. `base.channel(['rooms', 'room:{id}'])` →
    * `params.id`). Empty object for static channels and templates with no
    * params.
    */
@@ -776,13 +774,9 @@ export interface ChannelHandle<
    * but has no live connection in the channel: peers get `__memberLeave__`,
    * and no hooks run because there is no socket.
    *
-   * Pass `revoke: true` to also drop the durable membership row for each
-   * kicked connection's user, so they are NOT auto-rejoined on their next
-   * reconnect (use this to revoke a user's group membership in response to
-   * an external event — an auth provider webhook, an admin action, etc.).
-   * Defaults to `false`: the user is booted now but auto-rejoins later, and
-   * peers see `__memberJoin__` when they do. A no-op per connection when the
-   * channel is ephemeral — there is no durable row to drop either way.
+   * A kick is permanent: on a persistent channel it drops the durable
+   * membership row, so the user is NOT auto-rejoined on their next reconnect.
+   * To boot a socket but keep its membership, close the connection instead.
    */
   kick(
     target:
@@ -813,7 +807,7 @@ export interface ChannelHandle<
 /**
  * Look up a channel handle from any handler. Use the single-argument overload
  * for static channel names, and the two-argument overload for dynamic channel
- * families declared with `scope(key, pattern)`. The returned handle is bound to
+ * families declared with `base.channel([key, template])`. The returned handle is bound to
  * the resolved channel so members and kicks never cross into a different family.
  *
  * Available as `ctx.channels` when the `channels()` capability is listed.
@@ -846,8 +840,8 @@ export interface ChannelsManager<
  * trims it down.
  *
  * `ConnectionContext` is passed to handlers created with: `base.on`,
- * `base.request`, `base.stream`, `base.onConnect`, `base.onDisconnect`,
- * `base.onError`, and `base.onValidationError`.
+ * `base.request`, `base.stream`, and the `onConnect`, `onDisconnect` and
+ * `onError` keys of `server({ ... })`.
  *
  * @template Meta     Per-connection metadata set in the upgrade step.
  * @template Platform The raw platform object (e.g. a Cloudflare DO stub).
@@ -896,10 +890,8 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
 
   /**
    * Send an event to the current connection only. Returns `true` when the frame
-   * was handed to the socket. Returns `false` when it was not sent: on a server
-   * with a `translator`, the connection is closing or the `outbound` translation
-   * failed (LiveThing then closes the connection). It also returns `false` when
-   * the platform adapter refuses the frame. Throws for an undeclared event or a
+   * was handed to the socket, and `false` when the platform adapter refuses it or
+   * strict replay could not store it. Throws for an undeclared event or a
    * non-object payload.
    */
   send(event: string, payload: unknown): boolean;
@@ -1048,123 +1040,15 @@ export interface InitContext<Platform = unknown> {
 
 /**
  * The server→client (`emits`) events read off the merged contract slots, used
- * to type `ShutdownContext.broadcast`. Falls back to a permissive map when the
- * slots type is `unknown` (the broad runtime type), so the precise app-facing
- * builder narrows it while the bare interface stays usable.
+ * to type `ConnectionlessContext.broadcast`. Falls back to a permissive map when
+ * the slots type is `unknown` (the broad runtime type), so the precise
+ * app-facing builder narrows it while the bare interface stays usable.
  */
-type ShutdownOutgoing<TSlots> = 'outgoing' extends keyof TSlots
+type ConnectionlessOutgoing<TSlots> = 'outgoing' extends keyof TSlots
   ? TSlots['outgoing']
   : Record<string, unknown>;
 
-/**
- * The context passed to `onShutdown` handlers.
- *
- * `onShutdown` runs when the server is shutting down. Connections that were
- * active before shutdown are still reachable at this point — you can use
- * `broadcast()` to send a final message or `closeAll()` to close them early.
- *
- * The engine will automatically close any remaining connections after all
- * `onShutdown` handlers finish, so calling `closeAll()` is optional.
- *
- * Mental model: this is the whole-server view. You are not inside one
- * connection, so there is no `send()` or `meta`, but you can still inspect
- * live connections, broadcast, and queue durable work.
- */
-export interface ShutdownContext<
-  Meta = Record<string, unknown>,
-  Platform = unknown,
-  TSlots = unknown,
-> {
-  /** Close every live connection at once. */
-  closeAll(code?: number, reason?: string): void;
-
-  /**
-   * Broadcast an event to every live connection. Typed against the server's
-   * `emits(...)` events, so a typo or wrong payload is a compile error. To
-   * target only members of a specific channel, resolve the channel through
-   * your handler's typed channel surface — the shutdown context does not
-   * filter by channel.
-   */
-  broadcast<E extends keyof ShutdownOutgoing<TSlots> & string>(
-    event: E,
-    payload: ShutdownOutgoing<TSlots>[E],
-  ): void;
-
-  /** SQL database access for queries, migrations, and transactions. */
-  sql: SQLProvider;
-
-  /** Key-value storage for simple get/set/delete operations. */
-  kv: KVProvider;
-
-  /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
-  schedule(taskId: string, options: OptionsParameter4): void;
-
-  /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
-  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
-
-  /** The total number of live WebSocket connections right now. */
-  connectionCount: number;
-
-  /** Reach any specific connection by ref with `get(ref)`, or snapshot every live connection with `all()`. */
-  connections: ConnectionsManager<Meta>;
-
-  /** Reach any user by id with `get(id)` to fan out to every socket they hold. */
-  users: UsersManager<Meta>;
-
-  /** Structured logger — writes to the platform's logging system. */
-  log: Logger;
-
-  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
-  platform: Platform;
-}
-
-/**
- * The context passed to scheduled task handlers (registered with `scheduled()`).
- *
- * Scheduled tasks are not tied to any one client, so this context has no
- * single-connection `send()`. It can still broadcast to all connections,
- * target groups by tag, and access storage.
- *
- * Mental model: this looks like `ShutdownContext`, but it runs for one queued
- * job instance and receives its payload separately as the handler argument.
- */
-export interface TaskContext<Meta = Record<string, unknown>, Platform = unknown> {
-  /** SQL database access for queries, migrations, and transactions. */
-  sql: SQLProvider;
-
-  /** Key-value storage for simple get/set/delete operations. */
-  kv: KVProvider;
-
-  /**
-   * Broadcast an event to every live connection. The task context has no
-   * channel filter — for channel-scoped broadcasts, resolve a channel
-   * handle from a connection-scoped handler instead.
-   */
-  broadcast(event: string, payload: unknown): void;
-
-  /** Reach any specific connection by ref with `get(ref)`, or snapshot every live connection with `all()`. */
-  connections: ConnectionsManager<Meta>;
-
-  /** Reach any user by id with `get(id)` to fan out to every socket they hold. */
-  users: UsersManager<Meta>;
-
-  /** The total number of live WebSocket connections right now. */
-  connectionCount: number;
-
-  /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
-  schedule(taskId: string, options: OptionsParameter5): void;
-
-  /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
-  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
-
-  /** Structured logger — writes to the platform's logging system. */
-  log: Logger;
-
-  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
-  platform: Platform;
-}
-
-/** Options accepted by {@link AdminContext.purgeUser}. */
+/** Options accepted by {@link ConnectionlessContext.purgeUser}. */
 export interface PurgeUserOptions {
   /**
    * Keep the content of broadcast streams the purged user created — the
@@ -1175,40 +1059,77 @@ export interface PurgeUserOptions {
   keepBroadcastContent?: boolean;
 }
 
-/** The channel operations available connectionlessly from an admin context. */
-export interface AdminChannelHandle<Meta = Record<string, unknown>> {
+/** The channel operations a {@link ConnectionlessContext} can run, with no connection in scope. */
+export interface ConnectionlessChannelHandle<Meta = Record<string, unknown>> {
   /** Broadcast a channel event to its members. */
   broadcast(event: string, payload: unknown): void;
   /** Snapshot of the channel's members. */
   members(): ConnectionInfo<Meta>[];
   /**
-   * Remove a user (or everyone holding a tag) from this channel. Pass
-   * `revoke: true` to also drop the durable membership row so the user does
-   * not auto-rejoin on reconnect.
+   * Remove a user (or everyone holding a tag) from this channel for good. The
+   * durable membership row is dropped, so the user does not auto-rejoin on
+   * reconnect.
    */
-  kick(target: UserRef | TagRef, opts: OptsParameter3): Promise<void>;
+  kick(target: UserRef | TagRef, opts: OptsParameter2): Promise<void>;
 }
 
-/** Reach a channel by name from admin — the connectionless subset of `ctx.channels`. */
-export interface AdminChannels<Meta = Record<string, unknown>> {
-  /** A static channel by name. */
-  get(name: string): AdminChannelHandle<Meta>;
-  /** A dynamic channel by family key and instance name. */
-  get(family: string, instance: string): AdminChannelHandle<Meta>;
+/** One channel of a dynamic family: the family key and the instance name, e.g. `{ family: 'rooms', name: 'room:42' }`. */
+interface ChannelInstance<TFamily extends string = string> {
+  readonly family: TFamily;
+  readonly name: string;
 }
 
 /**
- * The context an admin operation runs against — reached with `service.admin()`.
+ * Every `[channel, event, payload]` call `channels.broadcast` allows, as a
+ * union of tuples: a static channel by its name, a family's channel by
+ * `{ family, name }`, then an event that channel emits and its payload.
  *
- * Admin operations run **outside** the socket layer: from an HTTP route, an auth
- * webhook, or a cron job, where no client connection is in scope. So this
- * context has no `id`, `send`, `meta`, or `close` — there is no "current
- * connection" to act on. It exposes only engine-wide operations: broadcast to
- * everyone, reach a channel by name, drop a user everywhere, and read storage.
- *
- * `tags` admin operations are not part of this context yet.
+ * It is a rest parameter with no generics, so Workers RPC stub types (which
+ * drop a method's generics) still tie each event and payload to its channel.
  */
-export interface AdminContext<
+export type ChannelBroadcastArgs<TChannels> = string extends keyof TChannels
+  ? [channel: string | ChannelInstance, event: string, payload: unknown]
+  : {
+      [K in keyof TChannels & string]: TChannels[K] extends {
+        outgoing: infer TOutgoing;
+        __addressing: infer TAddressing;
+      }
+        ? {
+            [E in keyof TOutgoing & string]: [
+              channel: TAddressing extends 'dynamic' ? ChannelInstance<K> : K,
+              event: E,
+              payload: TOutgoing[E],
+            ];
+          }[keyof TOutgoing & string]
+        : never;
+    }[keyof TChannels & string];
+
+/** Reach a channel by name with no connection in scope — the connectionless subset of `ctx.channels`. */
+export interface ConnectionlessChannels<Meta = Record<string, unknown>> {
+  /** A static channel by name. */
+  get(name: string): ConnectionlessChannelHandle<Meta>;
+  /** A dynamic channel by family key and instance name. */
+  get(family: string, instance: string): ConnectionlessChannelHandle<Meta>;
+  /**
+   * Broadcast a channel event to that channel's members. Name a static channel
+   * by its name, or a family's channel by `{ family, name }`.
+   */
+  broadcast(channel: string | ChannelInstance, event: string, payload: unknown): void;
+}
+
+/**
+ * The context for code that runs with no connection in scope: `onShutdown`
+ * hooks, scheduled task bodies, and the admin surface (`service.admin()` and
+ * the `api` factory on `assemble({ handlers, api })`).
+ *
+ * There is no "current connection", so this context has no `connection`,
+ * `send`, `meta`, or `close`. It acts on the whole server: broadcast to
+ * everyone, reach a user, a connection or a channel, drop a user everywhere,
+ * close connections, read storage, and queue scheduled work.
+ *
+ * `tags` operations are not part of this context yet.
+ */
+export interface ConnectionlessContext<
   Meta = Record<string, unknown>,
   Platform = unknown,
   TSlots = unknown,
@@ -1217,18 +1138,18 @@ export interface AdminContext<
    * Broadcast an event to every live connection. Typed against the server's
    * `emits(...)` events, so a typo or wrong payload is a compile error.
    */
-  broadcast<E extends keyof ShutdownOutgoing<TSlots> & string>(
+  broadcast<E extends keyof ConnectionlessOutgoing<TSlots> & string>(
     event: E,
-    payload: ShutdownOutgoing<TSlots>[E],
+    payload: ConnectionlessOutgoing<TSlots>[E],
   ): void;
 
   /** Reach a channel by name (or family + instance) to act on its members. */
-  channels: AdminChannels<Meta>;
+  channels: ConnectionlessChannels<Meta>;
 
   /**
    * Drop a user everywhere: leave every channel they belong to (live and
    * durable), remove their persistent tags, wipe their inbox rows and read
-   * receipts, their last-seen mark, their durable streams (and any broadcast
+   * receipts, their last-seen mark, the replay rows stored for them, their durable streams (and any broadcast
    * stream they merely subscribe to), and close every live socket they hold.
    * The one call the auth-webhook case (`user.deleted`) needs.
    *

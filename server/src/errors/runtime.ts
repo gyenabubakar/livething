@@ -1,6 +1,5 @@
-import { InternalError, LiveThingError } from '@livething/core';
+import { InternalError, LiveThingError, NotAMember } from '@livething/core';
 import { withConnectionLevelCall } from '~/_engine/async-context.ts';
-import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -41,25 +40,6 @@ interface RuntimeErrorDeps {
 }
 
 /**
- * Runtime surface for validation-error fanout.
- */
-interface ValidationErrorDeps {
-  buildConnectionContext(
-    connection: RuntimeConnection,
-    scope?: ResolvedChannel,
-  ): Record<PropertyKey, unknown>;
-
-  /** Lets `context.connection(base)` reach the hook's `ctx`. */
-  asyncContext?: EngineAsyncContext;
-
-  validationErrorHooks: readonly ((
-    ctx: unknown,
-    event: string,
-    validationError: unknown,
-  ) => void | Promise<void>)[];
-}
-
-/**
  * Split a thrown value into the `payload` and `__livething` halves of LiveThing's
  * `__error__` protocol frame. `payload` carries `code` (and `detail` when the
  * error has one); `__livething` carries the routing markers so the client can
@@ -95,6 +75,9 @@ export interface SendRuntimeErrorOptions {
 
   routing?: Protocol.LiveThingRouting;
 
+  /** The plugin that failed, when the event and routing can't tell, as in its `onConnect`. */
+  pluginId?: string;
+
   /** The socket itself failed, such as a reset connection. No handler threw. */
   fromSocket?: boolean;
 }
@@ -111,7 +94,10 @@ export async function sendRuntimeError(
   const { error, event, routing } = options;
   if (error instanceof LiveThingError && !deps.declaredErrorCodes.has(error.code)) {
     deps.logger.warn(
-      '[livething] Thrown LiveThingError was not declared in the contract errors: [...] list',
+      // Server-only by design, so the client gets internal-error and a declaration is no fix.
+      NotAMember.matches(error)
+        ? '[livething] A handler did not catch NotAMember, thrown when ctx.channel.request(..., { to }) targets a connection outside the channel.'
+        : '[livething] Thrown LiveThingError was not declared in the contract errors: [...] list',
       {
         code: error.code,
         event,
@@ -120,18 +106,13 @@ export async function sendRuntimeError(
   }
 
   // The client only sees `internal-error`, so with no hook to see it the real error would be
-  // lost. An `onError` hook replaces this log, as it owns the error from then on. The only signal
-  // that reaches here is a `Defer` thrown outside an on() handler, which already logged why.
-  // Any other signal here, such as `RejectUpgrade` outside `upgrade`, is a mistake and is logged.
-  const isLoggedDefer =
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { __livething?: unknown }).__livething === 'defer';
+  // lost. An `onError` hook replaces this log, as it owns the error from then on. A signal here,
+  // such as `RejectUpgrade` outside `upgrade`, is a mistake and is logged.
   if (options.fromSocket) {
     if (deps.errorHooks.length === 0) {
       deps.logger.warn('[livething] A connection reported a socket error.', { error });
     }
-  } else if (!(error instanceof LiveThingError) && !isLoggedDefer && deps.errorHooks.length === 0) {
+  } else if (!(error instanceof LiveThingError) && deps.errorHooks.length === 0) {
     deps.logger.error(
       '[livething] A handler threw an unexpected error, and the client got internal-error. ' +
         'Add an onError hook to handle such errors yourself.',
@@ -160,38 +141,4 @@ export async function sendRuntimeError(
 
   const { payload, livething } = normalizeRuntimeError(error, routing, deps.declaredErrorCodes);
   deps.sendProtocolMessage(connection, { event: '__error__', payload, livething });
-}
-
-export interface NotifyValidationErrorOptions {
-  event: string;
-
-  validationError: unknown;
-
-  scope?: ResolvedChannel;
-}
-
-/**
- * Notify `onValidationError(...)` hooks for one failed incoming payload.
- *
- * This does not decide whether the client receives `__error__`; it only tells
- * the registered validation hooks that validation failed.
- */
-export async function notifyValidationError(
-  deps: ValidationErrorDeps,
-  connection: RuntimeConnection,
-  options: NotifyValidationErrorOptions,
-): Promise<void> {
-  const { event, validationError, scope } = options;
-  if (deps.validationErrorHooks.length === 0) return;
-
-  const ctx = deps.buildConnectionContext(connection, scope);
-
-  await forEachIsolatedAsync(
-    deps.validationErrorHooks,
-    (hook) =>
-      withConnectionLevelCall(deps.asyncContext, { connectionId: connection.id, ctx }, () =>
-        hook(ctx, event, validationError),
-      ),
-    { context: `onValidationError hook event="${event}"` },
-  );
 }

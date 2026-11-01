@@ -1,19 +1,13 @@
 import { replay } from '~/replay/replay.ts';
-import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
-import type { ReplayDurability, ReplaySnapshotValue, ReplayType } from '~/replay/types.ts';
+import type { ReplaySnapshotValue } from '~/replay/types.ts';
 
 const replayPrimitive = replay();
 const _replayType: ReplayPrimitive = replayPrimitive;
 void _replayType;
 
 const _tag: 'replay' = replayPrimitive.__livething;
-const _kind: PrimitiveKind = replayPrimitive.__kind;
-void [_tag, _kind];
-
-const _ref: PrimitiveRef = replay;
-const _key: symbol = replay.__key;
-void [_ref, _key];
+void _tag;
 
 const configuredReplay = replay({
   type: 'snapshot',
@@ -46,6 +40,4 @@ const configuredReplay = replay({
 });
 
 const _configuredReplay: ReplayPrimitive = configuredReplay;
-const _type: ReplayType | undefined = configuredReplay.options.type;
-const _durability: ReplayDurability | undefined = configuredReplay.options.durability;
-void [_configuredReplay, _type, _durability];
+void _configuredReplay;

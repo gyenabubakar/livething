@@ -1,32 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { inbox } from './inbox.ts';
+import { inbox, resolveInboxOptions } from './inbox.ts';
 
 describe('inbox capability — option resolution and validation', () => {
-  it('defaults onDelivered to delete, receipts off, and the default audience cap', () => {
-    expect(inbox({}).options).toEqual({
-      onDelivered: 'delete',
+  it('defaults receipts off and the default audience cap', () => {
+    expect(resolveInboxOptions({})).toEqual({
       broadcastReceipts: false,
       maxReceiptAudience: 256,
     });
   });
 
-  it('throws when onDelivered:retain is set without retention', () => {
-    expect(() => inbox({ onDelivered: 'retain' } as never)).toThrow(/retention/);
-  });
-
-  it('allows retention in the default delete mode (it bounds the undelivered queue for overflow)', () => {
-    expect(inbox({ retention: { maxMessages: 1 } }).options).toEqual({
-      onDelivered: 'delete',
+  it('keeps retention (it bounds the undelivered queue for overflow)', () => {
+    expect(resolveInboxOptions({ retention: { maxMessages: 1 } })).toEqual({
       retention: { maxMessages: 1 },
-      broadcastReceipts: false,
-      maxReceiptAudience: 256,
-    });
-  });
-
-  it('accepts onDelivered:retain with retention', () => {
-    expect(inbox({ onDelivered: 'retain', retention: { maxMessages: 100 } }).options).toEqual({
-      onDelivered: 'retain',
-      retention: { maxMessages: 100 },
       broadcastReceipts: false,
       maxReceiptAudience: 256,
     });
@@ -38,12 +23,12 @@ describe('inbox capability — option resolution and validation', () => {
   });
 
   it('turns receipt broadcasting on when asked', () => {
-    expect(inbox({ broadcastReceipts: true }).options.broadcastReceipts).toBe(true);
+    expect(resolveInboxOptions({ broadcastReceipts: true }).broadcastReceipts).toBe(true);
   });
 
   it('honors a custom maxReceiptAudience, keeping 256 as the default', () => {
-    expect(inbox({ maxReceiptAudience: 50 }).options.maxReceiptAudience).toBe(50);
-    expect(inbox({}).options.maxReceiptAudience).toBe(256);
+    expect(resolveInboxOptions({ maxReceiptAudience: 50 }).maxReceiptAudience).toBe(50);
+    expect(resolveInboxOptions({}).maxReceiptAudience).toBe(256);
   });
 
   it('declares its required capabilities', () => {

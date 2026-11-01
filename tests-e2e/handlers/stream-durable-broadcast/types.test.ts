@@ -41,48 +41,13 @@ describe('StreamDurableBroadcastClient — channels', () => {
     }>();
   });
 
-  it('feed has no cursor, nudges, or broadcast key', () => {
-    expectTypeOf<
-      StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']
-    >().not.toHaveProperty('cursor');
+  it('feed has no nudges or broadcast key', () => {
     expectTypeOf<
       StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']
     >().not.toHaveProperty('nudges');
     expectTypeOf<
       StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']
     >().not.toHaveProperty('broadcast');
-  });
-
-  it('rooms streams has paginate (cursorStream)', () => {
-    expectTypeOf<StreamDurableBroadcastClient['channels']['rooms']['streams']>().toHaveProperty(
-      'paginate',
-    );
-  });
-
-  it('paginate has correct chunk', () => {
-    expectTypeOf<
-      StreamDurableBroadcastClient['channels']['rooms']['streams']['paginate']['chunk']
-    >().toEqualTypeOf<{
-      row: number;
-    }>();
-  });
-
-  it('paginate has no cursor (no cursor validator)', () => {
-    expectTypeOf<
-      StreamDurableBroadcastClient['channels']['rooms']['streams']['paginate']
-    >().not.toHaveProperty('cursor');
-  });
-
-  it('rooms streams has attempt-broadcast (cursorStream)', () => {
-    expectTypeOf<StreamDurableBroadcastClient['channels']['rooms']['streams']>().toHaveProperty(
-      'attempt-broadcast',
-    );
-  });
-
-  it('attempt-broadcast chunk is correct', () => {
-    expectTypeOf<
-      StreamDurableBroadcastClient['channels']['rooms']['streams']['attempt-broadcast']['chunk']
-    >().toEqualTypeOf<{ attempt: number }>();
   });
 
   it('rooms incoming and outgoing are empty', () => {
@@ -93,12 +58,6 @@ describe('StreamDurableBroadcastClient — channels', () => {
 
 describe('StreamDurableBroadcastClient — stream kind', () => {
   it('all streams are persistent', () => {
-    expectTypeOf<
-      StreamDurableBroadcastClient['channels']['rooms']['streams']['attempt-broadcast']['kind']
-    >().toEqualTypeOf<'persistent'>();
-    expectTypeOf<
-      StreamDurableBroadcastClient['channels']['rooms']['streams']['paginate']['kind']
-    >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
       StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']['kind']
     >().toEqualTypeOf<'persistent'>();

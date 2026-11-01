@@ -1,8 +1,6 @@
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { resolveChannel } from '~/_engine/runtime/scope.ts';
 import { addChannelMembership } from '~/channel/runtime.ts';
-import { Defer } from '~/errors/errors.ts';
-import { runIntercepts } from '~/intercept/runtime.ts';
 import { localKey } from '~/local-key/local-key.ts';
 import { broadcastToChannel, sendThroughPipeline } from '~/outgoing/runtime.ts';
 import { handleRequest } from '~/request/runtime.ts';
@@ -44,7 +42,6 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -91,7 +88,6 @@ describe('message runtime', () => {
       compiled: {
         outgoing: new Map([['message', { event: 'message' }]]),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         channels: new Map(),
         channelFamilies: new Map([
@@ -105,7 +101,6 @@ describe('message runtime', () => {
               incoming: new Map(),
               requests: new Map(),
               streams: new Map(),
-              cursorStreams: new Map(),
               recordedStreams: new Map(),
               intercepts: [],
             },
@@ -113,9 +108,7 @@ describe('message runtime', () => {
         ]),
       },
       outgoingHooks: [],
-      beforeSendHooks: [],
       livethingStampHooks: [],
-      afterSendHooks: [],
       logger: {
         warn() {},
         error() {},
@@ -156,7 +149,6 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -171,7 +163,6 @@ describe('message runtime', () => {
               incoming: new Map([['message', { event: 'message', handler, validator: undefined }]]),
               requests: new Map(),
               streams: new Map(),
-              cursorStreams: new Map(),
               recordedStreams: new Map(),
               intercepts: [],
             },
@@ -199,7 +190,6 @@ describe('message runtime', () => {
       async handleRuntimeError(_conn: unknown, { error, event, routing }: SendRuntimeErrorOptions) {
         errors.push({ error, event, routing });
       },
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       generateId() {
@@ -238,10 +228,9 @@ describe('message runtime', () => {
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
   });
 
-  it('routes ValidationFailed thrown from a handler to handleValidationError', async () => {
+  it('routes ValidationFailed thrown from a handler to handleRuntimeError once', async () => {
     const { ValidationFailed } = await import('@livething/core');
-    const validationErrors: string[] = [];
-    const runtimeErrors: unknown[] = [];
+    const runtimeErrors: SendRuntimeErrorOptions[] = [];
     const connection = createConnection('conn_1');
 
     const runtime = {
@@ -264,7 +253,6 @@ describe('message runtime', () => {
         ]),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -288,11 +276,8 @@ describe('message runtime', () => {
       sendProtocolMessage() {},
       sendReplay() {},
       persistAttachment() {},
-      async handleRuntimeError(_conn: unknown, error: unknown) {
-        runtimeErrors.push(error);
-      },
-      async handleValidationError(_conn: unknown, { event }: { event: string }) {
-        validationErrors.push(event);
+      async handleRuntimeError(_conn: unknown, options: SendRuntimeErrorOptions) {
+        runtimeErrors.push(options);
       },
       async handleSubscribe() {},
       async handleUnsubscribe() {},
@@ -307,12 +292,12 @@ describe('message runtime', () => {
       { event: 'manual-check', payload: {}, livething: undefined },
     );
 
-    expect(validationErrors).toEqual(['manual-check']);
     expect(runtimeErrors).toHaveLength(1);
+    expect(runtimeErrors[0]!.event).toBe('manual-check');
+    expect((runtimeErrors[0]!.error as { code?: string }).code).toBe('validation-failed');
   });
 
-  it('propagates LiveThingConfigError without routing through handleValidationError (async validator)', async () => {
-    const handleValidationError = vi.fn();
+  it('propagates LiveThingConfigError without routing through handleRuntimeError (async validator)', async () => {
     const handleRuntimeError = vi.fn();
     const handler = vi.fn();
     const connection = createConnection('conn_1');
@@ -332,7 +317,6 @@ describe('message runtime', () => {
         ]),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -357,7 +341,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       handleRuntimeError,
-      handleValidationError,
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       generateId() {
@@ -373,12 +356,11 @@ describe('message runtime', () => {
       }),
     ).rejects.toThrow(/async validators are not supported/);
 
-    expect(handleValidationError).not.toHaveBeenCalled();
+    expect(handleRuntimeError).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('fires handleValidationError exactly once when a schema validator rejects a payload', async () => {
-    const handleValidationError = vi.fn();
+  it('fires handleRuntimeError exactly once when a schema validator rejects a payload', async () => {
     const handleRuntimeError = vi.fn();
     const handler = vi.fn();
     const connection = createConnection('conn_1');
@@ -399,7 +381,6 @@ describe('message runtime', () => {
         ]),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -424,7 +405,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       handleRuntimeError,
-      handleValidationError,
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       generateId() {
@@ -438,18 +418,12 @@ describe('message runtime', () => {
       { event: 'send-strict', payload: {}, livething: undefined },
     );
 
-    // Schema validation rejects the payload and reports it exactly once through
-    // each error path.
-    expect(handleValidationError).toHaveBeenCalledTimes(1);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('manual ValidationFailed thrown from a channel handler reaches handleValidationError with the resolved scope', async () => {
-    // A manually thrown ValidationFailed keeps the same resolved channel scope
-    // that a schema validation failure would use.
+  it('manual ValidationFailed thrown from a channel handler reaches handleRuntimeError with the channel routing', async () => {
     const { ValidationFailed } = await import('@livething/core');
-    const handleValidationError = vi.fn();
     const handleRuntimeError = vi.fn();
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
@@ -478,7 +452,6 @@ describe('message runtime', () => {
       ]),
       requests: new Map(),
       streams: new Map(),
-      cursorStreams: new Map(),
       recordedStreams: new Map(),
       intercepts: [],
     };
@@ -489,7 +462,6 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map([['room', channel]]),
@@ -514,7 +486,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       handleRuntimeError,
-      handleValidationError,
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
@@ -530,11 +501,10 @@ describe('message runtime', () => {
       { event: 'manual-check', payload: {}, livething: { channel: 'room', channelFamily: null } },
     );
 
-    expect(handleValidationError).toHaveBeenCalledTimes(1);
-    const [, { scope }] = handleValidationError.mock.calls[0]!;
-    expect(scope).toBeDefined();
-    expect((scope as { channelName?: string }).channelName).toBe('room');
-    expect((scope as { channel?: unknown }).channel).toBe(channel);
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, { error, routing }] = handleRuntimeError.mock.calls[0]!;
+    expect((error as { code?: string }).code).toBe('validation-failed');
+    expect(routing).toEqual({ channel: 'room', channelFamily: null });
   });
 
   it('a schema-failed request preserves correlationId on the error frame', async () => {
@@ -562,7 +532,6 @@ describe('message runtime', () => {
           ],
         ]),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -586,7 +555,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       handleRuntimeError,
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
@@ -635,7 +603,6 @@ describe('message runtime', () => {
           ],
         ]),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -659,7 +626,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       handleRuntimeError,
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
@@ -719,7 +685,6 @@ describe('message runtime', () => {
           ],
         ]),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [
           {
@@ -743,18 +708,14 @@ describe('message runtime', () => {
       incomingHooks: [],
       outgoingHooks: [],
       livethingStampHooks: [],
-      beforeSendHooks: [],
-      afterSendHooks: [],
       errorHooks: [],
       buildConnectionContext() {
         return sharedCtx;
       },
-      runIntercepts,
       sendProtocolMessage() {},
       sendReplay() {},
       persistAttachment() {},
       async handleRuntimeError() {},
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       requestDispatch: requestDispatchForSpec,
@@ -799,7 +760,6 @@ describe('message runtime', () => {
         ]),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map([
@@ -813,7 +773,6 @@ describe('message runtime', () => {
               incoming: new Map(), // channel does NOT register 'top-only'
               requests: new Map(),
               streams: new Map(),
-              cursorStreams: new Map(),
               recordedStreams: new Map(),
               intercepts: [],
             },
@@ -840,7 +799,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       async handleRuntimeError() {},
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       generateId() {
@@ -867,7 +825,6 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -885,7 +842,6 @@ describe('message runtime', () => {
               incoming: new Map(),
               requests: new Map(),
               streams: new Map(),
-              cursorStreams: new Map(),
               recordedStreams: new Map(),
               intercepts: [],
             },
@@ -913,7 +869,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       handleRuntimeError,
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       generateId() {
@@ -952,7 +907,6 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -981,7 +935,6 @@ describe('message runtime', () => {
         throw boom;
       },
       handleRuntimeError,
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       generateId() {
@@ -1020,7 +973,6 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -1047,7 +999,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       handleRuntimeError,
-      async handleValidationError() {},
       handleSubscribe,
       async handleUnsubscribe() {},
       generateId() {
@@ -1079,7 +1030,6 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -1106,7 +1056,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       handleRuntimeError,
-      async handleValidationError() {},
       async handleSubscribe() {},
       handleUnsubscribe,
       generateId() {
@@ -1140,7 +1089,6 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -1164,7 +1112,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       handleRuntimeError,
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       generateId() {
@@ -1202,7 +1149,6 @@ describe('message runtime', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
-        cursorStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
         channels: new Map(),
@@ -1229,7 +1175,6 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       async handleRuntimeError() {},
-      async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       generateId() {
@@ -1255,7 +1200,6 @@ function makeScopedNode(intercepts: unknown[] = []) {
   return {
     intercepts,
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
   };
 }
@@ -1277,7 +1221,6 @@ function makeNudgeRuntime(
       incoming: new Map(),
       requests: new Map(),
       streams: new Map(),
-      cursorStreams: new Map(),
       recordedStreams: new Map(),
       intercepts,
       channels,
@@ -1297,13 +1240,10 @@ function makeNudgeRuntime(
     incomingDedupCap: 0,
     durableStreamSchemaReady: false,
     streamNudgeBuffer: bufferStreamNudge,
-    runIntercepts,
     buildConnectionContext: () => ({}),
     handleRuntimeError,
-    async handleValidationError() {},
     async handleSubscribe() {},
     async handleUnsubscribe() {},
-    handleMemberSync() {},
     sendProtocolMessage() {},
     sendReplay() {},
     persistAttachment() {},
@@ -1327,35 +1267,6 @@ function makeActiveStream(connectionId: string, nudgeEvent: string) {
     closed: false,
   };
 }
-
-describe('inbound __memberSync__ request (bug #16)', () => {
-  it('routes a client __memberSync__ frame to handleMemberSync', async () => {
-    const connection = createConnection('conn_1');
-    const handleMemberSync = vi.fn();
-    const runtime = {
-      ...makeNudgeRuntime([], new Map()),
-      connections: new Map([[connection.id, connection]]),
-      handleMemberSync,
-    };
-
-    await processTextMessage(
-      runtime as unknown as Parameters<typeof processTextMessage>[0],
-      connection,
-      JSON.stringify([
-        '__memberSync__',
-        {},
-        { channel: { name: 'room' }, exchange: { source: 'client' } },
-      ]),
-    );
-
-    expect(handleMemberSync).toHaveBeenCalledTimes(1);
-    const frame = handleMemberSync.mock.calls[0]?.[1] as {
-      __livething: { channel: string; source?: string };
-    };
-    expect(frame.__livething.channel).toBe('room');
-    expect(frame.__livething.source).toBe('client');
-  });
-});
 
 describe('nudge intercepts', () => {
   it('intercept sees kind=nudge and routing.streamId for a nudge frame', async () => {
@@ -1495,184 +1406,6 @@ describe('nudge intercepts', () => {
     );
 
     expect(activeStream.nudges).toHaveLength(0);
-  });
-});
-
-describe('Defer retry hook isolation', () => {
-  it('incoming hooks run only once across original dispatch and Defer retry', async () => {
-    vi.useFakeTimers();
-    try {
-      const connection = createConnection('conn_1');
-      let hookCallCount = 0;
-      let handlerAttempt = 0;
-
-      const runtime = {
-        compiled: {
-          outgoing: new Map(),
-          incoming: new Map([
-            [
-              'work',
-              {
-                event: 'work',
-                handler: async () => {
-                  handlerAttempt += 1;
-                  if (handlerAttempt === 1) throw Defer(10);
-                },
-                validator: undefined,
-              },
-            ],
-          ]),
-          requests: new Map(),
-          streams: new Map(),
-          cursorStreams: new Map(),
-          recordedStreams: new Map(),
-          intercepts: [],
-          channels: new Map(),
-          channelFamilies: new Map(),
-          scheduled: new Map(),
-          requires: {},
-          replayClaimedChannelKeys: new Set(),
-        },
-        connections: new Map([[connection.id, connection]]),
-        toConnectionInfo() {
-          return { id: connection.id };
-        },
-        activeStreams: new Map(),
-        protocolHandlers: new Map(),
-        incomingHooks: [
-          (_msg: { event: string; payload: unknown }) => {
-            hookCallCount += 1;
-          },
-        ],
-        errorHooks: [],
-        buildConnectionContext() {
-          return { id: connection.id };
-        },
-        broadcastToConnections() {},
-        sendProtocolMessage() {},
-        sendReplay() {},
-        persistAttachment() {},
-        async handleRuntimeError() {},
-        async handleValidationError() {},
-        async handleSubscribe() {},
-        async handleUnsubscribe() {},
-        generateId() {
-          return 'id_1';
-        },
-      };
-
-      await dispatchIncoming(
-        runtime as unknown as Parameters<typeof dispatchIncoming>[0],
-        connection,
-        { event: 'work', payload: {}, livething: undefined },
-      );
-
-      expect(handlerAttempt).toBe(1);
-
-      await vi.advanceTimersByTimeAsync(10);
-
-      expect(handlerAttempt).toBe(2);
-
-      // Correct behavior: the incoming hook must have run only ONCE total.
-      // Today the retry re-dispatches from the top of dispatchIncoming and
-      // re-runs incomingHooks, so hookCallCount is 2 — this assertion fails.
-      expect(hookCallCount).toBe(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('a DeferExhausted onError hook receives the channel-scoped ctx when the handler defers inside a channel', async () => {
-    vi.useFakeTimers();
-    try {
-      const channelMembers = new Map<string, Set<RuntimeConnection>>();
-      const connection = createConnection('conn_1');
-      addMembership(channelMembers, connection, { channelName: 'room' });
-
-      const channel = {
-        key: 'room',
-        kind: 'channel' as const,
-        pattern: 'room',
-        outgoing: new Map(),
-        incoming: new Map([
-          [
-            'work',
-            {
-              event: 'work',
-              validator: undefined,
-              handler: () => {
-                throw Defer(10);
-              },
-            },
-          ],
-        ]),
-        requests: new Map(),
-        streams: new Map(),
-        cursorStreams: new Map(),
-        recordedStreams: new Map(),
-        intercepts: [],
-      };
-
-      let capturedCtx: { id?: string; channel?: string } | undefined;
-
-      const runtime = {
-        compiled: {
-          outgoing: new Map(),
-          incoming: new Map(),
-          requests: new Map(),
-          streams: new Map(),
-          cursorStreams: new Map(),
-          recordedStreams: new Map(),
-          intercepts: [],
-          channels: new Map([['room', channel]]),
-          channelFamilies: new Map(),
-          scheduled: new Map(),
-          requires: {},
-          replayClaimedChannelKeys: new Set(),
-        },
-        connections: new Map([[connection.id, connection]]),
-        channelMembers,
-        toConnectionInfo() {
-          return { id: connection.id };
-        },
-        activeStreams: new Map(),
-        protocolHandlers: new Map(),
-        incomingHooks: [],
-        errorHooks: [
-          (ctx: { id?: string; channel?: string }) => {
-            capturedCtx = ctx;
-          },
-        ],
-        buildConnectionContext(_connection: RuntimeConnection, scope?: { channelName?: string }) {
-          return { id: connection.id, channel: scope?.channelName };
-        },
-        broadcastToConnections() {},
-        sendProtocolMessage() {},
-        sendReplay() {},
-        persistAttachment() {},
-        async handleRuntimeError() {},
-        async handleValidationError() {},
-        async handleSubscribe() {},
-        async handleUnsubscribe() {},
-        sendThroughPipeline: () => true,
-        generateId() {
-          return 'id_1';
-        },
-      };
-
-      await dispatchIncoming(
-        runtime as unknown as Parameters<typeof dispatchIncoming>[0],
-        connection,
-        { event: 'work', payload: {}, livething: { channel: 'room', channelFamily: null } },
-      );
-      // Exhaust the defer retries (initial + 3 retries at 10ms each).
-      await vi.advanceTimersByTimeAsync(100);
-
-      expect(capturedCtx).toBeDefined();
-      expect(capturedCtx?.channel).toBe('room');
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 

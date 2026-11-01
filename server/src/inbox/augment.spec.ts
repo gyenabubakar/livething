@@ -14,7 +14,6 @@ import { ensureReceiptsSchema } from './receipts-storage.ts';
 import { ensureInboxSchema } from './storage.ts';
 
 const INBOX_OPTIONS: ResolvedInboxOptions = {
-  onDelivered: 'delete',
   broadcastReceipts: false,
   maxReceiptAudience: 256,
 };

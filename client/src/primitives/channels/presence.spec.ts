@@ -358,29 +358,6 @@ describe('presence frames are ignored while a leave is pending', () => {
   });
 });
 
-describe('resyncMembers() fire-and-forget request', () => {
-  it('sends a client-source __memberSync__ when subscribed', async () => {
-    const { socket, ws } = build();
-    const room = await subscribeChannel(socket, ws, 'general');
-    room.resyncMembers();
-    const frame = ws
-      .sentFrames()
-      .filter((f) => f.event === '__memberSync__')
-      .at(-1);
-    expect(frame).toBeDefined();
-
-    expect(frame?.metadata?.channel?.name).toBe('general');
-    expect(frame?.metadata?.exchange?.source).toBe('client');
-  });
-
-  it('is a no-op (sends nothing) when the channel is not active', () => {
-    const { socket, ws } = build();
-    const room = socket.channel('general');
-    room.resyncMembers();
-    expect(ws.sentFrames().some((f) => f.event === '__memberSync__')).toBe(false);
-  });
-});
-
 describe('presence frames after the channel has been left', () => {
   async function leftChannel() {
     const { socket, ws } = build();

@@ -34,7 +34,7 @@ test.describe('heartbeat hooks — no keepalive() listed', () => {
     expect(await rawFrames(page, sock)).not.toContain('ping');
   });
 
-  test('base.onPing fires after the pong reply, with a context for that connection', async ({
+  test('the onPing hook fires after the pong reply, with a context for that connection', async ({
     page,
   }, testInfo) => {
     const room = `heartbeat-${testInfo.testId}`;
@@ -54,7 +54,7 @@ test.describe('heartbeat hooks — no keepalive() listed', () => {
     expect(seen.payload.connectionId).toMatch(/^conn_/);
   });
 
-  test('base.onPong fires when the client sends a pong', async ({ page }, testInfo) => {
+  test('the onPong hook fires when the client sends a pong', async ({ page }, testInfo) => {
     const room = `heartbeat-${testInfo.testId}`;
     await openRig(page, room);
     const sock = await connect(page, { path: '/ws/heartbeat', username: 'alice', room });
@@ -186,7 +186,7 @@ test.describe('heartbeat hooks — keepalive() listed', () => {
 });
 
 test.describe('heartbeat hooks — hibernation enabled', () => {
-  test('a client ping is answered by the runtime, so base.onPing never fires', async ({
+  test('a client ping is answered by the runtime, so the onPing hook never fires', async ({
     page,
   }, testInfo) => {
     const room = `heartbeat-hib-${testInfo.testId}`;
@@ -209,7 +209,7 @@ test.describe('heartbeat hooks — hibernation enabled', () => {
     expect((await frames(page, sock)).filter((f) => f.event === 'ping-seen')).toHaveLength(0);
   });
 
-  test('base.onPong still fires, because only ping is auto-answered', async ({
+  test('the onPong hook still fires, because only ping is auto-answered', async ({
     page,
   }, testInfo) => {
     const room = `heartbeat-hib-${testInfo.testId}`;

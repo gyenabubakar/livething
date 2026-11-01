@@ -54,7 +54,7 @@ describe('durable membership user gate', () => {
         channelName: 'room',
         channelFamily: null,
       }),
-    ).toEqual({ meta: { name: 'Ada' }, kicked: false });
+    ).toEqual({ meta: { name: 'Ada' } });
   });
 
   it('skips the durable delete for an empty user id', () => {
@@ -87,7 +87,7 @@ describe('durable membership user gate', () => {
   });
 });
 
-describe('kick(userRef, { revoke: true })', () => {
+describe('kick(userRef)', () => {
   function userRef(id: string): {
     __livething: 'user-ref';
     id: string;
@@ -101,7 +101,7 @@ describe('kick(userRef, { revoke: true })', () => {
       id,
       userId,
       wsKey: Symbol(id),
-      descriptor: { send() {}, close() {}, bufferedAmount: () => 0, userId },
+      descriptor: { send() {}, close() {}, bufferedAmount: () => 0 },
       meta: {},
       tags: { ephemeral: new Map(), persistent: new Map() },
       channelMemberships: new Map(),
@@ -118,7 +118,6 @@ describe('kick(userRef, { revoke: true })', () => {
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
-    cursorStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
   };
@@ -144,12 +143,10 @@ describe('kick(userRef, { revoke: true })', () => {
       persistAttachment() {},
       sendProtocolMessage() {},
       broadcastToChannel() {},
-      async handleValidationError() {},
       isChannelDurable: () => true,
       persistMembership() {},
       deleteDurableMembership,
       getDurableMembership: () => undefined,
-      markDurableMembershipKicked() {},
       listDurableMembers: () => [],
     };
   }
@@ -190,12 +187,11 @@ describe('kick(userRef, { revoke: true })', () => {
         channelName: 'room',
         channelFamily: null,
         target: userRef('user-1'),
-        reason: 'revoked',
-        revoke: true,
+        reason: 'banned',
       },
     );
 
-    // The revoked user id — not the connection id — is what must reach the
+    // The kicked user id — not the connection id — is what must reach the
     // durable delete, or the row survives and the user auto-rejoins.
     expect(calls).toEqual([{ userId: 'user-1', channelName: 'room', channelFamily: null }]);
     expect(connection.channelMemberships.size).toBe(0);
@@ -225,8 +221,7 @@ describe('kick(userRef, { revoke: true })', () => {
         channelName: 'room',
         channelFamily: null,
         target: userRef('user-1'),
-        reason: 'revoked',
-        revoke: true,
+        reason: 'banned',
       },
     );
 
@@ -234,7 +229,7 @@ describe('kick(userRef, { revoke: true })', () => {
   });
 });
 
-describe('durable membership is the channel default', () => {
+describe('channel membership is ephemeral by default', () => {
   function passthroughAsyncContext(): AsyncContextFactory {
     return function createAsyncContext<TStore>() {
       let current: TStore | undefined;
@@ -269,7 +264,6 @@ describe('durable membership is the channel default', () => {
           timers: {
             setAlarm: vi.fn(async () => {}),
             deleteAlarm: vi.fn(async () => {}),
-            getAlarm: vi.fn(async () => null),
           },
           logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         });
@@ -312,8 +306,19 @@ describe('durable membership is the channel default', () => {
     );
   }
 
-  it('writes a membership row on subscribe when no `membership` setting is given', async () => {
+  it('writes no row and does not rejoin when no `membership` setting is given', async () => {
     const { engine, sql } = await buildEngine(makeHandler());
+    const { handle } = await connectUser(engine, 'alice');
+    await subscribeToRoom(handle);
+
+    expect(listMembershipsByUser(sql, 'alice')).toHaveLength(0);
+
+    const { connection: second } = await connectUser(engine, 'alice');
+    expect(hasChannelMembership(second, 'room', null)).toBe(false);
+  });
+
+  it("writes a membership row on subscribe with `membership: 'persistent'`", async () => {
+    const { engine, sql } = await buildEngine(makeHandler({ membership: 'persistent' }));
     const { handle } = await connectUser(engine, 'alice');
 
     await subscribeToRoom(handle);
@@ -322,8 +327,8 @@ describe('durable membership is the channel default', () => {
     expect(rows).toEqual([expect.objectContaining({ channelName: 'room', channelFamily: null })]);
   });
 
-  it('auto-rejoins the user into that channel after a reconnect', async () => {
-    const handler = makeHandler();
+  it("auto-rejoins the user into a `membership: 'persistent'` channel after a reconnect", async () => {
+    const handler = makeHandler({ membership: 'persistent' });
     const { engine, sql } = await buildEngine(handler);
     const { handle: firstHandle } = await connectUser(engine, 'alice');
     await subscribeToRoom(firstHandle);
@@ -334,6 +339,23 @@ describe('durable membership is the channel default', () => {
     const { connection: second } = await connectUser(engine, 'alice');
 
     expect(hasChannelMembership(second, 'room', null)).toBe(true);
+  });
+
+  it('a kicked user is not back in the channel after reconnecting', async () => {
+    const { engine, sql } = await buildEngine(makeHandler({ membership: 'persistent' }));
+    const { handle } = await connectUser(engine, 'alice');
+    await subscribeToRoom(handle);
+
+    await engine.core.channelService?.kickChannelMembers(engine.core, {
+      channelName: 'room',
+      channelFamily: null,
+      target: { __livething: 'user-ref', id: 'alice', instance: engine.core.engineInstanceId },
+      reason: 'spam',
+    });
+
+    const { connection: second } = await connectUser(engine, 'alice');
+    expect(hasChannelMembership(second, 'room', null)).toBe(false);
+    expect(listMembershipsByUser(sql, 'alice')).toHaveLength(0);
   });
 
   it("writes no row and does not rejoin when the channel opts out with `membership: 'ephemeral'`", async () => {
@@ -348,8 +370,8 @@ describe('durable membership is the channel default', () => {
     expect(hasChannelMembership(second, 'room', null)).toBe(false);
   });
 
-  it('writes no row for an anonymous connection even on a default (persistent) channel', async () => {
-    const { engine, sql } = await buildEngine(makeHandler());
+  it('writes no row for an anonymous connection even on a persistent channel', async () => {
+    const { engine, sql } = await buildEngine(makeHandler({ membership: 'persistent' }));
     const { handle } = await connectUser(engine, '');
 
     await subscribeToRoom(handle);

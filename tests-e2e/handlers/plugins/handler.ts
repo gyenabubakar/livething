@@ -79,10 +79,9 @@ export function createPluginsDefinition<
         'plugin-rewrite-result': t<{ text: string; rewritten?: boolean }>(),
       }),
     ],
-  });
-
-  base.onConnect((ctx) => {
-    ctx.log.info('Plugin server: client connected', { id: ctx.connection.id });
+    onConnect(ctx) {
+      ctx.log.info('Plugin server: client connected', { id: ctx.connection.id });
+    },
   });
 
   const handleInsert = base.on('insert-record', {

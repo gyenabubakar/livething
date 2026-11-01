@@ -18,7 +18,6 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -50,7 +49,6 @@ function createRuntime(
     compiled: {
       outgoing: new Map(),
       streams: new Map(),
-      cursorStreams: new Map(),
       recordedStreams: new Map(),
       channels: new Map([
         [
@@ -58,7 +56,6 @@ function createRuntime(
           {
             outgoing: new Map([['chat', { event: 'chat' }]]),
             streams: new Map(),
-            cursorStreams: new Map(),
             recordedStreams: new Map(),
           },
         ],
@@ -72,8 +69,6 @@ function createRuntime(
       { handler: () => undefined, owner: APP_HOOK_OWNER },
     ],
     livethingStampHooks: withStamper ? [() => ({ deliverySeq: seq++ })] : [],
-    beforeSendHooks: [],
-    afterSendHooks: [],
     logger: { warn() {}, error() {} },
     generateId: () => 'id',
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),

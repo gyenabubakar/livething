@@ -8,7 +8,7 @@ import type { ResolvedReadReceiptsOptions } from '~/_engine/runtime/feature-slot
 import type { InboxOptions, ReadReceiptsOptions } from '~/inbox/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
-export type { InboxRetention, OnDelivered } from '~/inbox/storage.ts';
+export type { InboxRetention } from '~/inbox/storage.ts';
 export type { InboxOptions, ReadReceiptsOptions } from '~/inbox/types.ts';
 
 /** The capability `inbox(...)` returns — channel-only, so it only appears in a channel's own `capabilities` list. */
@@ -30,7 +30,8 @@ export type ReadReceiptsCapability = ChannelOnlyCapability<
  * have a stable user id — anonymous connections get live-only delivery.
  *
  * Requires `sequence({ persist: true })` and `dedup()` on the host; the build
- * fails without them.
+ * fails without them. The channel must set `membership: 'persistent'`, or the
+ * server fails at startup.
  *
  * @example
  * ```ts
@@ -44,7 +45,7 @@ export type ReadReceiptsCapability = ChannelOnlyCapability<
  *   capabilities: [channels(), sequence({ persist: true }), dedup()],
  * });
  *
- * const chat = base.channel('chat', { capabilities: [inbox()] });
+ * const chat = base.channel('chat', { membership: 'persistent', capabilities: [inbox()] });
  * ```
  */
 export const inbox = withCapabilityKind(function inbox(config: InboxOptions = {}): InboxCapability {
@@ -65,18 +66,29 @@ export const inbox = withCapabilityKind(function inbox(config: InboxOptions = {}
  *
  * @example
  * ```ts
- * const chat = base.channel('chat', { capabilities: [inbox(), readReceipts()] });
+ * const chat = base.channel('chat', {
+ *   membership: 'persistent',
+ *   capabilities: [inbox(), readReceipts()],
+ * });
  * ```
  */
-export const readReceipts = withCapabilityKind(function readReceipts(
-  config: ReadReceiptsOptions = {},
-): ReadReceiptsCapability {
-  const cap = channelOnlyCapability<{}, never, 'readReceipts', typeof CAPABILITY_KIND.readReceipts>(
-    [],
-  );
-  attachReadReceiptsBuilder(cap, config);
-  return stampKind(cap, CAPABILITY_KIND.readReceipts);
-}, CAPABILITY_KIND.readReceipts);
+export const readReceipts = /* @__PURE__ */ withCapabilityKind(
+  function readReceipts(config: ReadReceiptsOptions = {}): ReadReceiptsCapability {
+    const cap = channelOnlyCapability<
+      {},
+      never,
+      'readReceipts',
+      typeof CAPABILITY_KIND.readReceipts
+    >([]);
+    attachReadReceiptsBuilder(cap, config);
+    return stampKind(cap, CAPABILITY_KIND.readReceipts);
+  },
+  // A literal, not `CAPABILITY_KIND.readReceipts`: a bundler cannot prove that
+  // property read free of side effects, so it would keep this `@__PURE__` call
+  // and all of read receipts in an app that imports only `inbox`.
+  // `scripts/bundle-check.mjs` guards this. `satisfies` keeps the two equal.
+  'read-receipts' satisfies typeof CAPABILITY_KIND.readReceipts,
+);
 
 function attachInboxBuilder(cap: InboxCapability, config: InboxOptions): void {
   (cap as { __buildChannelPrimitive?: () => Primitive }).__buildChannelPrimitive = () =>

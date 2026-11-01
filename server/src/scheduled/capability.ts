@@ -2,7 +2,7 @@
 import { assertValidLiveThingIdentifier, LiveThingConfigError } from '@livething/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
-import { assertPositiveInteger } from '~/_engine/validation.ts';
+import { assertAlarmDelay } from '~/_engine/validation.ts';
 import { assertNoNameSeparator } from '~/event-name.ts';
 import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import { scheduleSurfacePrimitive } from '~/scheduled/surface.ts';
@@ -78,12 +78,18 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
 
   const context = `scheduled("${taskId}")`;
 
+  if (typeof def !== 'object' || Array.isArray(def)) {
+    throw new LiveThingConfigError(
+      `${context}: a task declaration must be null or an object, got ${String(def)}.`,
+    );
+  }
+
   const dataValue = 'data' in def ? def.data : undefined;
   const dataSchema =
     dataValue !== undefined && !isTypeMarker(dataValue) ? (dataValue as Validator) : undefined;
 
   if ('every' in def && def.every !== undefined) {
-    assertPositiveInteger(def.every, '.every', context);
+    assertAlarmDelay(def.every, 'every', context);
     if (dataValue !== undefined) {
       throw new LiveThingConfigError(
         `${context}: a task with 'every' cannot declare 'data'. A recurring run has no caller to supply the payload.`,
@@ -91,13 +97,21 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
     }
   }
 
-  if ('retry' in def && def.retry !== undefined && Array.isArray(def.retry)) {
-    if (def.retry.length === 0) {
-      throw new Error(`[livething] ${context}: 'retry' requires at least one entry.`);
+  if ('retry' in def && def.retry !== undefined) {
+    if (typeof def.retry !== 'boolean' && !Array.isArray(def.retry)) {
+      throw new LiveThingConfigError(
+        `${context}: 'retry' must be a boolean or an array of delays in milliseconds.`,
+      );
     }
 
-    for (const entry of def.retry) {
-      assertPositiveInteger(entry, '.retry', context);
+    if (Array.isArray(def.retry)) {
+      if (def.retry.length === 0) {
+        throw new LiveThingConfigError(`${context}: 'retry' requires at least one entry.`);
+      }
+
+      for (const [index, entry] of def.retry.entries()) {
+        assertAlarmDelay(entry, `retry[${index}]`, context);
+      }
     }
   }
 
@@ -116,7 +130,8 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
 /**
  * Declare the scheduled tasks this server runs, and enable `base.scheduled`
  * handlers and `ctx.schedule(...)`. Each key is a task id; the value declares
- * how it behaves. Bind a body for every declared task with `base.scheduled`.
+ * how it behaves. Bind a body for every declared task with `base.scheduled`,
+ * and pass the handler it returns to `assemble({ handlers })`.
  *
  * Task payloads are typed with `t<...>()` and trusted, not validated — they
  * originate on the server when you call `ctx.schedule(...)`.
@@ -140,11 +155,16 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  *   ],
  * });
  *
- * base.scheduled('report', {
+ * const handleCleanup = base.scheduled('cleanup', { run() {} });
+ * const handleHeartbeat = base.scheduled('heartbeat', { run() {} });
+ * const handleReport = base.scheduled('report', {
  *   run(ctx, data) {
  *     // data: { userId: string }
  *   },
  * });
+ *
+ * // Pass every task handler to assemble(), or the declared task has no body.
+ * export default base.assemble({ handlers: [handleCleanup, handleHeartbeat, handleReport] });
  * ```
  */
 export const scheduled = withCapabilityKind(function scheduled<const TDefs extends ScheduledDefs>(

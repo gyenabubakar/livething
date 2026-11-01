@@ -24,12 +24,11 @@ const base = server({
       'kick-failed': t<{ tag: string; failures: number }>(),
     }),
   ],
-});
-
-base.onDisconnect((ctx) => {
-  if (ctx.meta.username === 'throwing-user') {
-    throw new Error('intentional onDisconnect throw');
-  }
+  onDisconnect(ctx) {
+    if (ctx.meta.username === 'throwing-user') {
+      throw new Error('intentional onDisconnect throw');
+    }
+  },
 });
 
 const handleTagSelf = base.on('tag-self', {
@@ -67,43 +66,37 @@ const handleTriggerServerSubscribe = base.on('trigger-server-subscribe', {
 });
 
 const room = base.channel('room', {
-  // Ephemeral: these tests assert that a dropped connection is a true leave
-  // (onUnsubscribe fires, __memberLeave__ broadcasts), which only holds when
-  // membership does not survive a reconnect.
-  membership: 'ephemeral',
   capabilities: [emits({ 'room-message': t<{ text: string; from: string; kind: string }>() })],
   check(ctx) {
     if (ctx.meta.username === 'blocked-user') {
       throw new Error('blocked-user may not subscribe');
     }
   },
-});
+  onSubscribe(ctx) {
+    if (ctx.channel.name !== 'room') {
+      throw new Error(`expected channel.name to be 'room', got ${ctx.channel.name}`);
+    }
 
-room.subscribe((ctx) => {
-  if (ctx.channel.name !== 'room') {
-    throw new Error(`expected channel.name to be 'room', got ${ctx.channel.name}`);
-  }
+    if (ctx.meta.username === 'subscribe-thrower') {
+      throw new Error('intentional onSubscribe throw');
+    }
 
-  if (ctx.meta.username === 'subscribe-thrower') {
-    throw new Error('intentional onSubscribe throw');
-  }
-
-  ctx.channel.broadcast('room-message', {
-    text: `${ctx.meta.username} entered`,
-    from: 'system',
-    kind: 'system',
-  });
-});
-
-room.unsubscribe((ctx) => {
-  ctx.channel.broadcast('room-message', {
-    text: `${ctx.meta.username} left`,
-    from: 'system',
-    kind: 'system',
-  });
-  if (ctx.meta.username.startsWith('leave-thrower')) {
-    throw new Error('intentional onUnsubscribe throw');
-  }
+    ctx.channel.broadcast('room-message', {
+      text: `${ctx.meta.username} entered`,
+      from: 'system',
+      kind: 'system',
+    });
+  },
+  onUnsubscribe(ctx) {
+    ctx.channel.broadcast('room-message', {
+      text: `${ctx.meta.username} left`,
+      from: 'system',
+      kind: 'system',
+    });
+    if (ctx.meta.username.startsWith('leave-thrower')) {
+      throw new Error('intentional onUnsubscribe throw');
+    }
+  },
 });
 
 const handleRoomSendMessage = room.on('send-message', {
@@ -141,10 +134,6 @@ const handleRoomStream = room.stream('start-channel-stream', {
 });
 
 const room2 = base.channel('room2', {
-  // Ephemeral for the same reason as `room` — the multi-channel throw tests
-  // drop a connection that is a member of both and expect a true leave on
-  // this channel too.
-  membership: 'ephemeral',
   capabilities: [emits({ 'room-message': t<{ text: string; from: string; kind: string }>() })],
 });
 

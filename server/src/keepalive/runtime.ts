@@ -19,7 +19,8 @@ function qualityFromLatency(latency: number): Quality {
 /** What the monitor remembers about one connection it is pinging. */
 interface WatchedConnection {
   pingTimer?: ReturnType<typeof setTimeout>;
-  pendingPingSentAt?: number;
+  /** When the one unanswered ping went out. A pong carries no id, so only one ping is sent at a time. */
+  pingSentAt: number | null;
   recentLatencies: number[];
   latency: number | null;
 }
@@ -69,12 +70,13 @@ export function createKeepaliveMonitor(
 
   function schedulePing(connectionId: string, connection: WatchedConnection): void {
     connection.pingTimer = setTimeout(() => {
-      const previousPingWentUnanswered = connection.pendingPingSentAt !== undefined;
-      if (previousPingWentUnanswered) {
-        engine.setConnectionLatency(connectionId, connection.latency, 'poor');
-      }
+      if (connection.pingSentAt !== null) {
+        // No ping goes out here to notice a closed socket, so ask the registry.
+        if (engine.setConnectionLatency(connectionId, connection.latency, 'poor') === false) return;
 
-      connection.pendingPingSentAt = Date.now();
+        schedulePing(connectionId, connection);
+        return;
+      }
 
       // The timer can fire in the same tick the socket is closing — most visibly
       // when the ping interval is half the idle timeout, so a ping lands exactly
@@ -84,18 +86,15 @@ export function createKeepaliveMonitor(
       try {
         sent = engine.sendPing(connectionId);
       } catch {
-        connection.pendingPingSentAt = undefined;
         return;
       }
 
-      // The connection can also be gone from the registry entirely — teardown
-      // removed it without ever calling `forget()`. Stop the loop the same way
-      // rather than pinging a connection id that will never answer again.
-      if (sent === false) {
-        connection.pendingPingSentAt = undefined;
-        return;
-      }
+      // The connection can also be gone from the registry, or its socket can
+      // refuse the frame while closing. Stop the loop the same way rather than
+      // pinging a connection that will never answer again.
+      if (sent === false) return;
 
+      connection.pingSentAt = Date.now();
       schedulePing(connectionId, connection);
     }, timings.pingIntervalMs);
   }
@@ -106,7 +105,12 @@ export function createKeepaliveMonitor(
 
       if (!supervise) return;
 
-      const connection: WatchedConnection = { recentLatencies: [], latency: null };
+      const connection: WatchedConnection = {
+        pingSentAt: null,
+        recentLatencies: [],
+        latency: null,
+      };
+
       watched.set(connectionId, connection);
       engine.refreshConnectionIdleTimeout(connectionId, timings.idleTimeoutMs);
       schedulePing(connectionId, connection);
@@ -120,10 +124,10 @@ export function createKeepaliveMonitor(
 
     recordPong(connectionId) {
       const connection = watched.get(connectionId);
-      if (connection === undefined || connection.pendingPingSentAt === undefined) return;
+      if (connection === undefined || connection.pingSentAt === null) return;
 
-      const sample = Date.now() - connection.pendingPingSentAt;
-      connection.pendingPingSentAt = undefined;
+      const sample = Date.now() - connection.pingSentAt;
+      connection.pingSentAt = null;
       connection.recentLatencies = [...connection.recentLatencies, sample].slice(
         -MAX_RECENT_LATENCIES,
       );

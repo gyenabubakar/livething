@@ -33,26 +33,26 @@ export interface UpgradeResult {
   readonly tags?: readonly PublicApiTypes.TagRef[];
 }
 
-/** Handler type for `base.onInit(...)`. */
+/** Handler type for the `onInit` key of `server({ ... })`. */
 export type InitHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.onConnect(...)`. */
+/** Handler type for the `onConnect` key of `server({ ... })`. */
 export type ConnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.onDisconnect(...)`. */
+/** Handler type for the `onDisconnect` key of `server({ ... })`. */
 export type DisconnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.onPing(...)`. */
+/** Handler type for the `onPing` key of `server({ ... })`. */
 export type PingHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.onPong(...)`. */
+/** Handler type for the `onPong` key of `server({ ... })`. */
 export type PongHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.onShutdown(...)`. */
+/** Handler type for the `onShutdown` key of `server({ ... })`. */
 export type ShutdownHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
- * Handler type for `base.onError(...)`. The `event` argument is
+ * Handler type for the `onError` key of `server({ ... })`. The `event` argument is
  * the incoming event name that caused the error, when known.
  */
 export type ErrorHandler<TCtx = any> = (
@@ -89,13 +89,6 @@ export type UpgradeHandler = (
   request: Request,
   helpers: UpgradeHelpers,
 ) => UpgradeResult | Promise<UpgradeResult>;
-
-/** Handler type for `base.onValidationError(...)`. */
-export type ValidationErrorHandler<TCtx = any> = (
-  ctx: TCtx,
-  event: string,
-  validationError: unknown,
-) => void | Promise<void>;
 
 /** The TypeScript type returned by `onInit()`. */
 export interface InitPrimitive<TCtx = any> extends Primitive<'onInit'> {
@@ -137,11 +130,6 @@ export interface UpgradePrimitive extends Primitive<'onUpgrade'> {
   readonly handler: UpgradeHandler;
 }
 
-/** The TypeScript type returned by `onValidationError()`. */
-export interface ValidationErrorPrimitive<TCtx = any> extends Primitive<'onValidationError'> {
-  readonly handler: ValidationErrorHandler<TCtx>;
-}
-
 const ON_INIT_KEY = Symbol('onInit');
 const ON_CONNECT_KEY = Symbol('onConnect');
 const ON_DISCONNECT_KEY = Symbol('onDisconnect');
@@ -150,7 +138,6 @@ const ON_PONG_KEY = Symbol('onPong');
 const ON_SHUTDOWN_KEY = Symbol('onShutdown');
 const ON_ERROR_KEY = Symbol('onError');
 const ON_UPGRADE_KEY = Symbol('onUpgrade');
-const ON_VALIDATION_ERROR_KEY = Symbol('onValidationError');
 
 /** @internal */
 function makeLifecycle<TTag extends string>(
@@ -160,7 +147,6 @@ function makeLifecycle<TTag extends string>(
 ) {
   return <THandler>(handler: THandler) => ({
     __livething: tag,
-    __kind: 'lifecycle' as const,
     __identity: [key] as const,
     __requires: {},
     handler,
@@ -189,8 +175,8 @@ function intoContextHandler(
 }
 
 /**
- * Creates an `onInit` lifecycle primitive. Prefer `base.onInit(...)`
- * — this factory is used internally by `assemble(...)`.
+ * Creates an `onInit` lifecycle primitive. Prefer the `onInit` key
+ * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onInit = Object.assign(
   makeLifecycle('onInit', ON_INIT_KEY, (e, h) => e.onInit(h)) as <TCtx>(
@@ -200,8 +186,8 @@ export const onInit = Object.assign(
 );
 
 /**
- * Creates an `onConnect` lifecycle primitive. Prefer `base.onConnect(...)`
- * — this factory is used internally by `assemble(...)`.
+ * Creates an `onConnect` lifecycle primitive. Prefer the `onConnect` key
+ * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onConnect = Object.assign(
   makeLifecycle('onConnect', ON_CONNECT_KEY, (e, h) => e.onConnect(h)) as <TCtx>(
@@ -211,8 +197,8 @@ export const onConnect = Object.assign(
 );
 
 /**
- * Creates an `onDisconnect` lifecycle primitive. Prefer `base.onDisconnect(...)`
- * — this factory is used internally by `assemble(...)`.
+ * Creates an `onDisconnect` lifecycle primitive. Prefer the `onDisconnect` key
+ * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onDisconnect = Object.assign(
   makeLifecycle('onDisconnect', ON_DISCONNECT_KEY, (e, h) => e.onDisconnect(h)) as <TCtx>(
@@ -222,8 +208,8 @@ export const onDisconnect = Object.assign(
 );
 
 /**
- * Creates an `onPing` lifecycle primitive. Prefer `base.onPing(...)`
- * — this factory is used internally by `assemble(...)`.
+ * Creates an `onPing` lifecycle primitive. Prefer the `onPing` key
+ * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  *
  * The engine has already answered the client with `pong` by the time this runs.
  */
@@ -235,8 +221,8 @@ export const onPing = Object.assign(
 );
 
 /**
- * Creates an `onPong` lifecycle primitive. Prefer `base.onPong(...)`
- * — this factory is used internally by `assemble(...)`.
+ * Creates an `onPong` lifecycle primitive. Prefer the `onPong` key
+ * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  *
  * When `keepalive()` is listed it has already recorded the round-trip by the
  * time this runs, so `ctx.latency` reflects the pong that triggered it.
@@ -249,8 +235,8 @@ export const onPong = Object.assign(
 );
 
 /**
- * Creates an `onShutdown` lifecycle primitive. Prefer `base.onShutdown(...)`
- * — this factory is used internally by `assemble(...)`.
+ * Creates an `onShutdown` lifecycle primitive. Prefer the `onShutdown` key
+ * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onShutdown = Object.assign(
   makeLifecycle('onShutdown', ON_SHUTDOWN_KEY, (e, h) => e.onShutdown(h)) as <TCtx>(
@@ -260,8 +246,8 @@ export const onShutdown = Object.assign(
 );
 
 /**
- * Creates an `onError` lifecycle primitive. Prefer `base.onError(...)`
- * — this factory is used internally by `assemble(...)`.
+ * Creates an `onError` lifecycle primitive. Prefer the `onError` key
+ * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onError = Object.assign(
   makeLifecycle('onError', ON_ERROR_KEY, (e, h) => e.onError(h)) as <TCtx>(
@@ -279,17 +265,4 @@ export const onUpgrade = Object.assign(
     handler: UpgradeHandler,
   ) => UpgradePrimitive,
   { __key: ON_UPGRADE_KEY },
-);
-
-/**
- * Creates an `onValidationError` lifecycle primitive. Prefer `base.onValidationError(...)`
- * — this factory is used internally by `assemble(...)`.
- */
-export const onValidationError = Object.assign(
-  makeLifecycle('onValidationError', ON_VALIDATION_ERROR_KEY, (e, h) => e.onValidationError(h)) as <
-    TCtx,
-  >(
-    handler: ValidationErrorHandler<TCtx>,
-  ) => ValidationErrorPrimitive<TCtx>,
-  { __key: ON_VALIDATION_ERROR_KEY },
 );

@@ -20,7 +20,6 @@ function fakeConnection(overrides: Partial<RuntimeConnection> = {}): RuntimeConn
       send() {},
       close() {},
       bufferedAmount: () => 0,
-      userId: 'user-1',
     },
     meta: { role: 'admin' },
     tags: {
@@ -65,7 +64,6 @@ describe('connection-store', () => {
       ],
       active_stream_ids: ['stream_1', 'stream_2'],
       metadata: {},
-      translator_state: undefined,
     });
   });
 
@@ -86,48 +84,6 @@ describe('connection-store', () => {
       ],
       active_stream_ids: ['stream_1', 'stream_2'],
       metadata: {},
-      translator_state: undefined,
-    });
-  });
-
-  it('stores translator state in its own column', () => {
-    const row = buildConnectionRow(
-      fakeConnection({
-        translator: {
-          inbound: (raw) => raw,
-          hibernation: {
-            serialize: () => ({ sequence: 3 }),
-            restore: () => {},
-          },
-        },
-      }),
-    );
-
-    writeConnectionRow(sql, row);
-
-    expect(readConnectionRow(sql, 'conn_1')?.metadata).toEqual({});
-    expect(readConnectionRow(sql, 'conn_1')?.translator_state).toEqual({ sequence: 3 });
-  });
-
-  it('adds metadata and translator_state when opening a database created by an older build', () => {
-    const olderSql = createTestSql();
-    olderSql.exec(`
-      CREATE TABLE __livething_connections (
-        connection_id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        meta TEXT NOT NULL,
-        ephemeral_tags TEXT NOT NULL DEFAULT '[]',
-        ephemeral_memberships TEXT NOT NULL DEFAULT '[]',
-        active_stream_ids TEXT NOT NULL DEFAULT '[]'
-      )
-    `);
-
-    ensureConnectionSchema(olderSql);
-    writeConnectionRow(olderSql, buildConnectionRow(fakeConnection()));
-
-    expect(readConnectionRow(olderSql, 'conn_1')).toMatchObject({
-      metadata: {},
-      translator_state: undefined,
     });
   });
 

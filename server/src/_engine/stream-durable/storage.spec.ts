@@ -15,7 +15,6 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'ask-ai',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
       maxChunks: 10,
       maxAgeMs: 60_000,
@@ -23,8 +22,8 @@ describe('durable-stream/storage', () => {
     });
     const row = Storage.readStream(sql, 'u-1', 's-1');
     expect(row).not.toBeNull();
-    expect(row!.kind).toBe('recorded');
     expect(row!.status).toBe('active');
+    expect(row!.interrupted).toBe(false);
 
     expect(row!.maxChunks).toBe(10);
   });
@@ -35,7 +34,6 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'ask-ai',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
     });
     for (let seq = 1; seq <= 5; seq += 1) {
@@ -45,7 +43,6 @@ describe('durable-stream/storage', () => {
         seq,
         messageId: `m-${seq}`,
         payload: JSON.stringify({ n: seq }),
-        now: 1_000 + seq,
       });
     }
 
@@ -53,47 +50,22 @@ describe('durable-stream/storage', () => {
     expect(chunks.map((c) => c.seq)).toEqual([3, 4, 5]);
   });
 
-  it('keeps the cursor checkpoint the client confirmed and drops later attempts', () => {
-    Storage.insertStream(sql, {
-      userId: 'u-1',
-      streamId: 's-checkpoints',
-      event: 'paginate',
-      payload: '{}',
-      kind: 'cursor',
-      now: 1_000,
-    });
-
-    for (let seq = 1; seq <= 4; seq += 1) {
-      Storage.appendCursorCheckpoint(sql, {
-        userId: 'u-1',
-        streamId: 's-checkpoints',
-        seq,
-        cursor: JSON.stringify({ page: seq + 1 }),
-        now: 1_000 + seq,
-      });
+  it('markEnded records whether the generator was interrupted', () => {
+    for (const streamId of ['finished', 'cut-off']) {
+      Storage.insertStream(sql, { userId: 'u-1', streamId, event: 'e', payload: '{}', now: 1_000 });
     }
 
-    expect(
-      Storage.readCursorCheckpointAtOrBefore(sql, {
-        userId: 'u-1',
-        streamId: 's-checkpoints',
-        seq: 3,
-      }),
-    ).toMatchObject({ seq: 3, cursor: JSON.stringify({ page: 4 }) });
+    Storage.markEnded(sql, { userId: 'u-1', streamId: 'finished', now: 2_000 });
+    Storage.markEnded(sql, { userId: 'u-1', streamId: 'cut-off', now: 2_000, interrupted: true });
 
-    Storage.deleteCursorCheckpointsAfter(sql, {
-      userId: 'u-1',
-      streamId: 's-checkpoints',
-      seq: 3,
+    expect(Storage.readStream(sql, 'u-1', 'finished')).toMatchObject({
+      status: 'ended',
+      interrupted: false,
     });
-
-    expect(
-      Storage.readCursorCheckpointAtOrBefore(sql, {
-        userId: 'u-1',
-        streamId: 's-checkpoints',
-        seq: 99,
-      }),
-    ).toMatchObject({ seq: 3, cursor: JSON.stringify({ page: 4 }) });
+    expect(Storage.readStream(sql, 'u-1', 'cut-off')).toMatchObject({
+      status: 'ended',
+      interrupted: true,
+    });
   });
 
   it('markSuspended only flips active → suspended', () => {
@@ -102,7 +74,6 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: 1_000,
     });
     Storage.markSuspended(sql, { userId: 'u-1', streamId: 's-1', now: 2_000 });
@@ -117,7 +88,6 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: 1_000,
     });
     Storage.markEnded(sql, { userId: 'u-1', streamId: 's-1', now: 5_000 });
@@ -132,7 +102,6 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
     });
     Storage.appendChunk(sql, {
@@ -141,22 +110,11 @@ describe('durable-stream/storage', () => {
       seq: 1,
       messageId: 'm-1',
       payload: '{}',
-      now: 1_001,
-    });
-    Storage.appendCursorCheckpoint(sql, {
-      userId: 'u-1',
-      streamId: 's-1',
-      seq: 1,
-      cursor: JSON.stringify({ page: 2 }),
-      now: 1_001,
     });
     Storage.deleteStream(sql, 'u-1', 's-1');
     expect(Storage.readStream(sql, 'u-1', 's-1')).toBeNull();
 
     expect(Storage.readChunksSince(sql, { userId: 'u-1', streamId: 's-1', since: 0 })).toEqual([]);
-    expect(
-      Storage.readCursorCheckpointAtOrBefore(sql, { userId: 'u-1', streamId: 's-1', seq: 1 }),
-    ).toBeNull();
   });
 
   it('findExpiredSuspended returns rows past their max_age_ms', () => {
@@ -165,7 +123,6 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'cursor',
       now: 1_000,
       maxAgeMs: 5_000,
     });
@@ -180,7 +137,6 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
       retentionAfterEndMs: 2_000,
     });
@@ -195,7 +151,6 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'recorded' as const,
       now: 1_000,
     };
 
@@ -211,7 +166,6 @@ describe('durable-stream/storage', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
       broadcast: true,
       creatorUserId: 'u-creator',
@@ -261,7 +215,6 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       streamId: 's-1',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
     });
     Storage.appendChunk(sql, {
@@ -270,14 +223,12 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       seq: 1,
       messageId: 'm-1',
       payload: '{}',
-      now: 1_001,
     });
     Storage.insertStream(sql, {
       userId: 'u-2',
       streamId: 's-2',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
     });
     Storage.appendChunk(sql, {
@@ -286,7 +237,6 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       seq: 1,
       messageId: 'm-1',
       payload: '{}',
-      now: 1_001,
     });
 
     Storage.purgeStreamsByUser(sql, 'u-1');
@@ -305,7 +255,6 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       streamId: 's-owned-by-purged',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
       broadcast: true,
     });
@@ -319,7 +268,6 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       streamId: 's-owned-by-other',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
       broadcast: true,
     });
@@ -358,7 +306,6 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       streamId: 's-broadcast',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
       broadcast: true,
       creatorUserId: 'alice',
@@ -369,7 +316,6 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       seq: 1,
       messageId: 'm-1',
       payload: '{}',
-      now: 1_001,
     });
     Storage.seedSubscriber(sql, {
       storageUserId: '__bcast:ch:room__',
@@ -432,13 +378,12 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
     expect(row?.creatorUserId).toBeNull();
   });
 
-  it("with no options at all, still purges rows filed under the user's own storage key as before", () => {
+  it("with no options at all, still purges rows filed under the user's own storage key", () => {
     Storage.insertStream(sql, {
       userId: 'u-1',
       streamId: 's-own',
       event: 'e',
       payload: '{}',
-      kind: 'recorded',
       now: 1_000,
     });
 

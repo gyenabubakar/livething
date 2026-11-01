@@ -18,7 +18,7 @@ const StartSlowStreamPayload = v.object({});
 const SlowChunk = t<{ index: number }>();
 
 const base = server({
-  hibernation: { enabled: true },
+  hibernation: true,
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),
@@ -35,17 +35,16 @@ const base = server({
       'room-members-count': t<{ count: number }>(),
     }),
   ],
-});
-
-base.onInit((ctx) => {
-  ctx.sql.exec(`
-    CREATE TABLE IF NOT EXISTS notes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      body TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+  onInit(ctx) {
+    ctx.sql.exec(`
+      CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  },
 });
 
 const handleSaveNote = base.on('save-note', {

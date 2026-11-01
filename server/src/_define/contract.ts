@@ -27,8 +27,6 @@ export type BuildContract<TSlots> = {
   readonly serverRequests: AsRecord<SlotOr<TSlots, 'serverRequests'>>;
   /** Server-pushed plain streams. */
   readonly streams: AsRecord<SlotOr<TSlots, 'streams'>>;
-  /** Server-pushed cursor streams. */
-  readonly cursorStreams: AsRecord<SlotOr<TSlots, 'cursorStreams'>>;
   /** Server-pushed recorded streams. */
   readonly recordedStreams: AsRecord<SlotOr<TSlots, 'recordedStreams'>>;
   /** Per-channel sub-contracts. */

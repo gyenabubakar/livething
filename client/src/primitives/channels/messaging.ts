@@ -18,7 +18,6 @@ import type { LiveThingSocket } from '~/socket/socket.ts';
 export interface ChannelContext {
   socket: LiveThingSocket;
   helpers: PrimitiveHelpers;
-  resolveTtl(event: string): number | undefined;
   /** Get (or create) the messaging for one channel — cached, so the same name returns the same object. */
   messagingFor(name: string, familyKey?: string): MessagingObject;
   /** Get (or create) the family-level state for a dynamic family. */
@@ -95,7 +94,7 @@ export function buildChannelMessaging(
       const wireEvent = eventPrefix + event;
       if (isReservedEventName(wireEvent)) return false;
 
-      const ttl = options?.ttl ?? context.resolveTtl(event);
+      const ttl = options?.ttl;
       const result = helpers.send(
         { event: wireEvent, payload, metadata: { channel: markers() } },
         ttl !== undefined ? { ttl } : undefined,
@@ -237,15 +236,6 @@ export function buildChannelMessaging(
       if (result === 'closed') state.failLeave(Disconnected());
       // 'connecting' keeps the leave pending; onOpen resends it on reopen.
       return promise;
-    },
-    resyncMembers(): void {
-      if (!state.active) return;
-
-      helpers.rawSend({
-        event: '__memberSync__',
-        payload: null,
-        metadata: { exchange: { source: 'client' }, channel: channelMarkers(state) },
-      });
     },
     members: state.members,
     status: state.status,

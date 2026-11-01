@@ -26,7 +26,7 @@ interface ErrorHandlerDeps {
  * `undefined` for unknown or malformed routing — hooks still observe the error
  * at top level.
  */
-export function resolveScopeFromRouting(
+function resolveScopeFromRouting(
   core: EngineCore,
   routing: Protocol.LiveThingRouting,
 ): ResolvedChannel | undefined {
@@ -85,7 +85,9 @@ export async function handleRuntimeError(
 ): Promise<void> {
   const { core, buildConnectionContext } = deps;
   // A plugin's `onError` sees only its own failures, under its short event name.
-  const owner = pluginFailureOwner(opts.event, opts.routing);
+  const owner = opts.pluginId
+    ? { id: opts.pluginId, event: opts.event }
+    : pluginFailureOwner(opts.event, opts.routing);
   const pluginHooks = owner
     ? core.hooks.pluginLifecycle.error
         .filter((entry) => entry.pluginId === owner.id)
@@ -104,35 +106,6 @@ export async function handleRuntimeError(
       sendProtocolMessage: (targetConnection, msgOpts) => {
         sendProtocolMessage(core, targetConnection, msgOpts);
       },
-    },
-    connection,
-    opts,
-  );
-}
-
-/** Run validation-error hooks before the normal error path takes over. */
-export async function handleValidationError(
-  deps: ErrorHandlerDeps,
-  connection: RuntimeConnection,
-  opts: ErrorsPrimitive.NotifyValidationErrorOptions,
-): Promise<void> {
-  const { core, buildConnectionContext } = deps;
-  // A plugin's `onValidationError` sees only its own events, under their short names.
-  const owner = parsePluginWireName(opts.event);
-  const pluginHooks = owner
-    ? core.hooks.pluginLifecycle.validationError
-        .filter((entry) => entry.pluginId === owner.id)
-        .map(
-          (entry) => (ctx: unknown, _event: string, error: unknown) =>
-            entry.handler(ctx, owner.name, error),
-        )
-    : [];
-
-  return ErrorsPrimitive.notifyValidationError(
-    {
-      buildConnectionContext,
-      asyncContext: core.asyncContext,
-      validationErrorHooks: [...pluginHooks, ...core.hooks.validationError],
     },
     connection,
     opts,

@@ -7,12 +7,11 @@ import {
   handleCheckDisconnectLog,
   handleCheckInit,
   handleCheckScheduled,
-  handleEmitReplayMarker,
   handleFeed,
   handleLookup,
-  handlePaginate,
   handleRoomSendMsg,
   handleStartTick,
+  handleTick,
   handleTokens,
 } from './group.ts';
 
@@ -25,12 +24,11 @@ export const groupFullSurfaceDefinition = base.assemble({
     handleCheckDisconnectLog,
     handleCheckScheduled,
     handleStartTick,
-    handleEmitReplayMarker,
     handleLookup,
     handleFeed,
-    handlePaginate,
     handleTokens,
     handleRoomSendMsg,
+    handleTick,
   ],
 });
 

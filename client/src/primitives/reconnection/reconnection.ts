@@ -1,3 +1,5 @@
+import { CloseCodes, LiveThingConfigError } from '@livething/core';
+import { MAX_TIMER_DELAY_MS, timerDelayError } from '~/internal/config.ts';
 import { signalBus } from '~/internal/signals.ts';
 import { createStore } from '~/internal/store.ts';
 import type { ReadableStore } from '~/internal/store.ts';
@@ -15,6 +17,17 @@ export interface ReconnectionApi {
   reconnection: ReadableStore<ReconnectionInfo>;
 }
 
+/**
+ * Codes where a retry would be closed again: a bad token, a connection the
+ * server replaced on purpose, or a banned user. `shouldReconnect` can still
+ * return `true` for one of them.
+ */
+const DEFAULT_NON_RETRYABLE_CODES = [
+  CloseCodes.AUTH_INVALID,
+  CloseCodes.DUPLICATE,
+  CloseCodes.BANNED,
+];
+
 interface ReconnectionTypeFn extends TypeFn {
   readonly _api: ReconnectionApi;
 }
@@ -27,8 +40,20 @@ interface ReconnectionTypeFn extends TypeFn {
  */
 export function reconnection(options: ReconnectionOptions = {}): Primitive<ReconnectionTypeFn> {
   const maxAttempts = options.maxAttempts ?? 10;
+  if (!(maxAttempts === Infinity || (Number.isInteger(maxAttempts) && maxAttempts >= 0))) {
+    throw new LiveThingConfigError(
+      `reconnection maxAttempts must be a whole number, 0 or more, or Infinity, got ${maxAttempts}.`,
+    );
+  }
+
   const maxDelay = options.maxDelay ?? 30_000;
-  const nonRetryable = new Set(options.nonRetryableCodes ?? []);
+  const maxDelayError = timerDelayError(maxDelay, 'reconnection maxDelay');
+  if (maxDelayError) throw maxDelayError;
+
+  const nonRetryable = new Set([
+    ...DEFAULT_NON_RETRYABLE_CODES,
+    ...(options.nonRetryableCodes ?? []),
+  ]);
   const networkAware = options.networkAware ?? true;
 
   return {
@@ -52,12 +77,9 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
         }
       }
 
-      // Should we retry this close? Ask other primitives, then your callback,
-      // then the no-retry list, and if nobody objects, yes.
+      // Should we retry this close? Ask your callback, then the no-retry list,
+      // and if neither objects, yes.
       function decide(code: number, reason: string): boolean {
-        const fromHooks = helpers.runShouldReconnect(code, reason);
-        if (fromHooks === true || fromHooks === false) return fromHooks;
-
         // Report a throwing callback and fall through to the default policy.
         let fromCallback: boolean | void;
         try {
@@ -159,6 +181,10 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
         onClose() {
           clearTimer();
         },
+
+        onReconnectFailed() {
+          if (store.get().retrying) set({ retrying: false, attempt, nextRetryAt: null });
+        },
       };
     },
   };
@@ -174,5 +200,5 @@ reconnection.tag = 'reconnection';
 function backoffDelay(attempt: number, maxDelay: number): number {
   const base = Math.min(1000 * Math.pow(2, attempt), maxDelay);
   const jitter = base * 0.3;
-  return base - jitter + Math.random() * jitter * 2;
+  return Math.min(base - jitter + Math.random() * jitter * 2, MAX_TIMER_DELAY_MS);
 }

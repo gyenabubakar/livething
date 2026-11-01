@@ -98,7 +98,7 @@ test.describe('stream-durable', () => {
     await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('2');
   });
 
-  test('cursor stream: generator re-runs from saved cursor on reconnect', async ({
+  test('recorded stream: generator keeps running after a drop, continue sends the missed rows once', async ({
     page,
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}-${Date.now()}`;
@@ -133,37 +133,6 @@ test.describe('stream-durable', () => {
     expect(order).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  test('cursor bare yield (no withCursor): continue restarts from a null cursor', async ({
-    page,
-  }, testInfo) => {
-    const room = `sdb-${testInfo.testId}-${Date.now()}`;
-    const streamId = 'bare-1';
-    await goConnect(page, { room: room, streamId: streamId });
-
-    await page.getByTestId('start-paginate-bare').click();
-    await expect
-      .poll(async () => Number(await page.getByTestId('paginate-bare-row-count').textContent()))
-      .toBeGreaterThanOrEqual(1);
-    await page.getByTestId('drop-socket').click();
-    await expect(page.getByTestId('status')).toHaveText('disconnected');
-    // Read the count after the drop, so no row can arrive in between.
-    const seenBeforeDrop = Number(await page.getByTestId('paginate-bare-row-count').textContent());
-    expect(seenBeforeDrop).toBeLessThan(4);
-
-    await page.getByTestId('since').fill(String(seenBeforeDrop));
-    await page.getByTestId('connect').click();
-    await expect(page.getByTestId('status')).toHaveText('connected');
-    await page.getByTestId('send-continue').click();
-
-    await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('1');
-
-    const rows = (await page.getByTestId('paginate-bare-rows').textContent())!
-      .split(',')
-      .map(Number);
-    expect(Math.max(...rows)).toBeLessThan(100);
-    expect(rows.slice(-4)).toEqual([1, 2, 3, 4]);
-  });
-
   test('continue of an unknown stream id surfaces stream-aborted not-found', async ({
     page,
   }, testInfo) => {
@@ -179,30 +148,6 @@ test.describe('stream-durable', () => {
     await expect
       .poll(() => page.getByTestId('last-error-stream-id').textContent())
       .toBe('does-not-exist');
-  });
-
-  test('ctx.stream.attempt — 1 on first run, then one higher on every reconnect', async ({
-    page,
-  }, testInfo) => {
-    const room = `sdb-${testInfo.testId}-${Date.now()}`;
-    const streamId = 'attempt-1';
-    await goConnect(page, { room: room, streamId: streamId });
-
-    await page.getByTestId('start-attempt').click();
-    await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe('1');
-
-    // Generator is parked in an await on the server. Drop the socket so the
-    // stream goes `suspended`, then reconnect and continue — each reconnect re-runs
-    // the generator with the next attempt number.
-    for (const expected of ['2', '3', '4']) {
-      await page.getByTestId('drop-socket').click();
-      await expect(page.getByTestId('status')).toHaveText('disconnected');
-      await page.getByTestId('connect').click();
-      await expect(page.getByTestId('status')).toHaveText('connected');
-      await page.getByTestId('send-continue').click();
-
-      await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe(expected);
-    }
   });
 
   test('buffer-full path — handler catches StreamAborted and the stream ends cleanly', async ({

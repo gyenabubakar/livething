@@ -53,9 +53,9 @@ test.describe('plugins handler — plugin ctx sends are namespaced', () => {
   });
 });
 
-// A plugin's onError / onValidationError report back through `error-seen` /
-// `validation-seen`. They must stay silent for the app's failures and for
-// another plugin's failures, and see their own events under the short name.
+// A plugin's onError reports back through `error-seen`, plus `validation-seen`
+// for a `ValidationFailed` error. It must stay silent for the app's failures and for
+// another plugin's failures, and see its own events under the short name.
 test.describe('plugins handler — plugin error hooks see only their own failures', () => {
   function hookFrames(all: WireFrame[]) {
     return all.filter(

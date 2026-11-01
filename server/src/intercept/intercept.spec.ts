@@ -8,7 +8,6 @@ describe('intercept', () => {
     const p = intercept(handler);
 
     expect(p.__livething).toBe('intercept');
-    expect(p.__kind).toBe('infrastructure');
     expect(p.handler).toBe(handler);
   });
 
@@ -16,8 +15,8 @@ describe('intercept', () => {
     const a = intercept(async () => {});
     const b = intercept(async () => {});
 
-    expect(a.__identity).toEqual([intercept.__key, 'intercept']);
-    expect(b.__identity).toEqual([intercept.__key, 'intercept']);
+    expect(a.__identity).toEqual(b.__identity);
+    expect(a.__identity[1]).toBe('intercept');
   });
 
   it('instances have empty requires', () => {

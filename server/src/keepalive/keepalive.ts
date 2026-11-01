@@ -1,20 +1,21 @@
 import { LiveThingConfigError } from '@livething/core';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
-import { assertPositiveInteger } from '~/_engine/validation.ts';
+import { assertTimerDelay } from '~/_engine/validation.ts';
 import { createKeepaliveMonitor } from '~/keepalive/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
-/** Options accepted by the keepalive primitive factory. Both are required. */
+/** Options accepted by the keepalive primitive factory. */
 export interface KeepaliveOptions {
   /**
    * How often the server sends a keepalive `ping` text frame, in milliseconds.
    * The client answers with `pong`; that reply (like any inbound frame) proves
    * the connection is alive and resets the idle timer. Must be strictly less
    * than `idleTimeoutMs` so a quiet-but-alive client always answers in time.
+   * Default: `30_000`.
    */
-  readonly pingIntervalMs: number;
+  readonly pingIntervalMs?: number;
 
   /**
    * How long a connection may go without sending ANY frame before the engine
@@ -27,18 +28,16 @@ export interface KeepaliveOptions {
    * enforce it, and the underlying platform can answer a client's ping without
    * waking the instance, so the instance never even sees that traffic. See
    * hibernation in the server docs for what to do instead if an idle policy is
-   * required.
+   * required. Default: `60_000`.
    */
-  readonly idleTimeoutMs: number;
+  readonly idleTimeoutMs?: number;
 }
 
+const DEFAULT_PING_INTERVAL_MS = 30_000;
+const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
+
 /** The primitive type tag for the keepalive feature. */
-export interface KeepalivePrimitive extends Primitive<'keepalive'> {
-  /** How often the keepalive ping fires, in milliseconds. */
-  readonly pingIntervalMs: number;
-  /** Idle window before the connection is closed, in milliseconds. */
-  readonly idleTimeoutMs: number;
-}
+export interface KeepalivePrimitive extends Primitive<'keepalive'> {}
 
 /** Unique symbol used to enforce one keepalive registration per handler scope. */
 const KEEPALIVE_KEY = Symbol('keepalive');
@@ -63,31 +62,33 @@ function connectionIdOf(ctx: unknown): string {
  * the engine always replies `pong` on its own, so a server that never lists
  * `keepalive()` still lets a client measure it.
  *
- * Both options are required and there are no defaults: `pingIntervalMs` must be
- * strictly less than `idleTimeoutMs`, or the ping could not land before the
- * idle window closes and live clients would be dropped. Enable this by listing
- * the `keepalive({ pingIntervalMs, idleTimeoutMs })` capability from
+ * Both options default (`pingIntervalMs` 30 s, `idleTimeoutMs` 60 s), and both
+ * must be whole numbers no larger than `2 ** 31 - 1`, the longest a timer can
+ * hold. `pingIntervalMs` must be strictly less than `idleTimeoutMs`, or the ping
+ * could not land before the idle window closes and live clients would be
+ * dropped. Enable this by listing the `keepalive()` capability from
  * `@livething/server/keepalive` in `server({ capabilities: [...] })` instead of
  * calling this primitive directly.
  */
-export function keepalive(options: KeepaliveOptions): KeepalivePrimitive {
-  assertPositiveInteger(options.pingIntervalMs, 'pingIntervalMs', 'keepalive()');
-  assertPositiveInteger(options.idleTimeoutMs, 'idleTimeoutMs', 'keepalive()');
-  if (options.pingIntervalMs >= options.idleTimeoutMs) {
+export function keepalive(options: KeepaliveOptions = {}): KeepalivePrimitive {
+  const pingIntervalMs = options.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
+  const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  assertTimerDelay(pingIntervalMs, 'pingIntervalMs', 'keepalive()');
+  assertTimerDelay(idleTimeoutMs, 'idleTimeoutMs', 'keepalive()');
+  if (pingIntervalMs >= idleTimeoutMs) {
     throw new LiveThingConfigError(
-      `keepalive pingIntervalMs (${options.pingIntervalMs}) must be less than idleTimeoutMs ` +
-        `(${options.idleTimeoutMs}): the keepalive ping has to fire before the idle window closes, ` +
+      `keepalive pingIntervalMs (${pingIntervalMs}) must be less than idleTimeoutMs ` +
+        `(${idleTimeoutMs}): the keepalive ping has to fire before the idle window closes, ` +
         `or a live client would be dropped.`,
     );
   }
 
+  const timings = { pingIntervalMs, idleTimeoutMs };
+
   return {
     __livething: 'keepalive',
-    __kind: 'infrastructure',
     __identity: [KEEPALIVE_KEY],
     __requires: {},
-    pingIntervalMs: options.pingIntervalMs,
-    idleTimeoutMs: options.idleTimeoutMs,
     __setup(engine) {
       engine.installOnce(KEEPALIVE_KEY, () => {
         // Under hibernation this capability supervises nothing: the runtime
@@ -96,7 +97,7 @@ export function keepalive(options: KeepaliveOptions): KeepalivePrimitive {
         // the instance in memory — defeating hibernation while closing
         // quiet-but-alive clients whose traffic never reaches it to refresh
         // the timer.
-        const monitor = createKeepaliveMonitor(engine, options, !engine.getHibernationEnabled());
+        const monitor = createKeepaliveMonitor(engine, timings, !engine.getHibernationEnabled());
 
         engine.extendContext((baseCtx) => buildLatencySurface(engine, baseCtx));
 
@@ -136,8 +137,3 @@ function buildLatencySurface(engine: EngineAccess, baseCtx: unknown): Record<str
     },
   };
 }
-
-/**
- * Symbol key used to reference this primitive in dependency declarations.
- */
-keepalive.__key = KEEPALIVE_KEY;

@@ -16,21 +16,22 @@ globalScope.WebSocketRequestResponsePair ??= class {
  * accept/send/close and addEventListener for standard mode.
  */
 export interface FakeWebSocket {
+  /** `1` is open, `3` is closed, as on the Workers `WebSocket`. */
+  readyState: number;
   accept: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   addEventListener: ReturnType<typeof vi.fn>;
-  listeners: Map<string, Array<(event: unknown) => void>>;
   dispatch: (type: string, event: unknown) => void;
 }
 
-export function makeFakeWebSocket(): FakeWebSocket {
+function makeFakeWebSocket(): FakeWebSocket {
   const listeners = new Map<string, Array<(event: unknown) => void>>();
   const ws: FakeWebSocket = {
+    readyState: 1,
     accept: vi.fn(),
     send: vi.fn(),
     close: vi.fn(),
-    listeners,
     addEventListener: vi.fn((type: string, handler: (event: unknown) => void) => {
       const bucket = listeners.get(type) ?? [];
       bucket.push(handler);
@@ -70,7 +71,6 @@ export function installWebSocketPair(): { pairs: Array<[FakeWebSocket, FakeWebSo
 export type FakeDOState = {
   id: { toString: () => string };
   storageMap: Map<string, unknown>;
-  getAlarmTime: () => number | null;
   waitUntil: ReturnType<typeof vi.fn>;
   blockConcurrencyWhile: ReturnType<typeof vi.fn>;
   acceptWebSocket: ReturnType<typeof vi.fn>;
@@ -82,7 +82,6 @@ export type FakeDOState = {
     delete: ReturnType<typeof vi.fn>;
     list: ReturnType<typeof vi.fn>;
     setAlarm: ReturnType<typeof vi.fn>;
-    getAlarm: ReturnType<typeof vi.fn>;
     deleteAlarm: ReturnType<typeof vi.fn>;
     sql: { exec: ReturnType<typeof vi.fn> };
   };
@@ -94,12 +93,10 @@ export function makeFakeDOState(overrides?: Partial<FakeDOState>): FakeDOState {
 
 function baseFakeState(): FakeDOState {
   const storageMap = new Map<string, unknown>();
-  let alarmTime: number | null = null;
 
   return {
     id: { toString: () => 'fake-instance' },
     storageMap,
-    getAlarmTime: () => alarmTime,
     waitUntil: vi.fn(),
     blockConcurrencyWhile: vi.fn(async <T>(fn: () => Promise<T>) => fn()),
     acceptWebSocket: vi.fn(),
@@ -121,13 +118,8 @@ function baseFakeState(): FakeDOState {
 
         return out;
       }),
-      setAlarm: vi.fn(async (time: number) => {
-        alarmTime = time;
-      }),
-      getAlarm: vi.fn(async () => alarmTime),
-      deleteAlarm: vi.fn(async () => {
-        alarmTime = null;
-      }),
+      setAlarm: vi.fn(async () => {}),
+      deleteAlarm: vi.fn(async () => {}),
       sql: {
         exec: vi.fn(),
       },
@@ -157,7 +149,6 @@ export interface FakeEngine {
     decision: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision),
   ) => void;
   setHibernation: (enabled: boolean) => void;
-  setTranslation: (enabled: boolean) => void;
   setRestoreFailure: (error?: unknown) => void;
   connectionHandle: {
     handleMessage: ReturnType<typeof vi.fn>;
@@ -166,14 +157,19 @@ export interface FakeEngine {
   };
   /** The object `engine.admin()` returns; tests add dev methods and assert delegation. */
   adminApi: Record<string, unknown>;
-  /** Spies reached through the admin context's managers, which `adminApi` nests. */
+  /** Spies reached through the context's managers, which `adminApi` nests. */
   adminSpies: {
-    connectionSend: ReturnType<typeof vi.fn>;
-    userSend: ReturnType<typeof vi.fn>;
-    userClose: ReturnType<typeof vi.fn>;
-    channelBroadcast: ReturnType<typeof vi.fn>;
-    channelMembers: ReturnType<typeof vi.fn>;
-    channelKick: ReturnType<typeof vi.fn>;
+    connection: { send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> };
+    user: {
+      broadcast: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+      setMeta: ReturnType<typeof vi.fn>;
+    };
+    channel: {
+      broadcast: ReturnType<typeof vi.fn>;
+      members: ReturnType<typeof vi.fn>;
+      kick: ReturnType<typeof vi.fn>;
+    };
   };
 }
 
@@ -193,27 +189,29 @@ export function makeFakeEngine(): FakeEngine {
 
   let stagedUpgrade: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision) = {};
   let hibernation = false;
-  let translation = false;
   let restoreFailure: unknown;
-  const core = {
-    get translatorFactory() {
-      return translation ? () => ({}) : undefined;
-    },
-  };
 
-  // What engine.admin() returns: the admin context (spied), which the app's own
-  // api is merged into. LiveThingAdmin projects this onto flat RPC methods, so the
-  // managers here carry the same shape the real context builds.
+  // What engine.admin() returns: the connectionless context (spied), which the
+  // app's own api is merged into. The adapter wraps its managers in RpcTargets,
+  // so the managers here carry the same shape the real context builds.
   const adminConnection = {
     id: 'c1',
     userId: 'u1',
     ref: () => ({ __livething: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' }),
   };
 
-  const connectionSend = vi.fn(() => true);
-  const userSend = vi.fn(() => 2);
-  const userClose = vi.fn();
-  const channelHandle = {
+  const connection = { send: vi.fn(() => true), close: vi.fn() };
+  const user = {
+    ref: () => ({ __livething: 'user-ref', id: 'u1', instance: 'fake-instance' }),
+    broadcast: vi.fn(() => 2),
+    close: vi.fn(),
+    setMeta: vi.fn(),
+    connections: () => [adminConnection],
+    info: () => null,
+    isOnline: () => true,
+  };
+
+  const channel = {
     broadcast: vi.fn(),
     members: vi.fn(() => [adminConnection]),
     kick: vi.fn(async () => {}),
@@ -224,11 +222,11 @@ export function makeFakeEngine(): FakeEngine {
     purgeUser: vi.fn(async () => {}),
     closeConnections: vi.fn(),
     connections: {
-      get: vi.fn(() => ({ send: connectionSend })),
+      get: vi.fn(() => connection),
       all: vi.fn(() => [adminConnection]),
     },
-    users: { get: vi.fn(() => ({ broadcast: userSend, close: userClose })) },
-    channels: { get: vi.fn(() => channelHandle) },
+    users: { get: vi.fn(() => user) },
+    channels: { get: vi.fn(() => channel), broadcast: vi.fn() },
     connectionCount: 3,
     sql: {},
     kv: {},
@@ -245,7 +243,6 @@ export function makeFakeEngine(): FakeEngine {
   };
 
   const engine = {
-    core,
     setInstanceId: vi.fn(),
     initialize: vi.fn(async () => {
       calls.initialize += 1;
@@ -290,22 +287,12 @@ export function makeFakeEngine(): FakeEngine {
     setHibernation(enabled) {
       hibernation = enabled;
     },
-    setTranslation(enabled) {
-      translation = enabled;
-    },
     setRestoreFailure(error) {
       restoreFailure = error;
     },
     connectionHandle,
     adminApi,
-    adminSpies: {
-      connectionSend,
-      userSend,
-      userClose,
-      channelBroadcast: channelHandle.broadcast,
-      channelMembers: channelHandle.members,
-      channelKick: channelHandle.kick,
-    },
+    adminSpies: { connection, user, channel },
   };
 }
 

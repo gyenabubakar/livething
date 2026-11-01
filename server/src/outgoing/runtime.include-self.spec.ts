@@ -15,7 +15,6 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -30,15 +29,12 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
     compiled: {
       outgoing: new Map([['foo', { event: 'foo' }]]),
       streams: new Map(),
-      cursorStreams: new Map(),
       recordedStreams: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
     } as unknown as OutgoingRuntime['compiled'],
     outgoingHooks: [],
     livethingStampHooks: [],
-    beforeSendHooks: [],
-    afterSendHooks: [],
     logger: { warn() {}, error() {} },
     generateId: () => 'id_1',
     ...overrides,
@@ -106,7 +102,6 @@ describe('broadcastToChannel — includeSelf (replaces excludeSelf, default flip
         compiled: {
           outgoing: new Map([['foo', { event: 'foo' }]]),
           streams: new Map(),
-          cursorStreams: new Map(),
           recordedStreams: new Map(),
           channels: new Map([['room', { outgoing: new Map([['foo', { event: 'foo' }]]) }]]),
           channelFamilies: new Map(),
@@ -146,7 +141,6 @@ describe('broadcastToChannel — includeSelf (replaces excludeSelf, default flip
         compiled: {
           outgoing: new Map([['foo', { event: 'foo' }]]),
           streams: new Map(),
-          cursorStreams: new Map(),
           recordedStreams: new Map(),
           channels: new Map([['room', { outgoing: new Map([['foo', { event: 'foo' }]]) }]]),
           channelFamilies: new Map(),

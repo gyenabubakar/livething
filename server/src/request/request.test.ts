@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { request } from '~/request/request.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 
 const getHistory = request('get-history', async (ctx) => {
@@ -65,9 +64,4 @@ const _ctxType: RequestPrimitive<'ping', unknown, unknown, RequestCtx> = withCtx
 void _ctxType;
 
 const _tag: 'request' = getHistory.__livething;
-const _kind: PrimitiveKind = getHistory.__kind;
-void [_tag, _kind];
-
-const _ref: PrimitiveRef = request;
-const _key: symbol = request.__key;
-void [_ref, _key];
+void _tag;

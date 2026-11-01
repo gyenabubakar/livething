@@ -94,8 +94,10 @@ describe('channels() capability', () => {
 
   it('pulls in channel configuration and lifecycle with one selected handler', () => {
     const base = server({ capabilities: [channels()] });
-    const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
-    room.subscribe(() => {});
+    const room = base.channel('room', {
+      capabilities: [emits({ said: t<{ text: string }>() })],
+      onSubscribe() {},
+    });
     const handleSay = room.on('say', { input: v.object({}), run() {} });
     const primitive = channelPrimitive(base.assemble({ handlers: [handleSay] }).primitives);
 
@@ -108,8 +110,8 @@ describe('channels() capability', () => {
     const base = server({ capabilities: [channels()] });
     const presence = base.channel('presence', {
       capabilities: [emits({ tick: t<{}>() })],
+      onSubscribe() {},
     });
-    presence.subscribe(() => {});
     const compiled = compileServerDefinition(base.assemble({ handlers: [presence] }));
     expect(compiled.channels.has('presence')).toBe(true);
   });
@@ -272,13 +274,6 @@ describe('channels() capability', () => {
     expect(first.value).toEqual({ family: 'rooms' });
   });
 
-  it('throws when a lifecycle hook is registered twice', () => {
-    const base = server({ capabilities: [channels()] });
-    const room = base.channel('room', {});
-    room.subscribe(() => {});
-    expect(() => room.subscribe(() => {})).toThrow(/Duplicate subscribe on channel 'room'/);
-  });
-
   it('throws when a channel request is used without the clientRequests() capability', () => {
     const base = server({ capabilities: [channels()] });
     const room = base.channel('room', {}) as unknown as {
@@ -319,9 +314,8 @@ describe('channels() capability', () => {
   });
 
   it('registers channel serverRequests with the root runtime', () => {
-    const reqCap = serverRequests();
-    const base = server({ capabilities: [reqCap, channels()] });
-    base.channel('room', {
+    const base = server({ capabilities: [serverRequests(), channels()] });
+    const room = base.channel('room', {
       capabilities: [
         serverRequests({
           'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
@@ -329,7 +323,10 @@ describe('channels() capability', () => {
         }),
       ],
     });
-    const declarations = (reqCap as unknown as { __serverRequests: ReadonlyMap<string, any> })
+    const carrier = base
+      .assemble({ handlers: [room] })
+      .primitives.find((primitive) => primitive.__livething === 'server-requests');
+    const declarations = (carrier as unknown as { __serverRequests: ReadonlyMap<string, any> })
       .__serverRequests;
     // Channel declarations are keyed by the channel definition so they never collide
     // with another channel's or with a top-level declaration of the same name.
@@ -349,14 +346,6 @@ describe('channels() capability', () => {
     const escapeHatch = room as unknown as { stream(event: string, config: any): unknown };
     expect(() => escapeHatch.stream('feed', { input: v.object({}), async *run() {} })).toThrow(
       /uses stream\(\) but the stream\(\) capability is not listed/,
-    );
-  });
-
-  it('throws when a custom channel replay is used without the replay.custom() capability', () => {
-    const base = server({ capabilities: [channels()] });
-    const room = base.channel('room', {});
-    expect(() => room.replay({ replay() {} })).toThrow(
-      /replay\.custom\(\) capability is\s+not listed/,
     );
   });
 

@@ -10,9 +10,6 @@ import type { Primitive } from '~/primitive.ts';
 export interface SequencePrimitive extends Primitive<'sequence'> {
   /** Whether the sequence counter persists across server restarts. */
   readonly persist: boolean;
-
-  /** How many seq numbers are reserved per SQL round-trip when persistent. */
-  readonly batchSize: number;
 }
 
 /** Options accepted by `sequence()`. */
@@ -64,11 +61,9 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
 
   return {
     __livething: 'sequence',
-    __kind: 'infrastructure',
     __identity: [SEQUENCE_KEY],
     __requires: {},
     persist,
-    batchSize,
     __setup(engine) {
       engine.setSequencePersistent(persist);
 
@@ -82,26 +77,24 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
           });
         }
 
-        // Stamp `deliverySeq` into every outgoing user frame's `__livething`. The pipeline
-        // already skips protocol frames before calling stampers.
-        engine.onLiveThingStamp(() => {
+        function allocate(): number {
           if (persist) {
             persistentAllocator ??= createPersistentSequenceAllocator(
               engine.storage.sql,
               batchSize,
             );
-            return { deliverySeq: persistentAllocator.next() };
+            return persistentAllocator.next();
           }
 
-          return { deliverySeq: (current += 1) };
-        });
+          return (current += 1);
+        }
+
+        engine.setDeliverySeqAllocator(allocate);
+
+        // Stamp `deliverySeq` into every outgoing user frame's `__livething`. The pipeline
+        // already skips protocol frames before calling stampers.
+        engine.onLiveThingStamp(() => ({ deliverySeq: allocate() }));
       });
     },
   };
 }
-
-/**
- * The identity of the `sequence` primitive. Pass `sequence` itself in a
- * plugin's `dependencies` array to declare that it must be registered.
- */
-sequence.__key = SEQUENCE_KEY;

@@ -53,7 +53,7 @@ export const emits = withCapabilityKind(function emits<const TDefs extends EmitD
 ): EmitsCapability<TDefs> {
   const primitives = Object.keys(defs).map((name) => outgoingFactory(name));
   return stampKind(
-    capability<EmitSlot<TDefs>>(primitives, [], { __channelEmits: defs }),
+    capability<EmitSlot<TDefs>>(primitives, { __channelEmits: defs }),
     CAPABILITY_KIND.emits,
   ) as EmitsCapability<TDefs>;
 }, CAPABILITY_KIND.emits);

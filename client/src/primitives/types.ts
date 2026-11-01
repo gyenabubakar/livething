@@ -38,12 +38,12 @@ export interface ChannelTypeFn {
 }
 
 /** A channel type function that adds nothing — the default for most primitives. */
-export interface NoChannelTypeFn extends ChannelTypeFn {
+interface NoChannelTypeFn extends ChannelTypeFn {
   readonly _api: {};
 }
 
 /** Run a channel type function: set `_contract` to `C` and read back `_api`. */
-export type ApplyChannel<F extends ChannelTypeFn, C> = (F & { readonly _contract: C })['_api'];
+type ApplyChannel<F extends ChannelTypeFn, C> = (F & { readonly _contract: C })['_api'];
 
 /**
  * Run a type function: set `_contract` to `Contract` and read back `_api`.
@@ -260,7 +260,7 @@ type ChannelAccessorStub<TContract, Api, TPrimitives extends readonly Primitive<
  * passed), so it's independent of install order. When the primitive is present,
  * nothing is added — the real method stands alone.
  */
-export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primitive<any, any>[]> =
+type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primitive<any, any>[]> =
   AnyScopedSectionDeclared<TContract> extends false
     ? {}
     : ApplyPrimitives<TPrimitives, TContract> extends infer Api

@@ -25,12 +25,9 @@ function createConnection(id: string, onSend: (id: string) => void): RuntimeConn
 
 function createRuntime(): Parameters<typeof broadcastToConnections>[0] {
   return {
-    afterSendHooks: [],
-    beforeSendHooks: [],
     compiled: {
       outgoing: new Map([['tick', { event: 'tick' }]]),
       streams: new Map(),
-      cursorStreams: new Map(),
       recordedStreams: new Map(),
       channels: new Map(),
     },

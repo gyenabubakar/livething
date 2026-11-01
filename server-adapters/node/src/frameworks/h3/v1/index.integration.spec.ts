@@ -41,25 +41,22 @@ const base = createServerDefinition({
       echoed: t<{ text: string }>(),
     }),
   ],
+  onConnect(ctx) {
+    ctx.send('connected', { clientIp: lastClientIp, userId: lastUserId });
+  },
+  onDisconnect(ctx) {
+    disconnects += 1;
+    lastDisconnect = { code: ctx.closeCode ?? 1000, reason: ctx.closeReason ?? '' };
+  },
+  onError() {
+    transportErrors += 1;
+  },
 });
 
 const echo = base.on('echo', {
   run(ctx, input: { text: string }) {
     ctx.send('echoed', input);
   },
-});
-
-base.onConnect((ctx) => {
-  ctx.send('connected', { clientIp: lastClientIp, userId: lastUserId });
-});
-
-base.onDisconnect((ctx) => {
-  disconnects += 1;
-  lastDisconnect = { code: ctx.closeCode ?? 1000, reason: ctx.closeReason ?? '' };
-});
-
-base.onError(() => {
-  transportErrors += 1;
 });
 
 const definition = base.assemble({ handlers: [echo] });
@@ -281,9 +278,9 @@ describe('H3 v1 binding', () => {
           return { userId: name };
         },
         capabilities: [emits({ identity: t<{ name: string }>() })],
-      });
-      named.onConnect((ctx) => {
-        ctx.send('identity', { name });
+        onConnect(ctx) {
+          ctx.send('identity', { name });
+        },
       });
       return named.assemble({ handlers: [] });
     }
@@ -566,12 +563,12 @@ describe('H3 v1 binding', () => {
         await releaseUpgrade;
         return { userId: 'gone' };
       },
-    });
-    slow.onConnect(() => {
-      connections += 1;
-    });
-    slow.onDisconnect(() => {
-      disconnections += 1;
+      onConnect() {
+        connections += 1;
+      },
+      onDisconnect() {
+        disconnections += 1;
+      },
     });
 
     const app = await createTestApp(slow.assemble({ handlers: [] }));

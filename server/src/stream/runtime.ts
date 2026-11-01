@@ -1,28 +1,20 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import {
   ChannelNotSubscribed,
-  InternalError,
   NudgeOverflow,
   rethrowIfConfigError,
   StreamAborted,
   StreamIdCollision,
   ValidationFailed,
 } from '@livething/core';
-import {
-  connectionCall,
-  inConnectionCall,
-  withConnectionCall,
-  withConnectionLevelCall,
-} from '~/_engine/async-context.ts';
+import { connectionCall, inConnectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
-import { payloadForFanOut } from '~/_engine/runtime/json-guard.ts';
 import {
   abortActiveStream,
   assertNoConcurrentStream,
   buildActiveStream,
   buildDrain,
-  DEFAULT_HIGH_WATER_MARK,
   installCtxDrain,
   installCtxNudges,
   installCtxSignal,
@@ -35,6 +27,7 @@ import type { DurableStreamService } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ActiveStream, ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
+import type { SharedSend, SharedSendOptions } from '~/outgoing/runtime.ts';
 
 type OptsParameter = {
   event: string;
@@ -55,7 +48,6 @@ type OptsParameter2 = {
   payload: unknown;
 };
 type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
-type OptsParameter4 = { event: string; validationError: unknown; scope?: ResolvedChannel };
 
 /**
  * The small runtime surface stream helpers need from the engine.
@@ -84,11 +76,11 @@ interface StreamRuntime {
 
   sendThroughPipeline(connection: RuntimeConnection, opts: OptsParameter2): boolean;
 
+  openSharedSend(opts: SharedSendOptions): SharedSend;
+
   asyncContext: EngineAsyncContext;
 
   handleRuntimeError(connection: RuntimeConnection, opts: OptsParameter3): Promise<void>;
-
-  handleValidationError(connection: RuntimeConnection, opts: OptsParameter4): Promise<void>;
 
   connections: Map<string, RuntimeConnection>;
 
@@ -194,7 +186,7 @@ export interface StopChannelStreamsOptions {
 
   /**
    * True when the user has no connection left in the channel. A stream of that
-   * user that kept running after its connection dropped (`keep-running`) is
+   * user that kept running after its connection dropped (a recorded stream) is
    * then stopped too, since no member can continue it.
    */
   userGone: boolean;
@@ -329,10 +321,9 @@ export interface BufferStreamNudgeOptions {
 }
 
 export async function bufferStreamNudge(
-  runtime: Pick<
-    StreamRuntime,
-    'activeStreams' | 'handleValidationError' | 'handleRuntimeError' | 'sendProtocolMessage'
-  > & { logger?: Pick<Logger, 'error'> },
+  runtime: Pick<StreamRuntime, 'activeStreams' | 'handleRuntimeError' | 'sendProtocolMessage'> & {
+    logger?: Pick<Logger, 'error'>;
+  },
   connection: RuntimeConnection,
   options: BufferStreamNudgeOptions,
 ): Promise<boolean> {
@@ -431,7 +422,6 @@ export async function bufferStreamNudge(
     });
   } catch (error) {
     rethrowIfConfigError(error);
-    await runtime.handleValidationError(connection, { event, validationError: error });
     // Send `__error__` with `streamId` routing so the client hits the right
     // stream-error handler. Mark handled so it does not fall through.
     await runtime.handleRuntimeError(connection, { error, event, routing: rejectRouting });
@@ -538,14 +528,12 @@ export async function runStream(
   // torn down, but the iterator (built from ctx, which carries drain) is created
   // before the active stream exists. A late-bound holder breaks the cycle.
   let activeStreamRef: ActiveStream | undefined = undefined;
-  const highWaterMark = stream.stream.highWaterMark ?? DEFAULT_HIGH_WATER_MARK;
   installCtxDrain(
     ctx,
     buildDrain({
       // Broadcast paces against the healthiest of every target; a single stream
       // against just its own connection.
       targets: () => (stream.stream.broadcast ? [connection, ...broadcastTargets()] : [connection]),
-      highWaterMark,
       isClosed: () => activeStreamRef?.closed ?? false,
     }),
   );
@@ -566,7 +554,6 @@ export async function runStream(
     generator: iterator,
     scope,
     abortController,
-    highWaterMark,
     broadcast: stream.stream.broadcast,
     nudges: stream.stream.nudges.map((declaration) => ({
       event: declaration.event,
@@ -606,29 +593,36 @@ export async function runStream(
         streamSeq: seq,
       };
 
-      // A broadcast chunk is turned into JSON once, so the creator and every peer get the same one.
-      const chunk = stream.stream.broadcast ? payloadForFanOut(event, result.value) : result.value;
+      let sent: boolean;
       if (stream.stream.broadcast) {
-        // Fan out per-target so each peer chunk carries streamId + seq + streamDurability
-        // (same as the creator's), which onStream needs to group and complete it.
+        // One frame for the creator and every peer: each carries the same streamId + seq +
+        // streamDurability, which onStream needs to group and complete it.
+        const chunkSend = runtime.openSharedSend({
+          routing: chunkRouting,
+          event,
+          payload: result.value,
+          target: scope.channelName ? { kind: 'channel' } : { kind: 'all' },
+        });
         await forEachIsolatedAsync(
           broadcastTargets(),
           (target) => {
-            runtime.sendThroughPipeline(target, {
-              routing: chunkRouting,
-              event,
-              payload: chunk,
-            });
+            chunkSend.deliver(target);
           },
           { context: `stream broadcast fan-out streamId="${streamId}" event="${event}"` },
         );
+        try {
+          sent = chunkSend.deliver(connection);
+        } finally {
+          chunkSend.finish();
+        }
+      } else {
+        sent = runtime.sendThroughPipeline(connection, {
+          routing: chunkRouting,
+          event,
+          payload: result.value,
+        });
       }
 
-      const sent = runtime.sendThroughPipeline(connection, {
-        routing: chunkRouting,
-        event,
-        payload: chunk,
-      });
       if (!sent) {
         activeStream.closed = true;
         await iterator.return(undefined);
@@ -661,63 +655,21 @@ export async function runStream(
     // A terminal error reaches the creator (below) and, for a broadcast, every
     // subscriber — so a peer's onError fires instead of a misleading clean end.
     if (stream.stream.broadcast) {
-      const { payload, livething } = normalizeRuntimeError(
-        streamError,
-        routing,
-        runtime.declaredErrorCodes,
-      );
-      const peerErrorLiveThing = { ...livething, eventName: event };
+      const normalized = normalizeRuntimeError(streamError, routing, runtime.declaredErrorCodes);
+      const peerErrorLiveThing = { ...normalized.livething, eventName: event };
       await forEachIsolatedAsync(
         broadcastTargets(),
         (target) =>
           runtime.sendProtocolMessage(target, {
             event: '__error__',
-            payload,
+            payload: normalized.payload,
             livething: peerErrorLiveThing,
           }),
         { context: `stream broadcast error streamId="${streamId}"` },
       );
     }
 
-    if (
-      streamError &&
-      typeof streamError === 'object' &&
-      (streamError as { __livething?: string }).__livething === 'defer'
-    ) {
-      // Defer makes no sense in a stream: a generator that already yielded
-      // chunks cannot be retried from the start. Treat it as a programming
-      // mistake — log an error and surface it to the client as a plain
-      // internal error, not a defer-exhausted one (nothing was ever retried).
-      runtime.logger.error(
-        '[livething] Defer thrown inside a stream handler — streams cannot be retried',
-        {
-          event,
-          streamId,
-        },
-      );
-      const internal = InternalError();
-      // Isolate per hook so an observer throw never blocks the __error__ frame
-      // the client is waiting for.
-      await forEachIsolatedAsync(
-        runtime.errorHooks,
-        (hook) => {
-          const hookCtx = runtime.buildConnectionContext(connection, scope);
-          return withConnectionLevelCall(
-            runtime.asyncContext,
-            { connectionId: connection.id, ctx: hookCtx },
-            () => hook(hookCtx, internal, event),
-          );
-        },
-        { context: `stream onError hook event="${event}"` },
-      );
-      runtime.sendProtocolMessage(connection, {
-        event: '__error__',
-        payload: { code: InternalError.code },
-        livething: routing as Record<string, unknown>,
-      });
-    } else {
-      await runtime.handleRuntimeError(connection, { error: streamError, event, routing });
-    }
+    await runtime.handleRuntimeError(connection, { error: streamError, event, routing });
   } finally {
     connection.activeStreamIds?.delete(streamId);
     runtime.activeStreams.delete(streamId);

@@ -92,19 +92,15 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
           );
         }
 
-        // Bind visibility whenever the environment can report it — the
-        // `visibility` signal is a general extension point. The background
-        // disconnect timer below is what's gated on `backgroundDisconnectMs`.
-        if (environment.onVisibilityChange) {
+        if (wantsBackground) {
           reportingInitialVisibility = true;
-          cleanups.push(environment.onVisibilityChange(onVisibility));
+          cleanups.push(environment.onVisibilityChange!(onVisibility));
           reportingInitialVisibility = false;
         }
       }
 
       function onVisibility(visible: boolean): void {
         helpers.log.info(`visibility ${visible ? 'visible' : 'hidden'}`);
-        signals.emit('visibility', visible);
         clearHiddenTimer();
 
         if (visible) {
@@ -116,8 +112,6 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
 
           return;
         }
-
-        if (!wantsBackground) return;
 
         if (reportingInitialVisibility) return;
 

@@ -60,18 +60,15 @@ function createFakeEngine(options: { hibernating?: boolean } = {}) {
 }
 
 describe('keepalive', () => {
-  it('produces correct tag, kind, and option fields', () => {
+  it('produces correct tag', () => {
     const p = keepalive(OPTS);
     expect(p.__livething).toBe('keepalive');
-    expect(p.__kind).toBe('infrastructure');
-    expect(p.pingIntervalMs).toBe(15_000);
-    expect(p.idleTimeoutMs).toBe(30_000);
   });
 
   it('uses singleton identity', () => {
     const p = keepalive(OPTS);
     expect(p.__identity).toHaveLength(1);
-    expect(p.__identity[0]).toBe(keepalive.__key);
+    expect(typeof p.__identity[0]).toBe('symbol');
   });
 
   it('instances have no required adapter capabilities', () => {
@@ -192,6 +189,30 @@ describe('keepalive', () => {
       expect(fake.refreshConnectionIdleTimeout).not.toHaveBeenCalled();
     });
 
+    it('defaults to a 30 s ping and a 60 s idle window', () => {
+      const fake = createFakeEngine();
+      keepalive().__setup?.(fake.engine);
+
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      vi.advanceTimersByTime(29_999);
+      expect(fake.sendPing).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+
+      expect(fake.sendPing).toHaveBeenCalledWith('conn-1');
+      expect(fake.refreshConnectionIdleTimeout).toHaveBeenCalledWith('conn-1', 60_000);
+    });
+
+    it('fills in only the option left out', () => {
+      const fake = createFakeEngine();
+      keepalive({ idleTimeoutMs: 90_000 }).__setup?.(fake.engine);
+
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      vi.advanceTimersByTime(30_000);
+
+      expect(fake.sendPing).toHaveBeenCalledWith('conn-1');
+      expect(fake.refreshConnectionIdleTimeout).toHaveBeenCalledWith('conn-1', 90_000);
+    });
+
     it('still opens and refreshes the idle window without hibernation', () => {
       const fake = createFakeEngine({ hibernating: false });
       keepalive(OPTS).__setup?.(fake.engine);
@@ -253,6 +274,11 @@ describe('keepalive', () => {
       expect(() => keepalive({ pingIntervalMs: 40_000, idleTimeoutMs: 30_000 })).toThrow(
         /must be less than/,
       );
+    });
+
+    it('checks one user value against the default of the other', () => {
+      expect(() => keepalive({ pingIntervalMs: 60_000 })).toThrow(/must be less than/);
+      expect(() => keepalive({ idleTimeoutMs: 30_000 })).toThrow(/must be less than/);
     });
   });
 });

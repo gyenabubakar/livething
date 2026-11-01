@@ -11,7 +11,7 @@ import type { Primitive } from '~/primitive.ts';
  * `InferClient` reads back.
  *
  * The slot keys mirror the client contract: `incoming`, `outgoing`, `requests`,
- * `streams`, `cursorStreams`, `recordedStreams`, `channels`, `scheduled`,
+ * `streams`, `recordedStreams`, `channels`, `scheduled`,
  * `errors`, plus `ephemeralTags` / `persistentTags` for tag groups.
  */
 export interface Contribution<TSlots = {}> {
@@ -45,8 +45,8 @@ export interface Capability<
   readonly __livethingCapability: true;
   /** Runtime primitives this capability contributes to the assembled server. @internal */
   readonly __primitives: readonly Primitive[];
-  /** Feature flags this capability turns on, surfaced for build-time checks. @internal */
-  readonly __features: readonly TFeature[];
+  /** @internal phantom — the feature flags this capability turns on for `ctx` typing; never set at runtime. */
+  readonly __features?: readonly TFeature[];
   /**
    * Stable identity token shared with the factory that produced this capability,
    * used to match a plugin's `dependsOn` factory ref to a listed capability
@@ -74,26 +74,14 @@ export function capability<
   TExtra extends object = {},
 >(
   primitives: readonly Primitive[],
-  features: readonly TFeature[] = [],
   extra?: TExtra,
 ): Capability<TSlots, TFeature, TBrand, TKind> & TExtra {
   return {
     __livethingCapability: true,
     __primitives: primitives,
-    __features: features,
     ...(extra ?? ({} as TExtra)),
   } as Capability<TSlots, TFeature, TBrand, TKind> & TExtra;
 }
-
-/**
- * Any capability factory — a function that returns a capability, regardless of
- * the arguments it takes. The `dependsOn` matcher reads the identity token off
- * such a ref without ever calling it, so an arg-requiring factory (`keepalive`,
- * `scheduled`, …) is a valid `dependsOn` target. @internal
- */
-export type CapabilityFactory = ((...args: any[]) => AnyCapability) & {
-  readonly __capabilityKind?: string;
-};
 
 /** A capability factory function carrying the identity token its result is stamped with. @internal */
 export type KindedFactory<TFactory extends (...args: any[]) => AnyCapability> = TFactory & {
@@ -132,13 +120,10 @@ export type HostCapability<TSlots = {}, TFeature extends string = never> = Capab
 /** Build a host-owned capability — like `capability()`, but marked `__hostOnly`. */
 export function hostCapability<TSlots = {}, TFeature extends string = never>(
   primitives: readonly Primitive[],
-  features: readonly TFeature[] = [],
 ): HostCapability<TSlots, TFeature> {
-  return capability<TSlots, TFeature, never, TFeature, { readonly __hostOnly: true }>(
-    primitives,
-    features,
-    { __hostOnly: true },
-  );
+  return capability<TSlots, TFeature, never, TFeature, { readonly __hostOnly: true }>(primitives, {
+    __hostOnly: true,
+  });
 }
 
 /**
@@ -161,15 +146,10 @@ export function channelOnlyCapability<
   TFeature extends string = never,
   TBrand extends string = never,
   TKind extends string = TBrand,
->(
-  primitives: readonly Primitive[],
-  features: readonly TFeature[] = [],
-): ChannelOnlyCapability<TSlots, TFeature, TBrand, TKind> {
-  return capability<TSlots, TFeature, TBrand, TKind, { readonly __channelOnly: true }>(
-    primitives,
-    features,
-    { __channelOnly: true },
-  );
+>(primitives: readonly Primitive[]): ChannelOnlyCapability<TSlots, TFeature, TBrand, TKind> {
+  return capability<TSlots, TFeature, TBrand, TKind, { readonly __channelOnly: true }>(primitives, {
+    __channelOnly: true,
+  });
 }
 
 /**
@@ -202,7 +182,7 @@ export function defineHostCapability<TKind extends string, TArgs extends readonl
 ): KindedFactory<(...args: TArgs) => HostCapability<{}, TKind>> {
   return withCapabilityKind(
     (...args: TArgs): HostCapability<{}, TKind> =>
-      stampKind(hostCapability<{}, TKind>([build(...args)], [kind]), kind),
+      stampKind(hostCapability<{}, TKind>([build(...args)]), kind),
     kind,
   );
 }
@@ -272,8 +252,11 @@ export type BrandIsWidened<TBrand extends string> = string extends TBrand ? true
  * Collapsing that case to `never` instead closes every gate together, the
  * same treatment {@link BrandsOf} already gets. @internal
  */
-export type FeaturesOf<TCaps extends readonly AnyCapability[]> =
-  string extends TCaps[number]['__features'][number] ? never : TCaps[number]['__features'][number];
+export type FeaturesOf<TCaps extends readonly AnyCapability[]> = string extends NonNullable<
+  TCaps[number]['__features']
+>[number]
+  ? never
+  : NonNullable<TCaps[number]['__features']>[number];
 
 /** Collapse a union of slot records into one merged record. @internal */
 export type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (

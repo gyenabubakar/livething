@@ -57,7 +57,6 @@ export function errors<const TDefs extends readonly [AnyErrorDef, ...AnyErrorDef
 ): ErrorsPrimitive<TDefs> {
   return {
     __livething: 'errors',
-    __kind: 'contract',
     __identity: [ERRORS_KEY],
     __requires: {},
     defs,
@@ -66,8 +65,3 @@ export function errors<const TDefs extends readonly [AnyErrorDef, ...AnyErrorDef
     },
   };
 }
-
-/**
- * Symbol key used to reference this primitive in dependency declarations.
- */
-errors.__key = ERRORS_KEY;

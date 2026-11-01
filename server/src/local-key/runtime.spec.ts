@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
-import { createTestTimers } from '~/_test/timers.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import { runIntercepts } from '~/intercept/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -18,7 +17,6 @@ function createConnection(id = 'c1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -45,9 +43,8 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
       sql: { exec: vi.fn(), transaction: vi.fn() },
       kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
     }),
-    getTimers: () => createTestTimers(),
     scheduleTask: vi.fn(),
-    cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
+    cancelScheduled: vi.fn(),
     broadcastToConnections: vi.fn(),
     sendThroughPipeline: vi.fn(() => true),
     broadcastToChannel: vi.fn(),
@@ -92,9 +89,9 @@ function makeRuntime() {
 }
 
 describe('localKey', () => {
-  it('creates a key with the given name', () => {
+  it('uses the given name as the key symbol description', () => {
     const key = localKey<string>('my-key');
-    expect(key.name).toBe('my-key');
+    expect(key.id.description).toBe('my-key');
   });
 
   it('two calls with the same name create distinct keys', () => {

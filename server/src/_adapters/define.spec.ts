@@ -31,7 +31,6 @@ describe('adapter', () => {
     const timers: TimerProvider = {
       setAlarm: vi.fn(async () => {}),
       deleteAlarm: vi.fn(async () => {}),
-      getAlarm: vi.fn(async () => null),
     };
 
     const logger: Logger = {

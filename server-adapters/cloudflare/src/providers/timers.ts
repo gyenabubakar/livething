@@ -11,8 +11,5 @@ export function createTimers(state: DurableObjectState): TimerProvider {
     async deleteAlarm() {
       await state.storage.deleteAlarm();
     },
-    async getAlarm() {
-      return state.storage.getAlarm();
-    },
   };
 }
