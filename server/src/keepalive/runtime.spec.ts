@@ -52,6 +52,20 @@ describe('keepalive/runtime', () => {
     vi.useRealTimers();
   });
 
+  it('stops the ping loop when the connection goes away with a ping unanswered', () => {
+    const port = createPort({ sendPing: () => true });
+    const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+    monitor.watch('c1');
+    passOnePingInterval();
+
+    port.setConnectionLatency.mockReturnValue(false);
+    passOnePingInterval();
+    const calls = port.setConnectionLatency.mock.calls.length;
+    vi.advanceTimersByTime(TIMINGS.pingIntervalMs * 5);
+
+    expect(port.setConnectionLatency.mock.calls).toHaveLength(calls);
+  });
+
   describe('watch', () => {
     it('opens the idle window and starts pinging', () => {
       const port = createPort();

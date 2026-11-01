@@ -71,7 +71,9 @@ export function createKeepaliveMonitor(
   function schedulePing(connectionId: string, connection: WatchedConnection): void {
     connection.pingTimer = setTimeout(() => {
       if (connection.pingSentAt !== null) {
-        engine.setConnectionLatency(connectionId, connection.latency, 'poor');
+        // No ping goes out here to notice a closed socket, so ask the registry.
+        if (engine.setConnectionLatency(connectionId, connection.latency, 'poor') === false) return;
+
         schedulePing(connectionId, connection);
         return;
       }

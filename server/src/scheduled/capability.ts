@@ -80,7 +80,7 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
 
   if (typeof def !== 'object' || Array.isArray(def)) {
     throw new LiveThingConfigError(
-      `${context}: a task declaration must be null or an object, got ${JSON.stringify(def)}.`,
+      `${context}: a task declaration must be null or an object, got ${String(def)}.`,
     );
   }
 
@@ -155,6 +155,8 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  *   ],
  * });
  *
+ * const handleCleanup = base.scheduled('cleanup', { run() {} });
+ * const handleHeartbeat = base.scheduled('heartbeat', { run() {} });
  * const handleReport = base.scheduled('report', {
  *   run(ctx, data) {
  *     // data: { userId: string }
@@ -162,7 +164,7 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  * });
  *
  * // Pass every task handler to assemble(), or the declared task has no body.
- * export default base.assemble({ handlers: [handleReport] });
+ * export default base.assemble({ handlers: [handleCleanup, handleHeartbeat, handleReport] });
  * ```
  */
 export const scheduled = withCapabilityKind(function scheduled<const TDefs extends ScheduledDefs>(

@@ -117,6 +117,38 @@ describe('replay — resume tokens', () => {
 });
 
 describe('replay — per-channel scope catch-up', () => {
+  it('catches up a channel that got no message before the drop, from its subscribe seq', () => {
+    const { ws } = build(dedup(), replay(), reconnection());
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { seq: 7 },
+      metadata: { channel: { name: 'lobby', family: 'rooms' } },
+    });
+
+    const next = reconnectAfterDrop(ws);
+
+    expect(next.sentFrames()).toContainEqual({
+      event: '__replay__',
+      payload: { lastKnownSeq: 7 },
+      metadata: { channel: { name: 'lobby', family: 'rooms' } },
+    });
+  });
+
+  it('never moves a channel cursor forward to a later subscribe seq', () => {
+    const { ws } = build(dedup(), replay(), reconnection());
+    const channel = { name: 'lobby' };
+    ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { channel, delivery: { seq: 3 } } });
+    ws.emit({ event: '__subscribeOk__', payload: { seq: 9 }, metadata: { channel } });
+
+    const next = reconnectAfterDrop(ws);
+
+    expect(next.sentFrames()).toContainEqual({
+      event: '__replay__',
+      payload: { lastKnownSeq: 3 },
+      metadata: { channel },
+    });
+  });
+
   describe('channel-scoped seq tracking', () => {
     it('tracks seq under the channel name, not the top-level key', () => {
       const { ws } = build(dedup(), gaps(), replay(), reconnection());

@@ -344,6 +344,8 @@ function buildChannelRuntime(core: EngineCore) {
     sendProtocolMessage: (connection: RuntimeConnection, opts: ProtocolMessageOptions) =>
       sendProtocolMessage(core, connection, opts),
 
+    allocateDeliverySeq: () => core.allocateDeliverySeq?.(),
+
     handleRuntimeError: (connection: RuntimeConnection, opts: RuntimeErrorOptions) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },

@@ -86,6 +86,21 @@ export function replay(): Primitive<EmptyTypeFn> {
           return null;
         }
 
+        // Same for a channel: a cursor for a member that hears nothing before a drop.
+        if (message.event === '__subscribeOk__') {
+          const seq = (message.payload as { seq?: unknown } | null)?.seq;
+          const channel = message.metadata?.channel;
+          if (
+            typeof seq === 'number' &&
+            channel &&
+            !lastSeq.has(channelKey(channel.family, channel.name))
+          ) {
+            remember(seq, channel.name, channel.family);
+          }
+
+          return message;
+        }
+
         if (message.event === '__gap__') return handleGap(message);
 
         if (message.event === '__error__') return handleError(message);

@@ -26,8 +26,9 @@ export interface ReconnectionOptions {
   shouldReconnect?: (code: number, reason: string) => boolean | void;
 
   /**
-   * More close codes that should never trigger a retry. These add to the
-   * built-in list: `AUTH_INVALID` (4002), `DUPLICATE` (4003) and `BANNED` (4009).
+   * More close codes that don't trigger a retry, unless `shouldReconnect` returns
+   * `true`. These add to the built-in list: `AUTH_INVALID` (4002), `DUPLICATE`
+   * (4003) and `BANNED` (4009).
    */
   nonRetryableCodes?: number[];
 

@@ -8,9 +8,10 @@
  * - `env`: your Worker bindings, such as KV namespaces and secrets.
  * - `ctx.storage`: the raw Durable Object storage.
  * - `ctx.blockConcurrencyWhile()`: the Durable Object state method.
- * - `ctx.waitUntil()`: rarely needed. Pending I/O already keeps a Durable Object
- *   in memory. A promise passed here also counts as unfinished work, so the
- *   object does not hibernate until it settles (up to 15 minutes). It does not
+ * - `ctx.waitUntil()`: rarely needed. With a `compatibility_date` of `2026-10-01`
+ *   or later, or the `durable_object_io_tasks_prevent_eviction` flag, a promise
+ *   passed here keeps the object in memory until it settles (up to 15 minutes).
+ *   Without either, the object can be removed while it is pending. It does not
  *   change when a request completes.
  * - `ctx.getWebSockets()`: the sockets accepted through the hibernation API, so
  *   it returns sockets only when hibernation is on. LiveThing does not add tags

@@ -310,10 +310,12 @@ export function createEngineAccess(
     },
     setConnectionLatency: (connectionId, latency, quality) => {
       const connection = core.connections.get(connectionId);
-      if (!connection) return;
+      if (!connection) return false;
 
       connection.latency = latency;
       connection.quality = quality;
+
+      return true;
     },
     getConnectionContext: (connectionId) => deps.buildContextForConnection(connectionId),
     runInConnectionCall: (connectionId, ctx, fn) =>

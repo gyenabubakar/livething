@@ -9,6 +9,9 @@ const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
  */
 const MAX_ALARM_TIME_MS = 9_223_372_036_854;
 
+/** 100 years. A run this far after any time before the year 2162 still fits an alarm. */
+const MAX_ALARM_DELAY_MS = 3_155_760_000_000;
+
 interface AllowedValueLocation {
   field: string;
   context: string;
@@ -58,13 +61,15 @@ export function assertAlarmTime(value: unknown, field: string, context: string):
   }
 }
 
-/** A positive integer delay in milliseconds whose run, starting now, an alarm can hold. */
+/**
+ * A positive integer delay in milliseconds. The limit is fixed, not "the last alarm
+ * time minus now", because a delay is added to the time of each later run.
+ */
 export function assertAlarmDelay(value: unknown, field: string, context: string): void {
   assertPositiveInteger(value, field, context);
-  const longest = MAX_ALARM_TIME_MS - Date.now();
-  if ((value as number) > longest) {
+  if ((value as number) > MAX_ALARM_DELAY_MS) {
     throw new LiveThingConfigError(
-      `${context}: '${field}' must be at most ${longest} ms, or the run would land after the latest time an alarm can hold (April 2262), got ${String(value)}.`,
+      `${context}: '${field}' must be at most ${MAX_ALARM_DELAY_MS} ms (100 years), got ${String(value)}.`,
     );
   }
 }

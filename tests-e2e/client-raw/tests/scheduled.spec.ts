@@ -188,7 +188,7 @@ test.describe('scheduled', () => {
     await page2.close();
   });
 
-  test('cancelScheduled on a never-registered task id leaves the connection healthy', async ({
+  test('cancelScheduled on a never-registered task id throws and leaves the connection healthy', async ({
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);

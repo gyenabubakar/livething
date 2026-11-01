@@ -40,6 +40,19 @@ function withOverrides(
   };
 }
 
+describe('forgetConnection', () => {
+  it('keeps a shared bucket whose key equals the closing connection id', () => {
+    const rule = { id: 1, windowMs: 60_000, max: 1, per: (ctx: any) => ctx.user.id };
+    const runtime = new RateLimitRuntime(plan([['top', rule]]), () => 1_000);
+    const ctx = { user: { id: 'conn_1' }, connection: { id: 'conn_2' } };
+    expect(runtime.check(ctx, 'send')).toBeNull();
+
+    runtime.forgetConnection('conn_1');
+
+    expect(runtime.check(ctx, 'send')).not.toBeNull();
+  });
+});
+
 describe('resolveScopeKey', () => {
   it('returns "top" for a context without scope', () => {
     expect(resolveScopeKey({ id: 'c1' })).toBe('top');

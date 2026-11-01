@@ -68,6 +68,11 @@ describe('server() option checks', () => {
     expect(() => server({ upgrade: 'nope' } as never)).toThrow(LiveThingConfigError);
   });
 
+  it.each([[true], [[]], ['lobby'], [7]])('refuses a channel config of %j', (config) => {
+    const base = server({ capabilities: [channels()] });
+    expect(() => base.channel('lobby', config as never)).toThrow(LiveThingConfigError);
+  });
+
   it('throws LiveThingConfigError for a capability listed twice', () => {
     expect(() => server({ capabilities: [channels(), channels()] as never })).toThrow(
       LiveThingConfigError,

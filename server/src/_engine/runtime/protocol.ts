@@ -287,7 +287,11 @@ export function parseIncomingProtocolFrame(input: unknown): IncomingProtocolFram
   );
 }
 
-export const SubscribeOkFrame = frame('__subscribeOk__', EmptyPayload, channelMeta);
+export const SubscribeOkFrame = frame(
+  '__subscribeOk__',
+  v.strictObject({ seq: v.optional(NonNegativeSafeInt) }),
+  channelMeta,
+);
 const UnsubscribeOkFrame = frame('__unsubscribeOk__', EmptyPayload, channelMeta);
 const StreamOkFrame = frame('__streamOk__', EmptyPayload, streamMeta);
 const NudgeOkFrame = frame('__nudgeOk__', EmptyPayload, streamMeta);

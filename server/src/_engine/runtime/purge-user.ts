@@ -14,7 +14,7 @@ export interface PurgeUserOptions {
 
 /**
  * "This user is gone, wipe them everywhere." Stops the user first: their open
- * sockets take no more frames, a subscribe waiting in `check` ends with no
+ * sockets take no more frames and get no more app frames, a subscribe waiting in `check` ends with no
  * membership, and nothing writes a new durable row for them while the purge
  * runs. A handler or task already running when the purge starts stays barred
  * from writing that user's membership, replay, tag, inbox or last-seen rows

@@ -263,6 +263,8 @@ export function sendThroughPipeline(
   connection: EngineRuntimeTypes.RuntimeConnection,
   opts: SendThroughPipelineOptions,
 ): boolean {
+  if (connection.purged) return false;
+
   const { routing, event } = opts;
   const isRequestResponse = !!routing?.correlationId;
   // A handler that never calls ctx.respond() answers void. Its payload is left
@@ -448,6 +450,8 @@ function sendPrepared(
   connection: EngineRuntimeTypes.RuntimeConnection,
   prepared: PreparedBroadcast,
 ): boolean {
+  if (connection.purged) return false;
+
   return connection.descriptor.send(sharedFrame(prepared)) !== false;
 }
 
@@ -499,6 +503,8 @@ function openPreparedSend(
 
   return {
     deliver(connection, extra) {
+      if (connection.purged) return false;
+
       const frame = extra
         ? serializeWireFrame(prepared.event, prepared.finalPayload, {
             ...prepared.baseLiveThing,

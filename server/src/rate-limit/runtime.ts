@@ -9,8 +9,9 @@
  *   2. Otherwise the scope's default rule wins.
  *   3. If neither exists (or the rule is disabled), the frame passes through.
  *
- * Buckets are keyed by `<ruleId>|<perKey>` — each rule has its own bucket
- * space, so per-event overrides do not share buckets with the scope default.
+ * Each rule has its own bucket space, so per-event overrides do not share
+ * buckets with the scope default. A connection's own budget and a shared `per`
+ * key are kept apart, so closing a connection never erases a shared budget.
  */
 
 /**
@@ -98,7 +99,7 @@ export class RateLimitRuntime {
 
   /** Drop the per-connection buckets of a connection that has closed. */
   forgetConnection(connectionId: string): void {
-    for (const id of this.ruleIds) this.buckets.delete(`${id}|${connectionId}`);
+    for (const id of this.ruleIds) this.buckets.delete(`${id}|connection|${connectionId}`);
   }
 
   /**
@@ -131,8 +132,10 @@ export class RateLimitRuntime {
       : (this.plan.scopeRules.get(scopeKey) ?? null);
     if (!rule) return null;
 
-    const perKey = rule.per(ctx) || connectionBudgetKey(ctx);
-    const bucketKey = `${rule.id}|${perKey}`;
+    const perKey = rule.per === connectionBudgetKey ? '' : rule.per(ctx);
+    const bucketKey = perKey
+      ? `${rule.id}|shared|${perKey}`
+      : `${rule.id}|connection|${connectionBudgetKey(ctx)}`;
     const now = this.now();
     const refillRate = rule.max / rule.windowMs;
     this.sweep(now);

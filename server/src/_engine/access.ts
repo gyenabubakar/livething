@@ -605,6 +605,7 @@ export interface EngineAccess {
    * Record a measured round-trip time against one connection so it surfaces as
    * `ctx.latency` / `ctx.quality` and on every `ConnectionInfo`. Only
    * `keepalive()` measures a round-trip, so only `keepalive()` calls this.
+   * Returns `false` when the connection has left the registry.
    *
    * @internal
    */
@@ -612,7 +613,7 @@ export interface EngineAccess {
     connectionId: string,
     latency: number | null,
     quality: EngineRuntimeTypes.RuntimeConnection['quality'],
-  ): void;
+  ): boolean;
 
   /**
    * Build the context for one live connection, or `undefined` when it has gone

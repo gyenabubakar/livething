@@ -342,8 +342,11 @@ const handleTagVip = base.on('tag-vip', {
 const handleCancelNonexistent = base.on('cancel-nonexistent', {
   input: v.object({}),
   run(ctx) {
-    (ctx.cancelScheduled as (id: string) => void)('nonexistent-task-id');
-    ctx.send('cancel-nonexistent-ok', {});
+    try {
+      (ctx.cancelScheduled as (id: string) => void)('nonexistent-task-id');
+    } catch {
+      ctx.send('cancel-nonexistent-ok', {});
+    }
   },
 });
 

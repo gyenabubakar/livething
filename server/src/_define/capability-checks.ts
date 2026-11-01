@@ -9,7 +9,11 @@ export interface ConfigShape {
 }
 
 /** Refuse an unknown key, and a hook that isn't a function. A silent one could drop an auth gate. */
-export function assertConfigShape(config: object, shape: ConfigShape, context: string): void {
+export function assertConfigShape(config: unknown, shape: ConfigShape, context: string): void {
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+    throw new LiveThingConfigError(`${context}: the config must be an object.`);
+  }
+
   const { hooks, options } = shape;
   for (const [key, value] of Object.entries(config)) {
     if (!hooks.includes(key) && !options.includes(key)) {

@@ -267,6 +267,23 @@ describe('channel runtime', () => {
     ]);
   });
 
+  it('gives a replay connection a seq in __subscribeOk__, as its cursor for the channel', async () => {
+    const connection = Object.assign(createConnection('conn_1', { userId: 'a' }), {
+      resumeToken: 'token',
+    });
+    const { runtime, connections, protocol } = createRuntime(new Map());
+    connections.set(connection.id, connection);
+
+    await subscribeConnection({ ...runtime, allocateDeliverySeq: () => 12 }, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      data: undefined,
+    });
+
+    const ok = protocol.find((frame) => frame.event === '__subscribeOk__');
+    expect(ok?.payload).toEqual({ seq: 12 });
+  });
+
   it('confirms a member leave with __unsubscribeOk__ echoing the unsubscribeId', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1', { userId: 'a' });

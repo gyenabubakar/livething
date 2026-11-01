@@ -197,6 +197,12 @@ describe('scheduled/runtime', () => {
     expect([...scheduledRuns.values()]).toHaveLength(0);
   });
 
+  it('refuses to cancel a task that was never declared, like schedule does', () => {
+    const { runtime } = createScheduledRuntime([{ taskId: 'flush', hasData: false }]);
+
+    expect(() => cancelScheduledRuns(runtime, 'flsuh')).toThrow(/"flsuh" is not registered/);
+  });
+
   it('queues one-shot runs and cancels matching queued runs', () => {
     const { runtime, scheduledRuns } = createScheduledRuntime([
       { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },

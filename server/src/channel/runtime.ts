@@ -208,6 +208,9 @@ interface ChannelRuntime extends ChannelHooks {
 
   sendProtocolMessage(connection: RuntimeConnection, opts: OptsParameter): void;
 
+  /** Take the next delivery seq, for the `__subscribeOk__` frame's starting cursor. */
+  allocateDeliverySeq?(): number | undefined;
+
   broadcastToChannel(opts: BroadcastToChannelOptions): void;
 
   handleRuntimeError(connection: RuntimeConnection, opts: SendRuntimeErrorOptions): Promise<void>;
@@ -740,10 +743,13 @@ async function runSubscribeFlow(
     confirmation.readReceipts = true;
   }
 
+  const seq = connection.resumeToken ? runtime.allocateDeliverySeq?.() : undefined;
+
   try {
     runtime.sendProtocolMessage(connection, {
       event: '__subscribeOk__',
-      payload: {},
+      // Where this member's replay starts, for a client that hears nothing here before a drop.
+      payload: seq === undefined ? {} : { seq },
       livething: confirmation,
     });
   } catch (error) {

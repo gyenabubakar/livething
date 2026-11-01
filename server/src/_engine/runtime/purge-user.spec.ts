@@ -17,6 +17,7 @@ import {
   listMembershipsByUser as listMembershipRows,
 } from '~/channel/storage.ts';
 import { dedup } from '~/dedup/capability.ts';
+import { emits } from '~/emits/emits.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
 import {
   advanceReceivedThrough,
@@ -141,6 +142,30 @@ function withEveryOwningCapability(): ServerDefinition {
 
   return base.assemble({ handlers: [lobbyNoop, chatNoop] });
 }
+
+describe('purgeUser() — sends while the hooks run', () => {
+  it("sends no app frame to the purged user's sockets", async () => {
+    const base = server({ capabilities: [emits({ note: t<{ text: string }>() })] });
+    const { engine } = await buildEngine(base.assemble({ handlers: [] }));
+
+    const alice = fakeConnection('conn-1', 'alice');
+    const bob = fakeConnection('conn-2', 'bob');
+    engine.core.connections.set(alice.id, alice);
+    engine.core.connections.set(bob.id, bob);
+
+    const admin = engine.admin() as unknown as {
+      broadcast(event: string, payload: unknown): void;
+    };
+    engine.core.hooks.purgeUser.push(async () => {
+      admin.broadcast('note', { text: 'hello' });
+    });
+
+    await purgeUser(engine.core, 'alice');
+
+    expect(alice.descriptor.send).not.toHaveBeenCalled();
+    expect(bob.descriptor.send).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('purgeUser() — overlapping calls for one user', () => {
   it('keeps the guard until the last purge ends', async () => {

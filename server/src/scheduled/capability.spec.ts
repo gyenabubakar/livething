@@ -192,6 +192,17 @@ describe('scheduled() capability', () => {
       expect(declare).toThrow(/'retry\[1\]' must be at most/);
     });
 
+    it('refuses a delay over one hundred years, which could pass the limit as time goes by', () => {
+      const overLimit = 101 * 366 * 24 * 60 * 60 * 1_000;
+      expect(() => scheduled({ heartbeat: { every: overLimit } })).toThrow(
+        /'every' must be at most/,
+      );
+    });
+
+    it('reports a declaration JSON cannot print', () => {
+      expect(() => scheduled({ cleanup: 1n as never })).toThrow(LiveThingConfigError);
+    });
+
     it('accepts a delay of one hundred years', () => {
       const year = 365 * 24 * 60 * 60 * 1_000;
       expect(() => scheduled({ heartbeat: { every: 100 * year } })).not.toThrow();

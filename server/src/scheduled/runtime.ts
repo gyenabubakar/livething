@@ -804,6 +804,10 @@ export function cancelScheduledRuns(
   taskId: string,
   filter?: Record<string, unknown>,
 ): void {
+  if (!runtime.getScheduledTask(taskId)) {
+    throw new Error(`[livething] scheduled task "${taskId}" is not registered.`);
+  }
+
   // Reject explicit-undefined filter values up front. Otherwise
   // `dataMatchesFilter` matches runs whose data is missing the key entirely,
   // which silently cancels the wrong runs.
