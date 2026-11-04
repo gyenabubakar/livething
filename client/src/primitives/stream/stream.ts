@@ -1,4 +1,4 @@
-import { Disconnected, Dropped, Timeout } from '~/errors.ts';
+import { Disconnected, Dropped, StreamCorrupted, Timeout } from '~/errors.ts';
 import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { namespacePrefixOf } from '~/internal/namespace.ts';
@@ -45,8 +45,21 @@ interface BroadcastSub {
 
 interface BroadcastRun {
   event: string;
+  /** The highest `seq` heard, kept across a reconnect so a chunk sent again is dropped. */
   lastSeq: number;
+  /** False until the listener's first chunk, and again after a reconnect or a rejoin. */
+  checksGaps: boolean;
+  /** Set when a gap failed the run: its later chunks and its end are dropped. */
+  failed: boolean;
+  /** The channel the stream runs in, as `channelKeyOf` gives it, or `undefined`. */
+  channel: string | undefined;
   timer: ReturnType<typeof setTimeout> | null;
+}
+
+/** A channel's key from frame metadata, so a run can be matched to a `__subscribeOk__`. */
+function channelKeyOf(envelope: LiveThingMetadata | null): string | undefined {
+  const channel = envelope?.channel;
+  return channel ? JSON.stringify([channel.family ?? null, channel.name]) : undefined;
 }
 
 interface StreamContext {
@@ -171,6 +184,39 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         else state.queue.end();
       }
 
+      function cancelFrame(state: StreamState): Message {
+        return {
+          event: '__streamCancel__',
+          payload: null,
+          metadata: {
+            stream: { id: state.streamId },
+            ...(state.markers.name
+              ? {
+                  channel: {
+                    name: state.markers.name,
+                    ...(state.markers.family ? { family: state.markers.family } : {}),
+                  },
+                }
+              : {}),
+          },
+        };
+      }
+
+      // A chunk went missing mid-stream: fail the loop. A plain stream is also cancelled,
+      // so the server stops sending. A recorded stream is not, because a cancel would
+      // delete its recording, and `continueStream()` can get the missing chunks back.
+      function failMissingChunk(state: StreamState, got: number): void {
+        if (!state.durable) {
+          try {
+            helpers.rawSend(cancelFrame(state));
+          } catch (error) {
+            helpers.log.report(error);
+          }
+        }
+
+        finishStream(state, StreamCorrupted({ expected: state.lastSeq + 1, got }));
+      }
+
       // A nudge still waiting for its answer when the stream finishes gets the
       // same result as a nudge sent after the end (success), or the error that
       // ended the stream.
@@ -228,7 +274,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       }
 
       function continueFrame(state: StreamState, lastKnownSeq?: number): Message {
-        const seq = lastKnownSeq ?? (Number.isFinite(state.lastSeq) ? state.lastSeq : undefined);
+        const seq = lastKnownSeq ?? (state.lastSeq > 0 ? state.lastSeq : undefined);
         return {
           event: '__continueStream__',
           payload: seq !== undefined ? { lastKnownSeq: seq } : {},
@@ -297,22 +343,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           });
         },
         cancel(state) {
-          const frame: Message = {
-            event: '__streamCancel__',
-            payload: null,
-            metadata: {
-              stream: { id: state.streamId },
-              ...(state.markers.name
-                ? {
-                    channel: {
-                      name: state.markers.name,
-                      ...(state.markers.family ? { family: state.markers.family } : {}),
-                    },
-                  }
-                : {}),
-            },
-          };
-
+          const frame = cancelFrame(state);
           const result = helpers.rawSend(frame);
           // Connecting/reconnecting: hold the cancel and keep the stream alive so its
           // durable row isn't orphaned. It flushes (and the stream finishes) on open.
@@ -419,9 +450,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           acquireStreamHold(state);
         }
 
+        // The server sends only the chunks after `lastKnownSeq`, so the next one is lastKnownSeq + 1.
+        const lastKnownSeq = context.options?.lastKnownSeq;
+        // Never lower it: a chunk the loop already has must still be dropped.
+        if (lastKnownSeq !== undefined) state.lastSeq = Math.max(state.lastSeq, lastKnownSeq);
+
         startChunkTimer(state);
 
-        const frame = continueFrame(state, context.options?.lastKnownSeq);
+        const frame = continueFrame(state, lastKnownSeq);
         let result: SendResult;
         try {
           result = helpers.rawSend(frame);
@@ -485,13 +521,44 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
         let run = broadcastRuns.get(streamId);
         if (!run) {
-          run = { event, lastSeq: Number.NEGATIVE_INFINITY, timer: null };
+          run = {
+            event,
+            lastSeq: Number.NEGATIVE_INFINITY,
+            checksGaps: false,
+            failed: false,
+            channel: channelKeyOf(envelope ?? null),
+            timer: null,
+          };
           broadcastRuns.set(streamId, run);
         }
 
         if (seq !== undefined && seq <= run.lastSeq) return;
 
-        if (seq !== undefined) run.lastSeq = seq;
+        if (run.failed) return;
+
+        if (seq !== undefined && run.checksGaps && seq !== run.lastSeq + 1) {
+          const error = StreamCorrupted({ expected: run.lastSeq + 1, got: seq });
+          endBroadcast(streamId, envelope ?? null, (handlers) =>
+            handlers.onError?.(error, streamId),
+          );
+          // The server is still sending this run. Remember it failed, so its later chunks
+          // and its end are dropped instead of reaching the listeners after onError.
+          const failed: BroadcastRun = { ...run, failed: true, checksGaps: false, timer: null };
+          if (timeout > 0) {
+            failed.timer = setTimeout(() => broadcastRuns.delete(streamId), timeout);
+          }
+
+          broadcastRuns.set(streamId, failed);
+          return;
+        }
+
+        // A listener can join mid-stream, so its first chunk (or its first chunk after a
+        // reconnect or a rejoin) is its start, and the gap check applies from the next one.
+        if (seq !== undefined) {
+          run.lastSeq = seq;
+          run.checksGaps = true;
+        }
+
         if (run.timer) clearTimeout(run.timer);
         if (timeout > 0) {
           run.timer = setTimeout(() => {
@@ -516,6 +583,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         const active = broadcastRuns.get(streamId);
         if (active?.timer) clearTimeout(active.timer);
         broadcastRuns.delete(streamId);
+        // A run that failed on a gap already told its listeners.
+        if (active?.failed) return;
 
         // Route only to subscribers of this stream's event (from a live run, or the
         // eventName the server stamps on broadcast terminal frames). A frame whose
@@ -617,9 +686,11 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       ): Message {
         if (isProtocolFrameEvent(message.event)) return message;
 
-        const seq = envelope?.stream?.seq ?? envelope?.delivery?.seq;
+        const seq = envelope?.stream?.seq;
         const state = streams.get(streamId);
-        if (state && (seq === undefined || seq > state.lastSeq)) {
+        if (state && seq !== undefined && seq > state.lastSeq + 1) {
+          failMissingChunk(state, seq);
+        } else if (state && (seq === undefined || seq > state.lastSeq)) {
           if (state.continueTimer) {
             clearTimeout(state.continueTimer);
             state.continueTimer = null;
@@ -641,6 +712,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
         onIncoming(message) {
           const envelope = message.metadata;
+          // Chunks sent while the member was out of the channel were missed, not lost.
+          if (message.event === '__subscribeOk__') {
+            const channel = channelKeyOf(envelope ?? null);
+            for (const run of broadcastRuns.values())
+              if (run.channel === channel) run.checksGaps = false;
+            return message;
+          }
+
           const streamId = envelope?.stream?.id;
           if (typeof streamId !== 'string') return message;
 
@@ -650,11 +729,30 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
             case '__streamEnd__': {
               helpers.log.info(`stream '${streamId}' completed`);
+              // The end frame carries the last seq the server sent, so a chunk lost at
+              // the end is caught too.
+              const lastSent = envelope?.stream?.seq;
               const state = streams.get(streamId);
-              if (state) finishStream(state);
-              endBroadcast(streamId, envelope ?? null, (handlers) =>
-                handlers.onEnd?.(streamId, envelope?.stream?.seq),
-              );
+              if (state) {
+                const missing = lastSent !== undefined && lastSent !== state.lastSeq;
+                finishStream(
+                  state,
+                  missing ? StreamCorrupted({ expected: lastSent, got: state.lastSeq }) : undefined,
+                );
+              }
+
+              const run = broadcastRuns.get(streamId);
+              if (run?.checksGaps && lastSent !== undefined && lastSent !== run.lastSeq) {
+                const error = StreamCorrupted({ expected: lastSent, got: run.lastSeq });
+                endBroadcast(streamId, envelope ?? null, (handlers) =>
+                  handlers.onError?.(error, streamId),
+                );
+              } else {
+                endBroadcast(streamId, envelope ?? null, (handlers) =>
+                  handlers.onEnd?.(streamId, lastSent),
+                );
+              }
+
               return null;
             }
 
@@ -767,9 +865,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             }
           }
 
+          // Chunks sent while the socket was down were missed, not lost, so each run's
+          // gap check starts again from its next chunk.
           for (const run of broadcastRuns.values()) {
             if (run.timer) clearTimeout(run.timer);
             run.timer = null;
+            run.checksGaps = false;
           }
 
           // Keep each run's last seq across a drop that will reconnect: a reconnect

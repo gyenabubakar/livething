@@ -236,6 +236,7 @@ const RESERVED_ERROR_CODES = new Set([
   'request-no-correlation',
   'request-invalid-response',
   'stream-aborted',
+  'stream-corrupted',
   'nudge-overflow',
   'stream-id-collision',
   'durable-stream-requires-user',
@@ -656,6 +657,29 @@ export const StreamAborted = /* @__PURE__ */ buildErrorFactory(
 export const NudgeOverflow = /* @__PURE__ */ buildErrorFactory(
   'nudge-overflow',
   v.object({ cap: v.number() }),
+);
+
+/**
+ * A stream chunk is missing, so the stream fails instead of ending quietly with a
+ * hole in it. `detail.expected` is the `seq` the client was waiting for and
+ * `detail.got` is the one that came. When the end frame shows a chunk missing at
+ * the end, `expected` is the last `seq` the server sent and `got` is the last one
+ * that arrived. Raised on the client.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   for await (const chunk of reply) render(chunk);
+ * } catch (err) {
+ *   if (StreamCorrupted.matches(err)) {
+ *     // a chunk was lost: start the stream again
+ *   }
+ * }
+ * ```
+ */
+export const StreamCorrupted = /* @__PURE__ */ buildErrorFactory(
+  'stream-corrupted',
+  v.object({ expected: v.number(), got: v.number() }),
 );
 
 /**

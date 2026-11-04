@@ -377,28 +377,6 @@ export function countChunks(sql: SqlExec, userId: string, streamId: string): num
   return Number(rows[0]?.n ?? 0);
 }
 
-/** Delete the oldest chunks so only `keepNewest` remain. No-op if already within cap. */
-export function trimOldestChunks(sql: SqlExec, opts: StreamRef & { keepNewest: number }): void {
-  const { userId, streamId, keepNewest } = opts;
-  sql.exec(
-    `DELETE FROM __livething_stream_chunks
-     WHERE user_id = ? AND stream_id = ?
-       AND seq IN (
-         SELECT seq FROM __livething_stream_chunks
-         WHERE user_id = ? AND stream_id = ?
-         ORDER BY seq ASC
-         LIMIT MAX(0, (SELECT COUNT(*) FROM __livething_stream_chunks WHERE user_id = ? AND stream_id = ?) - ?)
-       )`,
-    userId,
-    streamId,
-    userId,
-    streamId,
-    userId,
-    streamId,
-    keepNewest,
-  );
-}
-
 /** One subscriber's standing in a broadcast stream. */
 export interface StreamSubscriber {
   /** Highest chunk seq a reconnect has caught this subscriber up to. */

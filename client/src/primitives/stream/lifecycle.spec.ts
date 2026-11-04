@@ -256,7 +256,9 @@ describe('hibernation-wake continue', () => {
     const { socket, ws } = build();
     const { sid } = await start(socket, ws, { streamDurability: 'persistent' });
 
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, metadata: { stream: { id: sid, seq: 5 } } });
+    for (const seq of [1, 2]) {
+      ws.emit({ event: 'ask-ai', payload: { text: 'a' }, metadata: { stream: { id: sid, seq } } });
+    }
 
     ws.emit({
       event: '__error__',
@@ -270,7 +272,7 @@ describe('hibernation-wake continue', () => {
     );
     expect(continueFrame).toMatchObject({
       event: '__continueStream__',
-      payload: { lastKnownSeq: 5 },
+      payload: { lastKnownSeq: 2 },
       metadata: { stream: { id: sid } },
     });
     socket.disconnect();
@@ -392,7 +394,7 @@ describe('continueStream default lastKnownSeq from state', () => {
       first.emit({
         event: 'ask-ai',
         payload: { text: 'a' },
-        metadata: { stream: { id: sid, seq: 3 } },
+        metadata: { stream: { id: sid, seq: 1 } },
       });
 
       first.serverClose(1006, 'drop');
@@ -402,7 +404,7 @@ describe('continueStream default lastKnownSeq from state', () => {
 
       expect(second.sentFrames()).toContainEqual({
         event: '__continueStream__',
-        payload: { lastKnownSeq: 3 },
+        payload: { lastKnownSeq: 1 },
         metadata: { stream: { id: sid } },
       });
     } finally {

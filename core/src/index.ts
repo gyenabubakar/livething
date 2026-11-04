@@ -22,6 +22,7 @@ export {
   RequestNoCorrelation,
   RequestNoResponse,
   StreamAborted,
+  StreamCorrupted,
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,

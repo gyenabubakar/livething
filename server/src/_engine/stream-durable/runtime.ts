@@ -801,31 +801,16 @@ async function runGenerator(
       // One serialization: stored as is, and parsed once for the live frames.
       const chunkJson = serializeDurableChunk(def.event, result.value);
       const wirePayload = JSON.parse(chunkJson) as Record<string, unknown>;
-      Storage.appendChunk(runtime.sql, {
-        userId,
-        streamId,
-        seq,
-        messageId: null,
-        payload: chunkJson,
-      });
 
       if (def.maxChunks !== undefined) {
         // Seed from storage once (covers a continued stream's existing rows),
         // then count in memory instead of a COUNT(*) per chunk.
-        if (activeStream.recordedChunkCount === undefined) {
-          activeStream.recordedChunkCount = Storage.countChunks(runtime.sql, userId, streamId);
-        } else {
-          activeStream.recordedChunkCount += 1;
-        }
+        activeStream.recordedChunkCount ??= Storage.countChunks(runtime.sql, userId, streamId);
 
-        const count = activeStream.recordedChunkCount;
-        if (count > def.maxChunks) {
-          Storage.trimOldestChunks(runtime.sql, {
-            userId,
-            streamId,
-            keepNewest: def.maxChunks,
-          });
-
+        // The chunk that would go over the limit is neither stored nor sent, so the end
+        // frame's seq stays the last chunk the client got.
+        if (activeStream.recordedChunkCount >= def.maxChunks) {
+          seq -= 1;
           try {
             await iterator.throw(StreamAborted({ reason: 'buffer-full' }));
           } catch (err) {
@@ -835,7 +820,17 @@ async function runGenerator(
 
           break;
         }
+
+        activeStream.recordedChunkCount += 1;
       }
+
+      Storage.appendChunk(runtime.sql, {
+        userId,
+        streamId,
+        seq,
+        messageId: null,
+        payload: chunkJson,
+      });
 
       // No function is declared inside this loop: the Cloudflare bundle hoisted one out of the
       // block, and its minified name hid the imported `buildActiveStream`.

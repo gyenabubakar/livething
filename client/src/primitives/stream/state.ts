@@ -7,8 +7,11 @@ export class StreamState {
   readonly queue = new StreamQueue<unknown>();
   /** Still running? Goes false on end, error, cancel, or a terminal disconnect. */
   active = true;
-  /** Highest `seq` delivered so far, so chunks already seen are skipped after a reconnect. */
-  lastSeq = Number.NEGATIVE_INFINITY;
+  /**
+   * Highest `seq` delivered so far: a chunk already seen is skipped after a reconnect, and the
+   * next chunk must be exactly `lastSeq + 1`. It starts at 0, so the first chunk must be 1.
+   */
+  lastSeq = 0;
   /** The per-chunk timeout, reset on every chunk. */
   timer: ReturnType<typeof setTimeout> | null = null;
   /** A bounded deadline armed while a continue request is in flight, cleared on the
