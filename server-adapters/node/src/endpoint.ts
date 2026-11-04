@@ -18,10 +18,34 @@ import type { NodeClientIpConfig } from './client-ip.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
 import type { ConnectionTransport } from './socket.ts';
 
+/** The default `maxMessageBytes`: 32 MiB, Cloudflare's limit, so an app behaves the same on both. */
+const DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
+
+/** `ws` keeps `maxPayload` as a 32-bit number, so a bigger value would turn off its limit. */
+const MAX_WS_PAYLOAD = 2 ** 31 - 1;
+
+/** A `maxMessageBytes` option with its default, checked so `ws` and the engine agree on it. */
+export function resolveMaxMessageBytes(value: number | undefined, where: string): number {
+  const bytes = value ?? DEFAULT_MAX_MESSAGE_BYTES;
+  if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_WS_PAYLOAD) {
+    throw new Error(
+      `[livething] ${where} maxMessageBytes must be a whole number of bytes from 1 to ${MAX_WS_PAYLOAD}, got ${bytes}.`,
+    );
+  }
+
+  return bytes;
+}
+
 /** Configuration shared by every Node framework endpoint. */
 export interface NodeEndpointOptions extends Omit<NodeStorageOptions, 'logger'> {
   logger?: Logger;
   clientIp?: NodeClientIpConfig;
+  /**
+   * The largest message, in bytes, this endpoint receives or sends. A bigger incoming message
+   * closes the socket with `1009`, and a bigger send throws. Default: 32 MiB. When the app,
+   * Fastify or h3 creates the `ws` server, set its `maxPayload` to the same value.
+   */
+  maxMessageBytes?: number;
 }
 
 /**
@@ -67,11 +91,13 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     let shuttingDown = false;
     let shutdownPromise: Promise<void> | undefined;
 
+    const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes, 'The endpoint');
     const engine = createEngine({
       logger,
       platform: runtime.platform,
       storage: runtime.storage,
       timers: runtime.timers,
+      messageLimits: { receiveBytes: maxMessageBytes, sendBytes: maxMessageBytes },
     });
 
     async function decideNodeUpgrade(

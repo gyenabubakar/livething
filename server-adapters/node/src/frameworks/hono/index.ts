@@ -6,6 +6,7 @@ import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
+import { resolveMaxMessageBytes } from '../../endpoint.ts';
 import { sendWhenOpen } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { isNodeWebSocketUpgrade, isWebSocketUpgrade } from '../../upgrade.ts';
@@ -32,18 +33,43 @@ export interface HonoSetup {
 /** Options for the shared Hono WebSocket transport. */
 export interface HonoSetupOptions {
   webSocketServer?: WebSocketServer;
+  /**
+   * The `maxPayload` of the `ws` server that all endpoints share, in bytes. Default: 32 MiB.
+   * An endpoint's own `maxMessageBytes` must not be larger.
+   */
+  maxMessageBytes?: number;
 }
 
 /** Creates Hono route bindings without creating or listening on an HTTP server. */
 export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
+  if (setupOptions.webSocketServer && setupOptions.maxMessageBytes !== undefined) {
+    throw new Error(
+      '[livething] setup() got both webSocketServer and maxMessageBytes. Set maxPayload on your own WebSocketServer instead.',
+    );
+  }
+
   const node = binding();
   const lifecycle = createUpgradeLifecycle();
-  const server = setupOptions.webSocketServer ?? new WebSocketServer({ noServer: true });
+  const server =
+    setupOptions.webSocketServer ??
+    new WebSocketServer({
+      noServer: true,
+      maxPayload: resolveMaxMessageBytes(setupOptions.maxMessageBytes, 'setup()'),
+    });
 
   return {
     websocket: { server },
 
     bind(definition, endpointOptions) {
+      // The shared server refuses bigger messages first, so a larger endpoint limit can't work.
+      const endpointLimit = resolveMaxMessageBytes(endpointOptions.maxMessageBytes, 'The endpoint');
+      const sharedLimit = server.options.maxPayload;
+      if (sharedLimit !== undefined && endpointLimit > sharedLimit) {
+        throw new Error(
+          `[livething] maxMessageBytes (${endpointLimit}) is larger than the shared WebSocket server limit (${sharedLimit}). Raise maxMessageBytes in setup().`,
+        );
+      }
+
       const endpoint = node.bind(definition, endpointOptions);
       const connections = new WeakMap<object, NodeConnection>();
 

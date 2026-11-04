@@ -20,6 +20,9 @@ const WEB_SOCKET_OPEN = 1;
 /** The close code for a socket that ended with no close frame from the client. */
 const ABNORMAL_CLOSURE = 1006;
 
+/** The largest WebSocket message a Durable Object receives or sends: 32 MiB. */
+const CLOUDFLARE_MESSAGE_BYTES = 32 * 1024 * 1024;
+
 /**
  * The instance shape of a `bind()`-produced Durable Object.
  *
@@ -97,6 +100,11 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           platform: createPlatform(ctx, env),
           storage: createStorage(ctx, logger),
           timers: createTimers(ctx),
+          // Fixed by the platform. Cloudflare drops a bigger outgoing message with no error.
+          messageLimits: {
+            receiveBytes: CLOUDFLARE_MESSAGE_BYTES,
+            sendBytes: CLOUDFLARE_MESSAGE_BYTES,
+          },
         });
         // Durable Object refs can be passed through application code and must
         // carry the stable DO id so a ref from another DO cannot match a local

@@ -407,6 +407,7 @@ function buildDispatchRuntime(core: EngineCore) {
     logger: core.logger,
     activeStreams: core.activeStreams,
     sql: core.storage.sql,
+    maxPendingBytes: 2 * core.messageLimits.receiveBytes,
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
     answerFrameHooks: core.hooks.answerFrame,
@@ -488,6 +489,7 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     hibernationEnabled: core.hibernationEnabled,
+    messageLimits: core.messageLimits,
     connections: core.connections,
     usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,

@@ -155,6 +155,8 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       platform: expect.any(Object),
       storage: expect.any(Object),
       timers: expect.any(Object),
+      // Cloudflare's own 32 MiB limit, in both directions.
+      messageLimits: { receiveBytes: 33_554_432, sendBytes: 33_554_432 },
     });
   });
 

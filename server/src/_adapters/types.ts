@@ -128,6 +128,19 @@ export interface EngineRuntimeOptions {
 
   /** Structured logger exposed as `ctx.log`. */
   logger: Logger;
+
+  /**
+   * The largest message, in bytes, the platform can receive and send. The engine closes a
+   * connection with `1009` (`CloseCodes.MESSAGE_TOO_BIG`) for a bigger incoming message, and
+   * throws instead of sending a bigger one. Default: 32 MiB each.
+   */
+  messageLimits?: MessageLimits;
+}
+
+/** An adapter's message limits, in bytes. See `EngineRuntimeOptions.messageLimits`. */
+export interface MessageLimits {
+  receiveBytes: number;
+  sendBytes: number;
 }
 
 /** Complete configuration passed to the engine constructor by the adapter factory. */

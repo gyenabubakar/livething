@@ -1,5 +1,5 @@
 import { assertSynchronousResult, CloseCodes, StreamAborted } from '@livething/core';
-import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
+import { normalizeConnectionDescriptor, textOverLimit } from '~/_adapters/close.ts';
 import { withCallContext, withConnectionLevelCall } from '~/_engine/async-context.ts';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
@@ -220,6 +220,9 @@ interface ConnectionRuntime {
 
   hibernationEnabled?: boolean;
 
+  /** The adapter's message limits. The engine always passes them; a test runtime may not. */
+  messageLimits?: EngineAdapterTypes.MessageLimits;
+
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   /** User-key → members index, maintained on accept, close, and hibernation wake. */
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
@@ -333,8 +336,18 @@ function createHandle(
     }
   }
 
+  const receiveBytes = runtime.messageLimits?.receiveBytes;
+
   return {
     handleMessage: async (data) => {
+      // The platform should refuse a bigger message first; this makes the limit hold anyway.
+      if (receiveBytes !== undefined && textOverLimit(data, receiveBytes)) {
+        // Frames already on the way must not run handlers while the close completes.
+        connection.closing = true;
+        connection.descriptor.close(CloseCodes.MESSAGE_TOO_BIG, 'Message is too big');
+        return;
+      }
+
       try {
         await waitForLifecycle();
         if (connection.closing) return;
@@ -630,6 +643,7 @@ export function acceptConnection(
         code,
       });
     },
+    sendBytes: runtime.messageLimits?.sendBytes,
   });
 
   assertUsableUserId(descriptor.userId);
@@ -912,6 +926,7 @@ export function wakeHibernatedConnection(
           },
         );
       },
+      sendBytes: runtime.messageLimits?.sendBytes,
     },
   );
   const connection: EngineRuntimeTypes.RuntimeConnection = {

@@ -11,6 +11,7 @@ export type {
   ConnectionHandle,
   Engine,
   EngineRuntimeOptions,
+  MessageLimits,
   UpgradeDecision,
 } from './types.ts';
 export { ADMIN_CONTEXT_MEMBERS } from '~/admin/context.ts';

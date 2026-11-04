@@ -722,6 +722,65 @@ describe('Node server integration', () => {
     await expect(closed).resolves.toEqual({ code: 1011, reason: 'Internal error' });
   });
 
+  describe('maxMessageBytes', () => {
+    async function connectTo(options: NodeServerEndpointOptions) {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      const service = createTestService(buildServerDefinition(state), { port: 0, ...options });
+      services.push(service);
+      await service.ready;
+
+      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+      clients.push(socket);
+      const connected = waitForMessage(socket);
+      await waitForOpen(socket);
+      await connected;
+
+      return socket;
+    }
+
+    it('refuses a value that ws cannot hold, naming the option', () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      for (const maxMessageBytes of [0, -1, 1.5, Number.NaN, 2 ** 31]) {
+        expect(() => setup().bind(buildServerDefinition(state), { maxMessageBytes })).toThrow(
+          /The endpoint maxMessageBytes must be a whole number of bytes from 1 to 2147483647/,
+        );
+      }
+    });
+
+    it('closes the socket with 1009 for a message over the limit', async () => {
+      const socket = await connectTo({ maxMessageBytes: 1024 });
+
+      const closed = waitForClose(socket);
+      socket.send('x'.repeat(2000));
+
+      expect((await closed).code).toBe(CloseCodes.MESSAGE_TOO_BIG);
+    });
+
+    it('still holds when the app passes its own WebSocket server without a limit', async () => {
+      const socket = await connectTo({
+        maxMessageBytes: 1024,
+        webSocketServer: new WebSocketServer({ noServer: true }),
+      });
+
+      const closed = waitForClose(socket);
+      socket.send('x'.repeat(2000));
+
+      expect(await closed).toEqual({
+        code: CloseCodes.MESSAGE_TOO_BIG,
+        reason: 'Message is too big',
+      });
+    });
+
+    it('defaults to 32 MiB', async () => {
+      const socket = await connectTo({});
+
+      const closed = waitForClose(socket);
+      socket.send('x'.repeat(32 * 1024 * 1024 + 1));
+
+      expect((await closed).code).toBe(CloseCodes.MESSAGE_TOO_BIG);
+    });
+  });
+
   it('rejects binary frames through the real bridge', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = createTestService(buildServerDefinition(state), { port: 0 });

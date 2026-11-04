@@ -288,6 +288,42 @@ describe('Hono binding', () => {
     await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text: 'hello' }, null]);
   });
 
+  it('sets maxMessageBytes on the shared WebSocket server, so a bigger message closes with 1009', async () => {
+    const app = new Hono();
+    const livething = setup({ maxMessageBytes: 1024 });
+    const endpoint = livething.bind(assembled, { maxMessageBytes: 1024 });
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
+
+    servers.push(server);
+    await livething.ready();
+
+    expect(livething.websocket.server.options.maxPayload).toBe(1024);
+    const socket = await openLobbySocket(server.port);
+    const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+    socket.send('x'.repeat(2000));
+
+    expect(await closed).toBe(1009);
+  });
+
+  it('refuses a maxMessageBytes that ws cannot hold, and both webSocketServer and maxMessageBytes', () => {
+    for (const maxMessageBytes of [0, 1.5, Number.NaN, 2 ** 31]) {
+      expect(() => setup({ maxMessageBytes })).toThrow(/setup\(\) maxMessageBytes must be/);
+    }
+
+    expect(() =>
+      setup({ webSocketServer: new WebSocketServer({ noServer: true }), maxMessageBytes: 1024 }),
+    ).toThrow(/both webSocketServer and maxMessageBytes/);
+  });
+
+  it('refuses an endpoint maxMessageBytes larger than the shared server limit', () => {
+    const livething = setup({ maxMessageBytes: 1024 });
+
+    expect(() => livething.bind(assembled, { maxMessageBytes: 2048 })).toThrow(
+      /maxMessageBytes \(2048\) is larger than the shared WebSocket server limit \(1024\)/,
+    );
+  });
+
   it('uses a caller-provided WebSocket server', async () => {
     const app = new Hono();
     const webSocketServer = new WebSocketServer({ noServer: true });

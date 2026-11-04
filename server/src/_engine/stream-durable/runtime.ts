@@ -171,10 +171,12 @@ interface SendChunkFramesOpts {
   scopeMarkers: Record<string, unknown>;
 
   streamId: string;
+
+  logger: Pick<Logger, 'warn'>;
 }
 
 function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpts): boolean {
-  const { eventName, chunks, scopeMarkers, streamId } = opts;
+  const { eventName, chunks, scopeMarkers, streamId, logger } = opts;
   if (chunks.length === 0) return true;
 
   for (const chunk of chunks) {
@@ -186,7 +188,21 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
       ...(chunk.messageId === null ? {} : { messageId: chunk.messageId }),
     });
 
-    if (connection.descriptor.send(wire) === false || connection.closing) return false;
+    let sent: unknown;
+    try {
+      sent = connection.descriptor.send(wire);
+    } catch (error) {
+      // A stored chunk over the send limit would fail every resend. Skip it: the client sees
+      // the gap and fails the stream with StreamCorrupted, instead of it never ending.
+      logger.warn('[livething] a recorded stream chunk could not be sent; skipping it', {
+        streamId,
+        seq: chunk.seq,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+
+    if (sent === false || connection.closing) return false;
   }
 
   return true;
@@ -537,7 +553,15 @@ export async function continueDurableStream(
     });
 
     try {
-      if (!sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })) {
+      const frames = {
+        eventName: def.event,
+        chunks,
+        scopeMarkers,
+        streamId,
+        logger: runtime.logger,
+      };
+
+      if (!sendChunkFrames(connection, frames)) {
         rollbackContinueAttachment(attachment);
         return;
       }
@@ -557,7 +581,8 @@ export async function continueDurableStream(
     since: lastKnownSeq,
   });
 
-  if (!sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })) {
+  const frames = { eventName: def.event, chunks, scopeMarkers, streamId, logger: runtime.logger };
+  if (!sendChunkFrames(connection, frames)) {
     return;
   }
 

@@ -10,8 +10,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 
-// The default budget is 64 MiB, so two of these frames do not fit at the same time.
-const big = 'x'.repeat(33 * 1024 * 1024);
+// The budget is twice the receive limit: 2 MiB here. Two of these frames fit, three do not.
+const RECEIVE_BYTES = 1024 * 1024;
+const BUDGET = 2 * RECEIVE_BYTES;
+const big = 'x'.repeat(700 * 1024);
 
 function deferred() {
   let open!: () => void;
@@ -34,6 +36,7 @@ async function start(definition: ServerDefinition) {
         timers: createTestTimers(),
         platform: {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        messageLimits: { receiveBytes: RECEIVE_BYTES, sendBytes: RECEIVE_BYTES },
       });
       return {};
     },
@@ -85,14 +88,13 @@ describe('the bytes one connection holds before its handlers start', () => {
     const frame = JSON.stringify(['upload-file', { data: big }, inFiles]);
 
     const subscribing = handle.handleMessage(JSON.stringify(['__subscribe__', null, inFiles]));
-    const first = handle.handleMessage(frame);
-    const second = handle.handleMessage(frame);
+    const frames = [1, 2, 3].map(() => handle.handleMessage(frame));
     await macrotask();
 
     expect(busy()).toBe(1);
     open();
-    await Promise.all([subscribing, first, second]);
-    expect(uploads).toHaveLength(1);
+    await Promise.all([subscribing, ...frames]);
+    expect(uploads).toHaveLength(2);
   });
 
   it('refuse a frame that would wait in the work queue once they go over the budget', async () => {
@@ -110,17 +112,16 @@ describe('the bytes one connection holds before its handlers start', () => {
 
     const frame = JSON.stringify(['upload-file', { data: big }, null]);
 
-    // The first handler starts and gives its bytes back; the next two wait for its turn.
+    // The first handler starts and gives its bytes back; the next ones wait for its turn.
     const running = handle.handleMessage(frame);
     await macrotask();
-    const waiting = handle.handleMessage(frame);
-    const refused = handle.handleMessage(frame);
+    const waiting = [1, 2, 3].map(() => handle.handleMessage(frame));
     await macrotask();
 
     expect(busy()).toBe(1);
     open();
-    await Promise.all([running, waiting, refused]);
-    expect(uploads).toHaveLength(2);
+    await Promise.all([running, ...waiting]);
+    expect(uploads).toHaveLength(3);
   });
 
   it('are given back when a handler starts, not when it returns', async () => {
@@ -134,7 +135,7 @@ describe('the bytes one connection holds before its handlers start', () => {
       },
     });
     const { handle, busy } = await start(base.assemble({ handlers: [upload] }));
-    const frames = [1, 2, 3].map((n) =>
+    const frames = [1, 2, 3, 4].map((n) =>
       JSON.stringify(['upload-file', { data: big }, { exchange: { id: `r${n}` } }]),
     );
 
@@ -161,13 +162,17 @@ describe('the bytes one connection holds before its handlers start', () => {
     const { handle, sent, raw, busy } = await start(base.assemble({ handlers: [files, upload] }));
 
     const inFiles = { channel: { name: 'files' } };
-    // Fills the budget to 3 bytes short of 64 MiB, so not even a ping would fit.
+    // Two frames fill the budget to 3 bytes short, so not even a ping would fit.
     const subscribe = JSON.stringify(['__subscribe__', null, inFiles]);
     const overhead = JSON.stringify(['upload-file', { data: '' }, inFiles]).length;
-    const fill = 'x'.repeat(64 * 1024 * 1024 - subscribe.length - overhead - 3);
+    const first = Math.floor((BUDGET - subscribe.length - 3) / 2);
+    const second = BUDGET - subscribe.length - 3 - first;
+    function fill(size: number): string {
+      return JSON.stringify(['upload-file', { data: 'x'.repeat(size - overhead) }, inFiles]);
+    }
 
     const subscribing = handle.handleMessage(subscribe);
-    const held = handle.handleMessage(JSON.stringify(['upload-file', { data: fill }, inFiles]));
+    const held = [handle.handleMessage(fill(first)), handle.handleMessage(fill(second))];
     await macrotask();
 
     await handle.handleMessage('ping');
@@ -196,14 +201,14 @@ describe('the bytes one connection holds before its handlers start', () => {
     expect(busy()).toBe(1);
 
     open();
-    await Promise.all([subscribing, held]);
+    await Promise.all([subscribing, ...held]);
   });
 
   it('are given back for a frame that never reaches a handler', async () => {
     const { handle, busy } = await start(server({}).assemble({ handlers: [] }));
     const frame = JSON.stringify(['no-such-event', { data: big }, null]);
 
-    for (let i = 0; i < 3; i++) await handle.handleMessage(frame);
+    for (let i = 0; i < 4; i++) await handle.handleMessage(frame);
 
     expect(busy()).toBe(0);
   });

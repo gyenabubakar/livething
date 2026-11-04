@@ -29,12 +29,7 @@ import {
   finishSubscribe,
   subscribeKey,
 } from './subscribe-order.ts';
-import {
-  connectionBusy,
-  MAX_PENDING_CONNECTION_BYTES,
-  MAX_PENDING_CONNECTION_WORK,
-  runConnectionWork,
-} from './work-queue.ts';
+import { connectionBusy, MAX_PENDING_CONNECTION_WORK, runConnectionWork } from './work-queue.ts';
 import type { SubscribeAttempt, SubscribeGate } from './subscribe-order.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -127,6 +122,12 @@ interface DispatchRuntime
    * incoming dedup is disabled (no `dedup()` primitive registered).
    */
   incomingDedupCap: number;
+
+  /**
+   * Most bytes of frames one connection may hold between their arrival and the start of
+   * their handler: twice the adapter's receive limit.
+   */
+  maxPendingBytes: number;
 
   errorHooks: readonly ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
 
@@ -881,7 +882,7 @@ export async function processTextMessage(
   // The frame's bytes count against the connection from now until its handler starts.
   const counted = waitsInLine(parsed) ? size : 0;
   const held = connection.pendingBytes ?? 0;
-  if (counted > 0 && held + counted > MAX_PENDING_CONNECTION_BYTES) {
+  if (counted > 0 && held + counted > runtime.maxPendingBytes) {
     await refuseBusy(runtime, connection, parsed);
     return;
   }

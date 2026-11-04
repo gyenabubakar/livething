@@ -3,6 +3,7 @@ import type { ServerDefinition } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { binding } from './binding.ts';
+import { resolveMaxMessageBytes } from './endpoint.ts';
 import { createNodeUpgradeHandler } from './upgrade.ts';
 import type { NodeAdmin, NodeEndpointOptions } from './endpoint.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
@@ -41,8 +42,11 @@ export function setup(): NodeSetup {
     bind(definition, options) {
       if (shuttingDown) throw new Error('[livething] Node binding is shutting down');
 
+      const maxPayload = resolveMaxMessageBytes(options.maxMessageBytes, 'The endpoint');
       const endpoint = node.bind(definition, options);
-      const webSocketServer = options.webSocketServer ?? new WebSocketServer({ noServer: true });
+      // `ws` refuses a bigger message before LiveThing reads it, and closes with 1009.
+      const webSocketServer =
+        options.webSocketServer ?? new WebSocketServer({ noServer: true, maxPayload });
       const handleUpgrade = createNodeUpgradeHandler({ endpoint, webSocketServer });
 
       return {

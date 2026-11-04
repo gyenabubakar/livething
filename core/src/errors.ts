@@ -32,6 +32,8 @@ export const CloseCodes = Object.freeze({
   PROTOCOL_ERROR: 1002,
   /** Unsupported data — the peer sent a frame type this server does not accept. */
   UNSUPPORTED_DATA: 1003,
+  /** Message too big — the peer sent a message over the adapter's message limit. */
+  MESSAGE_TOO_BIG: 1009,
   /** Internal error — the server could not complete an operation. */
   INTERNAL_ERROR: 1011,
   /** Authentication token expired. Client should refresh and reconnect. */
