@@ -1,4 +1,4 @@
-import { Disconnected, Timeout } from '~/errors.ts';
+import { Disconnected, Dropped, Timeout } from '~/errors.ts';
 import { timerDelayError } from '~/internal/config.ts';
 import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
@@ -141,6 +141,10 @@ export function clientRequests(
 
           if (result === 'connecting') {
             outbox.set(correlationId, { message: frame, owner });
+          } else if (result === 'dropped') {
+            clearTimeout(timer);
+            done();
+            reject(Dropped());
           } else if (result === 'closed' || result === 'blocked') {
             clearTimeout(timer);
             done();

@@ -17,11 +17,13 @@ export type { Message, LiveThingMetadata };
  * - `closed` — the socket is closed with no reconnect coming; a Promise-bearing
  *   caller must fail fast with `Disconnected` instead of hanging.
  * - `blocked` — a primitive's `onOutgoing` cancelled the send.
+ * - `dropped` — the buffer refused it (too big to queue); a Promise-bearing
+ *   caller must reject with `Dropped` at once.
  *
  * The public `socket.send()` collapses this back to a boolean (`sent`/`buffered`
  * → true), so only primitives see the full detail.
  */
-export type SendResult = 'sent' | 'buffered' | 'connecting' | 'closed' | 'blocked';
+export type SendResult = 'sent' | 'buffered' | 'connecting' | 'closed' | 'blocked' | 'dropped';
 
 /**
  * The pending operation that owns a buffered or outboxed frame. A request,
@@ -204,12 +206,12 @@ export interface PrimitiveHelpers {
   onPong(handler: () => void): void;
 
   /**
-   * Register a handler for sends that happen while the socket is closed.
-   * Return `true` if you kept the message (e.g. added it to a buffer), `false` to drop it.
-   * If no fallback is registered, those sends are silently dropped.
+   * Register a handler that is offered every outgoing message. Return `'buffered'` if you
+   * kept it, `'dropped'` if you refused it, or `null` to let the
+   * socket send it as normal.
    */
   registerOutgoingFallback(
-    handler: (message: Message, options?: InternalSendOptions) => boolean,
+    handler: (message: Message, options?: InternalSendOptions) => 'buffered' | 'dropped' | null,
   ): void;
 
   /** Debug logger, already gated on debug mode and prefixed — use freely, no guard needed. */

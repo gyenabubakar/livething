@@ -38,13 +38,18 @@ export function buffering(
       // while a staggered flush is still draining — a live send during the flush
       // must queue behind the not-yet-flushed messages so order is preserved,
       // not race ahead of them onto the wire. Decline otherwise (open and idle),
-      // so normal sends go straight to the wire.
+      // so normal sends go straight to the wire. A message too big to queue is
+      // dropped: it must not go to the wire ahead of the queue either.
       helpers.registerOutgoingFallback((message, sendOptions) => {
-        if (helpers.getState() === 'open' && !buffer.isFlushing) return false;
+        if (helpers.getState() === 'open' && !buffer.isFlushing) return null;
 
-        const buffered = buffer.enqueue(message, sendOptions?.ttl, sendOptions?.owner);
-        if (buffered) helpers.log.info(`buffered '${message.event}'`);
-        return buffered;
+        if (!buffer.enqueue(message, sendOptions?.ttl, sendOptions?.owner)) {
+          helpers.log.info(`dropped '${message.event}': it is bigger than maxBytes`);
+          return 'dropped';
+        }
+
+        helpers.log.info(`buffered '${message.event}'`);
+        return 'buffered';
       });
 
       return {

@@ -163,8 +163,9 @@ export class LiveThingSocket {
 
   private _pongHandlers: (() => void)[] = [];
 
-  private _outgoingFallback: ((message: Message, options?: InternalSendOptions) => boolean) | null =
-    null;
+  private _outgoingFallback:
+    | ((message: Message, options?: InternalSendOptions) => 'buffered' | 'dropped' | null)
+    | null = null;
 
   private readonly _shared = new Map<string, unknown>();
 
@@ -851,7 +852,8 @@ export class LiveThingSocket {
     // Offer to the outgoing fallback (buffering) first: it takes the message
     // while offline, or while a staggered flush is still draining so a live send
     // can't jump ahead of not-yet-flushed messages. It declines when open and idle.
-    if (this._outgoingFallback?.(outgoing, options)) return 'buffered';
+    const kept = this._outgoingFallback?.(outgoing, options);
+    if (kept) return kept;
 
     if (this._state !== 'open' || !this.ws) {
       if (this._debug) this._log(`send('${outgoing.event}') not sent — not connected`);

@@ -1,4 +1,4 @@
-import { Disconnected, Timeout } from '~/errors.ts';
+import { Disconnected, Dropped, Timeout } from '~/errors.ts';
 import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { namespacePrefixOf } from '~/internal/namespace.ts';
@@ -379,6 +379,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         } else if (result === 'closed' || result === 'blocked') {
           helpers.lazyRelease();
           return Promise.reject(Disconnected());
+        } else if (result === 'dropped') {
+          helpers.lazyRelease();
+          return Promise.reject(Dropped());
         }
 
         return new Promise<StreamHandle<unknown>>((resolve, reject) => {

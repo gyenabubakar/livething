@@ -72,13 +72,16 @@ export class MessageBuffer {
   }
 
   /**
-   * Add a message. Always returns `true`: the message is taken.
+   * Add a message, and return whether it was taken.
    * When the buffer would go over `maxMessages` or `maxBytes`, the oldest messages are
-   * dropped to make room.
+   * dropped to make room. A message bigger than `maxBytes` alone is never queued: it is
+   * refused, and the send returns `'dropped'`, so its caller rejects with `Dropped` instead
+   * of waiting for a flush that will never send it.
    */
   enqueue(message: Message, perCallTtl?: number, owner?: FrameOwner): boolean {
     const ttl = perCallTtl ?? this.defaultTtl;
     const bytes = utf8ByteLength(encodeMessage(message));
+    if (bytes > this.maxBytes) return false;
 
     // Reject each dropped owner, so a Promise-bearing op whose frame was dropped fails
     // instead of hanging.
