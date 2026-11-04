@@ -47,6 +47,14 @@ export {
 } from './identifier.ts';
 export { decodeMessage, encodeMessage } from './wire.ts';
 export { utf8ByteLength } from './utf8.ts';
+export {
+  BINARY_ENVELOPE_LIMIT,
+  BINARY_HEADER_LENGTH,
+  asUint8Array,
+  encodeBinaryFrame,
+  splitBinaryFrame,
+} from './binary.ts';
+export type { BinaryInput, SplitBinaryFrame } from './binary.ts';
 export type {
   LiveThingChannelMetadata,
   LiveThingDeliveryMetadata,
