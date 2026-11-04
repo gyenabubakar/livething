@@ -446,6 +446,9 @@ export interface RuntimeConnection {
   /** How many frames wait behind `pendingSubscribes` right now, capped at the connection work limit. */
   heldFrames?: number;
 
+  /** The bytes of this connection's frames that have arrived and whose handler has not started. */
+  pendingBytes?: number;
+
   /**
    * While set and `active`, the engine is inside the connection-accept window
    * (initial row already inserted, `onConnect` running). Per-state-change row

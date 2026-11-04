@@ -29,7 +29,12 @@ import {
   finishSubscribe,
   subscribeKey,
 } from './subscribe-order.ts';
-import { connectionBusy, MAX_PENDING_CONNECTION_WORK, runConnectionWork } from './work-queue.ts';
+import {
+  connectionBusy,
+  MAX_PENDING_CONNECTION_BYTES,
+  MAX_PENDING_CONNECTION_WORK,
+  runConnectionWork,
+} from './work-queue.ts';
 import type { SubscribeAttempt, SubscribeGate } from './subscribe-order.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -276,6 +281,8 @@ export interface DispatchIncomingOptions {
   charged?: boolean;
   /** The frame's size as it arrived, in bytes. `processTextMessage` always passes it. */
   size?: number;
+  /** Called when the handler starts, to give the frame's bytes back to the connection. */
+  onHandlerStart?: () => void;
 }
 
 /** The intercepts a frame still has to pass, given what it already paid on arrival. */
@@ -305,7 +312,7 @@ export async function dispatchIncoming(
   connection: EngineRuntimeTypes.RuntimeConnection,
   opts: DispatchIncomingOptions,
 ): Promise<void> {
-  const { event, payload, livething, size = 0 } = opts;
+  const { event, payload, livething, size = 0, onHandlerStart } = opts;
   // A closing connection is already out of the runtime maps, so running its
   // handler would fire side effects for a client that is gone.
   if (connection.closing) return;
@@ -427,6 +434,7 @@ export async function dispatchIncoming(
 
     if (incoming) {
       await runConnectionWork(connection, incoming.allowInterleaving ?? false, () => {
+        onHandlerStart?.();
         if (connection.closing) return;
 
         return withConnectionCall(
@@ -440,6 +448,7 @@ export async function dispatchIncoming(
 
     if (request) {
       await runConnectionWork(connection, request.allowInterleaving ?? true, () => {
+        onHandlerStart?.();
         if (connection.closing) return;
 
         return runtime.requestDispatch?.(runtime, connection, {
@@ -455,6 +464,7 @@ export async function dispatchIncoming(
       return;
     }
 
+    onHandlerStart?.();
     if (stream) {
       await runtime.streamTrigger?.(runtime, connection, {
         scope,
@@ -867,20 +877,70 @@ export async function processTextMessage(
   data: string,
 ): Promise<void> {
   const parsed = data === 'ping' || data === 'pong' ? undefined : parseFrame(data);
-  // Before the first await, so frames take their place in the order they arrived
-  // even when hooks below make this frame wait.
-  const place = placeFrame(connection, parsed);
+  const size = utf8ByteLength(data);
+  // The frame's bytes count against the connection from now until its handler starts.
+  const counted = waitsInLine(parsed) ? size : 0;
+  const held = connection.pendingBytes ?? 0;
+  if (counted > 0 && held + counted > MAX_PENDING_CONNECTION_BYTES) {
+    await refuseBusy(runtime, connection, parsed);
+    return;
+  }
 
+  connection.pendingBytes = held + counted;
+  let released = false;
+  function release(): void {
+    if (released) return;
+
+    released = true;
+    connection.pendingBytes! -= counted;
+  }
+
+  let place: FramePlace = {};
   try {
-    await processParsedMessage(runtime, connection, {
-      data,
-      parsed,
-      place,
-      size: utf8ByteLength(data),
-    });
+    // Before the first await, so frames take their place in the order they arrived
+    // even when hooks below make this frame wait.
+    place = placeFrame(connection, parsed);
+    await processParsedMessage(runtime, connection, { data, parsed, place, size, release });
   } finally {
+    release();
     if (place.attempt) finishSubscribe(connection, place.attempt);
   }
+}
+
+/**
+ * Whether a frame can wait for its handler, so its bytes count against the connection's
+ * budget: an app event, or a `__subscribe__` (which waits for `check`). A ping, a pong, the
+ * other protocol frames and an answer to a server request never wait in line, so a full
+ * budget must not stop a client from leaving a channel, cancelling a stream or answering.
+ */
+function waitsInLine(parsed: unknown): boolean {
+  if (!Array.isArray(parsed) || typeof parsed[0] !== 'string') return false;
+
+  if (Protocol.isProtocolEventName(parsed[0])) return parsed[0] === '__subscribe__';
+
+  const exchange = (parsed[2] as { exchange?: { source?: unknown } } | null)?.exchange;
+  return exchange?.source !== 'server';
+}
+
+/** Answer a frame that would take the connection over its byte budget with `ConnectionBusy`. */
+async function refuseBusy(
+  runtime: Pick<DispatchRuntime, 'handleRuntimeError'>,
+  connection: RuntimeConnection,
+  parsed: unknown,
+): Promise<void> {
+  const event = Array.isArray(parsed) && typeof parsed[0] === 'string' ? parsed[0] : undefined;
+  let livething: Protocol.LiveThingProtocol | undefined;
+  try {
+    livething = Protocol.parseUserEventFrame(parsed).__livething;
+  } catch {
+    livething = undefined;
+  }
+
+  await runtime.handleRuntimeError(connection, {
+    error: connectionBusy(),
+    event,
+    routing: refusalRouting(livething),
+  });
 }
 
 const INVALID_FRAME = Symbol('invalid-frame');
@@ -900,6 +960,8 @@ interface IncomingText {
   place: FramePlace;
   /** The frame's length in UTF-8 bytes. */
   size: number;
+  /** Gives the frame's bytes back to the connection's budget, once its handler starts. */
+  release: () => void;
 }
 
 function parseFrame(data: string): unknown {
@@ -1041,7 +1103,7 @@ async function processParsedMessage(
   connection: RuntimeConnection,
   message: IncomingText,
 ): Promise<void> {
-  const { data, parsed, place, size } = message;
+  const { data, parsed, place, size, release } = message;
   const observed = { connectionId: connection.id, logger: runtime.logger };
 
   if (runtime.activityHooks.length > 0) {
@@ -1245,6 +1307,7 @@ async function processParsedMessage(
       scope: scopeError ? undefined : triggerScope,
       charged,
       size,
+      onHandlerStart: release,
     });
   } catch (error) {
     await runtime.handleRuntimeError(connection, {

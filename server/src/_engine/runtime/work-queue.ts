@@ -4,6 +4,12 @@ import type { RuntimeConnection } from './types.ts';
 /** Maximum number of admitted but unfinished ordered handlers per connection. */
 export const MAX_PENDING_CONNECTION_WORK = 256;
 
+/**
+ * Maximum bytes of frames one connection may hold in memory between their arrival and the
+ * start of their handler, whatever path they take: twice the 32 MiB message limit.
+ */
+export const MAX_PENDING_CONNECTION_BYTES = 64 * 1024 * 1024;
+
 /** The error for a connection that already holds as much work as it may. */
 export function connectionBusy(): ReturnType<typeof ConnectionBusy> {
   return ConnectionBusy({ retryAfterMs: 1_000 });
