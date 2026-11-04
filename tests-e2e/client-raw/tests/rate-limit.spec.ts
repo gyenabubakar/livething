@@ -9,10 +9,10 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
   });
 
-  test('top-level cap allows max then rejects with rate-limited + retryAfterMs', async ({
+  test('top-level cap allows maxMessages then rejects with rate-limited + retryAfterMs', async ({
     page,
   }) => {
-    // Cap is max=3 in a fresh bucket.
+    // Cap is maxMessages=3 in a fresh bucket.
     await page.getByTestId('tick').click();
     await page.getByTestId('tick').click();
     await page.getByTestId('tick').click();
@@ -31,7 +31,7 @@ test.describe('rate-limit', () => {
   });
 
   test('per-handler override applies a tighter cap to one event only', async ({ page }) => {
-    // 'expensive' has its own bucket with max=1. First passes, second rejected.
+    // 'expensive' has its own bucket with maxMessages=1. First passes, second rejected.
     await page.getByTestId('expensive').click();
     await expect(page.getByTestId('expensive-done-count')).toHaveText('1');
 
@@ -39,7 +39,7 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('rate-limited-count')).toHaveText('1');
     await expect(page.getByTestId('expensive-done-count')).toHaveText('1');
 
-    // Top-level 'tick' bucket is separate (max=3) — still has tokens.
+    // Top-level 'tick' bucket is separate (maxMessages=3) — still has tokens.
     await page.getByTestId('tick').click();
     await expect(page.getByTestId('tock-count')).toHaveText('1');
   });
@@ -63,7 +63,7 @@ test.describe('rate-limit', () => {
     await page.getByTestId('subscribe-rooms').click();
     await expect(page.getByTestId('subscribed-rooms')).toHaveText('yes');
 
-    // 'chatter' inside 'rooms' has its own bucket (max=1).
+    // 'chatter' inside 'rooms' has its own bucket (maxMessages=1).
     await page.getByTestId('send-chatter').click();
     await expect(page.getByTestId('chatter-msg-count')).toHaveText('1');
 
@@ -76,7 +76,7 @@ test.describe('rate-limit', () => {
     await page.getByTestId('subscribe-inherit').click();
     await expect(page.getByTestId('subscribed-inherit')).toHaveText('yes');
 
-    // Top-level cap is max=3. Spend 2 in the inherited channel + 1 top-level.
+    // Top-level cap is maxMessages=3. Spend 2 in the inherited channel + 1 top-level.
     await page.getByTestId('send-inherit').click();
     await page.getByTestId('send-inherit').click();
     await page.getByTestId('tick').click();
@@ -90,7 +90,7 @@ test.describe('rate-limit', () => {
   });
 
   test('metadata.exchange.id is preserved on rate-limited request rejection', async ({ page }) => {
-    // 'echo-req' has a per-handler override max=1. First request resolves with
+    // 'echo-req' has a per-handler override maxMessages=1. First request resolves with
     // its correlation id; the second is rejected with `_error rate-limited`
     // carrying the second request's correlation id.
     await page.getByTestId('echo-1').click();
@@ -144,7 +144,7 @@ test.describe('rate-limit', () => {
   test('custom `per` key groups two connections of the same user into one shared budget', async ({
     page,
   }, testInfo) => {
-    // 'shared-tick' has a per-handler override: max=2, per: ctx => ctx.meta.username.
+    // 'shared-tick' has a per-handler override: maxMessages=2, per: ctx => ctx.meta.username.
     // Two sockets opened with the SAME username resolve to the same bucket key,
     // so they share one budget — unlike the default per-connection (ctx.connection.id)
     // isolation proved by the per-connection-isolation test above.
@@ -155,7 +155,7 @@ test.describe('rate-limit', () => {
     const a = await connect(page, { path: '/ws/rate-limit', username: 'shared-user', room });
     const b = await connect(page, { path: '/ws/rate-limit', username: 'shared-user', room });
 
-    // A spends the whole shared budget (max=2).
+    // A spends the whole shared budget (maxMessages=2).
     await send(page, a, { event: 'shared-tick', payload: {} });
     await send(page, a, { event: 'shared-tick', payload: {} });
     await waitForFrame(page, a, {
@@ -178,7 +178,7 @@ test.describe('rate-limit', () => {
   test('channel scope rule caps the whole channel across its events (shared scope bucket)', async ({
     page,
   }, testInfo) => {
-    // 'tight-room' channel declares its own scope rule rateLimit { max: 2 } — not
+    // 'tight-room' channel declares its own scope rule rateLimit { maxMessages: 2 } — not
     // a per-handler override. Its two events ('alpha', 'beta') therefore draw
     // from one channel-scope bucket. Two events of ANY mix pass; the third is
     // rejected, proving the scope cap is enforced across distinct events.
@@ -196,7 +196,7 @@ test.describe('rate-limit', () => {
       match: (f) => f.event === '__subscribeOk__' && f.metadata?.channel?.name === 'tight-room',
     });
 
-    // Two frames across two different events both pass (scope bucket max=2).
+    // Two frames across two different events both pass (scope bucket maxMessages=2).
     await send(page, c, {
       event: 'alpha',
       payload: { text: 'a' },

@@ -49,7 +49,7 @@ function makeOwner(): {
 
 describe('MessageBuffer — owner settling', () => {
   it('rejects the evicted owner when the ring overflows', () => {
-    const buffer = new MessageBuffer({ maxSize: 1 });
+    const buffer = new MessageBuffer({ maxMessages: 1 });
     const first = makeOwner();
     const second = makeOwner();
 
@@ -79,7 +79,7 @@ describe('MessageBuffer — owner settling', () => {
   });
 
   it('rejects all pending owners on clear', () => {
-    const buffer = new MessageBuffer({ maxSize: 5 });
+    const buffer = new MessageBuffer({ maxMessages: 5 });
     const one = makeOwner();
     const two = makeOwner();
     buffer.enqueue({ event: 'a', payload: 1 }, undefined, one.owner);
@@ -93,7 +93,7 @@ describe('MessageBuffer — owner settling', () => {
   });
 
   it('skips a frame whose owner already settled and sends the rest', () => {
-    const buffer = new MessageBuffer({ maxSize: 5 });
+    const buffer = new MessageBuffer({ maxMessages: 5 });
     const settled = makeOwner();
     const live = makeOwner();
     buffer.enqueue({ event: 'gone', payload: 1 }, undefined, settled.owner);
@@ -108,7 +108,7 @@ describe('MessageBuffer — owner settling', () => {
   });
 
   it('rejects the exact owner and reports when its frame fails to serialize on flush, later frames still flush', () => {
-    const buffer = new MessageBuffer({ maxSize: 5 });
+    const buffer = new MessageBuffer({ maxMessages: 5 });
     const bad = makeOwner();
     const good = makeOwner();
     buffer.enqueue({ event: 'bad', payload: 1 }, undefined, bad.owner);
@@ -131,7 +131,7 @@ describe('MessageBuffer — owner settling', () => {
   });
 
   it('an ownerless send still flushes normally', () => {
-    const buffer = new MessageBuffer({ maxSize: 5 });
+    const buffer = new MessageBuffer({ maxMessages: 5 });
     buffer.enqueue({ event: 'plain', payload: 1 });
 
     const sent: string[] = [];
@@ -140,25 +140,120 @@ describe('MessageBuffer — owner settling', () => {
   });
 });
 
-describe('MessageBuffer — maxSize validation', () => {
-  it('throws on maxSize of 0 instead of silently accepting nothing', () => {
-    expect(() => new MessageBuffer({ maxSize: 0 })).toThrow(/positive integer/);
+describe('MessageBuffer — maxMessages validation', () => {
+  it('throws on maxMessages of 0 instead of silently accepting nothing', () => {
+    expect(() => new MessageBuffer({ maxMessages: 0 })).toThrow(/positive integer/);
   });
 
-  it('throws on a negative or non-integer maxSize', () => {
-    expect(() => new MessageBuffer({ maxSize: -1 })).toThrow(/positive integer/);
-    expect(() => new MessageBuffer({ maxSize: 2.5 })).toThrow(/positive integer/);
+  it('throws on a negative or non-integer maxMessages', () => {
+    expect(() => new MessageBuffer({ maxMessages: -1 })).toThrow(/positive integer/);
+    expect(() => new MessageBuffer({ maxMessages: 2.5 })).toThrow(/positive integer/);
   });
 
-  it('still accepts a valid maxSize', () => {
-    const buffer = new MessageBuffer({ maxSize: 1 });
+  it('still accepts a valid maxMessages', () => {
+    const buffer = new MessageBuffer({ maxMessages: 1 });
     expect(buffer.enqueue({ event: 'a', payload: 1 })).toBe(true);
   });
 });
 
+describe('MessageBuffer — maxBytes', () => {
+  // ["note",{"text":"xxxxxxxxxx"},null] is 35 bytes.
+  function note(text: string): Message {
+    return { event: 'note', payload: { text } };
+  }
+
+  it('drops the oldest messages until the queue fits in maxBytes, and rejects their owners', () => {
+    const buffer = new MessageBuffer({ maxMessages: 10, maxBytes: 80 });
+    const first = makeOwner();
+    const second = makeOwner();
+    const send = vi.fn();
+
+    buffer.enqueue(note('aaaaaaaaaa'), undefined, first.owner);
+    buffer.enqueue(note('bbbbbbbbbb'), undefined, second.owner);
+    buffer.enqueue(note('cccccccccc'));
+    buffer.flush(send);
+
+    expect(send.mock.calls.map(([message]) => message.payload.text)).toEqual([
+      'bbbbbbbbbb',
+      'cccccccccc',
+    ]);
+    expect((first.reason() as { code?: string }).code).toBe('dropped');
+    expect(second.owner.isPending()).toBe(true);
+  });
+
+  it('counts UTF-8 bytes, not string length', () => {
+    const buffer = new MessageBuffer({ maxMessages: 10, maxBytes: 80 });
+    const send = vi.fn();
+
+    // 10 'é' are 20 bytes, so each message is 45 bytes and two do not fit.
+    buffer.enqueue(note('éééééééééé'));
+    buffer.enqueue(note('éééééééééé'));
+    buffer.flush(send);
+
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds 1 MiB by default', () => {
+    const buffer = new MessageBuffer({});
+    const send = vi.fn();
+    const half = 'x'.repeat(512 * 1024);
+
+    buffer.enqueue(note(half));
+    buffer.enqueue(note(half));
+    buffer.flush(send);
+
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws on a maxBytes that is not a positive integer', () => {
+    expect(() => new MessageBuffer({ maxBytes: 0 })).toThrow(/maxBytes must be a positive integer/);
+    expect(() => new MessageBuffer({ maxBytes: 1.5 })).toThrow(
+      /maxBytes must be a positive integer/,
+    );
+  });
+
+  it('frees the bytes of messages dropped by their TTL', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ maxMessages: 10, maxBytes: 80 });
+    const kept = makeOwner();
+
+    buffer.enqueue(note('aaaaaaaaaa'), 100);
+    buffer.enqueue(note('bbbbbbbbbb'), 100);
+    vi.advanceTimersByTime(200);
+    buffer.flush(vi.fn());
+
+    // The two expired messages no longer count, so two new ones fit.
+    buffer.enqueue(note('cccccccccc'), undefined, kept.owner);
+    buffer.enqueue(note('dddddddddd'));
+    expect(kept.owner.isPending()).toBe(true);
+  });
+
+  it('frees the bytes of each message a staggered flush sends', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ maxMessages: 10, maxBytes: 80, flushInterval: 100 });
+    const kept = makeOwner();
+    const send = vi.fn();
+
+    buffer.enqueue(note('aaaaaaaaaa'));
+    buffer.enqueue(note('bbbbbbbbbb'));
+    buffer.flush(send);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // One message is still queued, so one more fits but a second would not.
+    buffer.enqueue(note('cccccccccc'), undefined, kept.owner);
+    expect(kept.owner.isPending()).toBe(true);
+    vi.advanceTimersByTime(200);
+    expect(send.mock.calls.map(([message]) => message.payload.text)).toEqual([
+      'aaaaaaaaaa',
+      'bbbbbbbbbb',
+      'cccccccccc',
+    ]);
+  });
+});
+
 describe('MessageBuffer — ring overflow (drop-oldest)', () => {
-  it('caps at maxSize and drops the oldest when the ring overflows', () => {
-    const buffer = new MessageBuffer({ maxSize: 3 });
+  it('caps at maxMessages and drops the oldest when the ring overflows', () => {
+    const buffer = new MessageBuffer({ maxMessages: 3 });
     const send = vi.fn();
 
     buffer.enqueue({ event: 'a', payload: 1 });
@@ -174,7 +269,7 @@ describe('MessageBuffer — ring overflow (drop-oldest)', () => {
   });
 
   it('preserves order across multiple overflows', () => {
-    const buffer = new MessageBuffer({ maxSize: 2 });
+    const buffer = new MessageBuffer({ maxMessages: 2 });
     const send = vi.fn();
 
     buffer.enqueue({ event: 'a', payload: 1 });
@@ -191,7 +286,7 @@ describe('MessageBuffer — ring overflow (drop-oldest)', () => {
 
 describe('MessageBuffer — flush isolation', () => {
   it('drains the rest and reports when one send throws', () => {
-    const buffer = new MessageBuffer({ maxSize: 5 });
+    const buffer = new MessageBuffer({ maxMessages: 5 });
     buffer.enqueue({ event: 'bad', payload: 1 });
     buffer.enqueue({ event: 'good', payload: 2 });
 

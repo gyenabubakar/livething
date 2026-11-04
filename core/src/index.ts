@@ -45,6 +45,7 @@ export {
   exceedsWireLimit,
 } from './identifier.ts';
 export { decodeMessage, encodeMessage } from './wire.ts';
+export { utf8ByteLength } from './utf8.ts';
 export type {
   LiveThingChannelMetadata,
   LiveThingDeliveryMetadata,

@@ -35,7 +35,7 @@ function getCtx(): Record<PropertyKey, unknown> {
 }
 
 function makeFrame(event: string, payload: unknown): InterceptFrame {
-  return { event, payload, kind: 'incoming', routing: {}, owner: { kind: 'app' } };
+  return { event, payload, kind: 'incoming', routing: {}, owner: { kind: 'app' }, size: 42 };
 }
 
 function ownedIntercept(id: string, handler: InterceptHandler) {
@@ -209,6 +209,7 @@ describe('intercept/runtime', () => {
       kind: 'request',
       routing: { correlationId: 'abc-123' },
       owner: { kind: 'app' },
+      size: 30,
     };
 
     const next = await runIntercepts(makeRuntime(), connection, {
@@ -227,7 +228,7 @@ describe('intercept/runtime', () => {
     expect(next.routing.correlationId).toBe('abc-123');
   });
 
-  it('exposes frame.owner to the handler and preserves it across a payload rewrite', async () => {
+  it('exposes frame.owner and frame.size to the handler and keeps them across a payload rewrite', async () => {
     const connection = createConnection();
     const seen: InterceptFrame[] = [];
 
@@ -245,6 +246,7 @@ describe('intercept/runtime', () => {
       kind: 'incoming',
       routing: {},
       owner: { kind: 'app' },
+      size: 30,
     };
 
     const next = await runIntercepts(makeRuntime(), connection, {
@@ -257,7 +259,9 @@ describe('intercept/runtime', () => {
     // Owner survives even though the first intercept rewrote the payload.
     expect(seen[1]?.owner).toEqual({ kind: 'app' });
     expect(seen[1]?.payload).toEqual({ rewritten: true });
+    expect(seen[1]?.size).toBe(30);
     expect(next.owner).toEqual({ kind: 'app' });
+    expect(next.size).toBe(30);
   });
 
   it('runs an app intercept for an app frame and for a plugin frame', async () => {

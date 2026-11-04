@@ -191,12 +191,14 @@ describe('a channel stays the same after it is created', () => {
   });
 
   it('keeps a per-handler rate limit on the handler passed to assemble()', async () => {
-    const base = server({ capabilities: [channels(), rateLimit({ max: 100, windowMs: 60_000 })] });
+    const base = server({
+      capabilities: [channels(), rateLimit({ maxMessages: 100, windowMs: 60_000 })],
+    });
     const room = base.channel('room');
     const calls: string[] = [];
     const handleSay = room.on('say', {
       input: v.object({}),
-      rateLimit: { max: 1 },
+      rateLimit: { maxMessages: 1 },
       run() {
         calls.push('say');
       },

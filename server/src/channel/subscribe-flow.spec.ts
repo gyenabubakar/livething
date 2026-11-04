@@ -184,8 +184,12 @@ describe('subscribe, unsubscribe, subscribe with a slower first check', () => {
 });
 
 describe('frames queued behind a pending subscribe', () => {
-  function limitedRoom(gate: Promise<void>, said: string[]) {
-    const base = server({ capabilities: [channels(), rateLimit({ max: 5 })] });
+  function limitedRoom(
+    gate: Promise<void>,
+    said: string[],
+    rule: { maxMessages?: number; maxBytes?: number } = { maxMessages: 5 },
+  ) {
+    const base = server({ capabilities: [channels(), rateLimit(rule)] });
     const room = base.channel('room', {
       async check() {
         await gate;
@@ -241,6 +245,28 @@ describe('frames queued behind a pending subscribe', () => {
     await Promise.all([subscribing, ...frames]);
 
     expect(refused).toBe(15);
+  });
+
+  it('count their size against maxBytes when they arrive', async () => {
+    const { gate, open } = deferred();
+    const said: string[] = [];
+    const rule = { maxMessages: 100, maxBytes: sayFrame.length * 3 };
+    const { engine } = await startEngine(limitedRoom(gate, said, rule));
+    const { handle, sent } = await connect(engine);
+
+    const subscribing = handle.handleMessage(subscribeFrame);
+    const frames = Array.from({ length: 20 }, () => handle.handleMessage(sayFrame));
+    await macrotask();
+    const refused = sent.filter(
+      (frame) =>
+        frame[0] === '__error__' && (frame[1] as { code?: string }).code === 'rate-limited',
+    ).length;
+
+    open();
+    await Promise.all([subscribing, ...frames]);
+
+    expect(refused).toBe(17);
+    expect(said).toHaveLength(3);
   });
 
   it('are refused with ConnectionBusy past the limit when no rate limit applies', async () => {

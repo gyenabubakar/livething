@@ -4,7 +4,12 @@ import type { EmptyTypeFn, Primitive, PrimitiveIdentity } from '~/primitives/typ
 /** Options for `buffering()`. */
 export interface BufferingOptions {
   /** Most messages to hold; the oldest is dropped when full. Default: `50`. */
-  maxSize?: number;
+  maxMessages?: number;
+  /**
+   * Most bytes to hold, counted as each message's UTF-8 size on the wire; the oldest is
+   * dropped when full. Default: `1048576` (1 MiB).
+   */
+  maxBytes?: number;
   /** Time-to-live (ms) for every queued message. A per-call `send(..., { ttl })` wins. */
   ttl?: number;
   /** Ms between each message on flush. `0` sends them all at once. Default: `0`. */
@@ -23,7 +28,8 @@ export function buffering(
     _tag: 'buffering',
     setup(helpers) {
       const buffer = new MessageBuffer({
-        maxSize: options.maxSize,
+        maxMessages: options.maxMessages,
+        maxBytes: options.maxBytes,
         ttl: options.ttl,
         flushInterval: options.flushInterval,
       });

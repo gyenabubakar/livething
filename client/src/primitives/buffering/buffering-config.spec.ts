@@ -26,7 +26,8 @@ describe('buffering() config checks', () => {
     expect(() => build({ ttl: 5000, flushInterval: 100 })).not.toThrow();
   });
 
-  it('rejects a bad maxSize through the same path', () => {
-    expect(() => build({ maxSize: 0 })).toThrow(LiveThingConfigError);
+  it('rejects a bad maxMessages or maxBytes through the same path', () => {
+    expect(() => build({ maxMessages: 0 })).toThrow(LiveThingConfigError);
+    expect(() => build({ maxBytes: 0 })).toThrow(LiveThingConfigError);
   });
 });

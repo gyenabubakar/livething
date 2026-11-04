@@ -46,7 +46,7 @@ describe('rateLimit primitive', () => {
   it('returns an intercept primitive', () => {
     const prim = rateLimit({
       scopeRules: new Map([
-        ['top', { id: 1, windowMs: 60_000, max: 1, per: (ctx: any) => ctx.id }],
+        ['top', { id: 1, windowMs: 60_000, maxMessages: 1, per: (ctx: any) => ctx.id }],
       ]),
       eventOverrides: new Map(),
     }) as any;
@@ -54,10 +54,10 @@ describe('rateLimit primitive', () => {
     expect(typeof prim.handler).toBe('function');
   });
 
-  it('passes the first frame, then throws RateLimited with a positive retryAfterMs when max=1', async () => {
+  it('passes the first frame, then throws RateLimited with a positive retryAfterMs when maxMessages=1', async () => {
     const prim = rateLimit({
       scopeRules: new Map([
-        ['top', { id: 1, windowMs: 60_000, max: 1, per: (ctx: any) => ctx.id }],
+        ['top', { id: 1, windowMs: 60_000, maxMessages: 1, per: (ctx: any) => ctx.id }],
       ]),
       eventOverrides: new Map(),
     }) as any;
@@ -76,10 +76,44 @@ describe('rateLimit primitive', () => {
     expect(caught.detail.retryAfterMs).toBeGreaterThanOrEqual(1_000);
   });
 
+  it('charges maxBytes with the UTF-8 size of the whole frame', async () => {
+    const base = server({
+      capabilities: [rateLimitCapability({ windowMs: 60_000, maxMessages: 100, maxBytes: 200 })],
+    });
+    const seen: string[] = [];
+    const post = base.on('post-message', {
+      input: v.object({ text: v.string() }),
+      run(_ctx, input) {
+        seen.push(input.text);
+      },
+    });
+    const engine = buildEngine(base.assemble({ handlers: [post] }));
+    await engine.initialize();
+
+    const sent: string[] = [];
+    const handle = engine.accept(Symbol('alice'), {
+      send: (data: string) => sent.push(data),
+      close() {},
+      bufferedAmount: () => 0,
+      userId: 'alice',
+    });
+    await settle();
+
+    // 60 'é' are 120 UTF-8 bytes but only 60 UTF-16 units, so the frame is about 150 bytes.
+    const frame = JSON.stringify(['post-message', { text: 'é'.repeat(60) }, null]);
+    await handle.handleMessage(frame);
+    await handle.handleMessage(frame);
+
+    expect(seen).toHaveLength(1);
+    expect(sent.some((data) => data.includes('"code":"rate-limited"'))).toBe(true);
+  });
+
   it('drops the budget of each connection once it closes', async () => {
     // The runtime is built inside assemble(); the spy only captures the instance.
     const check = vi.spyOn(RateLimitRuntime.prototype, 'check');
-    const base = server({ capabilities: [rateLimitCapability({ windowMs: 60_000, max: 10 })] });
+    const base = server({
+      capabilities: [rateLimitCapability({ windowMs: 60_000, maxMessages: 10 })],
+    });
     const say = base.on('say', { input: v.object({}), run() {} });
     const engine = buildEngine(base.assemble({ handlers: [say] }));
     await engine.initialize();

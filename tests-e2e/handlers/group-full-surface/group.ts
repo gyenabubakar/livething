@@ -14,7 +14,7 @@ import type { RoomMsgPayload } from './contract.ts';
 
 export const handleChat = base.on('chat', {
   input: ChatPayload,
-  rateLimit: { max: 1, windowMs: 60_000 },
+  rateLimit: { maxMessages: 1, windowMs: 60_000 },
   run(ctx, payload) {
     ctx.send('welcome', { username: ctx.meta.username });
     ctx.send('rl-marker', { at: payload.text.length });

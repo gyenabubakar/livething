@@ -71,6 +71,7 @@ export async function runIntercepts(
         kind: nextFrame.kind,
         routing: nextFrame.routing,
         owner: nextFrame.owner,
+        size: nextFrame.size,
       };
     }
   }

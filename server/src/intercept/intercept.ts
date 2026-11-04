@@ -41,6 +41,8 @@ export interface InterceptFrame<TOwnerId extends string = string> {
   readonly routing: InterceptRouting;
   /** Whether this event is app-owned or plugin-owned, derived from its name. */
   readonly owner: FrameOwner<TOwnerId>;
+  /** The size of the whole frame as it arrived, in bytes (UTF-8 for a text frame). */
+  readonly size: number;
 }
 
 /**

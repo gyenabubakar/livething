@@ -4,6 +4,7 @@ import {
   ChannelNotSubscribed,
   rethrowIfConfigError,
   UnsupportedProtocol,
+  utf8ByteLength,
   ValidationFailed,
 } from '@livething/core';
 import {
@@ -273,6 +274,8 @@ export interface DispatchIncomingOptions {
   scope?: EngineRuntimeTypes.ResolvedChannel;
   /** The frame already paid its rate limit on arrival, while it waited behind a subscribe. */
   charged?: boolean;
+  /** The frame's size as it arrived, in bytes. `processTextMessage` always passes it. */
+  size?: number;
 }
 
 /** The intercepts a frame still has to pass, given what it already paid on arrival. */
@@ -302,7 +305,7 @@ export async function dispatchIncoming(
   connection: EngineRuntimeTypes.RuntimeConnection,
   opts: DispatchIncomingOptions,
 ): Promise<void> {
-  const { event, payload, livething } = opts;
+  const { event, payload, livething, size = 0 } = opts;
   // A closing connection is already out of the runtime maps, so running its
   // handler would fire side effects for a client that is gone.
   if (connection.closing) return;
@@ -377,6 +380,7 @@ export async function dispatchIncoming(
         kind: interceptKind,
         routing: interceptRouting,
         owner: frameOwner(event),
+        size,
       };
 
       frame = await runIntercepts(runtime, connection, {
@@ -710,6 +714,7 @@ interface StreamNudgeBufferInput {
   livething: Protocol.LiveThingProtocol | undefined;
   triggerScope: EngineRuntimeTypes.ResolvedChannel;
   charged: boolean;
+  size: number;
 }
 
 /**
@@ -739,7 +744,7 @@ async function runPluginConnectionHooks(
 }
 
 async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boolean> {
-  const { runtime, connection, event, frame, livething, triggerScope, charged } = input;
+  const { runtime, connection, event, frame, livething, triggerScope, charged, size } = input;
   if (!livething?.streamId) return false;
 
   const activeStream = runtime.activeStreams.get(livething.streamId);
@@ -789,6 +794,7 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
         kind: 'nudge',
         routing: buildInterceptRouting(livething),
         owner: frameOwner(event),
+        size,
       };
 
       intercepted = await runIntercepts(runtime, connection, {
@@ -866,7 +872,12 @@ export async function processTextMessage(
   const place = placeFrame(connection, parsed);
 
   try {
-    await processParsedMessage(runtime, connection, { data, parsed, place });
+    await processParsedMessage(runtime, connection, {
+      data,
+      parsed,
+      place,
+      size: utf8ByteLength(data),
+    });
   } finally {
     if (place.attempt) finishSubscribe(connection, place.attempt);
   }
@@ -887,6 +898,8 @@ interface IncomingText {
   data: string;
   parsed: unknown;
   place: FramePlace;
+  /** The frame's length in UTF-8 bytes. */
+  size: number;
 }
 
 function parseFrame(data: string): unknown {
@@ -985,6 +998,7 @@ interface ArrivalCharge {
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
   scope: EngineRuntimeTypes.ResolvedChannel;
+  size: number;
 }
 
 /**
@@ -997,7 +1011,7 @@ async function chargeOnArrival(
   connection: RuntimeConnection,
   charge: ArrivalCharge,
 ): Promise<boolean> {
-  const { event, payload, livething, scope } = charge;
+  const { event, payload, livething, scope, size } = charge;
   try {
     await runIntercepts(runtime, connection, {
       intercepts: runtime.compiled.intercepts.filter((intercept) => intercept.__chargedOnArrival),
@@ -1007,6 +1021,7 @@ async function chargeOnArrival(
         kind: 'unknown',
         routing: buildInterceptRouting(livething),
         owner: frameOwner(event),
+        size,
       },
       getCtx: () => runtime.buildConnectionContext(connection, scope),
     });
@@ -1026,7 +1041,7 @@ async function processParsedMessage(
   connection: RuntimeConnection,
   message: IncomingText,
 ): Promise<void> {
-  const { data, parsed, place } = message;
+  const { data, parsed, place, size } = message;
   const observed = { connectionId: connection.id, logger: runtime.logger };
 
   if (runtime.activityHooks.length > 0) {
@@ -1173,6 +1188,7 @@ async function processParsedMessage(
         payload: frame.payload,
         livething,
         scope: triggerScope,
+        size,
       }))
     ) {
       return;
@@ -1215,6 +1231,7 @@ async function processParsedMessage(
         livething,
         triggerScope,
         charged,
+        size,
       }))
     )
       return;
@@ -1227,6 +1244,7 @@ async function processParsedMessage(
       // dispatchIncoming re-resolves and routes the error.
       scope: scopeError ? undefined : triggerScope,
       charged,
+      size,
     });
   } catch (error) {
     await runtime.handleRuntimeError(connection, {

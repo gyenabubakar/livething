@@ -134,8 +134,8 @@ describe('a null payload', () => {
     });
     const { connect, errors } = await start(base.assemble({ handlers: [general, clearTopic] }));
     const alice = connect('alice');
-    
-const channel = { channel: { name: 'general' } };
+
+    const channel = { channel: { name: 'general' } };
 
     await alice.send(['__subscribe__', null, channel]);
     await alice.send(['clear-topic', null, channel]);

@@ -1,20 +1,29 @@
-import { LiveThingConfigError } from '@livething/core';
+import { encodeMessage, LiveThingConfigError, utf8ByteLength } from '@livething/core';
 import { Disconnected, Dropped } from '~/errors.ts';
 import { assertValidTtl, MAX_TIMER_DELAY_MS } from '~/internal/config.ts';
 import type { FrameOwner, Message } from '~/internal/runtime.ts';
 
 /** Settings for the buffer. */
 export interface MessageBufferOptions {
-  maxSize?: number;
+  maxMessages?: number;
+  maxBytes?: number;
   ttl?: number;
   flushInterval?: number;
 }
 
 interface BufferedMessage {
   message: Message;
+  /** The message's size on the wire, in UTF-8 bytes. */
+  bytes: number;
   ttl: number | null;
   queuedAt: number;
   owner?: FrameOwner;
+}
+
+function assertPositiveInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new LiveThingConfigError(`buffering ${name} must be a positive integer, got ${value}.`);
+  }
 }
 
 /**
@@ -23,25 +32,25 @@ interface BufferedMessage {
  * typing indicator) is dropped instead of sent late.
  *
  * It stores messages in a fixed-size ring, so when it's full the oldest one is
- * overwritten without shifting the whole array.
+ * dropped without shifting the whole array.
  */
 export class MessageBuffer {
   private ring: (BufferedMessage | null)[];
   private head = 0;
   private count = 0;
+  private bytes = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private readonly maxSize: number;
+  private readonly maxMessages: number;
+  private readonly maxBytes: number;
   private readonly defaultTtl: number | null;
   private readonly flushInterval: number;
 
   constructor(options: MessageBufferOptions) {
-    this.maxSize = options.maxSize ?? 50;
-    if (!Number.isInteger(this.maxSize) || this.maxSize < 1) {
-      throw new LiveThingConfigError(
-        `buffering maxSize must be a positive integer, got ${this.maxSize}.`,
-      );
-    }
+    this.maxMessages = options.maxMessages ?? 50;
+    assertPositiveInteger(this.maxMessages, 'maxMessages');
+    this.maxBytes = options.maxBytes ?? 1024 * 1024;
+    assertPositiveInteger(this.maxBytes, 'maxBytes');
 
     const { ttl } = options;
     if (ttl !== undefined) assertValidTtl(ttl, 'buffering');
@@ -59,30 +68,36 @@ export class MessageBuffer {
       );
     }
 
-    this.ring = new Array(this.maxSize).fill(null);
+    this.ring = new Array(this.maxMessages).fill(null);
   }
 
   /**
    * Add a message. Always returns `true`: the message is taken.
-   * If the buffer is full the oldest message is dropped to make room.
+   * When the buffer would go over `maxMessages` or `maxBytes`, the oldest messages are
+   * dropped to make room.
    */
   enqueue(message: Message, perCallTtl?: number, owner?: FrameOwner): boolean {
     const ttl = perCallTtl ?? this.defaultTtl;
-    const tail = (this.head + this.count) % this.maxSize;
+    const bytes = utf8ByteLength(encodeMessage(message));
 
-    if (this.count >= this.maxSize) {
-      // The ring is full: the oldest entry is overwritten. Reject its owner so a
-      // Promise-bearing op whose frame was evicted fails instead of hanging.
-      const evicted = this.ring[tail];
-      evicted?.owner?.reject(Dropped());
-      this.ring[tail] = { message, ttl, queuedAt: Date.now(), owner };
-      this.head = (this.head + 1) % this.maxSize;
-    } else {
-      this.ring[tail] = { message, ttl, queuedAt: Date.now(), owner };
-      this.count++;
+    // Reject each dropped owner, so a Promise-bearing op whose frame was dropped fails
+    // instead of hanging.
+    while (
+      this.count > 0 &&
+      (this.count >= this.maxMessages || this.bytes + bytes > this.maxBytes)
+    ) {
+      this.dequeue()?.owner?.reject(Dropped());
     }
 
+    this.push({ message, bytes, ttl, queuedAt: Date.now(), owner });
+
     return true;
+  }
+
+  private push(buffered: BufferedMessage): void {
+    this.ring[(this.head + this.count) % this.maxMessages] = buffered;
+    this.count++;
+    this.bytes += buffered.bytes;
   }
 
   /**
@@ -143,15 +158,10 @@ export class MessageBuffer {
    * fails its buffered ops instead of leaving them to hang.
    */
   clear(): void {
-    for (let i = 0; i < this.count; i++) {
-      const index = (this.head + i) % this.maxSize;
-      const buffered = this.ring[index];
-      if (buffered?.owner?.isPending()) buffered.owner.reject(Disconnected());
-      this.ring[index] = null;
+    for (const buffered of this.drain()) {
+      if (buffered.owner?.isPending()) buffered.owner.reject(Disconnected());
     }
 
-    this.head = 0;
-    this.count = 0;
     this.stopFlush();
   }
 
@@ -174,8 +184,9 @@ export class MessageBuffer {
 
     const buffered = this.ring[this.head]!;
     this.ring[this.head] = null;
-    this.head = (this.head + 1) % this.maxSize;
+    this.head = (this.head + 1) % this.maxMessages;
     this.count--;
+    this.bytes -= buffered.bytes;
 
     return buffered;
   }
@@ -190,24 +201,21 @@ export class MessageBuffer {
       if (!alive && buffered.owner?.isPending()) buffered.owner.reject(Dropped());
       return alive;
     });
-    for (const buffered of kept) {
-      const tail = (this.head + this.count) % this.maxSize;
-      this.ring[tail] = buffered;
-      this.count++;
-    }
+    for (const buffered of kept) this.push(buffered);
   }
 
   /** Pull every message out in order and reset the ring. */
   private drain(): BufferedMessage[] {
     const result: BufferedMessage[] = [];
     for (let i = 0; i < this.count; i++) {
-      const index = (this.head + i) % this.maxSize;
+      const index = (this.head + i) % this.maxMessages;
       result.push(this.ring[index]!);
       this.ring[index] = null;
     }
 
     this.head = 0;
     this.count = 0;
+    this.bytes = 0;
 
     return result;
   }
