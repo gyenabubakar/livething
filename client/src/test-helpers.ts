@@ -21,7 +21,6 @@ export class MockWebSocket {
 
   readonly url: string;
   readonly protocols?: string | string[];
-  binaryType: 'arraybuffer' | 'blob' = 'blob';
   protocol = '';
   readyState = 0;
   sent: unknown[] = [];

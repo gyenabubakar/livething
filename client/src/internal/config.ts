@@ -1,5 +1,5 @@
 import { LiveThingConfigError } from '@livething/core';
-import type { InterceptFn, Message } from '~/internal/runtime.ts';
+import type { InterceptFn } from '~/internal/runtime.ts';
 
 /** The longest delay a timer can hold. Above this, `setTimeout` and `setInterval` fire after 1 ms. */
 export const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
@@ -36,11 +36,6 @@ export interface SocketConfig {
   idleTimeout?: number;
   /** WebSocket subprotocols. */
   protocols?: string[];
-
-  /** Format the server delivers binary frames in. */
-  binaryType?: 'arraybuffer' | 'blob';
-  /** Decode a binary frame into a message, or `null` to ignore it. */
-  parseBinary?: (data: unknown) => Message | null;
 
   /** Functions that get to inspect/transform/drop each incoming message. */
   intercepts?: InterceptFn[];

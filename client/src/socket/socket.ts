@@ -517,7 +517,6 @@ export class LiveThingSocket {
       this._log(`connecting to ${redactUrl(url)}`);
 
       const ws = new WebSocket(url, this._config.protocols);
-      if (this._config.binaryType) ws.binaryType = this._config.binaryType;
 
       ws.onopen = () => {
         if (attemptId !== this._connectAttemptId) {

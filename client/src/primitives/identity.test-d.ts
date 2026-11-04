@@ -13,7 +13,6 @@ import { keepalive } from '~/primitives/keepalive/index.ts';
 import { platform } from '~/primitives/platform.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { replay } from '~/primitives/replay.ts';
-import { serialization } from '~/primitives/serialization/index.ts';
 import { serverRequests } from '~/primitives/server-requests/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { expectTypeOf } from 'vitest';
@@ -32,7 +31,6 @@ expectTypeOf<ReturnType<typeof keepalive>['_tag']>().toEqualTypeOf<'keepalive'>(
 expectTypeOf<ReturnType<typeof platform>['_tag']>().toEqualTypeOf<'platform'>();
 expectTypeOf<ReturnType<typeof reconnection>['_tag']>().toEqualTypeOf<'reconnection'>();
 expectTypeOf<ReturnType<typeof replay>['_tag']>().toEqualTypeOf<'replay'>();
-expectTypeOf<ReturnType<typeof serialization>['_tag']>().toEqualTypeOf<'serialization'>();
 expectTypeOf<ReturnType<typeof serverRequests>['_tag']>().toEqualTypeOf<'serverRequests'>();
 expectTypeOf<ReturnType<typeof stream>['_tag']>().toEqualTypeOf<'stream'>();
 
@@ -48,6 +46,5 @@ expectTypeOf(keepalive.tag).toEqualTypeOf<'keepalive'>();
 expectTypeOf(platform.tag).toEqualTypeOf<'platform'>();
 expectTypeOf(reconnection.tag).toEqualTypeOf<'reconnection'>();
 expectTypeOf(replay.tag).toEqualTypeOf<'replay'>();
-expectTypeOf(serialization.tag).toEqualTypeOf<'serialization'>();
 expectTypeOf(serverRequests.tag).toEqualTypeOf<'serverRequests'>();
 expectTypeOf(stream.tag).toEqualTypeOf<'stream'>();
