@@ -40,7 +40,7 @@ function connected() {
     ws.onmessage!({
       data: JSON.stringify([
         '__subscribeOk__',
-        {},
+        null,
         { channel: { name: `t-${i}`, family: 'thread' } },
       ]),
     });
