@@ -90,7 +90,7 @@ export interface InboxFrame {
   deliverySeq: number;
   messageId: string;
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
 }
 
 /**

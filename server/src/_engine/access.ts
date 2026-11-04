@@ -55,7 +55,7 @@ type OptsParameter2 = {
   channelName: string;
   channelFamily: string | null;
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
 };
 
 /**
@@ -714,7 +714,7 @@ export interface EngineAccess {
 
   /**
    * Validate that a `ctx.sendReplay(...)` call satisfies the same contract
-   * as a normal `ctx.send(...)`: the payload is a plain object and the event
+   * as a normal `ctx.send(...)`: the payload is a plain object or `null` and the event
    * is declared in the routing scope. Used by the replay primitive to enforce
    * the public-API contract before forwarding to `sendReplay`. The
    * replay-from-storage path stays trusted because rows were validated when
@@ -724,7 +724,7 @@ export interface EngineAccess {
     event: string,
     payload: unknown,
     routing: { channel?: string; channelFamily?: string | null } | undefined,
-  ): asserts payload is Record<string, unknown>;
+  ): asserts payload is Record<string, unknown> | null;
 
   /**
    * Recompute the next scheduled callback from the current scheduled-run table.

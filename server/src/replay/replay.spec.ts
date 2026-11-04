@@ -47,8 +47,8 @@ describe('replay', () => {
     persistReplayMessage(sql, {
       options: {
         type: 'snapshot',
-        snapshotKey(_event: string, payload: Record<string, unknown>) {
-          return String(payload.id);
+        snapshotKey(_event: string, payload: Record<string, unknown> | null) {
+          return String(payload?.id);
         },
         reduce(previous, next) {
           if (!previous) return next;
@@ -71,8 +71,8 @@ describe('replay', () => {
     persistReplayMessage(sql, {
       options: {
         type: 'snapshot',
-        snapshotKey(_event: string, payload: Record<string, unknown>) {
-          return String(payload.id);
+        snapshotKey(_event: string, payload: Record<string, unknown> | null) {
+          return String(payload?.id);
         },
         reduce(previous, next) {
           if (!previous) return next;
@@ -111,8 +111,8 @@ describe('replay', () => {
     persistReplayMessage(sql, {
       options: {
         type: 'snapshot',
-        snapshotKey(_event: string, payload: Record<string, unknown>) {
-          return String(payload.id);
+        snapshotKey(_event: string, payload: Record<string, unknown> | null) {
+          return String(payload?.id);
         },
       },
       event: 'message-created',
@@ -124,8 +124,8 @@ describe('replay', () => {
     const deleted = persistReplayMessage(sql, {
       options: {
         type: 'snapshot',
-        snapshotKey(_event: string, payload: Record<string, unknown>) {
-          return String(payload.id);
+        snapshotKey(_event: string, payload: Record<string, unknown> | null) {
+          return String(payload?.id);
         },
         reduce(_previous, next) {
           if (next.event === 'message-deleted') return null;
@@ -145,12 +145,12 @@ describe('replay', () => {
 
   it('validates the reduced value against the contract before storing it', () => {
     const sql = replayDb();
-    const seen: Array<{ event: string; payload: Record<string, unknown> }> = [];
+    const seen: Array<{ event: string; payload: Record<string, unknown> | null }> = [];
 
     persistReplayMessage(sql, {
       options: {
         type: 'snapshot',
-        snapshotKey: (_event, payload) => String(payload.id),
+        snapshotKey: (_event, payload) => String(payload?.id),
         reduce: (_previous, next) => ({ event: 'doc-snapshot', payload: next.payload }),
       },
       event: 'doc-title-set',
@@ -170,7 +170,7 @@ describe('replay', () => {
       persistReplayMessage(sql, {
         options: {
           type: 'snapshot',
-          snapshotKey: (_event, payload) => String(payload.id),
+          snapshotKey: (_event, payload) => String(payload?.id),
           reduce: (_previous, next) => ({ event: 'not-declared', payload: next.payload }),
         },
         event: 'doc-title-set',
@@ -191,7 +191,7 @@ describe('replay', () => {
     let called = false;
 
     persistReplayMessage(sql, {
-      options: { type: 'snapshot', snapshotKey: (_event, payload) => String(payload.id) },
+      options: { type: 'snapshot', snapshotKey: (_event, payload) => String(payload?.id) },
       event: 'doc-snapshot',
       payload: { id: 'doc-1', title: 'Draft' },
       livething: { deliverySeq: 1, messageId: 'm1' },

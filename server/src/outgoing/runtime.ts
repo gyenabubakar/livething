@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rethrowIfConfigError } from '@livething/core';
 import { isInsideOutgoingHook, runOutgoingHook } from '~/_engine/call-context.ts';
-import { assertPayloadRecord, serializePayload } from '~/_engine/runtime/json-guard.ts';
+import { assertPayload, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
@@ -16,7 +16,7 @@ type BroadcastToChannelOptsParameter = {
   channelName: string;
   channelFamily: string | null;
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
   deliverySeq: number;
   messageId: string;
   /**
@@ -270,7 +270,7 @@ export function sendThroughPipeline(
   // A handler that never calls ctx.respond() answers void. Its payload is left
   // off the wire entirely so the caller resolves with nothing rather than `{}`.
   const isVoidResponse = opts.payload === undefined && isRequestResponse;
-  if (!isVoidResponse) assertPayloadRecord(event, opts.payload);
+  if (!isVoidResponse) assertPayload(event, opts.payload);
 
   if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, event, routing)) {
     throw new Error(`[livething] Outgoing event "${event}" was not declared in the active scope.`);
@@ -283,10 +283,10 @@ export function sendThroughPipeline(
 
   const wirePayload = isVoidResponse
     ? null
-    : (JSON.parse(serializePayload(event, opts.payload)) as Record<string, unknown>);
+    : (JSON.parse(serializePayload(event, opts.payload)) as Record<string, unknown> | null);
 
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
-  if (wirePayload && !isRequestResponse && hasBroadcastHooks(runtime)) {
+  if (!isRequestResponse && hasBroadcastHooks(runtime)) {
     const recipients = recipientsOf([connection]);
     if (recipients.length > 0) {
       recorded = { event, payload: wirePayload, livething, recipients };
@@ -314,7 +314,7 @@ export function sendThroughPipeline(
 interface PreparedBroadcast {
   event: string;
 
-  finalPayload: Record<string, unknown>;
+  finalPayload: Record<string, unknown> | null;
 
   baseLiveThing: Record<string, unknown>;
 
@@ -426,7 +426,7 @@ function prepareBroadcast(
   opts: PrepareBroadcastOptions,
 ): PreparedBroadcast {
   const { routing, event, payload } = opts;
-  assertPayloadRecord(event, payload);
+  assertPayload(event, payload);
 
   // A server request is declared by `serverRequests(...)`, not `emits(...)`, and its
   // routing carries `source`, so it skips the outgoing-event check.
@@ -436,7 +436,10 @@ function prepareBroadcast(
 
   // From here every frame, recipient and hook uses this plain copy of what was serialized, so a
   // toJSON() runs once for the whole broadcast and every peer gets the same payload.
-  const finalPayload = JSON.parse(serializePayload(event, payload)) as Record<string, unknown>;
+  const finalPayload = JSON.parse(serializePayload(event, payload)) as Record<
+    string,
+    unknown
+  > | null;
 
   // Stamp once for the whole broadcast: all recipients share one deliverySeq/messageId, so replay stores one row, not one per member.
   const baseLiveThing = buildLiveThing(routing) as Record<string, unknown>;

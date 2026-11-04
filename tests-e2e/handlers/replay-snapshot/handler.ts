@@ -25,12 +25,13 @@ function reduceSnapshot(
 
   if (next.event !== 'counter-snapshot') return next;
 
-  const previousTotal = previous?.event === 'counter-snapshot' ? Number(previous.payload.total) : 0;
+  const previousTotal =
+    previous?.event === 'counter-snapshot' ? Number(previous.payload?.total) : 0;
   return {
     event: next.event,
     payload: {
       ...next.payload,
-      total: previousTotal + Number(next.payload.total),
+      total: previousTotal + Number(next.payload?.total),
     },
   };
 }
@@ -47,7 +48,7 @@ const base = server({
     dedup(),
     sequence({ persist: true }),
     replay.snapshot({
-      snapshotKey: (_event, payload) => String(payload.docId ?? payload.key),
+      snapshotKey: (_event, payload) => String(payload?.docId ?? payload?.key),
       reduce: reduceSnapshot,
       retention: { maxMessages: 5, maxAgeMs: 1_000 },
       durability: 'best-effort',

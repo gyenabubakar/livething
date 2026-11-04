@@ -52,7 +52,7 @@ describe('subscribe / unsubscribe', () => {
     const promise = room.subscribe();
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__subscribe__',
-      payload: {},
+      payload: null,
       metadata: { channel: { name: 'general' } },
     });
     ws.emit({
@@ -163,7 +163,7 @@ describe('subscribe / unsubscribe', () => {
     const second = room.subscribe();
     expect(reopened.sentFrames().at(-1)).toEqual({
       event: '__subscribe__',
-      payload: {},
+      payload: null,
       metadata: { channel: { name: 'general' } },
     });
     reopened.emit({
@@ -386,7 +386,7 @@ describe('dynamic families and scope handles', () => {
     const p = room.subscribe();
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__subscribe__',
-      payload: {},
+      payload: null,
       metadata: { channel: { name: 'room-1', family: 'rooms' } },
     });
     ws.emit({
@@ -489,7 +489,7 @@ describe('server-initiated subscriptions and reconnection', () => {
 
       expect(second.sentFrames()).toContainEqual({
         event: '__subscribe__',
-        payload: {},
+        payload: null,
         metadata: { channel: { name: 'general' } },
       });
     } finally {

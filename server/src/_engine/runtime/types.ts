@@ -74,7 +74,7 @@ export interface ChannelHooks {
  */
 export interface WireBroadcastMessage {
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
   livething: Record<string, unknown>;
   /** The user this frame was addressed to. */
   userId?: string;

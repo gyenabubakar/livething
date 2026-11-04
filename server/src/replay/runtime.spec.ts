@@ -228,7 +228,7 @@ describe('replay/runtime', () => {
       buildReplayRow('message', {
         options: {
           type: 'snapshot',
-          snapshotKey: (_event: string, next: Record<string, unknown>) => String(next.text),
+          snapshotKey: (_event: string, next: Record<string, unknown> | null) => String(next?.text),
         },
         payload,
         livething,
@@ -289,14 +289,15 @@ describe('replay/runtime', () => {
     persistReplayMessage(sql, {
       options: {
         type: 'snapshot',
-        snapshotKey: (_event: string, payload: Record<string, unknown>) => String(payload.id),
+        snapshotKey: (_event: string, payload: Record<string, unknown> | null) =>
+          String(payload?.id),
         reduce(previous, next) {
           return {
             event: 'doc-snapshot',
             payload: {
-              id: next.payload.id,
-              title: previous?.payload.title ?? '',
-              content: next.payload.content ?? previous?.payload.content ?? '',
+              id: next.payload?.id,
+              title: previous?.payload?.title ?? '',
+              content: next.payload?.content ?? previous?.payload?.content ?? '',
             },
           };
         },
@@ -321,7 +322,8 @@ describe('replay/runtime', () => {
     persistReplayMessage(sql, {
       options: {
         type: 'snapshot',
-        snapshotKey: (_event: string, payload: Record<string, unknown>) => String(payload.id),
+        snapshotKey: (_event: string, payload: Record<string, unknown> | null) =>
+          String(payload?.id),
         reduce() {
           return null;
         },

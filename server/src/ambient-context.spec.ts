@@ -665,13 +665,13 @@ describe('a recorded stream chunk that does not stay an object in JSON', () => {
   });
 });
 
-describe('a stream that yields a value that is not an object', () => {
+describe('a stream that yields a value that is not an object or null', () => {
   it('ends with internal-error and logs which stream broke the payload rule', async () => {
     const base = server({ capabilities: [stream()] });
     const feed = base.stream('feed', {
       async *run() {
-        // The types refuse null; this checks the runtime refuses it too.
-        yield null as never;
+        // The types refuse a number; this checks the runtime refuses it too.
+        yield 42 as never;
       },
     });
     const logged: unknown[][] = [];
@@ -704,8 +704,8 @@ describe('a stream that yields a value that is not an object', () => {
     await vi.waitFor(() => expect(sent.at(-1)).toMatch(/"code":"internal-error"/));
     const meta = logged[0]?.[1] as { error: Error } | undefined;
     expect(meta?.error.message).toBe(
-      `[livething] The payload for "feed" must be a plain object, such as { text: 'hi' }, ` +
-        'but it was null. A stream chunk is a payload too, so yield an object.',
+      `[livething] The payload for "feed" must be a plain object, such as { text: 'hi' }, or ` +
+        'null, but it was number. A stream chunk is a payload too, so yield an object or null.',
     );
   });
 });

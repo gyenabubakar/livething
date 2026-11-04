@@ -46,7 +46,7 @@ type OptsParameter3 = {
   channelName: string;
   channelFamily: string | null;
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
   deliverySeq: number;
   messageId: string;
 };

@@ -48,6 +48,7 @@ import type {
   ClientResponse,
   DurableWireChunk,
   Jsonify,
+  Payload,
   PayloadObject,
   Validator,
 } from '~/types.ts';
@@ -496,7 +497,7 @@ interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Create a plain server-pushed stream handler value. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
-    TChunk extends PayloadObject = Record<string, unknown>,
+    TChunk extends Payload = Record<string, unknown>,
     TInput extends Validator | undefined = undefined,
     const TNudges extends StreamNudgeMap = {},
   >(
@@ -980,7 +981,7 @@ export interface ChannelStreamMethod<
   /** Create a plain stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
-    TChunk extends PayloadObject = Record<string, unknown>,
+    TChunk extends Payload = Record<string, unknown>,
     TInput extends Validator | undefined = undefined,
     const TNudges extends StreamNudgeMap = {},
   >(

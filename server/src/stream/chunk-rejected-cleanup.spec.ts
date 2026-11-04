@@ -47,7 +47,7 @@ describe('a stream whose chunk LiveThing refuses to send', () => {
     const feed = base.stream('feed', {
       async *run() {
         try {
-          yield null as never;
+          yield 42 as never;
         } finally {
           cleaned = true;
         }

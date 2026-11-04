@@ -107,7 +107,7 @@ export interface ReplayOptions {
  */
 export interface ReplaySnapshotValue {
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
 }
 
 /**
@@ -115,7 +115,7 @@ export interface ReplaySnapshotValue {
  * replace each other, so replay sends only the latest per key. Exported so you
  * can type a `snapshotKey` written as a standalone function or arrow.
  */
-export type SnapshotKeyFn = (event: string, payload: Record<string, unknown>) => string;
+export type SnapshotKeyFn = (event: string, payload: Record<string, unknown> | null) => string;
 
 /**
  * Combines snapshot rows over time (snapshot mode): given the stored value for a

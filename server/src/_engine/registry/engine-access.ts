@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CloseCodes } from '@livething/core';
 import { getInvocationScope, withConnectionCall } from '~/_engine/async-context.ts';
-import { assertPayloadRecord } from '~/_engine/runtime/json-guard.ts';
+import { assertPayload } from '~/_engine/runtime/json-guard.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import { createChannelMembershipKey, hasChannelMembership } from '~/channel/runtime.ts';
 import * as InboxRuntime from '~/inbox/runtime.ts';
@@ -26,7 +26,7 @@ type OptsParameter4 = {
   channelName: string;
   channelFamily: string | null;
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
 };
 type CreateEngineAccessScopeParameter = { channelKey?: string };
 
@@ -359,7 +359,7 @@ export function createEngineAccess(
     assertReplaySendContract: (event, payload, routing) => {
       // The shape only. A payload that fails to serialize (a BigInt, a Date) becomes a sanitized
       // __error__ for that row in sendReplay, so the replay loop keeps going.
-      assertPayloadRecord(event, payload);
+      assertPayload(event, payload);
       if (!OutgoingRuntime.isDeclaredOutgoingEvent(core.compiled, event, routing)) {
         throw new Error(
           `[livething] Outgoing event "${event}" was not declared in the active scope.`,

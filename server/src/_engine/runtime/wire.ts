@@ -1,5 +1,5 @@
 import { InternalError } from '@livething/core';
-import { assertPayloadRecord, serializePayload } from '~/_engine/runtime/json-guard.ts';
+import { assertPayload, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -100,7 +100,7 @@ export function sendReplay(
   options: SendReplayOptions,
 ): void {
   const { channelName, channelFamily, event, payload, wire } = options;
-  assertPayloadRecord(event, payload);
+  assertPayload(event, payload);
 
   const resolvedChannel = channelName ?? wire.channel ?? null;
   const livething: Record<string, unknown> = {

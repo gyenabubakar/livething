@@ -429,7 +429,7 @@ export function channels(): ChannelsPrimitive {
             if (!state.persistent) {
               resubscribes.push({
                 event: '__subscribe__',
-                payload: state.resolvedSubscribeData ?? {},
+                payload: state.resolvedSubscribeData ?? null,
                 metadata: { channel: channelMarkers(state) },
               });
             } else {
@@ -442,7 +442,7 @@ export function channels(): ChannelsPrimitive {
 
                 helpers.rawSend({
                   event: '__subscribe__',
-                  payload: rejoining.resolvedSubscribeData ?? {},
+                  payload: rejoining.resolvedSubscribeData ?? null,
                   metadata: { channel: channelMarkers(rejoining) },
                 });
               }, PERSISTENT_REJOIN_FALLBACK_MS);

@@ -33,11 +33,11 @@ export function buildInboxSurface<
         deliverySeq: engine.allocateDeliverySeq(),
         messageId: message.__livething.messageId,
         event: message.event,
-        // The same rule as every payload that is sent: an object in JSON, stored as that JSON.
+        // The same rule as every payload that is sent: an object or null in JSON, stored as that JSON.
         payload: JSON.parse(serializePayload(message.event, message.payload)) as Record<
           string,
           unknown
-        >,
+        > | null,
       }));
       const config = engine.getInboxChannel(channelKeyFor(channelName, channelFamily));
       const stored = backfillInbox(engine.storage.sql, {

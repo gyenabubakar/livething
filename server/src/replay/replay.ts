@@ -448,7 +448,7 @@ class ReplayInstaller {
     });
 
     for (const row of rows) {
-      const rowPayload = JSON.parse(row.payload) as Record<string, unknown>;
+      const rowPayload = JSON.parse(row.payload) as Record<string, unknown> | null;
       this.engine.sendReplay(connectionId, {
         channelName: row.channel,
         channelFamily: row.channelFamily,

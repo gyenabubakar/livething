@@ -151,7 +151,7 @@ export function buildChannelMessaging(
         state.resolvedSubscribeData = resolved;
         const frame = {
           event: '__subscribe__',
-          payload: resolved ?? {},
+          payload: resolved ?? null,
           metadata: { channel: channelMarkers(state) },
         };
 

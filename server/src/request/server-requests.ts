@@ -5,11 +5,11 @@ import { capability, stampKind, withCapabilityKind } from '~/_define/capability.
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
-import type { ContractPayload, PayloadObject, Validator } from '~/types.ts';
+import type { ContractPayload, Payload, Validator } from '~/types.ts';
 
 export type ServerRequestDeclaration = {
-  /** The payload sent to the client, which must be a plain object. */
-  readonly out: TypeMarker<PayloadObject>;
+  /** The payload sent to the client, which must be a plain object or `null`. */
+  readonly out: TypeMarker<Payload>;
   readonly in?: Validator;
 };
 

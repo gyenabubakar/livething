@@ -49,7 +49,7 @@ interface InboxFanOutOptions {
   channelName: string;
   channelFamily: string | null;
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
   deliverySeq: number;
   messageId: string;
   excludeUserId?: string;
@@ -254,7 +254,7 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
       channelName: row.channelName,
       channelFamily: row.channelFamily,
       event: row.event,
-      payload: JSON.parse(row.payload) as Record<string, unknown>,
+      payload: JSON.parse(row.payload) as Record<string, unknown> | null,
       wire: {
         deliverySeq: row.seq,
         messageId: row.messageId,

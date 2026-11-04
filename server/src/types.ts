@@ -29,13 +29,18 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
 export type Validator<T = any> = StandardSchemaV1<unknown, T>;
 
 /**
- * What LiveThing sends to a client as an event payload, a stream chunk, a server request or a
- * reply: an object that stays an object in JSON, such as `{ text: 'hi' }`. LiveThing refuses
- * `null`, a primitive, an array, a function, an iterable such as a `Map` (JSON gives `{}`) and an
- * object whose `toJSON()` gives something else (a `Date` gives a string) when it sends, so the
- * types refuse them too. An object with a `toJSON()` that returns a plain object is accepted,
- * iterable or not, because JSON sends what that returns. An array is refused even with a
- * `toJSON()`.
+ * What LiveThing sends to a client as an event payload, a stream chunk or a server request:
+ * a `PayloadObject`, or `null` for no payload. A reply is a `PayloadObject`, because a `null`
+ * reply is an answer with no value.
+ */
+export type Payload = PayloadObject | null;
+
+/**
+ * An object that stays an object in JSON, such as `{ text: 'hi' }`. LiveThing refuses a
+ * primitive, an array, a function, an iterable such as a `Map` (JSON gives `{}`) and an object
+ * whose `toJSON()` gives something else (a `Date` gives a string) when it sends, so the types
+ * refuse them too. An object with a `toJSON()` that returns a plain object is accepted, iterable
+ * or not, because JSON sends what that returns. An array is refused even with a `toJSON()`.
  */
 export type PayloadObject =
   | (PlainObject & { readonly toJSON?: JsonToObject | NotAFunction })

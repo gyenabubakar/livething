@@ -406,7 +406,7 @@ export function replayAudiencesOfRow(
 export interface BuildReplayRowOptions {
   options: ReplayOptions;
 
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
 
   livething: Record<string, unknown>;
 
@@ -532,7 +532,7 @@ function deleteRowsWithNoRecipient(
 function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
   return {
     event: row.event,
-    payload: JSON.parse(row.payload) as Record<string, unknown>,
+    payload: JSON.parse(row.payload) as Record<string, unknown> | null,
   };
 }
 
@@ -552,7 +552,7 @@ export interface PersistReplayMessageOptions {
 
   event: string;
 
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
 
   livething: Record<string, unknown>;
 
@@ -600,7 +600,7 @@ export interface PersistReplayMessageOptions {
    * the event/payload doesn't conform — keeping the replay-from-storage path
    * trusted. Not called when no `reduce` is configured.
    */
-  validateReduced?: (event: string, payload: Record<string, unknown>) => void;
+  validateReduced?: (event: string, payload: Record<string, unknown> | null) => void;
 }
 
 /**
