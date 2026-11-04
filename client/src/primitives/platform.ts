@@ -4,7 +4,7 @@ import { signalBus } from '~/internal/signals.ts';
 import { createStore } from '~/internal/store.ts';
 import type { ClientEnvironment } from '~/environment.ts';
 import type { ReadableStore } from '~/internal/store.ts';
-import type { Primitive, TypeFn } from '~/primitives/types.ts';
+import type { Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 
 /** The network-status store that `platform()` adds to the socket. */
 export interface PlatformApi {
@@ -42,7 +42,9 @@ export interface PlatformOptions {
  *
  * Platform code only loads when you register this primitive — it's not built in.
  */
-export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
+export function platform(
+  options: PlatformOptions,
+): Primitive<PlatformTypeFn> & PrimitiveIdentity<'platform'> {
   const { environment, backgroundDisconnectMs } = options;
   const wantsBackground = backgroundDisconnectMs !== undefined && backgroundDisconnectMs > 0;
 
@@ -169,4 +171,4 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
   };
 }
 
-platform.tag = 'platform';
+platform.tag = 'platform' as const;

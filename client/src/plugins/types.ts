@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
 import type { NamespacedContract } from '~/plugins/contract.ts';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { EmptyTypeFn, IsUnion, Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
 import type { SocketContract } from '~/types.ts';
 
 /**
@@ -14,6 +14,27 @@ export type PrimitiveFactory = {
   readonly tag: string;
 };
 
+/**
+ * The literal tags of a plugin's `dependencies`. A factory whose `tag` is a plain
+ * `string` is left out, so the runtime check covers it and the type still checks
+ * the others. A list typed as an array, not a tuple, can't say which factories it
+ * holds, and a list that could be one of several tuples (such as `flag ? [a] : [b]`)
+ * needs only one of them at runtime. Neither gives tags, so the runtime check covers
+ * all of it. One item that could be either of several factories (such as
+ * `[flag ? a : b]`) is skipped the same way, and the other items are still checked.
+ */
+export type LiteralDependencyTags<TDependencies extends readonly PrimitiveFactory[]> =
+  number extends TDependencies['length']
+    ? never
+    : true extends IsUnion<TDependencies>
+      ? never
+      : {
+          [I in keyof TDependencies]: string extends TDependencies[I]['tag']
+            ? never
+            : true extends IsUnion<TDependencies[I]['tag']>
+              ? never
+              : TDependencies[I]['tag'];
+        }[number];
 /**
  * What a plugin's `setup` returns. Both fields are optional: a plugin that only
  * runs hooks needs neither, one with an API sets `api`, one holding
@@ -76,11 +97,21 @@ export interface PluginDef<P extends SocketContract, TApi> {
  * registered on. `TId` carries the plugin's id as a literal so the app socket
  * knows which namespace this plugin claims, and `P` becomes the primitive's
  * `_requires` so `client()` rejects a socket whose contract lacks that namespace.
+ * `TDependency` carries the tags of the plugin's `dependencies`, so `client()` also
+ * rejects a socket that does not register one of them. Its default, `string`, means
+ * "not known": a plugin with dependencies still fits a `PluginFactory` written
+ * without this argument, and the runtime check covers those dependencies.
  */
-export interface PluginFactory<TApi, TId extends string = string, P extends SocketContract = {}> {
-  (): Primitive<EmptyTypeFn, NamespacedContract<P, TId>> & {
-    readonly _plugin: { readonly id: TId };
-  };
+export interface PluginFactory<
+  TApi,
+  TId extends string = string,
+  P extends SocketContract = {},
+  TDependency extends string = string,
+> {
+  (): Primitive<EmptyTypeFn, NamespacedContract<P, TId>> &
+    PrimitiveIdentity<TId, TDependency> & {
+      readonly _plugin: { readonly id: TId };
+    };
 
   /** The plugin's id — its namespace and log label. */
   readonly id: TId;

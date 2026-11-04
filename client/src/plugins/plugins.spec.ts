@@ -120,6 +120,8 @@ describe('plugin() registration and API', () => {
       dependencies: [clientRequests],
       setup: () => ({}),
     });
+    // The type already rejects this; the runtime check covers plain JavaScript callers.
+    // @ts-expect-error — Chat requires clientRequests()
     expect(() => client<AppContract>()(connect('wss://test'), Chat())).toThrow(
       /requires clientRequests/,
     );

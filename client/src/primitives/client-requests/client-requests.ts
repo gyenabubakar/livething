@@ -10,7 +10,7 @@ import type {
   ClientRequestsOptions,
   ClientRequestsTypeFn,
 } from '~/primitives/client-requests/types.ts';
-import type { Primitive } from '~/primitives/types.ts';
+import type { Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
 
 interface Pending {
   resolve: (value: unknown) => void;
@@ -39,7 +39,7 @@ interface RequestOptions {
  */
 export function clientRequests(
   options: ClientRequestsOptions = {},
-): Primitive<ClientRequestsTypeFn> {
+): Primitive<ClientRequestsTypeFn> & PrimitiveIdentity<'clientRequests'> {
   const defaultTimeout = options.timeout ?? 10_000;
   const defaultTimeoutError = timerDelayError(defaultTimeout, 'clientRequests timeout');
   if (defaultTimeoutError) throw defaultTimeoutError;
@@ -217,4 +217,4 @@ export function clientRequests(
   };
 }
 
-clientRequests.tag = 'clientRequests';
+clientRequests.tag = 'clientRequests' as const;

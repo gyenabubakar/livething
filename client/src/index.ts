@@ -108,6 +108,7 @@ export type {
   EmptyTypeFn,
   Apply,
   Primitive,
+  PrimitiveIdentity,
   ApplyPrimitives,
   ValidatePrimitives,
   SocketWithPrimitives,

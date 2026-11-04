@@ -10,6 +10,7 @@ import type { Message, PrimitiveHelpers, PrimitiveRuntime } from '~/internal/run
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type {
+  LiteralDependencyTags,
   PluginDef,
   PluginFactory,
   PluginInstance,
@@ -479,9 +480,19 @@ type PluginApi<TApi, TSetupApi> = [TApi] extends [InferredApi] ? TSetupApi : TAp
  * ```
  */
 export function plugin<P extends SocketContract = {}, TApi = InferredApi>() {
-  return function define<const TId extends string, TSetupApi = void>(
-    def: PluginDef<P, PluginApi<TApi, TSetupApi>> & { id: TId },
-  ): PluginFactory<PluginApi<TApi, TSetupApi>, TId, P> {
+  return function define<
+    const TId extends string,
+    TSetupApi = void,
+    const TDependencies extends readonly PrimitiveFactory[] = [],
+  >(
+    // A list like `[...base, channels]` infers a tuple type its own value doesn't
+    // fit, so the plain array type is accepted too. The tuple has no fixed length,
+    // so it gives no tags and the runtime check covers it.
+    def: PluginDef<P, PluginApi<TApi, TSetupApi>> & {
+      id: TId;
+      dependencies?: TDependencies | readonly PrimitiveFactory[];
+    },
+  ): PluginFactory<PluginApi<TApi, TSetupApi>, TId, P, LiteralDependencyTags<TDependencies>> {
     const dependencies = def.dependencies?.map(resolveTag);
     const id = def.id;
 
@@ -509,7 +520,12 @@ export function plugin<P extends SocketContract = {}, TApi = InferredApi>() {
         id,
         use: (socket: object) => usePlugin(socket, id),
       },
-    ) as unknown as PluginFactory<PluginApi<TApi, TSetupApi>, TId, P>;
+    ) as unknown as PluginFactory<
+      PluginApi<TApi, TSetupApi>,
+      TId,
+      P,
+      LiteralDependencyTags<TDependencies>
+    >;
 
     return factory;
   };

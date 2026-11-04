@@ -140,22 +140,45 @@ describe('__replay__ resume tokens', () => {
 describe('nested protocol frame schemas', () => {
   it('validates tuple frames with the required metadata group', () => {
     expect(
-      v.safeParse(SubscribeOkFrame, ['__subscribeOk__', {}, { channel: { name: 'room' } }]).success,
-    ).toBe(true);
-    expect(
       v.safeParse(SubscribeOkFrame, ['__subscribeOk__', null, { channel: { name: 'room' } }])
         .success,
+    ).toBe(true);
+    expect(
+      v.safeParse(SubscribeOkFrame, ['__subscribeOk__', { seq: 2 }, { channel: { name: 'room' } }])
+        .success,
+    ).toBe(true);
+    expect(
+      v.safeParse(SubscribeOkFrame, ['__subscribeOk__', {}, { channel: { name: 'room' } }]).success,
     ).toBe(false);
     expect(
       v.safeParse(ReadFrame, ['__read__', { readThrough: 1 }, { channel: { name: 'room' } }])
         .success,
     ).toBe(true);
-    expect(
-      v.safeParse(OutgoingProtocolFrame, {
-        event: '__subscribeOk__',
-        payload: null,
-        __livething: { channel: 'room' },
-      }).success,
-    ).toBe(false);
+  });
+
+  it.each([
+    ['__subscribeOk__', { channel: 'room' }],
+    ['__unsubscribeOk__', { channel: 'room' }],
+    ['__streamOk__', { streamId: 'stream-1' }],
+    ['__nudgeOk__', { streamId: 'stream-1' }],
+    ['__streamEnd__', { streamId: 'stream-1' }],
+  ])('accepts the %s frame the serializer writes', (event, livething) => {
+    const wire = JSON.parse(serializeWireFrame(event, {}, livething)) as unknown[];
+
+    expect(wire[1]).toBeNull();
+    expect(v.safeParse(OutgoingProtocolFrame, wire).success).toBe(true);
+  });
+
+  it('accepts the __subscribeOk__ frame the serializer writes when replay gives a seq', () => {
+    const wire = JSON.parse(
+      serializeWireFrame(
+        '__subscribeOk__',
+        { seq: 2 },
+        { channel: 'room:general', channelFamily: 'rooms', channelMembership: 'ephemeral' },
+      ),
+    ) as unknown[];
+
+    expect(wire[1]).toEqual({ seq: 2 });
+    expect(v.safeParse(OutgoingProtocolFrame, wire).success).toBe(true);
   });
 });

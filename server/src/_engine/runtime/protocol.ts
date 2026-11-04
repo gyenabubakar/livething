@@ -87,7 +87,6 @@ export const MetadataSchema = v.pipe(
 );
 const Metadata = v.nullable(MetadataSchema);
 const NoPayload = v.null();
-const EmptyPayload = v.strictObject({});
 
 function metadataToLiveThing(input: unknown): LiveThingProtocol {
   const out: LiveThingProtocol = { channelFamily: null };
@@ -289,13 +288,13 @@ export function parseIncomingProtocolFrame(input: unknown): IncomingProtocolFram
 
 export const SubscribeOkFrame = frame(
   '__subscribeOk__',
-  v.strictObject({ seq: v.optional(NonNegativeSafeInt) }),
+  v.nullable(v.strictObject({ seq: NonNegativeSafeInt })),
   channelMeta,
 );
-const UnsubscribeOkFrame = frame('__unsubscribeOk__', EmptyPayload, channelMeta);
-const StreamOkFrame = frame('__streamOk__', EmptyPayload, streamMeta);
-const NudgeOkFrame = frame('__nudgeOk__', EmptyPayload, streamMeta);
-const StreamEndFrame = frame('__streamEnd__', EmptyPayload, streamMeta);
+const UnsubscribeOkFrame = frame('__unsubscribeOk__', NoPayload, channelMeta);
+const StreamOkFrame = frame('__streamOk__', NoPayload, streamMeta);
+const NudgeOkFrame = frame('__nudgeOk__', NoPayload, streamMeta);
+const StreamEndFrame = frame('__streamEnd__', NoPayload, streamMeta);
 const ErrorFrame = frame(
   '__error__',
   v.strictObject({ code: v.string(), detail: v.optional(v.unknown()) }),

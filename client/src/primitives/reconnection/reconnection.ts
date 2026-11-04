@@ -4,7 +4,7 @@ import { signalBus } from '~/internal/signals.ts';
 import { createStore } from '~/internal/store.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { ReconnectionInfo, ReconnectionOptions } from '~/primitives/reconnection/types.ts';
-import type { Primitive, TypeFn } from '~/primitives/types.ts';
+import type { Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 
 /** The reconnection store that `reconnection()` adds to the socket. */
 export interface ReconnectionApi {
@@ -38,7 +38,9 @@ interface ReconnectionTypeFn extends TypeFn {
  * tries. It owns that retry loop and the `socket.reconnection` store, and only
  * ships when you add it.
  */
-export function reconnection(options: ReconnectionOptions = {}): Primitive<ReconnectionTypeFn> {
+export function reconnection(
+  options: ReconnectionOptions = {},
+): Primitive<ReconnectionTypeFn> & PrimitiveIdentity<'reconnection'> {
   const maxAttempts = options.maxAttempts ?? 10;
   if (!(maxAttempts === Infinity || (Number.isInteger(maxAttempts) && maxAttempts >= 0))) {
     throw new LiveThingConfigError(
@@ -190,7 +192,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
   };
 }
 
-reconnection.tag = 'reconnection';
+reconnection.tag = 'reconnection' as const;
 
 /**
  * The wait before the next try, doubling each time (1s, 2s, 4s, …) up to

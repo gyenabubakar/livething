@@ -5,8 +5,11 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
+import { channels } from '~/primitives/channels/index.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { expectTypeOf } from 'vitest';
+import type { PluginFactory, PrimitiveFactory } from '~/plugins/types.ts';
+import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 // A contract shaped like `InferClient`: the app's own names, one plugin's names
 // under `__acme:chat::`, and a SECOND namespace `__acme:presence::` that no plugin
@@ -175,6 +178,126 @@ plugin<FeedWire, FeedApi>()({
   // @ts-expect-error — count() returns a string, not the pinned number
   setup: () => ({ api: () => ({ latest: () => undefined, count: () => 'many' }) }),
 });
+
+// A plugin's `dependencies` are checked by the type when the plugin is
+// registered, in any order, not only when client() runs.
+// @ts-expect-error — Chat lists clientRequests, and the socket does not register it
+client<HostContract>()(connect('wss://example.com'), Chat());
+client<HostContract>()(connect('wss://example.com'), Chat(), clientRequests());
+
+interface PollWire {
+  incoming: { 'poll-updated': { pollId: string } };
+  channels: { 'poll-room': { incoming: { 'votes-changed': { votes: number } } } };
+}
+
+interface PollHost {
+  incoming: { '__acme:polls::poll-updated': { pollId: string } };
+  channels: { '__acme:polls::poll-room': { incoming: { 'votes-changed': { votes: number } } } };
+}
+
+const Polls = plugin<PollWire>()({
+  id: 'acme:polls',
+  dependencies: [channels, clientRequests],
+  setup: () => ({}),
+});
+
+// @ts-expect-error — Polls also needs clientRequests
+client<PollHost>()(connect('wss://example.com'), channels(), Polls());
+client<PollHost>()(connect('wss://example.com'), Polls(), clientRequests(), channels());
+
+// A dependency whose `tag` is a plain string is left to the runtime check, and the
+// plugin's other dependencies are still checked by the type.
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- a factory as loose as PrimitiveFactory
+declare const untypedPrimitive: { (): Primitive<any, any>; readonly tag: string };
+const PollsWithUntyped = plugin<PollWire>()({
+  id: 'acme:polls',
+  dependencies: [untypedPrimitive, channels],
+  setup: () => ({}),
+});
+// @ts-expect-error — PollsWithUntyped still needs channels
+client<PollHost>()(connect('wss://example.com'), PollsWithUntyped());
+client<PollHost>()(connect('wss://example.com'), channels(), PollsWithUntyped());
+
+// Dependencies held in an array type, not a literal list, can't say which factories
+// are really in the array, so they are left to the runtime check.
+const depsArray: (typeof channels | typeof clientRequests)[] = [channels];
+const PollsFromArray = plugin<PollWire>()({
+  id: 'acme:polls',
+  dependencies: depsArray,
+  setup: () => ({}),
+});
+client<PollHost>()(connect('wss://example.com'), channels(), PollsFromArray());
+
+// A list that could be one of several lists only needs one of them at runtime, so the
+// type can't say which primitives are needed and leaves it to the runtime check.
+declare const useChannels: boolean;
+const PollsFromEither = plugin<PollWire>()({
+  id: 'acme:polls',
+  dependencies: useChannels ? [channels] : [clientRequests],
+  setup: () => ({}),
+});
+client<PollHost>()(connect('wss://example.com'), channels(), PollsFromEither());
+
+// One item that could be either of two factories doesn't say which one is needed.
+const PollsFromEitherItem = plugin<PollWire>()({
+  id: 'acme:polls',
+  dependencies: [useChannels ? channels : clientRequests],
+  setup: () => ({}),
+});
+client<PollHost>()(connect('wss://example.com'), channels(), PollsFromEitherItem());
+
+// When a plugin misses both a contract name and a dependency, the error names the
+// missing dependency, which says exactly what to add.
+const NeedsRequests = plugin<{
+  clientRequests: { ask: { payload: {}; response: {} } };
+}>()({ id: 'acme:asks', dependencies: [clientRequests], setup: () => ({}) });
+expectTypeOf<ValidatePrimitives<PollHost, [ReturnType<typeof NeedsRequests>]>[0]>().toEqualTypeOf<{
+  error: "plugin 'acme:asks' requires clientRequests(). Register it in client().";
+}>();
+
+// A list that spreads an array and then adds a factory still compiles. It has no
+// fixed length, so it is left to the runtime check.
+declare const baseDependencies: PrimitiveFactory[];
+const PollsFromSpread = plugin<PollWire>()({
+  id: 'acme:polls',
+  dependencies: [...baseDependencies, channels],
+  setup: () => ({}),
+});
+client<PollHost>()(connect('wss://example.com'), channels(), PollsFromSpread());
+
+// A plugin with dependencies still fits a `PluginFactory` written without the
+// dependency type argument, as in a variable, a return type or a parameter.
+const AnnotatedPolls: PluginFactory<void, 'acme:polls', PollWire> = Polls;
+function makePolls(): PluginFactory<void, 'acme:polls', PollWire> {
+  return Polls;
+}
+
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- a helper that takes any plugin
+function registerAny(_factory: PluginFactory<unknown, string, any>): void {}
+
+registerAny(Polls);
+// An annotation without the dependency type argument hides the dependencies, so the
+// runtime check covers them.
+client<PollHost>()(connect('wss://example.com'), AnnotatedPolls());
+client<PollHost>()(connect('wss://example.com'), makePolls()());
+
+// `satisfies` gives the list an array type, so it is left to the runtime check too.
+const PollsWithSatisfies = plugin<PollWire>()({
+  id: 'acme:polls',
+  dependencies: [channels] satisfies readonly PrimitiveFactory[],
+  setup: () => ({}),
+});
+client<PollHost>()(connect('wss://example.com'), PollsWithSatisfies());
+
+// A variable typed as a tuple, such as one made with `as const`, is still checked.
+const depsTuple = [channels] as const;
+const PollsFromTuple = plugin<PollWire>()({
+  id: 'acme:polls',
+  dependencies: depsTuple,
+  setup: () => ({}),
+});
+// @ts-expect-error — PollsFromTuple needs channels
+client<PollHost>()(connect('wss://example.com'), PollsFromTuple());
 
 // With only the contract type argument, the API is still inferred from `setup`.
 const InferredFeed = plugin<FeedWire>()({

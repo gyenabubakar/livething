@@ -1,5 +1,5 @@
 import type { ReadableStore } from '~/internal/store.ts';
-import type { ChannelTypeFn, Primitive, TypeFn } from '~/primitives/types.ts';
+import type { ChannelTypeFn, Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 
 /** Per-call options for a `receiversOf` / `readersOf` query. */
 export interface ReceiptQueryOptions {
@@ -86,7 +86,9 @@ interface ReadReceiptsChannelTypeFn extends ChannelTypeFn {
 }
 
 /** The descriptor `inbox()` returns. */
-export type InboxPrimitive = Primitive<InboxTypeFn, {}, InboxChannelTypeFn>;
+export type InboxPrimitive = Primitive<InboxTypeFn, {}, InboxChannelTypeFn> &
+  PrimitiveIdentity<'inbox', 'dedup'>;
 
 /** The descriptor `readReceipts()` returns. */
-export type ReadReceiptsPrimitive = Primitive<ReadReceiptsTypeFn, {}, ReadReceiptsChannelTypeFn>;
+export type ReadReceiptsPrimitive = Primitive<ReadReceiptsTypeFn, {}, ReadReceiptsChannelTypeFn> &
+  PrimitiveIdentity<'read-receipts'>;

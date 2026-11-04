@@ -3,7 +3,7 @@ import type {
   BlobSerialization,
   ParsedFrame,
 } from '~/primitives/serialization/types.ts';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
 
 /**
  * Lets the client handle binary messages (Protocol Buffers, MessagePack, etc.).
@@ -21,7 +21,7 @@ import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
  */
 export function serialization(
   options: ArrayBufferSerialization | BlobSerialization,
-): Primitive<EmptyTypeFn> {
+): Primitive<EmptyTypeFn> & PrimitiveIdentity<'serialization'> {
   return {
     _tag: 'serialization',
     applyConfig(config) {
@@ -37,4 +37,4 @@ export function serialization(
   };
 }
 
-serialization.tag = 'serialization';
+serialization.tag = 'serialization' as const;

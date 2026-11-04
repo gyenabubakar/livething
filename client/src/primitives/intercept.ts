@@ -1,5 +1,5 @@
 import type { InterceptFn } from '~/internal/runtime.ts';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
 
 export type { InterceptFn };
 
@@ -20,7 +20,9 @@ export type { InterceptFn };
  * });
  * ```
  */
-export function intercept(interceptor: InterceptFn): Primitive<EmptyTypeFn> {
+export function intercept(
+  interceptor: InterceptFn,
+): Primitive<EmptyTypeFn> & PrimitiveIdentity<'intercept'> {
   return {
     _tag: 'intercept',
     applyConfig(config) {
@@ -29,4 +31,4 @@ export function intercept(interceptor: InterceptFn): Primitive<EmptyTypeFn> {
   };
 }
 
-intercept.tag = 'intercept';
+intercept.tag = 'intercept' as const;

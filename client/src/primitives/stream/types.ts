@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
-import type { Primitive, TypeFn } from '~/primitives/types.ts';
+import type { Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 import type { NudgesOf, PersistentStreamKeys, StreamHandle, StreamHandlers } from '~/types.ts';
 
 /** Options for the `stream()` primitive. */
@@ -47,4 +47,4 @@ export interface StreamTypeFn extends TypeFn {
 }
 
 /** The descriptor `stream()` returns. */
-export type StreamPrimitive = Primitive<StreamTypeFn>;
+export type StreamPrimitive = Primitive<StreamTypeFn> & PrimitiveIdentity<'stream'>;

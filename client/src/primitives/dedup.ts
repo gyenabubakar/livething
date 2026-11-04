@@ -1,5 +1,5 @@
 import { LiveThingConfigError } from '@livething/core';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
 
 /** Options for `dedup()`. */
 export interface DedupOptions {
@@ -13,7 +13,9 @@ export interface DedupOptions {
  * repeat. It only looks at messages that carry `metadata.delivery.id`; anything
  * without one always goes through.
  */
-export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
+export function dedup(
+  options: DedupOptions = {},
+): Primitive<EmptyTypeFn> & PrimitiveIdentity<'dedup'> {
   const windowMs = options.windowMs === undefined ? 60_000 : options.windowMs;
   if (!Number.isFinite(windowMs) || windowMs <= 0) {
     throw new LiveThingConfigError(
@@ -62,4 +64,4 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
   };
 }
 
-dedup.tag = 'dedup';
+dedup.tag = 'dedup' as const;

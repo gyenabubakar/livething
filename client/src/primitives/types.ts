@@ -122,17 +122,98 @@ export type ApplyChannelPrimitives<
   : {};
 
 /**
- * Check that each primitive's `_requires` is satisfied by the contract. A
- * primitive whose requirement isn't met becomes `never`, so TypeScript will
- * flag that exact argument at the call site.
+ * Gives a primitive a literal `_tag` and literal `dependencies`, so `client()` can
+ * check at compile time that every dependency is registered. A plain `string` tag or
+ * dependency is left to the runtime check.
+ */
+export interface PrimitiveIdentity<TTag extends string, TDependency extends string = never> {
+  readonly _tag: TTag;
+  readonly dependencies?: readonly TDependency[];
+}
+
+type LiteralDependencies<TPrimitive> = TPrimitive extends {
+  readonly dependencies?: readonly (infer Dependency extends string)[];
+}
+  ? string extends Dependency
+    ? never
+    : Dependency
+  : never;
+
+/**
+ * The dependencies that every member of `TPrimitive` has. A value typed as a union,
+ * such as `replay() | channels()`, could be any member, so only a dependency they all
+ * share is certain to be needed.
+ */
+type SharedDependencies<
+  TPrimitive,
+  TDependency = LiteralDependencies<TPrimitive>,
+> = TDependency extends unknown
+  ? [MembersWithout<TPrimitive, TDependency>] extends [never]
+    ? TDependency
+    : never
+  : never;
+
+type MembersWithout<TPrimitive, TDependency> = TPrimitive extends unknown
+  ? [TDependency] extends [LiteralDependencies<TPrimitive>]
+    ? never
+    : TPrimitive
+  : never;
+
+/** True when `T` is a union of more than one type. */
+export type IsUnion<T, TAll = T> = T extends unknown ? ([TAll] extends [T] ? false : true) : never;
+
+/**
+ * The dependencies of `TPrimitive` that none of `TTags` provides. `connect()` is always
+ * registered. Nothing is reported when the type can't be sure the runtime check
+ * throws, and the runtime check decides:
+ * - `TTags` is a plain `string`: some registered primitive hides its tag.
+ * - `TMaybeAbsent` is true: `TPrimitive` comes from a spread array, which may be
+ *   empty, so it may not be registered at all.
+ */
+type MissingDependency<TPrimitive, TTags extends string, TMaybeAbsent extends boolean> = [
+  Exclude<SharedDependencies<TPrimitive>, TTags | 'connect'>,
+] extends [never]
+  ? never
+  : string extends TTags
+    ? never
+    : true extends TMaybeAbsent
+      ? never
+      : Exclude<SharedDependencies<TPrimitive>, TTags | 'connect'>;
+
+/** True when the element at key `I` comes from a spread array: its key is `number`. */
+type FromSpread<I> = number extends I ? true : false;
+
+type DisplayName<TPrimitive extends Primitive<any, any>> = TPrimitive extends {
+  readonly _plugin: { readonly id: infer Id extends string };
+}
+  ? `plugin '${Id}'`
+  : `${TPrimitive['_tag']}()`;
+
+/**
+ * Check that each of a primitive's literal `dependencies` is registered, and that
+ * its `_requires` is satisfied by the contract. A primitive with a missing dependency
+ * becomes an error hint naming it, checked first because it says exactly what to
+ * add; one whose contract requirement isn't met becomes `never`. Either way
+ * TypeScript flags that exact argument. The type reports a dependency only when the
+ * runtime check is certain to throw for it.
  *
  * Uses a mapped tuple instead of recursion to preserve the tuple length,
- * which lets TypeScript infer the primitives from a `...rest` argument.
+ * which lets TypeScript infer the primitives from a `...rest` argument. `TTags`
+ * reads the registered tags once, outside the mapping: inside it, the elements
+ * of a spread array would not see each other's tags.
  */
-export type ValidatePrimitives<TContract, TPrimitives extends readonly Primitive<any, any>[]> = {
-  [I in keyof TPrimitives]: TContract extends NonNullable<TPrimitives[I]['_requires']>
-    ? TPrimitives[I]
-    : never;
+export type ValidatePrimitives<
+  TContract,
+  TPrimitives extends readonly Primitive<any, any>[],
+  TTags extends string = TPrimitives[number]['_tag'],
+> = {
+  [I in keyof TPrimitives]: [MissingDependency<TPrimitives[I], TTags, FromSpread<I>>] extends [
+    never,
+  ]
+    ? TContract extends NonNullable<TPrimitives[I]['_requires']>
+      ? TPrimitives[I]
+      : never
+    : NeedsPrimitive<`${DisplayName<TPrimitives[I]>} requires ${MissingDependency<TPrimitives[I], TTags, FromSpread<I>>}(). Register it in client().`>;
 };
 
 /** The final socket type: the base socket plus every primitive's API, flattened. */

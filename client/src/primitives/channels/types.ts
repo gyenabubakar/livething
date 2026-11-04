@@ -1,7 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
 import type { LiveThingError } from '@livething/core';
 import type { ReadableStore } from '~/internal/store.ts';
-import type { ApplyChannelPrimitives, Primitive, TypeFn } from '~/primitives/types.ts';
+import type {
+  ApplyChannelPrimitives,
+  Primitive,
+  PrimitiveIdentity,
+  TypeFn,
+} from '~/primitives/types.ts';
 import type { IncomingOf, ScopedMessaging } from '~/types.ts';
 
 /**
@@ -247,4 +252,5 @@ interface ChannelsTypeFn extends TypeFn {
 }
 
 /** The descriptor `channels()` returns. */
-export type ChannelsPrimitive = Primitive<ChannelsTypeFn, { channels: Record<string, unknown> }>;
+export type ChannelsPrimitive = Primitive<ChannelsTypeFn, { channels: Record<string, unknown> }> &
+  PrimitiveIdentity<'channels'>;

@@ -843,4 +843,4 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
   };
 }
 
-stream.tag = 'stream';
+stream.tag = 'stream' as const;

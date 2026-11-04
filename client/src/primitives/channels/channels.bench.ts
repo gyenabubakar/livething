@@ -30,7 +30,7 @@ function connected() {
   const room = socket.channel('room');
   void room.subscribe();
   ws.onmessage!({
-    data: JSON.stringify(['__subscribeOk__', {}, { channel: { name: 'room' } }]),
+    data: JSON.stringify(['__subscribeOk__', null, { channel: { name: 'room' } }]),
   });
   room.on('post', () => {});
 

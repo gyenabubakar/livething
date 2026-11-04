@@ -176,7 +176,12 @@ const pageFileKey = (page, name) => `${page}\0${name}`;
 const withoutExtension = (path) => basename(path).replace(/(\.svelte)?\.\w+$/, '');
 function pageFile(containing, name) {
   const example = fileExamples.get(containing);
-  if (!example?.page.startsWith('6.recipes/01.framework-hooks/')) return undefined;
+  // Each plugins page builds its own `Polls`, so an example there imports the page's
+  // own file. A name the page uses for more than one file stays on the shared fixture.
+  const ownsFiles =
+    example?.page.startsWith('6.recipes/01.framework-hooks/') ||
+    example?.page.startsWith('4.client/07.plugins/');
+  if (!ownsFiles) return undefined;
   const path = pageFiles.get(pageFileKey(example.page, name));
   return path && path !== containing ? path : undefined;
 }

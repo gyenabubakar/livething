@@ -208,4 +208,4 @@ function markersKey(markers: ScopeMarkers): string {
   return channelKey(markers.family, markers.name ?? '');
 }
 
-readReceipts.tag = 'read-receipts';
+readReceipts.tag = 'read-receipts' as const;

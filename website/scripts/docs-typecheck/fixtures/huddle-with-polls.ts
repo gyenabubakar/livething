@@ -38,6 +38,9 @@ export interface HuddleWithPolls {
       outgoing: {};
     };
   };
+  errors: {
+    '__acme:polls::poll-closed': { closedAt: number };
+  };
 }
 
 export type AppContract = HuddleWithPolls;

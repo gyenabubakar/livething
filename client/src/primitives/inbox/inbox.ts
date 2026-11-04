@@ -291,4 +291,4 @@ function markersKey(markers: ScopeMarkers): string {
   return channelKey(markers.family, markers.name ?? '');
 }
 
-inbox.tag = 'inbox';
+inbox.tag = 'inbox' as const;

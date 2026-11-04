@@ -539,4 +539,4 @@ export function channels(): ChannelsPrimitive {
   };
 }
 
-channels.tag = 'channels';
+channels.tag = 'channels' as const;

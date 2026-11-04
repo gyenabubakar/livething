@@ -1,5 +1,5 @@
 import { MessageBuffer } from '~/primitives/buffering/buffer.ts';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
 
 /** Options for `buffering()`. */
 export interface BufferingOptions {
@@ -16,7 +16,9 @@ export interface BufferingOptions {
  * when it reconnects. Opt-in, and it owns the buffer, so the queueing code ships
  * only when you add it.
  */
-export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn> {
+export function buffering(
+  options: BufferingOptions = {},
+): Primitive<EmptyTypeFn> & PrimitiveIdentity<'buffering'> {
   return {
     _tag: 'buffering',
     setup(helpers) {
@@ -64,4 +66,4 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
   };
 }
 
-buffering.tag = 'buffering';
+buffering.tag = 'buffering' as const;

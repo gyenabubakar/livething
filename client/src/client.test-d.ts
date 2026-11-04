@@ -17,7 +17,7 @@ import { expectTypeOf } from 'vitest';
 // `GapInfo` must be importable from the package root so a consumer can annotate
 // an `onGap` handler from the same place as every other public type.
 import type { GapInfo as GapInfoFromIndex, GapsTypeFn as GapsTypeFnFromIndex } from '~/index.ts';
-import type { EmptyTypeFn, Primitive, TypeFn } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 import type { GapInfo, StreamHandle } from '~/types.ts';
 
 interface Full {
@@ -191,7 +191,7 @@ onlyRoom.stream('ch-stream', {});
 // @ts-expect-error — channel.continueStream needs the stream() primitive
 onlyRoom.continueStream('ch-stream', 'id');
 
-const replayOnly = client<Full>()(connect('wss://example.com'), replay());
+const replayOnly = client<Full>()(connect('wss://example.com'), dedup(), replay());
 // @ts-expect-error — replay() tracks cursors; gaps() owns the listener API
 replayOnly.onGap(() => {});
 
@@ -315,7 +315,7 @@ interface MixedChannel {
   };
 }
 
-const mixed = client<MixedChannel>()(connect('wss://example.com'), channels(), inbox());
+const mixed = client<MixedChannel>()(connect('wss://example.com'), channels(), dedup(), inbox());
 const mixedRoom = mixed.channel('room');
 expectTypeOf(mixedRoom.receivers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();
 mixedRoom.onReceived((identity, receivedThrough) => {
@@ -336,7 +336,12 @@ interface MixedFamily {
   };
 }
 
-const mixedFamily = client<MixedFamily>()(connect('wss://example.com'), channels(), inbox());
+const mixedFamily = client<MixedFamily>()(
+  connect('wss://example.com'),
+  channels(),
+  dedup(),
+  inbox(),
+);
 const mixedFamilyMember = mixedFamily.channel('rooms', 'general');
 expectTypeOf(mixedFamilyMember.receivers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();
 // @ts-expect-error — a family member's channel.request still needs clientRequests()
@@ -345,3 +350,54 @@ const mixedFamilyHandle = mixedFamily.channel.family('rooms');
 expectTypeOf(mixedFamilyHandle('general').receivers.get()).toEqualTypeOf<
   ReadonlyMap<string, number>
 >();
+
+// A primitive's dependencies are checked by the type, in any order, not only when client() runs.
+// @ts-expect-error — replay() requires dedup()
+client<Full>()(connect('wss://example.com'), replay());
+// @ts-expect-error — inbox() requires dedup()
+client<MixedChannel>()(connect('wss://example.com'), channels(), inbox());
+client<Full>()(connect('wss://example.com'), replay(), dedup());
+client<MixedChannel>()(connect('wss://example.com'), inbox(), channels(), dedup());
+
+// A primitive typed as plain `Primitive` hides its tag, so the type can't tell which
+// one it is. The check then steps aside and leaves this socket to the runtime check.
+const wideDedup: Primitive<EmptyTypeFn> = dedup();
+client<Full>()(connect('wss://example.com'), wideDedup, replay());
+const widePrimitives: Primitive<EmptyTypeFn>[] = [dedup()];
+client<Full>()(connect('wss://example.com'), ...widePrimitives, replay());
+
+// A value typed as a union of primitives could be any of them, so the type can't
+// tell what is registered. The check steps aside and the runtime check decides.
+declare const replayOrDedup: ReturnType<typeof replay> | ReturnType<typeof dedup>;
+client<Full>()(connect('wss://example.com'), replayOrDedup);
+
+// A union reports a dependency only when every member of the union needs it.
+declare const replayOrChannels: ReturnType<typeof replay> | ReturnType<typeof channels>;
+client<MixedChannel>()(connect('wss://example.com'), channels(), replayOrChannels);
+declare const replayOrInbox: ReturnType<typeof replay> | ReturnType<typeof inbox>;
+// @ts-expect-error — replay() and inbox() both require dedup()
+client<MixedChannel>()(connect('wss://example.com'), channels(), replayOrInbox);
+
+// A primitive inside a spread that may be empty may not be registered at all, and then
+// its dependency is not needed. Only a primitive certainly in the call is checked.
+declare const useReplay: boolean;
+declare const roomIds: string[];
+client<Full>()(connect('wss://example.com'), ...[replay()].filter(() => useReplay));
+client<Full>()(connect('wss://example.com'), ...roomIds.map(() => replay()));
+declare const gapsList: ReturnType<typeof gaps>[];
+// @ts-expect-error — the replay() before the spread is certainly there, and requires dedup()
+client<Full>()(connect('wss://example.com'), replay(), ...gapsList);
+// TypeScript gives an item after a spread the same position type as the spread, so a
+// replay() placed there can't be told apart from one inside it. It is left to the
+// runtime check, which throws here.
+client<Full>()(connect('wss://example.com'), ...gapsList, replay());
+
+// Each built-in primitive has its own type, so a list that starts with one primitive
+// holds only that kind. Typing the list as `Primitive[]` lets it hold any primitive.
+const primitiveList: Primitive<EmptyTypeFn>[] = [dedup()];
+primitiveList.push(replay());
+client<Full>()(connect('wss://example.com'), ...primitiveList);
+
+// connect() is always registered, so depending on it is never an error.
+declare const needsConnect: Primitive<EmptyTypeFn> & PrimitiveIdentity<'needs-connect', 'connect'>;
+client<Full>()(connect('wss://example.com'), needsConnect);
