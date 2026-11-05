@@ -8,7 +8,10 @@ import { plugin } from '~/_define/plugins.ts';
 import { server } from '~/_define/server.ts';
 import { binary } from '~/binary/capability.ts';
 import { channels } from '~/channel/capability.ts';
+import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { replay } from '~/replay/capability.ts';
+import { sequence } from '~/sequence/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
@@ -49,6 +52,8 @@ const handleUploadAvatar = base.binary.on('upload-avatar', {
     ctx.send('avatar-preview', null);
     // @ts-expect-error: the bytes must be a Uint8Array or an ArrayBuffer
     ctx.binary.send('avatar-preview', null, 'bytes');
+    // @ts-expect-error: no replay capability is listed, so there is no binary.sendReplay
+    ctx.binary.sendReplay;
 
     expectTypeOf(
       ctx.binary.broadcast('avatar-preview', null, bytes, { includeSelf: true }),
@@ -217,4 +222,48 @@ expectTypeOf<
 base.assemble({
   // @ts-expect-error: 'upload-avatar' is bound twice
   handlers: [handleUploadAvatar, base.on('upload-avatar', { run() {} })],
+});
+
+// With replay listed, each sendReplay has a binary version.
+const replayed = server({
+  capabilities: [
+    binary({ emits: { 'avatar-preview': t<null>() } }),
+    emits({ 'avatar-saved': t<{ userId: string }>() }),
+    channels(),
+    dedup(),
+    sequence({ persist: true }),
+    replay.history(),
+  ],
+});
+const replayedRooms = replayed.channel(['rooms', 'room:{roomId}'], {
+  capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
+});
+const wire = { deliverySeq: 7, messageId: 'm-7' };
+
+replayed.on('resend-avatar-preview', {
+  run(ctx) {
+    const bytes = new Uint8Array(4);
+    expectTypeOf(ctx.binary.sendReplay('avatar-preview', null, bytes, wire)).toEqualTypeOf<void>();
+    ctx.binary.sendReplay('screen-frame', { from: 'u_amara' }, bytes, {
+      ...wire,
+      channel: replayedRooms.at({ roomId: 'general' }),
+    });
+    // @ts-expect-error: the info of 'avatar-preview' is null
+    ctx.binary.sendReplay('avatar-preview', { width: 64 }, bytes, wire);
+    // @ts-expect-error: 'avatar-saved' is a JSON event, so it goes through ctx.sendReplay
+    ctx.binary.sendReplay('avatar-saved', { userId: 'u_amara' }, bytes, wire);
+    // @ts-expect-error: 'avatar-preview' is a binary event, so it goes through ctx.binary.sendReplay
+    ctx.sendReplay('avatar-preview', null, wire);
+  },
+});
+
+replayedRooms.on('resend-screen-frame', {
+  run(ctx) {
+    const bytes = new Uint8Array(4);
+    ctx.channel.binary.sendReplay?.('screen-frame', { from: ctx.user.id }, bytes, wire);
+    // @ts-expect-error: it is absent when replay is not active for the channel
+    ctx.channel.binary.sendReplay('screen-frame', { from: ctx.user.id }, bytes, wire);
+    // @ts-expect-error: a channel handler has no root sendReplay, binary or JSON
+    ctx.binary.sendReplay;
+  },
 });

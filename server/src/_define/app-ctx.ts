@@ -98,6 +98,12 @@ type BinaryRequestArm<TSlots, TUser extends boolean> =
         : BinaryRequestMethod<TRequests>
     : never;
 
+/**
+ * `ctx.binary` without `sendReplay`: what a channel handler gets, since replay there is on
+ * `ctx.channel.binary.sendReplay`. @internal
+ */
+export type ChannelCtxRootBinary<TSlots> = BinarySendersOf<TSlots, 'ctx'>;
+
 /** The `.binary` key of connectionless code: `ctx.binary.broadcast` with `binary()` listed. */
 interface ConnectionlessBinaryCtx<TSlots> {
   readonly binary: BinarySendersOf<TSlots, 'broadcast'>;
@@ -650,6 +656,56 @@ interface SendReplayCtx<TSlots> {
   ): void;
 }
 
+/** A channel's binary events (event → info), or `{}` when it has none. */
+type ChannelRefBinaryEvents<R> =
+  ChannelRefOutgoing<R> extends BinaryEventsCarrier<infer TBinary> ? TBinary : {};
+
+/**
+ * `ctx.binary.sendReplay(...)`: the binary version of `ctx.sendReplay`, owned by a replay
+ * capability. `{}` without `binary()`, where `ctx.binary` is already `never`.
+ */
+interface BinarySendReplayCtx<TSlots> {
+  readonly binary: TSlots extends { binaryOutgoing: infer TBinary }
+    ? {
+        /**
+         * Send one stored binary event again to the current connection, as one binary
+         * frame with the given `wire`: its info, then its bytes.
+         */
+        sendReplay<E extends keyof TBinary & string>(
+          event: E,
+          info: TBinary[E],
+          bytes: BinaryInput | undefined,
+          wire: ReplayWire,
+        ): void;
+        /** The same for a channel's binary event. Name the channel in `wire.channel`. */
+        sendReplay<R extends ChannelRef, E extends keyof ChannelRefBinaryEvents<R> & string>(
+          event: E,
+          info: ChannelRefBinaryEvents<R>[E],
+          bytes: BinaryInput | undefined,
+          wire: ChannelReplayWire<R>,
+        ): void;
+      }
+    : {};
+}
+
+/**
+ * `ctx.channel.binary.sendReplay(...)`: the binary version of `ctx.channel.sendReplay`. Like
+ * it, it is absent when replay is not active for the channel. @internal
+ */
+export interface ChannelBinarySendReplayArm<TOutgoing> {
+  readonly binary: TOutgoing extends BinaryEventsCarrier<infer TBinary>
+    ? {
+        /** Send one stored binary event of this channel again to the calling connection. */
+        sendReplay?<E extends keyof TBinary & string>(
+          event: E,
+          info: TBinary[E],
+          bytes: BinaryInput | undefined,
+          wire: ReplayWire,
+        ): void;
+      }
+    : {};
+}
+
 /** The `ctx.schedule` / `ctx.cancelScheduled` surface — owned by `scheduled()`. */
 interface ScheduleCtx<TSlots> {
   /**
@@ -769,7 +825,7 @@ type CtxExtensionsOf<
 > = ('keepalive' extends FeaturesOf<TCaps> ? KeepaliveCtx : {}) &
   ('last-seen' extends FeaturesOf<TCaps> ? LastSeenCtx : {}) &
   ('serverRequests' extends BrandsOf<TCaps> ? ServerRequestCtx<TSlots> : {}) &
-  ('replay' extends FeaturesOf<TCaps> ? SendReplayCtx<TSlots> : {}) &
+  ('replay' extends FeaturesOf<TCaps> ? SendReplayCtx<TSlots> & BinarySendReplayCtx<TSlots> : {}) &
   ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
   ('channels' extends BrandsOf<TCaps> ? ChannelsCtx<TMeta, TGate> : {}) &
   (HasKeys<EphemeralTags<TSlots>> extends true

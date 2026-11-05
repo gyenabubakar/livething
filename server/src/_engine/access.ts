@@ -1,3 +1,4 @@
+import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -43,6 +44,8 @@ type OptionsParameter = {
   channelFamily: string | null;
   event: string;
   payload: unknown;
+  /** The bytes of a stored binary row, sent back as one binary frame. */
+  bytes?: Uint8Array;
   wire: { deliverySeq: number; messageId: string; channel?: string };
 };
 type OptionsParameter2 = {
@@ -380,6 +383,15 @@ export interface EngineAccess {
    * `replay: true` or `replay: false` — that scope is already claimed.
    */
   getReplayClaimedChannelKeys(): ReadonlySet<string>;
+
+  /**
+   * The events declared in `binary({ emits })`, with the key of the channel that declares each
+   * one, or `undefined` for the top level.
+   */
+  getBinaryEvents(): { channelKey: string | undefined; event: string }[];
+
+  /** The adapter's message limits, in bytes. */
+  getMessageLimits(): EngineAdapterTypes.MessageLimits;
 
   /**
    * Add extra fields or methods to every live connection context.
@@ -726,12 +738,13 @@ export interface EngineAccess {
    * is declared in the routing scope. Used by the replay primitive to enforce
    * the public-API contract before forwarding to `sendReplay`. The
    * replay-from-storage path stays trusted because rows were validated when
-   * written.
+   * written. With `bytes` (a `.binary.sendReplay`), the event must be a `binary({ emits })`
+   * event instead.
    */
   assertReplaySendContract(
     event: string,
     payload: unknown,
-    routing: { channel?: string; channelFamily?: string | null } | undefined,
+    send: { channel?: string; channelFamily?: string | null; bytes?: Uint8Array } | undefined,
   ): asserts payload is Record<string, unknown> | null;
 
   /**

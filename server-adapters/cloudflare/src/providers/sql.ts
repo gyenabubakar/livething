@@ -10,11 +10,15 @@ import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapte
  * far tighter than stock SQLite's. `maxBoundParams` in particular is easy to
  * blow past: a batched insert or a `WHERE id IN (...)` that assumes a generous
  * cap fails at a small, unremarkable count on this adapter.
+ *
+ * The page gives "Maximum string, `BLOB` or table row size" as 2 MB. It does not say if that is
+ * 2,000,000 or 2,097,152 bytes, and the local runtime does not enforce it, so this takes the
+ * smaller one. Replay does not store a row over it.
  */
 const CLOUDFLARE_SQL_LIMITS: SqlLimits = {
   maxBoundParams: 100,
   maxStatementBytes: 100 * 1024,
-  maxValueBytes: 2 * 1024 * 1024,
+  maxValueBytes: 2_000_000,
 };
 
 function wrapCursor<TRow = unknown>(

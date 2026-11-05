@@ -1,4 +1,4 @@
-import { InternalError } from '@livething/core';
+import { encodeBinaryFrame, InternalError } from '@livething/core';
 import { textOverLimit } from '~/_adapters/close.ts';
 import { assertPayload, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
@@ -91,6 +91,9 @@ export interface SendReplayOptions {
 
   payload: unknown;
 
+  /** The bytes of a stored binary row. The entry then goes out as one binary frame. */
+  bytes?: Uint8Array;
+
   wire: { deliverySeq: number; messageId: string; channel?: string };
 }
 
@@ -100,7 +103,7 @@ export function sendReplay(
   connection: RuntimeConnection,
   options: SendReplayOptions,
 ): void {
-  const { channelName, channelFamily, event, payload, wire } = options;
+  const { channelName, channelFamily, event, payload, bytes, wire } = options;
   assertPayload(event, payload);
 
   const resolvedChannel = channelName ?? wire.channel ?? null;
@@ -113,13 +116,15 @@ export function sendReplay(
   if (channelFamily !== null) livething.channelFamily = channelFamily;
 
   let frame: string;
+  let binaryFrame: Uint8Array<ArrayBuffer> | undefined;
   try {
     const payloadJson = serializePayload(event, payload);
     frame = serializeWireFrame(event, JSON.parse(payloadJson), livething);
+    if (bytes !== undefined) binaryFrame = encodeBinaryFrame(frame, bytes);
     // A stored row over the send limit would throw on every replay and hold back the rows
     // after it, so it is replaced like a row that cannot be serialized.
     const { sendBytes } = core.messageLimits;
-    if (textOverLimit(frame, sendBytes)) {
+    if (binaryFrame ? binaryFrame.byteLength > sendBytes : textOverLimit(frame, sendBytes)) {
       throw new Error(`[livething] The replay frame is over the send limit of ${sendBytes} bytes.`);
     }
   } catch (error) {
@@ -135,7 +140,11 @@ export function sendReplay(
       });
       return;
     }
+
+    binaryFrame = undefined;
   }
 
-  connection.descriptor.send({ kind: 'text', text: frame });
+  connection.descriptor.send(
+    binaryFrame ? { kind: 'bytes', bytes: binaryFrame } : { kind: 'text', text: frame },
+  );
 }

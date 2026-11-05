@@ -69,6 +69,8 @@ import {
 import type {
   AppCtx,
   ChannelBinaryArm,
+  ChannelBinarySendReplayArm,
+  ChannelCtxRootBinary,
   ChannelOutgoingSlice,
   ChannelRef,
   ConnectionlessCtx,
@@ -736,11 +738,13 @@ export type ChannelCtx<
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = Omit<AppCtx<TSlots, TMeta, TCaps>, 'sendReplay'> & {
+> = Omit<AppCtx<TSlots, TMeta, TCaps>, 'sendReplay' | 'binary'> & {
+  readonly binary: ChannelCtxRootBinary<TSlots>;
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
     ChannelRequestArm<TServerRequests, TChannelBrand> &
     ChannelCapabilityArm<TChannelBrand, TOutgoing> &
-    ChannelBinaryArm<TOutgoing, TServerRequests>;
+    ChannelBinaryArm<TOutgoing, TServerRequests> &
+    ChannelBinarySendReplayArm<TOutgoing>;
 };
 
 /**
@@ -758,11 +762,13 @@ type ChannelGateCtx<
   /** `true` for check/commit/revalidate, whose ctx omits channel-only handles. */
   TIsSubscribeGate extends boolean = false,
   TServerRequests = {},
-> = Omit<AppCtx<TSlots, TMeta, TCaps, TIsSubscribeGate>, 'sendReplay'> & {
+> = Omit<AppCtx<TSlots, TMeta, TCaps, TIsSubscribeGate>, 'sendReplay' | 'binary'> & {
+  readonly binary: ChannelCtxRootBinary<TSlots>;
   readonly channel: ChannelHandle<Record<string, string>, TOutgoing, TMeta> &
     ChannelRequestArm<TServerRequests, TChannelBrand> &
     ChannelCapabilityArm<TChannelBrand, TOutgoing> &
-    ChannelBinaryArm<TOutgoing, TServerRequests>;
+    ChannelBinaryArm<TOutgoing, TServerRequests> &
+    ChannelBinarySendReplayArm<TOutgoing>;
 };
 
 /**

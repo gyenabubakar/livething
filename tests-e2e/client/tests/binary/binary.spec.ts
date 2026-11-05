@@ -134,4 +134,34 @@ test.describe('binary (conformance)', () => {
 
     await Promise.all([amara.close(), kofi.close()]);
   });
+
+  test('a member who reconnects gets the screen frames it missed from replay, with every byte', async ({
+    browser,
+  }, testInfo) => {
+    const room = `binary-replay-${testInfo.testId}`;
+    const amara = await browser.newPage();
+    const kofi = await browser.newPage();
+    await open(amara, { room, username: 'amara', seed: 1 });
+    await open(kofi, { room, username: 'kofi', seed: 50 });
+
+    for (const member of [amara, kofi]) {
+      await member.getByTestId('join-room').click();
+      await expect(member.getByTestId('joined')).toHaveText('yes');
+    }
+
+    await kofi.getByTestId('drop').click();
+    await expect(kofi.getByTestId('status')).toHaveText('reconnecting');
+
+    // amara shares while kofi is away, so kofi can only get the frames from replay.
+    await amara.getByTestId('share-frames').click();
+    await expect(amara.getByTestId('shared')).toHaveText('yes');
+
+    await expect(kofi.getByTestId('status')).toHaveText('open');
+    await expect(kofi.getByTestId('reconnects')).not.toHaveText('0');
+    const sent = [0, 1, 2].map((i) => frameLine('amara', pattern(100_000 + i, 1 + i)));
+    await expect(kofi.getByTestId('frames')).toHaveText(sent.join('|'));
+    await expect(kofi.getByTestId('errors')).toHaveText('');
+
+    await Promise.all([amara.close(), kofi.close()]);
+  });
 });

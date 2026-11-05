@@ -241,6 +241,8 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
     send: 'event-first',
     broadcast: 'event-first',
     request: 'event-first',
+    // There only when a replay capability added `ctx.sendReplay`.
+    sendReplay: 'event-first',
   });
 
   // `ctx.channels` exists only when the `channels()` capability is listed, and

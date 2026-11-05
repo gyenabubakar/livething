@@ -59,7 +59,8 @@ export interface SqlResult<T = unknown> {
  * adapter states its engine's real numbers here, and code that builds
  * variable-length SQL (batched inserts, `WHERE id IN (...)`, and similar)
  * reads `maxBoundParams` to stay under it instead of assuming one shared ceiling.
- * The two byte limits describe the rest of the engine; LiveThing does not read them.
+ * Replay reads `maxValueBytes`: it does not store a message whose row would be
+ * bigger. LiveThing does not read `maxStatementBytes`.
  *
  * Authoring a custom adapter? Find your engine's real numbers from its own
  * documentation — do not guess. See

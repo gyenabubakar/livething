@@ -414,10 +414,13 @@ describe('replay', () => {
       onBootSchema() {},
       storage: {
         sql: {
-          exec<TRow = unknown>() {
+          exec<TRow = unknown>(_query: string, ...params: unknown[]) {
+            // A page read starts after `since`, its first number parameter.
+            const since = params.find((param) => typeof param === 'number');
+            const after = rows.filter((row) => since === undefined || row.seq > Number(since));
             return {
               toArray() {
-                return rows as TRow[];
+                return after as TRow[];
               },
               one() {
                 return (rows[0] as TRow | undefined) ?? null;
@@ -476,6 +479,7 @@ describe('replay', () => {
 
     const handler = protocolHandlers[0]!;
     const memberConnection = {
+      descriptor: { bufferedAmount: () => 0 },
       channelMemberships: new Map([
         [
           createChannelMembershipKey('room-1', 'rooms'),
@@ -559,6 +563,9 @@ describe('replay', () => {
         setReplayEnabled() {},
         getReplayClaimedChannelKeys() {
           return new Set();
+        },
+        getBinaryEvents() {
+          return [];
         },
         onBeforeBroadcast() {},
         onAfterBroadcast() {},

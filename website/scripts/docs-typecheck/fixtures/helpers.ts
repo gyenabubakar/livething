@@ -45,6 +45,11 @@ export declare function saveAvatar(
 export declare function resizeAvatar(bytes: Uint8Array): Promise<Uint8Array>;
 /** Shows the new avatar from its picture bytes. */
 export declare function showAvatar(bytes: Uint8Array): void;
+/** The last picture a member shared in a room, as the app stored it, or `undefined`. */
+export declare function loadLastScreenPicture(
+  roomId: string,
+  from: string,
+): Promise<{ id: string; bytes: Uint8Array } | undefined>;
 /** Draws one picture of a member's shared screen in that member's window. */
 export declare function paintScreen(from: string, bytes: Uint8Array): void;
 /** The avatar picture the user picked, read from the file input. */

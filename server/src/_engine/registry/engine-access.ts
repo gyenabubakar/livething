@@ -216,6 +216,22 @@ export function createEngineAccess(
       channelKey: scope?.channelKey,
     }),
     getReplayClaimedChannelKeys: () => core.compiled.replayClaimedChannelKeys,
+    getMessageLimits: () => core.messageLimits,
+    getBinaryEvents: () => {
+      const { compiled } = core;
+      const declaring = [
+        [undefined, compiled] as const,
+        ...[...compiled.channels, ...compiled.channelFamilies],
+      ];
+      const found: { channelKey: string | undefined; event: string }[] = [];
+      for (const [channelKey, declared] of declaring) {
+        for (const [event, outgoing] of declared.outgoing) {
+          if (outgoing.binary === true) found.push({ channelKey, event });
+        }
+      }
+
+      return found;
+    },
     extendContext: (factory) => {
       core.hooks.contextExtenders.push(factory);
     },
@@ -359,15 +375,14 @@ export function createEngineAccess(
 
       sendGap(core, connection, options);
     },
-    assertReplaySendContract: (event, payload, routing) => {
+    assertReplaySendContract: (event, payload, send) => {
       // The shape only. A payload that fails to serialize (a BigInt, a Date) becomes a sanitized
       // __error__ for that row in sendReplay, so the replay loop keeps going.
       assertPayload(event, payload);
-      if (!OutgoingRuntime.isDeclaredOutgoingEvent(core.compiled, event, routing)) {
-        throw new Error(
-          `[livething] Outgoing event "${event}" was not declared in the active scope.`,
-        );
-      }
+      OutgoingRuntime.assertDeclaredSend(core.compiled, event, {
+        routing: send && { channel: send.channel, channelFamily: send.channelFamily },
+        bytes: send?.bytes,
+      });
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),

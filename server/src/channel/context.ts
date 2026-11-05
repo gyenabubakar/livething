@@ -94,6 +94,8 @@ export function buildChannelHandle(
     broadcastTo: 'event-second',
     broadcast: 'event-first',
     request: 'event-first',
+    // There only on `ctx.channel`, when replay added `sendReplay` to it.
+    sendReplay: 'event-first',
   });
 
   if (!scope.isSubscribeGate) {

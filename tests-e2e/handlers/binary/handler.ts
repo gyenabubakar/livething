@@ -3,6 +3,8 @@ import { binary } from '@livething/server/binary';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
+import { Disconnect } from '@livething/server/errors';
+import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { serverRequests } from '@livething/server/server-requests';
 import { stream } from '@livething/server/streams';
@@ -24,7 +26,9 @@ const base = server({
       },
     }),
     dedup(),
-    sequence(),
+    sequence({ persist: true }),
+    // Binary events are stored too, so a member who reconnects gets the frames it missed.
+    replay.history(),
     channels(),
     clientRequests(),
     serverRequests(),
@@ -126,8 +130,17 @@ const handleStartScreenShare = rooms.on('start-screen-share', {
   },
 });
 
+// Closes the caller's connection, so a test can make a member miss frames while it reconnects.
+const handleServerDrop = base.on('server-drop', {
+  input: v.object({}),
+  run() {
+    throw Disconnect(4500, 'test drop');
+  },
+});
+
 export const binaryDefinition = base.assemble({
   handlers: [
+    handleServerDrop,
     handleUploadAvatar,
     rooms,
     handleShareScreenFrame,

@@ -683,6 +683,7 @@ export function acceptConnection(
     onTooSlow: () => {
       connection.closing = true;
     },
+    catchUpHold: () => connection.catchUpHold,
   });
 
   assertUsableUserId(descriptor.userId);

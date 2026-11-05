@@ -10,7 +10,6 @@ import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox } from '~/inbox/capability.ts';
-import { replay } from '~/replay/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -396,37 +395,6 @@ describe('a channel binary broadcast', () => {
 });
 
 describe('binary and the other features', () => {
-  it('is not stored by replay, but still gets a delivery seq', async () => {
-    const base = server({
-      capabilities: [
-        binary({ emits: { 'avatar-preview': t<null>() } }),
-        emits({ 'avatar-saved': t<null>() }),
-        dedup(),
-        sequence({ persist: true }),
-        replay.history(),
-      ],
-    });
-    const save = base.on('save-avatar', {
-      run(ctx) {
-        ctx.send('avatar-saved', null);
-        ctx.binary.send('avatar-preview', null, picture);
-      },
-    });
-    const { engine } = build(base.assemble({ handlers: [save] }));
-    const amara = await connect(engine, 'u_amara');
-    const recorded: string[] = [];
-
-    engine.core.hooks.beforeBroadcast.push((message) => void recorded.push(message.event));
-
-    await amara.send('save-avatar');
-
-    expect(recorded).toEqual(['avatar-saved']);
-    const [preview] = amara.binaryFrames();
-    expect((preview!.envelope[2] as { delivery: { seq: number } }).delivery.seq).toEqual(
-      expect.any(Number),
-    );
-  });
-
   it('gives no sender a .binary key without binary()', async () => {
     const seen: unknown[] = [];
     const base = server({ capabilities: [emits({ 'avatar-saved': t<null>() })] });

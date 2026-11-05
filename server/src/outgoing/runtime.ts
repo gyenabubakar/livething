@@ -6,6 +6,7 @@ import {
   utf8ByteLength,
 } from '@livething/core';
 import { isInsideOutgoingHook, runOutgoingHook } from '~/_engine/call-context.ts';
+import { markSeqScope } from '~/_engine/runtime/catch-up-hold.ts';
 import { assertPayload, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
@@ -118,7 +119,7 @@ function undeclaredOutgoing(
  * `emits()` lives in the normal outgoing/channel maps, so it is found by the
  * scope checks below.
  */
-export function isDeclaredOutgoingEvent(
+function isDeclaredOutgoingEvent(
   compiled: EngineCompileTypes.CompiledServer,
   event: string,
   routing?: EngineRuntimeTypes.RoutingTarget,
@@ -172,6 +173,15 @@ function outgoingScope(
 interface DeclaredSend {
   routing: EngineRuntimeTypes.RoutingTarget | undefined;
   bytes: Uint8Array | undefined;
+}
+
+/** Throw the same error as a live send when the event is not declared as this kind of frame. */
+export function assertDeclaredSend(
+  compiled: EngineCompileTypes.CompiledServer,
+  event: string,
+  send: DeclaredSend,
+): void {
+  if (!isDeclaredSend(compiled, event, send)) throw undeclaredOutgoing(compiled, event, send);
 }
 
 /** Whether an event may be sent as the kind of frame it is sent as. */
@@ -381,12 +391,12 @@ export function sendThroughPipeline(
     ? null
     : (JSON.parse(serializePayload(event, payload)) as Record<string, unknown> | null);
 
-  // Replay stores no binary frame, so a binary send never reaches the broadcast hooks.
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
-  if (!isRequestResponse && bytes === undefined && hasBroadcastHooks(runtime)) {
+  if (!isRequestResponse && hasBroadcastHooks(runtime)) {
     const recipients = recipientsOf([connection]);
     if (recipients.length > 0) {
       recorded = { event, payload: wirePayload, livething, recipients };
+      if (bytes !== undefined) recorded.bytes = bytes;
       if (!tryBeforeBroadcastHooks(runtime, recorded, { event, connectionId: connection.id })) {
         return false;
       }
@@ -394,6 +404,7 @@ export function sendThroughPipeline(
   }
 
   const frame = transportFrame(serializeWireFrame(event, wirePayload, livething), bytes);
+  markSeqScope(frame, livething);
   const sent = connection.descriptor.send(frame) !== false;
   if (recorded) runAfterBroadcastHooks(runtime, recorded);
 
@@ -431,11 +442,15 @@ interface PreparedBroadcast {
 }
 
 function sharedFrame(prepared: PreparedBroadcast): TransportFrame {
-  return (prepared.frame ??= transportFrame(
+  if (prepared.frame) return prepared.frame;
+
+  prepared.frame = transportFrame(
     prepared.envelope ??
       serializeWireFrame(prepared.event, prepared.finalPayload, prepared.baseLiveThing),
     prepared.bytes,
-  ));
+  );
+  markSeqScope(prepared.frame, prepared.baseLiveThing);
+  return prepared.frame;
 }
 
 type BroadcastRuntime = Pick<
@@ -456,11 +471,6 @@ function hasBroadcastHooks(runtime: BroadcastRuntime): boolean {
   );
 }
 
-/** Whether the broadcast hooks (replay) see this send. Replay stores no binary frame. */
-function recordsBroadcast(runtime: BroadcastRuntime, prepared: PreparedBroadcast): boolean {
-  return prepared.bytes === undefined && hasBroadcastHooks(runtime);
-}
-
 function toBroadcastMessage(
   prepared: PreparedBroadcast,
   userId?: string,
@@ -472,6 +482,7 @@ function toBroadcastMessage(
   };
 
   if (userId) message.userId = userId;
+  if (prepared.bytes !== undefined) message.bytes = prepared.bytes;
 
   return message;
 }
@@ -672,7 +683,7 @@ export function sendToConnections(
   const prepared = prepareBroadcast(runtime, opts);
   const targets = hasBroadcastHooks(runtime) ? [...connections] : connections;
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
-  if (recordsBroadcast(runtime, prepared)) {
+  if (hasBroadcastHooks(runtime)) {
     const recipients = recipientsOf(targets);
     if (recipients.length > 0) {
       recorded = { ...toBroadcastMessage(prepared), recipients };
@@ -774,7 +785,7 @@ export function broadcastToConnections(
     if (!prepared) return;
   }
 
-  if (prepared && recordsBroadcast(runtime, prepared)) {
+  if (prepared && hasBroadcastHooks(runtime)) {
     recorded = toBroadcastMessage(prepared);
     if (excludeResumeToken && !options?.includeSelf) {
       recorded.excludedResumeToken = excludeResumeToken;
@@ -859,9 +870,7 @@ export function broadcastToUser(
 
   const routing = channelName ? { channel: channelName, channelFamily } : undefined;
   const prepared = prepareBroadcast(runtime, { routing, event, payload });
-  const recorded = recordsBroadcast(runtime, prepared)
-    ? toBroadcastMessage(prepared, userId)
-    : undefined;
+  const recorded = hasBroadcastHooks(runtime) ? toBroadcastMessage(prepared, userId) : undefined;
   if (recorded) runBeforeBroadcastHooks(runtime, recorded);
 
   let delivered = 0;
@@ -948,7 +957,7 @@ export function broadcastToChannel(
   // Recorded before the member lookup, so a broadcast to a channel with no
   // live member (or only the excluded sender) still reaches the replay store.
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
-  if (recordsBroadcast(runtime, prepared)) {
+  if (hasBroadcastHooks(runtime)) {
     recorded = toBroadcastMessage(prepared);
     if (opts.excludeResumeToken && !includeSelf) {
       recorded.excludedResumeToken = opts.excludeResumeToken;

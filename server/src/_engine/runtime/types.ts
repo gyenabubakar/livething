@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type { CatchUpHold } from '~/_engine/runtime/catch-up-hold.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';
 import type { TagRef } from '~/context.ts';
@@ -76,6 +77,8 @@ export interface WireBroadcastMessage {
   event: string;
   payload: Record<string, unknown> | null;
   livething: Record<string, unknown>;
+  /** The bytes of a binary frame. */
+  bytes?: Uint8Array;
   /** The user this frame was addressed to. */
   userId?: string;
   /** The connections this frame was sent to, when it went to chosen connections. */
@@ -472,6 +475,18 @@ export interface RuntimeConnection {
 
   /** `purgeUser` closed this connection, so its close must not write that user's rows again. */
   purged?: boolean;
+
+  /**
+   * Set while replay catches this connection up. A live frame with a delivery seq of a store
+   * being caught up waits here and goes out after that store's last replayed row.
+   */
+  catchUpHold?: CatchUpHold;
+
+  /**
+   * The replay catch-up running now. The next one starts after it, so one catch-up never lets
+   * live frames through while another still has rows to send.
+   */
+  catchUp?: Promise<void>;
 
   /**
    * Fingerprint of the last connection row written to durable storage. The

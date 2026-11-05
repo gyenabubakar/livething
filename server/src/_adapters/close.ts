@@ -1,5 +1,7 @@
 import { CloseCodes, utf8ByteLength } from '@livething/core';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
+import { heldScopeOf } from '~/_engine/runtime/catch-up-hold.ts';
+import type { CatchUpHold } from '~/_engine/runtime/catch-up-hold.ts';
 import type { SocketDescriptor, TransportFrame } from './types.ts';
 
 type NormalizeConnectionDescriptorOptionsParameter = {
@@ -8,6 +10,8 @@ type NormalizeConnectionDescriptorOptionsParameter = {
   sendBytes?: number;
   /** Runs just before the descriptor closes a client that reads too slowly. */
   onTooSlow?: () => void;
+  /** The frames a replay catch-up holds back right now, if one is running. */
+  catchUpHold?: () => CatchUpHold | undefined;
 };
 
 /**
@@ -66,14 +70,19 @@ const SLOW_CLIENT_GRACE_MS = 10_000;
  * longer than the grace time. A big burst (a replay catch-up) takes time to leave the buffer even
  * for a client that reads at full speed, so one look at the buffer is not enough.
  */
-function watchBacklog(descriptor: SocketDescriptor, sendBytes: number | undefined) {
+function watchBacklog(
+  descriptor: SocketDescriptor,
+  sendBytes: number | undefined,
+  heldBytes: () => number,
+) {
   const watching = sendBytes !== undefined && descriptor.backpressureSupported === true;
   let overSince: number | undefined;
 
   return function tooSlow(): boolean {
     if (!watching) return false;
 
-    if (descriptor.bufferedAmount() <= 2 * sendBytes!) {
+    // Frames a replay catch-up holds back are waiting to go out too.
+    if (descriptor.bufferedAmount() + heldBytes() <= 2 * sendBytes!) {
       overSince = undefined;
       return false;
     }
@@ -84,6 +93,20 @@ function watchBacklog(descriptor: SocketDescriptor, sendBytes: number | undefine
 
     return now - overSince > SLOW_CLIENT_GRACE_MS;
   };
+}
+
+/** The slow-client close of each descriptor `normalizeConnectionDescriptor` made. */
+const slowClientCloses = new WeakMap<SocketDescriptor, () => void>();
+
+/**
+ * Close a connection whose client reads too slowly, the same way the send path does: `1013`,
+ * then the socket is dropped a second later where the adapter can, since that client may never
+ * read the close frame. Replay uses it when a catch-up waited too long.
+ */
+export function closeSlowClient(descriptor: SocketDescriptor): void {
+  const close = slowClientCloses.get(descriptor);
+  if (close) close();
+  else descriptor.close(CloseCodes.TRY_AGAIN_LATER, '[livething] the client reads too slowly');
 }
 
 /**
@@ -109,7 +132,7 @@ export function normalizeConnectionDescriptor(
     descriptor.close(closeCode, normalizeCloseReason(reason));
   }
 
-  const tooSlow = watchBacklog(descriptor, sendBytes);
+  const tooSlow = watchBacklog(descriptor, sendBytes, () => options.catchUpHold?.()?.bytes ?? 0);
 
   function closeTooSlow(): void {
     options.onTooSlow?.();
@@ -121,7 +144,7 @@ export function normalizeConnectionDescriptor(
     (timer as { unref?: () => void }).unref?.();
   }
 
-  return {
+  const normalized: SocketDescriptor = {
     send(frame) {
       // The platform could drop a bigger message with no error (Cloudflare does), so refuse it.
       if (sendBytes !== undefined && frameOverLimit(frame, sendBytes)) {
@@ -135,6 +158,16 @@ export function normalizeConnectionDescriptor(
         return false;
       }
 
+      const hold = options.catchUpHold?.();
+      const held = heldScopeOf(hold, frame);
+      if (held) {
+        const bytes = frameBytes(frame);
+        held.frames.push(frame);
+        held.bytes += bytes;
+        hold!.bytes += bytes;
+        return true;
+      }
+
       return descriptor.send(frame);
     },
     close,
@@ -143,4 +176,10 @@ export function normalizeConnectionDescriptor(
     },
     backpressureSupported: descriptor.backpressureSupported,
   };
+
+  slowClientCloses.set(normalized, () => {
+    if (!closed) closeTooSlow();
+  });
+
+  return normalized;
 }

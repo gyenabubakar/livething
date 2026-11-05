@@ -6,16 +6,27 @@ import {
   clientRequests,
   connect,
   dedup,
+  reconnection,
+  replay,
   serverRequests,
   stream,
 } from '@livething/client';
 import type { BinaryClient } from '@livething/tests-e2e-handlers/binary';
-import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
+import {
+  button,
+  el,
+  errorCode,
+  mount,
+  OFFLINE_WINDOW_MAX_DELAY,
+  ready,
+  wsUrl,
+} from '../_shared.ts';
 import { hash, pattern } from './bytes.ts';
 
 // Drives @livething/client's binary() against the real `binary` server definition: an
 // avatar upload that gets a preview back, screen frames shared in a room, a binary request,
-// a binary download stream, and a binary request from the server. The page shows a hash of
+// a binary download stream, a binary request from the server, and the screen frames a member
+// gets back from replay after it reconnects. The page shows a hash of
 // the whole bytes, so the spec checks every byte.
 export function setup(): void {
   mount(`
@@ -27,7 +38,9 @@ export function setup(): void {
     <button data-testid="download-attachment">download-attachment</button>
     <button data-testid="cancel-download">cancel-download</button>
     <button data-testid="start-screen-share">start-screen-share</button>
+    <button data-testid="drop">drop</button>
     <span data-testid="status"></span>
+    <span data-testid="reconnects"></span>
     <span data-testid="preview"></span>
     <span data-testid="joined"></span>
     <span data-testid="shared"></span>
@@ -48,6 +61,8 @@ export function setup(): void {
     channels(),
     clientRequests(),
     dedup(),
+    reconnection({ maxDelay: OFFLINE_WINDOW_MAX_DELAY }),
+    replay(),
     serverRequests(),
     stream(),
   );
@@ -170,6 +185,18 @@ export function setup(): void {
   button('start-screen-share', () => {
     room.send('start-screen-share', {});
   });
+
+  // The server closes this connection, and the client reconnects and asks for what it missed.
+  button('drop', () => {
+    socket.send('server-drop', {});
+  });
+
+  let reconnects = 0;
+  socket.onReconnect(() => {
+    reconnects += 1;
+    el('reconnects').textContent = String(reconnects);
+  });
+  el('reconnects').textContent = '0';
 
   ready();
 }

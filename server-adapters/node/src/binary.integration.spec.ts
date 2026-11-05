@@ -3,6 +3,9 @@ import { server, t } from '@livething/server';
 import { binary } from '@livething/server/binary';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
+import { dedup } from '@livething/server/dedup';
+import { replay } from '@livething/server/replay';
+import { sequence } from '@livething/server/sequence';
 import { serverRequests } from '@livething/server/server-requests';
 import { stream } from '@livething/server/streams';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -244,6 +247,60 @@ describe('binary messages over a real ws socket', () => {
         { channel: { name: 'room:general', family: 'rooms' } },
       ],
     ]);
+  });
+});
+
+describe('replay of binary messages over a real ws socket', () => {
+  function huddleWithReplay() {
+    const base = server({
+      upgrade(request) {
+        return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
+      },
+      capabilities: [binary(), channels(), dedup(), sequence({ persist: true }), replay.history()],
+    });
+    const rooms = base.channel(['rooms', 'room:{roomId}'], {
+      capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
+    });
+    const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
+      run(ctx, _input, bytes) {
+        ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+      },
+    });
+
+    return base.assemble({ handlers: [handleShareScreenFrame] });
+  }
+
+  it('sends a member who reconnects the screen frames it missed, as binary frames', async () => {
+    const port = await start(huddleWithReplay());
+    const amara = await connect(port, 'u_amara');
+    const kofi = await connect(port, 'u_kofi');
+    await amara.subscribe();
+    await kofi.subscribe();
+
+    const subscribed = kofi.texts().find((frame) => frame[0] === '__subscribeOk__');
+    const lastKnownSeq = (subscribed[1] as { seq: number }).seq;
+    kofi.socket.close();
+
+    const frames = [new Uint8Array([1, 2, 3]), new Uint8Array(200_000).fill(9)];
+    for (const bytes of frames) amara.sendBinary(['share-screen-frame', null, general], bytes);
+    const kofiAgain = await connect(port, 'u_kofi');
+    await kofiAgain.subscribe();
+    kofiAgain.socket.send(JSON.stringify(['__replay__', { lastKnownSeq }, general]));
+
+    await kofiAgain.until(() => kofiAgain.received.filter((m) => m.isBinary).length === 2);
+
+    const replayed = kofiAgain.received.filter((m) => m.isBinary).map((m) => decodeFrame(m.data));
+    expect(replayed.map((frame) => frame.bytes)).toEqual(frames.map((bytes) => [...bytes]));
+    for (const frame of replayed) {
+      expect(frame.envelope).toEqual([
+        'screen-frame',
+        { from: 'u_amara' },
+        {
+          channel: { name: 'room:general', family: 'rooms' },
+          delivery: { id: expect.any(String), seq: expect.any(Number) },
+        },
+      ]);
+    }
   });
 });
 
