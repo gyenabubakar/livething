@@ -38,6 +38,7 @@ type OptionsParameter3 = {
   request: any;
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
+  bytes?: Uint8Array;
 };
 type OptsParameter = { taskId: string; time: number; data: unknown };
 type OptsParameter2 = { taskId: string; filter?: Record<string, unknown> };

@@ -124,10 +124,16 @@ expectTypeOf<HuddleClient['binary']>().toEqualTypeOf<{
     'upload-avatar': { fileType: 'image/png' | 'image/jpeg' };
     'send-sticker': unknown;
   };
+  clientRequests: {};
+  serverRequests: {};
+  streams: {};
 }>();
 expectTypeOf<HuddleClient['channels']['rooms']['binary']>().toEqualTypeOf<{
   incoming: { 'screen-frame': { from: string } };
   outgoing: { 'share-screen-frame': null };
+  clientRequests: {};
+  serverRequests: {};
+  streams: {};
 }>();
 expectTypeOf<HuddleClient['incoming']>().toEqualTypeOf<{ 'avatar-saved': { userId: string } }>();
 expectTypeOf<HuddleClient['channels']['rooms']['incoming']>().toEqualTypeOf<{
@@ -145,8 +151,8 @@ plain.on('save-avatar', {
   },
 });
 const plainClient = plain.assemble({ handlers: [] });
-// @ts-expect-error: no binary key on a client without binary events
-type PlainBinary = InferClient<typeof plainClient>['binary'];
+// No binary key on a client without binary events.
+expectTypeOf<'binary' extends keyof InferClient<typeof plainClient> ? 1 : 0>().toEqualTypeOf<0>();
 
 // A plugin's binary events: `.binary` senders on its ctx, plain names in InferPluginClient,
 // and `__<id>::` names in the host's InferClient.
@@ -177,22 +183,34 @@ const Screens = plugin('acme:screens', {
 expectTypeOf<InferPluginClient<typeof Screens>['binary']>().toEqualTypeOf<{
   incoming: { 'screen-frame': { from: string } };
   outgoing: { 'share-screen-frame': null };
+  clientRequests: {};
+  serverRequests: {};
+  streams: {};
 }>();
 expectTypeOf<InferPluginClient<typeof Screens>['channels']['stage']['binary']>().toEqualTypeOf<{
   incoming: { 'stage-frame': null };
   outgoing: { 'share-stage-frame': unknown };
+  clientRequests: {};
+  serverRequests: {};
+  streams: {};
 }>();
 
 const screensHost = server({ capabilities: [Screens()] }).assemble({ handlers: [] });
 expectTypeOf<InferClient<typeof screensHost>['binary']>().toEqualTypeOf<{
   incoming: { '__acme:screens::screen-frame': { from: string } };
   outgoing: { '__acme:screens::share-screen-frame': null };
+  clientRequests: {};
+  serverRequests: {};
+  streams: {};
 }>();
 expectTypeOf<
   InferClient<typeof screensHost>['channels']['__acme:screens::stage']['binary']
 >().toEqualTypeOf<{
   incoming: { 'stage-frame': null };
   outgoing: { 'share-stage-frame': unknown };
+  clientRequests: {};
+  serverRequests: {};
+  streams: {};
 }>();
 
 // Two handlers for one name in one scope, one JSON and one binary, is a compile error.

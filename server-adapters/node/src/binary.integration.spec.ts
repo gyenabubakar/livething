@@ -2,8 +2,12 @@ import { createServer } from 'node:http';
 import { server, t } from '@livething/server';
 import { binary } from '@livething/server/binary';
 import { channels } from '@livething/server/channels';
+import { clientRequests } from '@livething/server/client-requests';
+import { serverRequests } from '@livething/server/server-requests';
+import { stream } from '@livething/server/streams';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
+import type { ServerDefinition } from '@livething/server';
 import type { AddressInfo } from 'node:net';
 import type { RawData } from 'ws';
 import { setup } from './setup.ts';
@@ -68,7 +72,59 @@ function huddle(avatars: { info: unknown; bytes: number[] }[]) {
   return base.assemble({ handlers: [handleUploadAvatar, handleShareScreenFrame] });
 }
 
-async function start(definition: ReturnType<typeof huddle>): Promise<number> {
+/** Huddle's binary requests and streams: thumbnails, attachment downloads and screen capture. */
+function huddleFiles(log: string[]) {
+  const base = server({
+    upgrade(request) {
+      return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
+    },
+    capabilities: [
+      binary({ serverRequests: { 'capture-screen': { out: t<{ maxWidth: number }>() } } }),
+      clientRequests(),
+      serverRequests(),
+      stream(),
+    ],
+  });
+  const handleGetThumbnail = base.binary.request('get-thumbnail', {
+    run(_ctx, input) {
+      log.push(`thumbnail ${(input as { attachmentId: string }).attachmentId}`);
+      return { info: { fileType: 'image/png' }, bytes: picture };
+    },
+  });
+  const handleDownloadAttachment = base.binary.stream('download-attachment', {
+    chunk: t<{ fileName: string; fileType: string } | null>(),
+    async *run(ctx, rawInput) {
+      const input = rawInput as { attachmentId: string; fromByte: number };
+      let info: { fileName: string; fileType: string } | null = {
+        fileName: 'launch-plan.pdf',
+        fileType: 'application/pdf',
+      };
+
+      for (let piece = input.fromByte; piece < 3; piece += 1) {
+        yield { info, bytes: new Uint8Array([piece, piece]) };
+        info = null;
+        await ctx.stream.drain();
+      }
+
+      if (input.attachmentId === 'att_live') {
+        await new Promise((resolve) => ctx.stream.signal.addEventListener('abort', resolve));
+        log.push('download cancelled');
+      }
+    },
+  });
+  const handleStartScreenShare = base.on('start-screen-share', {
+    async run(ctx) {
+      const { bytes } = await ctx.binary.request('capture-screen', { maxWidth: 1280 });
+      log.push(`captured ${[...bytes].join(',')}`);
+    },
+  });
+
+  return base.assemble({
+    handlers: [handleGetThumbnail, handleDownloadAttachment, handleStartScreenShare],
+  });
+}
+
+async function start(definition: ServerDefinition): Promise<number> {
   const httpServer = createServer();
   const livething = setup();
   const endpoint = livething.bind(definition, {});
@@ -117,8 +173,14 @@ async function connect(port: number, user: string) {
     until,
     texts: () =>
       received.filter((message) => !message.isBinary).map((m) => JSON.parse(m.data.toString())),
-    sendBinary: (envelope: [event: string, info: unknown, metadata: unknown]) =>
-      socket.send(encodeFrame(JSON.stringify(envelope), picture)),
+    sendBinary: (envelope: [event: string, info: unknown, metadata: unknown], bytes = picture) =>
+      socket.send(encodeFrame(JSON.stringify(envelope), bytes)),
+    frames: () =>
+      received.map((message) =>
+        message.isBinary
+          ? { kind: 'bytes', ...decodeFrame(message.data) }
+          : { kind: 'text', envelope: JSON.parse(message.data.toString()) },
+      ),
     subscribe: async () => {
       socket.send(JSON.stringify(['__subscribe__', {}, general]));
       await until(() => received.some((m) => !m.isBinary && m.data.includes('__subscribeOk__')));
@@ -182,5 +244,115 @@ describe('binary messages over a real ws socket', () => {
         { channel: { name: 'room:general', family: 'rooms' } },
       ],
     ]);
+  });
+});
+
+describe('binary requests and streams over a real ws socket', () => {
+  const NO_BYTES = new Uint8Array(0);
+
+  it('answer a binary request with one binary frame with the same exchange (spec 9.3)', async () => {
+    const log: string[] = [];
+    const port = await start(huddleFiles(log));
+    const amara = await connect(port, 'u_amara');
+    const exchange = { exchange: { id: 'request-7', source: 'client' } };
+
+    amara.sendBinary(['get-thumbnail', { attachmentId: 'att_1' }, exchange], NO_BYTES);
+    await amara.until(() => amara.received.length > 0);
+
+    expect(log).toEqual(['thumbnail att_1']);
+    expect(amara.frames()).toEqual([
+      {
+        kind: 'bytes',
+        envelope: ['get-thumbnail', { fileType: 'image/png' }, exchange],
+        bytes: [...picture],
+      },
+    ]);
+  });
+
+  it('send each stream chunk as a binary frame, and end with a text frame (spec 9.2)', async () => {
+    const port = await start(huddleFiles([]));
+    const amara = await connect(port, 'u_amara');
+
+    amara.sendBinary(
+      [
+        'download-attachment',
+        { attachmentId: 'att_1', fromByte: 0 },
+        { stream: { id: 'download-1' } },
+      ],
+      NO_BYTES,
+    );
+    await amara.until(() => amara.texts().some((frame) => frame[0] === '__streamEnd__'));
+
+    function chunk(seq: number) {
+      return { stream: { id: 'download-1', durability: 'ephemeral', seq } };
+    }
+
+    expect(amara.frames()).toEqual([
+      {
+        kind: 'text',
+        envelope: ['__streamOk__', null, { stream: { id: 'download-1', durability: 'ephemeral' } }],
+      },
+      {
+        kind: 'bytes',
+        envelope: [
+          'download-attachment',
+          { fileName: 'launch-plan.pdf', fileType: 'application/pdf' },
+          chunk(1),
+        ],
+        bytes: [0, 0],
+      },
+      { kind: 'bytes', envelope: ['download-attachment', null, chunk(2)], bytes: [1, 1] },
+      { kind: 'bytes', envelope: ['download-attachment', null, chunk(3)], bytes: [2, 2] },
+      {
+        kind: 'text',
+        envelope: ['__streamEnd__', null, { stream: { id: 'download-1', seq: 3 } }],
+      },
+    ]);
+  });
+
+  it('stop a binary stream when the client sends a text __streamCancel__', async () => {
+    const log: string[] = [];
+    const port = await start(huddleFiles(log));
+    const amara = await connect(port, 'u_amara');
+
+    amara.sendBinary(
+      [
+        'download-attachment',
+        { attachmentId: 'att_live', fromByte: 2 },
+        { stream: { id: 'download-2' } },
+      ],
+      NO_BYTES,
+    );
+    await amara.until(() => amara.received.some((message) => message.isBinary));
+    amara.socket.send(JSON.stringify(['__streamCancel__', null, { stream: { id: 'download-2' } }]));
+    await amara.until(() => log.length > 0);
+
+    expect(log).toEqual(['download cancelled']);
+    expect(amara.texts().map((frame) => frame[0])).toEqual(['__streamOk__']);
+  });
+
+  it('resolve ctx.binary.request with the client binary answer', async () => {
+    const log: string[] = [];
+    const port = await start(huddleFiles(log));
+    const amara = await connect(port, 'u_amara');
+
+    amara.socket.send(JSON.stringify(['start-screen-share', null, null]));
+    await amara.until(() => amara.received.some((message) => message.isBinary));
+    const request = amara.frames()[0]!;
+    expect(request).toEqual({
+      kind: 'bytes',
+      envelope: [
+        'capture-screen',
+        { maxWidth: 1280 },
+        { exchange: { id: expect.any(String), source: 'server' } },
+      ],
+      bytes: [],
+    });
+
+    const metadata = (request.envelope as unknown[])[2];
+    amara.sendBinary(['capture-screen', { fileType: 'image/png' }, metadata]);
+    await amara.until(() => log.length > 0);
+
+    expect(log).toEqual([`captured ${[...picture].join(',')}`]);
   });
 });

@@ -86,11 +86,28 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
 
   if (!options?.binary) return primitive;
 
-  const maxBytes = options.maxBytes;
-  assertOptionalPositiveInteger(maxBytes, 'maxBytes', `binary.on('${event}')`);
+  return { ...primitive, ...binaryHandlerFields(`binary.on('${event}')`, options.maxBytes) };
+}
+
+/** The fields that make a handler primitive take binary frames. */
+interface BinaryHandlerFields {
+  readonly binary: true;
+  readonly maxBytes?: number;
+  readonly __validate: NonNullable<Primitive['__validate']>;
+}
+
+/**
+ * The fields every binary handler primitive carries: the `binary` mark, its `maxBytes`, and
+ * the startup check that `maxBytes` fits in the adapter's receive limit. `method` names the
+ * handler in error messages, for example `binary.request('get-thumbnail')`.
+ */
+export function binaryHandlerFields(
+  method: string,
+  maxBytes: number | undefined,
+): BinaryHandlerFields {
+  assertOptionalPositiveInteger(maxBytes, 'maxBytes', method);
 
   return {
-    ...primitive,
     binary: true,
     ...(maxBytes === undefined ? {} : { maxBytes }),
     __validate(view) {
@@ -99,7 +116,7 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
       const room = binaryBytesRoom(view.receiveBytes);
       if (room <= 0) {
         throw new LiveThingConfigError(
-          `binary.on('${event}'): maxBytes cannot fit, because the adapter's receive limit ` +
+          `${method}: maxBytes cannot fit, because the adapter's receive limit ` +
             `of ${view.receiveBytes} bytes is under 64 KiB plus the ${BINARY_HEADER_LENGTH}-byte ` +
             `header, the room a binary frame's info may take. To set maxBytes, raise the ` +
             `adapter's message limit above ${BINARY_HEADER_LENGTH + BINARY_ENVELOPE_LIMIT} bytes.`,
@@ -108,13 +125,26 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
 
       if (maxBytes > room) {
         throw new LiveThingConfigError(
-          `binary.on('${event}'): maxBytes ${maxBytes} does not fit in the adapter's receive ` +
+          `${method}: maxBytes ${maxBytes} does not fit in the adapter's receive ` +
             `limit of ${view.receiveBytes} bytes, with the ${BINARY_HEADER_LENGTH}-byte header ` +
             `and room for a 64 KiB envelope. Use ${room} or less, or leave maxBytes out.`,
         );
       }
     },
   };
+}
+
+/**
+ * `binary.recordedStream(...)` in plain JavaScript. A recorded stream stores its chunks as
+ * JSON, and there is no store for bytes yet, so a recorded binary stream fails at startup.
+ * When binary storage lands, this is where the recorded binary stream goes.
+ */
+export function refuseRecordedBinaryStream(event: string): never {
+  throw new LiveThingConfigError(
+    `binary.recordedStream('${event}'): A recorded binary stream is not supported yet. ` +
+      'Use binary.stream(...), and put a position in its input (such as a byte offset), ' +
+      'so a client that loses its connection can start again where it stopped.',
+  );
 }
 
 /**

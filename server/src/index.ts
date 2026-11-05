@@ -22,6 +22,7 @@ export { server } from './_define/server.ts';
 export type {
   Base,
   BinaryIncomingHandlerValue,
+  BinaryRequestHandlerValue,
   ChannelBinaryMethods,
   ChannelCoreMethods,
   ChannelRecordedStreamMethod,

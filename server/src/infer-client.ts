@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { BinaryEventsCarrier } from '~/_define/app-ctx.ts';
 import type {
   ChannelNotFound,
   ChannelNotSubscribed,
@@ -122,7 +123,11 @@ type ReceivedEvents<TContract> = {
  * scope has binary events.
  */
 type ClientBinarySlice<TScope> = [
-  keyof Slot<TScope, 'binaryOutgoing'> | keyof Slot<TScope, 'binaryIncoming'>,
+  | keyof Slot<TScope, 'binaryOutgoing'>
+  | keyof Slot<TScope, 'binaryIncoming'>
+  | keyof Slot<TScope, 'binaryClientRequests'>
+  | keyof BinaryServerRequestsOf<TScope>
+  | keyof Slot<TScope, 'binaryStreams'>,
 ] extends [never]
   ? {}
   : {
@@ -131,12 +136,45 @@ type ClientBinarySlice<TScope> = [
           [K in keyof Slot<TScope, 'binaryOutgoing'>]: Jsonify<Slot<TScope, 'binaryOutgoing'>[K]>;
         };
         outgoing: Slot<TScope, 'binaryIncoming'>;
+        /**
+         * The binary requests the client sends, from `binary.request(...)`. `payload` is the
+         * request's info and `response` the reply's info, as the client gets it.
+         */
+        clientRequests: ClientBinaryRequests<Slot<TScope, 'binaryClientRequests'>, 'response'>;
+        /** The binary requests the server sends, from `binary({ serverRequests })`. */
+        serverRequests: ClientBinaryRequests<BinaryServerRequestsOf<TScope>, 'payload'>;
+        /** The binary streams, from `binary.stream(...)`. `chunk` is each chunk's info. */
+        streams: ClientStreamSlot<Slot<TScope, 'binaryStreams'>, 'ephemeral'>;
       };
     };
 
+/**
+ * The binary requests one side sends, with the info that crosses the wire as the other side
+ * gets it: the reply's info for a client request, the request's info for a server request.
+ */
+type ClientBinaryRequests<TSlot, TJsonSide extends 'payload' | 'response'> = {
+  [K in keyof TSlot]: TSlot[K] extends { payload: infer TPayload; response: infer TInfo }
+    ? TJsonSide extends 'response'
+      ? { payload: TPayload; response: Jsonify<TInfo> }
+      : { payload: Jsonify<TPayload>; response: TInfo }
+    : TSlot[K];
+};
+
+/**
+ * The binary server requests of one scope: the root's `binaryServerRequests` slot, or a
+ * channel's, which its `serverRequests` map carries under a symbol key.
+ */
+type BinaryServerRequestsOf<TScope> =
+  Slot<TScope, 'serverRequests'> extends BinaryEventsCarrier<infer TRequests>
+    ? TRequests
+    : Slot<TScope, 'binaryServerRequests'>;
+
 /** The server→client requests, with each payload as the client receives it. */
 type ReceivedServerRequests<TContract> = {
-  [K in keyof Slot<TContract, 'serverRequests'>]: Slot<TContract, 'serverRequests'>[K] extends {
+  [K in keyof Slot<TContract, 'serverRequests'> & string]: Slot<
+    TContract,
+    'serverRequests'
+  >[K] extends {
     payload: infer TPayload;
   }
     ? Omit<Slot<TContract, 'serverRequests'>[K], 'payload'> & { payload: Jsonify<TPayload> }
@@ -241,39 +279,36 @@ export type ClientPluginContract<TContract> = {
   errors: Slot<TContract, 'errors'>;
 } & ClientBinarySlice<TContract>;
 
-/** One side (`incoming` or `outgoing`) of a `binary` slice, or `{}` when there is none. */
-type BinarySide<TSlice, TSide extends 'incoming' | 'outgoing'> = TSlice extends {
+/** The maps of a `binary` slice. */
+type BinarySideName = 'incoming' | 'outgoing' | 'clientRequests' | 'serverRequests' | 'streams';
+
+/** One map of a `binary` slice, or `{}` when there is none. */
+type BinarySide<TSlice, TSide extends BinarySideName> = TSlice extends {
   binary: { [K in TSide]: infer TMap };
 }
   ? TMap
   : {};
 
-/** A plugin's top-level binary events under their `__<id>::` wire names. */
-type PrefixBinary<TId extends string, TContract> = [
-  | keyof BinarySide<ClientBinarySlice<TContract>, 'incoming'>
-  | keyof BinarySide<ClientBinarySlice<TContract>, 'outgoing'>,
-] extends [never]
-  ? {}
-  : {
-      binary: {
-        incoming: PrefixKeys<TId, BinarySide<ClientBinarySlice<TContract>, 'incoming'>>;
-        outgoing: PrefixKeys<TId, BinarySide<ClientBinarySlice<TContract>, 'outgoing'>>;
-      };
-    };
+/** A plugin's top-level binary events, requests and streams under their `__<id>::` wire names. */
+type PrefixBinary<TId extends string, TContract> =
+  ClientBinarySlice<TContract> extends { binary: infer TBinary }
+    ? { binary: { [TSide in keyof TBinary]: PrefixKeys<TId, TBinary[TSide]> } }
+    : {};
 
 /**
- * The client's top-level `binary` key: the server's own binary events and every plugin's,
- * under their `__<id>::` names. Absent when there are none.
+ * The client's top-level `binary` key: the server's own binary events, requests and streams,
+ * and every plugin's, under their `__<id>::` names. Absent when there are none.
  */
-type ClientBinary<TContract, TPlugins> = BinarySide<ClientBinarySlice<TContract>, 'incoming'> &
-  BinarySide<TPlugins, 'incoming'> extends infer TIncoming
-  ? BinarySide<ClientBinarySlice<TContract>, 'outgoing'> &
-      BinarySide<TPlugins, 'outgoing'> extends infer TOutgoing
-    ? [keyof TIncoming | keyof TOutgoing] extends [never]
-      ? {}
-      : { binary: { incoming: TIncoming; outgoing: TOutgoing } }
-    : never
-  : never;
+type ClientBinary<TContract, TPlugins> =
+  ClientBinarySlice<TContract> extends infer TOwn
+    ? 'binary' extends keyof TOwn | keyof TPlugins
+      ? {
+          binary: {
+            [TSide in BinarySideName]: BinarySide<TOwn, TSide> & BinarySide<TPlugins, TSide>;
+          };
+        }
+      : {}
+    : never;
 
 /**
  * The same flip as {@link ClientPluginContract}, but with every name carrying the

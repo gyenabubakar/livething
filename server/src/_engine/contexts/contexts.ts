@@ -149,7 +149,7 @@ function buildUserHandle(
     isOnline: () => (deps.usersByKey.get(userId)?.size ?? 0) > 0,
   };
 
-  deps.addBinarySenders?.(handle, { broadcast: 'event-first' });
+  deps.addBinarySenders?.(handle, { broadcast: 'event-first', request: 'event-first' });
 
   return handle;
 }
@@ -237,7 +237,11 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
     },
   };
 
-  deps.addBinarySenders?.(proto, { send: 'event-first', broadcast: 'event-first' });
+  deps.addBinarySenders?.(proto, {
+    send: 'event-first',
+    broadcast: 'event-first',
+    request: 'event-first',
+  });
 
   // `ctx.channels` exists only when the `channels()` capability is listed, and
   // is built on first access. Defined conditionally (not a throwing getter) so a

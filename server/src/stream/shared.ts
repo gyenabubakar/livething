@@ -32,8 +32,13 @@ export function toNudgeDefs(nudges?: NudgeMap): NudgeDef[] {
  *
  * @internal
  */
-export function wrapStreamGenerator(
-  run: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>,
-): (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown> {
-  return (ctx, payload) => run(adaptStreamContext(ctx), payload);
+export function wrapStreamGenerator(run: StreamGenerator): StreamGenerator {
+  return (ctx, payload, bytes) => run(adaptStreamContext(ctx), payload, bytes);
 }
+
+/** @internal */
+export type StreamGenerator = (
+  ctx: any,
+  payload: any,
+  bytes?: Uint8Array,
+) => AsyncGenerator<unknown, void, unknown>;

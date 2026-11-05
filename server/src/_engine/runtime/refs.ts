@@ -38,7 +38,7 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
         },
       };
 
-      deps.addBinarySenders?.(handle, { send: 'event-first' });
+      deps.addBinarySenders?.(handle, { send: 'event-first', request: 'event-first' });
 
       return handle;
     },

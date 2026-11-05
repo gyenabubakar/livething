@@ -29,6 +29,8 @@ export type ServerRequestsSlot<TDeclarations extends Record<string, ServerReques
 
 export interface ResolvedServerRequest {
   readonly responseValidator?: Validator;
+  /** `true` for a `binary({ serverRequests })` declaration: the request and its answer are binary frames. */
+  readonly binary?: boolean;
 }
 
 export interface ServerRequestsCapability<
@@ -44,14 +46,25 @@ export interface ServerRequestsCapability<
 > {
   readonly __channelServerRequests: TDeclarations;
   readonly __serverRequests: ReadonlyMap<string, ResolvedServerRequest>;
+  /**
+   * Resolve declarations to request table entries: a channel's `serverRequests(...)` under its
+   * key, or `binary({ serverRequests })` (with `binary: true`) under a channel key or `null`
+   * for the top level.
+   */
   readonly __resolveChannelServerRequests: (
-    channelKey: string,
+    channelKey: string | null,
     declarations: Record<string, ServerRequestDeclaration>,
+    binary?: boolean,
   ) => ReadonlyMap<string, ResolvedServerRequest>;
 }
 
-function resolveServerRequest(declaration: ServerRequestDeclaration): ResolvedServerRequest {
-  return { responseValidator: declaration.in };
+function resolveServerRequest(
+  declaration: ServerRequestDeclaration,
+  binary = false,
+): ResolvedServerRequest {
+  return binary
+    ? { responseValidator: declaration.in, binary: true }
+    : { responseValidator: declaration.in };
 }
 
 export const serverRequests = withCapabilityKind(function serverRequests<
@@ -77,11 +90,14 @@ export const serverRequests = withCapabilityKind(function serverRequests<
   };
   writable.__channelServerRequests = declarations;
   writable.__serverRequests = resolved;
-  writable.__resolveChannelServerRequests = (channelKey, channelDeclarations) => {
+  writable.__resolveChannelServerRequests = (channelKey, channelDeclarations, binary) => {
     const channelRequests = new Map<string, ResolvedServerRequest>();
     for (const [event, declaration] of Object.entries(channelDeclarations)) {
       assertValidLiveThingIdentifier(event, 'serverRequests() event name', WIRE_LIMITS.event);
-      channelRequests.set(serverRequestKey(channelKey, event), resolveServerRequest(declaration));
+      channelRequests.set(
+        serverRequestKey(channelKey, event),
+        resolveServerRequest(declaration, binary),
+      );
     }
 
     return channelRequests;

@@ -43,6 +43,19 @@ export declare function saveAvatar(
 ): Promise<void>;
 /** A small copy of the picture, for the preview the user sees right away. */
 export declare function resizeAvatar(bytes: Uint8Array): Promise<Uint8Array>;
+/** A small PNG picture of an attachment's first page. */
+export declare function makeThumbnail(
+  attachmentId: string,
+): Promise<{ fileType: 'image/png'; bytes: Uint8Array }>;
+/** Opens a stored attachment, read from `fromByte` on in pieces of up to 256 KiB. */
+export declare function openAttachment(
+  attachmentId: string,
+  fromByte: number,
+): Promise<{
+  name: string;
+  type: string;
+  pieces(signal: AbortSignal): AsyncIterable<Uint8Array>;
+}>;
 export declare function deleteMessage(messageId: string): Promise<void>;
 export declare function loadOnCallModeratorId(): Promise<string>;
 export declare function runScoutStep(

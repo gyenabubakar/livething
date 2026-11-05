@@ -98,9 +98,46 @@ export function binaryPayload(info: unknown, bytes?: BinaryInput): BinaryPayload
   };
 }
 
+/**
+ * The binary payload of a value a handler gave as `{ info, bytes }`: a binary request's reply
+ * (`bytes` optional) or a binary stream's chunk (`bytes` required). Plain JavaScript can give
+ * anything, so a bad value throws an error that names the handler, as `method` gives it.
+ */
+export function binaryPayloadOf(
+  method: string,
+  value: unknown,
+  bytesRequired: boolean,
+): BinaryPayload {
+  const given = value as { info?: unknown; bytes?: BinaryInput } | null | undefined;
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('info' in value) ||
+    (bytesRequired && given?.bytes === undefined)
+  ) {
+    const shape = bytesRequired ? '{ info, bytes }' : '{ info, bytes? }';
+    throw new TypeError(
+      `[livething] ${method} must give ${shape}, got ${value === null ? 'null' : typeof value}.`,
+    );
+  }
+
+  try {
+    return binaryPayload(given!.info, given!.bytes);
+  } catch (error) {
+    throw new TypeError(
+      `[livething] ${method}: ${(error as Error).message.replace('[livething] ', '')}`,
+    );
+  }
+}
+
+/** Whether a payload is the info and bytes of a binary send, made by `binaryPayload`. */
+export function isBinaryPayload(payload: unknown): boolean {
+  return typeof payload === 'object' && payload !== null && BINARY_PAYLOAD in payload;
+}
+
 /** A send's JSON payload and, for a binary send, its bytes. */
 function splitPayload(payload: unknown): { payload: unknown; bytes?: Uint8Array } {
-  if (typeof payload === 'object' && payload !== null && BINARY_PAYLOAD in payload) {
+  if (isBinaryPayload(payload)) {
     const binary = payload as BinaryPayload;
     return { payload: binary.info, bytes: binary.bytes };
   }
@@ -115,13 +152,28 @@ function transportFrame(text: string, bytes: Uint8Array | undefined): TransportF
     : { kind: 'bytes', bytes: encodeBinaryFrame(text, bytes) };
 }
 
-function undeclaredOutgoing(event: string, bytes: Uint8Array | undefined): Error {
-  return bytes === undefined
-    ? new Error(`[livething] Outgoing event "${event}" was not declared in the active scope.`)
-    : new Error(
-        `[livething] Outgoing binary event "${event}" was not declared in the active scope. ` +
+/** The error for a send of an event the scope does not declare as that kind of frame. */
+function undeclaredOutgoing(
+  compiled: EngineCompileTypes.CompiledServer,
+  event: string,
+  send: DeclaredSend,
+): Error {
+  if (send.bytes === undefined) {
+    return new Error(
+      isDeclaredBinaryEvent(compiled, event, send.routing)
+        ? `[livething] Outgoing event "${event}" is declared in binary({ emits }). ` +
+            'Send it with .binary.send(...), not .send(...).'
+        : `[livething] Outgoing event "${event}" was not declared in the active scope.`,
+    );
+  }
+
+  return new Error(
+    isDeclaredOutgoingEvent(compiled, event, send.routing)
+      ? `[livething] Outgoing event "${event}" is declared as a JSON event. ` +
+          'Send it with .send(...), not .binary.send(...).'
+      : `[livething] Outgoing binary event "${event}" was not declared in the active scope. ` +
           'Declare it in binary({ emits }).',
-      );
+  );
 }
 
 /**
@@ -154,13 +206,21 @@ export function isDeclaredOutgoingEvent(
   );
 }
 
-/** Whether a binary event was declared by `binary({ emits })` in the scope it is sent in. */
+/**
+ * Whether a binary event was declared in the scope it is sent in: by `binary({ emits })`, or
+ * as a `binary.stream(...)`, whose chunks are binary frames.
+ */
 function isDeclaredBinaryEvent(
   compiled: EngineCompileTypes.CompiledServer,
   event: string,
   routing: EngineRuntimeTypes.RoutingTarget | undefined,
 ): boolean {
-  return outgoingScope(compiled, routing)?.outgoing.get(event)?.binary === true;
+  const scope = outgoingScope(compiled, routing);
+  return (
+    scope?.outgoing.get(event)?.binary === true ||
+    (routing?.streamId !== undefined &&
+      (scope?.streams.get(event) as { binary?: boolean } | undefined)?.binary === true)
+  );
 }
 
 /** The scope a send goes out in: the top level, or the channel its routing names. */
@@ -378,7 +438,7 @@ export function sendThroughPipeline(
   if (!isVoidResponse) assertPayload(event, payload);
 
   if (!isRequestResponse && !isDeclaredSend(runtime.compiled, event, { routing, bytes })) {
-    throw undeclaredOutgoing(event, bytes);
+    throw undeclaredOutgoing(runtime.compiled, event, { routing, bytes });
   }
 
   // Widen to a loose bag here: from this point plugin stampers contribute
@@ -550,7 +610,7 @@ function prepareBroadcast(
   // A server request is declared by `serverRequests(...)`, not `emits(...)`, and its
   // routing carries `source`, so it skips the outgoing-event check.
   if (!routing?.source && !isDeclaredSend(runtime.compiled, event, { routing, bytes })) {
-    throw undeclaredOutgoing(event, bytes);
+    throw undeclaredOutgoing(runtime.compiled, event, { routing, bytes });
   }
 
   // From here every frame, recipient and hook uses this plain copy of what was serialized, so a

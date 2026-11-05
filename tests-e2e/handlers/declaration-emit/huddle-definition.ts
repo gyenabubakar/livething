@@ -36,7 +36,15 @@ export const base = server({
   capabilities: [
     emits({ notification: t<{ title: string }>() }),
     errors([NotFound]),
-    binary({ emits: { 'avatar-preview': t<null>() } }),
+    binary({
+      emits: { 'avatar-preview': t<null>() },
+      serverRequests: {
+        'capture-screen': {
+          out: t<{ maxWidth: number }>(),
+          in: v.object({ fileType: v.literal('image/png') }),
+        },
+      },
+    }),
     channels(),
     keepalive(),
     scheduled({ 'send-digest': { data: t<{ userId: string }>() } }),
@@ -58,7 +66,10 @@ export const rooms = base.channel(['rooms', 'room:{roomId}'], {
   subscribe: v.object({ inviteToken: v.string() }),
   capabilities: [
     emits({ typing: t<{ from: string }>() }),
-    binary({ emits: { 'screen-frame': t<{ from: string }>() } }),
+    binary({
+      emits: { 'screen-frame': t<{ from: string }>() },
+      serverRequests: { 'capture-whiteboard': { out: t<null>(), in: v.null() } },
+    }),
   ],
   onSubscribe(ctx) {
     ctx.channel.broadcast('typing', { from: ctx.user.id });
@@ -117,6 +128,63 @@ export const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
   },
 });
 
+export const handleGetThumbnail = base.binary.request('get-thumbnail', {
+  input: v.object({ attachmentId: v.string() }),
+  run: () => ({ info: { fileType: 'image/png' }, bytes: new Uint8Array(1) }),
+});
+export const handleDownloadAttachment = base.binary.stream('download-attachment', {
+  chunk: t<{ fileName: string } | null>(),
+  async *run(ctx) {
+    yield { info: null, bytes: new Uint8Array(1) };
+    await ctx.stream.drain();
+  },
+});
+export const handleStartScreenShare = rooms.on('start-screen-share', {
+  async run(ctx) {
+    const { bytes } = await ctx.binary.request('capture-screen', { maxWidth: 1280 });
+    await ctx.channel.binary.request('capture-whiteboard', null);
+    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+  },
+});
+export const handleGetPinnedFile = rooms.binary.request('get-pinned-file', {
+  run: () => ({ info: null }),
+});
+export const handleDownloadRecording = rooms.binary.stream('download-recording', {
+  async *run() {
+    yield { info: { part: 1 }, bytes: new Uint8Array(1) };
+  },
+});
+
+const files = server({
+  scope: 'plugin',
+  capabilities: [
+    binary({ serverRequests: { 'capture-camera': { out: t<null>(), in: v.null() } } }),
+    channels(),
+    clientRequests(),
+    serverRequests(),
+    stream(),
+  ],
+});
+const stage = files.channel('stage', {});
+export const handleGetFile = files.binary.request('get-file', { run: () => ({ info: null }) });
+export const handleDownloadFile = files.binary.stream('download-file', {
+  async *run() {
+    yield { info: null, bytes: new Uint8Array(1) };
+  },
+});
+export const handleGetStageFile = stage.binary.request('get-stage-file', {
+  run: () => ({ info: null }),
+});
+export const handleCaptureCamera = files.on('capture-camera-now', {
+  async run(ctx) {
+    await ctx.binary.request('capture-camera', null);
+  },
+});
+export const filesDefinition = files.assemble({
+  handlers: [handleGetFile, handleDownloadFile, stage, handleGetStageFile, handleCaptureCamera],
+});
+export const Files = plugin('acme:files', { definition: filesDefinition });
+
 export function currentContext() {
   return context.connection(base);
 }
@@ -136,6 +204,11 @@ export const handlers = [
   handleDigest,
   handleUploadAvatar,
   handleShareScreenFrame,
+  handleGetThumbnail,
+  handleDownloadAttachment,
+  handleStartScreenShare,
+  handleGetPinnedFile,
+  handleDownloadRecording,
 ] as const;
 
 export const definition = base.assemble({ handlers });

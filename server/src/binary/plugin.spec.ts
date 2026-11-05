@@ -8,6 +8,10 @@ import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { binary } from '~/binary/capability.ts';
 import { channels } from '~/channel/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
+import { serverRequests } from '~/request/server-requests.ts';
+import { stream } from '~/stream/capability.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { TransportFrame } from '~/_adapters/types.ts';
 import type { Engine } from '~/_engine/engine.ts';
@@ -116,5 +120,82 @@ describe('a plugin that lists binary()', () => {
     );
 
     expect(envelopes().map((envelope) => envelope[0])).toEqual(['__acme:screens::stage-frame']);
+  });
+
+  it('runs its binary requests, streams and server requests under its prefix', async () => {
+    const answers: unknown[] = [];
+    const files = server({
+      scope: 'plugin',
+      capabilities: [
+        binary({ serverRequests: { 'capture-screen': { out: t<null>(), in: v.null() } } }),
+        clientRequests(),
+        serverRequests(),
+        stream(),
+      ],
+    });
+    const handleGetFile = files.binary.request('get-file', {
+      run: (_ctx, _input, bytes) => ({ info: { size: bytes.byteLength }, bytes }),
+    });
+    const handleDownloadFile = files.binary.stream('download-file', {
+      async *run(_ctx, _input, bytes) {
+        yield { info: { size: bytes.byteLength }, bytes };
+      },
+    });
+    const handleShareScreen = files.on('share-screen', {
+      async run(ctx) {
+        answers.push(await ctx.binary.request('capture-screen', null));
+      },
+    });
+
+    const Files = plugin('acme:files', {
+      definition: files.assemble({
+        handlers: [handleGetFile, handleDownloadFile, handleShareScreen],
+      }),
+    });
+    const engine = start(server({ capabilities: [Files()] }).assemble({ handlers: [] }));
+    const { handle, envelopes } = await connect(engine);
+
+    await handle.handleBinaryMessage(
+      encodeBinaryFrame(
+        JSON.stringify([
+          '__acme:files::get-file',
+          null,
+          { exchange: { id: 'r-1', source: 'client' } },
+        ]),
+        picture,
+      ),
+    );
+    await handle.handleBinaryMessage(
+      encodeBinaryFrame(
+        JSON.stringify(['__acme:files::download-file', null, { stream: { id: 's-1' } }]),
+        picture,
+      ),
+    );
+    void handle.handleMessage(JSON.stringify(['__acme:files::share-screen', null, null]));
+    await new Promise((resolve) => setImmediate(resolve));
+    const request = envelopes().at(-1)!;
+
+    await handle.handleBinaryMessage(
+      encodeBinaryFrame(
+        JSON.stringify(['__acme:files::capture-screen', null, request[2]]),
+        picture,
+      ),
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(envelopes()).toEqual([
+      ['__acme:files::get-file', { size: 4 }, { exchange: { id: 'r-1', source: 'client' } }],
+      [
+        '__acme:files::download-file',
+        { size: 4 },
+        { stream: { id: 's-1', durability: 'ephemeral', seq: 1 } },
+      ],
+      [
+        '__acme:files::capture-screen',
+        null,
+        { exchange: { id: expect.any(String), source: 'server' } },
+      ],
+    ]);
+    expect(answers).toEqual([{ info: null, bytes: picture }]);
   });
 });

@@ -305,7 +305,11 @@ function runAsPlugin<T>(scope: PluginScope, ctx: any, fn: (scoped: any) => T): T
   return asPlugin(scope, scoped, () => fn(scoped));
 }
 
-type PluginGenerator = (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
+type PluginGenerator = (
+  ctx: any,
+  payload: any,
+  bytes?: Uint8Array,
+) => AsyncGenerator<unknown, void, unknown>;
 
 /**
  * A plugin stream's generator, given the plugin's scoped ctx. The engine advances the
@@ -313,12 +317,12 @@ type PluginGenerator = (ctx: any, payload: any) => AsyncGenerator<unknown, void,
  * plugin declared leaves with its namespaced code, as it does from a handler.
  */
 function generatorAsPlugin(scope: PluginScope, generator: PluginGenerator): PluginGenerator {
-  return (ctx, payload) => {
+  return (ctx, payload, bytes) => {
     const scoped = scopeHookCtx(scope.id, ctx);
     const step = scopePluginThrow(scope.id, scope.shortCodes, <T>(fn: () => T) =>
       asPlugin(scope, scoped, fn),
     );
-    const inner = step(() => generator(scoped, payload));
+    const inner = step(() => generator(scoped, payload, bytes));
     const wrapped = {
       next: (value: unknown) => step(() => inner.next(value)),
       return: (value: void) => step(() => inner.return(value)),

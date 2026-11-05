@@ -57,7 +57,9 @@ type SendMethod = (...args: unknown[]) => unknown;
 /**
  * Give a sender a `.binary` key. Each binary method calls the JSON method of the same name
  * with the info and the bytes in the payload's place, so it has the same audience, options
- * and return value. It reads the JSON method off `this` when called, so a plugin's scoped
+ * and return value. `request` works the same way: `binary.request(event, info, bytes,
+ * options)` calls `request(event, payload, options)`, and the request runtime sees the
+ * binary payload. It reads the JSON method off `this` when called, so a plugin's scoped
  * `ctx` (a Proxy) still adds its namespace to the event name.
  */
 export function addBinarySenders(
@@ -69,6 +71,9 @@ export function addBinarySenders(
     get(this: Record<string, SendMethod>) {
       const senders: Record<string, SendMethod> = {};
       for (const [name, position] of Object.entries(methods)) {
+        // `request` is there only when `serverRequests()` added it to this sender.
+        if (typeof this[name] !== 'function') continue;
+
         // `send(event, info, bytes, ...)` or `broadcastTo(to, event, info, bytes, ...)`.
         const infoAt = position === 'event-first' ? 1 : 2;
         senders[name] = (...args) =>

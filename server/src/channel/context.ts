@@ -93,6 +93,7 @@ export function buildChannelHandle(
     send: 'event-first',
     broadcastTo: 'event-second',
     broadcast: 'event-first',
+    request: 'event-first',
   });
 
   if (!scope.isSubscribeGate) {

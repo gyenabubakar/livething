@@ -141,7 +141,11 @@ export type StreamHandlerContext<TBaseCtx, TNudges extends readonly NudgeDeclara
  * function in both covariant and contravariant positions.
  */
 export type GeneratorFn<TCtx = any, TPayload = unknown, TChunks = unknown, TNext = any> = {
-  bivarianceHack(ctx: TCtx, payload: TPayload): AsyncGenerator<TChunks, void, TNext>;
+  bivarianceHack(
+    ctx: TCtx,
+    payload: TPayload,
+    bytes?: Uint8Array,
+  ): AsyncGenerator<TChunks, void, TNext>;
 }['bivarianceHack'];
 
 /**

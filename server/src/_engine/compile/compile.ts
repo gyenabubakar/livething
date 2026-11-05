@@ -184,9 +184,43 @@ export function compileServerDefinition(
   const declaredPluginChannels = collectPluginChannelNames(compiled);
   validateNoReservedEventNames(compiled, declaredPluginEvents);
   validateScopeAndEventNameSyntax(compiled, declaredPluginEvents, declaredPluginChannels);
+  validateServerRequestNames(definition.primitives);
   validateChannelsDisjoint?.(compiled);
 
   return compiled;
+}
+
+/**
+ * Refuse a server request name (JSON or binary) that contains `::`, or whose wire name is over
+ * the event limit, as for every other event name. The request table is keyed by `[channelKey, event]`. A name that starts with `__` was
+ * refused when it was declared, so one here is a plugin's `__<id>::<name>`: check its own name.
+ */
+function validateServerRequestNames(primitives: readonly PrimitiveCore.Primitive[]): void {
+  for (const primitive of primitives) {
+    const table = (primitive as { __serverRequests?: ReadonlyMap<string, unknown> })
+      .__serverRequests;
+    if (primitive.__livething !== 'server-requests' || !table) continue;
+
+    for (const key of table.keys()) {
+      const [channelKey, event] = JSON.parse(key) as [string | null, string];
+      const declaredName = parsePluginWireName(event)?.name ?? event;
+      const where = channelKey === null ? 'top-level' : `channel '${channelKey}'`;
+      if (declaredName.includes('::')) {
+        throw new LiveThingConfigError(
+          `Server request name '${declaredName}' in ${where} contains '::', which is reserved as ` +
+            'the separator in plugin names and the contract.matches(...) path key syntax — pick a different name.',
+        );
+      }
+
+      // The wire name, with a plugin's `__<id>::` prefix, must fit like any event name.
+      if (event.length > WIRE_LIMITS.event) {
+        throw new LiveThingConfigError(
+          `Event name in ${where} is ${event.length} characters; the wire protocol limit ` +
+            `is ${WIRE_LIMITS.event}. A longer name can't travel over the wire, so no client could reach it.`,
+        );
+      }
+    }
+  }
 }
 
 function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): boolean {

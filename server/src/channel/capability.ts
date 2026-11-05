@@ -15,7 +15,7 @@ import {
 import { membershipMarker } from '~/channel/marker.ts';
 import { channelRuntimePrimitive } from '~/channel/service.ts';
 import { fillChannelTemplate } from '~/channel/template.ts';
-import { incoming as incomingFactory } from '~/incoming/incoming.ts';
+import { incoming as incomingFactory, refuseRecordedBinaryStream } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -39,7 +39,13 @@ const CHANNEL_CONFIG = {
 
 const MEMBERSHIP_VALUES = ['persistent', 'ephemeral'];
 
-type ConfigParameter = { input?: unknown; allowInterleaving?: boolean; run: any };
+type ConfigParameter = {
+  input?: unknown;
+  allowInterleaving?: boolean;
+  binary?: boolean;
+  maxBytes?: number;
+  run: any;
+};
 
 /** Builds one stream primitive from a `(event, config)` pair. Supplied by a stream capability. */
 type StreamBuild = (event: string, config: unknown) => Primitive;
@@ -56,6 +62,7 @@ interface ChannelOnlyBuilder {
   __buildChannelPrimitive?: () => Primitive;
   readonly __channelEmits?: Record<string, unknown>;
   readonly __channelServerRequests?: Record<string, unknown>;
+  readonly __binaryServerRequests?: Record<string, unknown>;
   readonly __binaryOutgoing?: readonly Primitive[];
 }
 
@@ -90,6 +97,7 @@ export interface ChannelDeps {
   readonly resolveServerRequests?: (
     channelKey: string,
     declarations: Record<string, any>,
+    binary?: boolean,
   ) => ReadonlyMap<string, ResolvedServerRequest>;
   /** Whether `binary()` is listed at the root, which a channel's binary events and handlers need. */
   readonly binary?: boolean;
@@ -142,6 +150,19 @@ export class ChannelBuilder {
 
       return this.handlerValue(primitive, config);
     },
+    request: (event: string, config: any): ChannelHandlerValue => {
+      this.assertBinaryListed('binary.request()');
+      return this.buildRequest('binary.request()', event, {
+        ...config,
+        binary: true,
+        maxBytes: config.maxBytes,
+      });
+    },
+    stream: (event: string, config: any): ChannelHandlerValue => {
+      this.assertBinaryListed('binary.stream()');
+      return this.delegateStream('plain', event, { ...config, binary: true });
+    },
+    recordedStream: refuseRecordedBinaryStream,
   };
 
   constructor(pattern: unknown, config: any, deps: ChannelDeps) {
@@ -200,17 +221,11 @@ export class ChannelBuilder {
       }
 
       if (cap.__channelServerRequests && Object.keys(cap.__channelServerRequests).length > 0) {
-        const resolve = deps.resolveServerRequests;
-        if (!resolve) {
-          throw new LiveThingConfigError(
-            `channel '${this.__key}' declares serverRequests(...) but serverRequests() ` +
-              'is not listed. Add serverRequests() to capabilities.',
-          );
-        }
+        this.addServerRequests('serverRequests(...)', cap.__channelServerRequests, false);
+      }
 
-        for (const [key, request] of resolve(this.__key, cap.__channelServerRequests)) {
-          this.__serverRequests.set(key, request);
-        }
+      if (cap.__binaryServerRequests && Object.keys(cap.__binaryServerRequests).length > 0) {
+        this.addServerRequests('binary({ serverRequests })', cap.__binaryServerRequests, true);
       }
 
       if (cap.__buildChannelPrimitive) this.children.push(cap.__buildChannelPrimitive());
@@ -259,21 +274,7 @@ export class ChannelBuilder {
   }
 
   request(event: string, config: any): ChannelHandlerValue {
-    const build = this.deps.buildClientRequest;
-    if (!build) {
-      throw new LiveThingConfigError(
-        `channel '${this.__key}' uses request() but clientRequests() is not ` +
-          'listed. Add clientRequests() to capabilities.',
-      );
-    }
-
-    const primitive = build(event, {
-      input: config.input,
-      allowInterleaving: config.allowInterleaving,
-      run: config.run,
-    });
-
-    return this.handlerValue(primitive, config);
+    return this.buildRequest('request()', event, config);
   }
 
   stream(event: string, config: any): ChannelHandlerValue {
@@ -340,6 +341,52 @@ export class ChannelBuilder {
     const primitive = build(event, config);
 
     return this.handlerValue(primitive, config);
+  }
+
+  private buildRequest(method: string, event: string, config: any): ChannelHandlerValue {
+    const build = this.deps.buildClientRequest;
+    if (!build) {
+      throw new LiveThingConfigError(
+        `channel '${this.__key}' uses ${method} but clientRequests() is not ` +
+          'listed. Add clientRequests() to capabilities.',
+      );
+    }
+
+    const primitive = build(event, {
+      input: config.input,
+      allowInterleaving: config.allowInterleaving,
+      run: config.run,
+      ...(config.binary ? { binary: true, maxBytes: config.maxBytes } : {}),
+    });
+
+    return this.handlerValue(primitive, config);
+  }
+
+  /** Add a channel's JSON or binary server requests. One name is one request in a channel. */
+  private addServerRequests(
+    what: string,
+    declarations: Record<string, unknown>,
+    isBinary: boolean,
+  ): void {
+    if (isBinary) this.assertBinaryListed(what);
+    const resolve = this.deps.resolveServerRequests;
+    if (!resolve) {
+      throw new LiveThingConfigError(
+        `channel '${this.__key}' declares ${what} but serverRequests() ` +
+          'is not listed. Add serverRequests() to capabilities.',
+      );
+    }
+
+    for (const [key, request] of resolve(this.__key, declarations, isBinary)) {
+      if (this.__serverRequests.has(key)) {
+        throw new LiveThingConfigError(
+          `channel '${this.__key}' declares the server request '${JSON.parse(key)[1]}' ` +
+            'in both serverRequests(...) and binary({ serverRequests }). One name is one request.',
+        );
+      }
+
+      this.__serverRequests.set(key, request);
+    }
   }
 
   private assertBinaryListed(what: string): void {

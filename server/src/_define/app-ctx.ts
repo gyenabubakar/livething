@@ -62,15 +62,41 @@ export type WithBinaryEvents<TOutgoing, TBinary> = [keyof TBinary] extends [neve
  */
 type BinarySendersOf<
   TSlots,
-  TSenders extends 'ctx' | 'connection' | 'user' | 'broadcast',
-> = TSlots extends { binaryOutgoing: infer TBinary } ? RootSenders<TBinary>[TSenders] : never;
+  TSenders extends
+    | 'ctx'
+    | 'connection'
+    | 'user'
+    | 'broadcast'
+    | 'connectionless'
+    | 'connectionlessUser',
+> = TSlots extends { binaryOutgoing: infer TBinary }
+  ? RootSenders<TBinary, TSlots>[TSenders]
+  : never;
 
-interface RootSenders<TBinary> {
-  ctx: CtxBinarySenders<TBinary>;
-  connection: ConnectionBinarySenders<TBinary>;
-  user: UserBinarySenders<TBinary>;
+/**
+ * The `.binary` key of each kind of sender. A connection's ctx, its connection handles and
+ * its user handles also get `request` when `binary({ serverRequests })` declares one. A
+ * listed `serverRequests()` is checked by `assemble()`, which throws without it. Connectionless
+ * code sends no requests, so its connection handles have only `send`.
+ */
+interface RootSenders<TBinary, TSlots> {
+  ctx: CtxBinarySenders<TBinary> & BinaryRequestArm<TSlots, false>;
+  connection: ConnectionBinarySenders<TBinary> & BinaryRequestArm<TSlots, false>;
+  user: UserBinarySenders<TBinary> & BinaryRequestArm<TSlots, true>;
   broadcast: BroadcastBinarySenders<TBinary>;
+  connectionless: ConnectionBinarySenders<TBinary>;
+  connectionlessUser: UserBinarySenders<TBinary>;
 }
+
+/** `request` on a `.binary` key, when the root declares binary server requests. */
+type BinaryRequestArm<TSlots, TUser extends boolean> =
+  SlotOr<TSlots, 'binaryServerRequests'> extends infer TRequests
+    ? [keyof TRequests] extends [never]
+      ? {}
+      : TUser extends true
+        ? UserBinaryRequestMethod<TRequests>
+        : BinaryRequestMethod<TRequests>
+    : never;
 
 /** The `.binary` key of connectionless code: `ctx.binary.broadcast` with `binary()` listed. */
 interface ConnectionlessBinaryCtx<TSlots> {
@@ -131,12 +157,81 @@ interface ChannelBinarySenders<TBinary> {
 
 /**
  * The `.binary` key of a channel handle: its senders when the channel declares binary
- * events, else `never`. Held as a property, so it costs nothing until code reads it.
+ * events, and `request` when it declares binary server requests (carried on its server
+ * request map, like the events on its outgoing map). Else `never`. Held as a property, so it
+ * costs nothing until code reads it.
  */
-export interface ChannelBinaryArm<TOutgoing> {
+export interface ChannelBinaryArm<TOutgoing, TServerRequests = {}> {
   readonly binary: TOutgoing extends BinaryEventsCarrier<infer TBinary>
-    ? ChannelBinarySenders<TBinary>
-    : never;
+    ? ChannelBinarySenders<TBinary> & ChannelBinaryRequestArm<TServerRequests>
+    : TServerRequests extends BinaryEventsCarrier<infer TRequests>
+      ? ChannelBinarySenders<{}> & ChannelBinaryRequestMethod<TRequests>
+      : never;
+}
+
+/** `ctx.channel.binary.request`, when the channel declares binary server requests. */
+type ChannelBinaryRequestArm<TServerRequests> =
+  TServerRequests extends BinaryEventsCarrier<infer TRequests>
+    ? ChannelBinaryRequestMethod<TRequests>
+    : {};
+
+/** What a binary server request resolves to: the answer's checked info, and its bytes. */
+interface BinaryAnswer<TInfo> {
+  /** The answer's info, checked by the request's `in` schema. */
+  readonly info: TInfo;
+  /** The answer's bytes, as a plain `Uint8Array` view. */
+  readonly bytes: Uint8Array;
+}
+
+/** The info a binary server request sends. */
+type RequestInfoOf<TEntry> = TEntry extends { payload: infer P } ? P : never;
+
+/** The info a binary server request's answer has, checked by its `in` schema. */
+type AnswerInfoOf<TEntry> = TEntry extends { response: infer R } ? R : never;
+
+/** `ctx.binary.request` and `ctx.connections.get(ref).binary.request`. */
+interface BinaryRequestMethod<TRequests> {
+  /**
+   * Send a declared binary server request: its info, then its bytes (optional). It resolves
+   * with the client's binary answer. A text answer, or one whose info fails `in`, rejects
+   * with `request-invalid-response`, and a text `__error__` from the client rejects with
+   * that error.
+   */
+  request<E extends keyof TRequests & string>(
+    event: E,
+    info: RequestInfoOf<TRequests[E]>,
+    bytes?: BinaryInput,
+    options?: { timeout?: number },
+  ): Promise<BinaryAnswer<AnswerInfoOf<TRequests[E]>>>;
+}
+
+/** `ctx.user.binary.request` / `ctx.users.get(id).binary.request`. */
+interface UserBinaryRequestMethod<TRequests> {
+  /**
+   * Send a declared binary server request to every live socket the user holds, and resolve
+   * with the first good binary answer and the connection that sent it. A text answer, or one
+   * that fails `in`, is ignored.
+   */
+  request<E extends keyof TRequests & string>(
+    event: E,
+    info: RequestInfoOf<TRequests[E]>,
+    bytes?: BinaryInput,
+    options?: { timeout?: number },
+  ): Promise<BinaryAnswer<AnswerInfoOf<TRequests[E]>> & { readonly from: ConnectionRef }>;
+}
+
+/** `ctx.channel.binary.request`. */
+interface ChannelBinaryRequestMethod<TRequests> {
+  /**
+   * Send a binary server request this channel declared. It goes to the calling connection,
+   * or with `{ to: connectionRef }` to one other member of this channel.
+   */
+  request<E extends keyof TRequests & string>(
+    event: E,
+    info: RequestInfoOf<TRequests[E]>,
+    bytes?: BinaryInput,
+    options?: { timeout?: number; to?: ConnectionRef },
+  ): Promise<BinaryAnswer<AnswerInfoOf<TRequests[E]>>>;
 }
 
 /** The `broadcast`-only `.binary` key of a connectionless channel handle. */
@@ -156,9 +251,6 @@ interface BroadcastBinarySenders<TBinary> {
   ): void;
 }
 
-/** The binary events the server's handlers receive (event → info). */
-type BinaryIncoming<TSlots> = SlotOr<TSlots, 'binaryIncoming'>;
-
 /**
  * A handle to one specific connection, returned by `ctx.connections.get(ref)`. Its
  * `send` is typed to the server's `emits(...)` events, so a typo or wrong
@@ -170,15 +262,24 @@ type BinaryIncoming<TSlots> = SlotOr<TSlots, 'binaryIncoming'>;
  *
  * @template TSlots The merged contract slots — drives the typed `send`.
  */
-interface ConnectionHandle<TSlots> {
+interface ConnectionHandle<TSlots> extends ConnectionHandleCore<TSlots> {
+  /** The binary versions of `send` and `request`, with `binary()` listed. */
+  readonly binary: BinarySendersOf<TSlots, 'connection'>;
+}
+
+/** `ctx.connections.get(ref)` in connectionless code, which sends no server requests. */
+interface ConnectionlessConnectionHandle<TSlots> extends ConnectionHandleCore<TSlots> {
+  /** The binary version of `send`, with `binary()` listed. */
+  readonly binary: BinarySendersOf<TSlots, 'connectionless'>;
+}
+
+/** What every connection handle has. */
+interface ConnectionHandleCore<TSlots> {
   /**
    * Send an event to this connection only. Returns `false` when the connection
    * is no longer live on this instance.
    */
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
-
-  /** The binary version of `send`, with `binary()` listed. */
-  readonly binary: BinarySendersOf<TSlots, 'connection'>;
 
   /** Close this connection only. No-op when the connection is no longer live. */
   close(code?: number, reason?: string): void;
@@ -292,7 +393,19 @@ interface UserRequestArm<TSlots> {
  * the event to all of them and returns how many sockets received it; `setMeta`
  * fans a metadata patch the same way. Typed to the server's `emits(...)` events.
  */
-interface UserHandleBase<TSlots, TMeta> {
+interface UserHandleBase<TSlots, TMeta> extends UserHandleCore<TSlots, TMeta> {
+  /** The binary versions of `broadcast` and `request`, with `binary()` listed. */
+  readonly binary: BinarySendersOf<TSlots, 'user'>;
+}
+
+/** `ctx.users.get(id)` in connectionless code, which sends no server requests. */
+interface ConnectionlessUserHandle<TSlots, TMeta> extends UserHandleCore<TSlots, TMeta> {
+  /** The binary version of `broadcast`, with `binary()` listed. */
+  readonly binary: BinarySendersOf<TSlots, 'connectionlessUser'>;
+}
+
+/** What every user handle has. */
+interface UserHandleCore<TSlots, TMeta> {
   /** The user id — the value `upgrade(...)` returned, or `''` on an anonymous connection. */
   readonly id: string;
   /** Build a `UserRef` for this user — pass it to `kick` and the like. */
@@ -302,8 +415,6 @@ interface UserHandleBase<TSlots, TMeta> {
     event: E,
     payload: Outgoing<TSlots>[E],
   ): number;
-  /** The binary version of `broadcast`, with `binary()` listed. */
-  readonly binary: BinarySendersOf<TSlots, 'user'>;
   /** Merge a metadata patch into every one of the user's live connections. */
   setMeta(patch: Partial<TMeta>): void;
   /** Snapshot the user's currently-live connections. */
@@ -416,57 +527,52 @@ type CoreCtx<TSlots, TMeta> = {
   ): void;
 };
 
-/** The incoming/request payload one top-level event key narrows a frame to. */
-type TopPayload<TSlots, TEvent extends string> = TEvent extends keyof Incoming<TSlots>
-  ? Incoming<TSlots>[TEvent]
-  : TEvent extends keyof BinaryIncoming<TSlots>
-    ? BinaryIncoming<TSlots>[TEvent]
-    : TopRequestPayload<TSlots, TEvent>;
+/**
+ * The payload one event key narrows a frame to, in one scope's slots (the root's, or one
+ * channel's): a JSON event or request, else a binary handler's info, else `unknown`.
+ */
+type ScopePayload<TScope, TEvent extends string> = TEvent extends keyof SlotOr<TScope, 'incoming'>
+  ? SlotOr<TScope, 'incoming'>[TEvent]
+  : EntryPayload<SlotOr<TScope, 'clientRequests'>, TEvent, BinaryPayload<TScope, TEvent>>;
 
-/** The request payload one top-level event key narrows a frame to. */
-type TopRequestPayload<TSlots, TEvent extends string> = TEvent extends keyof Requests<TSlots>
-  ? Requests<TSlots>[TEvent] extends { payload: infer P }
+/** The binary handler slots `ctx.matches` reads. */
+type BinaryHandlerSlot = 'binaryIncoming' | 'binaryClientRequests' | 'binaryStreams';
+
+/**
+ * The info of a binary event, request or stream. A scope with no binary handlers stops at one
+ * check, so a server without `binary()` pays for no binary lookup.
+ */
+type BinaryPayload<TScope, TEvent extends string> = [keyof TScope & BinaryHandlerSlot] extends [
+  never,
+]
+  ? unknown
+  : TEvent extends keyof SlotOr<TScope, 'binaryIncoming'>
+    ? SlotOr<TScope, 'binaryIncoming'>[TEvent]
+    : EntryPayload<
+        SlotOr<TScope, 'binaryClientRequests'>,
+        TEvent,
+        EntryPayload<SlotOr<TScope, 'binaryStreams'>, TEvent, unknown>
+      >;
+
+/** The `payload` of the entry `TEvent` in one handler map, or `TElse` when it has none. */
+type EntryPayload<TMap, TEvent extends string, TElse> = TEvent extends keyof TMap
+  ? TMap[TEvent] extends { payload: infer P }
     ? P
     : unknown
-  : unknown;
+  : TElse;
 
-/** The incoming/request payload one channel-scoped key narrows a frame to. */
-type ChannelPayload<
-  TSlots,
-  TFamily extends string,
-  TEvent extends string,
-> = TFamily extends keyof Channels<TSlots>
-  ? Channels<TSlots>[TFamily] extends { incoming: infer I }
-    ? TEvent extends keyof I
-      ? I[TEvent]
-      : ChannelBinaryPayload<Channels<TSlots>[TFamily], TEvent>
-    : ChannelBinaryPayload<Channels<TSlots>[TFamily], TEvent>
-  : unknown;
-
-/** The info a channel-scoped binary key narrows a frame to, else the request payload. */
-type ChannelBinaryPayload<TChannel, TEvent extends string> = TChannel extends {
-  binaryIncoming: infer B;
-}
-  ? TEvent extends keyof B
-    ? B[TEvent]
-    : ChannelRequestPayload<TChannel, TEvent>
-  : ChannelRequestPayload<TChannel, TEvent>;
-
-/** The request payload for a channel-scoped key, when the event is a channel request. */
-type ChannelRequestPayload<TChannel, TEvent extends string> = TChannel extends {
-  clientRequests: infer R;
-}
-  ? TEvent extends keyof R
-    ? R[TEvent] extends { payload: infer P }
-      ? P
+/**
+ * The payload a `ctx.matches` / `ctx.unsafeCast` key narrows a frame to. A key typed only as
+ * `string` narrows nothing. That check comes first: TypeScript works this type out with
+ * `string` whenever it compares two ctx types, and the lookups would cost every server.
+ */
+type PayloadForKey<TSlots, TKey extends string> = string extends TKey
+  ? unknown
+  : TKey extends `@${infer Family}::${infer Event}`
+    ? Family extends keyof Channels<TSlots>
+      ? ScopePayload<Channels<TSlots>[Family], Event>
       : unknown
-    : unknown
-  : unknown;
-
-/** The payload a `ctx.matches` / `ctx.unsafeCast` key narrows a frame to. */
-type PayloadForKey<TSlots, TKey extends string> = TKey extends `@${infer Family}::${infer Event}`
-  ? ChannelPayload<TSlots, Family, Event>
-  : TopPayload<TSlots, TKey>;
+    : ScopePayload<TSlots, TKey>;
 
 /** An `InterceptFrame` whose `payload` is narrowed to the key's declared input type. */
 type NarrowedFrame<TSlots, TKey extends string> = Omit<InterceptFrame, 'payload'> & {
@@ -794,11 +900,11 @@ type ChannelBinaryBroadcastArgs<TChannels> = string extends keyof TChannels
 interface ConnectionlessManagersCtx<TSlots, TMeta> {
   /** Reach one connection by ref with `get(ref)`, or snapshot every live connection with `all()`. */
   connections: {
-    get(ref: ConnectionRef): ConnectionHandle<TSlots>;
+    get(ref: ConnectionRef): ConnectionlessConnectionHandle<TSlots>;
     all(): ConnectionInfo<TMeta>[];
   };
   /** Reach any user by id with `get(id)` to fan out to every socket they hold. */
-  users: { get(id: string): UserHandleBase<TSlots, TMeta> };
+  users: { get(id: string): ConnectionlessUserHandle<TSlots, TMeta> };
 }
 
 /**
@@ -833,12 +939,6 @@ export type ConnectionlessCtx<
 
 /** The server→client events, read off the merged contract slots. */
 type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;
-
-/** The client→server events (event → payload), read off the merged contract slots. */
-type Incoming<TSlots> = SlotOr<TSlots, 'incoming'>;
-
-/** The request events (event → { payload, response }), read off the merged contract slots. */
-type Requests<TSlots> = SlotOr<TSlots, 'clientRequests'>;
 
 /** The channel families (family → channel slice), read off the merged contract slots. */
 type Channels<TSlots> = SlotOr<TSlots, 'channels'>;

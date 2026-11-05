@@ -242,8 +242,8 @@ describe('sending a binary event', () => {
     await amara.send('send-wrong-kind');
 
     expect(results).toEqual([
-      expect.stringMatching(/binary event "avatar-saved" was not declared/),
-      expect.stringMatching(/event "avatar-preview" was not declared/),
+      expect.stringMatching(/"avatar-saved" is declared as a JSON event\. Send it with \.send/),
+      expect.stringMatching(/"avatar-preview" is declared in binary\(\{ emits \}\)/),
       expect.stringMatching(/over the 64 KiB limit/),
       expect.stringMatching(/must be a Uint8Array or an ArrayBuffer/),
     ]);

@@ -451,6 +451,9 @@ export interface RunStreamOptions {
   payload: unknown;
 
   livething?: Protocol.LiveThingProtocol;
+
+  /** The bytes of the frame that started a binary stream, else `undefined`. */
+  bytes?: Uint8Array;
 }
 
 /**
@@ -543,7 +546,7 @@ export async function runStream(
     runtime.asyncContext,
     streamCall,
     withConnectionCall(runtime.asyncContext, streamCall, () =>
-      stream.generator(ctx, payload),
+      stream.generator(ctx, payload, options.bytes),
     ) as AsyncGenerator<unknown, void, unknown>,
   );
 

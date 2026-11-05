@@ -5,7 +5,10 @@ import type { NudgeDef, StreamDef } from '~/stream/definition.ts';
 
 export function compileStreamDef(
   def: StreamDef,
-  handlers: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>,
+  handlers: Map<
+    string,
+    (ctx: any, payload: any, bytes?: Uint8Array) => AsyncGenerator<any, void, unknown>
+  >,
 ): Primitive {
   const generator = handlers.get(def.name);
   if (!generator) {

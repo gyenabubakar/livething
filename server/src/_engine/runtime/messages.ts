@@ -511,6 +511,7 @@ export async function dispatchIncoming(
           request,
           payload: payloadValue,
           livething,
+          bytes,
         });
       });
       return;
@@ -524,6 +525,7 @@ export async function dispatchIncoming(
         stream,
         payload: payloadValue,
         livething,
+        bytes,
       });
     } else if (recordedStream) {
       await runtime.durableStream?.trigger(runtime, connection, {
