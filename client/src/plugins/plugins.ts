@@ -135,6 +135,8 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     helpers.log.report(error);
   }
 
+  const withBinary = helpers.hasPrimitive('binary');
+
   // A verb that comes from a primitive the app didn't register is absent at
   // runtime. Seed a clear thrower so calling it names the primitive to add,
   // instead of a bare "x is not a function"; applyAugmenters overwrites the ones
@@ -269,7 +271,16 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     continueStream: missing('continueStream', 'stream'),
     onRequest: missing('onRequest', 'serverRequests'),
     channel: missing('channel', 'channels'),
-    binary: { on: missing('binary.on', 'binary'), send: missing('binary.send', 'binary') },
+    // binary() adds `on` and `send`; the others need their own primitive too. Name
+    // binary() when it is the one missing.
+    binary: {
+      on: missing('binary.on', 'binary'),
+      send: missing('binary.send', 'binary'),
+      request: missing('binary.request', withBinary ? 'clientRequests' : 'binary'),
+      onRequest: missing('binary.onRequest', withBinary ? 'serverRequests' : 'binary'),
+      stream: missing('binary.stream', withBinary ? 'stream' : 'binary'),
+      onStream: missing('binary.onStream', withBinary ? 'stream' : 'binary'),
+    },
   };
 
   function dispatch(name: string, payload: unknown): void {

@@ -12,11 +12,13 @@ interface Member {
   seed?: number;
   /** The `rooms` channel the member joins. */
   channel?: string;
+  /** The attachment the page asks for: `att_<n>` is `pattern(<n> * 1000, <n>)`. */
+  attachment?: string;
 }
 
 async function open(page: Page, member: Member): Promise<void> {
-  const { room, username, seed = 1, channel = 'room:general' } = member;
-  const query = new URLSearchParams({ room, username, seed: String(seed), channel });
+  const { room, username, seed = 1, channel = 'room:general', attachment = 'att_300' } = member;
+  const query = new URLSearchParams({ room, username, seed: String(seed), channel, attachment });
   await page.goto(`/tests/binary/index.html?${query.toString()}`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
   await page.getByTestId('connect').click();
@@ -69,5 +71,67 @@ test.describe('binary (conformance)', () => {
     }
 
     await Promise.all([amara.close(), kofi.close(), priya.close()]);
+  });
+
+  test('a binary request gets the thumbnail back as bytes (spec 9.3)', async ({
+    page,
+  }, testInfo) => {
+    await open(page, { room: `binary-thumbnail-${testInfo.testId}`, username: 'amara' });
+
+    await page.getByTestId('get-thumbnail').click();
+
+    const thumbnail = pattern(300_000, 300).subarray(0, 4000);
+    await expect(page.getByTestId('thumbnail')).toHaveText(`image/png 4000 ${hash(thumbnail)}`);
+    await expect(page.getByTestId('errors')).toHaveText('');
+  });
+
+  test('a binary download stream gives every piece, then ends (spec 9.2)', async ({
+    page,
+  }, testInfo) => {
+    await open(page, { room: `binary-download-${testInfo.testId}`, username: 'amara' });
+
+    await page.getByTestId('download-attachment').click();
+
+    // 300 000 bytes in 64 KiB pieces is 5 pieces; the name comes on the first one only.
+    await expect(page.getByTestId('download')).toHaveText(
+      `att_300.bin 5 300000 ${hash(pattern(300_000, 300))}`,
+    );
+    await expect(page.getByTestId('errors')).toHaveText('');
+  });
+
+  test('breaking out of a binary download cancels it on the server', async ({ page }, testInfo) => {
+    await open(page, { room: `binary-cancel-${testInfo.testId}`, username: 'amara' });
+
+    await page.getByTestId('cancel-download').click();
+
+    await expect(page.getByTestId('cancelled')).toHaveText('yes false');
+    await expect(page.getByTestId('errors')).toHaveText('');
+  });
+
+  test('the server asks the sharer for a picture and sends it to the room', async ({
+    browser,
+  }, testInfo) => {
+    const room = `binary-capture-${testInfo.testId}`;
+    const amara = await browser.newPage();
+    const kofi = await browser.newPage();
+    await open(amara, { room, username: 'amara', seed: 1 });
+    await open(kofi, { room, username: 'kofi', seed: 50 });
+
+    for (const member of [amara, kofi]) {
+      await member.getByTestId('join-room').click();
+      await expect(member.getByTestId('joined')).toHaveText('yes');
+    }
+
+    await amara.getByTestId('start-screen-share').click();
+
+    // amara's page answers capture-screen with maxWidth * 40 bytes, seeded with seed + 100.
+    await expect(kofi.getByTestId('frames')).toHaveText(
+      frameLine('amara', pattern(1280 * 40, 101)),
+    );
+    for (const member of [amara, kofi]) {
+      await expect(member.getByTestId('errors')).toHaveText('');
+    }
+
+    await Promise.all([amara.close(), kofi.close()]);
   });
 });

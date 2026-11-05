@@ -1,22 +1,40 @@
-import { binary, buffering, channels, client, connect, dedup } from '@livething/client';
+import {
+  binary,
+  buffering,
+  channels,
+  client,
+  clientRequests,
+  connect,
+  dedup,
+  serverRequests,
+  stream,
+} from '@livething/client';
 import type { BinaryClient } from '@livething/tests-e2e-handlers/binary';
-import { button, el, mount, ready, wsUrl } from '../_shared.ts';
+import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 import { hash, pattern } from './bytes.ts';
 
 // Drives @livething/client's binary() against the real `binary` server definition: an
-// avatar upload that gets a preview back, and screen frames shared in a room. The page
-// shows a hash of the whole bytes, so the spec checks every byte.
+// avatar upload that gets a preview back, screen frames shared in a room, a binary request,
+// a binary download stream, and a binary request from the server. The page shows a hash of
+// the whole bytes, so the spec checks every byte.
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
     <button data-testid="upload-avatar">upload-avatar</button>
     <button data-testid="join-room">join-room</button>
     <button data-testid="share-frames">share-frames</button>
+    <button data-testid="get-thumbnail">get-thumbnail</button>
+    <button data-testid="download-attachment">download-attachment</button>
+    <button data-testid="cancel-download">cancel-download</button>
+    <button data-testid="start-screen-share">start-screen-share</button>
     <span data-testid="status"></span>
     <span data-testid="preview"></span>
     <span data-testid="joined"></span>
     <span data-testid="shared"></span>
     <span data-testid="frames"></span>
+    <span data-testid="thumbnail"></span>
+    <span data-testid="download"></span>
+    <span data-testid="cancelled"></span>
     <span data-testid="errors"></span>
   `);
 
@@ -28,7 +46,10 @@ export function setup(): void {
     binary(),
     buffering({ maxBytes: 4 * 1024 * 1024 }),
     channels(),
+    clientRequests(),
     dedup(),
+    serverRequests(),
+    stream(),
   );
   const room = socket.channel('rooms', roomName);
 
@@ -36,10 +57,18 @@ export function setup(): void {
 
   const frames: string[] = [];
 
-  socket.onError((error) => {
-    errors.push(String(error));
+  function report(error: unknown): void {
+    errors.push(errorCode(error) || String(error));
     el('errors').textContent = errors.join('|');
-  });
+  }
+
+  socket.onError(report);
+  socket.onServerError(report);
+  // A request or a stream that fails shows its error on the page.
+  function recorded(run: () => Promise<void>): () => Promise<void> {
+    return () => run().catch(report);
+  }
+
   socket.state.subscribe(() => {
     el('status').textContent = socket.state.get();
   });
@@ -71,6 +100,75 @@ export function setup(): void {
     }
 
     el('shared').textContent = 'yes';
+  });
+
+  // The server asks this client for one full picture of its screen.
+  socket.binary.onRequest('capture-screen', (info) => ({
+    info: { fileType: 'image/png' },
+    bytes: pattern(info.maxWidth * 40, seed + 100),
+  }));
+
+  const attachmentId = page.get('attachment') ?? 'att_300';
+
+  button(
+    'get-thumbnail',
+    recorded(async () => {
+      const { info, bytes } = await socket.binary.request('get-thumbnail', { attachmentId });
+      el('thumbnail').textContent = `${info.fileType} ${bytes.byteLength} ${hash(bytes)}`;
+    }),
+  );
+
+  button(
+    'download-attachment',
+    recorded(async () => {
+      const download = await socket.binary.stream('download-attachment', {
+        attachmentId,
+        fromByte: 0,
+      });
+      const pieces: Uint8Array[] = [];
+      let fileName = '';
+      for await (const { info, bytes } of download) {
+        if (info) fileName = info.fileName;
+        pieces.push(bytes.slice());
+      }
+
+      const file = new Uint8Array(pieces.reduce((total, piece) => total + piece.byteLength, 0));
+      let offset = 0;
+      for (const piece of pieces) {
+        file.set(piece, offset);
+        offset += piece.byteLength;
+      }
+
+      el('download').textContent = `${fileName} ${pieces.length} ${file.byteLength} ${hash(file)}`;
+    }),
+  );
+
+  button(
+    'cancel-download',
+    recorded(async () => {
+      const download = await socket.binary.stream('download-attachment', {
+        attachmentId: 'att_0',
+        fromByte: 0,
+      });
+      for await (const _piece of download) break;
+
+      // The server sees the cancel a little later than the client sends it.
+      for (let tries = 0; tries < 50; tries++) {
+        const { cancelled } = await socket.request('was-download-cancelled', null);
+        if (cancelled) {
+          el('cancelled').textContent = `yes ${download.active}`;
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      el('cancelled').textContent = 'no';
+    }),
+  );
+
+  button('start-screen-share', () => {
+    room.send('start-screen-share', {});
   });
 
   ready();

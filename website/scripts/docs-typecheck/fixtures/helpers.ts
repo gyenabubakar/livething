@@ -66,6 +66,14 @@ export declare function openAttachment(
   type: string;
   pieces(signal: AbortSignal): AsyncIterable<Uint8Array>;
 }>;
+/** Shows an attachment's thumbnail from its picture bytes. */
+export declare function showThumbnail(fileType: 'image/png', bytes: Uint8Array): void;
+/** Starts saving a downloaded attachment under its name. */
+export declare function startFile(fileName: string, fileType: string): void;
+/** Adds the next piece of the downloaded attachment to the file. */
+export declare function appendToFile(bytes: Uint8Array): Promise<void>;
+/** Takes a PNG picture of this user's shared screen, at most `maxWidth` pixels wide. */
+export declare function capturePng(maxWidth: number): Promise<Uint8Array>;
 export declare function deleteMessage(messageId: string): Promise<void>;
 export declare function loadOnCallModeratorId(): Promise<string>;
 export declare function runScoutStep(

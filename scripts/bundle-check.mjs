@@ -185,6 +185,12 @@ const CLIENT_ENGINES = {
   // The core socket only has small hooks for binary messages; the frame parser, the
   // encoder and `socket.binary` ship only with `binary()`.
   binary: { marker: 'binary() needs TextDecoder', label: 'binary() primitive' },
+  // `binary.request`, `binary.onRequest` and `binary.stream` live in binary(), so the
+  // request and stream primitives carry no binary code for an app without binary().
+  binaryExchanges: { marker: 'The reply must be a', label: 'binary requests and streams' },
+  clientRequests: { marker: 'clientRequests timeout', label: 'clientRequests() primitive' },
+  serverRequests: { marker: 'replaced an existing handler', label: 'serverRequests() primitive' },
+  stream: { marker: 'stream maxBytes must be', label: 'stream() primitive' },
 };
 
 function clientScenarios(f) {
@@ -193,7 +199,7 @@ function clientScenarios(f) {
       name: 'index (full socket)',
       source: importStar(f('index.js')),
       owns: 'socket',
-      alsoPulls: ['binary'],
+      alsoPulls: ['binary', 'binaryExchanges', 'clientRequests', 'serverRequests', 'stream'],
     },
     {
       name: 'minimal client (client + connect)',
@@ -205,8 +211,15 @@ function clientScenarios(f) {
       name: 'binary',
       source: importNamed(f('index.js'), 'client', 'connect', 'binary'),
       owns: 'binary',
-      alsoPulls: [],
+      alsoPulls: ['binaryExchanges'],
     },
+    ...['clientRequests', 'serverRequests', 'stream'].map((primitive) => ({
+      name: primitive,
+      source: importNamed(f('index.js'), 'client', 'connect', primitive),
+      owns: primitive,
+      // stream() starts its gap check again on `__subscribeOk__`, the socket marker.
+      alsoPulls: primitive === 'stream' ? ['socket'] : [],
+    })),
     { name: 'errors', source: importStar(f('errors.js')), owns: null, alsoPulls: [] },
     { name: 'environment', source: importStar(f('environment.js')), owns: null, alsoPulls: [] },
     { name: 'platform', source: importStar(f('platform.js')), owns: null, alsoPulls: [] },

@@ -426,7 +426,7 @@ describe('binary routing', () => {
     expect(replayFrame?.payload).toEqual({ lastKnownSeq: 7 });
   });
 
-  it('drops a binary reply or stream frame without crashing and without delivering it', async () => {
+  it('drops a binary reply or stream frame that nothing waits for, without delivering it', () => {
     const { socket, ws } = connected(binary(), clientRequests(), stream());
     const listener = vi.fn();
     const onError = vi.fn();
@@ -435,12 +435,8 @@ describe('binary routing', () => {
 
     socket.binary.on('download-attachment' as 'avatar-preview', listener);
 
-    const request = socket.request('get-thumbnail', { attachmentId: 'att_1' });
-    const sent = ws.sentFrames().find((f) => f.event === 'get-thumbnail');
-    const exchangeId = sent.metadata.exchange.id as string;
-
     expect(() => {
-      ws.emitRaw(frame('get-thumbnail', null, { exchange: { id: exchangeId } }, picture));
+      ws.emitRaw(frame('get-thumbnail', null, { exchange: { id: 'req-9' } }, picture));
       ws.emitRaw(
         frame('download-attachment', null, { stream: { id: 'download-1', seq: 1 } }, picture),
       );
@@ -448,14 +444,7 @@ describe('binary routing', () => {
 
     expect(listener).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
-    expect(ws.sent).toHaveLength(1);
-    // The JSON request still waits for its own text reply.
-    ws.emit({
-      event: 'get-thumbnail',
-      payload: { ok: true },
-      metadata: { exchange: { id: exchangeId } },
-    });
-    await expect(request).resolves.toEqual({ ok: true });
+    expect(ws.sent).toHaveLength(0);
   });
 
   it('does not push a binary chunk into a JSON stream with the same id', async () => {

@@ -1,8 +1,9 @@
 import type { LiveThingError, LiveThingMetadata, Message } from '@livething/core';
 import type { SocketConfig } from '~/internal/config.ts';
+import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { LiveThingSocket } from '~/socket/socket.ts';
-import type { ConnectionState } from '~/types.ts';
+import type { ConnectionState, StreamHandlers } from '~/types.ts';
 
 export type { Message, LiveThingMetadata };
 
@@ -57,6 +58,58 @@ export interface BinaryHooks {
   route(message: Message): void;
   /** Encode an outgoing message: a binary frame when it has `bytes`, else JSON text. */
   encode(message: Message): string | Uint8Array<ArrayBuffer>;
+}
+
+/** How a request is sent: its scope and timeout, and the hooks `binary.request` adds. */
+export interface RequestCallOptions {
+  markers: ScopeMarkers;
+  timeout?: number;
+  /**
+   * Turn the request frame into the one to send. It runs before the socket is touched, and
+   * a throw comes out of the send call itself, so the caller turns it into a rejection.
+   */
+  prepare?(frame: Message): Message;
+  /** Settle the request from a reply that is not a text `__error__`. */
+  answer?(
+    reply: Message,
+    settle: { resolve(value: unknown): void; reject(reason: unknown): void },
+  ): void;
+}
+
+/**
+ * `clientRequests()` shares its send under this key, so `binary()` sends binary requests
+ * with the same pending map, timeout, buffering and close handling.
+ */
+export const REQUESTS_KEY = 'requests';
+export type SendRequest = (
+  event: string,
+  payload: unknown,
+  options: RequestCallOptions,
+) => Promise<unknown>;
+
+/** How a stream is started: its scope, its options, and the hook `binary.stream` adds. */
+export interface StreamStartContext {
+  markers: ScopeMarkers;
+  options?: { streamId?: string };
+  /** A binary stream: its chunks are binary, and each item is `{ info, bytes }`. */
+  binary?: boolean;
+  /**
+   * Turn the start frame into the one to send. It runs before the socket is touched, and a
+   * throw comes out of the start call itself, so the caller turns it into a rejection.
+   */
+  prepare?(frame: Message): Message;
+}
+
+/** `stream()` shares these under {@link STREAM_KEY}, so `binary()` can add binary streams. */
+export const STREAM_KEY = 'stream';
+export interface StreamHooks {
+  start(event: string, payload: unknown, context: StreamStartContext): Promise<unknown>;
+  listen(
+    event: string,
+    handlers: StreamHandlers<unknown>,
+    scope: ScopeMarkers | undefined,
+    binary: boolean,
+  ): () => void;
 }
 
 /**

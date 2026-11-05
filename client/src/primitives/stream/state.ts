@@ -4,7 +4,9 @@ import type { ScopeMarkers } from '~/internal/scoped.ts';
 /** Everything tracked for one running client-initiated stream. */
 export class StreamState {
   /** Chunks flow through here to the developer's `for await` loop. */
-  readonly queue = new StreamQueue<unknown>();
+  readonly queue: StreamQueue<unknown>;
+  /** Started with `binary.stream`: its chunks are binary, and each item is `{ info, bytes }`. */
+  binary = false;
   /** Still running? Goes false on end, error, cancel, or a terminal disconnect. */
   active = true;
   /**
@@ -28,9 +30,13 @@ export class StreamState {
    */
   hasLazyHold = false;
 
+  // oxlint-disable-next-line max-params -- the stream's id, event, scope and queue limit
   constructor(
     readonly streamId: string,
     readonly event: string,
     readonly markers: ScopeMarkers,
-  ) {}
+    maxBytes?: number,
+  ) {
+    this.queue = new StreamQueue(maxBytes);
+  }
 }

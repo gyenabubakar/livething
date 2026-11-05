@@ -23,6 +23,7 @@ export {
   RequestNoResponse,
   StreamAborted,
   StreamCorrupted,
+  StreamOverflow,
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,

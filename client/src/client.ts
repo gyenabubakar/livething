@@ -5,6 +5,7 @@ import type { ConnectDescriptor } from '~/connect.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveRuntime } from '~/internal/runtime.ts';
 import type { TopLevelContract } from '~/plugins/contract.ts';
+import type { BinaryScopeSurface } from '~/primitives/binary/types.ts';
 import type {
   ApplyPrimitives,
   Primitive,
@@ -40,7 +41,9 @@ type AppSocketFor<
   TPrimitives extends readonly Primitive<any, any>[],
 > = WithMissingPrimitiveStubs<
   WithChannelPrimitiveSurface<
-    Socket<AsSocketContract<C>> & ApplyPrimitives<TPrimitives, C>,
+    Socket<AsSocketContract<C>> &
+      ApplyPrimitives<TPrimitives, C> &
+      BinaryScopeSurface<C, TPrimitives[number]['_tag']>,
     C,
     TPrimitives
   >,

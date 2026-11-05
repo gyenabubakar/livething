@@ -7,4 +7,5 @@ export {
   Disconnected,
   Dropped,
   StreamCorrupted,
+  StreamOverflow,
 } from '@livething/core';

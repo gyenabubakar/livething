@@ -1,10 +1,6 @@
 // Shared by the page and the spec, so the spec knows the exact bytes the page sends.
 
-export function pattern(length: number, seed: number): Uint8Array {
-  const bytes = new Uint8Array(length);
-  for (let i = 0; i < length; i++) bytes[i] = (i * 31 + seed * 7 + (i >> 8)) % 256;
-  return bytes;
-}
+export { pattern } from '@livething/tests-e2e-handlers/_shared/bytes';
 
 /** FNV-1a over every byte, so a test compares the whole bytes, not a few of them. */
 export function hash(bytes: Uint8Array): string {

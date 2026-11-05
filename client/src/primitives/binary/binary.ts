@@ -7,20 +7,29 @@ import {
   encodeBinaryFrame,
   encodeMessage,
   LiveThingConfigError,
+  LiveThingError,
   splitBinaryFrame,
   utf8ByteLength,
 } from '@livething/core';
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
-import { getAugmenters, scopedName } from '~/internal/scoped.ts';
+import { REQUESTS_KEY, STREAM_KEY } from '~/internal/runtime.ts';
+import { binaryOf, getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isReservedEventName } from '~/internal/wire-validation.ts';
 import type { BinaryInput } from '@livething/core';
-import type { Message } from '~/internal/runtime.ts';
-import type { ScopeMarkers } from '~/internal/scoped.ts';
+import type { Message, SendRequest, StreamHooks } from '~/internal/runtime.ts';
+import type { ScopeInfo, ScopeMarkers } from '~/internal/scoped.ts';
 import type { SendOptions } from '~/messaging.ts';
 import type { BinaryOptions, BinaryPrimitive } from '~/primitives/binary/types.ts';
+import type { StreamTriggerOptions } from '~/primitives/stream/types.ts';
 import type { LiveThingSocket } from '~/socket/socket.ts';
+import type { StreamHandlers } from '~/types.ts';
+
+interface RequestOptions {
+  timeout?: number;
+}
 
 type BinaryListener = (info: unknown, bytes: Uint8Array) => void;
+type BinaryAnswerer = (info: unknown, bytes: Uint8Array) => unknown;
 
 /**
  * Why the platform's `TextDecoder` cannot read frames, or `null` when it can. The frame
@@ -62,7 +71,9 @@ function listenerKey(markers: ScopeMarkers, event: string): string {
 
 /**
  * Binary messages: a JSON info and raw bytes in one frame. Adds `socket.binary.on` and
- * `socket.binary.send`, and the same on channel handles and plugin sockets. It sets the
+ * `socket.binary.send`, and the same on channel handles and plugin sockets.
+ * `clientRequests()`, `serverRequests()` and `stream()` add `binary.request`,
+ * `binary.onRequest`, `binary.stream` and `binary.onStream` next to them. It sets the
  * WebSocket's `binaryType` to `'arraybuffer'`, so frames are read with no `await` and
  * keep their order.
  */
@@ -81,6 +92,9 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
       if (decoderProblem) throw new LiveThingConfigError(decoderProblem);
 
       const listeners = new Map<string, Set<BinaryListener>>();
+      // `binary.onRequest` handlers, keyed like the listeners.
+      const answerers = new Map<string, BinaryAnswerer>();
+      const withServerRequests = helpers.hasPrimitive('serverRequests');
       let socket: LiveThingSocket;
 
       function on(markers: ScopeMarkers, event: string, listener: BinaryListener): () => void {
@@ -106,7 +120,41 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
         };
       }
 
+      /**
+       * `message` with `bytes` as a `Uint8Array` (none means zero bytes), and the size of
+       * its whole frame. Throws when the bytes are not binary, or when the info and the
+       * metadata are over the 64 KiB envelope limit.
+       */
       // ponytail: the info is encoded once here for the size check and again on the wire.
+      function withBytes(
+        method: string,
+        message: Message,
+        bytes: unknown,
+      ): { message: Message; size: number } {
+        if (bytes !== undefined && !isBinaryInput(bytes)) {
+          throw new TypeError(
+            `[livething] The bytes of ${method} must be a Uint8Array or an ArrayBuffer, got ${bytes === null ? 'null' : typeof bytes}.`,
+          );
+        }
+
+        const framed = {
+          ...message,
+          bytes: bytes === undefined ? new Uint8Array(0) : asUint8Array(bytes),
+        };
+
+        const envelopeBytes = utf8ByteLength(encodeMessage(framed));
+        if (envelopeBytes > BINARY_ENVELOPE_LIMIT) {
+          throw new RangeError(
+            `[livething] the binary frame's info and metadata are ${envelopeBytes} bytes, over the 64 KiB limit. Put large data in the bytes.`,
+          );
+        }
+
+        return {
+          message: framed,
+          size: BINARY_HEADER_LENGTH + envelopeBytes + framed.bytes.byteLength,
+        };
+      }
+
       function send(
         markers: ScopeMarkers,
         event: string,
@@ -118,30 +166,18 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
           return false;
         }
 
-        if (bytes !== undefined && !isBinaryInput(bytes)) {
-          throw new TypeError(
-            `[livething] The bytes of binary.send('${event}') must be a Uint8Array or an ArrayBuffer, got ${bytes === null ? 'null' : typeof bytes}.`,
-          );
-        }
-
-        const message: Message = {
-          event,
-          payload: info,
-          metadata: markers.name === undefined ? null : { channel: markers as { name: string } },
-          bytes: bytes === undefined ? new Uint8Array(0) : asUint8Array(bytes),
-        };
-
-        const envelopeBytes = utf8ByteLength(encodeMessage(message));
-        if (envelopeBytes > BINARY_ENVELOPE_LIMIT) {
-          throw new RangeError(
-            `[livething] the binary frame's info and metadata are ${envelopeBytes} bytes, over the 64 KiB limit. Put large data in the bytes.`,
-          );
-        }
-
-        const frameBytes = BINARY_HEADER_LENGTH + envelopeBytes + message.bytes!.byteLength;
-        if (frameBytes > maxFrameBytes) {
+        const { message, size } = withBytes(
+          `binary.send('${event}')`,
+          {
+            event,
+            payload: info,
+            metadata: markers.name === undefined ? null : { channel: markers as { name: string } },
+          },
+          bytes,
+        );
+        if (size > maxFrameBytes) {
           helpers.log.info(
-            `binary send('${event}') dropped: the frame is ${frameBytes} bytes, over maxFrameBytes (${maxFrameBytes})`,
+            `binary send('${event}') dropped: the frame is ${size} bytes, over maxFrameBytes (${maxFrameBytes})`,
           );
           return false;
         }
@@ -190,28 +226,11 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
         const metadata = message.metadata;
         const bytes = message.bytes!;
         const exchange = metadata?.exchange;
-        // Requests and streams are matched by their exchange and stream ids, before the
-        // channel, because a request inside a channel carries `channel` too.
-        const fromServer = exchange?.source === 'server';
-        if (exchange?.id !== undefined && fromServer && helpers.hasPrimitive('serverRequests')) {
-          // No binary.onRequest yet: decline at once, as serverRequests() does for a request
-          // with no handler, so the server does not wait for its timeout. The server takes a
-          // text `__error__` as the answer to a binary request.
-          helpers.rawSend({
-            event: '__error__',
-            payload: { code: 'request-no-response' },
-            metadata: {
-              exchange: { id: exchange.id, source: 'server' },
-              ...(metadata!.channel ? { channel: { ...metadata!.channel } } : {}),
-            },
-          });
-          return;
-        }
-
-        // Without serverRequests() a top-level server request is a plain event, and a channel
-        // one reaches no listener, the same as for text.
+        // clientRequests(), stream() and binary()'s own onIncoming claim their frames before this. What
+        // is left of a reply or a chunk has no taker. Without serverRequests() a top-level
+        // server request is a plain event, and a channel one reaches no listener, as for text.
         if (
-          (exchange?.id !== undefined && (!fromServer || metadata?.channel)) ||
+          (exchange?.id !== undefined && (exchange.source !== 'server' || metadata?.channel)) ||
           metadata?.stream?.id !== undefined
         ) {
           helpers.log.info(`no binary request or stream takes '${message.event}' — dropping it`);
@@ -234,8 +253,176 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
         );
       }
 
+      /** `message` as one binary frame, or a throw when it cannot be sent. */
+      function frameOf(method: string, message: Message, bytes: unknown): Message {
+        const framed = withBytes(method, message, bytes);
+        if (framed.size > maxFrameBytes) {
+          throw new RangeError(
+            `[livething] the frame of ${method} is ${framed.size} bytes, over maxFrameBytes (${maxFrameBytes}).`,
+          );
+        }
+
+        return framed.message;
+      }
+
+      // The answer to a binary server request: one binary frame, or a text decline.
+      async function answer(
+        message: Message,
+        answerer: BinaryAnswerer,
+        metadata: Message['metadata'],
+      ): Promise<void> {
+        const method = `binary.onRequest('${message.event}')`;
+        try {
+          const result = (await answerer(message.payload, message.bytes!)) as {
+            info?: unknown;
+            bytes?: unknown;
+          };
+          if (typeof result !== 'object' || result === null || !('info' in result)) {
+            throw new TypeError(`[livething] ${method} must return { info, bytes }.`);
+          }
+
+          helpers.rawSend(
+            frameOf(method, { event: message.event, payload: result.info, metadata }, result.bytes),
+          );
+        } catch (error) {
+          helpers.log.warn(`${method} handler threw`, error);
+          helpers.rawSend({
+            event: '__error__',
+            payload: { code: 'request-no-response' },
+            metadata,
+          });
+        }
+      }
+
+      function onRequest(markers: ScopeMarkers, event: string, answerer: BinaryAnswerer) {
+        const key = listenerKey(markers, event);
+        if (answerers.has(key)) {
+          helpers.log.warn(`a second binary.onRequest('${event}') handler replaced the first`);
+        }
+
+        answerers.set(key, answerer);
+
+        return () => {
+          if (answerers.get(key) === answerer) answerers.delete(key);
+        };
+      }
+
+      /**
+       * The methods that need another primitive too, for one scope (`null` is the top
+       * level): requests with `clientRequests()`, answers with `serverRequests()`, and
+       * streams with `stream()`. They use that primitive's own machinery.
+       */
+      function exchanges(scope: ScopeInfo | null): Record<string, unknown> {
+        function markers(): ScopeMarkers {
+          return scope ? scope.markers() : {};
+        }
+
+        function wireName(event: string): string {
+          return scope ? scopedName(scope, event) : event;
+        }
+
+        function hooks(): StreamHooks {
+          return helpers.shared.get(STREAM_KEY) as StreamHooks;
+        }
+
+        const methods: Record<string, unknown> = {};
+
+        if (helpers.hasPrimitive('clientRequests')) {
+          methods.request = (
+            event: string,
+            info: unknown,
+            bytes?: unknown,
+            requestOptions?: RequestOptions,
+          ) => {
+            scope?.assertReady?.();
+            const name = wireName(event);
+            try {
+              return (helpers.shared.get(REQUESTS_KEY) as SendRequest)(name, info, {
+                markers: markers(),
+                timeout: requestOptions?.timeout,
+                prepare: (frame) => frameOf(`binary.request('${name}')`, frame, bytes),
+                answer(reply, settle) {
+                  if (reply.bytes) settle.resolve({ info: reply.payload, bytes: reply.bytes });
+                  else {
+                    settle.reject(
+                      new LiveThingError('request-invalid-response', {
+                        event: name,
+                        issues: [{ message: 'The reply must be a binary frame.' }],
+                      }),
+                    );
+                  }
+                },
+              });
+            } catch (error) {
+              return Promise.reject(error);
+            }
+          };
+        }
+
+        if (withServerRequests) {
+          methods.onRequest = (event: string, answerer: BinaryAnswerer) =>
+            onRequest(markers(), wireName(event), answerer);
+        }
+
+        if (helpers.hasPrimitive('stream')) {
+          methods.stream = (
+            event: string,
+            info: unknown,
+            bytes?: unknown,
+            streamOptions?: StreamTriggerOptions,
+          ) => {
+            scope?.assertReady?.();
+            const name = wireName(event);
+            try {
+              return hooks().start(name, info, {
+                markers: markers(),
+                options: streamOptions,
+                binary: true,
+                prepare: (frame) => frameOf(`binary.stream('${name}')`, frame, bytes),
+              });
+            } catch (error) {
+              return Promise.reject(error);
+            }
+          };
+          methods.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
+            hooks().listen(wireName(event), handlers, scope ? scope.markers() : undefined, true);
+        }
+
+        return methods;
+      }
+
       return {
         id: 'binary',
+
+        // A binary server request, with `serverRequests()`. Without it, `route` gives a
+        // top-level one to `binary.on`, as for text.
+        onIncoming(message) {
+          const metadata = message.metadata;
+          const exchange = metadata?.exchange;
+          if (!withServerRequests || !message.bytes || exchange?.source !== 'server') {
+            return message;
+          }
+
+          const channel = metadata!.channel;
+          const reply: Message['metadata'] = {
+            exchange: { id: exchange.id, source: 'server' },
+            ...(channel ? { channel: { ...channel } } : {}),
+          };
+
+          const answerer = answerers.get(listenerKey(channel ?? {}, message.event));
+          // No handler: decline at once, so the server does not wait for its timeout.
+          if (answerer) void answer(message, answerer, reply);
+          else {
+            helpers.rawSend({
+              event: '__error__',
+              payload: { code: 'request-no-response' },
+              metadata: reply,
+            });
+          }
+
+          return null;
+        },
+
         install(installedSocket) {
           socket = installedSocket;
           socket._binary = {
@@ -247,22 +434,21 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
                 : encodeMessage(message),
           };
 
-          // @ts-expect-error — install adds `binary` to the socket dynamically
-          installedSocket.binary = {
+          Object.assign(binaryOf(installedSocket), exchanges(null), {
             on: (event: string, listener: BinaryListener) => on({}, event, listener),
             send: (event: string, info: unknown, bytes?: BinaryInput, sendOptions?: SendOptions) =>
               send({}, event, info, bytes, sendOptions),
-          };
+          });
 
           getAugmenters(installedSocket).push((messaging, scope) => {
-            messaging.binary = {
+            Object.assign(binaryOf(messaging), exchanges(scope), {
               on: (event: string, listener: BinaryListener) =>
                 on(scope.markers(), scopedName(scope, event), listener),
               send(event: string, info: unknown, bytes?: BinaryInput, sendOptions?: SendOptions) {
                 scope.assertReady?.();
                 return send(scope.markers(), scopedName(scope, event), info, bytes, sendOptions);
               },
-            };
+            });
           });
         },
       };

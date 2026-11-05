@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- request typing needs `any` to stay generic */
-import type { TypeFn } from '~/primitives/types.ts';
+import type { Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 
 /** Adds `socket.request(...)` typed from the contract's `clientRequests`. */
-export interface ClientRequestsTypeFn extends TypeFn {
+interface ClientRequestsTypeFn extends TypeFn {
   readonly _api: this['_contract'] extends {
     clientRequests: infer R extends Record<string, { payload: any; response: any }>;
   }
@@ -15,6 +15,10 @@ export interface ClientRequestsTypeFn extends TypeFn {
       }
     : {};
 }
+
+/** The descriptor `clientRequests()` returns. */
+export type ClientRequestsPrimitive = Primitive<ClientRequestsTypeFn> &
+  PrimitiveIdentity<'clientRequests'>;
 
 /** Options for `clientRequests()`. */
 export interface ClientRequestsOptions {

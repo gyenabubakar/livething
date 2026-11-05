@@ -241,6 +241,7 @@ const RESERVED_ERROR_CODES = new Set([
   'request-invalid-response',
   'stream-aborted',
   'stream-corrupted',
+  'stream-overflow',
   'wrong-frame-kind',
   'nudge-overflow',
   'stream-id-collision',
@@ -685,6 +686,28 @@ export const NudgeOverflow = /* @__PURE__ */ buildErrorFactory(
 export const StreamCorrupted = /* @__PURE__ */ buildErrorFactory(
   'stream-corrupted',
   v.object({ expected: v.number(), got: v.number() }),
+);
+
+/**
+ * A stream's loop reads more slowly than its chunks arrive, and the chunks it has not
+ * read yet went over `stream({ maxBytes })`. The stream fails, so it never loses chunks
+ * in silence. `detail.maxBytes` is the limit. A plain stream is also cancelled, so the
+ * server stops sending. Raised on the client.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   for await (const { bytes } of download) await saveToDisk(bytes);
+ * } catch (err) {
+ *   if (StreamOverflow.matches(err)) {
+ *     // the loop fell behind: start again from the last byte you saved
+ *   }
+ * }
+ * ```
+ */
+export const StreamOverflow = /* @__PURE__ */ buildErrorFactory(
+  'stream-overflow',
+  v.object({ maxBytes: v.number() }),
 );
 
 /**
