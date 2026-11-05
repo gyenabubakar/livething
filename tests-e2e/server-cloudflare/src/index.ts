@@ -5,6 +5,7 @@ export { PluginsServer } from './plugins.ts';
 export { AdminServer } from './admin.ts';
 export { RejectHttpServer } from './lifecycle-hooks-http-reject.ts';
 export { IncomingServer } from './incoming.ts';
+export { BinaryServer } from './binary.ts';
 export { RequestServer } from './request.ts';
 export { ServerRequestServer } from './server-request.ts';
 export { StreamBasicServer } from './stream-basic.ts';
@@ -179,6 +180,7 @@ async function runAdminBuiltIn(
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/admin': 'ADMIN_SERVER',
   '/ws/incoming': 'INCOMING_SERVER',
+  '/ws/binary': 'BINARY_SERVER',
   '/ws/request': 'REQUEST_SERVER',
   '/ws/server-request': 'SERVER_REQUEST_SERVER',
   '/ws/stream-basic': 'STREAM_BASIC_SERVER',

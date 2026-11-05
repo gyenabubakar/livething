@@ -1,6 +1,7 @@
 // What a short docs example may use without declaring it: Huddle itself. Every name is real and
 // typed, so a short example is checked against the same app as the long ones.
 import {
+  binary,
   channels,
   client,
   clientRequests,
@@ -36,6 +37,7 @@ export declare const ctx: CtxOf<typeof base> extends never
 
 export const socket = client<HuddleSocket>()(
   connect('wss://huddle.example.com/huddle'),
+  binary(),
   channels(),
   clientRequests(),
   serverRequests(),

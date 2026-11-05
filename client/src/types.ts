@@ -35,6 +35,22 @@ export interface SocketContract {
   serverRequests?: Record<string, RequestContract>;
   /** Typed errors the server can send, so you can match on them. */
   errors?: Record<string, unknown>;
+  /** Binary events (top-level). Needs the `binary` primitive. */
+  binary?: BinaryContract;
+}
+
+/**
+ * The binary entries of one scope. Each value is the type of the info; the bytes are
+ * always a `Uint8Array`.
+ */
+export interface BinaryContract {
+  /** Binary events the server sends you. */
+  incoming?: Record<string, unknown>;
+  /** Binary events you send the server. */
+  outgoing?: Record<string, unknown>;
+  clientRequests?: Record<string, RequestContract>;
+  serverRequests?: Record<string, RequestContract>;
+  streams?: Record<string, StreamContract>;
 }
 
 /**
@@ -47,6 +63,7 @@ export interface ScopeContract {
   clientRequests?: Record<string, RequestContract>;
   serverRequests?: Record<string, RequestContract>;
   streams?: Record<string, StreamContract>;
+  binary?: BinaryContract;
 }
 
 /** A channel uses the same shape as any scope. */
@@ -79,6 +96,7 @@ export type StreamsOf<T> = T extends { streams: infer S } ? S : {};
 export type ClientRequestsOf<T> = T extends { clientRequests: infer R } ? R : {};
 export type ServerRequestsOf<T> = T extends { serverRequests: infer R } ? R : {};
 export type ErrorsOf<T> = T extends { errors: infer E } ? E : {};
+export type BinaryOf<T> = T extends { binary: infer B } ? B : {};
 
 /**
  * The four connection states:

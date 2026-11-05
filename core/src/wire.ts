@@ -46,6 +46,12 @@ export interface Message {
   payload: unknown;
   /** Internal callers may omit this; encoding always writes the tuple's null slot. */
   metadata?: LiveThingMetadata | null;
+  /**
+   * The bytes of a binary message, after its envelope. Absent on a text message. On a
+   * received message it is a view of the whole frame, so `bytes.buffer` holds the header
+   * and the envelope too.
+   */
+  bytes?: Uint8Array;
 }
 
 /** The only JSON shape accepted on the LiveThing wire. */

@@ -43,6 +43,16 @@ export declare function saveAvatar(
 ): Promise<void>;
 /** A small copy of the picture, for the preview the user sees right away. */
 export declare function resizeAvatar(bytes: Uint8Array): Promise<Uint8Array>;
+/** Shows the new avatar from its picture bytes. */
+export declare function showAvatar(bytes: Uint8Array): void;
+/** Draws one picture of a member's shared screen in that member's window. */
+export declare function paintScreen(from: string, bytes: Uint8Array): void;
+/** The avatar picture the user picked, read from the file input. */
+export declare const avatarBytes: Uint8Array;
+/** One picture of this user's shared screen. */
+export declare const pictureBytes: Uint8Array;
+/** The pictures of this user's shared screen, one after another. */
+export declare const screenPictures: readonly Uint8Array[];
 /** A small PNG picture of an attachment's first page. */
 export declare function makeThumbnail(
   attachmentId: string,

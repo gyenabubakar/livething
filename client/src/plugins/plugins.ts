@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
 import { LiveThingConfigError } from '@livething/core';
-import { runMessageHook } from '~/internal/dispatch.ts';
+import { keepFrameKind, runMessageHook } from '~/internal/dispatch.ts';
 import { toLiveThingError } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { NAMESPACE_DELIMITER, namespacedName } from '~/internal/namespace.ts';
@@ -87,14 +87,15 @@ interface PluginSendOptions {
 }
 
 /**
- * A plugin only owns plain top-level frames in its namespace. A frame carrying a
+ * A plugin only owns plain top-level text frames in its namespace. A frame carrying a
  * channel, correlationId, or streamId belongs to the channels, clientRequests,
  * or stream primitive — those run before the plugin and handle it — so the plugin
- * leaves it alone even when the name is in the plugin's namespace.
+ * leaves it alone even when the name is in the plugin's namespace. A binary frame goes
+ * on to `binary()`, which gives it to the plugin's `binary.on` listeners.
  */
 function ownsFrame(message: Message): boolean {
   const metadata = message.metadata;
-  return !metadata?.channel && !metadata?.exchange && !metadata?.stream;
+  return !metadata?.channel && !metadata?.exchange && !metadata?.stream && !message.bytes;
 }
 
 /**
@@ -268,6 +269,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     continueStream: missing('continueStream', 'stream'),
     onRequest: missing('onRequest', 'serverRequests'),
     channel: missing('channel', 'channels'),
+    binary: { on: missing('binary.on', 'binary'), send: missing('binary.send', 'binary') },
   };
 
   function dispatch(name: string, payload: unknown): void {
@@ -356,10 +358,11 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     onIncoming(message) {
       let current = message;
       if (userIncoming) {
+        const bytes = message.bytes;
         const result = runMessageHook(userIncoming, current, report);
         if (result === null) return null;
 
-        current = result;
+        current = keepFrameKind(bytes, result);
       }
 
       if (current.event.startsWith(ownPrefix) && ownsFrame(current)) {

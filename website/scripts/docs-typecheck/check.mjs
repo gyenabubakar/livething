@@ -177,10 +177,12 @@ const withoutExtension = (path) => basename(path).replace(/(\.svelte)?\.\w+$/, '
 function pageFile(containing, name) {
   const example = fileExamples.get(containing);
   // Each plugins page builds its own `Polls`, so an example there imports the page's
-  // own file. A name the page uses for more than one file stays on the shared fixture.
+  // own file. The Quickstart builds its own small server. A name the page uses for more
+  // than one file stays on the shared fixture.
   const ownsFiles =
     example?.page.startsWith('6.recipes/01.framework-hooks/') ||
-    example?.page.startsWith('4.client/07.plugins/');
+    example?.page.startsWith('4.client/07.plugins/') ||
+    example?.page.startsWith('1.start/05');
   if (!ownsFiles) return undefined;
   const path = pageFiles.get(pageFileKey(example.page, name));
   return path && path !== containing ? path : undefined;

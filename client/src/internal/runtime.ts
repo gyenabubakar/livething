@@ -47,6 +47,19 @@ export interface InternalSendOptions {
 }
 
 /**
+ * The hooks `binary()` gives the socket. Without `binary()` the socket has none, and it
+ * reports each binary message to `onError` and drops it.
+ */
+export interface BinaryHooks {
+  /** Read one binary message from the WebSocket, and pass it on as a `Message` with `bytes`. */
+  receive(data: unknown): void;
+  /** Deliver a binary message that went through the whole incoming pipeline. */
+  route(message: Message): void;
+  /** Encode an outgoing message: a binary frame when it has `bytes`, else JSON text. */
+  encode(message: Message): string | Uint8Array<ArrayBuffer>;
+}
+
+/**
  * A function that sees every incoming message before your `on()` handlers do.
  * Return nothing to pass it through, return a new message to change it, or throw
  * `Block` to drop it.

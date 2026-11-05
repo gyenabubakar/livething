@@ -95,7 +95,8 @@ export function serverRequests(): Primitive<ServerRequestsTypeFn> &
         onIncoming(message) {
           const metadata = message.metadata;
           const correlationId = metadata?.exchange?.id;
-          if (typeof correlationId !== 'string') return message;
+          // A binary request is not a JSON request: `binary()` routes it.
+          if (typeof correlationId !== 'string' || message.bytes) return message;
 
           // Only a server-originated request is ours to answer. A reply to the
           // client's own request (source !== 'server') passes through for

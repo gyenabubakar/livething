@@ -1274,7 +1274,7 @@ async function processParsedMessage(
     return;
   }
 
-  if (!Array.isArray(parsed) || parsed.length !== 3 || typeof parsed[0] !== 'string') {
+  if (!Protocol.isWireTuple(parsed)) {
     runtime.logger.warn('Invalid message shape dropped');
     return;
   }

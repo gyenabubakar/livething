@@ -54,6 +54,8 @@ export type {
   ReadReceiptsOptions,
 } from '~/primitives/inbox/index.ts';
 export { stream } from '~/primitives/stream/index.ts';
+export { binary } from '~/primitives/binary/index.ts';
+export type { BinaryMessaging, BinaryOptions } from '~/primitives/binary/index.ts';
 export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/index.ts';
 
 export { CloseCodes } from '@livething/core';
@@ -86,6 +88,8 @@ export type {
   ClientRequestsOf,
   ServerRequestsOf,
   ErrorsOf,
+  BinaryOf,
+  BinaryContract,
   Simplify,
   RequestMethod,
   ScopedMessaging,

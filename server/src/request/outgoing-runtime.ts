@@ -10,7 +10,7 @@ import { validateValue } from '~/_engine/compile/utils.ts';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import { assertTimerDelay } from '~/_engine/validation.ts';
-import { isBinaryPayload } from '~/outgoing/runtime.ts';
+import { isBinaryPayload } from '~/outgoing/binary-payload.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';

@@ -721,7 +721,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           }
 
           const streamId = envelope?.stream?.id;
-          if (typeof streamId !== 'string') return message;
+          // A binary chunk is not a JSON chunk: `binary()` routes it.
+          if (typeof streamId !== 'string' || message.bytes) return message;
 
           switch (message.event) {
             case '__streamOk__':

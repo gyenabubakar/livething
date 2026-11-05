@@ -282,10 +282,12 @@ export function channels(): ChannelsPrimitive {
 
       function handleChannelEvent(incoming: ChannelIncoming): Message {
         const { message, state, name, familyKey, metadata } = incoming;
+        // A binary frame goes on to `binary()`, which gives it to the binary listeners.
         if (
           isProtocolFrameEvent(message.event) ||
           metadata?.exchange?.id !== undefined ||
-          metadata?.stream !== undefined
+          metadata?.stream !== undefined ||
+          message.bytes
         ) {
           return message;
         }

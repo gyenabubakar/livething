@@ -6,8 +6,8 @@ export interface BufferingOptions {
   /** Most messages to hold; the oldest is dropped when full. Default: `50`. */
   maxMessages?: number;
   /**
-   * Most bytes to hold, counted as each message's UTF-8 size on the wire; the oldest is
-   * dropped when full. Default: `1048576` (1 MiB).
+   * Most bytes to hold, counted as each message's size on the wire (its UTF-8 text, or its
+   * whole binary frame); the oldest is dropped when full. Default: `1048576` (1 MiB).
    */
   maxBytes?: number;
   /** Time-to-live (ms) for every queued message. A per-call `send(..., { ttl })` wins. */

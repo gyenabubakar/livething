@@ -1,4 +1,9 @@
-import { encodeMessage, LiveThingConfigError, utf8ByteLength } from '@livething/core';
+import {
+  BINARY_HEADER_LENGTH,
+  encodeMessage,
+  LiveThingConfigError,
+  utf8ByteLength,
+} from '@livething/core';
 import { Disconnected, Dropped } from '~/errors.ts';
 import { assertValidTtl, MAX_TIMER_DELAY_MS } from '~/internal/config.ts';
 import type { FrameOwner, Message } from '~/internal/runtime.ts';
@@ -13,7 +18,7 @@ export interface MessageBufferOptions {
 
 interface BufferedMessage {
   message: Message;
-  /** The message's size on the wire, in UTF-8 bytes. */
+  /** The message's size on the wire: its UTF-8 text, or its whole binary frame. */
   bytes: number;
   ttl: number | null;
   queuedAt: number;
@@ -80,8 +85,13 @@ export class MessageBuffer {
    */
   enqueue(message: Message, perCallTtl?: number, owner?: FrameOwner): boolean {
     const ttl = perCallTtl ?? this.defaultTtl;
-    const bytes = utf8ByteLength(encodeMessage(message));
+    // A binary frame counts its header and bytes too. Copy the bytes, so the app can
+    // reuse its array while the frame waits.
+    const binaryBytes = message.bytes ? BINARY_HEADER_LENGTH + message.bytes.byteLength : 0;
+    const bytes = utf8ByteLength(encodeMessage(message)) + binaryBytes;
     if (bytes > this.maxBytes) return false;
+
+    if (message.bytes) message = { ...message, bytes: message.bytes.slice() };
 
     // Reject each dropped owner, so a Promise-bearing op whose frame was dropped fails
     // instead of hanging.

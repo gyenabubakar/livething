@@ -172,16 +172,19 @@ function serverScenarios(f) {
 // ---------------------------------------------------------------------------
 // @livething/client — one connection runtime plus light utility subpaths.
 //
-// There is no per-feature split on the client: the socket owns every wire
-// behavior. The single guarantee worth pinning is that the utility subpaths
-// (`errors`, `environment`, `platform`) and the test-helper entry (`testing`)
-// never pull the connection runtime — importing `@livething/client/errors` must not
-// ship a WebSocket engine.
+// There is no per-feature split on the client: the socket owns most wire
+// behavior. Two guarantees are pinned: the utility subpaths (`errors`,
+// `environment`, `platform`) and the test-helper entry (`testing`) never pull the
+// connection runtime — importing `@livething/client/errors` must not ship a
+// WebSocket engine — and a client without `binary()` does not ship the binary code.
 // ---------------------------------------------------------------------------
 const CLIENT_DIST = resolve(repoRoot, 'client/dist');
 
 const CLIENT_ENGINES = {
   socket: { marker: '__subscribeOk__', label: 'socket connection runtime' },
+  // The core socket only has small hooks for binary messages; the frame parser, the
+  // encoder and `socket.binary` ship only with `binary()`.
+  binary: { marker: 'binary() needs TextDecoder', label: 'binary() primitive' },
 };
 
 function clientScenarios(f) {
@@ -190,6 +193,18 @@ function clientScenarios(f) {
       name: 'index (full socket)',
       source: importStar(f('index.js')),
       owns: 'socket',
+      alsoPulls: ['binary'],
+    },
+    {
+      name: 'minimal client (client + connect)',
+      source: importNamed(f('index.js'), 'client', 'connect'),
+      owns: null,
+      alsoPulls: [],
+    },
+    {
+      name: 'binary',
+      source: importNamed(f('index.js'), 'client', 'connect', 'binary'),
+      owns: 'binary',
       alsoPulls: [],
     },
     { name: 'errors', source: importStar(f('errors.js')), owns: null, alsoPulls: [] },

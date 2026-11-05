@@ -169,7 +169,8 @@ export function clientRequests(
 
         onIncoming(message) {
           const correlationId = message.metadata?.exchange?.id;
-          if (typeof correlationId !== 'string') return message;
+          // A binary reply is not a JSON reply: `binary()` routes it.
+          if (typeof correlationId !== 'string' || message.bytes) return message;
 
           // A server-originated request is not a reply to our own request — let
           // the serverRequests primitive answer it, whatever order they run in. We

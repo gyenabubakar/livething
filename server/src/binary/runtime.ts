@@ -1,6 +1,6 @@
 import { CloseCodes, splitBinaryFrame } from '@livething/core';
 import { processFrame } from '~/_engine/runtime/messages.ts';
-import { binaryPayload } from '~/outgoing/runtime.ts';
+import { binaryPayload } from '~/outgoing/binary-payload.ts';
 import type { BinaryInput } from '@livething/core';
 import type { SenderEventPosition } from '~/_engine/runtime/feature-slots.ts';
 import type { FrameRuntime } from '~/_engine/runtime/messages.ts';

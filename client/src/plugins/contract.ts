@@ -1,4 +1,5 @@
 import type {
+  BinaryOf,
   ChannelsOf,
   ClientRequestsOf,
   ErrorsOf,
@@ -55,7 +56,9 @@ export type PluginSlice<TContract extends SocketContract, TId extends string> = 
   streams: PickNamespace<TId, StreamsOf<TContract>>;
   channels: PickNamespace<TId, ChannelsOf<TContract>>;
   errors: PickNamespace<TId, ErrorsOf<TContract>>;
-};
+} & (TContract extends { binary: infer TBinary }
+  ? { binary: { [TSide in keyof TBinary]: PickNamespace<TId, TBinary[TSide]> } }
+  : {});
 
 /**
  * A socket contract with the names of every *claimed* plugin removed — the plugin
@@ -73,6 +76,10 @@ export type TopLevelContract<TContract extends SocketContract, TClaimed extends 
   streams: DropClaimed<StreamsOf<TContract>, TClaimed>;
   channels: DropClaimed<ChannelsOf<TContract>, TClaimed>;
   errors: DropClaimed<ErrorsOf<TContract>, TClaimed>;
+  // Always present, `{}` when there is no binary: cheaper to check than a conditional key.
+  binary: {
+    [TSide in keyof BinaryOf<TContract>]: DropClaimed<BinaryOf<TContract>[TSide], TClaimed>;
+  };
 };
 
 /** Re-add the `__<TId>::` prefix to every key of `TMap` — the inverse of PickNamespace. */
@@ -107,4 +114,20 @@ export type NamespacedContract<P extends SocketContract, TId extends string> = R
   RequiredSection<TId, 'serverRequests', ServerRequestsOf<P>> &
   RequiredSection<TId, 'streams', StreamsOf<P>> &
   RequiredSection<TId, 'channels', ChannelsOf<P>> &
-  RequiredSection<TId, 'errors', ErrorsOf<P>>;
+  RequiredSection<TId, 'errors', ErrorsOf<P>> &
+  ('binary' extends keyof P ? RequiredBinary<TId, P['binary']> : {});
+
+/** The plugin's binary names under its prefix, or nothing when it has none. */
+type RequiredBinary<TId extends string, TBinary> = RequiredSection<
+  TId,
+  'incoming',
+  IncomingOf<TBinary>
+> &
+  RequiredSection<TId, 'outgoing', OutgoingOf<TBinary>> &
+  RequiredSection<TId, 'clientRequests', ClientRequestsOf<TBinary>> &
+  RequiredSection<TId, 'serverRequests', ServerRequestsOf<TBinary>> &
+  RequiredSection<TId, 'streams', StreamsOf<TBinary>> extends infer TSides
+  ? keyof TSides extends never
+    ? {}
+    : { binary: TSides }
+  : never;

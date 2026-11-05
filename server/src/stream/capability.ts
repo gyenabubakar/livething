@@ -2,7 +2,7 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { binaryHandlerFields } from '~/incoming/incoming.ts';
-import { binaryPayloadOf } from '~/outgoing/runtime.ts';
+import { binaryPayloadOf } from '~/outgoing/binary-payload.ts';
 import { definePrimitive } from '~/primitive.ts';
 import { registerActiveStreamOps } from '~/stream/active-ops.ts';
 import { compileStreamDef } from '~/stream/compile.ts';

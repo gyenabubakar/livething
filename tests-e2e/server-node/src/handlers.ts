@@ -1,4 +1,5 @@
 import { adminDefinition } from '@livething/tests-e2e-handlers/admin';
+import { binaryDefinition } from '@livething/tests-e2e-handlers/binary';
 import { channelCheckCommitDefinition } from '@livething/tests-e2e-handlers/channel-check-commit';
 import { channelDynamicDefinition } from '@livething/tests-e2e-handlers/channel-dynamic';
 import { channelFamilyIsolationDefinition } from '@livething/tests-e2e-handlers/channel-family-isolation';
@@ -61,6 +62,7 @@ import { pluginsDefinition } from './plugins.ts';
 export const FEATURE_DEFINITIONS: Record<string, ServerDefinition> = {
   '/ws/admin': adminDefinition,
   '/ws/incoming': incomingDefinition,
+  '/ws/binary': binaryDefinition,
   '/ws/request': requestDefinition,
   '/ws/server-request': serverRequestDefinition,
   '/ws/stream-basic': streamBasicDefinition,

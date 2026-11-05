@@ -23,6 +23,10 @@ export class MockWebSocket {
   readonly protocols?: string | string[];
   protocol = '';
   readyState = 0;
+  /** Like the browser: `'blob'` until the client asks for `'arraybuffer'`. */
+  binaryType: 'blob' | 'arraybuffer' = 'blob';
+  /** Set it by hand to test `socket.drain()`. */
+  bufferedAmount = 0;
   sent: unknown[] = [];
   closeCall?: { code: number; reason: string };
 

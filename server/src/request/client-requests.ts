@@ -2,7 +2,7 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { binaryHandlerFields } from '~/incoming/incoming.ts';
-import { binaryPayloadOf } from '~/outgoing/runtime.ts';
+import { binaryPayloadOf } from '~/outgoing/binary-payload.ts';
 import { requestRuntimePrimitive } from '~/request/registrar.ts';
 import { request as requestFactory } from '~/request/request.ts';
 import type { Capability } from '~/_define/capability.ts';

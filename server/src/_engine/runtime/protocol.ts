@@ -491,6 +491,14 @@ function fastMetadata(input: unknown): LiveThingProtocol | null | undefined {
   return metadataToLiveThing(input);
 }
 
+/**
+ * The first check on every received frame, text or a binary frame's envelope: a three-item
+ * array whose first item is a string. A frame of any other shape is dropped.
+ */
+export function isWireTuple(parsed: unknown): parsed is [string, unknown, unknown] {
+  return Array.isArray(parsed) && parsed.length === 3 && typeof parsed[0] === 'string';
+}
+
 /** Fast user-frame parser used by the gateway before Valibot's detailed error path. */
 export function parseUserEventFrame(input: unknown): ProtocolFrame {
   if (Array.isArray(input) && input.length === 3 && validString(input[0], WIRE_LIMITS.event)) {
