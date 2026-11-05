@@ -103,7 +103,7 @@ async function setup() {
     const before = new Set(engine.core.connections.keys());
     const socket = { close: (): void => {} };
     const handle = engine.accept(Symbol(userId), {
-      send(data: string) {
+      send({ text: data }: { kind: 'text'; text: string }) {
         frames.push(JSON.parse(data) as Frame);
         return true;
       },

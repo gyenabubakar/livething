@@ -1,3 +1,4 @@
+export { asUint8Array } from '@livething/core';
 export { adapter } from './adapter.ts';
 export { normalizeCloseReason } from './close.ts';
 export { isValidCloseCode } from '~/_engine/close-code.ts';
@@ -12,6 +13,7 @@ export type {
   Engine,
   EngineRuntimeOptions,
   MessageLimits,
+  TransportFrame,
   UpgradeDecision,
 } from './types.ts';
 export { ADMIN_CONTEXT_MEMBERS } from '~/admin/context.ts';

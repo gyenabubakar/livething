@@ -18,6 +18,10 @@ globalScope.WebSocketRequestResponsePair ??= class {
 export interface FakeWebSocket {
   /** `1` is open, `3` is closed, as on the Workers `WebSocket`. */
   readyState: number;
+  /** Workers' default is `'blob'` from compatibility date 2026-03-17. */
+  binaryType: 'blob' | 'arraybuffer';
+  /** The `binaryType` when `accept()` ran. */
+  binaryTypeAtAccept?: 'blob' | 'arraybuffer';
   accept: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
@@ -29,7 +33,10 @@ function makeFakeWebSocket(): FakeWebSocket {
   const listeners = new Map<string, Array<(event: unknown) => void>>();
   const ws: FakeWebSocket = {
     readyState: 1,
-    accept: vi.fn(),
+    binaryType: 'blob',
+    accept: vi.fn(() => {
+      ws.binaryTypeAtAccept = ws.binaryType;
+    }),
     send: vi.fn(),
     close: vi.fn(),
     addEventListener: vi.fn((type: string, handler: (event: unknown) => void) => {
@@ -152,6 +159,7 @@ export interface FakeEngine {
   setRestoreFailure: (error?: unknown) => void;
   connectionHandle: {
     handleMessage: ReturnType<typeof vi.fn>;
+    handleBinaryMessage: ReturnType<typeof vi.fn>;
     handleClose: ReturnType<typeof vi.fn>;
     handleError: ReturnType<typeof vi.fn>;
   };
@@ -238,6 +246,7 @@ export function makeFakeEngine(): FakeEngine {
 
   const connectionHandle: FakeEngine['connectionHandle'] = {
     handleMessage: vi.fn(async () => {}),
+    handleBinaryMessage: vi.fn(async () => {}),
     handleClose: vi.fn(async () => {}),
     handleError: vi.fn(async () => {}),
   };

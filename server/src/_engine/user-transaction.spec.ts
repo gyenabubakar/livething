@@ -661,7 +661,7 @@ function frame(event: string): string {
 
 function open(engine: Engine, frames: string[] = []) {
   return engine.accept(Symbol('ws'), {
-    send: (data: string) => frames.push(data),
+    send: ({ text }: { kind: 'text'; text: string }) => frames.push(text),
     close() {},
     bufferedAmount: () => 0,
     userId: 'alice',

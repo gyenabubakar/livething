@@ -84,7 +84,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       payload: { n: 1 },
     });
 
-    const sent = JSON.parse(send.mock.calls[0]![0] as string);
+    const sent = JSON.parse(send.mock.calls[0]![0].text as string);
     expect(sent[2].stream).toMatchObject({ seq: 3, id: 's1' });
     expect(sent[2].delivery).toBeUndefined();
 
@@ -95,7 +95,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       event: 'foo',
       payload: { n: 2 },
     });
-    expect(JSON.parse(send.mock.calls[0]![0] as string)[2].delivery.seq).toBe(999);
+    expect(JSON.parse(send.mock.calls[0]![0].text as string)[2].delivery.seq).toBe(999);
   });
 
   it('throws when payload is a primitive number', () => {
@@ -137,7 +137,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     expect(result).toBe(true);
     expect(connection.descriptor.send).toHaveBeenCalledTimes(1);
     const sent = JSON.parse(
-      (connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string,
+      (connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0].text as string,
     );
     expect(sent).toEqual(['foo', { a: 1 }, null]);
   });
@@ -155,7 +155,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       }),
     ).not.toThrow();
 
-    const sent = JSON.parse(send.mock.calls[0]![0] as string);
+    const sent = JSON.parse(send.mock.calls[0]![0].text as string);
     expect(sent).toEqual(['ping', null, { exchange: { id: 'req123', source: 'client' } }]);
   });
 
@@ -355,7 +355,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     sendThroughPipeline(runtime, connection, { routing: undefined, event: 'foo', payload: roster });
 
     const frames = vi.mocked(connection.descriptor.send).mock.calls.map(([frame]) => frame);
-    expect(frames.map((frame) => JSON.parse(frame as string)[1])).toEqual([
+    expect(frames.map((frame) => JSON.parse((frame as { text: string }).text)[1])).toEqual([
       { id: 'm1' },
       { names: ['ada'] },
     ]);
@@ -370,7 +370,7 @@ describe('broadcastToConnections — fanout resilience', () => {
       userId: id,
       wsKey: Symbol(id),
       descriptor: {
-        send,
+        send: ({ text }: { kind: 'text'; text: string }) => send(text),
         close() {},
         bufferedAmount() {
           return 0;
@@ -539,7 +539,7 @@ describe('broadcastToChannel — fanout resilience', () => {
       userId: id,
       wsKey: Symbol(id),
       descriptor: {
-        send,
+        send: ({ text }: { kind: 'text'; text: string }) => send(text),
         close() {},
         bufferedAmount() {
           return 0;
@@ -624,7 +624,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
       userId: id,
       wsKey: Symbol(id),
       descriptor: {
-        send,
+        send: ({ text }: { kind: 'text'; text: string }) => send(text),
         close() {},
         bufferedAmount() {
           return 0;
@@ -775,7 +775,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
       userId: 'A',
       wsKey: Symbol('A-tab2'),
       descriptor: {
-        send: (f: string) => sent.push(f),
+        send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
         close() {},
         bufferedAmount() {
           return 0;
@@ -1056,7 +1056,7 @@ describe('outgoing watch hook (outgoingHooks)', () => {
     });
 
     const sent = JSON.parse(
-      (connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string,
+      (connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0].text as string,
     );
     expect(sent[1]).toEqual({ a: 1 });
   });
@@ -1172,8 +1172,8 @@ describe('sendToConnections — one shared frame', () => {
       target: { kind: 'tag', tagKind: 'ephemeral', group: 'role', key: 'admin' },
     });
 
-    const frameA = (a.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0];
-    const frameB = (b.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    const frameA = (a.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0].text;
+    const frameB = (b.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0].text;
     expect(delivered).toBe(2);
     expect(stamps).toBe(1);
     expect(frameA).toBe(frameB);
@@ -1245,10 +1245,10 @@ describe('sendToConnections — one shared frame', () => {
     send.finish();
 
     const metaA = JSON.parse(
-      (a.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string,
+      (a.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0].text as string,
     )[2];
     const metaB = JSON.parse(
-      (b.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string,
+      (b.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0].text as string,
     )[2];
     expect(stamps).toBe(1);
     expect(metaA).toMatchObject({ exchange: { id: 'x1', source: 'server' }, delivery: { seq: 1 } });

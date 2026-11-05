@@ -43,7 +43,7 @@ function connect(engine: Engine, userId: string) {
 }
 
 function eventsSent(send: ReturnType<typeof vi.fn>): string[] {
-  return send.mock.calls.map(([frame]) => String(frame));
+  return send.mock.calls.map(([frame]) => String(frame.text));
 }
 
 describe('a scheduled task ctx', () => {

@@ -51,7 +51,7 @@ describe('plugin engine defect — a plugin can emit its own declared event', ()
     const connection = {
       id: 'conn_1',
       meta: {},
-      descriptor: { send: (frame: string) => sent.push(frame) },
+      descriptor: { send: ({ text }: { text: string }) => sent.push(text) },
     } as any;
 
     expect(() =>

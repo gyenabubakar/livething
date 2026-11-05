@@ -62,7 +62,7 @@ describe('a tag group broadcast', () => {
     async function open(userId: string) {
       const before = new Set(engine.core.connections.keys());
       const handle = engine.accept(Symbol(userId), {
-        send(data: string) {
+        send({ text: data }: { kind: 'text'; text: string }) {
           const frame = JSON.parse(data) as [string, unknown];
           if (frame[0] === 'news') received.push(frame[1]);
         },

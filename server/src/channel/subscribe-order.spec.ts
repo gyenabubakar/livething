@@ -160,7 +160,7 @@ describe('a channel frame sent right after its subscribe', () => {
 
     const sent: unknown[][] = [];
     const handle = engine.accept(Symbol('ada'), {
-      send: (data: string) => sent.push(JSON.parse(data) as unknown[]),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(JSON.parse(text) as unknown[]),
       close: () => {},
       bufferedAmount: () => 0,
       userId: 'ada',

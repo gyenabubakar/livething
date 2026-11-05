@@ -36,6 +36,8 @@ export const CloseCodes = Object.freeze({
   MESSAGE_TOO_BIG: 1009,
   /** Internal error — the server could not complete an operation. */
   INTERNAL_ERROR: 1011,
+  /** Try again later — the client read too slowly and its socket buffer grew too big. Reconnect. */
+  TRY_AGAIN_LATER: 1013,
   /** Authentication token expired. Client should refresh and reconnect. */
   AUTH_EXPIRED: 4001,
   /** Authentication token invalid. Don't reconnect with the same token. */

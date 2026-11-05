@@ -63,7 +63,7 @@ async function startEngine(
 async function connect(engine: Engine, userId = 'ama') {
   const sent: unknown[][] = [];
   const handle = engine.accept(Symbol(userId), {
-    send: (data: string) => sent.push(JSON.parse(data) as unknown[]),
+    send: ({ text }: { kind: 'text'; text: string }) => sent.push(JSON.parse(text) as unknown[]),
     close: () => {},
     bufferedAmount: () => 0,
     userId,

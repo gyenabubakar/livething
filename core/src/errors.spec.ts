@@ -32,6 +32,8 @@ describe('CloseCodes', () => {
     expect(CloseCodes.UNSUPPORTED_DATA).toBe(1003);
     expect(CloseCodes.INTERNAL_ERROR).toBe(1011);
 
+    expect(CloseCodes.TRY_AGAIN_LATER).toBe(1013);
+
     expect(CloseCodes.AUTH_EXPIRED).toBe(4001);
     expect(CloseCodes.AUTH_INVALID).toBe(4002);
     expect(CloseCodes.DUPLICATE).toBe(4003);

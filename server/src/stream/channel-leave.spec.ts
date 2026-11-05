@@ -111,7 +111,7 @@ async function connect(engine: Engine, userId: string) {
   const frames: Frame[] = [];
   const before = new Set(engine.core.connections.keys());
   const handle = engine.accept(Symbol(userId), {
-    send(data: string) {
+    send({ text: data }: { kind: 'text'; text: string }) {
       frames.push(JSON.parse(data) as Frame);
     },
     close() {},

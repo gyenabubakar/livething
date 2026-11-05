@@ -126,6 +126,16 @@ export interface DurableStreamService {
   ): void;
 }
 
+/**
+ * Route one binary message that is within the receive limit. Set by the capability that
+ * turns binary on. While it is unset, the engine closes the socket with `1003`.
+ */
+export type BinaryMessageDispatch = (
+  runtime: any,
+  connection: RuntimeConnection,
+  data: Uint8Array,
+) => Promise<void>;
+
 /** Execute a matched `.request(...)` handler. Set by the `serverRequests()` capability. */
 export type RequestDispatch = (
   runtime: any,

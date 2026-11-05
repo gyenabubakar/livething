@@ -49,7 +49,7 @@ export function sendProtocolMessage(
     }
   }
 
-  connection.descriptor.send(wire);
+  connection.descriptor.send({ kind: 'text', text: wire });
 }
 
 export interface SendGapOptions {
@@ -137,5 +137,5 @@ export function sendReplay(
     }
   }
 
-  connection.descriptor.send(frame);
+  connection.descriptor.send({ kind: 'text', text: frame });
 }

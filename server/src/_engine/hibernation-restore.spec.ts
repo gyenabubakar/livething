@@ -186,7 +186,7 @@ describe('hibernation restore — live delivery to a passive member', () => {
 
     const frames: string[] = [];
     const again = engine.accept(Symbol('kofi-again'), {
-      send: (data: string) => void frames.push(data),
+      send: ({ text }: { kind: 'text'; text: string }) => void frames.push(text),
       close: () => {},
       bufferedAmount: () => 0,
       userId: 'kofi',
@@ -224,7 +224,26 @@ describe('hibernation restore — live delivery to a passive member', () => {
       },
     });
 
-    expect(engine.core.connections.get('kofi')?.descriptor.send('frame')).toBe(false);
+    expect(
+      engine.core.connections.get('kofi')?.descriptor.send({ kind: 'text', text: 'frame' }),
+    ).toBe(false);
+  });
+
+  it('hands a bytes frame to a restored socket as the bytes themselves', async () => {
+    const storage = { sql: createTestSql(), kv: createTestKV() };
+    const engine = buildEngine(storage);
+    await engine.initialize();
+
+    const kofi = hibernatedSocket('kofi');
+    const sent: unknown[] = [];
+    Object.assign(kofi.ws, { send: (data: unknown) => void sent.push(data) });
+    await engine.restoreHibernatedConnections([kofi.ws]);
+    const bytes = new Uint8Array([1, 2, 3]);
+
+    engine.core.connections.get('kofi')?.descriptor.send({ kind: 'bytes', bytes });
+
+    expect(sent).toEqual([bytes]);
+    expect(sent[0]).toBe(bytes);
   });
 
   it('rejects boot restore failures instead of leaving an unobserved wake promise', async () => {

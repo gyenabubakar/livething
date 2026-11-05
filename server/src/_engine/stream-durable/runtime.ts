@@ -190,7 +190,7 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
 
     let sent: unknown;
     try {
-      sent = connection.descriptor.send(wire);
+      sent = connection.descriptor.send({ kind: 'text', text: wire });
     } catch (error) {
       // A stored chunk over the send limit would fail every resend. Skip it: the client sees
       // the gap and fails the stream with StreamCorrupted, instead of it never ending.

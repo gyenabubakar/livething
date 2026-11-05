@@ -46,7 +46,7 @@ async function start(definition: ServerDefinition) {
   const sent: unknown[][] = [];
   const raw: string[] = [];
   const handle = engine.accept(Symbol('ama'), {
-    send: (data: string) => {
+    send: ({ text: data }: { kind: 'text'; text: string }) => {
       raw.push(data);
       if (data !== 'pong') sent.push(JSON.parse(data) as unknown[]);
     },

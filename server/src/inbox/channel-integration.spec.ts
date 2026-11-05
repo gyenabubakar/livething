@@ -348,8 +348,8 @@ function reconnectAndAck(engine: Engine, userId: string): string[] {
     id: `${userId}-socket`,
     userId,
     descriptor: {
-      send: (frame: string) => {
-        const [event, payload, meta] = JSON.parse(frame) as [
+      send: ({ text }: { kind: 'text'; text: string }) => {
+        const [event, payload, meta] = JSON.parse(text) as [
           string,
           { text: string },
           { delivery?: { seq: number } } | null,
@@ -431,7 +431,7 @@ async function connectAs(engine: Engine, userId: string) {
   const frames: ChatFrame[] = [];
   const before = new Set(engine.core.connections.keys());
   const handle = engine.accept(Symbol(userId), {
-    send: (data: string) => frames.push(JSON.parse(data) as ChatFrame),
+    send: ({ text }: { kind: 'text'; text: string }) => frames.push(JSON.parse(text) as ChatFrame),
     close() {},
     bufferedAmount: () => 0,
     userId,

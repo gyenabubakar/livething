@@ -397,8 +397,8 @@ describe('connection runtime', () => {
       },
       Symbol('ws-a'),
       {
-        send(data: string) {
-          sent.push(data);
+        send({ text }: { kind: 'text'; text: string }) {
+          sent.push(text);
         },
         close() {},
         bufferedAmount() {

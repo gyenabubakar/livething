@@ -1,4 +1,5 @@
 import { upgradeWebSocket } from '@hono/node-server';
+import { asUint8Array } from '@livething/server/adapters';
 import { WebSocketServer } from 'ws';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type { MiddlewareHandler } from 'hono';
@@ -7,7 +8,7 @@ import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
 import { resolveMaxMessageBytes } from '../../endpoint.ts';
-import { sendWhenOpen } from '../../socket.ts';
+import { frameData, sendWhenOpen } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { isNodeWebSocketUpgrade, isWebSocketUpgrade } from '../../upgrade.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions } from '../../binding.ts';
@@ -107,8 +108,10 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
             try {
               const rawSocket = socket.raw as WebSocket;
               const connection = upgrade.accept({
-                send: (data) => sendWhenOpen(rawSocket.readyState, () => socket.send(data)),
+                send: (frame) =>
+                  sendWhenOpen(rawSocket.readyState, () => socket.send(frameData(frame))),
                 close: (code, reason) => socket.close(code, reason),
+                terminate: () => rawSocket.terminate(),
                 bufferedAmount: () => rawSocket.bufferedAmount,
                 backpressureSupported: true,
               });
@@ -119,7 +122,9 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
           },
           onMessage(event, socket) {
             if (typeof event.data !== 'string') {
-              closeWebSocket(socket, 1003, '[livething] binary frames are not supported yet');
+              // @hono/node-server hands a binary message over as an ArrayBuffer, never a Blob.
+              const bytes = asUint8Array(event.data as ArrayBuffer);
+              void connections.get(socket)?.binaryMessage(bytes);
               return;
             }
 

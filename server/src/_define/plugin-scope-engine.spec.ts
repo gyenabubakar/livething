@@ -50,7 +50,7 @@ function settle(): Promise<void> {
 async function open(engine: Engine, userId: string): Promise<OpenSocket> {
   const frames: WireFrame[] = [];
   const handle = engine.accept(Symbol(userId), {
-    send: (data: string) => {
+    send: ({ text: data }: { kind: 'text'; text: string }) => {
       frames.push(JSON.parse(data) as WireFrame);
     },
     close() {},

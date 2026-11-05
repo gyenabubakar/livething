@@ -44,7 +44,7 @@ async function start(definition: ServerDefinition) {
   function connect(userId: string) {
     const frames: Frame[] = [];
     const handle = engine!.accept(Symbol(userId), {
-      send: (data: string) => frames.push(JSON.parse(data) as Frame),
+      send: ({ text }: { kind: 'text'; text: string }) => frames.push(JSON.parse(text) as Frame),
       close() {},
       bufferedAmount: () => 0,
       userId,

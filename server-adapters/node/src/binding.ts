@@ -20,6 +20,8 @@ export type { ConnectionTransport } from './socket.ts';
 /** Forwards lifecycle events from an accepted transport to LiveThing. */
 export interface NodeConnection {
   message(data: string): Promise<void>;
+  /** A binary message, as a plain `Uint8Array` view of its bytes. */
+  binaryMessage(data: Uint8Array): Promise<void>;
   close(code: number, reason: string): Promise<void>;
   error(error: unknown): Promise<void>;
 }
@@ -160,6 +162,7 @@ function toNodeUpgrade<TAdmin>(
 function toNodeConnection(connection: ConnectionHandle): NodeConnection {
   return {
     message: connection.handleMessage,
+    binaryMessage: connection.handleBinaryMessage,
     close: connection.handleClose,
     error: connection.handleError,
   };

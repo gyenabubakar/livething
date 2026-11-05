@@ -296,8 +296,8 @@ export function sendThroughPipeline(
     }
   }
 
-  const sent =
-    connection.descriptor.send(serializeWireFrame(event, wirePayload, livething)) !== false;
+  const text = serializeWireFrame(event, wirePayload, livething);
+  const sent = connection.descriptor.send({ kind: 'text', text }) !== false;
   if (recorded) runAfterBroadcastHooks(runtime, recorded);
 
   notifyOutgoing(runtime, {
@@ -455,7 +455,7 @@ function sendPrepared(
 ): boolean {
   if (connection.purged) return false;
 
-  return connection.descriptor.send(sharedFrame(prepared)) !== false;
+  return connection.descriptor.send({ kind: 'text', text: sharedFrame(prepared) }) !== false;
 }
 
 function notifyPrepared(
@@ -514,7 +514,7 @@ function openPreparedSend(
             ...extra,
           })
         : sharedFrame(prepared);
-      const sent = connection.descriptor.send(frame) !== false;
+      const sent = connection.descriptor.send({ kind: 'text', text: frame }) !== false;
       if (sent) recipients += 1;
 
       return sent;

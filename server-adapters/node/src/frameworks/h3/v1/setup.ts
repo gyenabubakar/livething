@@ -1,8 +1,9 @@
 import type { ServerDefinition } from '@livething/server/adapters';
+import type { RawData } from 'ws';
 import { binding } from '../../../binding.ts';
 import { closeWebSocket } from '../../../close.ts';
-import { sendWhenOpen } from '../../../socket.ts';
-import { invalidUpgradeResponse, isWebSocketUpgrade } from '../../../upgrade.ts';
+import { frameData, sendWhenOpen } from '../../../socket.ts';
+import { invalidUpgradeResponse, isWebSocketUpgrade, rawDataToBytes } from '../../../upgrade.ts';
 import { createWebUpgradeLifecycle } from '../../../web-upgrade-lifecycle.ts';
 import type {
   NodeAdmin,
@@ -32,6 +33,7 @@ interface H3V1Peer {
   readonly websocket: Partial<H3V1WebSocket>;
   send(data: unknown): unknown;
   close(code?: number, reason?: string): void;
+  terminate(): void;
 }
 
 interface H3V1Hooks {
@@ -142,8 +144,10 @@ export function createH3V1Setup<THandler>(
 
           try {
             const connection = upgrade.accept({
-              send: (data) => sendWhenOpen(websocket.readyState, () => peer.send(data)),
+              send: (frame) =>
+                sendWhenOpen(websocket.readyState, () => peer.send(frameData(frame))),
               close: (code, reason) => peer.close(code, reason),
+              terminate: () => peer.terminate(),
               bufferedAmount: () => websocket.bufferedAmount ?? 0,
               backpressureSupported: typeof websocket.bufferedAmount === 'number',
             });
@@ -151,7 +155,9 @@ export function createH3V1Setup<THandler>(
 
             websocket.addEventListener('message', (event) => {
               if (typeof event.data !== 'string') {
-                closeWebSocket(peer, 1003, '[livething] binary frames are not supported yet');
+                // The ws socket under crossws 0.3 hands a binary message over as a Buffer.
+                const bytes = rawDataToBytes(event.data as RawData);
+                void connections.get(peer)?.binaryMessage(bytes);
                 return;
               }
 

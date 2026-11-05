@@ -49,7 +49,7 @@ it('does not re-run onOutgoing for a send made inside onOutgoing', async () => {
   const frames: string[] = [];
   const before = new Set(engine.core.connections.keys());
   const handle = engine.accept(Symbol('alice'), {
-    send: (data: string) => {
+    send: ({ text: data }: { kind: 'text'; text: string }) => {
       frames.push(data);
     },
     close() {},

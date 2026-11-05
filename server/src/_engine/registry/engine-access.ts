@@ -306,7 +306,7 @@ export function createEngineAccess(
       const connection = core.connections.get(connectionId);
       if (!connection) return false;
 
-      return connection.descriptor.send('ping') !== false;
+      return connection.descriptor.send({ kind: 'text', text: 'ping' }) !== false;
     },
     setConnectionLatency: (connectionId, latency, quality) => {
       const connection = core.connections.get(connectionId);

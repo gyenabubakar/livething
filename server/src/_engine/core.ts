@@ -117,6 +117,7 @@ export class EngineCore {
   streamChannelLeave?: FeatureSlots.StreamChannelLeave;
   durableStream?: FeatureSlots.DurableStreamService;
   requestDispatch?: FeatureSlots.RequestDispatch;
+  binaryMessageDispatch?: FeatureSlots.BinaryMessageDispatch;
   buildTagsApi?: FeatureSlots.BuildTagsApi;
   channelMembershipService?: FeatureSlots.ChannelMembershipService;
   tagPersistenceService?: FeatureSlots.TagPersistenceService;
@@ -331,7 +332,7 @@ export class EngineCore {
    * pings is what `keepalive()` owns, answering them is not.
    */
   private replyPong(connectionId: string): void {
-    this.connections.get(connectionId)?.descriptor.send('pong');
+    this.connections.get(connectionId)?.descriptor.send({ kind: 'text', text: 'pong' });
   }
 
   setInstanceId(id: string): void {

@@ -92,7 +92,7 @@ describe('rateLimit primitive', () => {
 
     const sent: string[] = [];
     const handle = engine.accept(Symbol('alice'), {
-      send: (data: string) => sent.push(data),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
       close() {},
       bufferedAmount: () => 0,
       userId: 'alice',

@@ -1,3 +1,4 @@
+import { asUint8Array } from '@livething/server/adapters';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type {
   defineWebSocketHandler as H3DefineWebSocketHandler,
@@ -7,7 +8,7 @@ import type {
 import type { IncomingMessage } from 'node:http';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
-import { sendWhenOpen } from '../../socket.ts';
+import { frameData, sendWhenOpen } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { invalidUpgradeResponse, isWebSocketUpgrade } from '../../upgrade.ts';
 import { createWebUpgradeLifecycle } from '../../web-upgrade-lifecycle.ts';
@@ -120,8 +121,10 @@ export function createH3Setup<THandler>(
 
             try {
               const connection = upgrade.accept({
-                send: (data) => sendWhenOpen(peer.websocket.readyState, () => peer.send(data)),
+                send: (frame) =>
+                  sendWhenOpen(peer.websocket.readyState, () => peer.send(frameData(frame))),
                 close: (code, reason) => peer.close(code, reason),
+                terminate: () => peer.terminate(),
                 bufferedAmount: () => peer.bufferedAmount,
                 backpressureSupported: true,
               });
@@ -133,7 +136,9 @@ export function createH3Setup<THandler>(
 
           message(peer, message) {
             if (typeof message.rawData !== 'string') {
-              closeWebSocket(peer, 1003, '[livething] binary frames are not supported yet');
+              // crossws hands a binary message over as a ws Buffer, or an ArrayBuffer.
+              const bytes = asUint8Array(message.rawData as Buffer | ArrayBuffer);
+              void connections.get(peer)?.binaryMessage(bytes);
               return;
             }
 

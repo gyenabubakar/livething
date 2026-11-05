@@ -1,5 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter, isValidCloseCode, normalizeCloseReason } from '@livething/server/adapters';
+import {
+  adapter,
+  asUint8Array,
+  isValidCloseCode,
+  normalizeCloseReason,
+} from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
 import { DurableObject } from 'cloudflare:workers';
 import type {
@@ -8,6 +13,7 @@ import type {
   EngineRuntimeOptions,
   Logger,
   ServerDefinition,
+  TransportFrame,
 } from '@livething/server/adapters';
 import { buildAdmin } from './admin.ts';
 import { createPlatform } from './platform.ts';
@@ -154,10 +160,10 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
         let closed = false;
         return {
           // workerd throws on send() after close; report a refused frame instead.
-          send: (data: string) => {
+          send: (frame: TransportFrame) => {
             if (socket.readyState !== WEB_SOCKET_OPEN) return false;
 
-            socket.send(data);
+            socket.send(frame.kind === 'text' ? frame.text : frame.bytes);
             return true;
           },
           close: (code?: number, reason?: string) => {
@@ -180,7 +186,7 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           if (typeof event.data === 'string') {
             connection.handleMessage(event.data);
           } else {
-            closeBinaryFrame(socket);
+            connection.handleBinaryMessage(asUint8Array(event.data));
           }
         });
         socket.addEventListener('close', (event) => {
@@ -216,6 +222,9 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
         if (hibernating) {
           this.ctx.acceptWebSocket(server);
         } else {
+          // From compatibility date 2026-03-17 a standard socket gives binary as a Blob, which
+          // the engine cannot read in step. Hibernation's webSocketMessage always gets an ArrayBuffer.
+          server.binaryType = 'arraybuffer';
           server.accept();
         }
 
@@ -252,7 +261,7 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           return;
         }
 
-        closeBinaryFrame(ws);
+        await connection.handleBinaryMessage(asUint8Array(message));
       }
 
       async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -350,10 +359,6 @@ function answerClientClose(ws: WebSocket, code: number, reason: string): void {
   } else {
     ws.close();
   }
-}
-
-function closeBinaryFrame(socket: WebSocket): void {
-  socket.close(CloseCodes.UNSUPPORTED_DATA, '[livething] binary frames are not supported yet');
 }
 
 /**

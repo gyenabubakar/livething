@@ -44,7 +44,7 @@ function settle(): Promise<void> {
 async function open(engine: Engine, userId: string, refuseFrames = false): Promise<OpenSocket> {
   const frames: string[] = [];
   const handle = engine.accept(Symbol(userId), {
-    send: (data: string) => {
+    send: ({ text: data }: { kind: 'text'; text: string }) => {
       if (refuseFrames) return false;
 
       frames.push(data);

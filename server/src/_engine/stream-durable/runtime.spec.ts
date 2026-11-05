@@ -96,8 +96,8 @@ function wireChunks(
   connection: RuntimeConnection,
 ): { event: string; __livething: Record<string, unknown> }[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((connection.descriptor.send as any).mock.calls as [string][]).map(([wire]) => {
-    const [event, , metadata] = JSON.parse(wire) as [
+  return ((connection.descriptor.send as any).mock.calls as [{ text: string }][]).map(([wire]) => {
+    const [event, , metadata] = JSON.parse(wire.text) as [
       string,
       unknown,
       Record<string, unknown> | null,

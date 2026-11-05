@@ -64,7 +64,7 @@ it('ctx.channel.request with { to } checks that one member without building the 
     const frames: string[] = [];
     const before = new Set(engine.core.connections.keys());
     const handle = engine.accept(Symbol(userId), {
-      send: (data: string) => {
+      send: ({ text: data }: { kind: 'text'; text: string }) => {
         frames.push(data);
       },
       close() {},

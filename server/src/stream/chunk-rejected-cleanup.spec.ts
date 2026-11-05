@@ -28,7 +28,7 @@ async function startStream(definition: ServerDefinition, event: string): Promise
   await engine!.initialize();
   const sent: string[] = [];
   const handle = engine!.accept(Symbol('alice'), {
-    send: (message: string) => sent.push(message),
+    send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
     close() {},
     bufferedAmount: () => 0,
     userId: 'alice',

@@ -528,6 +528,14 @@ function buildConnectionRuntime(core: EngineCore) {
     processTextMessage: (connection: RuntimeConnection, data: string) =>
       EngineMessageRuntime.processTextMessage(dispatchRuntime(core), connection, data),
 
+    get processBinaryMessage() {
+      const dispatch = core.binaryMessageDispatch;
+      if (!dispatch) return undefined;
+
+      return (connection: RuntimeConnection, data: Uint8Array) =>
+        dispatch(dispatchRuntime(core), connection, data);
+    },
+
     handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) =>
       handleConnectionClose(core, { connection, code, reason }),
 

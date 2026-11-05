@@ -9,8 +9,8 @@ import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import * as v from 'valibot';
-import { describe, expect, it, vi } from 'vitest';
-import type { EngineRuntimeOptions } from '~/_adapters/types.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EngineRuntimeOptions, TransportFrame } from '~/_adapters/types.ts';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 
@@ -41,15 +41,22 @@ function build(
   return { engine, errors };
 }
 
-async function connect(engine: Engine) {
+function frameText(frame: TransportFrame): string {
+  if (frame.kind !== 'text') throw new Error('expected a text frame');
+
+  return frame.text;
+}
+
+async function connect(engine: Engine, userId = 'ama', buffered = () => 0) {
   await engine.initialize();
   const sent: string[] = [];
   const closes: { code?: number; reason?: string }[] = [];
-  const handle = engine.accept(Symbol('ama'), {
-    send: (data: string) => sent.push(data),
+  const handle = engine.accept(Symbol(userId), {
+    send: (frame: TransportFrame) => sent.push(frameText(frame)),
     close: (code?: number, reason?: string) => closes.push({ code, reason }),
-    bufferedAmount: () => 0,
-    userId: 'ama',
+    bufferedAmount: buffered,
+    backpressureSupported: true,
+    userId,
   });
   await [...engine.core.connections.values()].at(-1)!.lifecycleReady;
 
@@ -117,6 +124,58 @@ describe('the receive limit', () => {
   });
 });
 
+describe('a binary message', () => {
+  function postServer(posts: string[]) {
+    const base = server({});
+    const post = base.on('post-message', {
+      input: v.object({ text: v.string() }),
+      run(_ctx, input) {
+        posts.push(input.text);
+      },
+    });
+    return base.assemble({ handlers: [post] });
+  }
+
+  it('closes the socket with 1009 when it is over receiveBytes', async () => {
+    const { engine } = build(postServer([]), { receiveBytes: 100, sendBytes: 100 });
+    const { handle, closes } = await connect(engine);
+
+    await handle.handleBinaryMessage(new Uint8Array(101));
+
+    expect(closes).toEqual([{ code: CloseCodes.MESSAGE_TOO_BIG, reason: 'Message is too big' }]);
+  });
+
+  it('closes the socket with 1003 while no capability takes binary frames', async () => {
+    const { engine } = build(postServer([]), { receiveBytes: 100, sendBytes: 100 });
+    const { handle, closes } = await connect(engine);
+
+    await handle.handleBinaryMessage(new Uint8Array(100));
+
+    expect(closes).toEqual([
+      {
+        code: CloseCodes.UNSUPPORTED_DATA,
+        reason: '[livething] binary frames are not supported yet',
+      },
+    ]);
+  });
+
+  it.each([10, 1000])(
+    'runs no handler for a frame that arrives while the close for %i bytes completes',
+    async (size) => {
+      const posts: string[] = [];
+      const { engine } = build(postServer(posts), { receiveBytes: 100, sendBytes: 100 });
+      const { handle, closes } = await connect(engine);
+
+      await handle.handleBinaryMessage(new Uint8Array(size));
+      await handle.handleBinaryMessage(new Uint8Array(10));
+      await handle.handleMessage(JSON.stringify(['post-message', { text: 'small' }, null]));
+
+      expect(posts).toEqual([]);
+      expect(closes).toHaveLength(1);
+    },
+  );
+});
+
 describe('the send limit', () => {
   it('throws instead of sending a message over sendBytes', async () => {
     const base = server({ capabilities: [emits({ 'history-loaded': t<{ text: string }>() })] });
@@ -142,6 +201,214 @@ describe('the send limit', () => {
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]).toMatch(/over the send limit of 100 bytes/);
     expect(sent.some((data) => data.includes('history-loaded'))).toBe(false);
+  });
+});
+
+describe('a member whose socket buffer is over twice sendBytes', () => {
+  function chatServer(disconnects: (number | undefined)[] = []) {
+    const base = server({
+      capabilities: [emits({ 'message-posted': t<{ text: string }>() })],
+      onDisconnect(ctx) {
+        disconnects.push(ctx.closeCode);
+      },
+    });
+    const handlePost = base.on('post-message', {
+      input: v.object({ text: v.string() }),
+      run(ctx, input) {
+        ctx.broadcast('message-posted', { text: input.text });
+      },
+    });
+    return base.assemble({ handlers: [handlePost] });
+  }
+
+  function posted(sent: string[]): string[] {
+    return sent.filter((data) => data.includes('message-posted'));
+  }
+
+  async function post(engine: Engine, text: string): Promise<void> {
+    const { handle } = await connect(engine, 'ama');
+    await handle.handleMessage(JSON.stringify(['post-message', { text }, null]));
+  }
+
+  let skew = 0;
+
+  // The check reads the monotonic clock, so the tests move `performance.now()` on.
+  beforeEach(() => {
+    skew = 0;
+    const realNow = performance.now.bind(performance);
+    vi.spyOn(performance, 'now').mockImplementation(() => realNow() + skew);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function later(ms: number): void {
+    skew += ms;
+  }
+
+  it('is closed with 1013 once its buffer stayed over the limit for 10 seconds, and the others still get the broadcast', async () => {
+    const { engine } = build(chatServer(), { receiveBytes: 1000, sendBytes: 1000 });
+    const kofi = await connect(engine, 'kofi', () => 2001);
+    const amara = await connect(engine, 'amara');
+
+    await post(engine, 'hi');
+    later(10_001);
+    await post(engine, 'again');
+    await post(engine, 'third');
+
+    expect(posted(kofi.sent)).toHaveLength(1);
+    expect(kofi.closes).toEqual([
+      { code: CloseCodes.TRY_AGAIN_LATER, reason: expect.stringMatching(/^\[livething\] /) },
+    ]);
+    expect(posted(amara.sent)).toHaveLength(3);
+    expect(amara.closes).toEqual([]);
+  });
+
+  it('is not closed while its buffer has been over the limit for less than 10 seconds', async () => {
+    const { engine } = build(chatServer(), { receiveBytes: 1000, sendBytes: 1000 });
+    const kofi = await connect(engine, 'kofi', () => 1_000_000);
+
+    await post(engine, 'hi');
+    later(9_999);
+    await post(engine, 'again');
+
+    expect(posted(kofi.sent)).toHaveLength(2);
+    expect(kofi.closes).toEqual([]);
+  });
+
+  it('runs no handler for a frame that arrives after the 1013 close', async () => {
+    const { engine } = build(chatServer(), { receiveBytes: 1000, sendBytes: 1000 });
+    const kofi = await connect(engine, 'kofi', () => 2001);
+    const amara = await connect(engine, 'amara');
+    await post(engine, 'hi');
+    later(10_001);
+
+    await post(engine, 'again');
+
+    await kofi.handle.handleMessage(JSON.stringify(['post-message', { text: 'late' }, null]));
+
+    expect(kofi.closes.map((close) => close.code)).toEqual([CloseCodes.TRY_AGAIN_LATER]);
+    expect(posted(amara.sent)).toHaveLength(2);
+  });
+
+  it('is still sent to when the buffer is exactly twice sendBytes', async () => {
+    const { engine } = build(chatServer(), { receiveBytes: 1000, sendBytes: 1000 });
+    const kofi = await connect(engine, 'kofi', () => 2000);
+
+    await post(engine, 'hi');
+
+    expect(posted(kofi.sent)).toHaveLength(1);
+    expect(kofi.closes).toEqual([]);
+  });
+
+  it('is never closed when its platform does not report buffer pressure', async () => {
+    const { engine } = build(chatServer(), { receiveBytes: 1000, sendBytes: 1000 });
+    await engine.initialize();
+    const sent: string[] = [];
+    const closes: unknown[] = [];
+    engine.accept(Symbol('kofi'), {
+      send: (frame: TransportFrame) => sent.push(frameText(frame)),
+      close: (code?: number) => closes.push(code),
+      bufferedAmount: () => 1_000_000,
+      userId: 'kofi',
+    });
+
+    await [...engine.core.connections.values()].at(-1)!.lifecycleReady;
+
+    await post(engine, 'hi');
+
+    expect(posted(sent)).toHaveLength(1);
+    expect(closes).toEqual([]);
+  });
+});
+
+describe('the slow-member check during a burst of sends', () => {
+  function row(seq: number) {
+    return {
+      channelName: null,
+      channelFamily: null,
+      event: 'message-posted',
+      payload: { text: 'x'.repeat(60) },
+      wire: { deliverySeq: seq, messageId: `m${seq}` },
+    };
+  }
+
+  // A socket that never drains: everything written stays in its buffer.
+  async function stalledClient(engine: Engine) {
+    // `client` is set once `connect` returns; the engine may read the buffer before that.
+    const client: Awaited<ReturnType<typeof connect>> = await connect(
+      engine,
+      'kofi',
+      () => client?.sent.join('').length ?? 0,
+    );
+    const connection = [...engine.core.connections.values()].at(-1)!;
+
+    return { ...client, connection };
+  }
+
+  it('delivers a long replay far over the limit, and the sends on the next turn too', async () => {
+    const { engine } = build(server({}).assemble({ handlers: [] }), {
+      receiveBytes: 1000,
+      sendBytes: 1000,
+    });
+    const kofi = await stalledClient(engine);
+
+    for (let seq = 1; seq <= 40; seq += 1) sendReplay(engine.core, kofi.connection, row(seq));
+    await macrotask();
+    sendReplay(engine.core, kofi.connection, row(41));
+
+    expect(kofi.sent.filter((data) => data.includes('message-posted'))).toHaveLength(41);
+    expect(kofi.closes).toEqual([]);
+  });
+});
+
+describe('a slow member that does not read the 1013 close', () => {
+  it('is terminated after one second, and its close cleanup runs once', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    try {
+      const disconnects: (number | undefined)[] = [];
+      const base = server({
+        capabilities: [emits({ 'message-posted': t<{ text: string }>() })],
+        onDisconnect(ctx) {
+          disconnects.push(ctx.closeCode);
+        },
+      });
+      const { engine } = build(base.assemble({ handlers: [] }), {
+        receiveBytes: 1000,
+        sendBytes: 1000,
+      });
+      await engine.initialize();
+      const terminate = vi.fn();
+
+      const handle = engine.accept(Symbol('kofi'), {
+        send: () => true,
+        close: () => {},
+        terminate,
+        bufferedAmount: () => 5000,
+        backpressureSupported: true,
+        userId: 'kofi',
+      });
+      const connection = [...engine.core.connections.values()].at(-1)!;
+      await connection.lifecycleReady;
+
+      expect(connection.descriptor.send({ kind: 'text', text: 'hi' })).toBe(true);
+      vi.advanceTimersByTime(10_001);
+      expect(connection.descriptor.send({ kind: 'text', text: 'hi' })).toBe(false);
+      vi.advanceTimersByTime(999);
+      expect(terminate).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
+      expect(terminate).toHaveBeenCalledTimes(1);
+
+      // The platform may report both the drop and the graceful close.
+      await Promise.all([handle.handleClose(1006, ''), handle.handleClose(1013, '')]);
+
+      expect(disconnects).toEqual([1006]);
+      expect(engine.core.connections.has(connection.id)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

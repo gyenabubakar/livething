@@ -646,7 +646,7 @@ describe('a recorded stream chunk that does not stay an object in JSON', () => {
     const sent: string[] = [];
 
     const handle = engine.accept(Symbol('alice'), {
-      send: (message: string) => sent.push(message),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
       close() {},
       bufferedAmount: () => 0,
       userId: 'alice',
@@ -693,7 +693,7 @@ describe('a stream that yields a value that is not an object or null', () => {
     await engine!.initialize();
     const sent: string[] = [];
     const handle = engine!.accept(Symbol('alice'), {
-      send: (message: string) => sent.push(message),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
       close() {},
       bufferedAmount: () => 0,
       userId: 'alice',
@@ -827,7 +827,7 @@ describe('context inside a plugin', () => {
     await engine.initialize();
     const sent: string[] = [];
     const handle = engine.accept(Symbol('alice'), {
-      send: (message: string) => sent.push(message),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
       close() {},
       bufferedAmount: () => 0,
       userId: 'alice',
@@ -981,7 +981,7 @@ describe('context inside a plugin', () => {
     await engine.initialize();
     const sent: string[] = [];
     const handle = engine.accept(Symbol('alice'), {
-      send: (message: string) => sent.push(message),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
       close() {},
       bufferedAmount: () => 0,
       userId: 'alice',
