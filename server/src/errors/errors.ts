@@ -22,6 +22,7 @@ export {
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,
+  WrongFrameKind,
 } from '@livething/core';
 export type { ErrorDef, ErrorDefWithFactory } from '@livething/core';
 

@@ -1,0 +1,202 @@
+/* oxlint-disable no-unused-vars */
+/**
+ * Compile-time checks for `binary()`: the declarations, the `binary.on` handlers, the
+ * `.binary` senders and their info types, and the binary keys `InferClient` carries.
+ */
+import { t } from '~/_api/definitions.ts';
+import { plugin } from '~/_define/plugins.ts';
+import { server } from '~/_define/server.ts';
+import { binary } from '~/binary/capability.ts';
+import { channels } from '~/channel/capability.ts';
+import { emits } from '~/emits/emits.ts';
+import { tags } from '~/tags/capability.ts';
+import * as v from 'valibot';
+import { expectTypeOf } from 'vitest';
+import type { InferPluginClient } from '~/_define/plugins.ts';
+import type { InferClient } from '~/infer-client.ts';
+
+const base = server({
+  capabilities: [
+    binary({ emits: { 'avatar-preview': t<null>(), 'avatar-cropped': t<{ width: number }>() } }),
+    emits({ 'avatar-saved': t<{ userId: string }>() }),
+    channels(),
+    tags((ephemeral) => [ephemeral('team', t<string>())]),
+  ],
+});
+
+const rooms = base.channel(['rooms', 'room:{roomId}'], {
+  capabilities: [
+    binary({ emits: { 'screen-frame': t<{ from: string }>() } }),
+    emits({ 'screen-share-started': t<{ from: string }>() }),
+  ],
+});
+
+const handleUploadAvatar = base.binary.on('upload-avatar', {
+  input: v.object({ fileType: v.picklist(['image/png', 'image/jpeg']) }),
+  maxBytes: 2 * 1024 * 1024,
+  run(ctx, input, bytes) {
+    expectTypeOf(input).toEqualTypeOf<{ fileType: 'image/png' | 'image/jpeg' }>();
+    expectTypeOf(bytes).toEqualTypeOf<Uint8Array>();
+
+    expectTypeOf(ctx.binary.send('avatar-preview', null, bytes)).toEqualTypeOf<boolean>();
+    ctx.binary.send('avatar-cropped', { width: 64 }, bytes.buffer as ArrayBuffer);
+    ctx.binary.send('avatar-preview', null);
+    // @ts-expect-error: the info of 'avatar-preview' is null
+    ctx.binary.send('avatar-preview', { width: 64 }, bytes);
+    // @ts-expect-error: 'avatar-saved' is a JSON event, not a binary one
+    ctx.binary.send('avatar-saved', { userId: 'u_amara' }, bytes);
+    // @ts-expect-error: 'avatar-preview' is a binary event, not a JSON one
+    ctx.send('avatar-preview', null);
+    // @ts-expect-error: the bytes must be a Uint8Array or an ArrayBuffer
+    ctx.binary.send('avatar-preview', null, 'bytes');
+
+    expectTypeOf(
+      ctx.binary.broadcast('avatar-preview', null, bytes, { includeSelf: true }),
+    ).toEqualTypeOf<void>();
+    expectTypeOf(ctx.user.binary.broadcast('avatar-preview', null, bytes)).toEqualTypeOf<number>();
+    expectTypeOf(
+      ctx.connections.get(ctx.connection).binary.send('avatar-preview', null, bytes),
+    ).toEqualTypeOf<boolean>();
+    ctx.users.get('u_kofi').binary.broadcast('avatar-preview', null, bytes);
+    ctx.tags.ephemeral('team').binary.broadcast('avatar-preview', null, bytes);
+
+    ctx.tags.ephemeral('team').ref('design').binary.broadcast('avatar-preview', null, bytes);
+
+    const design = ctx.channels.get(rooms.at({ roomId: 'design' }));
+    design.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+    // @ts-expect-error: 'screen-frame' needs its info
+    design.binary.broadcast('screen-frame', null, bytes);
+    // @ts-expect-error: the channel's binary events are not JSON events
+    design.broadcast('screen-frame', { from: ctx.user.id });
+    design.broadcast('screen-share-started', { from: ctx.user.id });
+  },
+});
+
+const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
+  input: v.null(),
+  run(ctx, input, bytes) {
+    expectTypeOf(input).toEqualTypeOf<null>();
+    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+    expectTypeOf(
+      ctx.channel.binary.broadcastTo(ctx.connection, 'screen-frame', { from: 'u_amara' }, bytes),
+    ).toEqualTypeOf<number>();
+    expectTypeOf(
+      ctx.channel.binary.send('screen-frame', { from: 'u_amara' }, bytes),
+    ).toEqualTypeOf<number>();
+    // @ts-expect-error: 'avatar-preview' belongs to the root, not to the channel
+    ctx.channel.binary.broadcast('avatar-preview', null, bytes);
+  },
+});
+
+const handleRenameRoom = rooms.on('rename-room', {
+  run(ctx) {
+    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id });
+  },
+});
+
+// A binary handler with no input gets `unknown` info.
+const handleSendSticker = base.binary.on('send-sticker', {
+  run(_ctx, input, bytes) {
+    expectTypeOf(input).toEqualTypeOf<unknown>();
+    expectTypeOf(bytes).toEqualTypeOf<Uint8Array>();
+  },
+});
+
+export const huddle = base.assemble({
+  handlers: [handleUploadAvatar, handleShareScreenFrame, handleRenameRoom, handleSendSticker],
+  api: (ctx) => {
+    ctx.binary.broadcast('avatar-preview', null, new Uint8Array(4));
+    ctx.channels.get(rooms.at({ roomId: 'design' })).binary.broadcast('screen-frame', {
+      from: 'admin',
+    });
+    ctx.channels.binary.broadcast({ family: 'rooms', name: 'room:design' }, 'screen-frame', {
+      from: 'admin',
+    });
+    return {};
+  },
+});
+
+type HuddleClient = InferClient<typeof huddle>;
+
+expectTypeOf<HuddleClient['binary']>().toEqualTypeOf<{
+  incoming: { 'avatar-preview': null; 'avatar-cropped': { width: number } };
+  outgoing: {
+    'upload-avatar': { fileType: 'image/png' | 'image/jpeg' };
+    'send-sticker': unknown;
+  };
+}>();
+expectTypeOf<HuddleClient['channels']['rooms']['binary']>().toEqualTypeOf<{
+  incoming: { 'screen-frame': { from: string } };
+  outgoing: { 'share-screen-frame': null };
+}>();
+expectTypeOf<HuddleClient['incoming']>().toEqualTypeOf<{ 'avatar-saved': { userId: string } }>();
+expectTypeOf<HuddleClient['channels']['rooms']['incoming']>().toEqualTypeOf<{
+  'screen-share-started': { from: string };
+}>();
+
+// Without binary(), nothing has a `.binary` key and `base.binary` does not exist.
+const plain = server({ capabilities: [emits({ 'avatar-saved': t<{ userId: string }>() })] });
+// @ts-expect-error: base.binary needs binary()
+plain.binary.on('upload-avatar', { run() {} });
+plain.on('save-avatar', {
+  run(ctx) {
+    // @ts-expect-error: ctx.binary needs binary events
+    ctx.binary.send('avatar-preview', null);
+  },
+});
+const plainClient = plain.assemble({ handlers: [] });
+// @ts-expect-error: no binary key on a client without binary events
+type PlainBinary = InferClient<typeof plainClient>['binary'];
+
+// A plugin's binary events: `.binary` senders on its ctx, plain names in InferPluginClient,
+// and `__<id>::` names in the host's InferClient.
+const screens = server({
+  scope: 'plugin',
+  capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } }), channels()],
+});
+const stage = screens.channel('stage', {
+  capabilities: [binary({ emits: { 'stage-frame': t<null>() } })],
+});
+const handleShareScreen = screens.binary.on('share-screen-frame', {
+  input: v.null(),
+  run(ctx, _input, bytes) {
+    ctx.binary.send('screen-frame', { from: ctx.user.id }, bytes);
+    // @ts-expect-error: 'screen-frame' needs its info
+    ctx.binary.send('screen-frame', null, bytes);
+  },
+});
+const handleShareStage = stage.binary.on('share-stage-frame', {
+  run(ctx, _input, bytes) {
+    ctx.channel.binary.broadcast('stage-frame', null, bytes);
+  },
+});
+const Screens = plugin('acme:screens', {
+  definition: screens.assemble({ handlers: [handleShareScreen, handleShareStage] }),
+});
+
+expectTypeOf<InferPluginClient<typeof Screens>['binary']>().toEqualTypeOf<{
+  incoming: { 'screen-frame': { from: string } };
+  outgoing: { 'share-screen-frame': null };
+}>();
+expectTypeOf<InferPluginClient<typeof Screens>['channels']['stage']['binary']>().toEqualTypeOf<{
+  incoming: { 'stage-frame': null };
+  outgoing: { 'share-stage-frame': unknown };
+}>();
+
+const screensHost = server({ capabilities: [Screens()] }).assemble({ handlers: [] });
+expectTypeOf<InferClient<typeof screensHost>['binary']>().toEqualTypeOf<{
+  incoming: { '__acme:screens::screen-frame': { from: string } };
+  outgoing: { '__acme:screens::share-screen-frame': null };
+}>();
+expectTypeOf<
+  InferClient<typeof screensHost>['channels']['__acme:screens::stage']['binary']
+>().toEqualTypeOf<{
+  incoming: { 'stage-frame': null };
+  outgoing: { 'share-stage-frame': unknown };
+}>();
+
+// Two handlers for one name in one scope, one JSON and one binary, is a compile error.
+base.assemble({
+  // @ts-expect-error: 'upload-avatar' is bound twice
+  handlers: [handleUploadAvatar, base.on('upload-avatar', { run() {} })],
+});

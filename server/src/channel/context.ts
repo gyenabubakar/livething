@@ -17,6 +17,7 @@ type ChannelHandleDeps = Pick<
   | 'sendThroughPipeline'
   | 'broadcastToChannelRecipient'
   | 'subscribeConnectionAsServer'
+  | 'addBinarySenders'
 >;
 
 interface ChannelHandleScope {
@@ -87,6 +88,12 @@ export function buildChannelHandle(
         channelFamily: scope.channelFamily,
       }),
   };
+
+  deps.addBinarySenders?.(handle, {
+    send: 'event-first',
+    broadcastTo: 'event-second',
+    broadcast: 'event-first',
+  });
 
   if (!scope.isSubscribeGate) {
     handle.inbox = () => null;

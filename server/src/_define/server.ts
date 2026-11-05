@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { LiveThingConfigError } from '@livething/core';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
@@ -19,6 +20,7 @@ import {
   onUpgrade,
 } from '~/lifecycle/lifecycle.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
+import type { BinaryCapability } from '~/binary/capability.ts';
 import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
 import type { ExtractParams, ValidChannelTemplate } from '~/channel/channel.ts';
 import type {
@@ -62,7 +64,15 @@ import {
   assertPluginDependencies,
   assertUniquePluginIds,
 } from './plugin-checks.ts';
-import type { AppCtx, ChannelRef, ConnectionlessCtx, ReplayWire } from './app-ctx.ts';
+import type {
+  AppCtx,
+  ChannelBinaryArm,
+  ChannelOutgoingSlice,
+  ChannelRef,
+  ConnectionlessCtx,
+  ReplayWire,
+  WithBinaryEvents,
+} from './app-ctx.ts';
 import type {
   AnyCapability,
   BrandIsWidened,
@@ -90,6 +100,13 @@ type ServerCParameter = {
   run: ServerRequestConfigParameter['run'];
 };
 type ServerConfigParameter = { run: (ctx: any, data?: unknown) => void | Promise<void> };
+type BinaryOnConfigParameter = {
+  input?: Validator;
+  maxBytes?: number;
+  allowInterleaving?: boolean;
+  rateLimit?: RateLimitConfig;
+  run: (ctx: any, input: any, bytes?: Uint8Array) => void | Promise<void>;
+};
 type ServerAssembleConfigParameter = {
   handlers: readonly Contribution[];
   api?: (ctx: unknown) => unknown;
@@ -566,17 +583,24 @@ interface RecordedStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapabil
 type ChannelCapability =
   | ChannelOnlyCapability<{}, never, string>
   | EmitsCapability<EmitDefs>
-  | ServerRequestsCapability;
+  | ServerRequestsCapability
+  | BinaryCapability<EmitDefs>;
 
 type ChannelCapabilitySlots<TCaps extends readonly ChannelCapability[]> = MergeSlots<
   SlotsOf<TCaps[number]>
 >;
+/**
+ * The events a channel sends: its `emits(...)` events, with its `binary({ emits })`
+ * events carried under a symbol key that only the `.binary` senders read.
+ */
 type ChannelOutgoing<TCaps extends readonly ChannelCapability[]> =
   SlotOr<ChannelCapabilitySlots<TCaps>, 'outgoing'> extends infer TOutgoing extends Record<
     string,
     unknown
   >
-    ? TOutgoing
+    ? 'binary' extends BrandsOf<TCaps>
+      ? WithBinaryEvents<TOutgoing, SlotOr<ChannelCapabilitySlots<TCaps>, 'binaryOutgoing'>>
+      : TOutgoing
     : {};
 type ChannelServerRequests<TCaps extends readonly ChannelCapability[]> = SlotOr<
   ChannelCapabilitySlots<TCaps>,
@@ -709,7 +733,8 @@ export type ChannelCtx<
 > = Omit<AppCtx<TSlots, TMeta, TCaps>, 'sendReplay'> & {
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
     ChannelRequestArm<TServerRequests, TChannelBrand> &
-    ChannelCapabilityArm<TChannelBrand, TOutgoing>;
+    ChannelCapabilityArm<TChannelBrand, TOutgoing> &
+    ChannelBinaryArm<TOutgoing>;
 };
 
 /**
@@ -730,7 +755,8 @@ type ChannelGateCtx<
 > = Omit<AppCtx<TSlots, TMeta, TCaps, TIsSubscribeGate>, 'sendReplay'> & {
   readonly channel: ChannelHandle<Record<string, string>, TOutgoing, TMeta> &
     ChannelRequestArm<TServerRequests, TChannelBrand> &
-    ChannelCapabilityArm<TChannelBrand, TOutgoing>;
+    ChannelCapabilityArm<TChannelBrand, TOutgoing> &
+    ChannelBinaryArm<TOutgoing>;
 };
 
 /**
@@ -898,8 +924,7 @@ type ChannelOwnSlice<
   TSubscribe,
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = {
-  outgoing: TOutgoing;
+> = ('binary' extends TChannelBrand ? ChannelOutgoingSlice<TOutgoing> : { outgoing: TOutgoing }) & {
   serverRequests: TServerRequests;
   params: TParams;
   __addressing: TAddressing;
@@ -1169,7 +1194,7 @@ type ChannelObjectCore<
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = Omit<ChannelBuilder, 'on' | 'request' | 'stream' | 'recordedStream' | 'at'> &
+> = Omit<ChannelBuilder, 'on' | 'request' | 'stream' | 'recordedStream' | 'at' | 'binary'> &
   Contribution<{
     channels: {
       [K in TKey]: ChannelOwnSlice<
@@ -1207,7 +1232,70 @@ type ChannelObjectCore<
         TServerRequests,
         TChannelBrand
       >
+    : {}) &
+  ('binary' extends BrandsOf<TCaps>
+    ? ChannelBinaryMethods<
+        TSlots,
+        TMeta,
+        TKey,
+        TParams,
+        TOutgoing,
+        TAddressing,
+        TSubscribe,
+        TCaps,
+        TServerRequests,
+        TChannelBrand
+      >
     : {});
+
+/** Configuration object for a `binary.on(...)` handler, at the top level or in a channel. */
+type BinaryOnConfig<TCtx, TInput, TCaps extends readonly AnyCapability[]> = {
+  /** Optional schema for the info. Omit it to accept any info (typed `unknown`). */
+  readonly input?: TInput;
+  /**
+   * The most bytes the frame may carry. Optional: without it, the limit is the largest
+   * that fits in the adapter's message limit. A value that cannot fit fails at startup.
+   */
+  readonly maxBytes?: number;
+  /** Run this handler alongside earlier work on the same connection. Defaults to ordered execution. */
+  readonly allowInterleaving?: boolean;
+  /**
+   * Runs each time the client sends this binary event, with the checked info and a plain
+   * `Uint8Array` view of the bytes. The view shares the frame's memory: `bytes.slice()`
+   * copies it, for code that keeps the bytes after `run` returns.
+   */
+  run(ctx: TCtx, input: InferInput<TInput>, bytes: Uint8Array): void | Promise<void>;
+} & RateLimitField<TCaps>;
+
+/** A channel's `binary.on(...)`, granted by the `binary()` capability. */
+export interface ChannelBinaryMethods<
+  TSlots,
+  TMeta,
+  TKey extends string,
+  TParams,
+  TOutgoing extends Record<string, unknown>,
+  TAddressing extends string,
+  TSubscribe,
+  TCaps extends readonly AnyCapability[] = readonly [],
+  TServerRequests = {},
+  TChannelBrand extends string = never,
+> {
+  readonly binary: {
+    /** Create a binary event handler value scoped to this channel. Pass it to `assemble()` to activate it. */
+    on<TEvent extends string, TInput extends Validator | undefined = undefined>(
+      event: TEvent,
+      config: BinaryOnConfig<
+        ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand>,
+        TInput,
+        TCaps
+      >,
+    ): ChannelHandlerContribution<
+      TKey,
+      ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
+      { binaryIncoming: Record<TEvent, InferInput<TInput>> }
+    >;
+  };
+}
 
 /** The `on` method and the type-only `ctx` carriers every channel object has. */
 export interface ChannelCoreMethods<
@@ -1336,8 +1424,19 @@ type ValidChannelServerRequests<
 > =
   'serverRequests' extends BrandsOf<T>
     ? 'serverRequests' extends BrandsOf<THostCaps>
-      ? T
+      ? ValidChannelBinary<T, THostCaps>
       : readonly Exclude<T[number], ServerRequestsCapability>[]
+    : ValidChannelBinary<T, THostCaps>;
+
+/** A channel's own `binary()` needs `binary()` at the root too. */
+type ValidChannelBinary<
+  T extends readonly ChannelCapability[],
+  THostCaps extends readonly AnyCapability[],
+> =
+  'binary' extends BrandsOf<T>
+    ? 'binary' extends BrandsOf<THostCaps>
+      ? T
+      : readonly Exclude<T[number], BinaryCapability<EmitDefs>>[]
     : T;
 
 /** Builder method granted by the `channels()` capability. */
@@ -1420,7 +1519,33 @@ type CapabilityMethods<
   ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TMeta, TCaps> : {}) &
   ('stream' extends TBrand ? StreamMethods<TSlots, TMeta, TCaps> : {}) &
   ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TMeta, TCaps> : {}) &
-  ('channels' extends TBrand ? ChannelMethods<TSlots, TMeta, TCaps> : {});
+  ('channels' extends TBrand ? ChannelMethods<TSlots, TMeta, TCaps> : {}) &
+  ('binary' extends TBrand ? BinaryMethods<TSlots, TMeta, TCaps> : {});
+
+/** The value `base.binary.on(...)` returns — a handler primitive that declares its binary slot. */
+export type BinaryIncomingHandlerValue<TEvent extends string, TPayload> = IncomingPrimitive<
+  TEvent,
+  TPayload
+> &
+  Contribution<{ binaryIncoming: Record<TEvent, TPayload> }>;
+
+/**
+ * Builder methods granted by the `binary()` capability, under `base.binary`. A binary
+ * handler takes the same options as its JSON version, plus `maxBytes`.
+ */
+interface BinaryMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+  readonly binary: {
+    /**
+     * Create a handler value for one client→server binary event: JSON info, which
+     * `input` checks, and raw bytes, which `maxBytes` limits. Pass the returned value to
+     * `assemble()` to activate it.
+     */
+    on<TEvent extends string, TSchema extends Validator | undefined = undefined>(
+      event: TEvent,
+      config: BinaryOnConfig<AppCtx<TSlots, TMeta, TCaps>, TSchema, TCaps>,
+    ): BinaryIncomingHandlerValue<TEvent, InferInput<TSchema>>;
+  };
+}
 
 /**
  * The builder returned by `server(...)`. Carries the methods every server has
@@ -1505,6 +1630,7 @@ type AssembleInput = Contribution & { readonly __livethingCapability?: never };
 
 type EventNamesOf<TSlice> =
   | (TSlice extends { incoming: infer R } ? keyof R & string : never)
+  | (TSlice extends { binaryIncoming: infer R } ? keyof R & string : never)
   | (TSlice extends { clientRequests: infer R } ? keyof R & string : never)
   | (TSlice extends { streams: infer R } ? keyof R & string : never)
   | (TSlice extends { recordedStreams: infer R } ? keyof R & string : never);
@@ -1884,6 +2010,9 @@ export function server(config: any): any {
 
   const scoped = config.scope === 'plugin';
   const hookPrimitives = buildHookPrimitives(config);
+  const listsBinary = ((config.capabilities ?? []) as readonly AnyCapability[]).some(
+    (cap) => cap.__capabilityKind === CAPABILITY_KIND.binary,
+  );
 
   type StreamBuild = (event: string, streamConfig: unknown) => Primitive;
 
@@ -1980,6 +2109,27 @@ export function server(config: any): any {
 
       return fromThisBase(primitive);
     },
+    binary: {
+      on(event: string, onConfig: BinaryOnConfigParameter) {
+        if (!listsBinary) {
+          throw new LiveThingConfigError(
+            'base.binary.on() needs binary(). Add binary() to capabilities.',
+          );
+        }
+
+        const primitive = incomingFactory(event, onConfig.run, {
+          validator: onConfig.input,
+          allowInterleaving: onConfig.allowInterleaving,
+          binary: true,
+          maxBytes: onConfig.maxBytes,
+        });
+        if (onConfig.rateLimit !== undefined) {
+          (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = onConfig.rateLimit;
+        }
+
+        return fromThisBase(primitive);
+      },
+    },
     request(event: string, requestConfig: ServerRequestConfigParameter) {
       type Build = (e: string, c: ServerCParameter) => Primitive;
       let build: Build | undefined;
@@ -2055,6 +2205,7 @@ export function server(config: any): any {
         buildReplay,
         buildClientRequest,
         resolveServerRequests,
+        binary: listsBinary,
       });
     },
     assemble(assembleConfig: ServerAssembleConfigParameter) {

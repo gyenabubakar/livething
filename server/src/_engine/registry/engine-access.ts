@@ -99,6 +99,9 @@ export function createEngineAccess(
     onAnswerFrame: (handler) => {
       core.hooks.answerFrame.push(handler);
     },
+    onAnswerAwaited: (handler) => {
+      core.hooks.answerAwaited.push(handler);
+    },
     sendServerRequest: (connectionId, opts) => deps.sendServerRequest(connectionId, opts),
     openServerRequestBroadcast: (opts) => deps.openServerRequestBroadcast(opts),
     onOutgoing: (handler, owner) => {
@@ -401,6 +404,9 @@ export function createEngineAccess(
     },
     setRequestDispatch: (dispatch) => {
       core.requestDispatch = dispatch;
+    },
+    setBinaryService: (service) => {
+      core.binaryService = service;
     },
     setBuildTagsApi: (build) => {
       core.buildTagsApi = build;

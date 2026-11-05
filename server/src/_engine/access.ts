@@ -135,6 +135,14 @@ export interface EngineAccess {
   onAnswerFrame(handler: (connectionId: string, frame: FrameParameter) => boolean): void;
 
   /**
+   * Tell the engine whether a request it sent to a connection waits for a correlation id.
+   * Only a frame that really answers a waiting request skips the pending-bytes budget.
+   *
+   * @internal
+   */
+  onAnswerAwaited(handler: (connectionId: string, correlationId: string) => boolean): void;
+
+  /**
    * Send a server→client request frame to one live connection.
    *
    * Routes through the normal outgoing pipeline with the given `correlationId`
@@ -794,6 +802,14 @@ export interface EngineAccess {
    * @internal
    */
   setRequestDispatch(dispatch: FeatureSlots.RequestDispatch): void;
+
+  /**
+   * Register the binary receive path and the `.binary` senders. Set by the `binary()`
+   * capability; without it a binary message closes the socket with `1003`.
+   *
+   * @internal
+   */
+  setBinaryService(service: FeatureSlots.BinaryService): void;
 
   /**
    * Register the `ctx.tags` builder so the connection context can expose the tag

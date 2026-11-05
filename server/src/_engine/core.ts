@@ -14,6 +14,7 @@ import {
   StreamIdCollision,
   UnsupportedProtocol,
   ValidationFailed,
+  WrongFrameKind,
 } from '@livething/core';
 import { createAsyncContext, getInvocationScope } from '~/_engine/async-context.ts';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
@@ -117,7 +118,7 @@ export class EngineCore {
   streamChannelLeave?: FeatureSlots.StreamChannelLeave;
   durableStream?: FeatureSlots.DurableStreamService;
   requestDispatch?: FeatureSlots.RequestDispatch;
-  binaryMessageDispatch?: FeatureSlots.BinaryMessageDispatch;
+  binaryService?: FeatureSlots.BinaryService;
   buildTagsApi?: FeatureSlots.BuildTagsApi;
   channelMembershipService?: FeatureSlots.ChannelMembershipService;
   tagPersistenceService?: FeatureSlots.TagPersistenceService;
@@ -223,6 +224,7 @@ export class EngineCore {
     StreamAlreadyActive.code,
     StreamIdCollision.code,
     UnsupportedProtocol.code,
+    WrongFrameKind.code,
   ]);
 
   /** How many `purgeUser` calls are running, per user. Use `isUserPurging` to ask about a user. */

@@ -35,6 +35,14 @@ export declare function lookupProfile(
   userId: string,
 ): { id: string; name: string; status: 'active' | 'away' | 'busy' } | undefined;
 export declare function loadMessagePreview(messageId: string): Promise<string>;
+/** Checks that the bytes really are an image of that type, then stores them. */
+export declare function saveAvatar(
+  userId: string,
+  fileType: 'image/png' | 'image/jpeg',
+  bytes: Uint8Array,
+): Promise<void>;
+/** A small copy of the picture, for the preview the user sees right away. */
+export declare function resizeAvatar(bytes: Uint8Array): Promise<Uint8Array>;
 export declare function deleteMessage(messageId: string): Promise<void>;
 export declare function loadOnCallModeratorId(): Promise<string>;
 export declare function runScoutStep(

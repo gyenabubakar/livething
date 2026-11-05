@@ -200,6 +200,12 @@ export interface RegisteredEngineHooks {
   answerFrame: ((connectionId: string, frame: FrameParameter) => boolean)[];
 
   /**
+   * Whether a request the server sent to this connection waits for this correlation id.
+   * Only such an answer skips the connection's pending-bytes budget.
+   */
+  answerAwaited: ((connectionId: string, correlationId: string) => boolean)[];
+
+  /**
    * The `onOutgoing` watchers. Each runs once per app send, after the frame
    * went out. Each entry carries its owner so its own event names can be
    * presented in short form.

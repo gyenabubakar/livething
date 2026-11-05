@@ -1074,7 +1074,7 @@ export interface ConnectionlessChannelHandle<Meta = Record<string, unknown>> {
 }
 
 /** One channel of a dynamic family: the family key and the instance name, e.g. `{ family: 'rooms', name: 'room:42' }`. */
-interface ChannelInstance<TFamily extends string = string> {
+export interface ChannelInstance<TFamily extends string = string> {
   readonly family: TFamily;
   readonly name: string;
 }

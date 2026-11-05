@@ -23,13 +23,31 @@ type SettleFrameParameter = {
   event: string;
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
+  /** The bytes of an answer that came as a binary frame. */
+  bytes?: Uint8Array;
 };
 type SettleRaceLegArgsParameter = {
   connectionId: string;
   correlationId: string;
   entry: Extract<PendingServerRequest, { kind: 'race' }>;
-  frame: { event: string; payload: unknown };
+  frame: SettleFrameParameter;
 };
+
+/** The kind of frame an answer must come as: the same kind as the request. */
+type AnswerKind = 'text' | 'binary';
+
+function answerKindOf(frame: SettleFrameParameter): AnswerKind {
+  return frame.bytes === undefined ? 'text' : 'binary';
+}
+
+/** The rejection for an answer of the wrong frame kind. */
+function wrongKindAnswer(event: string, expected: AnswerKind): LiveThingError {
+  return RequestInvalidResponse({
+    event,
+    issues: [{ message: `The answer must be a ${expected} frame.` }],
+  });
+}
+
 type SendRequestArgsParameter = {
   target: {
     connectionId: string;
@@ -76,6 +94,8 @@ type PendingServerRequest =
       event: string;
       /** The schema the client's answer is validated against, when one is declared. */
       responseValidator?: Validator;
+      /** The frame kind the answer must come as. */
+      answerKind: AnswerKind;
     }
   | {
       kind: 'race';
@@ -94,6 +114,8 @@ interface RaceGroup {
   event: string;
   /** Validates each leg's answer; an answer that fails it is ignored, not a win. */
   responseValidator?: Validator;
+  /** The frame kind each answer must come as; an answer of the other kind is ignored. */
+  answerKind: AnswerKind;
   /** The correlationIds of every still-pending leg, cleared once a winner lands. */
   legs: Set<string>;
   /** True once a winner has resolved the group, so late answers are ignored. */
@@ -157,6 +179,13 @@ function createOutgoingRequestRuntime(
     pending.delete(correlationId);
     clearTimeout(entry.timer);
 
+    // The kind comes first: with no `in` schema, any answer would count as success.
+    // A binary `__error__` is a wrong-kind answer too, not a decline.
+    if (answerKindOf(frame) !== entry.answerKind) {
+      entry.reject(wrongKindAnswer(entry.event, entry.answerKind));
+      return true;
+    }
+
     if (frame.event === '__error__') {
       // The client could not answer (no handler, handler threw). Reject the
       // server promise with the typed error frame the client sent back.
@@ -197,6 +226,9 @@ function createOutgoingRequestRuntime(
     group.legs.delete(correlationId);
 
     if (group.settled) return true;
+
+    // An answer of the wrong frame kind is ignored, like an invalid one.
+    if (answerKindOf(frame) !== group.answerKind) return true;
 
     // A client that declined to answer sends `__error__`; treat it as silence.
     if (frame.event !== '__error__') {
@@ -282,6 +314,7 @@ function createOutgoingRequestRuntime(
         connectionId: target.connectionId,
         event,
         responseValidator: declaration?.responseValidator,
+        answerKind: 'text',
       });
 
       let sent: boolean;
@@ -337,6 +370,7 @@ function createOutgoingRequestRuntime(
         reject,
         event,
         responseValidator: declaration?.responseValidator,
+        answerKind: 'text',
         legs: new Set<string>(),
         settled: false,
         timer: undefined as unknown as ReturnType<typeof setTimeout>,
@@ -387,7 +421,12 @@ function createOutgoingRequestRuntime(
     });
   }
 
-  return { settle, rejectForConnection, sendRequest, sendUserRequest };
+  /** Whether a request sent to this connection waits for this correlation id. */
+  function awaits(connectionId: string, correlationId: string): boolean {
+    return pending.get(correlationId)?.connectionId === connectionId;
+  }
+
+  return { settle, awaits, rejectForConnection, sendRequest, sendUserRequest };
 }
 
 /** Coerce a client `__error__` payload into a throwable for the server promise. */
@@ -432,6 +471,9 @@ export function makeServerRequestsPrimitive(
       const runtime = createOutgoingRequestRuntime(engine, serverRequests);
 
       engine.onAnswerFrame((connectionId, frame) => runtime.settle(connectionId, frame));
+      engine.onAnswerAwaited((connectionId, correlationId) =>
+        runtime.awaits(connectionId, correlationId),
+      );
 
       engine.onDisconnect((ctx) => {
         const connectionId = (ctx as { connection?: { id?: string } }).connection?.id;

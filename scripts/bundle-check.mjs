@@ -76,6 +76,7 @@ const SERVER_ENGINES = {
   // value import of anything it exports drags the wire-namespacing pass and the
   // plugin-scoped context in with it. This marker is the canary for that edge.
   plugin: { marker: '__livething: "pluginSurface"', label: 'plugin runtime' },
+  binary: { marker: 'binary data without the LiveThing header', label: 'binary engine' },
 };
 
 function serverScenarios(f) {
@@ -164,6 +165,7 @@ function serverScenarios(f) {
       alsoPulls: [],
     },
     { name: 'plugins', source: importStar(f('plugins.js')), owns: 'plugin', alsoPulls: [] },
+    { name: 'binary', source: importStar(f('binary.js')), owns: 'binary', alsoPulls: [] },
   ];
 }
 

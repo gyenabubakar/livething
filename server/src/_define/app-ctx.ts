@@ -1,7 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { BinaryInput } from '@livething/core';
 import type {
   ChannelBroadcastArgs,
   ChannelHandle,
+  ChannelInstance,
+  ChannelRecipient,
   ConnectionInfo,
   ConnectionlessContext,
   ConnectionRef,
@@ -20,6 +23,143 @@ import type { TagsApi } from '~/tags/types.ts';
 import type { AnyCapability, BrandsOf, FeaturesOf, SlotOr } from './capability.ts';
 
 /**
+ * The key a channel's outgoing-event map carries its binary events under. It is only read by
+ * types; it is a real, exported value so that TypeScript can name it in emitted `.d.ts` files.
+ */
+export const BINARY_EVENTS: unique symbol = Symbol('livething.binary-events');
+
+/**
+ * A channel's binary events (event → info), carried on its outgoing-event map under a
+ * symbol key. `keyof … & string` leaves a symbol key out, so the JSON senders never see
+ * a binary event, and the `.binary` senders read the events back with `BinaryEventsOf`.
+ *
+ * @internal
+ */
+// A type alias, not an interface: a `Record<string, unknown>` must still accept the map.
+export type BinaryEventsCarrier<TBinary> = {
+  readonly [BINARY_EVENTS]: TBinary;
+};
+
+/**
+ * A channel's contract slice for its outgoing events: `outgoing` holds the JSON events, and
+ * `binaryOutgoing` the binary ones when there are any. @internal
+ */
+export type ChannelOutgoingSlice<TOutgoing> =
+  TOutgoing extends BinaryEventsCarrier<infer TBinary>
+    ? { outgoing: Omit<TOutgoing, typeof BINARY_EVENTS>; binaryOutgoing: TBinary }
+    : { outgoing: TOutgoing };
+
+/** Add binary events to an outgoing-event map, or leave it as it is when there are none. @internal */
+export type WithBinaryEvents<TOutgoing, TBinary> = [keyof TBinary] extends [never]
+  ? TOutgoing
+  : TOutgoing & BinaryEventsCarrier<TBinary>;
+
+/**
+ * The `.binary` senders of one kind of top-level sender when `binary()` is listed (its
+ * capability adds the `binaryOutgoing` slot), else `never`, so any use of it is a compile
+ * error. Each sender holds it as a property: a property type is only worked out when code
+ * reads it, so a server without `binary()` pays almost nothing for the key.
+ */
+type BinarySendersOf<
+  TSlots,
+  TSenders extends 'ctx' | 'connection' | 'user' | 'broadcast',
+> = TSlots extends { binaryOutgoing: infer TBinary } ? RootSenders<TBinary>[TSenders] : never;
+
+interface RootSenders<TBinary> {
+  ctx: CtxBinarySenders<TBinary>;
+  connection: ConnectionBinarySenders<TBinary>;
+  user: UserBinarySenders<TBinary>;
+  broadcast: BroadcastBinarySenders<TBinary>;
+}
+
+/** The `.binary` key of connectionless code: `ctx.binary.broadcast` with `binary()` listed. */
+interface ConnectionlessBinaryCtx<TSlots> {
+  readonly binary: BinarySendersOf<TSlots, 'broadcast'>;
+}
+
+/** `ctx.binary`: the binary versions of `ctx.send` and `ctx.broadcast`. */
+interface CtxBinarySenders<TBinary> {
+  /**
+   * Send a binary event to the current connection: its info, then its bytes. Returns
+   * `false` when the platform adapter refused the frame.
+   */
+  send<E extends keyof TBinary & string>(event: E, info: TBinary[E], bytes?: BinaryInput): boolean;
+  /** Send a binary event to every other connection; `includeSelf: true` adds the sender. */
+  broadcast<E extends keyof TBinary & string>(
+    event: E,
+    info: TBinary[E],
+    bytes?: BinaryInput,
+    options?: { includeSelf?: boolean },
+  ): void;
+}
+
+/** `ctx.connections.get(ref).binary`. */
+interface ConnectionBinarySenders<TBinary> {
+  /** Send a binary event to this connection only. `false` when it is no longer live. */
+  send<E extends keyof TBinary & string>(event: E, info: TBinary[E], bytes?: BinaryInput): boolean;
+}
+
+/** `ctx.user.binary` / `ctx.users.get(id).binary`. */
+interface UserBinarySenders<TBinary> {
+  /** Send a binary event to every live socket the user holds. Returns the socket count. */
+  broadcast<E extends keyof TBinary & string>(
+    event: E,
+    info: TBinary[E],
+    bytes?: BinaryInput,
+  ): number;
+}
+
+/** The `.binary` key of a channel handle: the binary versions of its senders. */
+interface ChannelBinarySenders<TBinary> {
+  /** Send a binary channel event to the calling connection. Returns `1` when delivered, else `0`. */
+  send<E extends keyof TBinary & string>(event: E, info: TBinary[E], bytes?: BinaryInput): number;
+  /** Send a binary channel event to a selected member audience. Returns the socket count. */
+  broadcastTo<E extends keyof TBinary & string>(
+    to: ChannelRecipient,
+    event: E,
+    info: TBinary[E],
+    bytes?: BinaryInput,
+  ): number;
+  /** Send a binary channel event to its members, as one frame. The sender is left out by default. */
+  broadcast<E extends keyof TBinary & string>(
+    event: E,
+    info: TBinary[E],
+    bytes?: BinaryInput,
+    options?: { includeSelf?: boolean },
+  ): void;
+}
+
+/**
+ * The `.binary` key of a channel handle: its senders when the channel declares binary
+ * events, else `never`. Held as a property, so it costs nothing until code reads it.
+ */
+export interface ChannelBinaryArm<TOutgoing> {
+  readonly binary: TOutgoing extends BinaryEventsCarrier<infer TBinary>
+    ? ChannelBinarySenders<TBinary>
+    : never;
+}
+
+/** The `broadcast`-only `.binary` key of a connectionless channel handle. */
+interface ConnectionlessChannelBinaryArm<TOutgoing> {
+  readonly binary: TOutgoing extends BinaryEventsCarrier<infer TBinary>
+    ? BroadcastBinarySenders<TBinary>
+    : never;
+}
+
+/** A `broadcast`-only `.binary` key: connectionless code has no caller to send to. */
+interface BroadcastBinarySenders<TBinary> {
+  /** Send a binary event to every member (or every connection), as one frame. */
+  broadcast<E extends keyof TBinary & string>(
+    event: E,
+    info: TBinary[E],
+    bytes?: BinaryInput,
+  ): void;
+}
+
+/** The binary events the server's handlers receive (event → info). */
+type BinaryIncoming<TSlots> = SlotOr<TSlots, 'binaryIncoming'>;
+
+/**
  * A handle to one specific connection, returned by `ctx.connections.get(ref)`. Its
  * `send` is typed to the server's `emits(...)` events, so a typo or wrong
  * payload is a compile error.
@@ -36,6 +176,9 @@ interface ConnectionHandle<TSlots> {
    * is no longer live on this instance.
    */
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
+
+  /** The binary version of `send`, with `binary()` listed. */
+  readonly binary: BinarySendersOf<TSlots, 'connection'>;
 
   /** Close this connection only. No-op when the connection is no longer live. */
   close(code?: number, reason?: string): void;
@@ -159,6 +302,8 @@ interface UserHandleBase<TSlots, TMeta> {
     event: E,
     payload: Outgoing<TSlots>[E],
   ): number;
+  /** The binary version of `broadcast`, with `binary()` listed. */
+  readonly binary: BinarySendersOf<TSlots, 'user'>;
   /** Merge a metadata patch into every one of the user's live connections. */
   setMeta(patch: Partial<TMeta>): void;
   /** Snapshot the user's currently-live connections. */
@@ -248,6 +393,13 @@ type CoreCtx<TSlots, TMeta> = {
   inject<T>(key: LocalKey<T>): T | undefined;
 
   /**
+   * The binary versions of `send` and `broadcast`, with `binary()` listed. Without it the
+   * key is `never`, so any use of it is a compile error. A property type is read only when
+   * code uses it, so this costs a server without `binary()` almost nothing.
+   */
+  readonly binary: BinarySendersOf<TSlots, 'ctx'>;
+
+  /**
    * Send an event to the current connection. Returns `true` when the frame was
    * handed to the socket, and `false` when the platform adapter refuses it or
    * strict replay could not store it.
@@ -267,11 +419,16 @@ type CoreCtx<TSlots, TMeta> = {
 /** The incoming/request payload one top-level event key narrows a frame to. */
 type TopPayload<TSlots, TEvent extends string> = TEvent extends keyof Incoming<TSlots>
   ? Incoming<TSlots>[TEvent]
-  : TEvent extends keyof Requests<TSlots>
-    ? Requests<TSlots>[TEvent] extends { payload: infer P }
-      ? P
-      : unknown
-    : unknown;
+  : TEvent extends keyof BinaryIncoming<TSlots>
+    ? BinaryIncoming<TSlots>[TEvent]
+    : TopRequestPayload<TSlots, TEvent>;
+
+/** The request payload one top-level event key narrows a frame to. */
+type TopRequestPayload<TSlots, TEvent extends string> = TEvent extends keyof Requests<TSlots>
+  ? Requests<TSlots>[TEvent] extends { payload: infer P }
+    ? P
+    : unknown
+  : unknown;
 
 /** The incoming/request payload one channel-scoped key narrows a frame to. */
 type ChannelPayload<
@@ -282,9 +439,18 @@ type ChannelPayload<
   ? Channels<TSlots>[TFamily] extends { incoming: infer I }
     ? TEvent extends keyof I
       ? I[TEvent]
-      : ChannelRequestPayload<Channels<TSlots>[TFamily], TEvent>
-    : ChannelRequestPayload<Channels<TSlots>[TFamily], TEvent>
+      : ChannelBinaryPayload<Channels<TSlots>[TFamily], TEvent>
+    : ChannelBinaryPayload<Channels<TSlots>[TFamily], TEvent>
   : unknown;
+
+/** The info a channel-scoped binary key narrows a frame to, else the request payload. */
+type ChannelBinaryPayload<TChannel, TEvent extends string> = TChannel extends {
+  binaryIncoming: infer B;
+}
+  ? TEvent extends keyof B
+    ? B[TEvent]
+    : ChannelRequestPayload<TChannel, TEvent>
+  : ChannelRequestPayload<TChannel, TEvent>;
 
 /** The request payload for a channel-scoped key, when the event is a channel request. */
 type ChannelRequestPayload<TChannel, TEvent extends string> = TChannel extends {
@@ -418,7 +584,8 @@ interface TagsCtx<TSlots, TMeta> {
   readonly tags: TagsApi<
     keyof EphemeralTags<TSlots> & string,
     keyof PersistentTags<TSlots> & string,
-    TMeta
+    TMeta,
+    TSlots
   >;
 }
 
@@ -427,9 +594,10 @@ type ChannelHandleForContext<
   TOutgoing extends Record<string, unknown>,
   TMeta,
   TGate extends boolean,
-> = TGate extends true
+> = (TGate extends true
   ? Omit<ChannelHandle<TOutgoing, TMeta>, 'inbox' | 'readReceipts'>
-  : ChannelHandle<TOutgoing, TMeta>;
+  : ChannelHandle<TOutgoing, TMeta>) &
+  ChannelBinaryArm<TOutgoing>;
 
 /**
  * The fully-typed `ctx.channels.get(ref)` handle. `send`/`broadcastTo`/`broadcast`
@@ -531,15 +699,23 @@ export type AppCtx<
 /** The events one declared channel emits, read off its key in the contract slots. */
 type ChannelOutgoingOf<TSlots, K> = K extends keyof Channels<TSlots>
   ? Channels<TSlots>[K] extends { outgoing: infer O extends Record<string, unknown> }
-    ? O
+    ? Channels<TSlots>[K] extends { binaryOutgoing: infer B }
+      ? O & BinaryEventsCarrier<B>
+      : O
     : Record<string, unknown>
   : Record<string, unknown>;
 
 /**
  * A channel handle with no connection in scope. `broadcast` is typed to the
- * channel's own `emits(...)` events.
+ * channel's own `emits(...)` events, and `binary.broadcast` to its `binary({ emits })`.
  */
-interface ConnectionlessChannelHandleCtx<TOutgoing, TMeta> {
+type ConnectionlessChannelHandleCtx<TOutgoing, TMeta> = ConnectionlessChannelHandleBase<
+  TOutgoing,
+  TMeta
+> &
+  ConnectionlessChannelBinaryArm<TOutgoing>;
+
+interface ConnectionlessChannelHandleBase<TOutgoing, TMeta> {
   /** Broadcast a channel event to its members. */
   broadcast<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): void;
   /** Snapshot of the channel's members. */
@@ -580,8 +756,39 @@ interface ConnectionlessChannelsCtx<TSlots, TMeta> {
      * event and payload are checked against that channel's emits.
      */
     broadcast(...args: ChannelBroadcastArgs<Channels<TSlots>>): void;
+    /**
+     * The binary version of `broadcast`, with `binary()` listed (else `never`). Name the
+     * channel as for `broadcast`; the info is checked against the channel's `binary({ emits })`.
+     */
+    readonly binary: TSlots extends { binaryOutgoing: unknown }
+      ? ConnectionlessChannelsBinary<TSlots>
+      : never;
   };
 }
+
+/** `ctx.channels.binary` with no connection in scope. */
+interface ConnectionlessChannelsBinary<TSlots> {
+  broadcast(...args: ChannelBinaryBroadcastArgs<Channels<TSlots>>): void;
+}
+
+/** The `(channel, event, info, bytes?)` tuples `channels.binary.broadcast` takes. */
+type ChannelBinaryBroadcastArgs<TChannels> = string extends keyof TChannels
+  ? [channel: string | ChannelInstance, event: string, info: unknown, bytes?: BinaryInput]
+  : {
+      [K in keyof TChannels & string]: TChannels[K] extends {
+        binaryOutgoing: infer TBinary;
+        __addressing: infer TAddressing;
+      }
+        ? {
+            [E in keyof TBinary & string]: [
+              channel: TAddressing extends 'dynamic' ? ChannelInstance<K> : K,
+              event: E,
+              info: TBinary[E],
+              bytes?: BinaryInput,
+            ];
+          }[keyof TBinary & string]
+        : never;
+    }[keyof TChannels & string];
 
 /** `ctx.connections` and `ctx.users` with no connection in scope, typed to the server's emits. */
 interface ConnectionlessManagersCtx<TSlots, TMeta> {
@@ -620,6 +827,7 @@ export type ConnectionlessCtx<
   'schedule' | 'cancelScheduled' | 'channels' | 'connections' | 'users'
 > &
   ConnectionlessManagersCtx<TSlots, TMeta> &
+  ConnectionlessBinaryCtx<TSlots> &
   ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
   ('channels' extends BrandsOf<TCaps> ? ConnectionlessChannelsCtx<TSlots, TMeta> : {});
 

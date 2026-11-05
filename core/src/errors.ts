@@ -241,6 +241,7 @@ const RESERVED_ERROR_CODES = new Set([
   'request-invalid-response',
   'stream-aborted',
   'stream-corrupted',
+  'wrong-frame-kind',
   'nudge-overflow',
   'stream-id-collision',
   'durable-stream-requires-user',
@@ -684,6 +685,26 @@ export const NudgeOverflow = /* @__PURE__ */ buildErrorFactory(
 export const StreamCorrupted = /* @__PURE__ */ buildErrorFactory(
   'stream-corrupted',
   v.object({ expected: v.number(), got: v.number() }),
+);
+
+/**
+ * Sent to the client when a frame came as text but must be binary, or came as binary but
+ * must be text: a binary frame for a JSON handler, a text frame for a binary handler, a
+ * binary nudge, or a binary frame with a framework event name (`__subscribe__` and the
+ * rest). `detail.expected` is the kind the server wanted. The handler does not run, and
+ * the socket stays open. No real LiveThing client sends these frames, so this error points
+ * to a bug in a client.
+ *
+ * @example
+ * ```ts
+ * if (WrongFrameKind.matches(err)) {
+ *   console.error(`'${err.detail.event}' must be sent as ${err.detail.expected}`);
+ * }
+ * ```
+ */
+export const WrongFrameKind = /* @__PURE__ */ buildErrorFactory(
+  'wrong-frame-kind',
+  v.object({ event: v.string(), expected: v.picklist(['text', 'binary']) }),
 );
 
 /**

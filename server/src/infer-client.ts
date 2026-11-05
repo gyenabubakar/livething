@@ -18,6 +18,7 @@ import type {
   StreamIdCollision,
   UnsupportedProtocol,
   ValidationFailed,
+  WrongFrameKind,
 } from '~/errors/errors.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 import type { Jsonify } from '~/types.ts';
@@ -94,7 +95,8 @@ type BuiltInErrorUnion =
   | typeof StreamAlreadyActive
   | typeof StreamIdCollision
   | typeof NudgeOverflow
-  | typeof UnsupportedProtocol;
+  | typeof UnsupportedProtocol
+  | typeof WrongFrameKind;
 
 /**
  * Read one slot off a contract type, falling back to `{}` when the contract
@@ -111,6 +113,26 @@ type Slot<TContract, TKey extends string> = TKey extends keyof TContract ? TCont
 type ReceivedEvents<TContract> = {
   [K in keyof Slot<TContract, 'outgoing'>]: Jsonify<Slot<TContract, 'outgoing'>[K]>;
 };
+
+/**
+ * The binary events of one scope (the server, or one channel) in the client's view:
+ * `incoming` are the events the client receives, from `binary({ emits })`, with each info
+ * as the client gets it; `outgoing` are the events it sends, from `binary.on(...)`. Each
+ * entry is the info's type; the bytes are always a `Uint8Array`. Present only when the
+ * scope has binary events.
+ */
+type ClientBinarySlice<TScope> = [
+  keyof Slot<TScope, 'binaryOutgoing'> | keyof Slot<TScope, 'binaryIncoming'>,
+] extends [never]
+  ? {}
+  : {
+      binary: {
+        incoming: {
+          [K in keyof Slot<TScope, 'binaryOutgoing'>]: Jsonify<Slot<TScope, 'binaryOutgoing'>[K]>;
+        };
+        outgoing: Slot<TScope, 'binaryIncoming'>;
+      };
+    };
 
 /** The server→client requests, with each payload as the client receives it. */
 type ReceivedServerRequests<TContract> = {
@@ -174,7 +196,8 @@ type ClientFamily<TFamily> = {
   ? { subscribePayload: TFamily['subscribePayload'] }
   : {}) &
   (TFamily extends { inbox: true } ? { inbox: true } : {}) &
-  (TFamily extends { readReceipts: true } ? { readReceipts: true } : {});
+  (TFamily extends { readReceipts: true } ? { readReceipts: true } : {}) &
+  ClientBinarySlice<TFamily>;
 
 /**
  * Like `ClientFamilyMap`, but channel-aware: each channel family is stamped with
@@ -216,7 +239,41 @@ export type ClientPluginContract<TContract> = {
   streams: ClientStreams<TContract>;
   channels: ClientChannelMap<Slot<TContract, 'channels'>>;
   errors: Slot<TContract, 'errors'>;
-};
+} & ClientBinarySlice<TContract>;
+
+/** One side (`incoming` or `outgoing`) of a `binary` slice, or `{}` when there is none. */
+type BinarySide<TSlice, TSide extends 'incoming' | 'outgoing'> = TSlice extends {
+  binary: { [K in TSide]: infer TMap };
+}
+  ? TMap
+  : {};
+
+/** A plugin's top-level binary events under their `__<id>::` wire names. */
+type PrefixBinary<TId extends string, TContract> = [
+  | keyof BinarySide<ClientBinarySlice<TContract>, 'incoming'>
+  | keyof BinarySide<ClientBinarySlice<TContract>, 'outgoing'>,
+] extends [never]
+  ? {}
+  : {
+      binary: {
+        incoming: PrefixKeys<TId, BinarySide<ClientBinarySlice<TContract>, 'incoming'>>;
+        outgoing: PrefixKeys<TId, BinarySide<ClientBinarySlice<TContract>, 'outgoing'>>;
+      };
+    };
+
+/**
+ * The client's top-level `binary` key: the server's own binary events and every plugin's,
+ * under their `__<id>::` names. Absent when there are none.
+ */
+type ClientBinary<TContract, TPlugins> = BinarySide<ClientBinarySlice<TContract>, 'incoming'> &
+  BinarySide<TPlugins, 'incoming'> extends infer TIncoming
+  ? BinarySide<ClientBinarySlice<TContract>, 'outgoing'> &
+      BinarySide<TPlugins, 'outgoing'> extends infer TOutgoing
+    ? [keyof TIncoming | keyof TOutgoing] extends [never]
+      ? {}
+      : { binary: { incoming: TIncoming; outgoing: TOutgoing } }
+    : never
+  : never;
 
 /**
  * The same flip as {@link ClientPluginContract}, but with every name carrying the
@@ -225,11 +282,11 @@ export type ClientPluginContract<TContract> = {
  * stay scoped to that channel and are not prefixed.
  */
 type ClientPluginProjection<TId extends string, TContract> = {
-  [TSection in keyof ClientPluginContract<TContract>]: PrefixKeys<
+  [TSection in Exclude<keyof ClientPluginContract<TContract>, 'binary'>]: PrefixKeys<
     TId,
     ClientPluginContract<TContract>[TSection]
   >;
-};
+} & PrefixBinary<TId, TContract>;
 
 /**
  * Project every registered plugin into a single client-side fragment by folding
@@ -322,7 +379,11 @@ export type InferClient<TServer extends ServerDefinition> = InferClientFor<
  * prefixed name — `socket.on('__id::event')` / `socket.send('__id::event')` are
  * fully typed. There is no separate `plugins` key on the client.
  */
-type InferClientFor<TContract, TPlugins> = SimplifyDeep<{
+type InferClientFor<TContract, TPlugins> = SimplifyDeep<
+  InferClientMaps<TContract, TPlugins> & ClientBinary<TContract, TPlugins>
+>;
+
+type InferClientMaps<TContract, TPlugins> = {
   /** Events the client receives — server `emits({...})` plus plugin emits under `__id::name`. */
   incoming: ReceivedEvents<TContract> & PluginMapOf<TPlugins, 'incoming'>;
   /** Events the client sends — server `base.on(...)` plus plugin handlers under `__id::name`. */
@@ -350,7 +411,7 @@ type InferClientFor<TContract, TPlugins> = SimplifyDeep<{
    * developer-defined errors and plugin errors under `__id::code`.
    */
   errors: ErrorMap<BuiltInErrorUnion> & Slot<TContract, 'errors'> & PluginMapOf<TPlugins, 'errors'>;
-}>;
+};
 
 /** Read one map off the merged plugin fragment, falling back to `{}`. */
 type PluginMapOf<TPlugins, TKey extends keyof EmptyPluginsFragment> = TKey extends keyof TPlugins

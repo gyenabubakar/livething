@@ -15,6 +15,7 @@ import {
   StreamAlreadyActive,
   StreamIdCollision,
   ValidationFailed,
+  WrongFrameKind,
 } from '~/errors.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -732,6 +733,14 @@ describe('error() reserved-code guard', () => {
     expect(() => error('disconnected')).toThrow(/reserved/);
     expect(() => error('dropped')).toThrow(/reserved/);
     expect(() => error('not-a-member')).toThrow(/reserved/);
+  });
+
+  it('reserves wrong-frame-kind, the error for a frame of the wrong kind (text or binary)', () => {
+    expect(() => error('wrong-frame-kind')).toThrow(/reserved/);
+    const wrong = WrongFrameKind({ event: 'upload-avatar', expected: 'binary' });
+    expect(wrong.code).toBe('wrong-frame-kind');
+    expect(WrongFrameKind.matches(wrong)).toBe(true);
+    expect(wrong.detail).toEqual({ event: 'upload-avatar', expected: 'binary' });
   });
 
   it('allows a non-reserved code', () => {

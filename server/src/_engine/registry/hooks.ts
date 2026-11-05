@@ -12,6 +12,7 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
     connectionCleanup: [],
     incoming: [],
     answerFrame: [],
+    answerAwaited: [],
     outgoing: [],
     livethingStamp: [],
     beforeBroadcast: [],

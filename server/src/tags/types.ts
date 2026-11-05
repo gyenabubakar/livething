@@ -1,3 +1,4 @@
+import type { BinaryInput } from '@livething/core';
 import type { ConnectionInfo, ConnectionRef, TagRef } from '~/context.ts';
 
 /** Discriminator for a tag group's storage policy. */
@@ -26,7 +27,7 @@ export interface TagRefHandle<Meta = Record<string, unknown>> extends TagRef {
  * Carries every operation that targets the group as a whole and builds refs
  * for one specific key inside the group.
  */
-export interface TagGroupHandle<Meta = Record<string, unknown>> {
+export interface TagGroupHandle<Meta = Record<string, unknown>, TSlots = {}> {
   /** Brand tag so the type cannot be confused with a plain object. */
   readonly __livething: 'group-handle';
   /** Whether this group is ephemeral or persistent. */
@@ -51,9 +52,23 @@ export interface TagGroupHandle<Meta = Record<string, unknown>> {
   keys(): readonly string[];
 
   /** Build a `TagRefHandle` addressing one specific `(kind, group, key)`. */
-  ref(key: string): TagRefHandle<Meta>;
+  ref(key: string): TagRefHandle<Meta> & TagBinaryArm<TSlots>;
   /** Current connection's keys under this group. */
   list(): readonly TagRef[];
+}
+
+/** The `.binary` key of a tag handle: the binary version of its `broadcast`. */
+interface TagBinarySenders {
+  /** Send a binary event (its info, then its bytes) to every connection with this tag. */
+  broadcast(event: string, info: unknown, bytes?: BinaryInput): void;
+}
+
+/**
+ * A tag handle's `.binary` key: its senders when `binary()` is listed (its capability adds
+ * the `binaryOutgoing` slot), else `never`, so any use of it is a compile error.
+ */
+interface TagBinaryArm<TSlots> {
+  readonly binary: TSlots extends { binaryOutgoing: unknown } ? TagBinarySenders : never;
 }
 
 /**
@@ -65,9 +80,10 @@ export interface TagsApi<
   TEphemeralGroups extends string = string,
   TPersistentGroups extends string = string,
   Meta = Record<string, unknown>,
+  TSlots = {},
 > {
-  ephemeral(group: TEphemeralGroups): TagGroupHandle<Meta>;
-  persistent(group: TPersistentGroups): TagGroupHandle<Meta>;
+  ephemeral(group: TEphemeralGroups): TagGroupHandle<Meta, TSlots> & TagBinaryArm<TSlots>;
+  persistent(group: TPersistentGroups): TagGroupHandle<Meta, TSlots> & TagBinaryArm<TSlots>;
   /** Every tag ref currently attached to the current connection. */
   list(): readonly TagRef[];
 }

@@ -59,6 +59,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'stream-runtime',
   'recorded-stream-runtime',
   'channel-runtime',
+  'binary-runtime',
 ]);
 
 /** Symbol key for a plugin's API-registration primitive. */

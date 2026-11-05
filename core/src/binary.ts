@@ -40,7 +40,7 @@ function hasMagic(frame: Uint8Array): boolean {
 }
 
 /** Build one binary frame from envelope JSON text and the application's bytes. */
-export function encodeBinaryFrame(envelope: string, bytes?: BinaryInput): Uint8Array {
+export function encodeBinaryFrame(envelope: string, bytes?: BinaryInput): Uint8Array<ArrayBuffer> {
   encoder ??= new TextEncoder();
   const envelopeBytes = encoder.encode(envelope);
   if (envelopeBytes.byteLength > BINARY_ENVELOPE_LIMIT) {

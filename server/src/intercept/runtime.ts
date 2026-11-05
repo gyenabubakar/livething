@@ -64,16 +64,8 @@ export async function runIntercepts(
       () => intercept.handler(ctx, presented),
     );
 
-    if (next !== undefined) {
-      nextFrame = {
-        event: nextFrame.event,
-        payload: next,
-        kind: nextFrame.kind,
-        routing: nextFrame.routing,
-        owner: nextFrame.owner,
-        size: nextFrame.size,
-      };
-    }
+    // Only the payload is replaced: the bytes, the routing and the rest stay as they came.
+    if (next !== undefined) nextFrame = { ...nextFrame, payload: next };
   }
 
   return nextFrame;

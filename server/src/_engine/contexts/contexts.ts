@@ -50,6 +50,7 @@ type MessagingDeps = Pick<
   | 'sendThroughPipeline'
   | 'toConnectionInfo'
   | 'persistAttachment'
+  | 'addBinarySenders'
 >;
 
 /** Reach any specific connection by ref, or list every live connection. */
@@ -120,7 +121,7 @@ function buildUserHandle(
   userId: string,
   deps: MessagingDeps,
 ): PublicApi.UserHandle<Record<string, unknown>> {
-  return {
+  const handle: PublicApi.UserHandle<Record<string, unknown>> = {
     id: userId,
 
     ref: () => buildUserRef(userId, deps.instanceId),
@@ -147,6 +148,10 @@ function buildUserHandle(
 
     isOnline: () => (deps.usersByKey.get(userId)?.size ?? 0) > 0,
   };
+
+  deps.addBinarySenders?.(handle, { broadcast: 'event-first' });
+
+  return handle;
 }
 
 /**
@@ -232,6 +237,8 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
     },
   };
 
+  deps.addBinarySenders?.(proto, { send: 'event-first', broadcast: 'event-first' });
+
   // `ctx.channels` exists only when the `channels()` capability is listed, and
   // is built on first access. Defined conditionally (not a throwing getter) so a
   // channel-less handler simply has no `channels` property — enumerating the
@@ -267,6 +274,7 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
       persistAttachment: deps.persistAttachment,
       getStorage: deps.getStorage,
       isUserPurging: deps.isUserPurging,
+      addBinarySenders: deps.addBinarySenders,
     };
 
     Object.defineProperty(proto, 'tags', {

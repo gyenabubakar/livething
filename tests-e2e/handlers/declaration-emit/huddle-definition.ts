@@ -1,6 +1,7 @@
 // Compiled with `declaration: true` through the package's public exports. If an inferred
 // type here needs a type the package doesn't export, the typecheck fails with TS2883 or TS4023.
 import { context, emits, errors, server, t } from '@livething/server';
+import { binary } from '@livething/server/binary';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
@@ -35,6 +36,7 @@ export const base = server({
   capabilities: [
     emits({ notification: t<{ title: string }>() }),
     errors([NotFound]),
+    binary({ emits: { 'avatar-preview': t<null>() } }),
     channels(),
     keepalive(),
     scheduled({ 'send-digest': { data: t<{ userId: string }>() } }),
@@ -54,7 +56,10 @@ export const base = server({
 
 export const rooms = base.channel(['rooms', 'room:{roomId}'], {
   subscribe: v.object({ inviteToken: v.string() }),
-  capabilities: [emits({ typing: t<{ from: string }>() })],
+  capabilities: [
+    emits({ typing: t<{ from: string }>() }),
+    binary({ emits: { 'screen-frame': t<{ from: string }>() } }),
+  ],
   onSubscribe(ctx) {
     ctx.channel.broadcast('typing', { from: ctx.user.id });
   },
@@ -100,6 +105,17 @@ export const handleTopRecorded = base.recordedStream('top-summary', {
   },
 });
 export const handleDigest = base.scheduled('send-digest', { run() {} });
+export const handleUploadAvatar = base.binary.on('upload-avatar', {
+  input: v.object({ fileType: v.string() }),
+  run(ctx, _input, bytes) {
+    ctx.binary.send('avatar-preview', null, bytes);
+  },
+});
+export const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
+  run(ctx, _input, bytes) {
+    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+  },
+});
 
 export function currentContext() {
   return context.connection(base);
@@ -118,6 +134,8 @@ export const handlers = [
   handleTopFeed,
   handleTopRecorded,
   handleDigest,
+  handleUploadAvatar,
+  handleShareScreenFrame,
 ] as const;
 
 export const definition = base.assemble({ handlers });

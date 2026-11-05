@@ -130,11 +130,32 @@ export interface DurableStreamService {
  * Route one binary message that is within the receive limit. Set by the capability that
  * turns binary on. While it is unset, the engine closes the socket with `1003`.
  */
-export type BinaryMessageDispatch = (
+type BinaryMessageDispatch = (
   runtime: any,
   connection: RuntimeConnection,
   data: Uint8Array,
 ) => Promise<void>;
+
+/**
+ * Where a send method takes its event name: first (`send(event, ...)`) or second
+ * (`broadcastTo(to, event, ...)`).
+ */
+export type SenderEventPosition = 'event-first' | 'event-second';
+
+/**
+ * Give a sender object a `.binary` key with a binary version of each named JSON send
+ * method. Set by the `binary()` capability, so an object gets `.binary` only when it is listed.
+ */
+export type AddBinarySenders = (
+  sender: object,
+  methods: Readonly<Record<string, SenderEventPosition>>,
+) => void;
+
+/** The binary receive path and senders. Set by the `binary()` capability. */
+export interface BinaryService {
+  dispatch: BinaryMessageDispatch;
+  addSenders: AddBinarySenders;
+}
 
 /** Execute a matched `.request(...)` handler. Set by the `serverRequests()` capability. */
 export type RequestDispatch = (

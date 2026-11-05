@@ -1,11 +1,19 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { rethrowIfConfigError } from '@livething/core';
+import {
+  asUint8Array,
+  BINARY_ENVELOPE_LIMIT,
+  encodeBinaryFrame,
+  rethrowIfConfigError,
+  utf8ByteLength,
+} from '@livething/core';
 import { isInsideOutgoingHook, runOutgoingHook } from '~/_engine/call-context.ts';
 import { assertPayload, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
+import type { BinaryInput } from '@livething/core';
+import type { TransportFrame } from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -58,11 +66,71 @@ export interface OutgoingRuntime {
   generateId(prefix?: string): string;
 }
 
+const BINARY_PAYLOAD = Symbol('livething.binary-payload');
+const NO_BYTES = new Uint8Array(0);
+
 /**
- * Check whether an outgoing event was declared in the correct scope.
+ * The info and the bytes of a binary send. The `.binary` senders hand it to the JSON send
+ * methods in the payload's place, so a binary send takes the same path to the same audience.
+ */
+interface BinaryPayload {
+  readonly [BINARY_PAYLOAD]: true;
+  readonly info: unknown;
+  readonly bytes: Uint8Array;
+}
+
+/** Wrap a binary send's info and bytes so the send path writes a binary frame. */
+export function binaryPayload(info: unknown, bytes?: BinaryInput): BinaryPayload {
+  if (
+    bytes !== undefined &&
+    !ArrayBuffer.isView(bytes) &&
+    Object.prototype.toString.call(bytes) !== '[object ArrayBuffer]'
+  ) {
+    throw new TypeError(
+      `[livething] The bytes of a binary send must be a Uint8Array or an ArrayBuffer, got ${typeof bytes}.`,
+    );
+  }
+
+  return {
+    [BINARY_PAYLOAD]: true,
+    info,
+    bytes: bytes === undefined ? NO_BYTES : asUint8Array(bytes),
+  };
+}
+
+/** A send's JSON payload and, for a binary send, its bytes. */
+function splitPayload(payload: unknown): { payload: unknown; bytes?: Uint8Array } {
+  if (typeof payload === 'object' && payload !== null && BINARY_PAYLOAD in payload) {
+    const binary = payload as BinaryPayload;
+    return { payload: binary.info, bytes: binary.bytes };
+  }
+
+  return { payload };
+}
+
+/** The frame to write: text, or the binary frame of the envelope text and the bytes. */
+function transportFrame(text: string, bytes: Uint8Array | undefined): TransportFrame {
+  return bytes === undefined
+    ? { kind: 'text', text }
+    : { kind: 'bytes', bytes: encodeBinaryFrame(text, bytes) };
+}
+
+function undeclaredOutgoing(event: string, bytes: Uint8Array | undefined): Error {
+  return bytes === undefined
+    ? new Error(`[livething] Outgoing event "${event}" was not declared in the active scope.`)
+    : new Error(
+        `[livething] Outgoing binary event "${event}" was not declared in the active scope. ` +
+          'Declare it in binary({ emits }).',
+      );
+}
+
+/**
+ * Check whether an outgoing event was declared in the correct scope, as the kind it is
+ * sent as: an `emits()` event (or a stream) for a text frame, a `binary({ emits })` event
+ * for a binary frame.
  *
  * Real protocol events — the fixed set the engine sends, like `__memberJoin__`
- * — are allowed. An unknown `__x__` name is not, so it cannot slip past the
+ * — are allowed, as text only. An unknown `__x__` name is not, so it cannot slip past the
  * scope check by looking protocol-shaped. A plugin's namespaced
  * `emits()` lives in the normal outgoing/channel maps, so it is found by the
  * scope checks below.
@@ -74,29 +142,64 @@ export function isDeclaredOutgoingEvent(
 ): boolean {
   if (Protocol.OUTGOING_PROTOCOL_EVENT_NAMES.has(event)) return true;
 
-  if (routing?.channel) {
-    const channel =
-      routing.channelFamily === null || routing.channelFamily === undefined
-        ? compiled.channels.get(routing.channel)
-        : compiled.channelFamilies.get(routing.channelFamily);
-    return (
-      (channel?.outgoing.has(event) ?? false) ||
-      (channel?.streams.has(event) ?? false) ||
-      (channel?.recordedStreams.has(event) ?? false)
-    );
-  }
+  const scope = outgoingScope(compiled, routing);
+  if (!scope) return false;
+
+  const declared = scope.outgoing.get(event);
 
   return (
-    compiled.outgoing.has(event) ||
-    compiled.streams.has(event) ||
-    compiled.recordedStreams.has(event)
+    (declared !== undefined && declared.binary !== true) ||
+    scope.streams.has(event) ||
+    scope.recordedStreams.has(event)
   );
+}
+
+/** Whether a binary event was declared by `binary({ emits })` in the scope it is sent in. */
+function isDeclaredBinaryEvent(
+  compiled: EngineCompileTypes.CompiledServer,
+  event: string,
+  routing: EngineRuntimeTypes.RoutingTarget | undefined,
+): boolean {
+  return outgoingScope(compiled, routing)?.outgoing.get(event)?.binary === true;
+}
+
+/** The scope a send goes out in: the top level, or the channel its routing names. */
+function outgoingScope(
+  compiled: EngineCompileTypes.CompiledServer,
+  routing: EngineRuntimeTypes.RoutingTarget | undefined,
+): Pick<EngineCompileTypes.CompiledServer, 'outgoing' | 'streams' | 'recordedStreams'> | undefined {
+  if (!routing?.channel) return compiled;
+
+  if (routing.channelFamily === null || routing.channelFamily === undefined) {
+    return compiled.channels.get(routing.channel);
+  }
+
+  return compiled.channelFamilies.get(routing.channelFamily);
+}
+
+/** Where one send goes, and its bytes when it is a binary send. */
+interface DeclaredSend {
+  routing: EngineRuntimeTypes.RoutingTarget | undefined;
+  bytes: Uint8Array | undefined;
+}
+
+/** Whether an event may be sent as the kind of frame it is sent as. */
+function isDeclaredSend(
+  compiled: EngineCompileTypes.CompiledServer,
+  event: string,
+  send: DeclaredSend,
+): boolean {
+  return send.bytes === undefined
+    ? isDeclaredOutgoingEvent(compiled, event, send.routing)
+    : isDeclaredBinaryEvent(compiled, event, send.routing);
 }
 
 /** One finished send, as the `onOutgoing` hooks see it. */
 interface SentFrame {
   event: string;
   payload: unknown;
+  /** The bytes of a binary send. */
+  bytes?: Uint8Array;
   routing: EngineRuntimeTypes.RoutingTarget | undefined;
   target: InterceptPrimitive.OutgoingTarget;
   recipients: number;
@@ -135,6 +238,7 @@ function notifyOutgoing(
       const frame: InterceptPrimitive.OutgoingFrame = {
         event: ownFrame && parsed ? parsed.name : sent.event,
         payload: sent.payload,
+        ...(sent.bytes === undefined ? {} : { bytes: sent.bytes }),
         owner,
         channel,
         target: sent.target,
@@ -266,14 +370,15 @@ export function sendThroughPipeline(
   if (connection.purged) return false;
 
   const { routing, event } = opts;
+  const { payload, bytes } = splitPayload(opts.payload);
   const isRequestResponse = !!routing?.correlationId;
   // A handler that never calls ctx.respond() answers void. Its payload is left
   // off the wire entirely so the caller resolves with nothing rather than `{}`.
-  const isVoidResponse = opts.payload === undefined && isRequestResponse;
-  if (!isVoidResponse) assertPayload(event, opts.payload);
+  const isVoidResponse = payload === undefined && isRequestResponse;
+  if (!isVoidResponse) assertPayload(event, payload);
 
-  if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, event, routing)) {
-    throw new Error(`[livething] Outgoing event "${event}" was not declared in the active scope.`);
+  if (!isRequestResponse && !isDeclaredSend(runtime.compiled, event, { routing, bytes })) {
+    throw undeclaredOutgoing(event, bytes);
   }
 
   // Widen to a loose bag here: from this point plugin stampers contribute
@@ -283,10 +388,11 @@ export function sendThroughPipeline(
 
   const wirePayload = isVoidResponse
     ? null
-    : (JSON.parse(serializePayload(event, opts.payload)) as Record<string, unknown> | null);
+    : (JSON.parse(serializePayload(event, payload)) as Record<string, unknown> | null);
 
+  // Replay stores no binary frame, so a binary send never reaches the broadcast hooks.
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
-  if (!isRequestResponse && hasBroadcastHooks(runtime)) {
+  if (!isRequestResponse && bytes === undefined && hasBroadcastHooks(runtime)) {
     const recipients = recipientsOf([connection]);
     if (recipients.length > 0) {
       recorded = { event, payload: wirePayload, livething, recipients };
@@ -296,13 +402,14 @@ export function sendThroughPipeline(
     }
   }
 
-  const text = serializeWireFrame(event, wirePayload, livething);
-  const sent = connection.descriptor.send({ kind: 'text', text }) !== false;
+  const frame = transportFrame(serializeWireFrame(event, wirePayload, livething), bytes);
+  const sent = connection.descriptor.send(frame) !== false;
   if (recorded) runAfterBroadcastHooks(runtime, recorded);
 
   notifyOutgoing(runtime, {
     event,
     payload: wirePayload,
+    bytes,
     routing,
     target: { kind: 'connection', id: connection.id },
     recipients: sent ? 1 : 0,
@@ -318,19 +425,25 @@ interface PreparedBroadcast {
 
   baseLiveThing: Record<string, unknown>;
 
+  /** The bytes of a binary send. */
+  bytes?: Uint8Array;
+
+  /** The envelope text of a binary send, made and size-checked when the send is prepared. */
+  envelope?: string;
+
   /**
-   * The whole frame string, identical for every recipient. The sequence/dedup
+   * The whole frame, identical for every recipient. The sequence/dedup
    * stampers already ran once into `baseLiveThing`, so every recipient shares
-   * these bytes. Built on first use.
+   * these bytes. It is built on first use, so a send that reaches nobody builds nothing.
    */
-  frame?: string;
+  frame?: TransportFrame;
 }
 
-function sharedFrame(prepared: PreparedBroadcast): string {
-  return (prepared.frame ??= serializeWireFrame(
-    prepared.event,
-    prepared.finalPayload,
-    prepared.baseLiveThing,
+function sharedFrame(prepared: PreparedBroadcast): TransportFrame {
+  return (prepared.frame ??= transportFrame(
+    prepared.envelope ??
+      serializeWireFrame(prepared.event, prepared.finalPayload, prepared.baseLiveThing),
+    prepared.bytes,
   ));
 }
 
@@ -350,6 +463,11 @@ function hasBroadcastHooks(runtime: BroadcastRuntime): boolean {
     (runtime.beforeBroadcastHooks?.length ?? 0) > 0 ||
     (runtime.afterBroadcastHooks?.length ?? 0) > 0
   );
+}
+
+/** Whether the broadcast hooks (replay) see this send. Replay stores no binary frame. */
+function recordsBroadcast(runtime: BroadcastRuntime, prepared: PreparedBroadcast): boolean {
+  return prepared.bytes === undefined && hasBroadcastHooks(runtime);
 }
 
 function toBroadcastMessage(
@@ -425,13 +543,14 @@ function prepareBroadcast(
   runtime: BroadcastRuntime,
   opts: PrepareBroadcastOptions,
 ): PreparedBroadcast {
-  const { routing, event, payload } = opts;
+  const { routing, event } = opts;
+  const { payload, bytes } = splitPayload(opts.payload);
   assertPayload(event, payload);
 
   // A server request is declared by `serverRequests(...)`, not `emits(...)`, and its
   // routing carries `source`, so it skips the outgoing-event check.
-  if (!routing?.source && !isDeclaredOutgoingEvent(runtime.compiled, event, routing)) {
-    throw new Error(`[livething] Outgoing event "${event}" was not declared in the active scope.`);
+  if (!routing?.source && !isDeclaredSend(runtime.compiled, event, { routing, bytes })) {
+    throw undeclaredOutgoing(event, bytes);
   }
 
   // From here every frame, recipient and hook uses this plain copy of what was serialized, so a
@@ -445,7 +564,23 @@ function prepareBroadcast(
   const baseLiveThing = buildLiveThing(routing) as Record<string, unknown>;
   applyLiveThingStampers(runtime.livethingStampHooks, event, baseLiveThing);
 
-  return { event, finalPayload, baseLiveThing };
+  if (bytes === undefined) return { event, finalPayload, baseLiveThing };
+
+  // Check the envelope now, so a send over 64 KiB fails once for the whole send. The frame
+  // itself is built on the first recipient, so a send that reaches nobody copies nothing.
+  const envelope = serializeWireFrame(event, finalPayload, baseLiveThing);
+  assertEnvelopeSize(envelope);
+
+  return { event, finalPayload, baseLiveThing, bytes, envelope };
+}
+
+function assertEnvelopeSize(envelope: string): void {
+  const size = utf8ByteLength(envelope);
+  if (size > BINARY_ENVELOPE_LIMIT) {
+    throw new RangeError(
+      `[livething] the binary frame's info and metadata are ${size} bytes, over the 64 KiB limit. Put large data in the bytes.`,
+    );
+  }
 }
 
 /** Write one prepared broadcast frame to a single recipient. */
@@ -455,7 +590,7 @@ function sendPrepared(
 ): boolean {
   if (connection.purged) return false;
 
-  return connection.descriptor.send({ kind: 'text', text: sharedFrame(prepared) }) !== false;
+  return connection.descriptor.send(sharedFrame(prepared)) !== false;
 }
 
 function notifyPrepared(
@@ -463,7 +598,12 @@ function notifyPrepared(
   prepared: PreparedBroadcast,
   sent: Pick<SentFrame, 'routing' | 'target' | 'recipients'>,
 ): void {
-  notifyOutgoing(runtime, { event: prepared.event, payload: prepared.finalPayload, ...sent });
+  notifyOutgoing(runtime, {
+    event: prepared.event,
+    payload: prepared.finalPayload,
+    bytes: prepared.bytes,
+    ...sent,
+  });
 }
 
 /** Options for one send to a set of connections. */
@@ -509,12 +649,15 @@ function openPreparedSend(
       if (connection.purged) return false;
 
       const frame = extra
-        ? serializeWireFrame(prepared.event, prepared.finalPayload, {
-            ...prepared.baseLiveThing,
-            ...extra,
-          })
+        ? transportFrame(
+            serializeWireFrame(prepared.event, prepared.finalPayload, {
+              ...prepared.baseLiveThing,
+              ...extra,
+            }),
+            prepared.bytes,
+          )
         : sharedFrame(prepared);
-      const sent = connection.descriptor.send({ kind: 'text', text: frame }) !== false;
+      const sent = connection.descriptor.send(frame) !== false;
       if (sent) recipients += 1;
 
       return sent;
@@ -538,7 +681,7 @@ export function sendToConnections(
   const prepared = prepareBroadcast(runtime, opts);
   const targets = hasBroadcastHooks(runtime) ? [...connections] : connections;
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
-  if (hasBroadcastHooks(runtime)) {
+  if (recordsBroadcast(runtime, prepared)) {
     const recipients = recipientsOf(targets);
     if (recipients.length > 0) {
       recorded = { ...toBroadcastMessage(prepared), recipients };
@@ -640,7 +783,7 @@ export function broadcastToConnections(
     if (!prepared) return;
   }
 
-  if (prepared && hasBroadcastHooks(runtime)) {
+  if (prepared && recordsBroadcast(runtime, prepared)) {
     recorded = toBroadcastMessage(prepared);
     if (excludeResumeToken && !options?.includeSelf) {
       recorded.excludedResumeToken = excludeResumeToken;
@@ -725,7 +868,9 @@ export function broadcastToUser(
 
   const routing = channelName ? { channel: channelName, channelFamily } : undefined;
   const prepared = prepareBroadcast(runtime, { routing, event, payload });
-  const recorded = records ? toBroadcastMessage(prepared, userId) : undefined;
+  const recorded = recordsBroadcast(runtime, prepared)
+    ? toBroadcastMessage(prepared, userId)
+    : undefined;
   if (recorded) runBeforeBroadcastHooks(runtime, recorded);
 
   let delivered = 0;
@@ -812,7 +957,7 @@ export function broadcastToChannel(
   // Recorded before the member lookup, so a broadcast to a channel with no
   // live member (or only the excluded sender) still reaches the replay store.
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
-  if (hasBroadcastHooks(runtime)) {
+  if (recordsBroadcast(runtime, prepared)) {
     recorded = toBroadcastMessage(prepared);
     if (opts.excludeResumeToken && !includeSelf) {
       recorded.excludedResumeToken = opts.excludeResumeToken;
@@ -829,6 +974,7 @@ export function broadcastToChannel(
   const { deliverySeq, messageId } = prepared.baseLiveThing;
   if (
     runtime.inboxFanOut &&
+    prepared.bytes === undefined &&
     !Protocol.isProtocolEventName(prepared.event) &&
     typeof deliverySeq === 'number' &&
     typeof messageId === 'string'

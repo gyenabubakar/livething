@@ -63,7 +63,7 @@ async function start(definition: ServerDefinition) {
     ).length;
   }
 
-  return { handle, sent, raw, busy };
+  return { engine, handle, sent, raw, busy };
 }
 
 describe('the bytes one connection holds before its handlers start', () => {
@@ -159,7 +159,9 @@ describe('the bytes one connection holds before its handlers start', () => {
       },
     });
     const upload = files.on('upload-file', { input: v.unknown(), run() {} });
-    const { handle, sent, raw, busy } = await start(base.assemble({ handlers: [files, upload] }));
+    const { engine, handle, sent, raw, busy } = await start(
+      base.assemble({ handlers: [files, upload] }),
+    );
 
     const inFiles = { channel: { name: 'files' } };
     // Two frames fill the budget to 3 bytes short, so not even a ping would fit.
@@ -176,6 +178,8 @@ describe('the bytes one connection holds before its handlers start', () => {
     await macrotask();
 
     await handle.handleMessage('ping');
+    // Stands in for a server request that waits for 'q1': only a real answer skips the budget.
+    engine.core.hooks.answerAwaited.push((_connectionId, correlationId) => correlationId === 'q1');
     await handle.handleMessage(
       JSON.stringify(['confirm-leave', { ok: true }, { exchange: { id: 'q1', source: 'server' } }]),
     );

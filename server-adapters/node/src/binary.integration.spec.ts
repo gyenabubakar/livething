@@ -1,0 +1,186 @@
+import { createServer } from 'node:http';
+import { server, t } from '@livething/server';
+import { binary } from '@livething/server/binary';
+import { channels } from '@livething/server/channels';
+import { afterEach, describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
+import type { AddressInfo } from 'node:net';
+import type { RawData } from 'ws';
+import { setup } from './setup.ts';
+
+const general = { channel: { name: 'room:general', family: 'rooms' } };
+const picture = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+const MAGIC = [0x6c, 0x74, 0x62, 0x66];
+
+/** A binary frame as any client writes it: magic, version 1, envelope length, envelope, bytes. */
+function encodeFrame(envelope: string, bytes: Uint8Array): Buffer {
+  const envelopeBytes = Buffer.from(envelope, 'utf8');
+  const header = Buffer.alloc(9);
+  header.set(MAGIC, 0);
+  header[4] = 1;
+  header.writeUInt32BE(envelopeBytes.byteLength, 5);
+
+  return Buffer.concat([header, envelopeBytes, bytes]);
+}
+
+function decodeFrame(frame: Buffer): { envelope: unknown; bytes: number[] } {
+  expect([...frame.subarray(0, 5)]).toEqual([...MAGIC, 1]);
+  const length = frame.readUInt32BE(5);
+  return {
+    envelope: JSON.parse(frame.subarray(9, 9 + length).toString('utf8')),
+    bytes: [...frame.subarray(9 + length)],
+  };
+}
+
+const cleanups: (() => Promise<void>)[] = [];
+
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
+
+interface Received {
+  data: Buffer;
+  isBinary: boolean;
+}
+
+function huddle(avatars: { info: unknown; bytes: number[] }[]) {
+  const base = server({
+    upgrade(request) {
+      return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
+    },
+    capabilities: [binary(), channels()],
+  });
+  const rooms = base.channel(['rooms', 'room:{roomId}'], {
+    capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
+  });
+  const handleUploadAvatar = base.binary.on('upload-avatar', {
+    run(_ctx, input, bytes) {
+      avatars.push({ info: input, bytes: [...bytes] });
+    },
+  });
+  const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
+    run(ctx, _input, bytes) {
+      ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+    },
+  });
+
+  return base.assemble({ handlers: [handleUploadAvatar, handleShareScreenFrame] });
+}
+
+async function start(definition: ReturnType<typeof huddle>): Promise<number> {
+  const httpServer = createServer();
+  const livething = setup();
+  const endpoint = livething.bind(definition, {});
+  httpServer.on('upgrade', endpoint.upgrade);
+  await endpoint.ready();
+
+  await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+  cleanups.push(async () => {
+    await livething.shutdown();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  });
+
+  return (httpServer.address() as AddressInfo).port;
+}
+
+async function connect(port: number, user: string) {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/huddle?user=${user}`);
+  const received: Received[] = [];
+  socket.on('message', (data: RawData, isBinary) => {
+    received.push({ data: data as Buffer, isBinary });
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.once('open', () => resolve());
+    socket.once('error', reject);
+  });
+  cleanups.push(async () => {
+    if (socket.readyState === WebSocket.CLOSED) return;
+
+    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+    socket.close();
+    await closed;
+  });
+
+  async function until(check: () => boolean): Promise<void> {
+    const started = Date.now();
+    while (!check()) {
+      if (Date.now() - started > 2000) throw new Error('timed out waiting for a message');
+
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
+  return {
+    socket,
+    received,
+    until,
+    texts: () =>
+      received.filter((message) => !message.isBinary).map((m) => JSON.parse(m.data.toString())),
+    sendBinary: (envelope: [event: string, info: unknown, metadata: unknown]) =>
+      socket.send(encodeFrame(JSON.stringify(envelope), picture)),
+    subscribe: async () => {
+      socket.send(JSON.stringify(['__subscribe__', {}, general]));
+      await until(() => received.some((m) => !m.isBinary && m.data.includes('__subscribeOk__')));
+    },
+  };
+}
+
+describe('binary messages over a real ws socket', () => {
+  it('reach their handler with the info and the right bytes', async () => {
+    const avatars: { info: unknown; bytes: number[] }[] = [];
+    const port = await start(huddle(avatars));
+    const amara = await connect(port, 'u_amara');
+
+    amara.sendBinary(['upload-avatar', { fileType: 'image/png' }, null]);
+    await amara.until(() => avatars.length > 0);
+
+    expect(avatars).toEqual([{ info: { fileType: 'image/png' }, bytes: [...picture] }]);
+  });
+
+  it('reach every other channel member as one binary frame', async () => {
+    const port = await start(huddle([]));
+    const amara = await connect(port, 'u_amara');
+    const kofi = await connect(port, 'u_kofi');
+    const ama = await connect(port, 'u_ama');
+    await amara.subscribe();
+
+    await kofi.subscribe();
+    await ama.subscribe();
+
+    amara.sendBinary(['share-screen-frame', null, general]);
+    await kofi.until(() => kofi.received.some((m) => m.isBinary));
+    await ama.until(() => ama.received.some((m) => m.isBinary));
+
+    for (const member of [kofi, ama]) {
+      const frames = member.received.filter((m) => m.isBinary);
+      expect(frames).toHaveLength(1);
+      expect(decodeFrame(frames[0]!.data)).toEqual({
+        envelope: [
+          'screen-frame',
+          { from: 'u_amara' },
+          { channel: { name: 'room:general', family: 'rooms' } },
+        ],
+        bytes: [...picture],
+      });
+    }
+
+    expect(amara.received.filter((m) => m.isBinary)).toEqual([]);
+  });
+
+  it('answers channel-not-subscribed to a non-member', async () => {
+    const port = await start(huddle([]));
+    const kofi = await connect(port, 'u_kofi');
+
+    kofi.sendBinary(['share-screen-frame', null, general]);
+    await kofi.until(() => kofi.texts().some((frame) => frame[0] === '__error__'));
+
+    expect(kofi.texts()).toEqual([
+      [
+        '__error__',
+        { code: 'channel-not-subscribed' },
+        { channel: { name: 'room:general', family: 'rooms' } },
+      ],
+    ]);
+  });
+});

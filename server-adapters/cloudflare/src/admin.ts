@@ -36,8 +36,78 @@ type ChannelGetArgs<TChannels> =
 
 type AnyArgs = [event: string, payload: unknown];
 
+type Bytes = Uint8Array | ArrayBuffer;
+
+/** Every `[event, info, bytes?]` a `binary({ emits })` map allows, as a union of tuples. */
+type BinaryEventArgs<TBinary> = {
+  [E in keyof TBinary & string]: [event: E, info: TBinary[E], bytes?: Bytes];
+}[keyof TBinary & string];
+
+/** Every `[channel, event, info, bytes?]` `channels.binary.broadcast` allows. */
+type ChannelBinaryBroadcastArgs<TChannels> = {
+  [K in keyof TChannels & string]: TChannels[K] extends { binaryOutgoing: infer TBinary }
+    ? {
+        [E in keyof TBinary & string]: [
+          channel: TChannels[K] extends { __addressing: 'dynamic' }
+            ? { family: K; name: string }
+            : K,
+          event: E,
+          info: TBinary[E],
+          bytes?: Bytes,
+        ];
+      }[keyof TBinary & string]
+    : never;
+}[keyof TChannels & string];
+
+type AnyBinaryArgs = [event: string, info: unknown, bytes?: Bytes];
+
+type SendMethod = (...args: unknown[]) => unknown;
+
+/** The `.binary` senders the engine adds to a sender when `binary()` is listed. */
+function binaryOf(sender: object): Record<string, SendMethod> {
+  const binary = (sender as { binary?: Record<string, SendMethod> }).binary;
+  if (!binary) {
+    throw new Error('[livething] A binary send needs binary() in server({ capabilities: [...] }).');
+  }
+
+  return binary;
+}
+
+/** `.binary` on an admin part that sends with `send(...)`. */
+class AdminBinarySend<TBinaryArgs extends AnyBinaryArgs> extends RpcTarget {
+  readonly #sender: () => object;
+
+  constructor(sender: () => object) {
+    super();
+    this.#sender = sender;
+  }
+
+  /** Send a binary event: its info, then its bytes. `false` when the connection is gone. */
+  send(...args: TBinaryArgs): boolean {
+    return binaryOf(this.#sender()).send!(...args) as boolean;
+  }
+}
+
+/** `.binary` on an admin part that sends with `broadcast(...)`. */
+class AdminBinaryBroadcast<TArgs extends unknown[], TResult> extends RpcTarget {
+  readonly #sender: () => object;
+
+  constructor(sender: () => object) {
+    super();
+    this.#sender = sender;
+  }
+
+  /** Send a binary event (its info, then its bytes) to everyone this part reaches. */
+  broadcast(...args: TArgs): TResult {
+    return binaryOf(this.#sender()).broadcast!(...args) as TResult;
+  }
+}
+
 /** One connection, reached with `admin.connections.get(ref)`. */
-class AdminConnection<TArgs extends AnyArgs> extends RpcTarget {
+class AdminConnection<
+  TArgs extends AnyArgs,
+  TBinaryArgs extends AnyBinaryArgs = AnyBinaryArgs,
+> extends RpcTarget {
   readonly #ctx: ConnectionlessContext;
   readonly #ref: ConnectionRef;
   readonly #instanceId: string;
@@ -66,6 +136,11 @@ class AdminConnection<TArgs extends AnyArgs> extends RpcTarget {
     return this.#handle().send(event, payload);
   }
 
+  /** The binary version of `send`. */
+  get binary(): AdminBinarySend<TBinaryArgs> {
+    return new AdminBinarySend(() => this.#handle());
+  }
+
   /** Close this connection only. */
   close(code?: number, reason?: string): void {
     this.#handle().close(code, reason);
@@ -73,7 +148,11 @@ class AdminConnection<TArgs extends AnyArgs> extends RpcTarget {
 }
 
 /** `admin.connections`: reach one connection by ref, or snapshot them all. */
-class AdminConnections<TArgs extends AnyArgs, TMeta> extends RpcTarget {
+class AdminConnections<
+  TArgs extends AnyArgs,
+  TMeta,
+  TBinaryArgs extends AnyBinaryArgs = AnyBinaryArgs,
+> extends RpcTarget {
   readonly #ctx: ConnectionlessContext;
   readonly #instanceId: string;
 
@@ -88,7 +167,7 @@ class AdminConnections<TArgs extends AnyArgs, TMeta> extends RpcTarget {
    * so it is treated as local to this Durable Object. A bad ref throws from the
    * later call, for the reason given on {@link AdminChannels.get}.
    */
-  get(ref: ConnectionRef): AdminConnection<TArgs> {
+  get(ref: ConnectionRef): AdminConnection<TArgs, TBinaryArgs> {
     return new AdminConnection(this.#ctx, ref, this.#instanceId);
   }
 
@@ -99,7 +178,11 @@ class AdminConnections<TArgs extends AnyArgs, TMeta> extends RpcTarget {
 }
 
 /** One user — every live socket they hold — reached with `admin.users.get(id)`. */
-class AdminUser<TArgs extends AnyArgs, TMeta> extends RpcTarget {
+class AdminUser<
+  TArgs extends AnyArgs,
+  TMeta,
+  TBinaryArgs extends AnyBinaryArgs = AnyBinaryArgs,
+> extends RpcTarget {
   readonly #ctx: ConnectionlessContext;
   readonly #id: string;
 
@@ -120,6 +203,11 @@ class AdminUser<TArgs extends AnyArgs, TMeta> extends RpcTarget {
   /** Send an event to every live socket the user holds. Returns how many got it. */
   broadcast(...[event, payload]: TArgs): number {
     return this.#ctx.users.get(this.#id).broadcast(event, payload);
+  }
+
+  /** The binary version of `broadcast`. Returns how many sockets got it. */
+  get binary(): AdminBinaryBroadcast<TBinaryArgs, number> {
+    return new AdminBinaryBroadcast(() => this.#ctx.users.get(this.#id));
   }
 
   setMeta(patch: Partial<TMeta>): void {
@@ -145,7 +233,11 @@ class AdminUser<TArgs extends AnyArgs, TMeta> extends RpcTarget {
 }
 
 /** `admin.users`: reach any user by id. */
-class AdminUsers<TArgs extends AnyArgs, TMeta> extends RpcTarget {
+class AdminUsers<
+  TArgs extends AnyArgs,
+  TMeta,
+  TBinaryArgs extends AnyBinaryArgs = AnyBinaryArgs,
+> extends RpcTarget {
   readonly #ctx: ConnectionlessContext;
 
   constructor(ctx: ConnectionlessContext) {
@@ -153,7 +245,7 @@ class AdminUsers<TArgs extends AnyArgs, TMeta> extends RpcTarget {
     this.#ctx = ctx;
   }
 
-  get(id: string): AdminUser<TArgs, TMeta> {
+  get(id: string): AdminUser<TArgs, TMeta, TBinaryArgs> {
     return new AdminUser(this.#ctx, id);
   }
 }
@@ -235,6 +327,11 @@ class AdminChannels<TChannels, TMeta> extends RpcTarget {
   broadcast(...[channel, event, payload]: ChannelBroadcastArgs<TChannels>): void {
     this.#ctx.channels.broadcast(channel, event, payload);
   }
+
+  /** The binary version of `broadcast`: the channel, the event, its info, then its bytes. */
+  get binary(): AdminBinaryBroadcast<ChannelBinaryBroadcastArgs<TChannels>, void> {
+    return new AdminBinaryBroadcast(() => this.#ctx.channels);
+  }
 }
 
 /**
@@ -249,7 +346,12 @@ class AdminChannels<TChannels, TMeta> extends RpcTarget {
  * `cancelScheduled`, `log`, `platform`) stay inside the Durable Object: use
  * them from your own `api` methods.
  */
-class AdminTarget<TArgs extends AnyArgs, TChannels, TMeta> extends RpcTarget {
+class AdminTarget<
+  TArgs extends AnyArgs,
+  TChannels,
+  TMeta,
+  TBinaryArgs extends AnyBinaryArgs = AnyBinaryArgs,
+> extends RpcTarget {
   readonly #ctx: ConnectionlessContext;
   readonly #instanceId: string;
 
@@ -259,12 +361,17 @@ class AdminTarget<TArgs extends AnyArgs, TChannels, TMeta> extends RpcTarget {
     this.#instanceId = instanceId;
   }
 
-  get connections(): AdminConnections<TArgs, TMeta> {
+  get connections(): AdminConnections<TArgs, TMeta, TBinaryArgs> {
     return new AdminConnections(this.#ctx, this.#instanceId);
   }
 
-  get users(): AdminUsers<TArgs, TMeta> {
+  get users(): AdminUsers<TArgs, TMeta, TBinaryArgs> {
     return new AdminUsers(this.#ctx);
+  }
+
+  /** The binary version of `broadcast`, present when `binary()` is listed. */
+  get binary(): AdminBinaryBroadcast<TBinaryArgs, void> {
+    return new AdminBinaryBroadcast(() => this.#ctx);
   }
 
   get channels(): AdminChannels<TChannels, TMeta> {
@@ -317,15 +424,63 @@ type ApiMethods<TApi> = {
  * Of the definition's `api`, only the methods are here: a stub can't carry a plain
  * value member, so read one through a method.
  */
-export type CloudflareAdmin<TDefinition extends ServerDefinition = ServerDefinition> = Omit<
-  AdminTarget<
-    EventArgs<ContractOf<TDefinition>['outgoing']>,
-    ContractOf<TDefinition>['channels'],
-    MetaOf<TDefinition>
+export type CloudflareAdmin<TDefinition extends ServerDefinition = ServerDefinition> = BinaryParts<
+  Omit<
+    AdminTarget<
+      EventArgs<ContractOf<TDefinition>['outgoing']>,
+      ContractOf<TDefinition>['channels'],
+      MetaOf<TDefinition>,
+      BinaryEventArgs<BinaryOutgoingOf<TDefinition>>
+    >,
+    HasKeys<ContractOf<TDefinition>['channels']> extends true ? never : 'channels'
   >,
-  HasKeys<ContractOf<TDefinition>['channels']> extends true ? never : 'channels'
+  HasKeys<BinaryOutgoingOf<TDefinition>>,
+  ChannelsHaveBinary<ContractOf<TDefinition>['channels']>
 > &
   ApiMethods<ApiOf<TDefinition>>;
+
+type NoBinary<T> = Omit<T, 'binary'>;
+
+/**
+ * The admin surface with each `.binary` key kept only where it has events to send: the
+ * root parts (the surface, and the handles `users.get` and `connections.get` return) by
+ * the root's `binary({ emits })`, and `channels.binary` by any channel's.
+ */
+type BinaryParts<
+  TAdmin,
+  TRootBinary extends boolean,
+  TChannelBinary extends boolean,
+> = (TRootBinary extends true
+  ? Omit<TAdmin, 'channels'>
+  : NoBinary<Omit<TAdmin, 'users' | 'connections' | 'channels'>> & {
+      readonly users: NoBinaryGet<AdminOf<TAdmin, 'users'>>;
+      readonly connections: NoBinaryGet<AdminOf<TAdmin, 'connections'>>;
+    }) &
+  (TAdmin extends { channels: infer TChannels }
+    ? { readonly channels: TChannelBinary extends true ? TChannels : NoBinary<TChannels> }
+    : {});
+
+/** Whether any channel declares binary events. */
+type ChannelsHaveBinary<TChannels> = [
+  {
+    [K in keyof TChannels]: TChannels[K] extends { binaryOutgoing: unknown } ? K : never;
+  }[keyof TChannels],
+] extends [never]
+  ? false
+  : true;
+
+type AdminOf<TAdmin, TKey extends string> = TAdmin extends { [K in TKey]: infer TPart }
+  ? TPart
+  : never;
+
+/** A part whose `get(...)` returns a handle with no `.binary` key. */
+type NoBinaryGet<TPart> = TPart extends { get(...args: infer TArgs): infer THandle }
+  ? Omit<TPart, 'get'> & { get(...args: TArgs): NoBinary<THandle> }
+  : TPart;
+
+/** The server's top-level `binary({ emits })` events (event → info). */
+type BinaryOutgoingOf<TDefinition> =
+  ContractOf<TDefinition> extends { binaryOutgoing: infer TBinary } ? TBinary : {};
 
 /** Names a Workers RPC stub already uses, so an app `api` method by one of them is never reached. */
 const RPC_STUB_NAMES: ReadonlySet<string> = new Set(['dup']);
@@ -357,7 +512,7 @@ export function buildAdmin(surface: ConnectionlessContext, instanceId: string): 
 
   if (devMethods.length === 0) return new AdminTarget(surface, instanceId);
 
-  const Extended = class extends AdminTarget<AnyArgs, unknown, unknown> {};
+  const Extended = class extends AdminTarget<AnyArgs, unknown, unknown, AnyBinaryArgs> {};
   const proto = Extended.prototype as unknown as Record<string, unknown>;
   for (const [key, value] of devMethods) {
     proto[key] = value;

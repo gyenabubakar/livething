@@ -11,6 +11,7 @@ import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { binaryBytesRoom } from '~/incoming/incoming.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -257,6 +258,10 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     isTagGroupDeclared: (kind, group) => core.isTagGroupDeclared(kind, group),
     getTagGroupSchema: (kind, group) => core.getTagGroupSchema(kind, group),
     channelHandleAugmenters: core.channelHandleAugmenters,
+    // Read when used: `Engine` builds the admin surface before the capabilities are set up.
+    get addBinarySenders() {
+      return core.binaryService?.addSenders;
+    },
   };
 }
 
@@ -399,6 +404,12 @@ export function dispatchRuntime(core: EngineCore) {
   return (depsMemoFor(core).dispatch ??= buildDispatchRuntime(core));
 }
 
+/** The default `maxBytes` of a binary handler, or none when the receive limit is too small. */
+function defaultBinaryMaxBytes(receiveBytes: number): number | undefined {
+  const room = binaryBytesRoom(receiveBytes);
+  return room > 0 ? room : undefined;
+}
+
 function buildDispatchRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
@@ -408,9 +419,11 @@ function buildDispatchRuntime(core: EngineCore) {
     activeStreams: core.activeStreams,
     sql: core.storage.sql,
     maxPendingBytes: 2 * core.messageLimits.receiveBytes,
+    defaultBinaryMaxBytes: defaultBinaryMaxBytes(core.messageLimits.receiveBytes),
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
     answerFrameHooks: core.hooks.answerFrame,
+    answerAwaitedHooks: core.hooks.answerAwaited,
     errorHooks: core.hooks.error,
     declaredErrorCodes: core.declaredErrorCodes,
     incomingDedupCap: core.incomingDedupCap,
@@ -529,7 +542,7 @@ function buildConnectionRuntime(core: EngineCore) {
       EngineMessageRuntime.processTextMessage(dispatchRuntime(core), connection, data),
 
     get processBinaryMessage() {
-      const dispatch = core.binaryMessageDispatch;
+      const dispatch = core.binaryService?.dispatch;
       if (!dispatch) return undefined;
 
       return (connection: RuntimeConnection, data: Uint8Array) =>

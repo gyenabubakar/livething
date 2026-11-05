@@ -15,6 +15,8 @@ export interface OutgoingPrimitive<
 > extends Primitive<'outgoing'> {
   /** The event name the server emits. */
   readonly event: TEvent;
+  /** `true` for an event that `binary({ emits })` declares, sent only as a binary frame. */
+  readonly binary?: boolean;
 }
 
 /** Unique symbol. The registration ID is the event name, so each event is its own singleton. */
@@ -27,8 +29,14 @@ const OUTGOING_KEY = Symbol('outgoing');
  *
  * @param event The event name exactly as the client will receive it.
  */
+interface OutgoingOptions {
+  /** Set by `binary({ emits })`: the event is sent only as a binary frame. */
+  binary?: boolean;
+}
+
 export function outgoing<TEvent extends string, TPayload = unknown>(
   event: TEvent,
+  options?: OutgoingOptions,
 ): OutgoingPrimitive<TEvent, TPayload> {
   assertValidLiveThingIdentifier(event, 'outgoing() event name');
   return {
@@ -36,5 +44,6 @@ export function outgoing<TEvent extends string, TPayload = unknown>(
     __identity: [OUTGOING_KEY, event],
     __requires: {},
     event,
+    ...(options?.binary ? { binary: true } : {}),
   };
 }

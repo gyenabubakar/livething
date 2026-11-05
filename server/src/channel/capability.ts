@@ -56,6 +56,7 @@ interface ChannelOnlyBuilder {
   __buildChannelPrimitive?: () => Primitive;
   readonly __channelEmits?: Record<string, unknown>;
   readonly __channelServerRequests?: Record<string, unknown>;
+  readonly __binaryOutgoing?: readonly Primitive[];
 }
 
 /** The capability name a channel stream of each kind needs listed. */
@@ -90,6 +91,8 @@ export interface ChannelDeps {
     channelKey: string,
     declarations: Record<string, any>,
   ) => ReadonlyMap<string, ResolvedServerRequest>;
+  /** Whether `binary()` is listed at the root, which a channel's binary events and handlers need. */
+  readonly binary?: boolean;
 }
 
 /**
@@ -123,6 +126,23 @@ export class ChannelBuilder {
   private readonly deps: ChannelDeps;
   /** Capability kinds declared by this channel's own `capabilities` list. */
   private readonly capabilityKinds = new Set<string>();
+  /** The binary events this channel's own `binary({ emits })` declares. */
+  private readonly binaryEvents: string[] = [];
+
+  /** `rooms.binary.on(...)`: a channel handler for a binary event. Needs `binary()` at the root. */
+  readonly binary = {
+    on: (event: string, config: any): ChannelHandlerValue => {
+      this.assertBinaryListed('binary.on()');
+      const primitive = incomingFactory(event, config.run as any, {
+        validator: config.input,
+        allowInterleaving: config.allowInterleaving,
+        binary: true,
+        maxBytes: config.maxBytes,
+      });
+
+      return this.handlerValue(primitive, config);
+    },
+  };
 
   constructor(pattern: unknown, config: any, deps: ChannelDeps) {
     this.deps = deps;
@@ -171,6 +191,14 @@ export class ChannelBuilder {
     for (const cap of (cfg.capabilities as readonly ChannelOnlyBuilder[] | undefined) ?? []) {
       if (cap.__capabilityKind) this.capabilityKinds.add(cap.__capabilityKind);
       if (cap.__channelEmits) this.children.push(...cap.__primitives);
+      if (cap.__binaryOutgoing) {
+        this.assertBinaryListed('binary({ emits })');
+        this.children.push(...cap.__binaryOutgoing);
+        for (const primitive of cap.__binaryOutgoing) {
+          this.binaryEvents.push((primitive as unknown as { event: string }).event);
+        }
+      }
+
       if (cap.__channelServerRequests && Object.keys(cap.__channelServerRequests).length > 0) {
         const resolve = deps.resolveServerRequests;
         if (!resolve) {
@@ -258,6 +286,17 @@ export class ChannelBuilder {
 
   /** Build the channel primitive from its config, its hooks and the given handlers. @internal */
   __build(selectedHandlers: readonly Primitive[]): Primitive {
+    // An inbox stores a JSON row for each member, and cannot store bytes yet. Sending a binary
+    // event live only would break the inbox's promise with no warning.
+    if (this.capabilityKinds.has(CAPABILITY_KIND.inbox) && this.binaryEvents.length > 0) {
+      throw new LiveThingConfigError(
+        `channel '${this.__key}' lists inbox() and the binary events ` +
+          `${this.binaryEvents.map((event) => `'${event}'`).join(', ')}. An inbox cannot store ` +
+          'binary messages. Send them in a channel without inbox(), or store the bytes yourself ' +
+          'and send an inbox message with a link to them.',
+      );
+    }
+
     const seenEvents = new Set<string>();
     for (const handler of selectedHandlers) {
       const { event } = handler as { event?: string };
@@ -301,6 +340,15 @@ export class ChannelBuilder {
     const primitive = build(event, config);
 
     return this.handlerValue(primitive, config);
+  }
+
+  private assertBinaryListed(what: string): void {
+    if (this.deps.binary) return;
+
+    throw new LiveThingConfigError(
+      `channel '${this.__key}' uses ${what} but binary() is not listed. ` +
+        'Add binary() to server({ capabilities: [...] }) too.',
+    );
   }
 
   /** A handler's own `rateLimit` travels on its primitive, so `assemble()` reads it from there. */

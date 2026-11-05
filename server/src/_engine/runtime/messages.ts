@@ -6,6 +6,7 @@ import {
   UnsupportedProtocol,
   utf8ByteLength,
   ValidationFailed,
+  WrongFrameKind,
 } from '@livething/core';
 import {
   connectionCall,
@@ -38,6 +39,8 @@ type FrameParameter = {
   event: string;
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
+  /** The frame's bytes when it came as a binary frame, else `undefined`. */
+  bytes?: Uint8Array;
 };
 type OptsParameter = {
   event: string;
@@ -117,6 +120,9 @@ interface DispatchRuntime
 
   answerFrameHooks: readonly ((connectionId: string, frame: FrameParameter) => boolean)[];
 
+  /** Whether a request the server sent to a connection waits for a correlation id. */
+  answerAwaitedHooks?: readonly ((connectionId: string, correlationId: string) => boolean)[];
+
   /**
    * Size of the per-connection seen-id ring used by incoming dedup. Zero means
    * incoming dedup is disabled (no `dedup()` primitive registered).
@@ -128,6 +134,12 @@ interface DispatchRuntime
    * their handler: twice the adapter's receive limit.
    */
   maxPendingBytes: number;
+
+  /**
+   * The default `maxBytes` of a binary handler: what always fits in the receive limit with
+   * the header and a 64 KiB envelope. Absent when the limit is too small for that.
+   */
+  defaultBinaryMaxBytes?: number;
 
   errorHooks: readonly ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
 
@@ -284,6 +296,25 @@ export interface DispatchIncomingOptions {
   size?: number;
   /** Called when the handler starts, to give the frame's bytes back to the connection. */
   onHandlerStart?: () => void;
+  /** The application's bytes when the frame came as a binary frame, else `undefined`. */
+  bytes?: Uint8Array;
+}
+
+/** Throw `ValidationFailed` when a binary frame's bytes are over its handler's `maxBytes`. */
+function assertBytesFit(event: string, bytes: Uint8Array, maxBytes: number | undefined): void {
+  if (maxBytes === undefined || bytes.byteLength <= maxBytes) return;
+
+  throw ValidationFailed({
+    event,
+    issues: [
+      { message: `The bytes are ${bytes.byteLength} bytes, over the limit of ${maxBytes} bytes.` },
+    ],
+  });
+}
+
+/** The `wrong-frame-kind` error for a frame that came as the other kind. */
+function wrongFrameKind(event: string, bytes: Uint8Array | undefined): LiveThingError {
+  return WrongFrameKind({ event, expected: bytes === undefined ? 'binary' : 'text' });
 }
 
 /** The intercepts a frame still has to pass, given what it already paid on arrival. */
@@ -313,7 +344,7 @@ export async function dispatchIncoming(
   connection: EngineRuntimeTypes.RuntimeConnection,
   opts: DispatchIncomingOptions,
 ): Promise<void> {
-  const { event, payload, livething, size = 0, onHandlerStart } = opts;
+  const { event, payload, livething, size = 0, onHandlerStart, bytes } = opts;
   // A closing connection is already out of the runtime maps, so running its
   // handler would fire side effects for a client that is gone.
   if (connection.closing) return;
@@ -362,6 +393,19 @@ export async function dispatchIncoming(
     ? scoped.recordedStreams.get(event)
     : runtime.compiled.recordedStreams.get(event);
 
+  const primitive = incoming ?? request ?? stream ?? recordedStream;
+  if (
+    primitive &&
+    ((primitive as { binary?: boolean }).binary === true) !== (bytes !== undefined)
+  ) {
+    await runtime.handleRuntimeError(connection, {
+      error: wrongFrameKind(event, bytes),
+      event,
+      routing: routingFromLiveThing(livething),
+    });
+    return;
+  }
+
   let sharedCtx: Record<PropertyKey, unknown> | undefined;
   function getCtx(): Record<PropertyKey, unknown> {
     return (sharedCtx ??= runtime.buildConnectionContext(connection, scope));
@@ -389,6 +433,7 @@ export async function dispatchIncoming(
         routing: interceptRouting,
         owner: frameOwner(event),
         size,
+        ...(bytes === undefined ? {} : { bytes }),
       };
 
       frame = await runIntercepts(runtime, connection, {
@@ -410,7 +455,6 @@ export async function dispatchIncoming(
       message = { event: frame.event, payload: frame.payload };
     }
 
-    const primitive = incoming ?? request ?? stream ?? recordedStream;
     if (!primitive) return;
 
     let payloadValue: unknown;
@@ -420,6 +464,13 @@ export async function dispatchIncoming(
         message.payload,
         event,
       );
+      if (bytes !== undefined) {
+        assertBytesFit(
+          event,
+          bytes,
+          (primitive as { maxBytes?: number }).maxBytes ?? runtime.defaultBinaryMaxBytes,
+        );
+      }
     } catch (error) {
       rethrowIfConfigError(error);
       // Route the validation error fully here and stop. Rethrowing would make
@@ -441,7 +492,7 @@ export async function dispatchIncoming(
         return withConnectionCall(
           runtime.asyncContext,
           connectionCall(connection.id, scope, getCtx),
-          () => incoming.handler(getCtx(), payloadValue),
+          () => incoming.handler(getCtx(), payloadValue, bytes),
         );
       });
       return;
@@ -726,6 +777,7 @@ interface StreamNudgeBufferInput {
   triggerScope: EngineRuntimeTypes.ResolvedChannel;
   charged: boolean;
   size: number;
+  bytes?: Uint8Array;
 }
 
 /**
@@ -755,11 +807,14 @@ async function runPluginConnectionHooks(
 }
 
 async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boolean> {
-  const { runtime, connection, event, frame, livething, triggerScope, charged, size } = input;
+  const { runtime, connection, event, frame, livething, triggerScope, charged, size, bytes } =
+    input;
   if (!livething?.streamId) return false;
 
   const activeStream = runtime.activeStreams.get(livething.streamId);
-  if (activeStream && activeStream.connectionId === connection.id && !activeStream.closed) {
+  const ownStream =
+    activeStream && activeStream.connectionId === connection.id && !activeStream.closed;
+  if (ownStream) {
     const storedScope = activeStream.scope ?? {};
     const sameScope =
       (storedScope.channelName ?? undefined) === (triggerScope.channelName ?? undefined) &&
@@ -785,6 +840,25 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
       });
       return true;
     }
+  }
+
+  // A nudge must be text, and no intercept sees a binary one. A non-member gets
+  // channel-not-subscribed first, as for any channel frame.
+  if (bytes !== undefined) {
+    const nonMember =
+      !ownStream &&
+      !!triggerScope.channelName &&
+      !connectionHoldsMembership(
+        connection,
+        triggerScope.channelName,
+        triggerScope.channelFamily ?? null,
+      );
+    await runtime.handleRuntimeError(connection, {
+      error: nonMember ? ChannelNotSubscribed() : wrongFrameKind(event, bytes),
+      event,
+      routing: { ...routingFromLiveThing(livething), streamTerminated: false },
+    });
+    return true;
   }
 
   let payload = frame.payload;
@@ -864,23 +938,63 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
  * round-trip.
  */
 export async function processTextMessage(
-  runtime: DispatchRuntime & {
-    activityHooks: readonly ConnectionHook[];
-    messageActivityHooks: readonly ConnectionHook[];
-    pingHooks: readonly ConnectionHook[];
-    pongHooks: readonly ConnectionHook[];
-    pluginPingHooks: readonly PluginConnectionHook[];
-    pluginPongHooks: readonly PluginConnectionHook[];
-    appPingHooks: readonly ConnectionHook[];
-    appPongHooks: readonly ConnectionHook[];
-  },
+  runtime: FrameRuntime,
   connection: RuntimeConnection,
   data: string,
 ): Promise<void> {
   const parsed = data === 'ping' || data === 'pong' ? undefined : parseFrame(data);
-  const size = utf8ByteLength(data);
+  await processFrame(runtime, connection, {
+    data,
+    parsed,
+    size: utf8ByteLength(data),
+    ...(parsed === INVALID_FRAME ? { invalid: 'Invalid JSON message dropped' } : {}),
+  });
+}
+
+/** The runtime bag that the text and the binary receive paths share. */
+export type FrameRuntime = DispatchRuntime & {
+  activityHooks: readonly ConnectionHook[];
+  messageActivityHooks: readonly ConnectionHook[];
+  pingHooks: readonly ConnectionHook[];
+  pongHooks: readonly ConnectionHook[];
+  pluginPingHooks: readonly PluginConnectionHook[];
+  pluginPongHooks: readonly PluginConnectionHook[];
+  appPingHooks: readonly ConnectionHook[];
+  appPongHooks: readonly ConnectionHook[];
+};
+
+/** One received frame, after the first parse. A binary frame's envelope is parsed like text. */
+export interface ReceivedFrame {
+  /** The text of a text frame. Absent for a binary frame. */
+  data?: string;
+  /** The parsed JSON of the frame (or of a binary frame's envelope). */
+  parsed: unknown;
+  /** The size of the whole frame as it arrived, in bytes. */
+  size: number;
+  /** The application's bytes of a binary frame. Absent for a text frame. */
+  bytes?: Uint8Array;
+  /** Set when the frame could not be parsed: the reason that is logged before it is dropped. */
+  invalid?: string;
+}
+
+/**
+ * Route one received frame, text or binary, through the same steps in the same order.
+ * Everything up to `placeFrame` runs with no `await`, so frames keep the order they came in.
+ */
+export async function processFrame(
+  runtime: FrameRuntime,
+  connection: RuntimeConnection,
+  received: ReceivedFrame,
+): Promise<void> {
+  const { parsed, size, bytes } = received;
   // The frame's bytes count against the connection from now until its handler starts.
-  const counted = waitsInLine(parsed) ? size : 0;
+  function answersWaitingRequest(correlationId: string): boolean {
+    return (runtime.answerAwaitedHooks ?? []).some((awaits) =>
+      awaits(connection.id, correlationId),
+    );
+  }
+
+  const counted = waitsInLine(parsed, bytes !== undefined, answersWaitingRequest) ? size : 0;
   const held = connection.pendingBytes ?? 0;
   if (counted > 0 && held + counted > runtime.maxPendingBytes) {
     await refuseBusy(runtime, connection, parsed);
@@ -900,8 +1014,8 @@ export async function processTextMessage(
   try {
     // Before the first await, so frames take their place in the order they arrived
     // even when hooks below make this frame wait.
-    place = placeFrame(connection, parsed);
-    await processParsedMessage(runtime, connection, { data, parsed, place, size, release });
+    place = placeFrame(connection, parsed, bytes !== undefined);
+    await processParsedMessage(runtime, connection, { ...received, place, release });
   } finally {
     release();
     if (place.attempt) finishSubscribe(connection, place.attempt);
@@ -914,13 +1028,25 @@ export async function processTextMessage(
  * other protocol frames and an answer to a server request never wait in line, so a full
  * budget must not stop a client from leaving a channel, cancelling a stream or answering.
  */
-function waitsInLine(parsed: unknown): boolean {
+function waitsInLine(
+  parsed: unknown,
+  binary: boolean,
+  answersWaitingRequest: (correlationId: string) => boolean,
+): boolean {
   if (!Array.isArray(parsed) || typeof parsed[0] !== 'string') return false;
 
-  if (Protocol.isProtocolEventName(parsed[0])) return parsed[0] === '__subscribe__';
+  // A binary frame with a framework event name is refused at once, so it never waits.
+  if (Protocol.isProtocolEventName(parsed[0])) return !binary && parsed[0] === '__subscribe__';
 
-  const exchange = (parsed[2] as { exchange?: { source?: unknown } } | null)?.exchange;
-  return exchange?.source !== 'server';
+  // Only a real answer skips the budget. A frame that only says it answers can still
+  // reach a handler and wait for it.
+  const exchange = (parsed[2] as { exchange?: { id?: unknown; source?: unknown } } | null)
+    ?.exchange;
+  return !(
+    exchange?.source === 'server' &&
+    typeof exchange.id === 'string' &&
+    answersWaitingRequest(exchange.id)
+  );
 }
 
 /** Answer a frame that would take the connection over its byte budget with `ConnectionBusy`. */
@@ -954,13 +1080,9 @@ interface FramePlace {
   gate?: SubscribeGate;
 }
 
-/** One text frame as received, plus its JSON (or `INVALID_FRAME`; `undefined` for ping/pong). */
-interface IncomingText {
-  data: string;
-  parsed: unknown;
+/** One received frame with its place in its channel's order. */
+interface IncomingFrame extends ReceivedFrame {
   place: FramePlace;
-  /** The frame's length in UTF-8 bytes. */
-  size: number;
   /** Gives the frame's bytes back to the connection's budget, once its handler starts. */
   release: () => void;
 }
@@ -989,11 +1111,12 @@ function frameChannelKey(parsed: unknown): string | undefined {
  * an earlier one still in `check`, and an `__unsubscribe__` cancels it. Any other
  * frame runs after the subscribes running now, in the order the client sent it.
  */
-function placeFrame(connection: RuntimeConnection, parsed: unknown): FramePlace {
+function placeFrame(connection: RuntimeConnection, parsed: unknown, binary: boolean): FramePlace {
   const key = frameChannelKey(parsed);
   if (key === undefined) return {};
 
-  const event = (parsed as unknown[])[0];
+  // A binary `__subscribe__` or `__unsubscribe__` is refused, so it must not touch a subscribe.
+  const event = binary ? undefined : (parsed as unknown[])[0];
   if (event === '__subscribe__') return { attempt: beginSubscribe(connection, key, 'client') };
 
   if (event === '__unsubscribe__') abandonSubscribes(connection, key);
@@ -1062,6 +1185,7 @@ interface ArrivalCharge {
   livething: Protocol.LiveThingProtocol | undefined;
   scope: EngineRuntimeTypes.ResolvedChannel;
   size: number;
+  bytes?: Uint8Array;
 }
 
 /**
@@ -1074,7 +1198,7 @@ async function chargeOnArrival(
   connection: RuntimeConnection,
   charge: ArrivalCharge,
 ): Promise<boolean> {
-  const { event, payload, livething, scope, size } = charge;
+  const { event, payload, livething, scope, size, bytes } = charge;
   try {
     await runIntercepts(runtime, connection, {
       intercepts: runtime.compiled.intercepts.filter((intercept) => intercept.__chargedOnArrival),
@@ -1085,6 +1209,7 @@ async function chargeOnArrival(
         routing: buildInterceptRouting(livething),
         owner: frameOwner(event),
         size,
+        ...(bytes === undefined ? {} : { bytes }),
       },
       getCtx: () => runtime.buildConnectionContext(connection, scope),
     });
@@ -1100,11 +1225,11 @@ async function chargeOnArrival(
 }
 
 async function processParsedMessage(
-  runtime: Parameters<typeof processTextMessage>[0],
+  runtime: FrameRuntime,
   connection: RuntimeConnection,
-  message: IncomingText,
+  message: IncomingFrame,
 ): Promise<void> {
-  const { data, parsed, place, size, release } = message;
+  const { data, parsed, place, size, release, bytes } = message;
   const observed = { connectionId: connection.id, logger: runtime.logger };
 
   if (runtime.activityHooks.length > 0) {
@@ -1142,8 +1267,8 @@ async function processParsedMessage(
     return;
   }
 
-  if (parsed === INVALID_FRAME) {
-    runtime.logger.warn('Invalid JSON message dropped');
+  if (message.invalid !== undefined) {
+    runtime.logger.warn(message.invalid);
     return;
   }
 
@@ -1173,12 +1298,23 @@ async function processParsedMessage(
       const declineLiveThing = declineFrame.__livething;
       if (declineLiveThing?.correlationId !== undefined) {
         const payload = declineFrame.payload;
+        // A binary `__error__` is not a decline: a waiting request takes it as a wrong-kind answer.
         for (const hook of runtime.answerFrameHooks) {
-          if (hook(connection.id, { event, payload, livething: declineLiveThing })) return;
+          if (hook(connection.id, { event, payload, livething: declineLiveThing, bytes })) return;
         }
 
-        return;
+        if (bytes === undefined) return;
       }
+    }
+
+    // A framework event must be text: a binary one stops here.
+    if (bytes !== undefined && Protocol.isProtocolEventName(event)) {
+      await runtime.handleRuntimeError(connection, {
+        error: wrongFrameKind(event, bytes),
+        event,
+        routing: rawFrameRouting(parsed),
+      });
+      return;
     }
 
     // Protocol frames skip dedup and nudge buffering — a retried one must still
@@ -1220,7 +1356,7 @@ async function processParsedMessage(
     // entry falls through to normal routing.
     if (livething?.correlationId !== undefined) {
       for (const hook of runtime.answerFrameHooks) {
-        if (hook(connection.id, { event, payload: frame.payload, livething })) return;
+        if (hook(connection.id, { event, payload: frame.payload, livething, bytes })) return;
       }
     }
 
@@ -1252,6 +1388,7 @@ async function processParsedMessage(
         livething,
         scope: triggerScope,
         size,
+        bytes,
       }))
     ) {
       return;
@@ -1295,6 +1432,7 @@ async function processParsedMessage(
         triggerScope,
         charged,
         size,
+        bytes,
       }))
     )
       return;
@@ -1309,6 +1447,7 @@ async function processParsedMessage(
       charged,
       size,
       onHandlerStart: release,
+      bytes,
     });
   } catch (error) {
     await runtime.handleRuntimeError(connection, {

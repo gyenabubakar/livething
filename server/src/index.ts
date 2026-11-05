@@ -21,6 +21,8 @@ export { context } from './ambient-context.ts';
 export { server } from './_define/server.ts';
 export type {
   Base,
+  BinaryIncomingHandlerValue,
+  ChannelBinaryMethods,
   ChannelCoreMethods,
   ChannelRecordedStreamMethod,
   ChannelRequestMethods,
@@ -37,7 +39,13 @@ export type {
   UpgradeFn,
   UpgradeReturn,
 } from './_define/server.ts';
-export type { AppCtx, ChannelRef, ConnectionlessCtx } from './_define/app-ctx.ts';
+export type {
+  AppCtx,
+  BinaryEventsCarrier,
+  ChannelRef,
+  ConnectionlessCtx,
+} from './_define/app-ctx.ts';
+export { BINARY_EVENTS } from './_define/app-ctx.ts';
 export type { Capability, Contribution, HostCapability } from './_define/capability.ts';
 export type { BuildContract } from './_define/contract.ts';
 export type { TypeMarker } from './_api/definitions.ts';

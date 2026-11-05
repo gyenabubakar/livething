@@ -8,7 +8,7 @@ type AssertLocalRefRefParameter = { readonly instance: string | undefined };
 /** The slice of engine deps the connection handle needs to route a send. */
 type ConnectionHandleDeps = Pick<
   EngineContextTypes.ContextCommonDeps,
-  'instanceId' | 'sendThroughPipeline'
+  'instanceId' | 'sendThroughPipeline' | 'addBinarySenders'
 > & { connections: Map<string, EngineRuntimeTypes.RuntimeConnection> };
 
 /**
@@ -24,7 +24,7 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
 } {
   return {
     connection: (ref) => {
-      return {
+      const handle: PublicApi.ConnectionHandle = {
         send: (event, payload) => {
           assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).send');
           const target = deps.connections.get(ref.id);
@@ -37,6 +37,10 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
           deps.connections.get(ref.id)?.descriptor.close(code, reason);
         },
       };
+
+      deps.addBinarySenders?.(handle, { send: 'event-first' });
+
+      return handle;
     },
   };
 }

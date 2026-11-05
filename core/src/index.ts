@@ -26,6 +26,7 @@ export {
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,
+  WrongFrameKind,
 } from './errors.ts';
 export type {
   ErrorDef,

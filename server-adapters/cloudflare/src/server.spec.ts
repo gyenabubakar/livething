@@ -728,6 +728,57 @@ describe('LiveThingDurableObject admin()', () => {
     expect(fake.adminSpies.channel.members).toHaveBeenCalled();
   });
 
+  it('sends binary events through the .binary part of each sender', async () => {
+    const { admin } = await adminOf();
+    const bytes = new Uint8Array([137, 80, 78, 71]);
+    const surface = fake.adminApi as Record<string, Record<string, unknown>>;
+    const binary = { broadcast: vi.fn() };
+    const userBinary = { broadcast: vi.fn(() => 2) };
+
+    const connectionBinary = { send: vi.fn(() => true) };
+    const channelsBinary = { broadcast: vi.fn() };
+    surface.binary = binary;
+    surface.users!.get = vi.fn(() => ({ binary: userBinary }));
+    surface.connections!.get = vi.fn(() => ({ binary: connectionBinary }));
+
+    surface.channels!.binary = channelsBinary;
+    const binaryAdmin = admin as unknown as {
+      binary: { broadcast(...args: unknown[]): unknown };
+      users: { get(id: string): { binary: { broadcast(...args: unknown[]): unknown } } };
+      connections: { get(ref: unknown): { binary: { send(...args: unknown[]): unknown } } };
+      channels: { binary: { broadcast(...args: unknown[]): unknown } };
+    };
+    const ref = { __livething: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' };
+
+    binaryAdmin.binary.broadcast('avatar-preview', null, bytes);
+    const reached = binaryAdmin.users.get('u1').binary.broadcast('avatar-preview', null, bytes);
+    const sent = binaryAdmin.connections.get(ref).binary.send('avatar-preview', null, bytes);
+    const room = { family: 'rooms', name: 'room:42' };
+    binaryAdmin.channels.binary.broadcast(room, 'screen-frame', { from: 'admin' }, bytes);
+
+    expect(binary.broadcast).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    expect(reached).toBe(2);
+    expect(userBinary.broadcast).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    expect(sent).toBe(true);
+    expect(connectionBinary.send).toHaveBeenCalledWith('avatar-preview', null, bytes);
+
+    expect(channelsBinary.broadcast).toHaveBeenCalledWith(
+      room,
+      'screen-frame',
+      { from: 'admin' },
+      bytes,
+    );
+  });
+
+  it('throws a clear error for a binary send when binary() is not listed', async () => {
+    const { admin } = await adminOf();
+    const binaryAdmin = admin as unknown as { binary: { broadcast(...args: unknown[]): unknown } };
+
+    expect(() => binaryAdmin.binary.broadcast('avatar-preview', null)).toThrow(
+      /needs binary\(\) in server/,
+    );
+  });
+
   it('channels.broadcast passes the channel, event and payload to the context', async () => {
     const { admin } = await adminOf();
     const broadcast = (fake.adminApi.channels as { broadcast: ReturnType<typeof vi.fn> }).broadcast;

@@ -122,10 +122,12 @@ function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
     copy.nudges = nudges.map((n) => ({ ...n, event: pluginWireName(id, n.event) }));
   }
 
-  const handler = (primitive as { handler?: (ctx: any, payload: any) => unknown }).handler;
+  const handler = (primitive as { handler?: (ctx: any, payload: any, bytes?: any) => unknown })
+    .handler;
   if (handler) {
-    copy.handler = scopePluginThrow(id, shortCodes, (ctx: any, payload: any) =>
-      runAsPlugin(scope, ctx, (scoped) => handler(scoped, payload)),
+    // A binary handler gets the frame's bytes as a third argument.
+    copy.handler = scopePluginThrow(id, shortCodes, (ctx: any, payload: any, bytes?: any) =>
+      runAsPlugin(scope, ctx, (scoped) => handler(scoped, payload, bytes)),
     );
   }
 

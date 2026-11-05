@@ -24,6 +24,8 @@ export interface RequiresManifest {
 export interface ValidationView {
   /** Whether a persistent `sequence` is configured. */
   readonly sequencePersistent: boolean;
+  /** The adapter's receive limit, in bytes. */
+  readonly receiveBytes: number;
   /** The channel key this primitive is scoped to, if any. */
   readonly channelKey?: string;
   /** Whether the named channel keeps its membership durable. */
