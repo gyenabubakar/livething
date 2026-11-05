@@ -154,7 +154,7 @@ describe('a binary message', () => {
     expect(closes).toEqual([
       {
         code: CloseCodes.UNSUPPORTED_DATA,
-        reason: '[livething] binary frames are not supported yet',
+        reason: '[livething] this server does not use binary()',
       },
     ]);
   });

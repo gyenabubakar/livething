@@ -652,7 +652,7 @@ describe('Hono binding', () => {
 
     await expect(closed).resolves.toEqual({
       code: 1003,
-      reason: '[livething] binary frames are not supported yet',
+      reason: '[livething] this server does not use binary()',
     });
     const [received] = capturedBridges.at(-1)!.binaryMessages;
     expect(Object.getPrototypeOf(received)).toBe(Uint8Array.prototype);

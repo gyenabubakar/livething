@@ -382,7 +382,7 @@ function createHandle(
         if (connection.closing) return;
 
         if (!runtime.processBinaryMessage) {
-          closeFor(CloseCodes.UNSUPPORTED_DATA, '[livething] binary frames are not supported yet');
+          closeFor(CloseCodes.UNSUPPORTED_DATA, '[livething] this server does not use binary()');
           return;
         }
 
