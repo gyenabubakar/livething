@@ -26,6 +26,7 @@ function harness(
   const bootSchemaHooks: Array<() => void> = [];
   const engine = {
     getScopeInfo: () => ({ channelKey: opts.channelKey ?? 'room' }),
+    getBinaryEvents: () => [],
     onBootSchema: (run: () => void) => bootSchemaHooks.push(run),
     extendContext: () => {},
     onProtocolMessage: (event: string, handler: Handler) => handlers.set(event, handler),

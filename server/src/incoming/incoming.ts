@@ -135,19 +135,6 @@ export function binaryHandlerFields(
 }
 
 /**
- * `binary.recordedStream(...)` in plain JavaScript. A recorded stream stores its chunks as
- * JSON, and there is no store for bytes yet, so a recorded binary stream fails at startup.
- * When binary storage lands, this is where the recorded binary stream goes.
- */
-export function refuseRecordedBinaryStream(event: string): never {
-  throw new LiveThingConfigError(
-    `binary.recordedStream('${event}'): A recorded binary stream is not supported yet. ` +
-      'Use binary.stream(...), and put a position in its input (such as a byte offset), ' +
-      'so a client that loses its connection can start again where it stopped.',
-  );
-}
-
-/**
  * The most bytes a binary frame can always carry: the receive limit, less the header and
  * the largest envelope, because the info may fill all 64 KiB of it. It is the default
  * `maxBytes`, and the most an explicit one may be. `0` or less when the limit is too small.

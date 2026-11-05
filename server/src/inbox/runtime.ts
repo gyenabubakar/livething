@@ -1,4 +1,18 @@
+import { closeSlowClient } from '~/_adapters/close.ts';
 import { rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
+import { seqScopeKey } from '~/_engine/runtime/catch-up-hold.ts';
+import {
+  CATCH_UP_PAGE,
+  catchUpBufferIsHigh,
+  catchUpDeadline,
+  runCatchUp,
+  waitForCatchUpBuffer,
+} from '~/_engine/runtime/catch-up.ts';
+import {
+  storedRowBytes,
+  storedRowSkip,
+  storedRowStorageBytes,
+} from '~/_engine/runtime/stored-row.ts';
 import { sendGap, sendReplay } from '~/_engine/runtime/wire.ts';
 import { listIdentitiesByChannel } from '~/channel/storage.ts';
 import {
@@ -10,6 +24,7 @@ import {
   insertInboxRows,
   insertInboxRowsForUserId,
   listExpiredInboxRetentionTargets,
+  listInboxChannelsOf,
   listInboxRetentionTargets,
   listStoredInboxSeqs,
   loadInboxWatermarks,
@@ -19,9 +34,10 @@ import {
 } from '~/inbox/storage.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
+import type { StoredRowLimits, StoredRowSkip } from '~/_engine/runtime/stored-row.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
-import type { InboxFrame, InboxRetention } from '~/inbox/storage.ts';
+import type { InboxFrame, InboxRetention, InboxRow } from '~/inbox/storage.ts';
 
 /**
  * Whether an engine channel scope belongs to the given channel key (channel
@@ -45,13 +61,18 @@ export function scopeMatchesChannel(
  */
 export const DEFAULT_MAX_RECEIPT_AUDIENCE = 256;
 
-interface InboxFanOutOptions {
+interface InboxMessage {
   channelName: string;
   channelFamily: string | null;
   event: string;
   payload: Record<string, unknown> | null;
-  deliverySeq: number;
+  /** The bytes of a binary event. */
+  bytes?: Uint8Array;
   messageId: string;
+}
+
+interface InboxFanOutOptions extends InboxMessage {
+  deliverySeq: number;
   excludeUserId?: string;
   /** A user `purgeUser` is wiping gets no new row. */
   isUserPurging?: (userId: string) => boolean;
@@ -127,6 +148,8 @@ export function fanOutToInbox(core: EngineCore, opts: InboxFanOutOptions): void 
     payload: opts.payload,
   };
 
+  if (opts.bytes !== undefined) frame.bytes = opts.bytes;
+
   insertInboxRows(sql, {
     userIds,
     channelName: opts.channelName,
@@ -135,38 +158,116 @@ export function fanOutToInbox(core: EngineCore, opts: InboxFanOutOptions): void 
     now: Date.now(),
   });
 
-  if (config.retention) {
-    // Only a row-count cap (no age cap) can be proven satisfied from the count
-    // alone; an age cap still has to check timestamps every time.
-    const cap = config.retention.maxMessages;
-    const countGates = config.retention.maxAgeMs === undefined && cap !== undefined;
+  const { retention } = config;
+  if (!retention) return;
 
-    for (const userId of userIds) {
-      const key = memberCountKey(opts.channelName, opts.channelFamily, userId);
-      const cached = core.inboxMemberCounts.get(key);
-      const count =
-        cached === undefined
-          ? countInboxRows(sql, {
-              userId,
-              channelName: opts.channelName,
-              channelFamily: opts.channelFamily,
-            })
-          : cached + 1;
-      core.inboxMemberCounts.set(key, count);
+  const rowBytes = storedRowBytes(JSON.stringify(opts.payload), opts.bytes);
+  for (const userId of userIds) {
+    const key = memberCountKey(opts.channelName, opts.channelFamily, userId);
+    const cached = core.inboxMemberCounts.get(key);
+    const held = cached
+      ? { rows: cached.rows + 1, bytes: cached.bytes + rowBytes }
+      : countInboxRows(sql, {
+          userId,
+          channelName: opts.channelName,
+          channelFamily: opts.channelFamily,
+        });
+    core.inboxMemberCounts.set(key, held);
 
-      if (countGates && count <= cap!) continue;
+    // Only the count and byte caps can be proven met from the cache; an age cap still has to
+    // check timestamps every time.
+    const overCap =
+      retention.maxAgeMs !== undefined ||
+      (retention.maxMessages !== undefined && held.rows > retention.maxMessages) ||
+      (retention.maxBytes !== undefined && held.bytes > retention.maxBytes);
+    if (!overCap) continue;
 
-      const evicted = applyInboxRetention(sql, {
-        userId,
-        channelName: opts.channelName,
-        channelFamily: opts.channelFamily,
-        retention: config.retention,
-      });
-      if (countGates && evicted !== null) core.inboxMemberCounts.set(key, cap!);
-    }
-
-    if (config.retention.maxAgeMs !== undefined) rescheduleEngineAlarm(core);
+    const evicted = applyInboxRetention(sql, {
+      userId,
+      channelName: opts.channelName,
+      channelFamily: opts.channelFamily,
+      retention,
+    });
+    // The next write counts again from storage.
+    if (evicted !== null) core.inboxMemberCounts.delete(key);
   }
+
+  if (retention.maxAgeMs !== undefined) rescheduleEngineAlarm(core);
+}
+
+/** The errors already logged for a message the inbox could not store, once per event and limit. */
+const refusalsLogged = new WeakMap<EngineCore, Set<string>>();
+
+/** How each limit that keeps a message out of an inbox is named in the error. */
+const REFUSAL_LIMITS: Record<StoredRowSkip['limit'], string> = {
+  storage: 'the storage row limit',
+  send: 'the send limit',
+  retention: 'retention.maxBytes',
+};
+
+/**
+ * Whether the inbox of a channel can store this message for each member. An inbox promises
+ * every member every message, so a message it cannot store goes to nobody: sending it live
+ * only would break that promise with no sign. Then LiveThing logs an error, once for each
+ * event and limit. Channels without `inbox()` can store anything.
+ */
+export function inboxCanStore(core: EngineCore, message: InboxMessage): boolean {
+  const channelKey = channelKeyFor(message.channelName, message.channelFamily);
+  const config = core.inboxChannels.get(channelKey);
+  if (!config) return true;
+
+  const tooBig = inboxRowTooBig(message, {
+    maxValueBytes: core.storage.sql.limits.maxValueBytes,
+    sendBytes: core.messageLimits.sendBytes,
+    maxBytes: config.retention?.maxBytes,
+  });
+  if (!tooBig) return true;
+
+  let logged = refusalsLogged.get(core);
+  if (!logged) refusalsLogged.set(core, (logged = new Set()));
+
+  const key = JSON.stringify([channelKey, message.event, tooBig.skip.limit]);
+  if (!logged.has(key)) {
+    logged.add(key);
+    core.logger.error(
+      `[livething] channel '${message.channelName}' did not send ${tooBig.reason}, and no ` +
+        'member got it. This error shows once for each event and limit.',
+      { channel: message.channelName, event: message.event, rowBytes: tooBig.rowBytes },
+    );
+  }
+
+  return false;
+}
+
+/** Why an inbox cannot store a message, said for an error message. */
+interface InboxRowTooBig {
+  skip: StoredRowSkip;
+  rowBytes: number;
+  /** For example `"voice-note": the message is over the send limit of … bytes, so …`. */
+  reason: string;
+}
+
+/** Why one member's row of this message would be over a limit, or `null` when it fits. */
+export function inboxRowTooBig(
+  message: InboxMessage,
+  limits: StoredRowLimits,
+): InboxRowTooBig | null {
+  const rowBytes = storedRowBytes(JSON.stringify(message.payload), message.bytes);
+  // The member's user id is not counted: the limit has room to spare for it.
+  const columns = [message.channelName, message.channelFamily, message.messageId, message.event];
+  const skip = storedRowSkip(
+    { storageBytes: storedRowStorageBytes(rowBytes, columns), rowBytes },
+    limits,
+  );
+  if (!skip) return null;
+
+  return {
+    skip,
+    rowBytes,
+    reason:
+      `"${message.event}": the message is over ${REFUSAL_LIMITS[skip.limit]} of ${skip.bytes} ` +
+      'bytes, so its inbox cannot store it',
+  };
 }
 
 /** Return the next age-retention deadline for one static channel or family. */
@@ -186,21 +287,22 @@ export function sweepInboxRetention(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
   params: InboxRetentionSweepOptions,
 ): number {
-  const maxAgeMs = params.retention.maxAgeMs;
-  if (maxAgeMs === undefined && params.retention.maxMessages === undefined) return 0;
+  const { maxAgeMs, maxMessages, maxBytes } = params.retention;
+  const capsSize = maxMessages !== undefined || maxBytes !== undefined;
+  if (maxAgeMs === undefined && !capsSize) return 0;
 
-  // A count-only retention config has no alarm source, but it still needs a
-  // boot pass so a deploy that lowers maxMessages enforces the new bound on
-  // rows already on disk. Age-retained configs can use the narrower expired
-  // query unless they also carry a count cap, whose bound may have changed.
-  const targets =
-    params.retention.maxMessages !== undefined
-      ? listInboxRetentionTargets(sql, { channelKey: params.channelKey })
-      : listExpiredInboxRetentionTargets(sql, {
-          channelKey: params.channelKey,
-          maxAgeMs: maxAgeMs!,
-          now: params.now,
-        });
+  // A count or byte retention config has no alarm source, but it still needs a
+  // boot pass so a deploy that lowers maxMessages or maxBytes enforces the new
+  // bound on rows already on disk. Age-retained configs can use the narrower
+  // expired query unless they also carry a count or byte cap, whose bound may
+  // have changed.
+  const targets = capsSize
+    ? listInboxRetentionTargets(sql, { channelKey: params.channelKey })
+    : listExpiredInboxRetentionTargets(sql, {
+        channelKey: params.channelKey,
+        maxAgeMs: maxAgeMs!,
+        now: params.now,
+      });
   let pruned = 0;
   for (const target of targets) {
     if (
@@ -230,38 +332,116 @@ export function memberCountKey(
  * Re-deliver a reconnecting member's owed rows in seq order across every channel
  * it belongs to. Rows are not deleted on send — the client acks with
  * `__received__`, and that ack settles them.
+ *
+ * The rows go out a page at a time, and the drain waits while the socket's buffer is high,
+ * the same way a replay catch-up does: live frames of those channels wait until the drain
+ * ends, and a member that reads nothing for about 50 seconds is closed with `1013`. It
+ * returns as soon as it has to wait, so the connection's other work goes on meanwhile.
  */
-export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConnection): void {
-  if (!connection.userId) return;
+export async function drainInboxOnReconnect(
+  core: EngineCore,
+  connection: RuntimeConnection,
+): Promise<void> {
+  const { userId } = connection;
+  if (!userId) return;
 
   const { sql } = core.storage;
+  const owed = listInboxChannelsOf(sql, userId);
+  const channels = [...owed, ...loadInboxWatermarks(sql, userId)];
+  if (channels.length === 0) return;
 
-  const watermarks = loadInboxWatermarks(sql, connection.userId);
-  for (const watermark of watermarks) {
+  // A row stored after the drain starts has its live frame held, and that frame goes out
+  // after the drain, so the drain leaves the row out.
+  const throughSeq = Math.max(0, ...owed.map((channel) => channel.maxSeq));
+  const storeKeys = new Set(
+    channels.map((channel) => seqScopeKey(channel.channelName, channel.channelFamily)),
+  );
+  await runCatchUp(connection, [...storeKeys], () =>
+    sendOwedRows(core, connection, { userId, throughSeq }),
+  );
+}
+
+/** Whose rows a drain sends, and the highest seq it sends. */
+interface OwedRows {
+  userId: string;
+  throughSeq: number;
+}
+
+/** The highest seq a drain has covered in each channel, with a row or with a `__gap__`. */
+type DrainCovered = Map<string, number>;
+
+/** Send every owed row of a member, a page at a time, waiting while the buffer is high. */
+async function sendOwedRows(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  owed: OwedRows,
+): Promise<void> {
+  const { userId, throughSeq } = owed;
+  const { sql } = core.storage;
+  const covered: DrainCovered = new Map();
+  sendNewGaps(core, connection, covered);
+  if (connection.closing) return;
+
+  const waitUntil = catchUpDeadline();
+  let after: InboxRow | undefined;
+  for (;;) {
+    const rows = loadUndeliveredRows(sql, userId, { after, ...CATCH_UP_PAGE });
+    if (rows.length === 0) return;
+
+    for (const row of rows) {
+      // Stored after the drain started: its live frame is held, and goes out after the drain.
+      if (row.seq > throughSeq) {
+        after = row;
+        continue;
+      }
+
+      if (catchUpBufferIsHigh(connection)) {
+        if (!(await waitForCatchUpBuffer(connection, waitUntil))) {
+          // The member reconnects, and the drain starts again from its first owed row.
+          if (!connection.closing) closeSlowClient(connection.descriptor);
+          return;
+        }
+
+        if (connection.closing) return;
+
+        // Retention can delete rows while the drain waits: tell the member, then read again
+        // from the last row sent. An ack can delete rows too, and those are no longer owed.
+        sendNewGaps(core, connection, covered);
+        if (connection.closing) return;
+
+        break;
+      }
+
+      sendReplay(core, connection, {
+        channelName: row.channelName,
+        channelFamily: row.channelFamily,
+        event: row.event,
+        payload: JSON.parse(row.payload) as Record<string, unknown> | null,
+        bytes: row.binaryPayload ?? undefined,
+        wire: { deliverySeq: row.seq, messageId: row.messageId, channel: row.channelName },
+      });
+      if (connection.closing) return;
+
+      after = row;
+      covered.set(seqScopeKey(row.channelName, row.channelFamily), row.seq);
+    }
+  }
+}
+
+/** Send a `__gap__` for each overflow watermark above what the drain has covered in its channel. */
+function sendNewGaps(core: EngineCore, connection: RuntimeConnection, covered: DrainCovered): void {
+  for (const watermark of loadInboxWatermarks(core.storage.sql, connection.userId)) {
+    const key = seqScopeKey(watermark.channelName, watermark.channelFamily);
+    if (watermark.evictedThroughSeq <= (covered.get(key) ?? 0)) continue;
+
     sendGap(core, connection, {
       channelName: watermark.channelName,
       channelFamily: watermark.channelFamily,
       missedThrough: watermark.evictedThroughSeq,
     });
     if (connection.closing) return;
-  }
 
-  const rows = loadUndeliveredRows(sql, connection.userId);
-  if (rows.length === 0) return;
-
-  for (const row of rows) {
-    sendReplay(core, connection, {
-      channelName: row.channelName,
-      channelFamily: row.channelFamily,
-      event: row.event,
-      payload: JSON.parse(row.payload) as Record<string, unknown> | null,
-      wire: {
-        deliverySeq: row.seq,
-        messageId: row.messageId,
-        channel: row.channelName,
-      },
-    });
-    if (connection.closing) return;
+    covered.set(key, watermark.evictedThroughSeq);
   }
 }
 

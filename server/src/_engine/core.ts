@@ -176,13 +176,13 @@ export class EngineCore {
   >();
 
   /**
-   * In-memory count of each member's inbox rows, keyed by channel and identity.
-   * Seeded from storage on first touch and bumped as fan-out writes rows, so the
-   * per-member retention prune runs only when the row cap could be exceeded. It
-   * is invalidated when rows are acknowledged, backfilled, or cleared, and an
+   * In-memory count and byte total of each member's inbox rows, keyed by channel and
+   * identity. Seeded from storage on first touch and bumped as fan-out writes rows, so the
+   * per-member retention prune runs only when the row or byte cap could be exceeded. It
+   * is invalidated when rows are acknowledged, backfilled, cleared or pruned, and an
    * undercount only keeps a few rows past the cap until the next prune.
    */
-  readonly inboxMemberCounts = new Map<string, number>();
+  readonly inboxMemberCounts = new Map<string, { rows: number; bytes: number }>();
 
   /** Tag groups declared via the contract's `tagGroups` config. Empty when none are declared. */
   readonly declaredTagGroups = {

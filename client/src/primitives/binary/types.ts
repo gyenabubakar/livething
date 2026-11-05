@@ -3,7 +3,14 @@ import type { BinaryInput } from '@livething/core';
 import type { SendOptions } from '~/messaging.ts';
 import type { StreamTriggerOptions } from '~/primitives/stream/types.ts';
 import type { Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
-import type { IncomingOf, NudgesOf, OutgoingOf, StreamHandle, StreamHandlers } from '~/types.ts';
+import type {
+  IncomingOf,
+  NudgesOf,
+  OutgoingOf,
+  PersistentStreamKeys,
+  StreamHandle,
+  StreamHandlers,
+} from '~/types.ts';
 
 /** One binary message as the client gets it: the info, and the bytes. */
 export interface BinaryItem<TInfo> {
@@ -96,7 +103,7 @@ interface BinaryOnRequestMethod<R extends Requests> {
   ): () => void;
 }
 
-/** `binary.stream` and `binary.onStream`, for one scope's binary `streams`. */
+/** `binary.stream`, `binary.onStream` and `binary.continueStream`, for one scope's binary `streams`. */
 interface BinaryStreamMethods<S extends Streams> {
   /**
    * Start a binary stream: the info, then the bytes (none means zero bytes). The handle is
@@ -114,12 +121,22 @@ interface BinaryStreamMethods<S extends Streams> {
     event: K,
     handlers: StreamHandlers<BinaryItem<S[K]['chunk']>>,
   ): () => void;
+  /**
+   * Continue a recorded binary stream (from `binary.recordedStream`) by its stream ID, for
+   * example after a page reload. The server sends the stored chunks after `lastKnownSeq`
+   * again, as binary frames. Each item is `{ info, bytes }`.
+   */
+  continueStream<K extends PersistentStreamKeys<S> & string>(
+    event: K,
+    streamId: string,
+    options?: { lastKnownSeq?: number },
+  ): StreamHandle<BinaryItem<S[K]['chunk']>, NudgesOf<S[K]>>;
 }
 
 /**
  * The `.binary` key of one scope, for the primitives registered (their tags in `TTags`).
  * Each side with entries adds its method: `binary.on`/`send` from `binary()`, and
- * `binary.request`, `binary.onRequest` and `binary.stream`/`onStream` when
+ * `binary.request`, `binary.onRequest` and `binary.stream`/`onStream`/`continueStream` when
  * `clientRequests()`, `serverRequests()` and `stream()` are registered too. Without that
  * primitive, the method is a stub: calling it is a type error that names the primitive.
  */
@@ -157,6 +174,9 @@ type BinarySurface<B, TTags extends string> = BinaryEvents<B> &
             };
             onStream: {
               error: '[livething] binary.onStream needs the stream() primitive — add stream() to client()';
+            };
+            continueStream: {
+              error: '[livething] binary.continueStream needs the stream() primitive — add stream() to client()';
             };
           }
     : {});

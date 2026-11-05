@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { encodeBinaryFrame, LiveThingConfigError, splitBinaryFrame } from '@livething/core';
+import { encodeBinaryFrame, splitBinaryFrame } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
@@ -483,20 +483,11 @@ describe('base.binary.stream (spec 9.2)', () => {
     expect(log).toEqual(['started with 2 bytes']);
   });
 
-  it('needs stream(), and has no recorded version yet', () => {
+  it('needs stream()', () => {
     const noStream = server({ capabilities: [binary(), channels()] }) as any;
     expect(() => noStream.binary.stream('download-attachment', { async *run() {} })).toThrow(
       /base\.binary\.stream\(\) needs the stream\(\) capability/,
     );
-
-    expect(() =>
-      noStream.binary.recordedStream('download-attachment', { async *run() {} }),
-    ).toThrow(LiveThingConfigError);
-    expect(() =>
-      noStream
-        .channel('lobby', {})
-        .binary.recordedStream('download-recording', { async *run() {} }),
-    ).toThrow(/A recorded binary stream is not supported yet/);
   });
 });
 

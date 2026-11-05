@@ -4,10 +4,11 @@ import { binary } from '@livething/server/binary';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
+import { inbox } from '@livething/server/inbox';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { serverRequests } from '@livething/server/server-requests';
-import { stream } from '@livething/server/streams';
+import { recordedStream, stream } from '@livething/server/streams';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerDefinition } from '@livething/server';
@@ -301,6 +302,126 @@ describe('replay of binary messages over a real ws socket', () => {
         },
       ]);
     }
+  });
+});
+
+describe('inbox binary messages over a real ws socket', () => {
+  function huddleWithDms() {
+    const base = server({
+      upgrade(request) {
+        return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
+      },
+      capabilities: [binary(), channels(), dedup(), sequence({ persist: true })],
+    });
+    const dms = base.channel(['dms', 'dm:{pair}'], {
+      membership: 'persistent',
+      capabilities: [
+        inbox(),
+        binary({ emits: { 'voice-note': t<{ from: string; durationMs: number }>() } }),
+      ],
+    });
+    const handleSendVoiceNote = dms.binary.on('send-voice-note', {
+      run(ctx, input, bytes) {
+        const { durationMs } = input as { durationMs: number };
+        ctx.channel.binary.broadcast('voice-note', { from: ctx.user.id, durationMs }, bytes);
+      },
+    });
+
+    return base.assemble({ handlers: [dms, handleSendVoiceNote] });
+  }
+
+  const dm = { channel: { name: 'dm:u_amara-u_kofi', family: 'dms' } };
+
+  it('sends a member who was offline the voice note when it connects again, as one binary frame', async () => {
+    const port = await start(huddleWithDms());
+    const amara = await connect(port, 'u_amara');
+    const kofi = await connect(port, 'u_kofi');
+    for (const member of [amara, kofi]) {
+      member.socket.send(JSON.stringify(['__subscribe__', {}, dm]));
+      await member.until(() => member.texts().some((frame) => frame[0] === '__subscribeOk__'));
+    }
+
+    const closed = new Promise((resolve) => kofi.socket.once('close', resolve));
+    kofi.socket.close();
+    await closed;
+
+    const voiceNote = new Uint8Array(300_000).fill(7);
+    amara.sendBinary(['send-voice-note', { durationMs: 4200 }, dm], voiceNote);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const kofiAgain = await connect(port, 'u_kofi');
+    await kofiAgain.until(() => kofiAgain.received.some((m) => m.isBinary));
+
+    const [stored] = kofiAgain.received.filter((m) => m.isBinary).map((m) => decodeFrame(m.data));
+    expect(stored!.bytes).toEqual([...voiceNote]);
+    expect(stored!.envelope).toEqual([
+      'voice-note',
+      { from: 'u_amara', durationMs: 4200 },
+      { channel: dm.channel, delivery: { id: expect.any(String), seq: expect.any(Number) } },
+    ]);
+  });
+});
+
+describe('recorded binary streams over a real ws socket', () => {
+  function huddleWithPdfExport(release: Promise<void>) {
+    const base = server({
+      upgrade(request) {
+        return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
+      },
+      capabilities: [binary(), recordedStream()],
+    });
+    const handleExportRoomPdf = base.binary.recordedStream('export-room-pdf', {
+      chunk: t<{ fileName: string } | null>(),
+      async *run() {
+        yield { info: { fileName: 'room-design.pdf' }, bytes: new Uint8Array([1, 1]) };
+        // The client drops here, and the export keeps going.
+        await release;
+        yield { info: null, bytes: new Uint8Array(200_000).fill(2) };
+        yield { info: null, bytes: new Uint8Array([3]) };
+      },
+    });
+
+    return base.assemble({ handlers: [handleExportRoomPdf] });
+  }
+
+  it('sends the chunks the client missed after a drop again, as binary frames, when it continues', async () => {
+    let release!: () => void;
+    const port = await start(huddleWithPdfExport(new Promise((resolve) => (release = resolve))));
+    const amara = await connect(port, 'u_amara');
+    amara.sendBinary(
+      ['export-room-pdf', { roomId: 'room:design' }, { stream: { id: 'pdf-1' } }],
+      new Uint8Array(0),
+    );
+    await amara.until(() => amara.received.some((m) => m.isBinary));
+
+    const closed = new Promise((resolve) => amara.socket.once('close', resolve));
+    amara.socket.close();
+    await closed;
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const amaraAgain = await connect(port, 'u_amara');
+    amaraAgain.socket.send(
+      JSON.stringify(['__continueStream__', { lastKnownSeq: 1 }, { stream: { id: 'pdf-1' } }]),
+    );
+    await amaraAgain.until(() => amaraAgain.texts().some((frame) => frame[0] === '__streamEnd__'));
+
+    const frames = amaraAgain.frames();
+    expect(frames.map((frame) => frame.kind)).toEqual(['bytes', 'bytes', 'text']);
+    expect(frames[0]).toEqual({
+      kind: 'bytes',
+      envelope: [
+        'export-room-pdf',
+        null,
+        { stream: { id: 'pdf-1', durability: 'persistent', seq: 2 } },
+      ],
+      bytes: [...new Uint8Array(200_000).fill(2)],
+    });
+    expect(frames[1]).toMatchObject({ kind: 'bytes', bytes: [3] });
+    expect(frames[2]!.envelope).toEqual([
+      '__streamEnd__',
+      null,
+      { stream: { id: 'pdf-1', seq: 3, event: 'export-room-pdf' } },
+    ]);
   });
 });
 

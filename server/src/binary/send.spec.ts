@@ -9,7 +9,6 @@ import { binary } from '~/binary/capability.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { inbox } from '~/inbox/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -414,18 +413,6 @@ describe('binary and the other features', () => {
 });
 
 describe('declaring binary events and handlers', () => {
-  it('makes assemble() throw for a channel with inbox() that lists binary events', () => {
-    const base = server({ capabilities: [binary(), channels()] });
-    const rooms = base.channel('room:general', {
-      membership: 'persistent',
-      capabilities: [inbox(), binary({ emits: { 'screen-frame': t<null>() } })],
-    });
-
-    expect(() => base.assemble({ handlers: [rooms] })).toThrow(
-      /lists inbox\(\) and the binary events 'screen-frame'/,
-    );
-  });
-
   it('needs binary() at the root for a channel binary() or binary handler', () => {
     const base = server({ capabilities: [channels()] });
     expect(() =>

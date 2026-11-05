@@ -1,7 +1,9 @@
 import { encodeBinaryFrame, InternalError } from '@livething/core';
 import { textOverLimit } from '~/_adapters/close.ts';
+import { markSeqScope } from '~/_engine/runtime/catch-up-hold.ts';
 import { assertPayload, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
+import type { TransportFrame } from '~/_adapters/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
@@ -95,6 +97,12 @@ export interface SendReplayOptions {
   bytes?: Uint8Array;
 
   wire: { deliverySeq: number; messageId: string; channel?: string };
+
+  /**
+   * A new message sent now, not a stored one sent again (an inbox `backfill` to a member who is
+   * online): it waits behind a running catch-up of its store, like a live frame.
+   */
+  live?: boolean;
 }
 
 /** Send one replay entry with its stored wire metadata reattached. */
@@ -144,7 +152,9 @@ export function sendReplay(
     binaryFrame = undefined;
   }
 
-  connection.descriptor.send(
-    binaryFrame ? { kind: 'bytes', bytes: binaryFrame } : { kind: 'text', text: frame },
-  );
+  const transportFrame: TransportFrame = binaryFrame
+    ? { kind: 'bytes', bytes: binaryFrame }
+    : { kind: 'text', text: frame };
+  if (options.live) markSeqScope(transportFrame, livething);
+  connection.descriptor.send(transportFrame);
 }

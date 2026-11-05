@@ -71,6 +71,16 @@ export declare function openAttachment(
   type: string;
   pieces(signal: AbortSignal): AsyncIterable<Uint8Array>;
 }>;
+/** Renders a room's messages as a PDF, in pieces of up to 256 KiB. */
+export declare function renderRoomPdf(roomId: string): AsyncIterable<Uint8Array>;
+/** The voice notes of a direct message in Huddle's older app, oldest first. */
+export declare function loadOldVoiceNotes(
+  dmName: string,
+): Promise<{ id: string; from: string; durationMs: number; bytes: Uint8Array }[]>;
+/** The voice note the user just recorded. */
+export declare const voiceNoteBytes: Uint8Array;
+/** Plays a voice note from a member of a direct message. */
+export declare function playVoiceNote(from: string, bytes: Uint8Array): void;
 /** Shows an attachment's thumbnail from its picture bytes. */
 export declare function showThumbnail(fileType: 'image/png', bytes: Uint8Array): void;
 /** Starts saving a downloaded attachment under its name. */

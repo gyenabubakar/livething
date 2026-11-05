@@ -57,6 +57,7 @@ describe('inbox/storage — insert and load', () => {
         messageId: 'msg_5',
         event: 'message',
         payload: JSON.stringify({ n: 5 }),
+        binaryPayload: null,
         channelName: 'room',
         channelFamily: null,
       },

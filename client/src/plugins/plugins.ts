@@ -280,6 +280,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       onRequest: missing('binary.onRequest', withBinary ? 'serverRequests' : 'binary'),
       stream: missing('binary.stream', withBinary ? 'stream' : 'binary'),
       onStream: missing('binary.onStream', withBinary ? 'stream' : 'binary'),
+      continueStream: missing('binary.continueStream', withBinary ? 'stream' : 'binary'),
     },
   };
 

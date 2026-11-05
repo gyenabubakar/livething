@@ -127,7 +127,8 @@ type ClientBinarySlice<TScope> = [
   | keyof Slot<TScope, 'binaryIncoming'>
   | keyof Slot<TScope, 'binaryClientRequests'>
   | keyof BinaryServerRequestsOf<TScope>
-  | keyof Slot<TScope, 'binaryStreams'>,
+  | keyof Slot<TScope, 'binaryStreams'>
+  | keyof Slot<TScope, 'binaryRecordedStreams'>,
 ] extends [never]
   ? {}
   : {
@@ -143,8 +144,14 @@ type ClientBinarySlice<TScope> = [
         clientRequests: ClientBinaryRequests<Slot<TScope, 'binaryClientRequests'>, 'response'>;
         /** The binary requests the server sends, from `binary({ serverRequests })`. */
         serverRequests: ClientBinaryRequests<BinaryServerRequestsOf<TScope>, 'payload'>;
-        /** The binary streams, from `binary.stream(...)`. `chunk` is each chunk's info. */
-        streams: ClientStreamSlot<Slot<TScope, 'binaryStreams'>, 'ephemeral'>;
+        /**
+         * The binary streams, from `binary.stream(...)` and `binary.recordedStream(...)`.
+         * `chunk` is each chunk's info.
+         */
+        streams: [keyof Slot<TScope, 'binaryRecordedStreams'>] extends [never]
+          ? ClientStreamSlot<Slot<TScope, 'binaryStreams'>, 'ephemeral'>
+          : ClientStreamSlot<Slot<TScope, 'binaryStreams'>, 'ephemeral'> &
+              ClientStreamSlot<Slot<TScope, 'binaryRecordedStreams'>, 'persistent'>;
       };
     };
 

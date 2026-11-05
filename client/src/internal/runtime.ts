@@ -100,10 +100,19 @@ export interface StreamStartContext {
   prepare?(frame: Message): Message;
 }
 
+/** How a recorded stream is continued: its scope, its options, and whether it is binary. */
+export interface StreamContinueContext {
+  markers: ScopeMarkers;
+  options?: { lastKnownSeq?: number };
+  /** A binary stream: its chunks are binary, and each item is `{ info, bytes }`. */
+  binary?: boolean;
+}
+
 /** `stream()` shares these under {@link STREAM_KEY}, so `binary()` can add binary streams. */
 export const STREAM_KEY = 'stream';
 export interface StreamHooks {
   start(event: string, payload: unknown, context: StreamStartContext): Promise<unknown>;
+  continue(event: string, streamId: string, context: StreamContinueContext): unknown;
   listen(
     event: string,
     handlers: StreamHandlers<unknown>,

@@ -4,10 +4,11 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
 import { Disconnect } from '@livething/server/errors';
+import { inbox } from '@livething/server/inbox';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { serverRequests } from '@livething/server/server-requests';
-import { stream } from '@livething/server/streams';
+import { recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { pattern } from '../_shared/bytes.ts';
@@ -27,18 +28,59 @@ const base = server({
     }),
     dedup(),
     sequence({ persist: true }),
-    // Binary events are stored too, so a member who reconnects gets the frames it missed.
-    replay.history(),
+    // Binary events are stored too, so a member who reconnects gets the frames it missed. A
+    // voice note is left out: the DM's inbox alone must bring it back.
+    replay.history({ exclude: ['voice-note'] }),
     channels(),
     clientRequests(),
     serverRequests(),
     stream(),
+    recordedStream(),
   ],
 });
 
 // A room: its members share their screens with each other (binary spec 9.1).
 const rooms = base.channel(['rooms', 'room:{roomId}'], {
   capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
+});
+
+// A direct message: every member gets a stored copy of each voice note until they acknowledge it.
+const dms = base.channel(['dms', 'dm:{pair}'], {
+  membership: 'persistent',
+  capabilities: [
+    inbox(),
+    binary({ emits: { 'voice-note': t<{ from: string; durationMs: number }>() } }),
+  ],
+});
+
+const handleSendVoiceNote = dms.binary.on('send-voice-note', {
+  input: v.object({ durationMs: v.number() }),
+  maxBytes: 1024 * 1024,
+  run(ctx, input, bytes) {
+    ctx.channel.binary.broadcast(
+      'voice-note',
+      { from: ctx.user.id, durationMs: input.durationMs },
+      bytes,
+    );
+  },
+});
+
+// A PDF of a room, in 64 KiB pieces, a little apart, so a client can lose its connection
+// while it runs. The export runs once: a client that comes back continues it, and gets the
+// stored pieces it missed. The PDF of `room:<n>` is `pattern(<n> * 1000, <n>)`.
+const handleExportRoomPdf = base.binary.recordedStream('export-room-pdf', {
+  input: v.object({ roomId: v.string() }),
+  chunk: t<{ fileName: string } | null>(),
+  async *run(_ctx, input) {
+    const n = Number(input.roomId.slice('room:'.length));
+    const pdf = pattern(n * 1000, n);
+    let info: { fileName: string } | null = { fileName: `${input.roomId}.pdf` };
+    for (let start = 0; start < pdf.byteLength; start += 64 * 1024) {
+      yield { info, bytes: pdf.subarray(start, start + 64 * 1024) };
+      info = null;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  },
 });
 
 // The preview is the first 8 bytes, so a test can check the server read the upload.
@@ -148,6 +190,9 @@ export const binaryDefinition = base.assemble({
     handleDownloadAttachment,
     handleWasDownloadCancelled,
     handleStartScreenShare,
+    dms,
+    handleSendVoiceNote,
+    handleExportRoomPdf,
   ],
 });
 

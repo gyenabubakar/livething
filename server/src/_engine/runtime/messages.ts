@@ -533,6 +533,7 @@ export async function dispatchIncoming(
         durable: recordedStream,
         payload: payloadValue,
         livething,
+        bytes,
       });
     }
   } catch (error) {

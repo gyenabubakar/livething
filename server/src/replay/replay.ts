@@ -3,8 +3,14 @@ import { LiveThingConfigError } from '@livething/core';
 import { closeSlowClient } from '~/_adapters/close.ts';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
-import { beginCatchUpHold, endCatchUpHold, seqScopeKey } from '~/_engine/runtime/catch-up-hold.ts';
-import { DRAIN_BUFFER_LIMIT_BYTES } from '~/_engine/stream-common/active-stream.ts';
+import { seqScopeKey } from '~/_engine/runtime/catch-up-hold.ts';
+import {
+  CATCH_UP_PAGE,
+  catchUpBufferIsHigh,
+  catchUpDeadline,
+  runCatchUp,
+  waitForCatchUpBuffer,
+} from '~/_engine/runtime/catch-up.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import {
   dropQueuedReplaySnapshots,
@@ -30,6 +36,7 @@ import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
+import type { StoredRowSkip } from '~/_engine/runtime/stored-row.ts';
 import type {
   FrameRecipient,
   RuntimeConnection,
@@ -37,7 +44,7 @@ import type {
 } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { ReplayRowSkip, ReplaySnapshotEntry, ReplayStoreOwner } from '~/replay/runtime.ts';
+import type { ReplaySnapshotEntry, ReplayStoreOwner } from '~/replay/runtime.ts';
 import type { ReplayOptions, ReplayRow } from '~/replay/types.ts';
 
 /** The primitive type produced by `replay.history()` and `replay.snapshot()`. */
@@ -362,7 +369,7 @@ class ReplayInstaller {
   };
 
   /** Warn once per event that replay could not store a message over the storage row limit. */
-  private warnRowTooBig = (row: ReplayRow, skip: ReplayRowSkip): void => {
+  private warnRowTooBig = (row: ReplayRow, skip: StoredRowSkip): void => {
     const key = JSON.stringify([row.event, skip.limit]);
     if (this.warnedTooBig.has(key)) return;
 
@@ -512,24 +519,8 @@ class ReplayInstaller {
       return true;
     }
 
-    // From now on, live frames of this store wait until its last replayed row is sent, even
-    // while this catch-up waits for the one before it. Catch-ups of one connection run one after
-    // another, since a catch-up that waits for the buffer lets other work run.
     const storeKey = seqScopeKey(scope.channelName ?? null, scope.channelFamily ?? null);
-    beginCatchUpHold(connection, storeKey);
-    const before = connection.catchUp;
-    let finish!: () => void;
-    const mine = new Promise<void>((resolve) => (finish = resolve));
-
-    connection.catchUp = mine;
-    try {
-      if (before) await before;
-      if (!connection.closing) await this.catchUp(request);
-    } finally {
-      finish();
-      if (connection.catchUp === mine) connection.catchUp = undefined;
-      endCatchUpHold(connection, storeKey);
-    }
+    await runCatchUp(connection, [storeKey], () => this.catchUp(request));
 
     return true;
   };
@@ -549,7 +540,7 @@ class ReplayInstaller {
       resumeTokens,
     };
 
-    const page = { throughSeq: maxReplaySeq(sql), maxRows: PAGE_ROWS, maxBytes: PAGE_BYTES };
+    const page = { throughSeq: maxReplaySeq(sql), ...CATCH_UP_PAGE };
 
     if (this.sendGapIfBehind(request, request.since) && connection?.closing) return;
 
@@ -558,10 +549,10 @@ class ReplayInstaller {
     let next = 0;
     // One budget for every wait of this catch-up, so a client that stops reading is closed
     // after about 50 seconds, however many rows are left.
-    const waitUntil = performance.now() + CATCH_UP_WAIT_MS;
+    const waitUntil = catchUpDeadline();
     while (next < rows.length) {
-      if (connection && bufferIsHigh(connection)) {
-        if (!(await waitForBuffer(connection, waitUntil))) {
+      if (connection && catchUpBufferIsHigh(connection)) {
+        if (!(await waitForCatchUpBuffer(connection, waitUntil))) {
           // The client reconnects and asks again from where it got to.
           if (!connection.closing) closeSlowClient(connection.descriptor);
           return;
@@ -637,10 +628,6 @@ class ReplayInstaller {
   }
 }
 
-/** The most rows, and about the most bytes, one catch-up reads from storage at a time. */
-const PAGE_ROWS = 256;
-const PAGE_BYTES = 4 * 1024 * 1024;
-
 interface CatchUpRequest {
   connectionId: string;
   connection: RuntimeConnection | undefined;
@@ -651,35 +638,9 @@ interface CatchUpRequest {
   gapThrough?: number;
 }
 
-/** Whether the socket reports a buffer over the `drain()` mark. Cloudflare reports none. */
-function bufferIsHigh(connection: RuntimeConnection): boolean {
-  const { descriptor } = connection;
-  return (
-    descriptor.backpressureSupported === true &&
-    descriptor.bufferedAmount() >= DRAIN_BUFFER_LIMIT_BYTES
-  );
-}
-
 /** How each limit that keeps a row out of replay is named in the warning. */
-const SKIPPED_ROW_LIMITS: Record<ReplayRowSkip['limit'], string> = {
+const SKIPPED_ROW_LIMITS: Record<StoredRowSkip['limit'], string> = {
   storage: 'the storage row limit',
   send: 'the send limit',
   retention: 'retention.maxBytes',
 };
-
-/** How long all the waits of one catch-up may take together, as `ctx.stream.drain()` waits. */
-const CATCH_UP_WAIT_MS = 50_000;
-const CATCH_UP_POLL_MS = 25;
-
-/** Wait for the buffer to go below the mark. `false` when the budget ran out first. */
-async function waitForBuffer(connection: RuntimeConnection, until: number): Promise<boolean> {
-  while (bufferIsHigh(connection)) {
-    if (connection.closing) return true;
-
-    if (performance.now() >= until) return false;
-
-    await new Promise((resolve) => setTimeout(resolve, CATCH_UP_POLL_MS));
-  }
-
-  return true;
-}

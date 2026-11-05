@@ -1,10 +1,16 @@
-import { utf8ByteLength } from '@livething/core';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { serializePayload } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
+import {
+  storedRowBytes,
+  storedRowSkip,
+  storedRowStorageBytes,
+  toBytes,
+} from '~/_engine/runtime/stored-row.ts';
 import { chunkForBind } from '~/_engine/sql-batch.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
+import type { StoredRowLimits, StoredRowSkip } from '~/_engine/runtime/stored-row.ts';
 import type { FrameRecipient, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type {
@@ -462,7 +468,7 @@ export function buildReplayRow(event: string, params: BuildReplayRowOptions): Re
     event,
     payload: payloadJson,
     binaryPayload: bytes ?? null,
-    rowBytes: replayRowBytes(payloadJson, bytes ?? null),
+    rowBytes: storedRowBytes(payloadJson, bytes),
     channel: scope.channel,
     channelFamily: scope.channelFamily,
     userId,
@@ -473,17 +479,9 @@ export function buildReplayRow(event: string, params: BuildReplayRowOptions): Re
   };
 }
 
-/** What `retention.maxBytes` counts for one row: the payload's UTF-8 bytes plus the binary bytes. */
-function replayRowBytes(payload: string, bytes: Uint8Array | null): number {
-  return utf8ByteLength(payload) + (bytes?.byteLength ?? 0);
-}
-
-/**
- * About how many bytes one row takes in storage: its payload and bytes, the text of its other
- * columns, and a little for its numbers. Compared with the SQL engine's row limit.
- */
+/** About how many bytes one row takes in storage. Compared with the SQL engine's row limit. */
 function replayRowStorageBytes(row: ReplayRow): number {
-  const text = [
+  return storedRowStorageBytes(row.rowBytes, [
     row.rowKey,
     row.messageId,
     row.event,
@@ -492,20 +490,7 @@ function replayRowStorageBytes(row: ReplayRow): number {
     row.userId,
     row.snapshotKey,
     row.excludedToken,
-  ];
-  let bytes = row.rowBytes + 64;
-  for (const value of text) bytes += value ? utf8ByteLength(value) : 0;
-
-  return bytes;
-}
-
-/** The stored bytes as a `Uint8Array`: `node:sqlite` reads a BLOB as one, Cloudflare as an `ArrayBuffer`. */
-function toBytes(value: unknown): Uint8Array | null {
-  if (value === null || value === undefined) return null;
-
-  if (value instanceof Uint8Array) return value;
-
-  return new Uint8Array(value as ArrayBuffer);
+  ]);
 }
 
 function toReplayRow(row: ReplayRow): ReplayRow {
@@ -664,7 +649,7 @@ export interface PersistReplayMessageOptions {
   sendBytes?: number;
 
   /** Called for a row that was not stored because it is over a limit. */
-  onRowTooBig?: (row: ReplayRow, skip: ReplayRowSkip) => void;
+  onRowTooBig?: (row: ReplayRow, skip: StoredRowSkip) => void;
 }
 
 /**
@@ -786,7 +771,7 @@ function toSnapshotRow(
     ...row,
     event: reduced.event,
     payload,
-    rowBytes: replayRowBytes(payload, row.binaryPayload),
+    rowBytes: storedRowBytes(payload, row.binaryPayload),
   };
 }
 
@@ -814,41 +799,7 @@ function buildReplayRowKey(
 }
 
 /** The limits besides the SQL engine's own row limit that keep a row out of replay. */
-export interface ReplayRowLimits {
-  /** The adapter's `sendBytes`: a bigger row was never sent, and could never be replayed. */
-  sendBytes?: number;
-  /** `retention.maxBytes`: one bigger row would push out the whole audience, itself too. */
-  maxBytes?: number;
-}
-
-/** Why a row was not stored, and the limit it is over. */
-export interface ReplayRowSkip {
-  limit: 'storage' | 'send' | 'retention';
-  bytes: number;
-}
-
-/** The limit a row is over, or `null` when it may be stored. */
-function replayRowSkip(
-  sql: Pick<SQLProvider, 'limits'>,
-  row: ReplayRow,
-  limits: ReplayRowLimits,
-): ReplayRowSkip | null {
-  const storage = replayRowStorageBytes(row);
-  if (storage > sql.limits.maxValueBytes) {
-    return { limit: 'storage', bytes: sql.limits.maxValueBytes };
-  }
-
-  // The replay frame is about the size of the row, plus the binary frame's 9-byte header.
-  if (limits.sendBytes !== undefined && storage + 9 > limits.sendBytes) {
-    return { limit: 'send', bytes: limits.sendBytes };
-  }
-
-  if (limits.maxBytes !== undefined && row.rowBytes > limits.maxBytes) {
-    return { limit: 'retention', bytes: limits.maxBytes };
-  }
-
-  return null;
-}
+type ReplayRowLimits = Omit<StoredRowLimits, 'maxValueBytes'>;
 
 /**
  * Insert or replace one replay row, and one recipient row per connection it went to.
@@ -862,8 +813,11 @@ export function storeReplayRow(
   sql: Pick<SQLProvider, 'exec' | 'limits'>,
   row: ReplayRow,
   limits: ReplayRowLimits = {},
-): ReplayRowSkip | null {
-  const skip = replayRowSkip(sql, row, limits);
+): StoredRowSkip | null {
+  const skip = storedRowSkip(
+    { storageBytes: replayRowStorageBytes(row), rowBytes: row.rowBytes },
+    { ...limits, maxValueBytes: sql.limits.maxValueBytes },
+  );
   if (skip) {
     deleteReplayRow(sql, row.rowKey);
     return skip;
@@ -1432,7 +1386,11 @@ function sumAnonymousBytes(sql: Pick<SQLProvider, 'exec'>, store: ReplayPayloadS
   const row = sql
     .exec<{
       b: number | null;
-    }>(`SELECT SUM(rowBytes) AS b FROM __livething_replay_recipient WHERE ${ANONYMOUS_RECIPIENTS_WHERE}`, store.channel, store.channelFamily)
+    }>(
+      `SELECT SUM(rowBytes) AS b FROM __livething_replay_recipient WHERE ${ANONYMOUS_RECIPIENTS_WHERE}`,
+      store.channel,
+      store.channelFamily,
+    )
     .one();
   return row?.b == null ? 0 : Number(row.b);
 }

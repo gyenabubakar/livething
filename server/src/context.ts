@@ -1,4 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { BinaryInput } from '@livething/core';
+import type { BinaryEventsCarrier } from './_define/app-ctx.ts';
 import type { BackfillMessage } from './inbox/storage.ts';
 import type { InterceptFrame } from './intercept/intercept.ts';
 import type { LocalKey } from './local-key/local-key.ts';
@@ -656,12 +658,46 @@ export type ChannelBackfillMessage<
   };
 }[keyof TOutgoing & string];
 
+/** One binary message for `inbox.binary.backfill(...)`: the event, its info, and its bytes. */
+export type ChannelBinaryBackfillMessage<
+  TBinary extends Record<string, unknown> = Record<string, unknown>,
+> = {
+  [E in keyof TBinary & string]: Pick<BackfillMessage, '__livething'> & {
+    event: E;
+    info: TBinary[E];
+    /** The message's bytes. Leave them out for none. */
+    bytes?: BinaryInput;
+  };
+}[keyof TBinary & string];
+
+/** `inbox.binary`: the binary version of `backfill`. */
+interface ChannelInboxBinary<TBinary extends Record<string, unknown> = Record<string, unknown>> {
+  /**
+   * Seed one user's inbox with binary messages, as `backfill` does with JSON ones. Each row
+   * holds the info and the bytes, and goes out as one binary frame. Throws, and stores
+   * nothing, when a message is too big for the inbox to store.
+   */
+  backfill(userId: string, messages: readonly ChannelBinaryBackfillMessage<TBinary>[]): void;
+}
+
 export interface ChannelInbox<TOutgoing extends Record<string, unknown> = Record<string, unknown>> {
   /**
    * Seed one user's inbox with full frames. A user in this channel right now gets
-   * them straight away; otherwise they drain on the user's next connect.
+   * them straight away; otherwise they drain on the user's next connect. Throws, and
+   * stores nothing, when a message is too big for the inbox to store.
    */
   backfill(userId: string, messages: readonly ChannelBackfillMessage<TOutgoing>[]): void;
+  /**
+   * The binary `backfill`, for the channel's `binary({ emits })` events. `never` on a channel
+   * without binary events.
+   */
+  readonly binary: TOutgoing extends BinaryEventsCarrier<
+    infer TBinary extends Record<string, unknown>
+  >
+    ? ChannelInboxBinary<TBinary>
+    : string extends keyof TOutgoing
+      ? ChannelInboxBinary
+      : never;
   /** User ids whose received cursor has reached `seq`. */
   receiversOf(seq: number): string[];
   /** One entry per member that still has unacked held rows for this channel. */

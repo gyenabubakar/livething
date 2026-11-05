@@ -16,10 +16,12 @@ import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
+import type { InboxService } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { MembershipInsert } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
+import type * as ErrorsRuntime from '~/errors/runtime.ts';
 import type { StopChannelStreamsOptions } from '~/stream/runtime.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
@@ -33,14 +35,8 @@ interface PipelineOptions {
   payload: unknown;
 }
 
-interface InboxFanOutOptions {
-  channelName: string;
-  channelFamily: string | null;
-  event: string;
-  payload: Record<string, unknown> | null;
-  deliverySeq: number;
-  messageId: string;
-}
+type InboxFanOutOptions = Parameters<InboxService['fanOut']>[1];
+type InboxMessage = Parameters<InboxService['canStore']>[1];
 
 interface PersistAttachmentOptions {
   force?: boolean;
@@ -52,11 +48,10 @@ interface ProtocolMessageOptions {
   livething: Record<string, unknown>;
 }
 
-interface RuntimeErrorOptions {
-  error: unknown;
-  event?: string;
-  routing?: Protocol.LiveThingRouting;
-}
+type RuntimeErrorOptions = Pick<
+  ErrorsRuntime.SendRuntimeErrorOptions,
+  'error' | 'event' | 'routing' | 'deliver'
+>;
 
 interface ReplayWire {
   deliverySeq: number;
@@ -316,6 +311,9 @@ function buildMemberRuntime(core: EngineCore) {
     inboxFanOut: core.inboxService
       ? (opts: InboxFanOutOptions) => core.inboxService?.fanOut(core, opts)
       : undefined,
+    inboxCanStore: core.inboxService
+      ? (message: InboxMessage) => core.inboxService?.canStore(core, message) ?? true
+      : undefined,
   };
 }
 
@@ -418,6 +416,7 @@ function buildDispatchRuntime(core: EngineCore) {
     logger: core.logger,
     activeStreams: core.activeStreams,
     sql: core.storage.sql,
+    messageLimits: core.messageLimits,
     maxPendingBytes: 2 * core.messageLimits.receiveBytes,
     defaultBinaryMaxBytes: defaultBinaryMaxBytes(core.messageLimits.receiveBytes),
     protocolHandlers: core.hooks.protocol,
@@ -598,7 +597,21 @@ function buildConnectionRuntime(core: EngineCore) {
       // loop has restored its channel memberships.
       if (!core.inboxService) return rejoined;
 
-      return rejoined.then(() => core.inboxService?.drainOnReconnect(core, connection));
+      // The drain can wait for the socket's buffer, so it does not hold up the connection's
+      // other work: messages, heartbeats and onConnect go on while it waits.
+      return rejoined.then(() => {
+        const drain = core.inboxService?.drainOnReconnect(core, connection);
+        if (!drain) return;
+
+        core.trackBackgroundWork(
+          drain.catch((error: unknown) => {
+            core.logger.error('[livething] inbox drain failed', {
+              connectionId: connection.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }),
+        );
+      });
     },
   };
 }

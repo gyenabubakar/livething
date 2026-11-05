@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { StreamIdCollision } from '@livething/core';
+import { storedRowBytes, toBytes } from '~/_engine/runtime/stored-row.ts';
 
 /**
  * Storage layer for recorded streams. `__livething_streams` has one row per
@@ -42,7 +43,12 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
     stream_id    TEXT NOT NULL,
     seq          INTEGER NOT NULL,
     message_id   TEXT,
+    -- The chunk's JSON, or the info of a binary chunk.
     payload      TEXT NOT NULL,
+    -- The bytes of a binary chunk, or NULL for a JSON chunk.
+    binary_payload BLOB,
+    -- The UTF-8 bytes of payload plus the bytes of binary_payload: what maxBufferBytes counts.
+    row_bytes    INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata     TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (user_id, stream_id, seq),
@@ -104,7 +110,10 @@ export interface DurableStreamChunkRow {
   seq: number;
   messageId: string | null;
 
+  /** The chunk's JSON, or the info of a binary chunk. */
   payload: string;
+  /** The bytes of a binary chunk, or `null` for a JSON chunk. */
+  binaryPayload: Uint8Array | null;
 }
 
 interface SqlExec {
@@ -325,56 +334,101 @@ export interface AppendChunkInput {
   messageId: string | null;
 
   payload: string;
+  /** The bytes of a binary chunk. */
+  bytes?: Uint8Array;
 }
 
 /** Append one chunk to the buffer for replay on reconnect. */
 export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
   sql.exec(
-    `INSERT INTO __livething_stream_chunks (user_id, stream_id, seq, message_id, payload)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO __livething_stream_chunks
+       (user_id, stream_id, seq, message_id, payload, binary_payload, row_bytes)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     input.userId,
     input.streamId,
     input.seq,
     input.messageId,
     input.payload,
+    input.bytes ?? null,
+    storedRowBytes(input.payload, input.bytes),
   );
 }
 
-/** Read chunks with `seq > since`, ordered ascending. Used by continue to replay the tail. */
-export function readChunksSince(
-  sql: SqlExec,
-  opts: StreamRef & { since: number },
-): DurableStreamChunkRow[] {
+/** Which chunks `readChunksSince` reads: those after `since`, one page of them. */
+interface ChunkPage extends StreamRef {
+  since: number;
+  maxRows?: number;
+  /** The page stops before the chunk that would take it over, but always has one chunk. */
+  maxBytes?: number;
+}
+
+/**
+ * Read the chunks with `seq > since`, ordered ascending, or one page of them. Used by continue
+ * to send the tail again. With `maxBytes`, the sizes are read first, so a page of big binary
+ * chunks is never read whole.
+ */
+export function readChunksSince(sql: SqlExec, opts: ChunkPage): DurableStreamChunkRow[] {
   const { userId, streamId, since } = opts;
+  const where = 'WHERE user_id = ? AND stream_id = ? AND seq > ? ORDER BY seq ASC';
+  let count = opts.maxRows ?? -1;
+  if (opts.maxBytes !== undefined) {
+    const sizes = sql
+      .exec(
+        `SELECT row_bytes FROM __livething_stream_chunks ${where} LIMIT ?`,
+        userId,
+        streamId,
+        since,
+        count,
+      )
+      .toArray();
+    let bytes = 0;
+    count = 0;
+    for (const size of sizes) {
+      bytes += Number(size.row_bytes);
+      if (count > 0 && bytes > opts.maxBytes) break;
+
+      count += 1;
+    }
+
+    if (count === 0) return [];
+  }
+
   const rows = sql
     .exec(
-      `SELECT * FROM __livething_stream_chunks
-     WHERE user_id = ? AND stream_id = ? AND seq > ?
-     ORDER BY seq ASC`,
+      `SELECT * FROM __livething_stream_chunks ${where} LIMIT ?`,
       userId,
       streamId,
       since,
+      count,
     )
     .toArray();
+
   return rows.map((row) => ({
     userId: row.user_id as string,
     streamId: row.stream_id as string,
     seq: Number(row.seq),
     messageId: (row.message_id as string | null) ?? null,
     payload: row.payload as string,
+    binaryPayload: toBytes(row.binary_payload),
   }));
 }
 
-/** Count chunks currently buffered for one stream. Used to enforce `maxChunks`. */
-export function countChunks(sql: SqlExec, userId: string, streamId: string): number {
+/** What one stream's buffer holds: how many chunks, and their `row_bytes` together. */
+export interface BufferedChunks {
+  chunks: number;
+  bytes: number;
+}
+
+/** Count the chunks buffered for one stream, and their bytes. Used to enforce the buffer limits. */
+export function countChunks(sql: SqlExec, userId: string, streamId: string): BufferedChunks {
   const rows = sql
     .exec(
-      'SELECT COUNT(*) AS n FROM __livething_stream_chunks WHERE user_id = ? AND stream_id = ?',
+      'SELECT COUNT(*) AS n, SUM(row_bytes) AS b FROM __livething_stream_chunks WHERE user_id = ? AND stream_id = ?',
       userId,
       streamId,
     )
     .toArray();
-  return Number(rows[0]?.n ?? 0);
+  return { chunks: Number(rows[0]?.n ?? 0), bytes: Number(rows[0]?.b ?? 0) };
 }
 
 /** One subscriber's standing in a broadcast stream. */

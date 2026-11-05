@@ -583,7 +583,9 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  * reason the client should react to. `detail.reason` describes why:
  *
  * - `'cancelled'` — the stream was cancelled (by `__streamCancel__` or server-side teardown).
- * - `'buffer-full'` — a durable (recorded) stream's chunk buffer hit its cap.
+ * - `'buffer-full'` — a durable (recorded) stream's buffer hit `maxChunks` or
+ *   `maxBufferBytes`, or one chunk was too big to store or send. That chunk was
+ *   neither stored nor sent.
  *   The framework throws this into the generator's `yield` so handler code can
  *   catch and decide; if uncaught it surfaces on the wire.
  * - `'expired'` — a suspended durable stream aged out of its retention window before the client returned.

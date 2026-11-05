@@ -489,6 +489,12 @@ export interface RuntimeConnection {
   catchUp?: Promise<void>;
 
   /**
+   * The recorded streams a continue on this connection is still sending stored chunks of.
+   * Their live chunks, end and error skip this connection until it is caught up.
+   */
+  catchingUpStreams?: Set<string>;
+
+  /**
    * Fingerprint of the last connection row written to durable storage. The
    * hibernation persist path stringifies the next row, compares against this
    * value, and skips the SQL write when they match — eliminating redundant
@@ -553,11 +559,12 @@ export interface ActiveStream {
   scope?: ResolvedChannel;
 
   /**
-   * In-memory chunk count for a recorded stream with a `maxChunks` cap. Seeded
-   * from storage on the first chunk (so a reconnect stays correct) and incremented
-   * per append, so the cap check skips a `COUNT(*)` on every chunk.
+   * In-memory chunk count and byte total of a recorded stream's buffer, for its
+   * `maxChunks` and `maxBufferBytes` caps. Seeded from storage on the first chunk (so a
+   * reconnect stays correct) and added to per append, so the cap check skips a
+   * `COUNT(*)` on every chunk.
    */
-  recordedChunkCount?: number;
+  recordedBuffer?: { chunks: number; bytes: number };
 
   /**
    * Per-stream stop signal. Its `.signal` is exposed as `ctx.stream.signal` so

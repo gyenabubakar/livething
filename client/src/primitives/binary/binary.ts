@@ -16,7 +16,12 @@ import { REQUESTS_KEY, STREAM_KEY } from '~/internal/runtime.ts';
 import { binaryOf, getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isReservedEventName } from '~/internal/wire-validation.ts';
 import type { BinaryInput } from '@livething/core';
-import type { Message, SendRequest, StreamHooks } from '~/internal/runtime.ts';
+import type {
+  Message,
+  SendRequest,
+  StreamContinueContext,
+  StreamHooks,
+} from '~/internal/runtime.ts';
 import type { ScopeInfo, ScopeMarkers } from '~/internal/scoped.ts';
 import type { SendOptions } from '~/messaging.ts';
 import type { BinaryOptions, BinaryPrimitive } from '~/primitives/binary/types.ts';
@@ -73,7 +78,8 @@ function listenerKey(markers: ScopeMarkers, event: string): string {
  * Binary messages: a JSON info and raw bytes in one frame. Adds `socket.binary.on` and
  * `socket.binary.send`, and the same on channel handles and plugin sockets.
  * `clientRequests()`, `serverRequests()` and `stream()` add `binary.request`,
- * `binary.onRequest`, `binary.stream` and `binary.onStream` next to them. It sets the
+ * `binary.onRequest`, `binary.stream`, `binary.onStream` and `binary.continueStream` next to
+ * them. It sets the
  * WebSocket's `binaryType` to `'arraybuffer'`, so frames are read with no `await` and
  * keep their order.
  */
@@ -386,6 +392,18 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
           };
           methods.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
             hooks().listen(wireName(event), handlers, scope ? scope.markers() : undefined, true);
+          methods.continueStream = (
+            event: string,
+            streamId: string,
+            continueOptions?: StreamContinueContext['options'],
+          ) => {
+            scope?.assertReady?.();
+            return hooks().continue(wireName(event), streamId, {
+              markers: markers(),
+              options: continueOptions,
+              binary: true,
+            });
+          };
         }
 
         return methods;

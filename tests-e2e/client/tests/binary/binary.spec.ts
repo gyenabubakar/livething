@@ -14,13 +14,17 @@ interface Member {
   channel?: string;
   /** The attachment the page asks for: `att_<n>` is `pattern(<n> * 1000, <n>)`. */
   attachment?: string;
+  /** The stream ID of the PDF export the page starts or continues. */
+  exportId?: string;
 }
 
 async function open(page: Page, member: Member): Promise<void> {
   const { room, username, seed = 1, channel = 'room:general', attachment = 'att_300' } = member;
   const query = new URLSearchParams({ room, username, seed: String(seed), channel, attachment });
+  if (member.exportId) query.set('export', member.exportId);
   await page.goto(`/tests/binary/index.html?${query.toString()}`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
+
   await page.getByTestId('connect').click();
 
   await expect(page.getByTestId('status')).toHaveText('open');
@@ -163,5 +167,83 @@ test.describe('binary (conformance)', () => {
     await expect(kofi.getByTestId('errors')).toHaveText('');
 
     await Promise.all([amara.close(), kofi.close()]);
+  });
+
+  test('a DM member who was offline gets the voice note from the inbox, with every byte', async ({
+    browser,
+  }, testInfo) => {
+    const room = `binary-inbox-${testInfo.testId}`;
+    const amara = await browser.newPage();
+    const kofi = await browser.newPage();
+    await open(amara, { room, username: 'amara', seed: 1 });
+    await open(kofi, { room, username: 'kofi', seed: 50 });
+
+    for (const member of [amara, kofi]) {
+      await member.getByTestId('join-dm').click();
+      await expect(member.getByTestId('dm-joined')).toHaveText('yes');
+    }
+
+    await kofi.getByTestId('disconnect').click();
+    await expect(kofi.getByTestId('status')).toHaveText('closed');
+    // Replay leaves voice notes out, so only the inbox can bring this one back.
+    await amara.getByTestId('send-voice-note').click();
+    await amara.waitForTimeout(300);
+
+    await kofi.getByTestId('connect').click();
+    await expect(kofi.getByTestId('status')).toHaveText('open');
+    await expect(kofi.getByTestId('voice-notes')).toHaveText(
+      `amara:4200:300000:${hash(pattern(300_000, 201))}`,
+    );
+    await expect(kofi.getByTestId('errors')).toHaveText('');
+
+    await Promise.all([amara.close(), kofi.close()]);
+  });
+
+  const exportedPdf = `room:300.pdf 5 300000 ${hash(pattern(300_000, 300))}`;
+
+  test('a recorded binary export goes on after a drop, and gives every byte (spec 8.4)', async ({
+    browser,
+  }, testInfo) => {
+    const room = `binary-export-drop-${testInfo.testId}`;
+    // Amara keeps the room's server up while Kofi is away.
+    const amara = await browser.newPage();
+    const kofi = await browser.newPage();
+    await open(amara, { room, username: 'amara' });
+    await open(kofi, { room, username: 'kofi', exportId: `pdf-${testInfo.testId}` });
+
+    await kofi.getByTestId('start-export').click();
+    await expect(kofi.getByTestId('export-pieces')).not.toHaveText('');
+    await kofi.getByTestId('drop').click();
+
+    await expect(kofi.getByTestId('export')).toHaveText(exportedPdf);
+    await expect(kofi.getByTestId('reconnects')).not.toHaveText('0');
+    await expect(kofi.getByTestId('errors')).toHaveText('');
+
+    await Promise.all([amara.close(), kofi.close()]);
+  });
+
+  test('another page continues the export with binary.continueStream, and gets every byte', async ({
+    browser,
+  }, testInfo) => {
+    const room = `binary-export-continue-${testInfo.testId}`;
+    const exportId = `pdf-${testInfo.testId}`;
+    const amara = await browser.newPage();
+    const kofi = await browser.newPage();
+    await open(amara, { room, username: 'amara' });
+
+    await open(kofi, { room, username: 'kofi', exportId });
+
+    await kofi.getByTestId('start-export').click();
+    await expect(kofi.getByTestId('export-pieces')).not.toHaveText('');
+    await kofi.close();
+
+    const kofiAgain = await browser.newPage();
+    await open(kofiAgain, { room, username: 'kofi', exportId });
+    await kofiAgain.getByTestId('continue-export').click();
+
+    await expect(kofiAgain.getByTestId('export')).toHaveText(exportedPdf);
+    await expect(kofiAgain.getByTestId('errors')).toHaveText('');
+
+    await Promise.all([amara.close(), kofiAgain.close()]);
   });
 });

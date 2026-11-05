@@ -15,6 +15,7 @@ import type {
   Message,
   PrimitiveLogger,
   SendResult,
+  StreamContinueContext,
   StreamHooks,
   StreamStartContext,
 } from '~/internal/runtime.ts';
@@ -73,11 +74,6 @@ function channelKeyOf(envelope: LiveThingMetadata | null): string | undefined {
 
 interface ContinueStreamOptions {
   lastKnownSeq?: number;
-}
-
-interface ContinueContext {
-  markers: ScopeMarkers;
-  options?: ContinueStreamOptions;
 }
 
 /** True if a chunk's scope markers match what an `onStream` subscriber asked for. */
@@ -455,7 +451,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function continueStream(
         event: string,
         streamId: string,
-        context: ContinueContext,
+        context: StreamContinueContext,
       ): StreamHandle<unknown> {
         const idError = wireIdError(event, streamId, 'streamId');
         if (idError) {
@@ -470,6 +466,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         if (!state) {
           state = new StreamState(streamId, event, context.markers, maxBytes);
           state.durable = true;
+          state.binary = context.binary === true;
           streams.set(streamId, state);
           acquireStreamHold(state);
         }
@@ -950,6 +947,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           // `binary()` adds `binary.stream` and `binary.onStream` with these.
           helpers.shared.set(STREAM_KEY, {
             start: triggerStream,
+            continue: continueStream,
             listen: subscribeBroadcast,
           } satisfies StreamHooks);
 

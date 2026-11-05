@@ -45,6 +45,11 @@ interface C {
         kind: 'ephemeral';
         nudges: { pause: undefined };
       };
+      'export-room-pdf': {
+        payload: { roomId: string };
+        chunk: { fileName: string } | null;
+        kind: 'persistent';
+      };
     };
   };
   channels: {
@@ -57,7 +62,10 @@ interface C {
         serverRequests: {
           'capture-whiteboard': { payload: null; response: { fileType: 'image/png' } };
         };
-        streams: { 'download-recording': { payload: null; chunk: null; kind: 'ephemeral' } };
+        streams: {
+          'download-recording': { payload: null; chunk: null; kind: 'ephemeral' };
+          'export-whiteboard': { payload: null; chunk: null; kind: 'persistent' };
+        };
       };
     };
   };
@@ -708,11 +716,95 @@ describe('socket.binary.stream (spec 7.5, 9.2)', () => {
     const { socket, ws } = connected(binary());
     expect((socket.binary as unknown as Record<string, unknown>).stream).toBeUndefined();
     expect((socket.binary as unknown as Record<string, unknown>).onStream).toBeUndefined();
+    expect((socket.binary as unknown as Record<string, unknown>).continueStream).toBeUndefined();
 
     const listener = vi.fn();
     socket.binary.on('download-attachment' as 'avatar-preview', listener);
     piece(ws, 'download-1', 1, null, thumbnail);
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+// oxlint-disable-next-line max-params -- mirrors the frame: socket, id, seq, info, bytes
+function pdfPiece(ws: MockWebSocket, id: string, seq: number, info: unknown, bytes: Uint8Array) {
+  ws.emitRaw(
+    frame('export-room-pdf', info, { stream: { id, durability: 'persistent', seq } }, bytes),
+  );
+}
+
+describe('socket.binary.continueStream (binary spec 8.4)', () => {
+  it('sends a text __continueStream__, and gives the stored binary chunks after lastKnownSeq as { info, bytes }', async () => {
+    const { socket, ws } = everything();
+    const pdf = socket.binary.continueStream('export-room-pdf', 'pdf-1', { lastKnownSeq: 2 });
+
+    expect(ws.sentFrames().at(-1)).toEqual({
+      event: '__continueStream__',
+      payload: { lastKnownSeq: 2 },
+      metadata: { stream: { id: 'pdf-1' } },
+    });
+    pdfPiece(ws, 'pdf-1', 3, null, new Uint8Array([3, 3]));
+    pdfPiece(ws, 'pdf-1', 4, null, new Uint8Array([4]));
+    endOf(ws, 'pdf-1', 4);
+
+    const { items, error } = await readAll(pdf);
+    expect(error).toBeUndefined();
+    expect(items.map(({ info, bytes }) => [info, [...bytes]])).toEqual([
+      [null, [3, 3]],
+      [null, [4]],
+    ]);
+  });
+
+  it('drops a text chunk, so the seq check catches the hole it leaves', async () => {
+    const { socket, ws } = everything();
+    const pdf = socket.binary.continueStream('export-room-pdf', 'pdf-1', { lastKnownSeq: 2 });
+
+    ws.emit({
+      event: 'export-room-pdf',
+      payload: null,
+      metadata: { stream: { id: 'pdf-1', durability: 'persistent', seq: 3 } },
+    });
+    pdfPiece(ws, 'pdf-1', 4, null, new Uint8Array([4]));
+
+    const { items, error } = await readAll(pdf);
+    expect(items).toEqual([]);
+    expect(StreamCorrupted.matches(error)).toBe(true);
+  });
+
+  it('continues by itself after a hibernation wake, from the last chunk it got (spec 8.8)', async () => {
+    const { socket, ws } = everything();
+    const pdf = socket.binary.continueStream('export-room-pdf', 'pdf-1');
+    pdfPiece(ws, 'pdf-1', 1, { fileName: 'room-design.pdf' }, new Uint8Array([1]));
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'stream-aborted', detail: { reason: 'hibernation-wake' } },
+      metadata: { stream: { id: 'pdf-1', terminated: true } },
+    });
+
+    expect(ws.sentFrames().at(-1)).toMatchObject({
+      event: '__continueStream__',
+      payload: { lastKnownSeq: 1 },
+    });
+    pdfPiece(ws, 'pdf-1', 2, null, new Uint8Array([2]));
+    endOf(ws, 'pdf-1', 2);
+
+    const { items, error } = await readAll(pdf);
+    expect(error).toBeUndefined();
+    expect(items.map(({ bytes }) => [...bytes])).toEqual([[1], [2]]);
+  });
+
+  it('on a channel, sends the channel metadata and needs the channel to be subscribed', async () => {
+    const { socket, ws } = everything();
+    expect(() =>
+      socket.channel('rooms', 'room:design').binary.continueStream('export-whiteboard', 'wb-1'),
+    ).toThrow();
+
+    const room = await joinGeneral(socket, ws);
+    void room.binary.continueStream('export-whiteboard', 'wb-1');
+    expect(ws.sentFrames().at(-1)).toEqual({
+      event: '__continueStream__',
+      payload: {},
+      metadata: { stream: { id: 'wb-1' }, channel: general },
+    });
   });
 });
 
@@ -897,8 +989,25 @@ describe('plugin scoped sockets (spec 7.6)', () => {
       Recorder(),
     );
 
-    for (const method of ['request', 'onRequest', 'stream', 'onStream']) {
+    for (const method of ['request', 'onRequest', 'stream', 'onStream', 'continueStream']) {
       expect(() => scoped!.binary[method]!('x', null)).toThrow(/the binary primitive/);
     }
+  });
+
+  it('names stream() when a plugin uses binary.continueStream without it', () => {
+    let scoped: { binary: { continueStream: (...args: unknown[]) => unknown } } | undefined;
+    const Recorder = plugin<RecorderWire>()({
+      id: 'acme:recorder',
+      dependencies: [binary],
+      setup(socket) {
+        scoped = socket as never;
+        return {};
+      },
+    });
+    client<Host>()(connect('wss://test'), binary(), Recorder());
+
+    expect(() => scoped!.binary.continueStream('download-clip', 'clip-1')).toThrow(
+      /the stream primitive/,
+    );
   });
 });

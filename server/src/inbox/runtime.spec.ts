@@ -47,7 +47,8 @@ function createCore(
 }
 
 function connection(userId: string | null): RuntimeConnection {
-  return { userId } as unknown as RuntimeConnection;
+  // A socket that reports no buffer, so the drain never waits.
+  return { userId, descriptor: { bufferedAmount: () => 0 } } as unknown as RuntimeConnection;
 }
 
 const deliver: ResolvedInboxOptions = {
@@ -552,7 +553,7 @@ describe('drainInboxOnReconnect', () => {
 describe('clearInboxForChannel', () => {
   it('drops the user id rows AND the overflow watermark for the left channel only', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
-    core.inboxMemberCounts.set(memberCountKey('room', null, 'alice'), 1);
+    core.inboxMemberCounts.set(memberCountKey('room', null, 'alice'), { rows: 1, bytes: 2 });
     insertInboxRows(sql, {
       userIds: ['alice'],
       channelName: 'room',

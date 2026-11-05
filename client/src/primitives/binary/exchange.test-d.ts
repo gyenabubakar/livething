@@ -32,6 +32,11 @@ interface HuddleSocket {
         chunk: Attachment;
         kind: 'ephemeral';
       };
+      'export-room-pdf': {
+        payload: { roomId: string };
+        chunk: { fileName: string } | null;
+        kind: 'persistent';
+      };
     };
   };
   channels: {
@@ -120,6 +125,15 @@ socket.binary.onStream('download-attachment', {
 // @ts-expect-error: a binary stream is not a JSON stream
 socket.stream('download-attachment', { attachmentId: 'att_1', fromByte: 0 });
 
+// binary.continueStream: only a recorded binary stream, and each item is { info, bytes }.
+expectTypeOf(
+  socket.binary.continueStream('export-room-pdf', 'pdf-1', { lastKnownSeq: 3 }),
+).toEqualTypeOf<StreamHandle<BinaryItem<{ fileName: string } | null>, {}>>();
+// @ts-expect-error: a plain stream cannot be continued
+socket.binary.continueStream('download-attachment', 'download-1');
+// @ts-expect-error: a recorded binary stream is not a JSON stream
+socket.continueStream('export-room-pdf', 'pdf-1');
+
 // Channel handles: the channel's own binary requests and streams, and events.
 const general = socket.channel('rooms', 'room:general');
 expectTypeOf(general.binary.request('get-whiteboard', null)).toEqualTypeOf<
@@ -147,6 +161,9 @@ expectTypeOf(eventsOnly.binary.stream).toEqualTypeOf<{
 }>();
 expectTypeOf(eventsOnly.binary.onStream).toEqualTypeOf<{
   error: '[livething] binary.onStream needs the stream() primitive — add stream() to client()';
+}>();
+expectTypeOf(eventsOnly.binary.continueStream).toEqualTypeOf<{
+  error: '[livething] binary.continueStream needs the stream() primitive — add stream() to client()';
 }>();
 // @ts-expect-error: binary.request needs clientRequests()
 eventsOnly.binary.request('get-thumbnail', { attachmentId: 'att_1' });

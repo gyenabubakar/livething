@@ -33,6 +33,7 @@ function harness(config?: Partial<ResolvedInboxOptions>, connectionIds: string[]
   let lastSeq = 0;
   const engine = {
     allocateDeliverySeq: () => (lastSeq += 1),
+    getMessageLimits: () => ({ receiveBytes: 32 * 1024 * 1024, sendBytes: 32 * 1024 * 1024 }),
     storage: { sql },
     isUserOnline: () => false,
     userConnectionIdsInChannel: () => connectionIds,

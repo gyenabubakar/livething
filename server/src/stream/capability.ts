@@ -2,16 +2,14 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { binaryHandlerFields } from '~/incoming/incoming.ts';
-import { binaryPayloadOf } from '~/outgoing/binary-payload.ts';
 import { definePrimitive } from '~/primitive.ts';
 import { registerActiveStreamOps } from '~/stream/active-ops.ts';
 import { compileStreamDef } from '~/stream/compile.ts';
 import { stream as streamDef } from '~/stream/definition.ts';
 import { runStream } from '~/stream/runtime.ts';
-import { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
+import { binaryChunks, toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { StreamGenerator } from '~/stream/shared.ts';
 
 const STREAM_RUNTIME_KEY = Symbol('stream-runtime');
 
@@ -28,35 +26,6 @@ const streamRuntimePrimitive = definePrimitive({
     registerActiveStreamOps(engine);
   },
 });
-
-/**
- * A binary stream's generator yields `{ info, bytes }`. Turn each chunk into the payload that
- * the send path writes as one binary frame. The value passed to `next()` (the nudges) goes
- * through as it is.
- */
-function binaryChunks(method: string, run: StreamGenerator): StreamGenerator {
-  return (ctx, payload, bytes) => {
-    const inner = run(ctx, payload, bytes);
-    async function chunk(
-      step: Promise<IteratorResult<unknown, void>>,
-    ): Promise<IteratorResult<unknown, void>> {
-      const result = await step;
-      if (result.done) return result;
-
-      return { done: false, value: binaryPayloadOf(method, result.value, true) };
-    }
-
-    const wrapped = {
-      next: (value: unknown) => chunk(inner.next(value)),
-      return: (value: void) => inner.return(value),
-      // No `throw`: only a recorded stream throws into its generator, and there is no
-      // recorded binary stream.
-      [Symbol.asyncIterator]: () => wrapped,
-    } as unknown as AsyncGenerator<unknown, void, unknown>;
-
-    return wrapped;
-  };
-}
 
 /** A `stream()` capability, carrying the builder that turns a config into a primitive. */
 export interface StreamCapability extends Capability<{}, never, 'stream'> {

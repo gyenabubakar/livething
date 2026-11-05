@@ -13,7 +13,7 @@ import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapte
  *
  * The page gives "Maximum string, `BLOB` or table row size" as 2 MB. It does not say if that is
  * 2,000,000 or 2,097,152 bytes, and the local runtime does not enforce it, so this takes the
- * smaller one. Replay does not store a row over it.
+ * smaller one. Replay, an inbox and a recorded stream do not store a row over it.
  */
 const CLOUDFLARE_SQL_LIMITS: SqlLimits = {
   maxBoundParams: 100,

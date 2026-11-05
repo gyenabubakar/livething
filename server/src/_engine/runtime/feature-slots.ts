@@ -43,14 +43,16 @@ type OptionsParameter3 = {
 type OptsParameter = { taskId: string; time: number; data: unknown };
 type OptsParameter2 = { taskId: string; filter?: Record<string, unknown> };
 type ScopeParameter = { channelName: string; channelFamily: string | null };
-type OptsParameter3 = {
+type InboxMessageParameter = {
   channelName: string;
   channelFamily: string | null;
   event: string;
   payload: Record<string, unknown> | null;
-  deliverySeq: number;
+  /** The bytes of a binary event. */
+  bytes?: Uint8Array;
   messageId: string;
 };
+type OptsParameter3 = InboxMessageParameter & { deliverySeq: number };
 type KeyParameter = { userId: string; channelName: string; channelFamily: string | null };
 
 /**
@@ -102,6 +104,8 @@ export interface DurableTriggerOptions {
   durable: AnyRecordedStream;
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
+  /** The bytes of the frame that started a binary stream, else `undefined`. */
+  bytes?: Uint8Array;
 }
 
 /** The durable-stream dispatch surface. Set when the `recordedStream()` capability is listed. */
@@ -260,7 +264,7 @@ export interface ChannelContext {
 
 /** Inbox settings resolved for one channel, stored on the engine core. */
 export interface ResolvedInboxOptions {
-  retention?: { maxAgeMs?: number; maxMessages?: number };
+  retention?: { maxAgeMs?: number; maxMessages?: number; maxBytes?: number };
   /** Whether the delivered `__received__` tick is pushed live to other members. Off by default. */
   broadcastReceipts: boolean;
   /** Member cap for the delivered `__received__` fan-out. Defaults to 256. */
@@ -309,8 +313,16 @@ export interface InboxService {
    * live frame the member also receives.
    */
   fanOut(core: any, opts: OptsParameter3): void;
-  /** Re-deliver a user's owed rows after its socket reconnects. */
-  drainOnReconnect(core: any, connection: RuntimeConnection): void;
+  /**
+   * Whether the channel's inbox can store this message. When it cannot, the broadcast goes to
+   * nobody, and this has logged why. Runs before the message is recorded or sent.
+   */
+  canStore(core: any, message: InboxMessageParameter): boolean;
+  /**
+   * Re-deliver a user's owed rows after its socket reconnects. It settles when the last row is
+   * sent, which can be after waits for the socket's buffer.
+   */
+  drainOnReconnect(core: any, connection: RuntimeConnection): Promise<void>;
   /** Drop a user's rows for a channel it has just left. */
   clearChannel(core: any, key: KeyParameter): void;
 }

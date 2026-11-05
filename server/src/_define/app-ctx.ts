@@ -542,7 +542,11 @@ type ScopePayload<TScope, TEvent extends string> = TEvent extends keyof SlotOr<T
   : EntryPayload<SlotOr<TScope, 'clientRequests'>, TEvent, BinaryPayload<TScope, TEvent>>;
 
 /** The binary handler slots `ctx.matches` reads. */
-type BinaryHandlerSlot = 'binaryIncoming' | 'binaryClientRequests' | 'binaryStreams';
+type BinaryHandlerSlot =
+  | 'binaryIncoming'
+  | 'binaryClientRequests'
+  | 'binaryStreams'
+  | 'binaryRecordedStreams';
 
 /**
  * The info of a binary event, request or stream. A scope with no binary handlers stops at one
@@ -557,7 +561,11 @@ type BinaryPayload<TScope, TEvent extends string> = [keyof TScope & BinaryHandle
     : EntryPayload<
         SlotOr<TScope, 'binaryClientRequests'>,
         TEvent,
-        EntryPayload<SlotOr<TScope, 'binaryStreams'>, TEvent, unknown>
+        EntryPayload<
+          SlotOr<TScope, 'binaryStreams'>,
+          TEvent,
+          EntryPayload<SlotOr<TScope, 'binaryRecordedStreams'>, TEvent, unknown>
+        >
       >;
 
 /** The `payload` of the entry `TEvent` in one handler map, or `TElse` when it has none. */

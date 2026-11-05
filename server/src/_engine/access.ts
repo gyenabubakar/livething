@@ -47,6 +47,8 @@ type OptionsParameter = {
   /** The bytes of a stored binary row, sent back as one binary frame. */
   bytes?: Uint8Array;
   wire: { deliverySeq: number; messageId: string; channel?: string };
+  /** A new message sent now: it waits behind a running catch-up of its store. */
+  live?: boolean;
 };
 type OptionsParameter2 = {
   channelName: string | null;

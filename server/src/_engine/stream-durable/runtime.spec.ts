@@ -49,6 +49,7 @@ function createRuntime(sqlInstance: ReturnType<typeof createTestSql>) {
   }[] = [];
   const runtime = {
     sql: sqlInstance,
+    messageLimits: { sendBytes: 32 * 1024 * 1024 },
     activeStreams: new Map<string, ActiveStream>(),
     connections: new Map<string, RuntimeConnection>(),
     generateId: () => `gen-${++nextStreamId}`,

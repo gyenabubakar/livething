@@ -26,6 +26,8 @@ export interface RecordedStreamDef<
   readonly broadcast: boolean;
   /** Maximum chunks kept in the buffer. Default: 500. */
   readonly maxChunks: number;
+  /** Maximum bytes kept in the buffer. Default: 64 MiB. */
+  readonly maxBufferBytes: number;
 }
 
 interface RecordedStreamConfig<
@@ -39,7 +41,15 @@ interface RecordedStreamConfig<
   allowConcurrent?: boolean;
   /** Maximum chunks kept in the buffer. Default: 500. */
   maxChunks?: number;
+  /**
+   * Maximum bytes kept in the buffer: the UTF-8 bytes of each chunk's JSON (or a binary
+   * chunk's info), plus a binary chunk's bytes. Default: 64 MiB.
+   */
+  maxBufferBytes?: number;
 }
+
+/** The default `maxBufferBytes` of a recorded stream, the same as replay's `retention.maxBytes`. */
+const DEFAULT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 /**
  * Declare a server-pushed stream whose chunks are buffered in storage so a
@@ -48,9 +58,11 @@ interface RecordedStreamConfig<
  * chunks it missed from the buffer. Best for one-shot sources (LLM tokens,
  * third-party APIs).
  *
- * If the buffer hits `maxChunks` the framework throws `StreamAborted` with
- * `reason: 'buffer-full'` into the generator's `yield`. Wrap the yield in
- * `try/catch` if you want to handle it gracefully.
+ * If the buffer hits `maxChunks` or `maxBufferBytes`, or one chunk is too big
+ * to store or send, the framework throws `StreamAborted` with
+ * `reason: 'buffer-full'` into the generator's `yield`. That chunk is not
+ * stored or sent. Wrap the yield in `try/catch` if you want to handle it
+ * gracefully.
  *
  * Nudges declared here behave exactly like nudges on a plain `stream(...)`.
  * The generator keeps the nudges it already received when the client
@@ -115,5 +127,6 @@ export function recordedStream<
     maxAgeMs: config?.maxAgeMs ?? DURABLE_STREAM_DEFAULTS.maxAgeMs,
     retentionAfterEndMs: config?.retentionAfterEndMs ?? DURABLE_STREAM_DEFAULTS.retentionAfterEndMs,
     maxChunks: config?.maxChunks ?? 500,
+    maxBufferBytes: config?.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES,
   };
 }

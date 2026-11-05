@@ -1,12 +1,9 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { Primitive } from '~/primitive.ts';
+import type { StreamGenerator } from '~/stream/shared.ts';
 import { recordedGenerateFactory } from './stream-recorded.ts';
 import type { RecordedStreamDef } from './definition.ts';
 
-type RecordedHandlers = Map<
-  string,
-  (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>
->;
+type RecordedHandlers = Map<string, StreamGenerator>;
 
 /**
  * Pair a `RecordedStreamDef` with a generator selected during assembly and
@@ -32,6 +29,7 @@ export function compileRecordedStreamDef(
     broadcast: def.broadcast,
     nudges: def.nudges.map((n) => ({ event: n.name, validator: n.schema })),
     maxChunks: def.maxChunks,
+    maxBufferBytes: def.maxBufferBytes,
     maxAgeMs: def.maxAgeMs ?? 5 * 60_000,
     retentionAfterEndMs: def.retentionAfterEndMs ?? 30_000,
   });

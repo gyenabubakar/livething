@@ -26,6 +26,8 @@ type BroadcastToChannelOptsParameter = {
   channelFamily: string | null;
   event: string;
   payload: Record<string, unknown> | null;
+  /** The bytes of a binary event. */
+  bytes?: Uint8Array;
   deliverySeq: number;
   messageId: string;
   /**
@@ -140,7 +142,7 @@ function isDeclaredOutgoingEvent(
 
 /**
  * Whether a binary event was declared in the scope it is sent in: by `binary({ emits })`, or
- * as a `binary.stream(...)`, whose chunks are binary frames.
+ * as a `binary.stream(...)` or `binary.recordedStream(...)`, whose chunks are binary frames.
  */
 function isDeclaredBinaryEvent(
   compiled: EngineCompileTypes.CompiledServer,
@@ -148,10 +150,11 @@ function isDeclaredBinaryEvent(
   routing: EngineRuntimeTypes.RoutingTarget | undefined,
 ): boolean {
   const scope = outgoingScope(compiled, routing);
+  const stream = scope?.streams.get(event) ?? scope?.recordedStreams.get(event);
   return (
     scope?.outgoing.get(event)?.binary === true ||
     (routing?.streamId !== undefined &&
-      (scope?.streams.get(event) as { binary?: boolean } | undefined)?.binary === true)
+      (stream as { binary?: boolean } | undefined)?.binary === true)
   );
 }
 
@@ -576,7 +579,8 @@ function prepareBroadcast(
   return { event, finalPayload, baseLiveThing, bytes, envelope };
 }
 
-function assertEnvelopeSize(envelope: string): void {
+/** Throw a `RangeError` when a binary frame's envelope is over the 64 KiB limit. */
+export function assertEnvelopeSize(envelope: string): void {
   const size = utf8ByteLength(envelope);
   if (size > BINARY_ENVELOPE_LIMIT) {
     throw new RangeError(
@@ -930,6 +934,11 @@ export function broadcastToChannel(
        * loop. A no-op for a non-inbox channel. Set only when `inbox()` is listed.
        */
       inboxFanOut?: (opts: BroadcastToChannelOptsParameter) => void;
+      /**
+       * Whether the channel's inbox can store the message. When it cannot, the broadcast goes
+       * to nobody, and this has logged why. Set only when `inbox()` is listed.
+       */
+      inboxCanStore?: (message: BroadcastToChannelOptsParameter) => boolean;
     },
   opts: BroadcastToChannelOptions,
 ): void {
@@ -954,6 +963,25 @@ export function broadcastToChannel(
     return;
   }
 
+  const { deliverySeq, messageId } = prepared.baseLiveThing;
+  const inboxMessage =
+    runtime.inboxFanOut &&
+    !Protocol.isProtocolEventName(prepared.event) &&
+    typeof deliverySeq === 'number' &&
+    typeof messageId === 'string'
+      ? {
+          channelName,
+          channelFamily,
+          event: prepared.event,
+          payload: prepared.finalPayload,
+          ...(prepared.bytes === undefined ? {} : { bytes: prepared.bytes }),
+          deliverySeq,
+          messageId,
+        }
+      : undefined;
+  // Before replay records it, so a message no member gets is not replayed either.
+  if (inboxMessage && runtime.inboxCanStore?.(inboxMessage) === false) return;
+
   // Recorded before the member lookup, so a broadcast to a channel with no
   // live member (or only the excluded sender) still reaches the replay store.
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
@@ -971,22 +999,10 @@ export function broadcastToChannel(
     ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
   );
 
-  const { deliverySeq, messageId } = prepared.baseLiveThing;
-  if (
-    runtime.inboxFanOut &&
-    prepared.bytes === undefined &&
-    !Protocol.isProtocolEventName(prepared.event) &&
-    typeof deliverySeq === 'number' &&
-    typeof messageId === 'string'
-  ) {
+  if (inboxMessage) {
     try {
-      runtime.inboxFanOut({
-        channelName,
-        channelFamily,
-        event: prepared.event,
-        payload: prepared.finalPayload,
-        deliverySeq,
-        messageId,
+      runtime.inboxFanOut!({
+        ...inboxMessage,
         excludeUserId: includeSelf
           ? undefined
           : soleExcludedMemberUserId(members, excludeConnectionId),

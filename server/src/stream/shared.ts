@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { binaryPayloadOf } from '~/outgoing/binary-payload.ts';
 import { adaptStreamContext } from '~/stream/ctx-adapter.ts';
 import { nudge } from '~/stream/definition.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
@@ -42,3 +43,33 @@ export type StreamGenerator = (
   payload: any,
   bytes?: Uint8Array,
 ) => AsyncGenerator<unknown, void, unknown>;
+
+/**
+ * A binary stream's generator yields `{ info, bytes }`. Turn each chunk into the payload that
+ * the send path writes as one binary frame. The value passed to `next()` (the nudges) and an
+ * error a recorded stream throws in (`buffer-full`) go through as they are.
+ *
+ * @internal
+ */
+export function binaryChunks(method: string, run: StreamGenerator): StreamGenerator {
+  return (ctx, payload, bytes) => {
+    const inner = run(ctx, payload, bytes);
+    async function chunk(
+      step: Promise<IteratorResult<unknown, void>>,
+    ): Promise<IteratorResult<unknown, void>> {
+      const result = await step;
+      if (result.done) return result;
+
+      return { done: false, value: binaryPayloadOf(method, result.value, true) };
+    }
+
+    const wrapped = {
+      next: (value: unknown) => chunk(inner.next(value)),
+      return: (value: void) => inner.return(value),
+      throw: (error: unknown) => chunk(inner.throw(error)),
+      [Symbol.asyncIterator]: () => wrapped,
+    } as unknown as AsyncGenerator<unknown, void, unknown>;
+
+    return wrapped;
+  };
+}

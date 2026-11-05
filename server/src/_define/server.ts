@@ -4,7 +4,7 @@ import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
-import { incoming as incomingFactory, refuseRecordedBinaryStream } from '~/incoming/incoming.ts';
+import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import {
   intercept as interceptFactory,
   outgoingHook as outgoingHookFactory,
@@ -543,15 +543,14 @@ interface RecordedStreamConfig<
   TChunk,
   TNudges extends StreamNudgeMap,
   TCaps extends readonly AnyCapability[] = readonly [],
-> extends DurableStreamOptions {
+>
+  extends DurableStreamOptions, RecordedBufferOptions {
   readonly input?: TInput;
   /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
   readonly chunk?: TypeMarker<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
-  /** Hard cap on buffered chunks. Default: 500. */
-  readonly maxChunks?: number;
   run(
     ctx: StreamCtx<TSlots, TMeta, TNudges, TCaps>,
     input: InferInput<TInput>,
@@ -982,21 +981,20 @@ type ChannelRecordedStreamConfig<
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = DurableStreamOptions & {
-  readonly input?: TInput;
-  readonly chunk?: TypeMarker<TChunk>;
-  readonly nudges?: TNudges;
-  readonly broadcast?: boolean;
-  readonly allowConcurrent?: boolean;
-  /** Hard cap on buffered chunks. Default: 500. */
-  readonly maxChunks?: number;
-  run(
-    ctx: ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand> & {
-      stream: StreamHandleBase & NudgesHandle<TNudges>;
-    },
-    input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
-  ): AsyncGenerator<TChunk, void, unknown>;
-} & RateLimitField<TCaps>;
+> = DurableStreamOptions &
+  RecordedBufferOptions & {
+    readonly input?: TInput;
+    readonly chunk?: TypeMarker<TChunk>;
+    readonly nudges?: TNudges;
+    readonly broadcast?: boolean;
+    readonly allowConcurrent?: boolean;
+    run(
+      ctx: ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand> & {
+        stream: StreamHandleBase & NudgesHandle<TNudges>;
+      },
+      input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
+    ): AsyncGenerator<TChunk, void, unknown>;
+  } & RateLimitField<TCaps>;
 
 /**
  * A channel's `stream` method. It returns a handler value carrying both the
@@ -1344,6 +1342,27 @@ type BinaryStreamConfig<TCtx, TInput, TChunk, TNudges> = {
   ): AsyncGenerator<BinaryChunk<TChunk>, void, unknown>;
 };
 
+/** The buffer limits of a recorded stream. */
+interface RecordedBufferOptions {
+  /** Hard cap on buffered chunks. Default: 500. */
+  readonly maxChunks?: number;
+  /**
+   * Hard cap on buffered bytes: the UTF-8 bytes of each chunk's JSON (or a binary chunk's
+   * info), plus a binary chunk's bytes. Default: 64 MiB.
+   */
+  readonly maxBufferBytes?: number;
+}
+
+/** Configuration object for a `binary.recordedStream(...)` handler, at the top level or in a channel. */
+type BinaryRecordedStreamConfig<TCtx, TInput, TChunk, TNudges> = BinaryStreamConfig<
+  TCtx,
+  TInput,
+  TChunk,
+  TNudges
+> &
+  DurableStreamOptions &
+  RecordedBufferOptions;
+
 /** The contract entry of one binary stream. */
 type BinaryStreamEntry<TInput, TChunk, TNudges> = {
   payload: InferInput<TInput>;
@@ -1407,9 +1426,39 @@ interface ChannelBinaryStreamMethods<
   >;
 }
 
+/** A channel's `binary.recordedStream(...)`, granted by `binary()` with `recordedStream()`. */
+interface ChannelBinaryRecordedStreamMethods<
+  TCtx,
+  TKey extends string,
+  TOwn,
+  TCaps extends readonly AnyCapability[],
+> {
+  /** Create a recorded binary stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
+  recordedStream<
+    TEvent extends string,
+    TChunk extends Payload = Record<string, unknown>,
+    TInput extends Validator | undefined = undefined,
+    const TNudges extends StreamNudgeMap = {},
+  >(
+    event: TEvent,
+    config: BinaryRecordedStreamConfig<
+      TCtx & { stream: StreamHandleBase & NudgesHandle<TNudges> },
+      TInput,
+      TChunk,
+      TNudges
+    > &
+      RateLimitField<TCaps>,
+  ): ChannelHandlerContribution<
+    TKey,
+    TOwn,
+    { binaryRecordedStreams: Record<TEvent, BinaryStreamEntry<TInput, TChunk, TNudges>> }
+  >;
+}
+
 /**
- * A channel's `binary.on(...)`, granted by the `binary()` capability, with `binary.request`
- * and `binary.stream` when `clientRequests()` and `stream()` are listed too.
+ * A channel's `binary.on(...)`, granted by the `binary()` capability, with `binary.request`,
+ * `binary.stream` and `binary.recordedStream` when `clientRequests()`, `stream()` and
+ * `recordedStream()` are listed too.
  */
 export interface ChannelBinaryMethods<
   TSlots,
@@ -1454,6 +1503,21 @@ export interface ChannelBinaryMethods<
     : {}) &
     ('stream' extends BrandsOf<TCaps>
       ? ChannelBinaryStreamMethods<
+          ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand>,
+          TKey,
+          ChannelOwnSlice<
+            TParams,
+            TOutgoing,
+            TAddressing,
+            TSubscribe,
+            TServerRequests,
+            TChannelBrand
+          >,
+          TCaps
+        >
+      : {}) &
+    ('recordedStream' extends BrandsOf<TCaps>
+      ? ChannelBinaryRecordedStreamMethods<
           ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand>,
           TKey,
           ChannelOwnSlice<
@@ -1724,7 +1788,8 @@ interface BinaryMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[], T
       config: BinaryOnConfig<AppCtx<TSlots, TMeta, TCaps>, TSchema, TCaps>,
     ): BinaryIncomingHandlerValue<TEvent, InferInput<TSchema>>;
   } & ('clientRequests' extends TBrand ? BinaryRequestMethods<TSlots, TMeta, TCaps> : {}) &
-    ('stream' extends TBrand ? BinaryStreamMethods<TSlots, TMeta, TCaps> : {});
+    ('stream' extends TBrand ? BinaryStreamMethods<TSlots, TMeta, TCaps> : {}) &
+    ('recordedStream' extends TBrand ? BinaryRecordedStreamMethods<TSlots, TMeta, TCaps> : {});
 }
 
 /** The value `base.binary.request(...)` returns — a handler primitive that declares its slot. */
@@ -1769,6 +1834,33 @@ interface BinaryStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapabilit
     event: TEvent,
     config: BinaryStreamConfig<StreamCtx<TSlots, TMeta, TNudges, TCaps>, TInput, TChunk, TNudges>,
   ): StreamHandlerValue<TEvent, BinaryStreamEntry<TInput, TChunk, TNudges>, 'binaryStreams'>;
+}
+
+/** `base.binary.recordedStream(...)`, granted by `binary()` with `recordedStream()`. */
+interface BinaryRecordedStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+  /**
+   * Create a recorded server-pushed binary stream handler value. Like `base.recordedStream`,
+   * but each chunk is one binary frame: the generator yields `{ info, bytes }`, and each chunk
+   * is stored with its bytes, so a client that loses its connection continues the stream.
+   */
+  recordedStream<
+    TEvent extends string,
+    TChunk extends Payload = Record<string, unknown>,
+    TInput extends Validator | undefined = undefined,
+    const TNudges extends StreamNudgeMap = {},
+  >(
+    event: TEvent,
+    config: BinaryRecordedStreamConfig<
+      StreamCtx<TSlots, TMeta, TNudges, TCaps>,
+      TInput,
+      TChunk,
+      TNudges
+    >,
+  ): StreamHandlerValue<
+    TEvent,
+    BinaryStreamEntry<TInput, TChunk, TNudges>,
+    'binaryRecordedStreams'
+  >;
 }
 
 /**
@@ -1857,6 +1949,7 @@ type EventNamesOf<TSlice> =
   | (TSlice extends { binaryIncoming: infer R } ? keyof R & string : never)
   | (TSlice extends { binaryClientRequests: infer R } ? keyof R & string : never)
   | (TSlice extends { binaryStreams: infer R } ? keyof R & string : never)
+  | (TSlice extends { binaryRecordedStreams: infer R } ? keyof R & string : never)
   | (TSlice extends { clientRequests: infer R } ? keyof R & string : never)
   | (TSlice extends { streams: infer R } ? keyof R & string : never)
   | (TSlice extends { recordedStreams: infer R } ? keyof R & string : never);
@@ -2432,7 +2525,16 @@ export function server(config: any): any {
           }),
         );
       },
-      recordedStream: refuseRecordedBinaryStream,
+      recordedStream(event: string, streamConfig: object) {
+        assertListsBinary('recordedStream');
+        return fromThisBase(
+          streamBuilder(
+            'recorded',
+            'binary.recordedStream',
+            'recordedStream()',
+          )(event, { ...streamConfig, binary: true }),
+        );
+      },
     },
     request(event: string, requestConfig: ServerRequestConfigParameter) {
       return buildRequest('request', event, requestConfig);
