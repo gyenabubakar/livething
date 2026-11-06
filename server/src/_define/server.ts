@@ -56,6 +56,8 @@ import type {
   PayloadObject,
   Validator,
 } from '~/types.ts';
+import type { UploadsCapability } from '~/upload/capability.ts';
+import type { UploadDiscardHandle, UploadPiece, UploadRunHandle } from '~/upload/upload.ts';
 import { assertConfigShape, assertUniqueCapabilityKinds } from './capability-checks.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugins.ts` — it is a package entry, so a
@@ -1789,7 +1791,70 @@ interface BinaryMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[], T
     ): BinaryIncomingHandlerValue<TEvent, InferInput<TSchema>>;
   } & ('clientRequests' extends TBrand ? BinaryRequestMethods<TSlots, TMeta, TCaps> : {}) &
     ('stream' extends TBrand ? BinaryStreamMethods<TSlots, TMeta, TCaps> : {}) &
-    ('recordedStream' extends TBrand ? BinaryRecordedStreamMethods<TSlots, TMeta, TCaps> : {});
+    ('recordedStream' extends TBrand ? BinaryRecordedStreamMethods<TSlots, TMeta, TCaps> : {}) &
+    ('uploads' extends TBrand ? BinaryUploadMethods<TSlots, TMeta, TCaps> : {});
+}
+
+/** What an upload's `run` returns: the reply's info, and no other key. */
+type ExactUploadReply<TReply> = { readonly info: Payload } & {
+  readonly [K in Exclude<keyof TReply, 'info'>]: never;
+};
+
+/** Configuration object for a `base.binary.upload(...)` handler. */
+type BinaryUploadConfig<TSlots, TMeta, TInput, TReply, TCaps extends readonly AnyCapability[]> = {
+  /** Optional schema for the upload's input, sent once at the start. */
+  readonly input?: TInput;
+  /** The most bytes the whole upload may have. Default: 100 MiB. */
+  readonly maxBytes?: number;
+  /** The biggest piece the client sends, in bytes. Default: 256 KiB. */
+  readonly pieceBytes?: number;
+  /** The most bytes the client may send past what `run` has read. Default: 2 MiB. */
+  readonly windowBytes?: number;
+  /**
+   * Reads the pieces with `for await` and stores them. Call `ctx.upload.saved(offset)` after
+   * bytes are really stored, so a resume starts there. Returns `{ info }`, the reply that the
+   * client's `start()` resolves with. On a resume, `run` runs again from
+   * `ctx.upload.savedThrough`.
+   */
+  run(
+    ctx: AppCtx<TSlots, TMeta, TCaps> & { readonly upload: UploadRunHandle },
+    input: InferInput<TInput>,
+    pieces: AsyncIterable<UploadPiece>,
+  ): TReply | Promise<TReply>;
+  /**
+   * Runs when an upload ends without finishing: on cancel, on expiry, and when `run` throws.
+   * Abort a multipart upload here. It runs at least once, so it must be safe to run twice.
+   */
+  onDiscard?(
+    ctx: ConnectionlessCtx<TSlots, TMeta, TCaps> & { readonly upload: UploadDiscardHandle },
+    input: InferInput<TInput>,
+  ): void | Promise<void>;
+} & RateLimitField<TCaps>;
+
+/** The value `base.binary.upload(...)` returns — a handler primitive that declares its slot. */
+export type BinaryUploadHandlerValue<
+  TEvent extends string,
+  TPayload,
+  TInfo,
+> = Primitive<'upload'> & {
+  readonly event: TEvent;
+} & Contribution<{ binaryUploads: Record<TEvent, { payload: TPayload; response: TInfo }> }>;
+
+/** `base.binary.upload(...)`, granted by `binary()` with `uploads()`. */
+interface BinaryUploadMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+  /**
+   * Create a handler value for one client→server upload: one large file, sent in pieces with
+   * speed control, cancel and resume. The start frame's input is checked once; `run` reads
+   * the pieces and returns `{ info }`. Uploads are top-level only.
+   */
+  upload<
+    TEvent extends string,
+    TSchema extends Validator | undefined = undefined,
+    TReply extends ExactUploadReply<TReply> = { readonly info: null },
+  >(
+    event: TEvent,
+    config: BinaryUploadConfig<TSlots, TMeta, TSchema, TReply, TCaps>,
+  ): BinaryUploadHandlerValue<TEvent, InferInput<TSchema>, ReplyInfo<TReply>>;
 }
 
 /** The value `base.binary.request(...)` returns — a handler primitive that declares its slot. */
@@ -1950,6 +2015,7 @@ type EventNamesOf<TSlice> =
   | (TSlice extends { binaryClientRequests: infer R } ? keyof R & string : never)
   | (TSlice extends { binaryStreams: infer R } ? keyof R & string : never)
   | (TSlice extends { binaryRecordedStreams: infer R } ? keyof R & string : never)
+  | (TSlice extends { binaryUploads: infer R } ? keyof R & string : never)
   | (TSlice extends { clientRequests: infer R } ? keyof R & string : never)
   | (TSlice extends { streams: infer R } ? keyof R & string : never)
   | (TSlice extends { recordedStreams: infer R } ? keyof R & string : never);
@@ -2534,6 +2600,33 @@ export function server(config: any): any {
             'recordedStream()',
           )(event, { ...streamConfig, binary: true }),
         );
+      },
+      upload(
+        event: string,
+        uploadConfig: Parameters<UploadsCapability['__uploadBuild']>[1] & {
+          rateLimit?: RateLimitConfig;
+        },
+      ) {
+        assertListsBinary('upload');
+
+        let build: UploadsCapability['__uploadBuild'] | undefined;
+        for (const cap of config.capabilities ?? []) {
+          const candidate = (cap as Partial<UploadsCapability>).__uploadBuild;
+          if (candidate) build = candidate;
+        }
+
+        if (!build) {
+          throw new LiveThingConfigError(
+            'base.binary.upload() needs uploads(). Add uploads() to capabilities.',
+          );
+        }
+
+        const primitive = build(event, uploadConfig);
+        if (uploadConfig.rateLimit !== undefined) {
+          (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = uploadConfig.rateLimit;
+        }
+
+        return fromThisBase(primitive);
       },
     },
     request(event: string, requestConfig: ServerRequestConfigParameter) {

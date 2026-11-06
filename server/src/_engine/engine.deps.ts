@@ -468,6 +468,9 @@ function buildDispatchRuntime(core: EngineCore) {
     get durableStream() {
       return core.durableStream;
     },
+    get uploadService() {
+      return core.uploadService;
+    },
     get requestDispatch() {
       return core.requestDispatch;
     },
@@ -620,6 +623,7 @@ function buildConnectionRuntime(core: EngineCore) {
 export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
   const buildCtx = buildConnectionContext(core);
   return {
+    buildConnectionlessContext: () => connectionlessContext(core),
     ensureScheduledRuntime: () =>
       core.scheduledService?.ensureRuntime(core, connectionlessContextFactory(core)),
     scheduleTask: (opts) =>

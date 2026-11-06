@@ -22,6 +22,7 @@ const EVENT_KINDS = new Set([
   'outgoing',
   'stream-generate',
   'recorded-stream-generate',
+  'upload',
 ]);
 
 /**
@@ -140,6 +141,14 @@ function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
 
   const generator = (primitive as { generator?: PluginGenerator }).generator;
   if (generator) copy.generator = generatorAsPlugin(scope, generator);
+
+  // An upload's `onDiscard` runs with no connection, but as the plugin all the same.
+  const onDiscard = (primitive as { onDiscard?: (ctx: any, input: any) => unknown }).onDiscard;
+  if (onDiscard) {
+    copy.onDiscard = scopePluginThrow(id, shortCodes, (ctx: any, input: any) =>
+      runAsPlugin(scope, ctx, (scoped) => onDiscard(scoped, input)),
+    );
+  }
 
   return copy as unknown as Primitive;
 }

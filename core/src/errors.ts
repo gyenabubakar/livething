@@ -242,6 +242,7 @@ const RESERVED_ERROR_CODES = new Set([
   'stream-aborted',
   'stream-corrupted',
   'stream-overflow',
+  'upload-aborted',
   'wrong-frame-kind',
   'nudge-overflow',
   'stream-id-collision',
@@ -381,7 +382,12 @@ export const ValidationFailed = /* @__PURE__ */ buildErrorFactory(
  */
 export const ChannelNotFound = /* @__PURE__ */ buildErrorFactory('channel-not-found');
 
-const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist(['__replay__', '__continueStream__']);
+const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist([
+  '__replay__',
+  '__continueStream__',
+  '__uploadEnd__',
+  '__uploadCancel__',
+]);
 
 export type UnsupportedProtocolEvent = v.InferInput<typeof UNSUPPORTED_PROTOCOL_EVENTS>;
 
@@ -710,6 +716,52 @@ export const StreamCorrupted = /* @__PURE__ */ buildErrorFactory(
 export const StreamOverflow = /* @__PURE__ */ buildErrorFactory(
   'stream-overflow',
   v.object({ maxBytes: v.number() }),
+);
+
+/**
+ * An upload stopped before it finished. `detail.reason` says why:
+ *
+ * - `'cancelled'` — the client called `upload.cancel()`. Raised on the client.
+ * - `'too-large'` — the upload went over the handler's `maxBytes`, or over the size the
+ *   client sent at the start.
+ * - `'input-mismatch'` — a resumed upload sent a different input than the stored one.
+ * - `'bad-piece'` — a piece came with the wrong `seq` or over the piece size, or the end
+ *   frame's total did not match the bytes that came.
+ * - `'window'` — the client sent more bytes than the window allows past the last ack.
+ * - `'taken-over'` — another connection started the same upload, for example a second tab.
+ * - `'gone'` — the upload's record is being discarded (cancelled, failed or purged).
+ * - `'not-resumable'` — the source is an `AsyncIterable` that was already read, so the
+ *   upload cannot start again after a drop. Raised on the client.
+ * - `'interrupted'` — the server no longer runs this upload, for example after a Durable
+ *   Object was evicted while the socket stayed open. The client starts the upload again on its
+ *   own, so `start()` sees this reason only when that fails three times.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await upload.start();
+ * } catch (err) {
+ *   if (UploadAborted.matches(err) && err.detail.reason === 'too-large') showTooLarge();
+ * }
+ * ```
+ */
+export type UploadAbortedReason = (typeof UPLOAD_ABORTED_REASONS)[number];
+
+const UPLOAD_ABORTED_REASONS = [
+  'cancelled',
+  'too-large',
+  'input-mismatch',
+  'bad-piece',
+  'window',
+  'taken-over',
+  'gone',
+  'not-resumable',
+  'interrupted',
+] as const;
+
+export const UploadAborted = /* @__PURE__ */ buildErrorFactory(
+  'upload-aborted',
+  v.object({ reason: v.picklist(UPLOAD_ABORTED_REASONS) }),
 );
 
 /**

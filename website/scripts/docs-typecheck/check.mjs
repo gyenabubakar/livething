@@ -12,7 +12,11 @@
 // Tabs of one ::code-group are one small project: a tab can import another by its title.
 // `<!-- docs-check: skip -->` on the line before a fence leaves that example out.
 //
-// Usage: node website/scripts/docs-typecheck/check.mjs [path prefix inside website/content]
+// It also runs the repo's blank-line lint rules on each example. `--fix` adds the missing blank lines
+// to the pages.
+//
+// Usage: node website/scripts/docs-typecheck/check.mjs [--fix] [path prefix inside website/content]
+import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -39,7 +43,9 @@ const content = join(repo, 'website/content');
 const fixtures = join(repo, 'website/scripts/docs-typecheck/fixtures');
 const HUDDLE_PAGE = '7.reference/11.huddle.md';
 const SHORT_LINES = 8;
-const filter = process.argv[2] ?? '';
+const args = process.argv.slice(2);
+const fixSpacing = args.includes('--fix');
+const filter = args.find((arg) => !arg.startsWith('--')) ?? '';
 
 const PACKAGES = {
   '@livething/core': 'core',
@@ -104,7 +110,7 @@ function readExamples() {
       };
     });
   }
-  return examples.filter((e) => !e.skip);
+  return examples;
 }
 
 function tabPath(title, lang, index) {
@@ -131,7 +137,8 @@ function exportedNames(path) {
   return names;
 }
 
-const examples = readExamples();
+const allExamples = readExamples();
+const examples = allExamples.filter((e) => !e.skip);
 const workDir = mkdtempSync(join(tmpdir(), 'livething-docs-check-'));
 const prelude = new Set(exportedNames(join(fixtures, 'prelude.ts')));
 const helpers = new Set(exportedNames(join(fixtures, 'helpers.ts')));
@@ -685,6 +692,88 @@ for (const [event, seen] of [...typeShapes].sort()) {
   const parts = [...seen].map(([shape, where]) => `{${shape}} x${where.length} (${where[0]})`);
   report.push(`${event} has ${seen.size} value-type shapes: ${parts.join('; ')}`);
 }
+
+/**
+ * The repo's blank-line rules (lint-rules/readable-spacing.mjs), run on every TS, JS and TSX fence,
+ * skipped ones too. A fence that does not parse alone, such as a part of a function, is not checked.
+ */
+function checkSpacing() {
+  const dir = join(workDir, 'spacing');
+  mkdirSync(dir, { recursive: true });
+  const repoConfig = JSON.parse(readFileSync(join(repo, '.oxlintrc.json'), 'utf8'));
+  const rules = Object.fromEntries(
+    Object.entries(repoConfig.rules).filter(([name]) => name.startsWith('livething/')),
+  );
+  const config = join(dir, 'oxlintrc.json');
+  writeFileSync(
+    config,
+    JSON.stringify({
+      jsPlugins: [{ name: 'livething', specifier: join(repo, 'lint-rules/index.mjs') }],
+      categories: { correctness: 'off' },
+      rules,
+    }),
+  );
+
+  const byFile = new Map();
+  allExamples.forEach((example, index) => {
+    if (filter && !example.page.startsWith(filter)) return;
+    if (!['ts', 'typescript', 'js', 'tsx'].includes(example.lang)) return;
+    const file = join(dir, `example-${index}.${example.lang === 'tsx' ? 'tsx' : 'ts'}`);
+    writeFileSync(file, example.code);
+    byFile.set(file, example);
+  });
+
+  const lint = (extra) => {
+    const result = spawnSync(
+      join(repo, 'node_modules/.bin/oxlint'),
+      ['-c', config, '--disable-nested-config', '-f', 'json', ...extra, ...byFile.keys()],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    );
+    if (result.error) throw result.error;
+
+    return JSON.parse(result.stdout).diagnostics.filter((d) => d.code?.startsWith('livething('));
+  };
+
+  // One fix can uncover the next, such as a guard clause that ends a new group.
+  let diagnostics = lint([]);
+  for (let pass = 0; fixSpacing && diagnostics.length > 0 && pass < 5; pass += 1) {
+    lint(['--fix']);
+    diagnostics = lint([]);
+  }
+
+  if (fixSpacing) writeFixedFences(byFile);
+
+  for (const d of diagnostics) {
+    const example = byFile.get(resolve(dir, d.filename));
+    if (example) add(example, d.labels[0].span.line - 1, `blank lines: ${d.message}`);
+  }
+}
+/** Put each fixed example back in its fence. Fences are replaced from the bottom of the page up. */
+function writeFixedFences(byFile) {
+  const byPage = new Map();
+  for (const [file, example] of byFile) {
+    const fixed = readFileSync(file, 'utf8');
+    if (fixed === example.code) continue;
+    if (!byPage.has(example.page)) byPage.set(example.page, []);
+    byPage.get(example.page).push({ example, fixed });
+  }
+
+  for (const [page, changes] of byPage) {
+    const path = join(content, page);
+    const lines = readFileSync(path, 'utf8').split('\n');
+    changes.sort((a, b) => b.example.line - a.example.line);
+    for (const { example, fixed } of changes) {
+      const pad = ' '.repeat(example.indent);
+      const body = fixed.split('\n').map((line) => (line ? pad + line : ''));
+      lines.splice(example.line, example.lineCount, ...body);
+    }
+
+    writeFileSync(path, lines.join('\n'));
+    console.log(`fixed blank lines in ${page}`);
+  }
+}
+
+checkSpacing();
 
 rmSync(workDir, { recursive: true, force: true });
 const unique = [...new Set(report)];

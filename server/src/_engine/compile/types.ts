@@ -8,6 +8,7 @@ import type * as RequestPrimitive from '~/request/request.ts';
 import type * as ScheduledPrimitive from '~/scheduled/scheduled.ts';
 import type * as RecordedStreamPrimitive from '~/stream-recorded/stream-recorded.ts';
 import type * as StreamPrimitive from '~/stream/stream.ts';
+import type * as UploadPrimitive from '~/upload/upload.ts';
 
 // Widened type aliases — used throughout the compile and runtime layers so
 // generic parameters don't leak into every function signature. Each alias
@@ -28,6 +29,8 @@ export type AnyGenerate = StreamPrimitive.GeneratePrimitive<
 >;
 /** Compiled recorded stream handler (`recordedStream(...)` after compile). */
 export type AnyRecordedStream = RecordedStreamPrimitive.RecordedStreamGeneratePrimitive;
+/** Any `base.binary.upload(...)` handler. */
+export type AnyUpload = UploadPrimitive.AnyUpload;
 /** Any `.intercept()` primitive. */
 export type AnyIntercept = InterceptPrimitive.InterceptPrimitive<any>;
 /** Any `.scheduled()` task declaration. */
@@ -95,6 +98,9 @@ export interface CompiledServer {
   streams: Map<string, AnyGenerate>;
 
   recordedStreams: Map<string, AnyRecordedStream>;
+
+  /** The `base.binary.upload(...)` handlers. Uploads are top-level only. */
+  uploads?: Map<string, AnyUpload>;
 
   intercepts: AnyIntercept[];
 

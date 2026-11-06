@@ -8,4 +8,5 @@ export {
   Dropped,
   StreamCorrupted,
   StreamOverflow,
+  UploadAborted,
 } from '@livething/core';

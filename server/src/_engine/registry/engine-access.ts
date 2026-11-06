@@ -46,6 +46,8 @@ export interface EngineAccessDeps {
    * prepared once for many peers).
    */
   buildCurrentContext(): unknown;
+  /** Build the context with no connection: the one scheduled task bodies receive. */
+  buildConnectionlessContext(): unknown;
   /**
    * Build the context object for one connection by id, or `undefined` when no
    * such connection is live. Unlike `buildCurrentContext`, this does not need a
@@ -417,6 +419,10 @@ export function createEngineAccess(
     setDurableStreamService: (service) => {
       core.durableStream = service;
     },
+    setUploadService: (service) => {
+      core.uploadService = service;
+    },
+    buildConnectionlessContext: () => deps.buildConnectionlessContext(),
     setRequestDispatch: (dispatch) => {
       core.requestDispatch = dispatch;
     },

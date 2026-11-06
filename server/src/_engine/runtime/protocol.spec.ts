@@ -13,6 +13,50 @@ import {
   UserEventFrameSchema,
 } from './protocol.ts';
 
+describe('upload metadata', () => {
+  it('reads an upload id, seq and size, and writes them back', () => {
+    const frame = parseUserEventFrame([
+      'upload-attachment',
+      null,
+      { upload: { id: 'up-1', seq: 2 } },
+    ]);
+    expect(frame.__livething).toMatchObject({ uploadId: 'up-1', uploadSeq: 2 });
+    expect(metadataFromLiveThing({ uploadId: 'up-1', uploadSize: 20 })).toEqual({
+      upload: { id: 'up-1', size: 20 },
+    });
+  });
+
+  it('refuses upload metadata with an unknown key or a bad seq', () => {
+    for (const upload of [{ id: 'up-1', offset: 0 }, { id: 'up-1', seq: -1 }, { seq: 1 }]) {
+      expect(() => parseUserEventFrame(['upload-attachment', null, { upload }])).toThrow();
+    }
+  });
+
+  it('parses __uploadEnd__ and __uploadCancel__, and the acks and the reply the server sends', () => {
+    expect(() =>
+      v.parse(OutgoingProtocolFrame, [
+        '__uploadAck__',
+        { receivedThrough: 8, savedThrough: 0, pieceBytes: 8, windowBytes: 16 },
+        { upload: { id: 'up-1' } },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      v.parse(OutgoingProtocolFrame, [
+        '__uploadDone__',
+        { info: null },
+        { upload: { id: 'up-1' } },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      v.parse(OutgoingProtocolFrame, [
+        '__uploadAck__',
+        { receivedThrough: 8 },
+        { upload: { id: 'up-1' } },
+      ]),
+    ).toThrow();
+  });
+});
+
 describe('LiveThing wire tuples', () => {
   it('always serializes exactly three elements', () => {
     expect(JSON.parse(serializeWireFrame('ping', undefined))).toEqual(['ping', null, null]);

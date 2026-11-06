@@ -18,6 +18,7 @@ import type {
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,
+  UploadAborted,
   ValidationFailed,
   WrongFrameKind,
 } from '~/errors/errors.ts';
@@ -97,6 +98,7 @@ type BuiltInErrorUnion =
   | typeof StreamIdCollision
   | typeof NudgeOverflow
   | typeof UnsupportedProtocol
+  | typeof UploadAborted
   | typeof WrongFrameKind;
 
 /**
@@ -128,11 +130,20 @@ type ClientBinarySlice<TScope> = [
   | keyof Slot<TScope, 'binaryClientRequests'>
   | keyof BinaryServerRequestsOf<TScope>
   | keyof Slot<TScope, 'binaryStreams'>
-  | keyof Slot<TScope, 'binaryRecordedStreams'>,
+  | keyof Slot<TScope, 'binaryRecordedStreams'>
+  | keyof Slot<TScope, 'binaryUploads'>,
 ] extends [never]
   ? {}
   : {
-      binary: {
+      binary: ([keyof Slot<TScope, 'binaryUploads'>] extends [never]
+        ? {}
+        : {
+            /**
+             * The uploads, from `binary.upload(...)`. `payload` is the input and `response`
+             * the reply's info, as the client gets it.
+             */
+            uploads: ClientBinaryRequests<Slot<TScope, 'binaryUploads'>, 'response'>;
+          }) & {
         incoming: {
           [K in keyof Slot<TScope, 'binaryOutgoing'>]: Jsonify<Slot<TScope, 'binaryOutgoing'>[K]>;
         };
@@ -296,6 +307,11 @@ type BinarySide<TSlice, TSide extends BinarySideName> = TSlice extends {
   ? TMap
   : {};
 
+/** The `uploads` map of a `binary` slice, or nothing when it has none. */
+type UploadsOf<TSlice> = TSlice extends { binary: { uploads: infer TUploads } }
+  ? { uploads: TUploads }
+  : {};
+
 /** A plugin's top-level binary events, requests and streams under their `__<id>::` wire names. */
 type PrefixBinary<TId extends string, TContract> =
   ClientBinarySlice<TContract> extends { binary: infer TBinary }
@@ -312,7 +328,8 @@ type ClientBinary<TContract, TPlugins> =
       ? {
           binary: {
             [TSide in BinarySideName]: BinarySide<TOwn, TSide> & BinarySide<TPlugins, TSide>;
-          };
+          } & UploadsOf<TOwn> &
+            UploadsOf<TPlugins>;
         }
       : {}
     : never;

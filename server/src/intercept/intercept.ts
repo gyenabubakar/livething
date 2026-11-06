@@ -36,7 +36,7 @@ export interface InterceptFrame<TOwnerId extends string = string> {
    */
   readonly payload: unknown;
   /** Which primitive family handles this event, or `'unknown'` if none match. */
-  readonly kind: 'incoming' | 'request' | 'stream' | 'nudge' | 'unknown';
+  readonly kind: 'incoming' | 'request' | 'stream' | 'upload' | 'nudge' | 'unknown';
   /** Curated routing metadata from the wire `__livething` envelope. */
   readonly routing: InterceptRouting;
   /** Whether this event is app-owned or plugin-owned, derived from its name. */

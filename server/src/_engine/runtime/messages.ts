@@ -20,6 +20,7 @@ import { frameOwner } from '~/plugin-scope.ts';
 import * as v from 'valibot';
 import type { LiveThingError } from '@livething/core';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
+import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
@@ -190,6 +191,7 @@ interface DispatchRuntime
   streamNudgeBuffer?: FeatureSlots.StreamNudgeBuffer;
   streamCancel?: FeatureSlots.StreamCancel;
   durableStream?: FeatureSlots.DurableStreamService;
+  uploadService?: FeatureSlots.UploadService;
   requestDispatch?: FeatureSlots.RequestDispatch;
 }
 
@@ -333,6 +335,42 @@ interface HandleDispatchErrorOptions {
   error: unknown;
 }
 
+/** The handlers one event name matches in one scope. At most one is set. */
+interface MatchedHandlers {
+  incoming?: EngineCompileTypes.AnyIncoming;
+  request?: EngineCompileTypes.AnyRequest;
+  stream?: EngineCompileTypes.AnyGenerate;
+  recordedStream?: EngineCompileTypes.AnyRecordedStream;
+  upload?: EngineCompileTypes.AnyUpload;
+}
+
+function matchHandlers(
+  compiled: EngineCompileTypes.CompiledServer,
+  scope: EngineRuntimeTypes.ResolvedChannel,
+  event: string,
+): MatchedHandlers {
+  const handlers = scope.channel ?? compiled;
+  return {
+    incoming: handlers.incoming.get(event),
+    request: handlers.requests.get(event),
+    stream: handlers.streams.get(event),
+    recordedStream: handlers.recordedStreams.get(event),
+    // Uploads are top-level only.
+    upload: scope.channel ? undefined : compiled.uploads?.get(event),
+  };
+}
+
+/** The `kind` an intercept sees for a frame with these handlers. */
+function interceptKindOf(matched: MatchedHandlers): InterceptPrimitive.InterceptFrame['kind'] {
+  if (matched.incoming) return 'incoming';
+
+  if (matched.request) return 'request';
+
+  if (matched.stream || matched.recordedStream) return 'stream';
+
+  return matched.upload ? 'upload' : 'unknown';
+}
+
 /**
  * Main inbound event dispatcher.
  *
@@ -384,16 +422,9 @@ export async function dispatchIncoming(
     return;
   }
 
-  const scoped = scope.channel;
-  const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
-  const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
-  const stream = scoped ? scoped.streams.get(event) : runtime.compiled.streams.get(event);
-
-  const recordedStream = scoped
-    ? scoped.recordedStreams.get(event)
-    : runtime.compiled.recordedStreams.get(event);
-
-  const primitive = incoming ?? request ?? stream ?? recordedStream;
+  const matched = matchHandlers(runtime.compiled, scope, event);
+  const { incoming, request, stream, recordedStream, upload } = matched;
+  const primitive = incoming ?? request ?? stream ?? recordedStream ?? upload;
   if (
     primitive &&
     ((primitive as { binary?: boolean }).binary === true) !== (bytes !== undefined)
@@ -421,15 +452,11 @@ export async function dispatchIncoming(
 
     const channelIntercepts = scope.channel?.intercepts;
     if (runtime.compiled.intercepts.length > 0 || (channelIntercepts?.length ?? 0) > 0) {
-      let interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = 'unknown';
-      if (incoming) interceptKind = 'incoming';
-      else if (request) interceptKind = 'request';
-      else if (stream || recordedStream) interceptKind = 'stream';
       const interceptRouting = buildInterceptRouting(livething);
       let frame: InterceptPrimitive.InterceptFrame = {
         event,
         payload: message.payload,
-        kind: interceptKind,
+        kind: interceptKindOf(matched),
         routing: interceptRouting,
         owner: frameOwner(event),
         size,
@@ -518,6 +545,15 @@ export async function dispatchIncoming(
     }
 
     onHandlerStart?.();
+    if (upload) {
+      await runtime.uploadService?.start(runtime, connection, {
+        upload,
+        payload: payloadValue,
+        livething: livething ?? { channelFamily: null },
+      });
+      return;
+    }
+
     if (stream) {
       await runtime.streamTrigger?.(runtime, connection, {
         scope,
@@ -687,6 +723,24 @@ async function dispatchProtocolFrame(
       case '__continueStream__':
         await handleContinueStream(runtime, connection, frame);
         return;
+
+      case '__uploadEnd__':
+      case '__uploadCancel__': {
+        const uploads = runtime.uploadService;
+        if (!uploads) {
+          await runtime.handleRuntimeError(connection, {
+            error: UnsupportedProtocol({ event: frame.event }),
+            event: frame.event,
+            routing: routingFromLiveThing(frame.__livething),
+          });
+          return;
+        }
+
+        await (frame.event === '__uploadEnd__'
+          ? uploads.end(runtime, connection, frame)
+          : uploads.cancel(runtime, connection, frame));
+        return;
+      }
 
       case '__replay__': {
         const handlers = runtime.protocolHandlers.get('__replay__') ?? [];
@@ -1014,6 +1068,8 @@ export async function processFrame(
   }
 
   let place: FramePlace = {};
+  // Before the first await too, so a cancel sent after this start sees it coming.
+  const startDone = noteUploadStart(runtime, connection, parsed);
   try {
     // Before the first await, so frames take their place in the order they arrived
     // even when hooks below make this frame wait.
@@ -1021,6 +1077,7 @@ export async function processFrame(
     await processParsedMessage(runtime, connection, { ...received, place, release });
   } finally {
     release();
+    startDone?.();
     if (place.attempt) finishSubscribe(connection, place.attempt);
   }
 }
@@ -1227,6 +1284,43 @@ async function chargeOnArrival(
   }
 }
 
+/**
+ * Give an upload piece straight to its running upload, and return whether the frame was one.
+ * A piece passes no intercepts, since the upload's window already limits its speed. This
+ * returns when `run` reads the piece, so the piece's bytes count against the connection
+ * until then.
+ */
+async function takeUploadPiece(
+  runtime: DispatchRuntime,
+  connection: RuntimeConnection,
+  piece: FeatureSlots.UploadPieceOptions,
+): Promise<boolean> {
+  if (piece.livething.uploadSeq === undefined || !runtime.uploadService) return false;
+
+  await runtime.uploadService.piece(runtime, connection, piece);
+  return true;
+}
+
+/**
+ * Tell the upload service that a frame that may start an upload is being handled, so a cancel
+ * that overtakes it is kept for it. Returns the function that ends the note, or `undefined`.
+ */
+function noteUploadStart(
+  runtime: DispatchRuntime,
+  connection: RuntimeConnection,
+  parsed: unknown,
+): (() => void) | undefined {
+  if (!runtime.uploadService || !Protocol.isWireTuple(parsed)) return undefined;
+
+  if (Protocol.isProtocolEventName(parsed[0])) return undefined;
+
+  // A start has `upload.id` and no `seq`; a piece has a `seq`.
+  const upload = (parsed[2] as { upload?: { id?: unknown; seq?: unknown } } | null)?.upload;
+  if (typeof upload?.id !== 'string' || upload.seq !== undefined) return undefined;
+
+  return runtime.uploadService.starting(connection, upload.id);
+}
+
 async function processParsedMessage(
   runtime: FrameRuntime,
   connection: RuntimeConnection,
@@ -1362,6 +1456,9 @@ async function processParsedMessage(
         if (hook(connection.id, { event, payload: frame.payload, livething, bytes })) return;
       }
     }
+
+    const piece = { event, livething: frame.__livething, bytes };
+    if (await takeUploadPiece(runtime, connection, piece)) return;
 
     // Dedup here so every frame with a `messageId` shares one idempotency budget.
     if (

@@ -51,6 +51,8 @@ export interface BinaryContract {
   clientRequests?: Record<string, RequestContract>;
   serverRequests?: Record<string, RequestContract>;
   streams?: Record<string, StreamContract>;
+  /** Uploads you send the server: the input, and the reply's info. */
+  uploads?: Record<string, RequestContract>;
 }
 
 /**

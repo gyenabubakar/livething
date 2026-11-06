@@ -28,6 +28,7 @@ export const CAPABILITY_KIND = {
   stream: 'stream',
   recordedStream: 'recorded-stream',
   binary: 'binary',
+  uploads: 'uploads',
 } as const;
 
 /**

@@ -61,6 +61,8 @@ export type {
   BinaryMessaging,
   BinaryOptions,
 } from '~/primitives/binary/index.ts';
+export { uploads } from '~/primitives/uploads/index.ts';
+export type { Upload, UploadOptions, UploadSource } from '~/primitives/uploads/index.ts';
 export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/index.ts';
 
 export { CloseCodes } from '@livething/core';

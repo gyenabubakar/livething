@@ -16,6 +16,7 @@ import {
   replay,
   serverRequests,
   stream,
+  uploads,
 } from '@livething/client';
 import { WebEnvironment } from '@livething/client/environment';
 import { emits, server, t } from '@livething/server';
@@ -38,6 +39,7 @@ export declare const ctx: CtxOf<typeof base> extends never
 export const socket = client<HuddleSocket>()(
   connect('wss://huddle.example.com/huddle'),
   binary(),
+  uploads(),
   channels(),
   clientRequests(),
   serverRequests(),

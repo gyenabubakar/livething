@@ -3,6 +3,7 @@ import type { BinaryInput } from '@livething/core';
 import type { SendOptions } from '~/messaging.ts';
 import type { StreamTriggerOptions } from '~/primitives/stream/types.ts';
 import type { Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
+import type { Upload, UploadOptions, UploadSource } from '~/primitives/uploads/types.ts';
 import type {
   IncomingOf,
   NudgesOf,
@@ -179,7 +180,33 @@ type BinarySurface<B, TTags extends string> = BinaryEvents<B> &
               error: '[livething] binary.continueStream needs the stream() primitive — add stream() to client()';
             };
           }
+    : {}) &
+  (B extends { uploads: infer U extends Requests }
+    ? {} extends U
+      ? {}
+      : 'uploads' extends TTags
+        ? BinaryUploadMethod<U>
+        : {
+            upload: {
+              error: '[livething] binary.upload needs the uploads() primitive — add uploads() to client()';
+            };
+          }
     : {});
+
+/** `binary.upload`, for one scope's `uploads`. */
+interface BinaryUploadMethod<U extends Requests> {
+  /**
+   * Make an upload of one large file to the server's `binary.upload(...)` handler. Nothing is
+   * sent until `start()`. The source is a `Blob`, a `Uint8Array`, an `ArrayBuffer`, or an
+   * `AsyncIterable<Uint8Array>`. Give `{ uploadId }` to resume an earlier upload.
+   */
+  upload<K extends keyof U & string>(
+    event: K,
+    input: U[K]['payload'],
+    source: UploadSource,
+    options?: UploadOptions,
+  ): Upload<U[K]['response']>;
+}
 
 /**
  * The `.binary` key of a socket or a channel handle whose contract has binary entries,
@@ -199,7 +226,7 @@ export type BinaryScopeSurface<C, TTags extends string> = C extends { binary: in
  */
 export type BinaryMessaging<TBinary> = BinarySurface<
   TBinary,
-  'clientRequests' | 'serverRequests' | 'stream'
+  'clientRequests' | 'serverRequests' | 'stream' | 'uploads'
 >;
 
 /** The descriptor `binary()` returns. `client()` adds `.binary`, from the registered tags. */

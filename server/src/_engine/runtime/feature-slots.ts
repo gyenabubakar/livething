@@ -27,6 +27,7 @@ import type {
   StopChannelStreamsOptions,
 } from '~/stream/runtime.ts';
 import type { TagsApi } from '~/tags/types.ts';
+import type { AnyUpload } from '~/upload/upload.ts';
 
 type OptionsParameter = { continueScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
 type OptionsParameter2 = { streamId: string; cancelScope: ResolvedChannel };
@@ -129,6 +130,48 @@ export interface DurableStreamService {
     connection: RuntimeConnection,
     options: { streamId: string; scope: ResolvedChannel },
   ): void;
+}
+
+/** What the upload service needs to start or resume an upload. */
+export interface UploadStartOptions {
+  /** The upload handler the start frame names. */
+  upload: AnyUpload;
+  /** The input, already checked by the handler's schema. */
+  payload: unknown;
+  livething: Protocol.LiveThingProtocol;
+}
+
+/** One piece of a running upload: its `upload` metadata and its bytes. */
+export interface UploadPieceOptions {
+  /** The frame's event name, which must be the upload's. */
+  event: string;
+  livething: Protocol.LiveThingProtocol;
+  bytes: Uint8Array | undefined;
+}
+
+/** The upload dispatch surface. Set when the `uploads()` capability is listed. */
+export interface UploadService {
+  /** Start or resume an upload, after its start frame passed the intercepts and the input check. */
+  start(runtime: any, connection: RuntimeConnection, options: UploadStartOptions): Promise<void>;
+  /**
+   * Take one piece of a running upload. It settles when `run` reads the piece or the upload
+   * ends, so the piece's bytes count against the connection until then.
+   */
+  piece(runtime: any, connection: RuntimeConnection, options: UploadPieceOptions): Promise<void>;
+  /** Handle a client `__uploadEnd__` frame. */
+  end(runtime: any, connection: RuntimeConnection, frame: Protocol.UploadEndFrame): Promise<void>;
+  /**
+   * Note that a start frame for this upload arrived and is being handled (intercepts, the
+   * input check, a wait for an older run). Returns the function to call when that is over, so
+   * a cancel that comes meanwhile knows a start is still coming.
+   */
+  starting(connection: RuntimeConnection, uploadId: string): () => void;
+  /** Handle a client `__uploadCancel__` frame. */
+  cancel(
+    runtime: any,
+    connection: RuntimeConnection,
+    frame: Protocol.UploadCancelFrame,
+  ): Promise<void>;
 }
 
 /**

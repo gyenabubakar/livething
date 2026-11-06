@@ -38,6 +38,9 @@ export interface LiveThingProtocol {
   messageId?: string;
   deliverySeq?: number;
   streamSeq?: number;
+  uploadId?: string;
+  uploadSeq?: number;
+  uploadSize?: number;
 }
 
 export interface ProtocolFrame {
@@ -74,12 +77,19 @@ const StreamMetadata = v.strictObject({
   terminated: v.optional(v.boolean()),
 });
 
+const UploadMetadata = v.strictObject({
+  id: WireId,
+  seq: v.optional(NonNegativeSafeInt),
+  size: v.optional(NonNegativeSafeInt),
+});
+
 /** The metadata shape accepted on the wire. Unknown groups and top-level fields reject. */
 const MetadataObjectSchema = v.strictObject({
   exchange: v.optional(ExchangeMetadata),
   channel: v.optional(ChannelMetadata),
   delivery: v.optional(DeliveryMetadata),
   stream: v.optional(StreamMetadata),
+  upload: v.optional(UploadMetadata),
 });
 export const MetadataSchema = v.pipe(
   MetadataObjectSchema,
@@ -111,6 +121,7 @@ function metadataToLiveThing(input: unknown): LiveThingProtocol {
       nudgeId?: string;
       terminated?: boolean;
     };
+    upload?: { id: string; seq?: number; size?: number };
   };
   if (metadata.exchange) {
     if (metadata.exchange.id !== undefined) out.correlationId = metadata.exchange.id;
@@ -143,6 +154,12 @@ function metadataToLiveThing(input: unknown): LiveThingProtocol {
 
     if (metadata.stream.nudgeId !== undefined) out.streamNudgeId = metadata.stream.nudgeId;
     if (metadata.stream.terminated !== undefined) out.streamTerminated = metadata.stream.terminated;
+  }
+
+  if (metadata.upload) {
+    out.uploadId = metadata.upload.id;
+    if (metadata.upload.seq !== undefined) out.uploadSeq = metadata.upload.seq;
+    if (metadata.upload.size !== undefined) out.uploadSize = metadata.upload.size;
   }
 
   return out;
@@ -206,6 +223,7 @@ function requiredMetadata<Groups extends keyof MetadataObject>(
 const channelMeta = requiredMetadata('channel');
 const exchangeMeta = requiredMetadata('exchange');
 const streamMeta = requiredMetadata('stream');
+const uploadMeta = requiredMetadata('upload');
 const queryMeta = v.pipe(
   exchangeMeta,
   v.check((value) => value !== null && 'channel' in value, "This frame needs 'channel' metadata."),
@@ -250,6 +268,12 @@ const ReadQueryFrame = frame(
   v.strictObject({ seq: NonNegativeSafeInt }),
   queryMeta,
 );
+export const UploadEndFrame = frame(
+  '__uploadEnd__',
+  v.strictObject({ totalBytes: NonNegativeSafeInt }),
+  uploadMeta,
+);
+export const UploadCancelFrame = frame('__uploadCancel__', NoPayload, uploadMeta);
 const INCOMING_FRAMES = {
   __subscribe__: SubscribeFrame,
   __unsubscribe__: UnsubscribeFrame,
@@ -260,6 +284,8 @@ const INCOMING_FRAMES = {
   __read__: ReadFrame,
   __receivedQuery__: ReceivedQueryFrame,
   __readQuery__: ReadQueryFrame,
+  __uploadEnd__: UploadEndFrame,
+  __uploadCancel__: UploadCancelFrame,
 };
 
 export const IncomingProtocolFrame = v.union(Object.values(INCOMING_FRAMES));
@@ -358,7 +384,20 @@ const ResumeFrame = frame(
   v.strictObject({ token: ResumeToken, seq: v.optional(NonNegativeSafeInt) }),
   Metadata,
 );
+const UploadAckFrame = frame(
+  '__uploadAck__',
+  v.strictObject({
+    receivedThrough: NonNegativeSafeInt,
+    savedThrough: NonNegativeSafeInt,
+    pieceBytes: v.optional(NonNegativeSafeInt),
+    windowBytes: v.optional(NonNegativeSafeInt),
+  }),
+  uploadMeta,
+);
+const UploadDoneFrame = frame('__uploadDone__', v.unknown(), uploadMeta);
 export const OutgoingProtocolFrame = v.union([
+  UploadAckFrame,
+  UploadDoneFrame,
   ResumeFrame,
   SubscribeOkFrame,
   UnsubscribeOkFrame,
@@ -472,13 +511,25 @@ function validStream(input: unknown): boolean {
   return input.terminated === undefined || typeof input.terminated === 'boolean';
 }
 
+function validUpload(input: unknown): boolean {
+  if (!isRecord(input) || !validString(input.id, WIRE_LIMITS.wireId)) return false;
+
+  if (Object.keys(input).some((key) => key !== 'id' && key !== 'seq' && key !== 'size')) {
+    return false;
+  }
+
+  return validOptionalSequence(input.seq) && validOptionalSequence(input.size);
+}
+
 function fastMetadata(input: unknown): LiveThingProtocol | null | undefined {
   if (input === null) return { channelFamily: null };
 
   if (!isRecord(input) || Object.keys(input).length === 0) return undefined;
 
-  const allowed = ['exchange', 'channel', 'delivery', 'stream'];
+  const allowed = ['exchange', 'channel', 'delivery', 'stream', 'upload'];
   if (Object.keys(input).some((key) => !allowed.includes(key))) return undefined;
+
+  if (input.upload !== undefined && !validUpload(input.upload)) return undefined;
 
   if (input.exchange !== undefined && !validExchange(input.exchange)) return undefined;
 
@@ -523,6 +574,8 @@ export type UnsubscribeFrame = v.InferOutput<typeof UnsubscribeFrame>;
 export type ReplayFrame = v.InferOutput<typeof ReplayFrame>;
 export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ContinueStreamFrame = v.InferOutput<typeof ContinueStreamFrame>;
+export type UploadEndFrame = v.InferOutput<typeof UploadEndFrame>;
+export type UploadCancelFrame = v.InferOutput<typeof UploadCancelFrame>;
 type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
 export type ReadFrame = v.InferOutput<typeof ReadFrame>;
 type ReceivedQueryFrame = v.InferOutput<typeof ReceivedQueryFrame>;
@@ -555,8 +608,12 @@ const INCOMING_NAMES = [
   '__read__',
   '__receivedQuery__',
   '__readQuery__',
+  '__uploadEnd__',
+  '__uploadCancel__',
 ] as const;
 const OUTGOING_NAMES = [
+  '__uploadAck__',
+  '__uploadDone__',
   '__subscribeOk__',
   '__unsubscribeOk__',
   '__streamOk__',

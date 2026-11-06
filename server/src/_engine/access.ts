@@ -811,6 +811,22 @@ export interface EngineAccess {
   setDurableStreamService(service: FeatureSlots.DurableStreamService): void;
 
   /**
+   * Register the upload dispatch surface (start, piece, end, cancel). Set once when
+   * `uploads()` is listed.
+   *
+   * @internal
+   */
+  setUploadService(service: FeatureSlots.UploadService): void;
+
+  /**
+   * Build the context that scheduled task bodies and `onShutdown` hooks receive: one with
+   * no connection. `uploads()` gives it to `onDiscard`.
+   *
+   * @internal
+   */
+  buildConnectionlessContext(): unknown;
+
+  /**
    * Register the request dispatcher so the hub can run a matched `request(...)`
    * without importing its runtime. Set by the `serverRequests()` capability.
    *

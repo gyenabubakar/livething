@@ -56,6 +56,7 @@ import { streamDurableScopedDefinition } from '@livething/tests-e2e-handlers/str
 import { streamNudgesDefinition } from '@livething/tests-e2e-handlers/stream-nudges';
 import { streamSignalDefinition } from '@livething/tests-e2e-handlers/stream-signal';
 import { typedTagsDefinition } from '@livething/tests-e2e-handlers/typed-tags';
+import { uploadsDefinition, uploadsExpiryDefinition } from '@livething/tests-e2e-handlers/uploads';
 import type { ServerDefinition } from '@livething/server/adapters';
 import { pluginsDefinition } from './plugins.ts';
 
@@ -115,6 +116,8 @@ export const FEATURE_DEFINITIONS: Record<string, ServerDefinition> = {
   '/ws/inbox-gap': inboxGapDefinition,
   '/ws/inbox-handle': inboxHandleDefinition,
   '/ws/last-seen': lastSeenDefinition,
+  '/ws/uploads': uploadsDefinition,
+  '/ws/uploads-expiry': uploadsExpiryDefinition,
   '/ws/plugins': pluginsDefinition,
   '/ws/replay': replayDefinition,
   '/ws/replay-gap': replayGapDefinition,

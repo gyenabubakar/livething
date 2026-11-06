@@ -69,6 +69,10 @@
       "types": "./dist/binary/capability.d.ts",
       "import": "./dist/binary.js"
     },
+    "./uploads": {
+      "types": "./dist/upload/capability.d.ts",
+      "import": "./dist/uploads.js"
+    },
     "./tags": {
       "types": "./dist/tags/capability.d.ts",
       "import": "./dist/tags.js"

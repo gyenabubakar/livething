@@ -45,6 +45,8 @@ export type BuildContract<TSlots> = {
   readonly binaryStreams: AsRecord<SlotOr<TSlots, 'binaryStreams'>>;
   /** Server-pushed recorded binary streams — `base.binary.recordedStream(...)`. */
   readonly binaryRecordedStreams: AsRecord<SlotOr<TSlots, 'binaryRecordedStreams'>>;
+  /** Client→server uploads (event → { payload, response }) — `base.binary.upload(...)`. */
+  readonly binaryUploads: AsRecord<SlotOr<TSlots, 'binaryUploads'>>;
   /** Server→client binary requests (event → { payload, response }) — `binary({ serverRequests })`. */
   readonly binaryServerRequests: AsRecord<SlotOr<TSlots, 'binaryServerRequests'>>;
 };

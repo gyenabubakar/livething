@@ -76,6 +76,8 @@
       { "name": "INBOX_GAP_SERVER", "class_name": "InboxGapServer" },
       { "name": "INBOX_HANDLE_SERVER", "class_name": "InboxHandleServer" },
       { "name": "LAST_SEEN_SERVER", "class_name": "LastSeenServer" },
+      { "name": "UPLOADS_SERVER", "class_name": "UploadsServer" },
+      { "name": "UPLOADS_EXPIRY_SERVER", "class_name": "UploadsExpiryServer" },
     ],
   },
   "observability": {
@@ -147,6 +149,8 @@
         "InboxHandleServer",
         "LastSeenServer",
         "BinaryServer",
+        "UploadsServer",
+        "UploadsExpiryServer",
       ],
     },
   ],

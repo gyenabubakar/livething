@@ -40,6 +40,7 @@ export default defineConfig({
         channels: resolve(__dirname, 'src/channel/index.ts'),
         tags: resolve(__dirname, 'src/tags/capability.ts'),
         binary: resolve(__dirname, 'src/binary/capability.ts'),
+        uploads: resolve(__dirname, 'src/upload/capability.ts'),
         plugins: resolve(__dirname, 'src/_define/plugins.ts'),
       },
       formats: ['es'],

@@ -13,6 +13,7 @@ import {
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,
+  UploadAborted,
   ValidationFailed,
   WrongFrameKind,
 } from '@livething/core';
@@ -117,6 +118,7 @@ export class EngineCore {
   streamCancel?: FeatureSlots.StreamCancel;
   streamChannelLeave?: FeatureSlots.StreamChannelLeave;
   durableStream?: FeatureSlots.DurableStreamService;
+  uploadService?: FeatureSlots.UploadService;
   requestDispatch?: FeatureSlots.RequestDispatch;
   binaryService?: FeatureSlots.BinaryService;
   buildTagsApi?: FeatureSlots.BuildTagsApi;
@@ -224,6 +226,7 @@ export class EngineCore {
     StreamAlreadyActive.code,
     StreamIdCollision.code,
     UnsupportedProtocol.code,
+    UploadAborted.code,
     WrongFrameKind.code,
   ]);
 

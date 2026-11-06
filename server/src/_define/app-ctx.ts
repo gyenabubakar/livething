@@ -546,7 +546,8 @@ type BinaryHandlerSlot =
   | 'binaryIncoming'
   | 'binaryClientRequests'
   | 'binaryStreams'
-  | 'binaryRecordedStreams';
+  | 'binaryRecordedStreams'
+  | 'binaryUploads';
 
 /**
  * The info of a binary event, request or stream. A scope with no binary handlers stops at one
@@ -564,7 +565,11 @@ type BinaryPayload<TScope, TEvent extends string> = [keyof TScope & BinaryHandle
         EntryPayload<
           SlotOr<TScope, 'binaryStreams'>,
           TEvent,
-          EntryPayload<SlotOr<TScope, 'binaryRecordedStreams'>, TEvent, unknown>
+          EntryPayload<
+            SlotOr<TScope, 'binaryRecordedStreams'>,
+            TEvent,
+            EntryPayload<SlotOr<TScope, 'binaryUploads'>, TEvent, unknown>
+          >
         >
       >;
 

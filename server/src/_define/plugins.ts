@@ -32,6 +32,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'outgoing',
   'stream-generate',
   'recorded-stream-generate',
+  'upload',
   'channel',
   'scheduled',
   'scheduledSurface',
@@ -58,6 +59,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'request-runtime',
   'stream-runtime',
   'recorded-stream-runtime',
+  'uploads-runtime',
   'channel-runtime',
   'binary-runtime',
 ]);

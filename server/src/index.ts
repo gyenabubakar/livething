@@ -23,6 +23,7 @@ export type {
   Base,
   BinaryIncomingHandlerValue,
   BinaryRequestHandlerValue,
+  BinaryUploadHandlerValue,
   ChannelBinaryMethods,
   ChannelCoreMethods,
   ChannelRecordedStreamMethod,

@@ -27,12 +27,14 @@ export {
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,
+  UploadAborted,
   WrongFrameKind,
 } from './errors.ts';
 export type {
   ErrorDef,
   ErrorDefWithFactory,
   StreamAbortedReason,
+  UploadAbortedReason,
   UnsupportedProtocolEvent,
 } from './errors.ts';
 export {
@@ -63,6 +65,7 @@ export type {
   LiveThingExchangeMetadata,
   LiveThingMetadata,
   LiveThingStreamMetadata,
+  LiveThingUploadMetadata,
   Message,
   WireFrame,
 } from './wire.ts';

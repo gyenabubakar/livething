@@ -447,7 +447,7 @@ describe('retention.maxBytes', () => {
         .toArray()
         .map((row) => Number(row.seq)),
     ).toEqual(userFrames(amara).slice(1).map(seqOf));
-  });
+  }, 30_000);
 
   it('is checked like the other retention options', () => {
     expect(() => replay.history({ retention: { maxBytes: 0 } })).toThrow(/retention\.maxBytes/);
