@@ -802,6 +802,107 @@ describe('Node server integration', () => {
     });
   });
 
+  describe('compression', () => {
+    async function connectTo(options: NodeServerEndpointOptions) {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      const service = createTestService(buildServerDefinition(state), { port: 0, ...options });
+      services.push(service);
+      await service.ready;
+
+      // A ws client offers permessage-deflate by default, like browsers do.
+      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+      clients.push(socket);
+      const connected = waitForMessage(socket);
+      await waitForOpen(socket);
+      await connected;
+
+      return socket;
+    }
+
+    async function wireBytesOf(socket: WebSocket, text: string): Promise<number> {
+      const tcp = (socket as WebSocket & { _socket: { bytesRead: number } })._socket;
+      const before = tcp.bytesRead;
+      const received = nextRawMessage(socket);
+      capturedBridges.at(-1)!.transport.send({ kind: 'text', text });
+      await received;
+
+      return tcp.bytesRead - before;
+    }
+
+    it('is off by default, so the extension is not negotiated', async () => {
+      const socket = await connectTo({});
+
+      expect(socket.extensions).toBe('');
+      expect(await wireBytesOf(socket, 'x'.repeat(2000))).toBeGreaterThan(2000);
+    });
+
+    it('negotiates permessage-deflate, and JSON and binary messages still round-trip', async () => {
+      const socket = await connectTo({ compression: true });
+
+      expect(socket.extensions).toBe('permessage-deflate');
+
+      const text = 'a new message in #general '.repeat(100);
+      socket.send(JSON.stringify(['echo', { text }, null]));
+      await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text }, null]);
+      expect(await wireBytesOf(socket, 'x'.repeat(2000))).toBeLessThan(200);
+
+      const bridge = capturedBridges.at(-1)!;
+      const outgoing = nextRawMessage(socket);
+      bridge.transport.send({ kind: 'bytes', bytes: new Uint8Array(4096).fill(7) });
+      const { data, isBinary } = await outgoing;
+      expect(isBinary).toBe(true);
+
+      expect([...(data as Buffer)]).toEqual(Array.from({ length: 4096 }, () => 7));
+
+      const closed = waitForClose(socket);
+      socket.send(new Uint8Array(4096).fill(9));
+      await closed;
+      expect([...bridge.binaryMessages[0]!]).toEqual(Array.from({ length: 4096 }, () => 9));
+    });
+
+    it('passes threshold to ws, so a smaller message goes out as it is', async () => {
+      const socket = await connectTo({ compression: { threshold: 4096 } });
+
+      expect(socket.extensions).toContain('permessage-deflate');
+      expect(await wireBytesOf(socket, 'x'.repeat(2000))).toBeGreaterThan(2000);
+      expect(await wireBytesOf(socket, 'x'.repeat(5000))).toBeLessThan(200);
+    });
+
+    it('refuses a value that is not true, false or { threshold }', () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      for (const compression of ['yes', 1, null]) {
+        expect(() =>
+          setup().bind(buildServerDefinition(state), {
+            compression: compression as unknown as boolean,
+          }),
+        ).toThrow(/\[livething\] The endpoint compression must be true, false or \{ threshold \}/);
+      }
+
+      for (const threshold of [-1, 1.5, Number.NaN, '1024']) {
+        expect(() =>
+          setup().bind(buildServerDefinition(state), {
+            compression: { threshold: threshold as number },
+          }),
+        ).toThrow(
+          /\[livething\] The endpoint compression\.threshold must be a whole number of bytes from 0/,
+        );
+      }
+    });
+
+    it('refuses compression together with your own WebSocket server', () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+
+      expect(() =>
+        setup().bind(buildServerDefinition(state), {
+          compression: true,
+          webSocketServer: new WebSocketServer({ noServer: true }),
+        }),
+      ).toThrow(
+        /\[livething\] bind\(\) got both webSocketServer and compression\. Set perMessageDeflate on your own WebSocketServer instead\./,
+      );
+    });
+  });
+
   describe('binary messages', () => {
     async function connectTo(state: IntegrationState) {
       const service = createTestService(buildServerDefinition(state), { port: 0 });

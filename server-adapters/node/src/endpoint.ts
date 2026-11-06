@@ -9,6 +9,7 @@ import type {
   UpgradeDecision,
 } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
+import type { PerMessageDeflateOptions } from 'ws';
 import { createAsyncContext } from './async-context.ts';
 import { createClientIpResolver } from './client-ip.ts';
 import { requestToWebRequest } from './request.ts';
@@ -34,6 +35,33 @@ export function resolveMaxMessageBytes(value: number | undefined, where: string)
   }
 
   return bytes;
+}
+
+/** The `compression` option where LiveThing creates the `ws` server. */
+export type NodeCompressionOption = boolean | { threshold?: number };
+
+/** A `compression` option as the `perMessageDeflate` options of a `ws` server. */
+export function resolveCompression(
+  value: NodeCompressionOption | undefined,
+  where: string,
+): false | PerMessageDeflateOptions {
+  if (value === undefined || value === false) return false;
+
+  if (value !== true && (typeof value !== 'object' || value === null)) {
+    throw new Error(
+      `[livething] ${where} compression must be true, false or { threshold }, got ${String(value)}.`,
+    );
+  }
+
+  const threshold = value === true ? 1024 : (value.threshold ?? 1024);
+  if (!Number.isSafeInteger(threshold) || threshold < 0) {
+    throw new Error(
+      `[livething] ${where} compression.threshold must be a whole number of bytes from 0, got ${String(threshold)}.`,
+    );
+  }
+
+  // Each message compresses alone, so a connection keeps no state from past messages.
+  return { threshold, serverNoContextTakeover: true, clientNoContextTakeover: true };
 }
 
 /** Configuration shared by every Node framework endpoint. */

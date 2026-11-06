@@ -75,7 +75,10 @@ interface TestClient {
   outgoing: { echo: { text: string } };
 }
 
-async function createTestApp(serverDefinition: ServerDefinition = definition) {
+async function createTestApp(
+  serverDefinition: ServerDefinition = definition,
+  serverOptions: { perMessageDeflate?: boolean } = {},
+) {
   const app = createApp();
   const router = createRouter();
   const livething = createH3V1Setup(defineWebSocketHandler);
@@ -84,7 +87,7 @@ async function createTestApp(serverDefinition: ServerDefinition = definition) {
   router.get('/ws/:room', endpoint.upgrade);
   app.use(router);
 
-  const websocket = nodeWebSocketAdapter(app.websocket);
+  const websocket = nodeWebSocketAdapter({ ...app.websocket, serverOptions });
   const server = createServer(toNodeListener(app));
   server.on('upgrade', websocket.handleUpgrade);
 
@@ -389,6 +392,21 @@ describe('H3 v1 binding', () => {
     capturedBridges.at(-1)!.transport.terminate!();
 
     await expect(closed).resolves.toMatchObject({ code: 1006 });
+  });
+
+  it('compresses outgoing messages when CrossWS turns on perMessageDeflate', async () => {
+    const app = await createTestApp(definition, { perMessageDeflate: true });
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+    const tcp = (socket as WebSocket & { _socket: { bytesRead: number } })._socket;
+
+    expect(socket.extensions).toBe('permessage-deflate');
+    const before = tcp.bytesRead;
+    const message = nextRawMessage(socket);
+    capturedBridges.at(-1)!.transport.send({ kind: 'text', text: 'x'.repeat(2000) });
+    await message;
+
+    expect(tcp.bytesRead - before).toBeLessThan(200);
   });
 
   it('sends a bytes frame as a binary message', async () => {

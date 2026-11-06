@@ -31,7 +31,7 @@ interface H3V1WebSocket {
 interface H3V1Peer {
   readonly context: Record<string, unknown>;
   readonly websocket: Partial<H3V1WebSocket>;
-  send(data: unknown): unknown;
+  send(data: unknown, options?: { compress?: boolean }): unknown;
   close(code?: number, reason?: string): void;
   terminate(): void;
 }
@@ -144,8 +144,12 @@ export function createH3V1Setup<THandler>(
 
           try {
             const connection = upgrade.accept({
+              // CrossWS passes `compress: undefined` to ws unless told, which turns compression off.
+              // ws still skips it when permessage-deflate is not negotiated or the frame is small.
               send: (frame) =>
-                sendWhenOpen(websocket.readyState, () => peer.send(frameData(frame))),
+                sendWhenOpen(websocket.readyState, () =>
+                  peer.send(frameData(frame), { compress: true }),
+                ),
               close: (code, reason) => peer.close(code, reason),
               terminate: () => peer.terminate(),
               bufferedAmount: () => websocket.bufferedAmount ?? 0,

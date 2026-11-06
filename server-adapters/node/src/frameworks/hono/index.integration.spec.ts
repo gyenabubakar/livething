@@ -322,6 +322,78 @@ describe('Hono binding', () => {
     ).toThrow(/both webSocketServer and maxMessageBytes/);
   });
 
+  it('leaves compression off by default', async () => {
+    const { livething, server } = await startLobby();
+
+    expect(livething.websocket.server.options.perMessageDeflate).toBe(false);
+    const socket = await openLobbySocket(server.port);
+    expect(socket.extensions).toBe('');
+  });
+
+  it('turns on compression for the shared WebSocket server, and JSON and binary still round-trip', async () => {
+    const app = new Hono();
+    const livething = setup({ compression: { threshold: 64 } });
+    const endpoint = livething.bind(assembled, {});
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
+
+    servers.push(server);
+    await livething.ready();
+
+    expect(livething.websocket.server.options.perMessageDeflate).toMatchObject({
+      threshold: 64,
+      serverNoContextTakeover: true,
+      clientNoContextTakeover: true,
+    });
+    const socket = await openLobbySocket(server.port);
+    expect(socket.extensions).toContain('permessage-deflate');
+
+    const text = 'a new message in #general '.repeat(100);
+    socket.send(JSON.stringify(['echo', { text }, null]));
+    await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text }, null]);
+
+    const bridge = capturedBridges.at(-1)!;
+    const tcp = (socket as WebSocket & { _socket: { bytesRead: number } })._socket;
+    const before = tcp.bytesRead;
+    const textMessage = nextRawMessage(socket);
+    bridge.transport.send({ kind: 'text', text: 'x'.repeat(2000) });
+
+    await textMessage;
+    expect(tcp.bytesRead - before).toBeLessThan(200);
+
+    const outgoing = nextRawMessage(socket);
+    bridge.transport.send({ kind: 'bytes', bytes: new Uint8Array(4096).fill(7) });
+    const { data, isBinary } = await outgoing;
+    expect(isBinary).toBe(true);
+    expect([...(data as Buffer)]).toEqual(Array.from({ length: 4096 }, () => 7));
+
+    socket.send(new Uint8Array(4096).fill(9));
+    await vi.waitFor(() => expect(bridge.binaryMessages).toHaveLength(1));
+    expect([...bridge.binaryMessages[0]!]).toEqual(Array.from({ length: 4096 }, () => 9));
+  });
+
+  it('uses the ws default threshold of 1024 bytes for compression: true', () => {
+    const livething = setup({ compression: true });
+
+    expect(livething.websocket.server.options.perMessageDeflate).toMatchObject({
+      threshold: 1024,
+    });
+  });
+
+  it('refuses a bad compression, and both webSocketServer and compression', () => {
+    expect(() => setup({ compression: 'yes' as unknown as boolean })).toThrow(
+      /\[livething\] setup\(\) compression must be true, false or \{ threshold \}/,
+    );
+    expect(() => setup({ compression: { threshold: -1 } })).toThrow(
+      /\[livething\] setup\(\) compression\.threshold must be a whole number of bytes from 0/,
+    );
+    expect(() =>
+      setup({ webSocketServer: new WebSocketServer({ noServer: true }), compression: true }),
+    ).toThrow(
+      /\[livething\] setup\(\) got both webSocketServer and compression\. Set perMessageDeflate on your own WebSocketServer instead\./,
+    );
+  });
+
   it('refuses an endpoint maxMessageBytes larger than the shared server limit', () => {
     const livething = setup({ maxMessageBytes: 1024 });
 

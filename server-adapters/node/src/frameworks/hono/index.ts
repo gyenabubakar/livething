@@ -7,11 +7,12 @@ import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
-import { resolveMaxMessageBytes } from '../../endpoint.ts';
+import { resolveCompression, resolveMaxMessageBytes } from '../../endpoint.ts';
 import { frameData, sendWhenOpen } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { isNodeWebSocketUpgrade, isWebSocketUpgrade } from '../../upgrade.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions } from '../../binding.ts';
+import type { NodeCompressionOption } from '../../endpoint.ts';
 
 /** One LiveThing definition registered as a Hono WebSocket route. */
 export interface HonoEndpoint<TAdmin = NodeAdmin> {
@@ -39,6 +40,11 @@ export interface HonoSetupOptions {
    * An endpoint's own `maxMessageBytes` must not be larger.
    */
   maxMessageBytes?: number;
+  /**
+   * Turns on permessage-deflate for the `ws` server that all endpoints share, so messages of at
+   * least `threshold` bytes (default 1024) go compressed when the client supports it. Default: off.
+   */
+  compression?: NodeCompressionOption;
 }
 
 /** Creates Hono route bindings without creating or listening on an HTTP server. */
@@ -49,6 +55,12 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
     );
   }
 
+  if (setupOptions.webSocketServer && setupOptions.compression !== undefined) {
+    throw new Error(
+      '[livething] setup() got both webSocketServer and compression. Set perMessageDeflate on your own WebSocketServer instead.',
+    );
+  }
+
   const node = binding();
   const lifecycle = createUpgradeLifecycle();
   const server =
@@ -56,6 +68,7 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
     new WebSocketServer({
       noServer: true,
       maxPayload: resolveMaxMessageBytes(setupOptions.maxMessageBytes, 'setup()'),
+      perMessageDeflate: resolveCompression(setupOptions.compression, 'setup()'),
     });
 
   return {
@@ -108,8 +121,12 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
             try {
               const rawSocket = socket.raw as WebSocket;
               const connection = upgrade.accept({
+                // @hono/node-server passes `compress: undefined` to ws unless told, which turns
+                // compression off. ws still skips it when it is not negotiated or the frame is small.
                 send: (frame) =>
-                  sendWhenOpen(rawSocket.readyState, () => socket.send(frameData(frame))),
+                  sendWhenOpen(rawSocket.readyState, () =>
+                    socket.send(frameData(frame), { compress: true }),
+                  ),
                 close: (code, reason) => socket.close(code, reason),
                 terminate: () => rawSocket.terminate(),
                 bufferedAmount: () => rawSocket.bufferedAmount,

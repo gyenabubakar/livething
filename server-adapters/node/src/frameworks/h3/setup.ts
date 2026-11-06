@@ -121,8 +121,12 @@ export function createH3Setup<THandler>(
 
             try {
               const connection = upgrade.accept({
+                // CrossWS passes `compress: undefined` to ws unless told, which turns compression off.
+                // ws still skips it when permessage-deflate is not negotiated or the frame is small.
                 send: (frame) =>
-                  sendWhenOpen(peer.websocket.readyState, () => peer.send(frameData(frame))),
+                  sendWhenOpen(peer.websocket.readyState, () =>
+                    peer.send(frameData(frame), { compress: true }),
+                  ),
                 close: (code, reason) => peer.close(code, reason),
                 terminate: () => peer.terminate(),
                 bufferedAmount: () => peer.bufferedAmount,
