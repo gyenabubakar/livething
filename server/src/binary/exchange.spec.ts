@@ -831,6 +831,20 @@ describe('ctx.binary.request', () => {
     expect(results).toEqual([{ info: { fileType: 'image/png' }, bytes: NO_BYTES }]);
   });
 
+  it('rejects with timeout when nobody answers within the timeout option', async () => {
+    const results: unknown[] = [];
+    const engine = start(huddle(results));
+    const amara = await connect(engine, 'u_amara');
+    await connect(engine, 'u_kofi');
+
+    await amara.handle.handleMessage(textOf('ask-kofi-for-screen', null, null));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(results).toEqual([]);
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(results).toEqual(['timeout']);
+  });
+
   it('asks every socket of a user, ignores a text answer, and takes the first binary one', async () => {
     const results: unknown[] = [];
     const engine = start(huddle(results));

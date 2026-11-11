@@ -27,6 +27,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -403,6 +404,49 @@ function withDir(dir) {
   return (file) => join(dir, file);
 }
 
+// The client docs say `binary()` adds about 2.5 KB after minifying and gzip
+// (website/content/4.client/02.primitives/18.binary.md). This measures what it
+// adds to a real app, @livething/core included, and fails when it grows past
+// the stated size plus 10%. Raise the budget only together with the docs.
+const BINARY_GZIP_BUDGET = 2.5 * 1024 * 1.1;
+
+async function gzipSizeOfClient(primitives) {
+  const names = ['client', ...primitives].join(', ');
+  const source =
+    `import { ${names} } from ${JSON.stringify(join(CLIENT_DIST, 'index.js'))};\n` +
+    `export const socket = client({ url: 'wss://huddle.example', primitives: [${primitives.map((p) => `${p}()`).join(', ')}] });\n`;
+  const dir = await mkdtemp(join(tmpdir(), 'livething-bundle-size-'));
+  const entry = join(dir, 'entry.mjs');
+  await writeFile(entry, source);
+
+  try {
+    const result = await build({
+      entryPoints: [entry],
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'browser',
+      minify: true,
+      logLevel: 'silent',
+    });
+    return gzipSync(result.outputFiles[0].text).length;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function runBinarySizeCheck() {
+  const added = (await gzipSizeOfClient(['binary'])) - (await gzipSizeOfClient([]));
+  console.log(`binary() adds ${(added / 1024).toFixed(2)} KB (gzip)`);
+  if (added > BINARY_GZIP_BUDGET) {
+    return [
+      `  SIZE: binary() adds ${added} bytes after gzip, over the ${Math.round(BINARY_GZIP_BUDGET)}-byte budget. Make it smaller, or raise the budget and the size in the client binary docs.`,
+    ];
+  }
+
+  return [];
+}
+
 async function main() {
   const failures = [
     ...(await runSuite(
@@ -414,6 +458,7 @@ async function main() {
       clientScenarios(withDir(CLIENT_DIST)),
     )),
     ...(await runNodeAdapterSuite()),
+    ...(await runBinarySizeCheck()),
   ];
 
   if (failures.length) {
