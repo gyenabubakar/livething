@@ -1519,8 +1519,9 @@ export class ReplayPruneGate {
       }
     }
 
-    if (this.scopeCounts.size + scopes.length > MAX_CACHED_AUDIENCE_COUNTS)
+    if (this.scopeCounts.size + scopes.length > MAX_CACHED_AUDIENCE_COUNTS) {
       this.scopeCounts.clear();
+    }
 
     for (const scope of scopes) {
       if (retention?.maxMessages === undefined) continue;

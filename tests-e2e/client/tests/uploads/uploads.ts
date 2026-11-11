@@ -47,6 +47,7 @@ export function setup(): void {
     <button data-testid="upload-bytes">upload-bytes</button>
     <button data-testid="upload-iterable">upload-iterable</button>
     <button data-testid="upload-slow">upload-slow</button>
+    <button data-testid="upload-slow-smaller">upload-slow-smaller</button>
     <button data-testid="upload-iterable-slow">upload-iterable-slow</button>
     <button data-testid="upload-failing">upload-failing</button>
     <button data-testid="upload-too-large">upload-too-large</button>
@@ -188,6 +189,17 @@ export function setup(): void {
         'upload-attachment',
         { attachmentId: 'att_slow', saveEvery: 2, slowMs: 300 },
         new Blob([pattern(512 * KiB, seed)]),
+        { uploadId },
+      ),
+    ),
+  );
+  // The same input as upload-slow, but a smaller file: a resume with it is refused.
+  button('upload-slow-smaller', () =>
+    run(
+      socket.binary.upload(
+        'upload-attachment',
+        { attachmentId: 'att_slow', saveEvery: 2, slowMs: 300 },
+        new Blob([pattern(256 * KiB, seed)]),
         { uploadId },
       ),
     ),

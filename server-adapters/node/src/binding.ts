@@ -138,8 +138,9 @@ function toNodeUpgrade<TAdmin>(
     return {
       type: 'accept',
       accept(transport) {
-        if (accepted)
+        if (accepted) {
           throw new Error('[livething] an accepted upgrade can only attach one transport');
+        }
 
         accepted = true;
 

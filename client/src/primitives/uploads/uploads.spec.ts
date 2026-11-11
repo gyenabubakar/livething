@@ -582,6 +582,181 @@ describe('socket.binary.upload', () => {
     ).toEqual([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10], { totalBytes: 10 }]);
   });
 
+  it('gives up with interrupted after 3 tries in a row that store no new bytes', async () => {
+    const { socket, ws } = connected();
+    const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });
+    const outcome = upload.start().catch((error: unknown) => error);
+    for (let i = 0; i < 3; i += 1) {
+      await settle();
+      ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 4 });
+      await settle();
+      ws.emit({
+        event: '__error__',
+        payload: { code: 'upload-aborted', detail: { reason: 'interrupted' } },
+        metadata: { upload: { id: 'up-1' } },
+      });
+    }
+
+    expect(await outcome).toMatchObject({ detail: { reason: 'interrupted' } });
+    expect(sent(ws).filter((frame) => frame.metadata?.upload?.size === 10)).toHaveLength(3);
+  });
+
+  it('starts the count of interrupted tries again when a try moves the saved offset', async () => {
+    const { socket, ws } = connected();
+    const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });
+    const outcome = upload.start().catch((error: unknown) => error);
+    for (const saved of [0, 0, 4, 4, 4, 4]) {
+      await settle();
+      ack(ws, 'up-1', {
+        receivedThrough: saved,
+        savedThrough: saved,
+        pieceBytes: 4,
+        windowBytes: 4,
+      });
+      await settle();
+      ws.emit({
+        event: '__error__',
+        payload: { code: 'upload-aborted', detail: { reason: 'interrupted' } },
+        metadata: { upload: { id: 'up-1' } },
+      });
+    }
+
+    expect(await outcome).toMatchObject({ detail: { reason: 'interrupted' } });
+    // The third try moved the offset, so three more tries with no new bytes follow it.
+    expect(sent(ws).filter((frame) => frame.metadata?.upload?.size === 10)).toHaveLength(6);
+  });
+
+  it('rejects an AsyncIterable with not-resumable when the server says interrupted', async () => {
+    const { socket, ws } = connected();
+    async function* chunks(): AsyncGenerator<Uint8Array> {
+      yield new Uint8Array([1, 2, 3, 4]);
+      yield new Uint8Array([5, 6, 7, 8]);
+    }
+
+    const upload = socket.binary.upload('upload-attachment', deck, chunks(), { uploadId: 'up-1' });
+    const outcome = upload.start().catch((error: unknown) => error);
+    await settle();
+    ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 4 });
+    await settle();
+
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'upload-aborted', detail: { reason: 'interrupted' } },
+      metadata: { upload: { id: 'up-1' } },
+    });
+
+    expect(await outcome).toMatchObject({ detail: { reason: 'not-resumable' } });
+    expect(sent(ws).at(-1)?.event).toBe('__uploadCancel__');
+  });
+
+  it('rejects with Disconnected at once when the socket is closed and nothing reconnects it', async () => {
+    const { socket, ws } = connected();
+    ws.serverClose(1006);
+    await settle();
+    const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });
+
+    await expect(upload.start()).rejects.toMatchObject({ code: Disconnected().code });
+  });
+
+  it('opens a lazy socket, and keeps it open while the upload runs', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(
+        connect('wss://test', { lazy: true }) as never,
+        binary(),
+        uploads(),
+      ) as unknown as ReturnType<typeof typed>;
+      const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });
+      const before = MockWebSocket.instances.length;
+      void upload.start();
+      expect(MockWebSocket.instances.length).toBe(before + 1);
+
+      const ws = MockWebSocket.last();
+      ws.open();
+      await vi.advanceTimersByTimeAsync(0);
+      ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 4 });
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+      expect(socket.state.get()).toBe('open');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('has no timeout once the server answered the start', async () => {
+    vi.useFakeTimers();
+    try {
+      const { socket, ws } = connected();
+      const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });
+      let settled = false;
+      const done = upload.start().finally(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 4 });
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(settled).toBe(false);
+      expect(sent(ws).some((frame) => frame.event === '__uploadCancel__')).toBe(false);
+
+      ws.emit({
+        event: '__uploadDone__',
+        payload: { info: { size: 10 } },
+        metadata: { upload: { id: 'up-1' } },
+      });
+      await expect(done).resolves.toEqual({ info: { size: 10 } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancel() after the upload is done does nothing', async () => {
+    const { socket, ws } = connected();
+    const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });
+    const done = upload.start();
+    await settle();
+    ws.emit({
+      event: '__uploadDone__',
+      payload: { info: { size: 10 } },
+      metadata: { upload: { id: 'up-1' } },
+    });
+
+    await done;
+    const count = ws.sent.length;
+
+    upload.cancel();
+    expect(ws.sent).toHaveLength(count);
+    await expect(upload.start()).resolves.toEqual({ info: { size: 10 } });
+  });
+
+  it('reports the bytes the server read, which can go back after a resume', async () => {
+    const { socket, ws } = connected();
+    const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });
+    const progress: number[] = [];
+    upload.onProgress((bytes) => progress.push(bytes));
+    const first = upload.start();
+
+    await settle();
+    ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 8 });
+    await settle();
+    ack(ws, 'up-1', { receivedThrough: 8, savedThrough: 4 });
+    await settle();
+
+    ws.serverClose(1006);
+    await expect(first).rejects.toMatchObject({ code: 'disconnected' });
+
+    socket.connect();
+    const ws2 = MockWebSocket.last();
+    ws2.open();
+    void upload.start();
+    await settle();
+
+    ack(ws2, 'up-1', { receivedThrough: 4, savedThrough: 4, pieceBytes: 4, windowBytes: 8 });
+    await settle();
+
+    expect(progress).toEqual([0, 8, 4]);
+  });
+
   it('refuses a bad upload id, and needs binary()', () => {
     const { socket } = connected();
     expect(() => socket.binary.upload('upload-attachment', deck, file, { uploadId: '' })).toThrow(

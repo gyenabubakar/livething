@@ -103,7 +103,7 @@ export interface DurableStreamRuntime {
 
   generateId(prefix?: string): string;
 
-  logger: Pick<Logger, 'warn'>;
+  logger: Pick<Logger, 'warn' | 'error'>;
 
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
 
@@ -858,6 +858,7 @@ function sendLiveChunk(runtime: DurableStreamRuntime, opts: LiveChunkOptions): b
   try {
     forEachIsolated(targets, (target) => chunkSend.deliver(target), {
       context: `durable stream broadcast fan-out streamId="${streamId}" event="${def.event}"`,
+      logger: runtime.logger,
     });
     return detached || ownerCatchingUp || chunkSend.deliver(wireTarget);
   } finally {
@@ -1174,7 +1175,10 @@ async function runGenerator(
             payload: {},
             livething: endLiveThing,
           }),
-        { context: `durable broadcast __streamEnd__ fan-out streamId="${streamId}"` },
+        {
+          context: `durable broadcast __streamEnd__ fan-out streamId="${streamId}"`,
+          logger: runtime.logger,
+        },
       );
     }
   } catch (error) {
@@ -1241,7 +1245,10 @@ async function runGenerator(
             payload: normalized.payload,
             livething: peerLiveThing,
           }),
-        { context: `durable broadcast __error__ on error streamId="${streamId}"` },
+        {
+          context: `durable broadcast __error__ on error streamId="${streamId}"`,
+          logger: runtime.logger,
+        },
       );
     }
 
@@ -1374,13 +1381,16 @@ function tellBroadcastPeersStreamEnded(
         payload: {},
         livething: endLiveThing,
       }),
-    { context: `durable broadcast __streamEnd__ on end streamId="${streamId}"` },
+    {
+      context: `durable broadcast __streamEnd__ on end streamId="${streamId}"`,
+      logger: runtime.logger,
+    },
   );
 }
 
 type BroadcastPeersRuntime = Pick<
   DurableStreamRuntime,
-  'connections' | 'sql' | 'sendProtocolMessage'
+  'connections' | 'sql' | 'sendProtocolMessage' | 'logger'
 >;
 
 type PurgedStreamsRuntime = BroadcastPeersRuntime & Pick<DurableStreamRuntime, 'activeStreams'>;

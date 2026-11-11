@@ -163,8 +163,9 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   function installMissingReceiptSurfaces(messaging: MessagingObject, scope: ScopeInfo): void {
     const markers = scope.markers();
     const channelOwner = markers.family ?? markers.name;
-    if (channelOwner === undefined || !scope.prefixName || !channelOwner.startsWith(ownPrefix))
+    if (channelOwner === undefined || !scope.prefixName || !channelOwner.startsWith(ownPrefix)) {
       return;
+    }
 
     if (messaging.receivers === undefined) {
       const missingInbox = missingReceiptMethod('receivers', 'inbox');
@@ -249,8 +250,9 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     ): () => void {
       const code = typeof codeOrHandler === 'string' ? codeOrHandler : undefined;
       const handler = typeof codeOrHandler === 'function' ? codeOrHandler : maybeHandler;
-      if (!handler)
+      if (!handler) {
         throw new TypeError(`[livething] plugin '${id}' onServerError requires a callback.`);
+      }
 
       const registration = { code, handler };
       errorHandlers.add(registration);

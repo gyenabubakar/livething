@@ -693,8 +693,11 @@ test.describe('channel-static', () => {
       // Wait until the __subscribeOk__ for room2 has arrived (or time out).
       const deadline = Date.now() + 2000;
       while (Date.now() < deadline) {
-        if (got.some((m) => m.event === '__subscribeOk__' && m.metadata?.channel?.name === 'room2'))
+        if (
+          got.some((m) => m.event === '__subscribeOk__' && m.metadata?.channel?.name === 'room2')
+        ) {
           break;
+        }
 
         await new Promise((r) => setTimeout(r, 20));
       }

@@ -48,7 +48,6 @@ const base = server({
 
 const handleNudgeStream = base.stream('nudge-stream', {
   input: v.object({}),
-  chunk: t<{ saw: string }>(),
   nudges: { hint: v.object({ text: v.string() }) },
   async *run(ctx) {
     // Yield 'started' first so the page knows the stream is live and can send
@@ -112,7 +111,6 @@ const handleRoomEcho = room.on('echo', {
 
 const handleChNudgeStream = room.stream('ch-nudge-stream', {
   input: v.object({}),
-  chunk: t<{ saw: string }>(),
   nudges: { 'ch-hint': v.object({ text: v.string() }) },
   async *run(ctx) {
     let nudges = ctx.stream.nudges(yield { saw: 'started' });

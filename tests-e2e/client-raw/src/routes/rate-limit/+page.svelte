@@ -41,12 +41,12 @@
 
 			const data = window.__livethingDecode(ev.data);
 			const cid = data.metadata?.exchange?.id as string | undefined;
-			if (data.event === 'tock') tockCount += 1;
-			else if (data.event === 'expensive-done') expensiveDoneCount += 1;
+			if (data.event === 'tock') {tockCount += 1;}
+			else if (data.event === 'expensive-done') {expensiveDoneCount += 1;}
 			else if (data.event === 'msg') {
 				if (data.metadata?.channel?.name === 'inherit-room') inheritMsgCount += 1;
 				else if (data.metadata?.channel?.name === 'no-limit') noLimitMsgCount += 1;
-			} else if (data.event === 'chatter-broadcast') chatterMsgCount += 1;
+			} else if (data.event === 'chatter-broadcast') {chatterMsgCount += 1;}
 			else if (data.event === 'echo-req' && cid) {
 				echoOutcomes = { ...echoOutcomes, [cid]: 'ok' };
 			} else if (data.event === '__subscribeOk__') {

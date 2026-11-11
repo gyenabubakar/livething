@@ -4,8 +4,6 @@ import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Tick = t<{ index: number }>();
-
 const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
@@ -25,7 +23,6 @@ const base = server({
  */
 const handleSlowSignal = base.stream('slow-signal', {
   input: v.object({}),
-  chunk: Tick,
   async *run(ctx) {
     const signal = ctx.stream.signal;
     let ranToCompletion = false;

@@ -14,6 +14,7 @@ import { serverRequests } from '~/request/server-requests.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
+import type { BinaryInput } from '@livething/core';
 import type { InferPluginClient } from '~/_define/plugins.ts';
 import type { ConnectionRef } from '~/context.ts';
 import type { InferClient } from '~/infer-client.ts';
@@ -89,7 +90,6 @@ base.binary.request('get-banner', { run: () => ({ info: null, bytes: undefined }
 
 const handleDownloadAttachment = base.binary.stream('download-attachment', {
   input: v.object({ attachmentId: v.string(), fromByte: v.number() }),
-  chunk: t<{ fileName: string; fileType: string } | null>(),
   nudges: { 'pause-download': null },
   async *run(ctx, input, bytes) {
     expectTypeOf(input).toEqualTypeOf<{ attachmentId: string; fromByte: number }>();
@@ -106,9 +106,8 @@ const handleDownloadAttachment = base.binary.stream('download-attachment', {
 });
 
 base.binary.stream('download-banner', {
-  chunk: t<{ fileName: string } | null>(),
-  // @ts-expect-error: the chunk info is { fileName } or null
-  async *run() {
+  async *run(): AsyncGenerator<{ info: { fileName: string } | null; bytes: BinaryInput }> {
+    // @ts-expect-error: the chunk info is { fileName } or null
     yield { info: { fileType: 'image/png' }, bytes: thumbnail };
   },
 });

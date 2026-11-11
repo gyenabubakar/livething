@@ -804,8 +804,9 @@ export function broadcastToConnections(
       excludeConnectionId &&
       !(options?.includeSelf ?? false) &&
       connection.id === excludeConnectionId
-    )
+    ) {
       continue;
+    }
 
     if (!prepared) {
       prepared = prepareOrLog();
@@ -1020,8 +1021,9 @@ export function broadcastToChannel(
 
   let recipients = 0;
   for (const connection of members ?? []) {
-    if (excludeConnectionId && !(includeSelf ?? false) && connection.id === excludeConnectionId)
+    if (excludeConnectionId && !(includeSelf ?? false) && connection.id === excludeConnectionId) {
       continue;
+    }
 
     // One bad peer must not stop the rest of the fanout — log and continue.
     try {

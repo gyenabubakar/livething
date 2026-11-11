@@ -26,6 +26,7 @@ import type {
   RunStreamOptions,
   StopChannelStreamsOptions,
 } from '~/stream/runtime.ts';
+import type { TagsRuntime } from '~/tags/runtime.ts';
 import type { TagsApi } from '~/tags/types.ts';
 import type { AnyUpload } from '~/upload/upload.ts';
 
@@ -61,7 +62,7 @@ type KeyParameter = { userId: string; channelName: string; channelFamily: string
  * capability, so a handler with no tag groups never pulls the group-handle
  * runtime into its bundle.
  */
-export type BuildTagsApi = (runtime: any, connection: RuntimeConnection) => TagsApi;
+export type BuildTagsApi = (runtime: TagsRuntime, connection: RuntimeConnection) => TagsApi;
 
 /** Start one matched plain (ephemeral) stream. Set by the `stream()` capability. */
 export type StreamTrigger = (

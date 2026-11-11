@@ -6,6 +6,8 @@ import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { binary } from '~/binary/capability.ts';
+import { errors } from '~/errors/capability.ts';
+import { error as defineError } from '~/errors/errors.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
@@ -57,6 +59,8 @@ interface BuildOptions {
   uploadRateLimit?: RateLimitConfig;
   /** Sees every SQL statement; a throw fails that statement. */
   onExec?: (query: string) => void;
+  /** Share one database between engines, as a server that restarts does. */
+  sql?: ReturnType<typeof createTestSql>;
 }
 
 function build(options: BuildOptions = {}) {
@@ -147,8 +151,9 @@ function build(options: BuildOptions = {}) {
   });
   const watch = intercept(async (_ctx, frame) => {
     kinds.push(`${frame.event}:${frame.kind}`);
-    if (options.slowStartMs)
+    if (options.slowStartMs) {
       await new Promise((resolve) => setTimeout(resolve, options.slowStartMs));
+    }
 
     return frame.payload;
   });
@@ -156,15 +161,13 @@ function build(options: BuildOptions = {}) {
 
   let engine!: Engine;
   const timers = createTestTimers();
+  const sql = options.sql ?? createTestSql(options.onExec ? { onExec: options.onExec } : {});
   adapter({
     id: 'upload-spec',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       engine = createEngine({
-        storage: {
-          sql: createTestSql(options.onExec ? { onExec: options.onExec } : {}),
-          kv: createTestKV(),
-        },
+        storage: { sql, kv: createTestKV() },
         timers,
         platform: {},
         logger: { info() {}, warn() {}, error() {} },
@@ -174,7 +177,7 @@ function build(options: BuildOptions = {}) {
     },
   })(definition, undefined as never);
 
-  return { engine, runs, discarded, kinds, hookErrors, probeErrors, timers };
+  return { engine, runs, discarded, kinds, hookErrors, probeErrors, timers, sql };
 }
 
 async function connect(engine: Engine, userId = 'u_amara') {
@@ -234,6 +237,11 @@ async function connect(engine: Engine, userId = 'u_amara') {
     pieceAs: (event: string, bytes: Uint8Array) =>
       handle.handleBinaryMessage(
         encodeBinaryFrame(JSON.stringify([event, null, { upload: { id: 'up-1', seq: 1 } }]), bytes),
+      ),
+    /** Send a start frame for another upload event. */
+    startAs: (event: string, id: string, input: unknown) =>
+      handle.handleBinaryMessage(
+        encodeBinaryFrame(JSON.stringify([event, input, { upload: { id } }]), NO_BYTES),
       ),
     /** Send a start frame with any metadata. */
     startWith: (metadata: unknown) =>
@@ -1140,5 +1148,580 @@ describe('base.binary.upload', () => {
         },
       })(definition, undefined as never);
     }).toThrow(/upload/);
+  });
+});
+
+/** Create an engine for a definition, on its own database unless one is given. */
+function engineOf(definition: unknown, sql = createTestSql()) {
+  let engine!: Engine;
+  const timers = createTestTimers();
+  adapter({
+    id: 'upload-docs-spec',
+    asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+    setup(createEngine) {
+      engine = createEngine({
+        storage: { sql, kv: createTestKV() },
+        timers,
+        platform: {},
+        logger: { info() {}, warn() {}, error() {} },
+      });
+      return {};
+    },
+  })(definition as never, undefined as never);
+
+  return { engine, timers, sql };
+}
+
+function rows(sql: ReturnType<typeof createTestSql>): any[] {
+  return sql.db.prepare('SELECT * FROM __livething_uploads').all();
+}
+
+describe('base.binary.upload: what the docs promise', () => {
+  it('uses 100 MiB, 256 KiB and 2 MiB when the handler sets no sizes', async () => {
+    const base = server({ capabilities: [binary(), uploads()] });
+    const handleUploadAttachment = base.binary.upload('upload-attachment', {
+      async run(_ctx, _input, pieces) {
+        for await (const _piece of pieces);
+        return { info: null };
+      },
+    });
+    const { engine } = engineOf(base.assemble({ handlers: [handleUploadAttachment] }));
+    const amara = await connect(engine);
+
+    await amara.start('up-1', null, 100 * 1024 * 1024);
+    await amara.start('up-2', null, 100 * 1024 * 1024 + 1);
+    await settle();
+
+    expect(amara.of('up-1')[0]).toEqual([
+      '__uploadAck__',
+      { receivedThrough: 0, savedThrough: 0, pieceBytes: 262_144, windowBytes: 2_097_152 },
+      { upload: { id: 'up-1' } },
+    ]);
+    expect(amara.of('up-2')).toEqual([
+      [
+        '__error__',
+        { code: 'upload-aborted', detail: { reason: 'too-large' } },
+        { upload: { id: 'up-2' } },
+      ],
+    ]);
+  });
+
+  it('keeps a done reply for 10 minutes by default', async () => {
+    const { engine, timers } = build();
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+    await amara.end('up-1', 8);
+
+    await settle();
+
+    const left = timers.getAlarm()! - Date.now();
+    expect(left).toBeGreaterThan(9 * 60_000);
+    expect(left).toBeLessThanOrEqual(10 * 60_000);
+  });
+
+  it('expires a dropped upload after 24 hours by default', async () => {
+    const { engine, timers } = build();
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    await amara.close();
+    await settle();
+
+    const left = timers.getAlarm()! - Date.now();
+    expect(left).toBeGreaterThan(23 * 3_600_000);
+    expect(left).toBeLessThanOrEqual(24 * 3_600_000);
+  });
+
+  it('deletes a done reply after retentionAfterDoneMs, so a new start runs again from 0', async () => {
+    const { engine, runs, sql } = build({ uploads: { retentionAfterDoneMs: 30 } });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+    await amara.end('up-1', 8);
+
+    await settle();
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await engine.handleAlarm();
+    expect(rows(sql)).toEqual([]);
+
+    await amara.start('up-1', deck);
+    await settle();
+    expect(runs).toHaveLength(2);
+    expect(runs[1]!.savedThrough).toBe(0);
+  });
+
+  it('checks the input of the start, and refuses a bad one before run', async () => {
+    const { engine, runs, sql } = build();
+    const amara = await connect(engine);
+    await amara.start('up-1', { attachmentId: 42 });
+    await settle();
+
+    expect(runs).toEqual([]);
+    expect(rows(sql)).toEqual([]);
+    expect(amara.of('up-1').at(-1)?.[1]?.code).toBe('validation-failed');
+  });
+
+  it('refuses an upload id over 128 characters', async () => {
+    const { engine, runs } = build();
+    const amara = await connect(engine);
+    await amara.start('x'.repeat(129), deck);
+    await settle();
+
+    expect(runs).toEqual([]);
+    expect(amara.frames().at(-1)?.[0]).toBe('__error__');
+  });
+
+  it('does not run onDiscard on a drop, and keeps the record', async () => {
+    const { engine, discarded, sql } = build();
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    await amara.close();
+    await settle();
+
+    expect(discarded).toEqual([]);
+    expect(rows(sql)).toMatchObject([{ upload_id: 'up-1', status: 'active', saved_through: 8 }]);
+  });
+
+  it.each([
+    {
+      name: 'a cancel',
+      stop: (c: any) => c.cancel('up-1'),
+      code: 'upload-aborted',
+      reason: 'cancelled',
+    },
+    {
+      name: 'a closed connection',
+      stop: (c: any) => c.close(),
+      code: 'disconnected',
+      reason: undefined,
+    },
+    {
+      name: 'a takeover',
+      stop: async (_c: any, engine: Engine) => (await connect(engine)).start('up-1', deck),
+      code: 'upload-aborted',
+      reason: 'taken-over',
+    },
+  ])('fires ctx.upload.signal on $name', async ({ stop, code, reason }) => {
+    let signal!: AbortSignal;
+    const { engine } = build({
+      afterRead(upload) {
+        signal = upload.signal;
+      },
+    });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+    expect(signal.aborted).toBe(false);
+
+    await stop(amara, engine);
+    await settle();
+
+    expect(signal.aborted).toBe(true);
+    expect((signal.reason as any).code).toBe(code);
+    expect((signal.reason as any).detail?.reason).toBe(reason);
+  });
+
+  it('fails an upload whose bytes go over the size at the start, and discards it', async () => {
+    const { engine, discarded } = build({ readGate: new Promise(() => {}) });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck, 12);
+    amara.piece('up-1', 1, piece(8, 1));
+    amara.piece('up-1', 2, piece(8, 2));
+
+    await settle();
+
+    expect(amara.of('up-1').at(-1)).toEqual([
+      '__error__',
+      { code: 'upload-aborted', detail: { reason: 'too-large' } },
+      { upload: { id: 'up-1' } },
+    ]);
+    expect(discarded).toHaveLength(1);
+  });
+
+  it('fails an upload whose end total differs from the size at the start', async () => {
+    const { engine, discarded } = build();
+    const amara = await connect(engine);
+    await amara.start('up-1', deck, 16);
+    amara.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    await amara.end('up-1', 8);
+    await settle();
+
+    expect(amara.of('up-1').at(-1)).toEqual([
+      '__error__',
+      { code: 'upload-aborted', detail: { reason: 'bad-piece' } },
+      { upload: { id: 'up-1' } },
+    ]);
+    expect(discarded).toHaveLength(1);
+  });
+
+  it('ends the loop only once it has read totalBytes, even when the end comes first', async () => {
+    const { engine, runs } = build();
+    const amara = await connect(engine);
+    await amara.start('up-1', deck, 12);
+    amara.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    await amara.end('up-1', 12);
+    await settle();
+    expect(runs[0]!.ended).toBeUndefined();
+
+    amara.piece('up-1', 2, piece(4, 2));
+    await settle();
+    expect(runs[0]!.ended).toBe('done');
+    expect(amara.of('up-1').at(-1)).toEqual([
+      '__uploadDone__',
+      { info: { size: 12 } },
+      { upload: { id: 'up-1' } },
+    ]);
+  });
+
+  it('never expires an upload that a connection is running, even when run is slow', async () => {
+    const { engine, discarded, runs } = build({
+      uploads: { expireAfterMs: 20 },
+      readGate: new Promise(() => {}),
+    });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await engine.handleAlarm();
+
+    await settle();
+
+    expect(discarded).toEqual([]);
+    expect(runs[0]!.ended).toBeUndefined();
+  });
+
+  it("refuses with 'gone' a start of an upload whose onDiscard has not succeeded yet", async () => {
+    const { engine } = build({ discardFailures: 1 });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    await settle();
+    await amara.cancel('up-1');
+
+    await settle();
+
+    await amara.start('up-1', deck);
+    await settle();
+    expect(amara.of('up-1').at(-1)).toEqual([
+      '__error__',
+      { code: 'upload-aborted', detail: { reason: 'gone' } },
+      { upload: { id: 'up-1' } },
+    ]);
+  });
+
+  it('does not take over the same upload id of another user', async () => {
+    const { engine, runs } = build({ readGate: new Promise(() => {}) });
+    const amara = await connect(engine, 'u_amara');
+    await amara.start('up-1', deck);
+    const kofi = await connect(engine, 'u_kofi');
+    await kofi.start('up-1', deck);
+
+    await settle();
+
+    expect(runs).toHaveLength(2);
+    expect(amara.of('up-1').map((frame) => frame[0])).toEqual(['__uploadAck__']);
+  });
+
+  it('resumes with the state saved at offset 0, from the first byte', async () => {
+    const { engine, runs } = build({
+      saveEvery: false,
+      afterRead(upload) {
+        upload.saved(0, { state: ['att_1', 'att_2'] });
+      },
+    });
+    const first = await connect(engine);
+    await first.start('up-1', deck);
+    first.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    await first.close();
+    await settle();
+
+    const second = await connect(engine);
+    await second.start('up-1', deck);
+    second.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    expect(runs[1]).toMatchObject({ savedThrough: 0, state: ['att_1', 'att_2'], offsets: [0] });
+  });
+
+  it('keeps one row per upload in __livething_uploads, with the reply once done', async () => {
+    const { engine, sql } = build();
+    const amara = await connect(engine);
+    await amara.start('up-1', deck, 8);
+    amara.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    expect(rows(sql)).toEqual([
+      {
+        user_id: 'u_amara',
+        upload_id: 'up-1',
+        event: 'upload-attachment',
+        input: JSON.stringify(deck),
+        size: 8,
+        saved_through: 8,
+        state: JSON.stringify({ parts: 1 }),
+        status: 'active',
+        reply: null,
+        updated_at: expect.any(Number),
+      },
+    ]);
+
+    await amara.end('up-1', 8);
+    await settle();
+    expect(rows(sql)).toMatchObject([{ status: 'done', reply: JSON.stringify({ size: 8 }) }]);
+  });
+
+  it('moves updated_at for a piece at most once a minute', async () => {
+    const { engine, sql } = build({ saveEvery: false });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    const startedAt = rows(sql)[0].updated_at;
+
+    const realNow = Date.now;
+    try {
+      Date.now = () => startedAt + 30_000;
+      amara.piece('up-1', 1, piece(8, 1));
+      await settle();
+      expect(rows(sql)[0].updated_at).toBe(startedAt);
+
+      Date.now = () => startedAt + 61_000;
+      amara.piece('up-1', 2, piece(8, 2));
+      await settle();
+      expect(rows(sql)[0].updated_at).toBe(startedAt + 61_000);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it('keeps the record when the server restarts: a piece gets interrupted, then a start resumes', async () => {
+    const sql = createTestSql();
+    const before = build({ sql });
+    const amara = await connect(before.engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+
+    const after = build({ sql });
+    const again = await connect(after.engine);
+    again.piece('up-1', 2, piece(8, 2));
+    await settle();
+    expect(again.of('up-1')).toEqual([
+      [
+        '__error__',
+        { code: 'upload-aborted', detail: { reason: 'interrupted' } },
+        { upload: { id: 'up-1' } },
+      ],
+    ]);
+
+    await again.start('up-1', deck);
+    await settle();
+    expect(after.runs[0]).toMatchObject({ savedThrough: 8, state: { parts: 1 } });
+  });
+
+  it('expires an upload when the server starts, after it was down', async () => {
+    const sql = createTestSql();
+    const before = build({ sql, uploads: { expireAfterMs: 20 } });
+    const amara = await connect(before.engine);
+    await amara.start('up-1', deck);
+    await amara.close();
+
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const after = build({ sql, uploads: { expireAfterMs: 20 } });
+    await after.engine.initialize();
+    await settle();
+
+    expect(after.discarded).toHaveLength(1);
+    expect(rows(sql)).toEqual([]);
+  });
+
+  it("refuses a resume of the same upload id under another event with 'input-mismatch'", async () => {
+    const base = server({ capabilities: [binary(), uploads()] });
+    async function run(_ctx: any, _input: any, pieces: AsyncIterable<unknown>) {
+      for await (const _piece of pieces);
+      return { info: null };
+    }
+
+    const handleUploadAttachment = base.binary.upload('upload-attachment', { run });
+    const handleUploadVoiceNote = base.binary.upload('upload-voice-note', { run });
+    const { engine } = engineOf(
+      base.assemble({ handlers: [handleUploadAttachment, handleUploadVoiceNote] }),
+    );
+
+    const first = await connect(engine);
+    await first.start('up-1', null);
+    await first.close();
+    await settle();
+
+    const second = await connect(engine);
+    await second.startAs('upload-voice-note', 'up-1', null);
+    await settle();
+    expect(second.of('up-1').at(-1)).toEqual([
+      '__error__',
+      { code: 'upload-aborted', detail: { reason: 'input-mismatch' } },
+      { upload: { id: 'up-1' } },
+    ]);
+  });
+
+  it('gives onDiscard the input as JSON, and a ctx with no ctx.send', async () => {
+    const seen: { input: unknown; hasSend: boolean }[] = [];
+    const runInputs: unknown[] = [];
+    const base = server({ capabilities: [binary(), uploads()] });
+    const handleUploadAttachment = base.binary.upload('upload-attachment', {
+      input: v.object({
+        sentAt: v.pipe(
+          v.string(),
+          v.transform((text) => new Date(text)),
+        ),
+      }),
+      async run(_ctx, input, pieces) {
+        runInputs.push(input.sentAt);
+        for await (const _piece of pieces);
+        return { info: null };
+      },
+      onDiscard(ctx, input) {
+        seen.push({ input, hasSend: typeof (ctx as any).send === 'function' });
+      },
+    });
+    const { engine } = engineOf(base.assemble({ handlers: [handleUploadAttachment] }));
+
+    const amara = await connect(engine);
+    await amara.start('up-1', { sentAt: '2026-11-07T10:00:00.000Z' });
+    await settle();
+    await amara.cancel('up-1');
+    await settle();
+
+    expect(runInputs[0]).toBeInstanceOf(Date);
+    expect(seen).toEqual([{ input: { sentAt: '2026-11-07T10:00:00.000Z' }, hasSend: false }]);
+  });
+
+  it('a cancel after the last piece only fires the signal: run goes on, and nothing is posted', async () => {
+    let letGo!: () => void;
+    const gate = new Promise<void>((resolve) => (letGo = resolve));
+    const seen: { abortedBeforeGate?: boolean; abortedAfterGate?: boolean; threw?: boolean } = {};
+    const discarded: unknown[] = [];
+    const base = server({ capabilities: [binary(), uploads()] });
+
+    const handleUploadAttachment = base.binary.upload('upload-attachment', {
+      pieceBytes: 8,
+      windowBytes: 16,
+      async run(ctx, _input, pieces) {
+        try {
+          for await (const _piece of pieces);
+          seen.abortedBeforeGate = ctx.upload.signal.aborted;
+          await gate;
+          seen.abortedAfterGate = ctx.upload.signal.aborted;
+          seen.threw = false;
+        } catch {
+          seen.threw = true;
+        }
+
+        return { info: null };
+      },
+      onDiscard(_ctx, input) {
+        discarded.push(input);
+      },
+    });
+    const { engine } = engineOf(base.assemble({ handlers: [handleUploadAttachment] }));
+    const amara = await connect(engine);
+
+    await amara.start('up-1', null);
+    amara.piece('up-1', 1, piece(8, 1));
+    await amara.end('up-1', 8);
+    await settle();
+
+    const cancelling = amara.cancel('up-1');
+    await settle();
+    letGo();
+    await cancelling;
+    await settle();
+
+    expect(seen).toEqual({ abortedBeforeGate: false, abortedAfterGate: true, threw: false });
+    expect(amara.of('up-1').map((frame) => frame[0])).not.toContain('__uploadDone__');
+    expect(discarded).toHaveLength(1);
+  });
+
+  it('sends a registered error from run with its code and detail', async () => {
+    const StorageFull = defineError('storage-full', v.object({ freeBytes: v.number() }));
+    const base = server({ capabilities: [binary(), uploads(), errors([StorageFull])] });
+    const handleUploadAttachment = base.binary.upload('upload-attachment', {
+      async run() {
+        throw StorageFull({ freeBytes: 0 });
+      },
+    });
+    const { engine } = engineOf(base.assemble({ handlers: [handleUploadAttachment] }));
+    const amara = await connect(engine);
+
+    await amara.start('up-1', null);
+    await settle();
+
+    expect(amara.of('up-1').at(-1)).toEqual([
+      '__error__',
+      { code: 'storage-full', detail: { freeBytes: 0 } },
+      { upload: { id: 'up-1' } },
+    ]);
+  });
+
+  it('answers __uploadEnd__ and __uploadCancel__ with unsupported-protocol without uploads()', async () => {
+    const base = server({ capabilities: [binary()] });
+    const { engine } = engineOf(base.assemble({ handlers: [] }));
+    const amara = await connect(engine);
+    await amara.end('up-1', 8);
+    await amara.cancel('up-1');
+
+    await settle();
+
+    expect(amara.frames().map((frame) => [frame[1]?.code, frame[1]?.detail?.event])).toEqual([
+      ['unsupported-protocol', '__uploadEnd__'],
+      ['unsupported-protocol', '__uploadCancel__'],
+    ]);
+  });
+
+  it('refuses uploads() without binary()', () => {
+    expect(() => {
+      const base = server({ capabilities: [uploads()] });
+      const handleUploadAttachment = (base as any).binary.upload('upload-attachment', {
+        run: async () => ({ info: null }),
+      });
+      engineOf(base.assemble({ handlers: [handleUploadAttachment] }));
+    }).toThrow();
+  });
+
+  it.each([
+    ['an empty name', ''],
+    ['a name over 128 characters', 'x'.repeat(129)],
+    ['a name that starts with __', '__upload-attachment'],
+    ['a name that ends with __', 'upload-attachment__'],
+    ['a name with ::', 'files::upload-attachment'],
+  ])('refuses %s', (_name, event) => {
+    const base = server({ capabilities: [binary(), uploads()] });
+    expect(() => {
+      const handleUpload = base.binary.upload(event, { run: async () => ({ info: null }) });
+      engineOf(base.assemble({ handlers: [handleUpload] }));
+    }).toThrow();
+  });
+
+  it.each([
+    ['a JSON event', (base: any) => base.on('upload-attachment', { run() {} })],
+    ['a binary event', (base: any) => base.binary.on('upload-attachment', { run() {} })],
+  ])('refuses an upload event that is also %s', (_name, other) => {
+    const base = server({ capabilities: [binary(), uploads()] });
+    const handleUpload = base.binary.upload('upload-attachment', {
+      run: async () => ({ info: null }),
+    });
+    expect(() =>
+      engineOf(base.assemble({ handlers: [handleUpload, other(base)] as never })),
+    ).toThrow(/upload-attachment/);
   });
 });

@@ -243,7 +243,6 @@ describe('base.binary.stream (spec 9.2)', () => {
     const rooms = base.channel(['rooms', 'room:{roomId}'], {});
     const handleDownloadAttachment = base.binary.stream('download-attachment', {
       input: v.object({ attachmentId: v.string(), fromByte: v.number() }),
-      chunk: t<{ fileName: string; fileType: string } | null>(),
       nudges: { 'pause-download': null },
       broadcast: options.broadcast,
       async *run(ctx, input, bytes) {

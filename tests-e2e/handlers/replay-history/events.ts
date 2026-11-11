@@ -18,7 +18,6 @@ export const TriggerBadReplay = v.object({});
 export const TriggerBigIntReplay = v.object({});
 
 export const StartTinyStream = v.object({});
-export const TinyChunk = t<{ value: string }>();
 export const ReplayGuardError = v.object({ undeclared: v.string() });
 
 // A plugin-owned event. On the wire it travels namespaced as

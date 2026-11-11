@@ -131,14 +131,18 @@ function metadataToLiveThing(input: unknown): LiveThingProtocol {
   if (metadata.channel) {
     out.channel = metadata.channel.name;
     out.channelFamily = metadata.channel.family ?? null;
-    if (metadata.channel.unsubscribeId !== undefined)
+    if (metadata.channel.unsubscribeId !== undefined) {
       out.unsubscribeId = metadata.channel.unsubscribeId;
-    if (metadata.channel.membership !== undefined)
+    }
+
+    if (metadata.channel.membership !== undefined) {
       out.channelMembership = metadata.channel.membership;
+    }
 
     if (metadata.channel.inbox !== undefined) out.inbox = metadata.channel.inbox;
-    if (metadata.channel.readReceipts !== undefined)
+    if (metadata.channel.readReceipts !== undefined) {
       out.readReceipts = metadata.channel.readReceipts;
+    }
   }
 
   if (metadata.delivery) {
@@ -461,18 +465,21 @@ function validChannel(input: unknown): boolean {
   const allowed = ['name', 'family', 'unsubscribeId', 'membership', 'inbox', 'readReceipts'];
   if (Object.keys(input).some((key) => !allowed.includes(key))) return false;
 
-  if (input.family !== undefined && !validString(input.family, WIRE_LIMITS.channelFamily))
+  if (input.family !== undefined && !validString(input.family, WIRE_LIMITS.channelFamily)) {
     return false;
+  }
 
-  if (input.unsubscribeId !== undefined && !validString(input.unsubscribeId, WIRE_LIMITS.wireId))
+  if (input.unsubscribeId !== undefined && !validString(input.unsubscribeId, WIRE_LIMITS.wireId)) {
     return false;
+  }
 
   if (
     input.membership !== undefined &&
     input.membership !== 'persistent' &&
     input.membership !== 'ephemeral'
-  )
+  ) {
     return false;
+  }
 
   if (input.inbox !== undefined && typeof input.inbox !== 'boolean') return false;
 
@@ -501,8 +508,9 @@ function validStream(input: unknown): boolean {
     input.durability !== undefined &&
     input.durability !== 'ephemeral' &&
     input.durability !== 'persistent'
-  )
+  ) {
     return false;
+  }
 
   if (!validOptionalSequence(input.seq)) return false;
 
@@ -554,12 +562,13 @@ export function isWireTuple(parsed: unknown): parsed is [string, unknown, unknow
 export function parseUserEventFrame(input: unknown): ProtocolFrame {
   if (Array.isArray(input) && input.length === 3 && validString(input[0], WIRE_LIMITS.event)) {
     const livething = fastMetadata(input[2]);
-    if (livething !== undefined)
+    if (livething !== undefined) {
       return {
         event: input[0],
         payload: input[1],
         __livething: livething ?? { channelFamily: null },
       };
+    }
   }
 
   return v.parse(UserEventFrameSchema, input) as ProtocolFrame;

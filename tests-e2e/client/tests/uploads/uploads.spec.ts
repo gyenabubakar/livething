@@ -111,6 +111,39 @@ test.describe('uploads (conformance)', () => {
     expect(Number(info.resumedFrom)).toBeGreaterThan(0);
   });
 
+  test('a resume with another size rejects with input-mismatch', async ({ page }, testInfo) => {
+    const member = { room: `cl-upl-mismatch-${testInfo.testId}`, uploadId: 'up-mismatch' };
+    await open(page, member);
+    await page.getByTestId('upload-slow').click();
+    await expect.poll(() => progress(page)).toBeGreaterThanOrEqual(192 * KiB);
+
+    await open(page, member);
+    await page.getByTestId('upload-slow-smaller').click();
+    await expect(page.getByTestId('errors')).toHaveText('upload-aborted:input-mismatch');
+  });
+
+  test('the same uploadId on a second page takes the upload over', async ({
+    browser,
+    page,
+  }, testInfo) => {
+    const member = { room: `cl-upl-takeover-${testInfo.testId}`, uploadId: 'up-takeover' };
+    await open(page, member);
+    await page.getByTestId('upload-slow').click();
+    await expect.poll(() => progress(page)).toBeGreaterThanOrEqual(192 * KiB);
+
+    const second = await browser.newPage();
+    await open(second, member);
+    await second.getByTestId('upload-slow').click();
+
+    await expect(page.getByTestId('errors')).toHaveText('upload-aborted:taken-over');
+
+    const info = await reply(second);
+    const file = pattern(512 * KiB, 1);
+    expect(info).toMatchObject({ size: file.byteLength, hash: hash(file) });
+    expect(Number(info.resumedFrom)).toBeGreaterThan(0);
+    await second.close();
+  });
+
   test('cancel rejects with upload-aborted, and the server discards the upload', async ({
     page,
   }, testInfo) => {

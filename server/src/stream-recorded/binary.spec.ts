@@ -2,7 +2,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { encodeBinaryFrame, LiveThingConfigError, splitBinaryFrame } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
-import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -64,7 +63,6 @@ function build(options: BuildOptions = {}) {
   });
   const handleDownloadRecording = base.binary.recordedStream('download-recording', {
     input: Input,
-    chunk: t<{ fileName: string } | null>(),
     retentionAfterEndMs: 60_000,
     ...options.recording,
     async *run(_ctx, input, bytes) {

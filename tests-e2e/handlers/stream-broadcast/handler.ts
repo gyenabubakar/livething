@@ -1,12 +1,9 @@
-import { server, t } from '@livething/server';
+import { server } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
-
-const BroadcastChunkSchema = t<{ index: number }>();
-const RoomBroadcastChunkSchema = t<{ index: number }>();
 
 const base = server({
   upgrade: (request) => requireUsername(request),
@@ -15,7 +12,6 @@ const base = server({
 
 const handleStartBroadcast = base.stream('start-broadcast', {
   input: v.object({ count: v.number() }),
-  chunk: BroadcastChunkSchema,
   broadcast: true,
   async *run(_ctx, input) {
     // Negative count is a test sentinel: yield one chunk, then throw so the
@@ -36,7 +32,6 @@ const room = base.channel(['rooms', 'room:{id}'], {});
 
 const handleStartRoomBroadcast = room.stream('start-room-broadcast', {
   input: v.object({ count: v.number() }),
-  chunk: RoomBroadcastChunkSchema,
   broadcast: true,
   async *run(_ctx, input) {
     for (let i = 0; i < input.count; i++) {
@@ -48,7 +43,6 @@ const handleStartRoomBroadcast = room.stream('start-room-broadcast', {
 
 const handleStartRoomStream = room.stream('start-room-stream', {
   input: v.object({ count: v.number() }),
-  chunk: RoomBroadcastChunkSchema,
   async *run(_ctx, input) {
     for (let i = 0; i < input.count; i++) {
       yield { index: i };

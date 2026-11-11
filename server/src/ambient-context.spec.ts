@@ -453,7 +453,6 @@ describe('context in the features of a channel', () => {
     const room = base.channel('room', {});
     const feed = room.stream('feed', {
       input: v.object({}),
-      chunk: t<{ n: number }>(),
       run(ctx) {
         seen.beforeGenerator = context.channel(room) === ctx;
         return (async function* () {
@@ -480,7 +479,6 @@ describe('context in the features of a channel', () => {
     const room = base.channel('room', {});
     const feed = room.recordedStream('feed', {
       input: v.object({}),
-      chunk: t<{ n: number }>(),
       maxChunks: 10,
       run(ctx) {
         seen.beforeGenerator = context.channel(room) === ctx;
@@ -567,7 +565,6 @@ describe('context in the onError hook for a stream that throws', () => {
     });
     const feed = base.stream('feed', {
       input: v.object({}),
-      chunk: t<{ n: number }>(),
       async *run() {
         yield { n: 1 };
         fail();
@@ -632,7 +629,6 @@ describe('a recorded stream chunk that does not stay an object in JSON', () => {
 
     const base = server({ capabilities: [recordedStream()] });
     const progress = base.recordedStream('progress', {
-      chunk: t<number | Date | typeof record>(),
       maxChunks: 10,
       async *run() {
         yield 1;
@@ -943,7 +939,6 @@ describe('context inside a plugin', () => {
     const seen: Record<string, unknown> = {};
     const feed = room.recordedStream('feed', {
       input: v.object({}),
-      chunk: t<{ n: number }>(),
       maxChunks: 10,
       async *run(ctx) {
         await sleep(1);

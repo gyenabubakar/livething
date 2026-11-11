@@ -677,8 +677,9 @@ export class LiveThingSocket {
     // Without binary(), report a binary message instead of throwing out of
     // `onmessage`: an uncaught throw there would break the WebSocket callback.
     if (typeof raw !== 'string') {
-      if (this._binary) this._binary.receive(raw);
-      else {
+      if (this._binary) {
+        this._binary.receive(raw);
+      } else {
         this._reportError(
           new Error(
             '[livething] a binary message arrived and was dropped. Register binary() in client().',
@@ -814,8 +815,9 @@ export class LiveThingSocket {
   _ensureConnected(): void {
     if (!this._lazy) return;
 
-    if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting')
+    if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting') {
       return;
+    }
 
     this._clearLazyIdleTimer();
 

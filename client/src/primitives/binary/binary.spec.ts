@@ -695,6 +695,15 @@ describe('socket.binary.send', () => {
     expect(ws.sent).toHaveLength(0);
   });
 
+  it('takes undefined bytes with options, and sends an empty Uint8Array', () => {
+    const { socket, ws } = connected(binary());
+
+    expect(socket.binary.send('upload-avatar', { fileType: 'image/png' }, undefined, {})).toBe(
+      true,
+    );
+    expect(decodeSent(ws.sent[0]).bytes!.byteLength).toBe(0);
+  });
+
   it('throws when the info and metadata are over 64 KiB', () => {
     const { socket } = connected(binary());
 

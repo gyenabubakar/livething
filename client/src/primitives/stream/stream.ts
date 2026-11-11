@@ -591,16 +591,22 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           run.timer = setTimeout(() => {
             helpers.log.info(`broadcast stream '${streamId}' timed out`);
             broadcastRuns.delete(streamId);
-            for (const subscriber of broadcastSubs.get(event) ?? [])
-              if (subscriber.binary === binary && scopeMatches(subscriber.scope, envelope ?? null))
+            for (const subscriber of broadcastSubs.get(event) ?? []) {
+              if (
+                subscriber.binary === binary &&
+                scopeMatches(subscriber.scope, envelope ?? null)
+              ) {
                 callStreamHandler(helpers.log, () => subscriber.handlers.onTimeout?.(streamId));
+              }
+            }
           }, timeout);
         }
 
         helpers.log.info(`broadcast stream '${streamId}' chunk received`);
         const chunk = chunkValue(message);
-        for (const subscriber of recipients)
+        for (const subscriber of recipients) {
           callStreamHandler(helpers.log, () => subscriber.handlers.onChunk(chunk, streamId));
+        }
       }
 
       function endBroadcast(
@@ -622,12 +628,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         if (event === undefined) return;
 
         // A run's end goes only to listeners of its kind. Without a run, the kind is unknown.
-        for (const subscriber of broadcastSubs.get(event) ?? [])
+        for (const subscriber of broadcastSubs.get(event) ?? []) {
           if (
             (!active || subscriber.binary === active.binary) &&
             scopeMatches(subscriber.scope, envelope)
-          )
+          ) {
             callStreamHandler(helpers.log, () => notify(subscriber.handlers));
+          }
+        }
       }
 
       function handleStreamOk(streamId: string, envelope: LiveThingMetadata | null): null {
@@ -757,8 +765,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           // Chunks sent while the member was out of the channel were missed, not lost.
           if (message.event === '__subscribeOk__') {
             const channel = channelKeyOf(envelope ?? null);
-            for (const run of broadcastRuns.values())
+            for (const run of broadcastRuns.values()) {
               if (run.channel === channel) run.checksGaps = false;
+            }
+
             return message;
           }
 

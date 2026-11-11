@@ -76,8 +76,9 @@ function mergeRule(opts: MergeRuleOptions): RuleInstance | null {
 
   assertPositiveInteger(windowMs, 'windowMs', `rateLimit at ${context}`);
   assertPositiveInteger(maxMessages, 'maxMessages', `rateLimit at ${context}`);
-  if (maxBytes !== undefined)
+  if (maxBytes !== undefined) {
     assertPositiveInteger(maxBytes, 'maxBytes', `rateLimit at ${context}`);
+  }
 
   return {
     id: alloc.next(),

@@ -311,8 +311,9 @@ class ReplayInstaller {
         exclude: this.exclude,
         claimedChannelKeys: this.engine.getReplayClaimedChannelKeys(),
       })
-    )
+    ) {
       return;
+    }
 
     const isSnapshot = (this.opts.type ?? 'history') === 'snapshot';
     if (!wireMessage.recipients) {

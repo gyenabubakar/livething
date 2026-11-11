@@ -44,18 +44,22 @@ const base = server({
 const handleAddTag = base.on('add-tag', {
   input: TagPayload,
   run(ctx, payload) {
-    if (payload.kind === 'ephemeral')
+    if (payload.kind === 'ephemeral') {
       ctx.tags.ephemeral(payload.group as 'user' | 'role' | 'color').add(payload.key);
-    else ctx.tags.persistent(payload.group as 'favorite').add(payload.key);
+    } else {
+      ctx.tags.persistent(payload.group as 'favorite').add(payload.key);
+    }
   },
 });
 
 const handleRemoveTag = base.on('remove-tag', {
   input: TagPayload,
   run(ctx, payload) {
-    if (payload.kind === 'ephemeral')
+    if (payload.kind === 'ephemeral') {
       ctx.tags.ephemeral(payload.group as 'user' | 'role' | 'color').remove(payload.key);
-    else ctx.tags.persistent(payload.group as 'favorite').remove(payload.key);
+    } else {
+      ctx.tags.persistent(payload.group as 'favorite').remove(payload.key);
+    }
   },
 });
 

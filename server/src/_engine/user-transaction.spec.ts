@@ -275,8 +275,9 @@ describe('UserTransactionTracker', () => {
 
     tracker.run(raw, () => {
       tracker.run(raw, () => {
-        for (let id = 0; id < 150_000; id += 1)
+        for (let id = 0; id < 150_000; id += 1) {
           engine.exec('INSERT INTO engine_rows VALUES (?)', id);
+        }
       });
     });
 

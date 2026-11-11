@@ -42,6 +42,7 @@ function setup(taggedCount: number, totalConnections: number) {
     sendThroughPipeline: () => {},
     persistAttachment: () => {},
     getStorage: () => ({ sql: { exec: () => ({ toArray: () => [] }) } }),
+    logger: { error: () => {} },
   } as unknown as TagsRuntime;
 
   const owner = connections.values().next().value!;

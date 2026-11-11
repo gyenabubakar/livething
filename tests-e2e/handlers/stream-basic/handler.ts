@@ -5,8 +5,6 @@ import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Token = t<{ index: number }>();
-
 const StreamNotFound = error('not-found', v.object({ id: v.string() }));
 
 const base = server({
@@ -20,7 +18,6 @@ const base = server({
 
 const handleStartTokens = base.stream('start-tokens', {
   input: v.object({ count: v.number() }),
-  chunk: Token,
   async *run(_ctx, input) {
     for (let i = 0; i < input.count; i++) {
       yield { index: i };
@@ -31,7 +28,6 @@ const handleStartTokens = base.stream('start-tokens', {
 
 const handleStartBoom = base.stream('start-boom', {
   input: v.object({}),
-  chunk: Token,
   async *run() {
     yield { index: 0 };
     await new Promise((r) => setTimeout(r, 20));
@@ -41,7 +37,6 @@ const handleStartBoom = base.stream('start-boom', {
 
 const handleStartBoomImmediate = base.stream('start-boom-immediate', {
   input: v.object({}),
-  chunk: Token,
   async *run() {
     throw new Error('boom-immediate');
     yield { index: 0 };
@@ -50,7 +45,6 @@ const handleStartBoomImmediate = base.stream('start-boom-immediate', {
 
 const handleStartTypedError = base.stream('start-typed-error', {
   input: v.object({}),
-  chunk: Token,
   async *run() {
     yield { index: 0 };
     await new Promise((r) => setTimeout(r, 20));
@@ -60,7 +54,6 @@ const handleStartTypedError = base.stream('start-typed-error', {
 
 const handleStartCancelObserve = base.stream('start-cancel-observe', {
   input: v.object({}),
-  chunk: Token,
   async *run(ctx) {
     let completedNaturally = false;
     try {
@@ -80,9 +73,8 @@ const handleStartCancelObserve = base.stream('start-cancel-observe', {
 
 const handleStartEmpty = base.stream('start-empty', {
   input: v.object({}),
-  chunk: Token,
   // Generator yields nothing; immediately sends __streamEnd__
-  async *run() {},
+  async *run(): AsyncGenerator<{ index: number }> {},
 });
 
 export const streamBasicDefinition = base.assemble({

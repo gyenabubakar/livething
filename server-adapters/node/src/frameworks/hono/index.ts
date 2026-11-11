@@ -94,8 +94,9 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
         if (!isWebSocketUpgrade(context.req.header('upgrade'))) return next();
 
         const incoming = getIncomingRequest(context.env);
-        if (!incoming)
+        if (!incoming) {
           return new Response('[livething] Hono did not provide a Node request', { status: 500 });
+        }
 
         if (!isNodeWebSocketUpgrade(incoming)) return next();
 

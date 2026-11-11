@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/adapter.ts';
-import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { purgeUser } from '~/_engine/runtime/purge-user.ts';
 import { createTestStorage } from '~/_test/sql.ts';
@@ -18,7 +17,6 @@ async function buildEngine(): Promise<Engine> {
     handlers: [
       base.recordedStream('ticks', {
         input: v.object({}),
-        chunk: t<{ n: number }>(),
         maxChunks: 1000,
         maxAgeMs: 60_000,
         retentionAfterEndMs: 60_000,

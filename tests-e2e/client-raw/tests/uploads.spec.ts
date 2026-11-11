@@ -157,8 +157,9 @@ async function sendPieces(
 ) {
   let sent = from;
   for (const [index, bytes] of pieces.entries()) {
-    if (sent + bytes.size - from > 4 * PIECE)
+    if (sent + bytes.size - from > 4 * PIECE) {
       await waitForRead(socket, uploadId, sent + bytes.size - 4 * PIECE);
+    }
 
     await piece(socket, index + 1, bytes);
     sent += bytes.size;

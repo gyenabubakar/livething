@@ -1534,8 +1534,9 @@ async function processParsedMessage(
         size,
         bytes,
       }))
-    )
+    ) {
       return;
+    }
 
     await dispatchIncoming(runtime, connection, {
       event,

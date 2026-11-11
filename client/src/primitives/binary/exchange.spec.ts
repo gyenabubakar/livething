@@ -9,7 +9,7 @@ import {
 } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { Disconnected, StreamCorrupted, Timeout } from '~/errors.ts';
+import { Disconnected, StreamCorrupted, StreamOverflow, Timeout } from '~/errors.ts';
 import { plugin } from '~/plugins/plugins.ts';
 import { binary } from '~/primitives/binary/index.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
@@ -1009,5 +1009,107 @@ describe('plugin scoped sockets (spec 7.6)', () => {
     expect(() => scoped!.binary.continueStream('download-clip', 'clip-1')).toThrow(
       /the stream primitive/,
     );
+  });
+});
+
+describe('binary exchange limits and defaults', () => {
+  it('a binary request takes its default timeout from clientRequests({ timeout })', async () => {
+    vi.useFakeTimers();
+    const { socket } = connected(binary(), clientRequests({ timeout: 2_000 }));
+    const caught = socket.binary
+      .request('get-thumbnail', { attachmentId: 'att_1' })
+      .catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(1_999);
+    vi.advanceTimersByTime(1);
+    expect(Timeout.matches(await caught)).toBe(true);
+  });
+
+  it('rejects a request or a stream start over maxFrameBytes with a RangeError', async () => {
+    const { socket } = connected(binary({ maxFrameBytes: 100 }), clientRequests(), stream());
+
+    await expect(
+      socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, new Uint8Array(100)),
+    ).rejects.toBeInstanceOf(RangeError);
+    await expect(
+      socket.binary.stream(
+        'download-attachment',
+        { attachmentId: 'att_1', fromByte: 0 },
+        new Uint8Array(100),
+      ),
+    ).rejects.toBeInstanceOf(RangeError);
+  });
+
+  it('a second binary.onRequest handler for the same event replaces the first', async () => {
+    const { socket, ws } = everything();
+    const first = vi.fn(() => ({ info: { fileType: 'image/png' as const } }));
+    const second = vi.fn(() => ({ info: { fileType: 'image/png' as const }, bytes: thumbnail }));
+    socket.binary.onRequest('capture-screen', first);
+    socket.binary.onRequest('capture-screen', second);
+
+    ws.emitRaw(
+      frame('capture-screen', { maxWidth: 1 }, { exchange: { id: 'x-1', source: 'server' } }),
+    );
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    expect(first).not.toHaveBeenCalled();
+    expect([...decodeSent(ws.sent[0]).bytes!]).toEqual([...thumbnail]);
+  });
+
+  it('never sends a binary.onRequest answer over maxFrameBytes', async () => {
+    const { socket, ws } = connected(binary({ maxFrameBytes: 100 }), serverRequests());
+    socket.binary.onRequest('capture-screen', () => ({
+      info: { fileType: 'image/png' as const },
+      bytes: new Uint8Array(200),
+    }));
+
+    ws.emitRaw(
+      frame('capture-screen', { maxWidth: 1 }, { exchange: { id: 'x-1', source: 'server' } }),
+    );
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    expect(typeof ws.sent[0]).toBe('string');
+    expect(ws.sentFrames()[0].payload).toEqual({ code: 'request-no-response' });
+  });
+
+  it('a binary stream throws Timeout when no chunk comes in time', async () => {
+    vi.useFakeTimers();
+    const { socket, ws } = connected(binary(), stream({ timeout: 1_000 }));
+    const { download } = await startDownload(socket, ws);
+    const read = readAll(download);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(Timeout.matches((await read).error)).toBe(true);
+  });
+
+  it('counts the bytes of binary chunks toward stream({ maxBytes })', async () => {
+    const { socket, ws } = connected(binary(), stream({ maxBytes: 50 }));
+    const { download, id } = await startDownload(socket, ws);
+
+    piece(ws, id, 1, null, new Uint8Array(30));
+    piece(ws, id, 2, null, new Uint8Array(30));
+
+    expect(StreamOverflow.matches((await readAll(download)).error)).toBe(true);
+  });
+
+  it('without serverRequests(), a binary server request in a channel reaches no listener', async () => {
+    const { socket, ws } = connected(binary(), channels());
+    const room = await joinGeneral(socket as ReturnType<typeof everything>['socket'], ws);
+    const listener = vi.fn();
+    (room.binary as unknown as { on: (event: string, fn: () => void) => void }).on(
+      'capture-whiteboard',
+      listener,
+    );
+    ws.sent.length = 0;
+
+    ws.emitRaw(
+      frame('capture-whiteboard', null, {
+        exchange: { id: 'x-1', source: 'server' },
+        channel: general,
+      }),
+    );
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(ws.sent).toHaveLength(0);
   });
 });

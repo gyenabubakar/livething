@@ -70,7 +70,6 @@ const handleSendVoiceNote = dms.binary.on('send-voice-note', {
 // stored pieces it missed. The PDF of `room:<n>` is `pattern(<n> * 1000, <n>)`.
 const handleExportRoomPdf = base.binary.recordedStream('export-room-pdf', {
   input: v.object({ roomId: v.string() }),
-  chunk: t<{ fileName: string } | null>(),
   async *run(_ctx, input) {
     const n = Number(input.roomId.slice('room:'.length));
     const pdf = pattern(n * 1000, n);
@@ -128,7 +127,6 @@ const cancelledDownloads = new Set<string>();
 // so a test can cancel it while it runs.
 const handleDownloadAttachment = base.binary.stream('download-attachment', {
   input: v.object({ attachmentId: v.string(), fromByte: v.number() }),
-  chunk: t<{ fileName: string; fileType: string } | null>(),
   async *run(ctx, input) {
     cancelledDownloads.delete(ctx.user.id);
     ctx.stream.signal.addEventListener('abort', () => cancelledDownloads.add(ctx.user.id));

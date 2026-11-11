@@ -707,8 +707,9 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
       // A start from this connection is still being handled (held by an intercept, or waiting
       // for an older run): note the cancel now, so that start refuses. The note is dropped when
       // the last such start is handled, so it never refuses a later start.
-      if (pendingStarts.has(`${connection.id}\u0000${key}`))
+      if (pendingStarts.has(`${connection.id}\u0000${key}`)) {
         rememberEarlyCancel(key, connection.id);
+      }
 
       if (running) await stopSession(running, 'cancelled');
 

@@ -129,16 +129,14 @@ base.stream('typing-word', {
 });
 // A recorded stream wraps a primitive chunk as `{ value }`, so it may yield one.
 const progress = base.recordedStream('progress', {
-  chunk: t<number>(),
   maxChunks: 10,
-  async *run() {
+  async *run(): AsyncGenerator<number> {
     yield 1;
   },
 });
 const mixed = base.recordedStream('mixed', {
-  chunk: t<{ text: string } | string[] | null>(),
   maxChunks: 10,
-  async *run() {
+  async *run(): AsyncGenerator<{ text: string } | string[] | null> {
     yield { text: 'hi' };
   },
 });

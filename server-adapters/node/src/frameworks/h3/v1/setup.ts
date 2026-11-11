@@ -84,8 +84,9 @@ export function createH3V1Setup<THandler>(
 
       const route = defineWebSocketHandler({
         async upgrade(request) {
-          if (!isWebSocketUpgrade(request.headers.get('upgrade')))
+          if (!isWebSocketUpgrade(request.headers.get('upgrade'))) {
             return toH3V1HttpRejection(invalidUpgradeResponse());
+          }
 
           let webRequest: Request;
           try {
@@ -109,10 +110,11 @@ export function createH3V1Setup<THandler>(
 
           if (!upgrade) return new Response(null, { status: 503 });
 
-          if (!request.context)
+          if (!request.context) {
             return new Response('[livething] H3 did not provide an upgrade context', {
               status: 500,
             });
+          }
 
           request.context.upgrade = upgrade;
 

@@ -170,7 +170,7 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
 
 /**
  * The primitive type produced by `stream()`. Describes the trigger event, the
- * chunk type declared by the contract `stream(...)` config, the nudges, and the
+ * chunk type inferred from what the generator yields, the nudges, and the
  * broadcast flag.
  * The engine uses this to set up stream routing and dispatch.
  *

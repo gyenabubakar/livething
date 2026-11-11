@@ -68,8 +68,9 @@ export function createH3Setup<THandler>(
 
         return {
           async upgrade() {
-            if (!isWebSocketUpgrade(event.req.headers.get('upgrade')))
+            if (!isWebSocketUpgrade(event.req.headers.get('upgrade'))) {
               return invalidUpgradeResponse();
+            }
 
             let upgrade: NodeUpgrade | undefined;
             if (incoming) {

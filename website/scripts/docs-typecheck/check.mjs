@@ -12,8 +12,8 @@
 // Tabs of one ::code-group are one small project: a tab can import another by its title.
 // `<!-- docs-check: skip -->` on the line before a fence leaves that example out.
 //
-// It also runs the repo's blank-line lint rules on each example. `--fix` adds the missing blank lines
-// to the pages.
+// It also runs the repo's layout lint rules on each example: blank lines, and braces around an `if` body
+// that wraps. `--fix` fixes them in the pages.
 //
 // Usage: node website/scripts/docs-typecheck/check.mjs [--fix] [path prefix inside website/content]
 import { spawnSync } from 'node:child_process';
@@ -44,7 +44,7 @@ const fixtures = join(repo, 'website/scripts/docs-typecheck/fixtures');
 const HUDDLE_PAGE = '7.reference/11.huddle.md';
 const SHORT_LINES = 8;
 const args = process.argv.slice(2);
-const fixSpacing = args.includes('--fix');
+const fixLayout = args.includes('--fix');
 const filter = args.find((arg) => !arg.startsWith('--')) ?? '';
 
 const PACKAGES = {
@@ -693,16 +693,20 @@ for (const [event, seen] of [...typeShapes].sort()) {
   report.push(`${event} has ${seen.size} value-type shapes: ${parts.join('; ')}`);
 }
 
+/** The repo's layout lint rules: its blank-line rules (lint-rules/readable-spacing.mjs) and `curly`. */
+const LAYOUT_RULE = /^(livething\/|curly$)/;
+const LAYOUT_CODE = /^(livething\(|eslint\(curly\))/;
+
 /**
- * The repo's blank-line rules (lint-rules/readable-spacing.mjs), run on every TS, JS and TSX fence,
- * skipped ones too. A fence that does not parse alone, such as a part of a function, is not checked.
+ * Runs the layout rules on every TS, JS and TSX fence, skipped ones too. A fence that does not parse
+ * alone, such as a part of a function, is not checked.
  */
-function checkSpacing() {
-  const dir = join(workDir, 'spacing');
+function checkLayout() {
+  const dir = join(workDir, 'layout');
   mkdirSync(dir, { recursive: true });
   const repoConfig = JSON.parse(readFileSync(join(repo, '.oxlintrc.json'), 'utf8'));
   const rules = Object.fromEntries(
-    Object.entries(repoConfig.rules).filter(([name]) => name.startsWith('livething/')),
+    Object.entries(repoConfig.rules).filter(([name]) => LAYOUT_RULE.test(name)),
   );
   const config = join(dir, 'oxlintrc.json');
   writeFileSync(
@@ -731,23 +735,24 @@ function checkSpacing() {
     );
     if (result.error) throw result.error;
 
-    return JSON.parse(result.stdout).diagnostics.filter((d) => d.code?.startsWith('livething('));
+    return JSON.parse(result.stdout).diagnostics.filter((d) => LAYOUT_CODE.test(d.code ?? ''));
   };
 
   // One fix can uncover the next, such as a guard clause that ends a new group.
   let diagnostics = lint([]);
-  for (let pass = 0; fixSpacing && diagnostics.length > 0 && pass < 5; pass += 1) {
+  for (let pass = 0; fixLayout && diagnostics.length > 0 && pass < 5; pass += 1) {
     lint(['--fix']);
     diagnostics = lint([]);
   }
 
-  if (fixSpacing) writeFixedFences(byFile);
+  if (fixLayout) writeFixedFences(byFile);
 
   for (const d of diagnostics) {
     const example = byFile.get(resolve(dir, d.filename));
-    if (example) add(example, d.labels[0].span.line - 1, `blank lines: ${d.message}`);
+    if (example) add(example, d.labels[0].span.line - 1, `layout: ${d.message}`);
   }
 }
+
 /** Put each fixed example back in its fence. Fences are replaced from the bottom of the page up. */
 function writeFixedFences(byFile) {
   const byPage = new Map();
@@ -769,11 +774,17 @@ function writeFixedFences(byFile) {
     }
 
     writeFileSync(path, lines.join('\n'));
-    console.log(`fixed blank lines in ${page}`);
+    console.log(`fixed layout in ${page}`);
+  }
+
+  // `curly`'s fix writes `{x}` on one line; Prettier lays the braces out.
+  const pages = [...byPage.keys()].map((page) => join(content, page));
+  if (pages.length > 0) {
+    spawnSync(join(repo, 'node_modules/.bin/prettier'), ['--write', ...pages], { stdio: 'ignore' });
   }
 }
 
-checkSpacing();
+checkLayout();
 
 rmSync(workDir, { recursive: true, force: true });
 const unique = [...new Set(report)];

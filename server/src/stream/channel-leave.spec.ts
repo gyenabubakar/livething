@@ -25,7 +25,6 @@ interface Run {
   finished: boolean;
 }
 
-const Tick = t<{ n: number }>();
 const Empty = v.object({});
 
 function buildDefinition(runs: Map<string, Run>) {
@@ -58,22 +57,20 @@ function buildDefinition(runs: Map<string, Run>) {
   const other = base.channel('other', {});
 
   const handlers = [
-    room.stream('plain-ticks', { input: Empty, chunk: Tick, run: ticks('plain-ticks') }),
+    room.stream('plain-ticks', { input: Empty, run: ticks('plain-ticks') }),
     room.stream('broadcast-ticks', {
       input: Empty,
-      chunk: Tick,
       broadcast: true,
       run: ticks('broadcast-ticks'),
     }),
     room.recordedStream('recorded-ticks', {
       input: Empty,
-      chunk: Tick,
       maxChunks: 100_000,
       maxAgeMs: 60_000,
       retentionAfterEndMs: 60_000,
       run: ticks('recorded-ticks'),
     }),
-    other.stream('other-ticks', { input: Empty, chunk: Tick, run: ticks('other-ticks') }),
+    other.stream('other-ticks', { input: Empty, run: ticks('other-ticks') }),
     room.on('kick-me', {
       async run(ctx) {
         await ctx.channel.kick(ctx.users.get('alice').ref(), { reason: 'bye' });

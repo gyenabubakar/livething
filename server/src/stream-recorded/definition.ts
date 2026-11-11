@@ -2,7 +2,6 @@
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import { assertNonReservedEventName } from '~/event-name.ts';
 import { DURABLE_STREAM_DEFAULTS, validateDurableStreamConfig } from '~/stream/durable-config.ts';
-import type { TypeMarker } from '~/_api/definitions.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
 import type { CommonDurableStreamConfig } from '~/stream/durable-config.ts';
 import type { Validator } from '~/types.ts';
@@ -14,13 +13,11 @@ import type { Validator } from '~/types.ts';
 export interface RecordedStreamDef<
   TName extends string = string,
   TPayload = unknown,
-  TChunk = unknown,
   TNudges extends readonly NudgeDef<string, any>[] = readonly NudgeDef<string, any>[],
 > extends CommonDurableStreamConfig {
   readonly _: 'recorded-stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
-  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges: TNudges;
   readonly allowConcurrent: boolean;
   readonly broadcast: boolean;
@@ -32,11 +29,9 @@ export interface RecordedStreamDef<
 
 interface RecordedStreamConfig<
   TPayload,
-  TChunk,
   TNudges extends readonly NudgeDef<string, any>[],
 > extends CommonDurableStreamConfig {
   payload?: Validator<TPayload>;
-  chunk?: TypeMarker<TChunk>;
   nudges?: TNudges;
   allowConcurrent?: boolean;
   /** Maximum chunks kept in the buffer. Default: 500. */
@@ -70,12 +65,10 @@ const DEFAULT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
  *
  * @example
  * ```ts
- * import { server, t } from '@livething/server';
+ * import { server } from '@livething/server';
  * import { StreamAborted } from '@livething/server/errors';
  * import { recordedStream } from '@livething/server/streams';
  * import * as v from 'valibot';
- *
- * const TokenChunk = t<{ idx: number }>();
  *
  * const base = server({
  *   capabilities: [recordedStream()],
@@ -83,7 +76,6 @@ const DEFAULT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
  *
  * const handleCountTokens = base.recordedStream('count-tokens', {
  *   input: v.object({}),
- *   chunk: TokenChunk,
  *   maxChunks: 100,
  *   maxAgeMs: 60_000,
  *   retentionAfterEndMs: 30_000,
@@ -103,12 +95,11 @@ const DEFAULT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export function recordedStream<
   TName extends string,
   TPayload = unknown,
-  TChunk = unknown,
   const TNudges extends readonly NudgeDef<string, any>[] = readonly [],
 >(
   name: TName,
-  config?: RecordedStreamConfig<TPayload, TChunk, TNudges>,
-): RecordedStreamDef<TName, TPayload, TChunk, TNudges> {
+  config?: RecordedStreamConfig<TPayload, TNudges>,
+): RecordedStreamDef<TName, TPayload, TNudges> {
   assertNonReservedEventName(name, 'recordedStream');
   const context = `recordedStream("${name}")`;
   validateDurableStreamConfig(config, context, { maxChunks: true });
@@ -120,7 +111,6 @@ export function recordedStream<
     _: 'recorded-stream',
     name,
     payload: config?.payload,
-    chunk: config?.chunk,
     nudges,
     allowConcurrent: config?.allowConcurrent ?? false,
     broadcast: config?.broadcast ?? false,

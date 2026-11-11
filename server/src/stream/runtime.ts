@@ -126,7 +126,7 @@ function streamBroadcastTargets(
  */
 export async function cancelStream(
   runtime: Pick<StreamRuntime, 'activeStreams' | 'connections' | 'sendProtocolMessage'> & {
-    logger?: Pick<Logger, 'error'>;
+    logger: Pick<Logger, 'error'>;
   },
   connection: RuntimeConnection,
   streamId: string,
@@ -147,7 +147,7 @@ export async function cancelStream(
     // doesn't escape the WS callback as an unhandled adapter error.
     await activeStream.generator.return(undefined);
   } catch (error) {
-    runtime.logger?.error('[livething] stream cleanup threw on __streamCancel__', {
+    runtime.logger.error('[livething] stream cleanup threw on __streamCancel__', {
       streamId: activeStream.id,
       connectionId: connection.id,
       error: error instanceof Error ? error.message : String(error),
@@ -171,7 +171,10 @@ export async function cancelStream(
             payload: {},
             livething: peerEndLiveThing,
           }),
-        { context: `stream broadcast cancel end streamId="${activeStream.id}"` },
+        {
+          context: `stream broadcast cancel end streamId="${activeStream.id}"`,
+          logger: runtime.logger,
+        },
       );
     }
 
@@ -196,7 +199,7 @@ type StopChannelStreamsRuntime = Pick<
   StreamRuntime,
   'activeStreams' | 'connections' | 'sendProtocolMessage' | 'persistAttachment'
 > & {
-  logger?: Pick<Logger, 'error'>;
+  logger: Pick<Logger, 'error'>;
   durableStream?: DurableStreamService;
 };
 
@@ -261,7 +264,7 @@ export async function stopChannelStreams(
     try {
       await activeStream.generator.return(undefined);
     } catch (error) {
-      runtime.logger?.error('[livething] stream cleanup threw on channel leave', {
+      runtime.logger.error('[livething] stream cleanup threw on channel leave', {
         streamId: activeStream.id,
         connectionId: activeStream.connectionId,
         error: error instanceof Error ? error.message : String(error),
@@ -287,7 +290,10 @@ export async function stopChannelStreams(
             payload: {},
             livething: peerEndLiveThing,
           }),
-        { context: `stream broadcast end on channel leave streamId="${activeStream.id}"` },
+        {
+          context: `stream broadcast end on channel leave streamId="${activeStream.id}"`,
+          logger: runtime.logger,
+        },
       );
     }
 
@@ -523,7 +529,7 @@ export async function runStream(
           payload: {},
           livething: endLiveThing,
         }),
-      { context: `stream broadcast end streamId="${streamId}"` },
+      { context: `stream broadcast end streamId="${streamId}"`, logger: runtime.logger },
     );
   }
 
@@ -611,7 +617,10 @@ export async function runStream(
           (target) => {
             chunkSend.deliver(target);
           },
-          { context: `stream broadcast fan-out streamId="${streamId}" event="${event}"` },
+          {
+            context: `stream broadcast fan-out streamId="${streamId}" event="${event}"`,
+            logger: runtime.logger,
+          },
         );
         try {
           sent = chunkSend.deliver(connection);
@@ -668,7 +677,7 @@ export async function runStream(
             payload: normalized.payload,
             livething: peerErrorLiveThing,
           }),
-        { context: `stream broadcast error streamId="${streamId}"` },
+        { context: `stream broadcast error streamId="${streamId}"`, logger: runtime.logger },
       );
     }
 

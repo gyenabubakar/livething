@@ -1,5 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import * as v from 'valibot';
@@ -16,7 +15,6 @@ describe('recordedStream build-time validation', () => {
     const rooms = base.channel('rooms');
     const handle = rooms.recordedStream('tokens', {
       input: v.object({}),
-      chunk: t<{ token: string }>(),
       async *run() {
         yield { token: 'hi' };
       },
@@ -30,7 +28,6 @@ describe('recordedStream build-time validation', () => {
     });
     const handle = base.recordedStream('tokens', {
       input: v.object({}),
-      chunk: t<{ token: string }>(),
       async *run() {
         yield { token: 'hi' };
       },

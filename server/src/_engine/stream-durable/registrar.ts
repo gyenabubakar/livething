@@ -35,6 +35,7 @@ export const recordedDurableRegistrar = definePrimitive({
               activeStreams: engineCore.activeStreams,
               connections: engineCore.connections,
               sql: engineCore.storage.sql,
+              logger: engineCore.logger,
               sendProtocolMessage: (connection, opts) =>
                 sendProtocolMessage(engineCore, connection, opts),
             },

@@ -1,4 +1,4 @@
-import { server, t } from '@livething/server';
+import { server } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
@@ -6,7 +6,6 @@ import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Empty = v.object({});
-const TokenChunk = t<{ token: string }>();
 
 const base = server({
   upgrade: (request) => requireUsername(request),
@@ -17,7 +16,6 @@ const rooms = base.channel('rooms', { membership: 'persistent' });
 
 const handleFeed = rooms.recordedStream('feed', {
   input: Empty,
-  chunk: TokenChunk,
   broadcast: true,
   maxChunks: 100,
   maxAgeMs: 60_000,
@@ -32,7 +30,6 @@ const handleFeed = rooms.recordedStream('feed', {
 
 const handleFeedNudged = rooms.recordedStream('feed-nudged', {
   input: Empty,
-  chunk: TokenChunk,
   broadcast: true,
   maxChunks: 100,
   maxAgeMs: 60_000,

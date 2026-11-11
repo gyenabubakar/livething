@@ -1,10 +1,8 @@
-import { server, t } from '@livething/server';
+import { server } from '@livething/server';
 import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
-
-const Tick = t<{ index: number }>();
 
 const base = server({
   upgrade: (request) => requireUsername(request),
@@ -21,7 +19,6 @@ const base = server({
  */
 const handleDrainFeed = base.stream('drain-feed', {
   input: v.object({ count: v.number() }),
-  chunk: Tick,
   async *run(ctx, input) {
     for (let i = 0; i < input.count; i += 1) {
       yield { index: i };

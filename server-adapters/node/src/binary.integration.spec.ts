@@ -96,7 +96,6 @@ function huddleFiles(log: string[]) {
     },
   });
   const handleDownloadAttachment = base.binary.stream('download-attachment', {
-    chunk: t<{ fileName: string; fileType: string } | null>(),
     async *run(ctx, rawInput) {
       const input = rawInput as { attachmentId: string; fromByte: number };
       let info: { fileName: string; fileType: string } | null = {
@@ -370,7 +369,6 @@ describe('recorded binary streams over a real ws socket', () => {
       capabilities: [binary(), recordedStream()],
     });
     const handleExportRoomPdf = base.binary.recordedStream('export-room-pdf', {
-      chunk: t<{ fileName: string } | null>(),
       async *run() {
         yield { info: { fileName: 'room-design.pdf' }, bytes: new Uint8Array([1, 1]) };
         // The client drops here, and the export keeps going.

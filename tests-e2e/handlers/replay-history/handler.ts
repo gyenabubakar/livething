@@ -22,7 +22,6 @@ import {
   SendRoomMsg,
   SendToUser,
   StartTinyStream,
-  TinyChunk,
   TriggerBadReplay,
   TriggerBigIntReplay,
 } from './events.ts';
@@ -195,7 +194,6 @@ export const handleServerDrop = base.on('server-drop', {
 
 export const handleStartTinyStream = base.stream('start-tiny-stream', {
   input: StartTinyStream,
-  chunk: TinyChunk,
   async *run() {
     yield { value: 'one' };
   },

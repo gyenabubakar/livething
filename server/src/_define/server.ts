@@ -20,7 +20,6 @@ import {
   onUpgrade,
 } from '~/lifecycle/lifecycle.ts';
 import type { BinaryInput } from '@livething/core';
-import type { TypeMarker } from '~/_api/definitions.ts';
 import type { BinaryCapability } from '~/binary/capability.ts';
 import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
 import type { ExtractParams, ValidChannelTemplate } from '~/channel/channel.ts';
@@ -496,8 +495,6 @@ interface StreamConfig<
 > {
   /** Schema validating the start payload the client sends. */
   readonly input?: TInput;
-  /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
-  readonly chunk?: TypeMarker<TChunk>;
   /** Client→server steering signals delivered into the running generator. */
   readonly nudges?: TNudges;
   /** Fan the stream out to every connection (or channel member) instead of one. */
@@ -548,8 +545,6 @@ interface RecordedStreamConfig<
 >
   extends DurableStreamOptions, RecordedBufferOptions {
   readonly input?: TInput;
-  /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
-  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
@@ -959,7 +954,6 @@ type ChannelStreamConfig<
   TChannelBrand extends string = never,
 > = {
   readonly input?: TInput;
-  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
@@ -986,7 +980,6 @@ type ChannelRecordedStreamConfig<
 > = DurableStreamOptions &
   RecordedBufferOptions & {
     readonly input?: TInput;
-    readonly chunk?: TypeMarker<TChunk>;
     readonly nudges?: TNudges;
     readonly broadcast?: boolean;
     readonly allowConcurrent?: boolean;
@@ -1328,8 +1321,6 @@ type BinaryStreamConfig<TCtx, TInput, TChunk, TNudges> = {
   readonly input?: TInput;
   /** The most bytes the frame that starts the stream may carry. As on `binary.on(...)`. */
   readonly maxBytes?: number;
-  /** Optional explicit type of each chunk's info. Otherwise inferred from what `run` yields. */
-  readonly chunk?: TypeMarker<TChunk>;
   /** Client→server steering signals delivered into the running generator. They are text frames. */
   readonly nudges?: TNudges;
   /** Fan the stream out to every connection (or channel member) instead of one. */
@@ -2762,8 +2753,10 @@ export function server(config: any): any {
       for (const cap of config.capabilities ?? []) {
         const declared = (cap as Partial<ScheduledCapability>).__scheduled;
         if (declared) {
-          for (const [taskId, declaration] of declared)
+          for (const [taskId, declaration] of declared) {
             scheduledDeclarations.set(taskId, declaration);
+          }
+
           buildScheduled = (cap as Partial<ScheduledCapability>).__buildScheduled;
         }
       }

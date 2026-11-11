@@ -483,6 +483,37 @@ describe('a binary frame in the shared pipeline', () => {
     expect(errorCodes()).toEqual(['rate-limited']);
   });
 
+  it('checks membership, then the rate limit, then runs the intercepts, then the info', async () => {
+    const intercepted: string[] = [];
+    const base = server({
+      capabilities: [binary(), channels(), rateLimit({ maxMessages: 100, windowMs: 60_000 })],
+      intercept(_ctx, interceptFrame) {
+        intercepted.push(interceptFrame.event);
+      },
+    });
+    const rooms = base.channel(['rooms', 'room:{roomId}'], {});
+    const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
+      input: v.null(),
+      rateLimit: { maxMessages: 1 },
+      run() {},
+    });
+    const { engine } = build(base.assemble({ handlers: [handleShareScreenFrame] }));
+
+    const { handle, errorCodes, subscribe } = await connect(engine);
+
+    await handle.handleBinaryMessage(frame('share-screen-frame', { bad: true }, general));
+    expect(intercepted).toEqual([]);
+
+    await subscribe();
+    intercepted.length = 0;
+    await handle.handleBinaryMessage(frame('share-screen-frame', { bad: true }, general));
+    await handle.handleBinaryMessage(frame('share-screen-frame', { bad: true }, general));
+
+    expect(errorCodes()).toEqual(['channel-not-subscribed', 'validation-failed', 'rate-limited']);
+    // The rate-limited frame never reaches the intercepts.
+    expect(intercepted).toEqual(['share-screen-frame']);
+  });
+
   it('drops a repeated delivery id with dedup()', async () => {
     const seen: Seen[] = [];
     const base = server({ capabilities: [binary(), dedup()] });

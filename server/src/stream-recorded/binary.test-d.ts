@@ -3,7 +3,6 @@
  * Compile-time checks for `binary.recordedStream`: which capabilities it needs, the info
  * types, and what `InferClient` carries for it.
  */
-import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { binary } from '~/binary/capability.ts';
 import { channels } from '~/channel/capability.ts';
@@ -17,7 +16,6 @@ const rooms = base.channel(['rooms', 'room:{roomId}'], {});
 
 const handleDownloadAttachment = base.binary.recordedStream('download-attachment', {
   input: v.object({ attachmentId: v.string() }),
-  chunk: t<{ fileName: string } | null>(),
   maxChunks: 2000,
   maxBufferBytes: 128 * 1024 * 1024,
   maxBytes: 1024,

@@ -348,8 +348,9 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
                 timeout: requestOptions?.timeout,
                 prepare: (frame) => frameOf(`binary.request('${name}')`, frame, bytes),
                 answer(reply, settle) {
-                  if (reply.bytes) settle.resolve({ info: reply.payload, bytes: reply.bytes });
-                  else {
+                  if (reply.bytes) {
+                    settle.resolve({ info: reply.payload, bytes: reply.bytes });
+                  } else {
                     settle.reject(
                       new LiveThingError('request-invalid-response', {
                         event: name,
@@ -429,8 +430,9 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
 
           const answerer = answerers.get(listenerKey(channel ?? {}, message.event));
           // No handler: decline at once, so the server does not wait for its timeout.
-          if (answerer) void answer(message, answerer, reply);
-          else {
+          if (answerer) {
+            void answer(message, answerer, reply);
+          } else {
             helpers.rawSend({
               event: '__error__',
               payload: { code: 'request-no-response' },

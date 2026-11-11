@@ -95,8 +95,10 @@ function buildUserInfo(
   const channels = new Set<string>();
   const tagsByKey = new Map<string, PublicApi.TagRef>();
   for (const connection of connections) {
-    for (const membership of connection.channelMemberships.values())
+    for (const membership of connection.channelMemberships.values()) {
       channels.add(membership.channelName);
+    }
+
     for (const tag of connectionTagRefs(connection)) {
       tagsByKey.set(JSON.stringify([tag.kind, tag.group, tag.key]), tag);
     }
@@ -281,6 +283,7 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
       getStorage: deps.getStorage,
       isUserPurging: deps.isUserPurging,
       addBinarySenders: deps.addBinarySenders,
+      logger: deps.logger,
     };
 
     Object.defineProperty(proto, 'tags', {

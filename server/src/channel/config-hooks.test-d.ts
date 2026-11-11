@@ -110,7 +110,6 @@ const topSendAgain = base.on('send-message', { input: v.object({ text: v.string(
 const topRename = base.on('rename', { input: v.object({ name: v.string() }), run() {} });
 const topRenameAsRequest = base.request('rename', { run: () => ({ ok: true }) });
 const topRenameAsStream = base.stream('rename', {
-  chunk: t<{ line: string }>(),
   async *run() {
     yield { line: 'x' };
   },
@@ -146,7 +145,6 @@ base.assemble({ handlers: [...roomHandlers, ...roomHandlers] });
 const withRecorded = server({ capabilities: [channels(), recordedStream()] });
 const recordedRooms = withRecorded.channel(['recorded-rooms', 'recorded-room:{roomId}'], {});
 const recordedTop = withRecorded.recordedStream('summary', {
-  chunk: t<{ line: string }>(),
   maxChunks: 10,
   async *run() {
     yield { line: 'x' };
@@ -154,7 +152,6 @@ const recordedTop = withRecorded.recordedStream('summary', {
 });
 const onSummary = withRecorded.on('summary', { input: v.object({}), run() {} });
 const recordedOnRoom = recordedRooms.recordedStream('summary', {
-  chunk: t<{ line: string }>(),
   maxChunks: 10,
   async *run() {
     yield { line: 'x' };

@@ -477,4 +477,141 @@ describe('declaring binary events and handlers', () => {
     const base = server({ capabilities: [binary()] });
     expect(() => base.binary.on('upload-avatar', { maxBytes: 0, run() {} })).toThrow(/maxBytes/);
   });
+
+  it('refuses a binary event name over 128 characters when the engine is built', () => {
+    const base = server({ capabilities: [binary({ emits: { ['a'.repeat(129)]: t<null>() } })] });
+
+    expect(() => build(base.assemble({ handlers: [] }))).toThrow(/128/);
+  });
+
+  it('refuses a binary handler name over 128 characters when the engine is built', () => {
+    const base = server({ capabilities: [binary()] });
+    const handleLong = base.binary.on('a'.repeat(129), { run() {} });
+
+    expect(() => build(base.assemble({ handlers: [handleLong] }))).toThrow(/128/);
+  });
+});
+
+describe('a binary send over a size limit', () => {
+  const bigInfo = { from: 'x'.repeat(70_000) };
+  const bigBytes = new Uint8Array(2000);
+
+  function limited(results: unknown[]) {
+    const refs = new Map<string, ConnectionRef>();
+    const base = server({
+      capabilities: [
+        binary({ emits: { 'avatar-preview': t<{ from: string }>() } }),
+        channels(),
+        tags((ephemeral) => [ephemeral('team', t<string>())]),
+      ],
+      onConnect(ctx) {
+        refs.set(ctx.connection.userId, ctx.connection);
+      },
+    });
+    const rooms = base.channel(['rooms', 'room:{roomId}'], {
+      capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
+    });
+    function attempt(send: () => unknown) {
+      try {
+        results.push(send());
+      } catch (error) {
+        results.push(`throws: ${(error as Error).message}`);
+      }
+    }
+
+    const handleSendTooBig = rooms.on('send-too-big', {
+      run(ctx, input) {
+        const { big } = input as { big: 'info' | 'bytes' };
+        const info = big === 'info' ? bigInfo : { from: ctx.user.id };
+        const bytes = big === 'bytes' ? bigBytes : picture;
+        const kofi = refs.get('u_kofi')!;
+        attempt(() => ctx.channel.binary.send('screen-frame', info, bytes));
+
+        attempt(() => ctx.connections.get(kofi).binary.send('avatar-preview', info, bytes));
+        attempt(() => ctx.user.binary.broadcast('avatar-preview', info, bytes));
+        attempt(() => ctx.users.get('u_amara').binary.broadcast('avatar-preview', info, bytes));
+        attempt(() => ctx.channel.binary.broadcastTo(kofi, 'screen-frame', info, bytes));
+        attempt(() => ctx.binary.broadcast('avatar-preview', info, bytes, { includeSelf: true }));
+
+        attempt(() =>
+          ctx.channel.binary.broadcast('screen-frame', info, bytes, { includeSelf: true }),
+        );
+        ctx.tags.ephemeral('team').add('design');
+        attempt(() => ctx.tags.ephemeral('team').binary.broadcast('avatar-preview', info, bytes));
+      },
+    });
+
+    return base.assemble({ handlers: [handleSendTooBig, rooms] });
+  }
+
+  async function sendTooBig(big: 'info' | 'bytes') {
+    const results: unknown[] = [];
+    const { engine, logged } = build(limited(results), { receiveBytes: 100_000, sendBytes: 1000 });
+    const amara = await connect(engine, 'u_amara');
+    const kofi = await connect(engine, 'u_kofi');
+    await amara.send('__subscribe__', {}, general);
+
+    await kofi.send('__subscribe__', {}, general);
+
+    await kofi.send('send-too-big', { big }, general);
+
+    return { results, logged, amara, kofi };
+  }
+
+  it('over 64 KiB of info: the sends and the counted broadcasts throw, the others log once each and send nothing', async () => {
+    const { results, logged, amara, kofi } = await sendTooBig('info');
+
+    expect(results.slice(0, 5)).toEqual(Array(5).fill(expect.stringMatching(/^throws: .*64 KiB/)));
+    expect(results.slice(5)).toEqual([undefined, undefined, undefined]);
+    expect(logged).toHaveLength(3);
+    expect(amara.binaryFrames()).toEqual([]);
+    expect(kofi.binaryFrames()).toEqual([]);
+  });
+
+  it('over the message limit: the sends throw, the broadcasts log for each socket and send to none', async () => {
+    const { results, logged, amara, kofi } = await sendTooBig('bytes');
+
+    expect(results.slice(0, 2)).toEqual(
+      Array(2).fill(expect.stringMatching(/^throws: .*over the send limit of 1000 bytes/)),
+    );
+    expect(results.slice(2, 5)).toEqual([0, 0, 0]);
+    expect(results.slice(5)).toEqual([undefined, undefined, undefined]);
+    // One socket each for the user, users.get and broadcastTo; two for each broadcast; one for the tag.
+    expect(logged).toHaveLength(8);
+    expect(amara.binaryFrames()).toEqual([]);
+    expect(kofi.binaryFrames()).toEqual([]);
+  });
+});
+
+describe('a binary send to a connection that is gone', () => {
+  it('returns false from ctx.connections.get(ref).binary.send', async () => {
+    const results: unknown[] = [];
+    let kofiRef: ConnectionRef | undefined;
+    const base = server({
+      capabilities: [binary({ emits: { 'avatar-preview': t<null>() } })],
+      onConnect(ctx) {
+        if (ctx.connection.userId === 'u_kofi') kofiRef = ctx.connection;
+      },
+    });
+    const preview = base.on('preview-avatar', {
+      run(ctx) {
+        results.push(ctx.connections.get(kofiRef!).binary.send('avatar-preview', null, picture));
+      },
+    });
+    const { engine } = build(base.assemble({ handlers: [preview] }));
+
+    const amara = await connect(engine, 'u_amara');
+    const kofi = engine.accept(Symbol('u_kofi'), {
+      send: () => {},
+      close: () => {},
+      bufferedAmount: () => 0,
+      userId: 'u_kofi',
+    });
+    await [...engine.core.connections.values()].at(-1)!.lifecycleReady;
+    await kofi.handleClose(1000, 'bye');
+
+    await amara.send('preview-avatar');
+
+    expect(results).toEqual([false]);
+  });
 });

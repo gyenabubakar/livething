@@ -4,11 +4,9 @@ import {
   BadPayload,
   base,
   ChatPayload,
-  FeedChunk,
   GroupRequestKey,
   LookupReq,
   SendMsgPayload,
-  TokenChunk,
 } from './contract.ts';
 import type { RoomMsgPayload } from './contract.ts';
 
@@ -88,7 +86,6 @@ export const handleLookup = base.request('lookup', {
 
 export const handleFeed = base.stream('feed', {
   input: v.object({}),
-  chunk: FeedChunk,
   async *run() {
     for (let i = 1; i <= 3; i += 1) {
       yield { idx: i };
@@ -99,7 +96,6 @@ export const handleFeed = base.stream('feed', {
 
 export const handleTokens = base.recordedStream('tokens', {
   input: v.object({}),
-  chunk: TokenChunk,
   maxChunks: 100,
   async *run() {
     for (let i = 1; i <= 5; i += 1) {

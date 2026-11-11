@@ -103,8 +103,9 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
           const key = channelKey(message.metadata?.channel?.family, channel);
 
           if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
-            if (message.event === '__unsubscribeOk__' && isRejoinConfirmation(message))
+            if (message.event === '__unsubscribeOk__' && isRejoinConfirmation(message)) {
               return message;
+            }
 
             clearScope(key);
             return message;

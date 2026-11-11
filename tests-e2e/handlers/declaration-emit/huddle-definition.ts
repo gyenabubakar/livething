@@ -88,13 +88,11 @@ export const announcements = base.channel('announcements', {
 export const handleSend = rooms.on('send', { input: v.object({ text: v.string() }), run() {} });
 export const handleAsk = rooms.request('ask', { run: () => ({ ok: true }) });
 export const handleFeed = rooms.stream('feed', {
-  chunk: t<{ line: string }>(),
   async *run() {
     yield { line: 'x' };
   },
 });
 export const handleRecorded = rooms.recordedStream('summary', {
-  chunk: t<{ line: string }>(),
   maxChunks: 10,
   async *run() {
     yield { line: 'x' };
@@ -103,13 +101,11 @@ export const handleRecorded = rooms.recordedStream('summary', {
 export const handleTop = base.on('top', { input: v.object({ text: v.string() }), run() {} });
 export const handleTopAsk = base.request('top-ask', { run: () => ({ ok: true }) });
 export const handleTopFeed = base.stream('top-feed', {
-  chunk: t<{ line: string }>(),
   async *run() {
     yield { line: 'x' };
   },
 });
 export const handleTopRecorded = base.recordedStream('top-summary', {
-  chunk: t<{ line: string }>(),
   maxChunks: 10,
   async *run() {
     yield { line: 'x' };
@@ -133,8 +129,7 @@ export const handleGetThumbnail = base.binary.request('get-thumbnail', {
   run: () => ({ info: { fileType: 'image/png' }, bytes: new Uint8Array(1) }),
 });
 export const handleDownloadAttachment = base.binary.stream('download-attachment', {
-  chunk: t<{ fileName: string } | null>(),
-  async *run(ctx) {
+  async *run(ctx): AsyncGenerator<{ info: { fileName: string } | null; bytes: Uint8Array }> {
     yield { info: null, bytes: new Uint8Array(1) };
     await ctx.stream.drain();
   },

@@ -427,16 +427,18 @@ export function uploads(): UploadsPrimitive {
           if (uploadId === undefined) return message;
 
           let event: UploadEvent;
-          if (message.event === '__uploadAck__')
+          if (message.event === '__uploadAck__') {
             event = { kind: 'ack', ack: message.payload as Ack };
-          else if (message.event === '__uploadDone__') {
+          } else if (message.event === '__uploadDone__') {
             event = {
               kind: 'done',
               info: (message.payload as { info: unknown } | null)?.info ?? null,
             };
           } else if (message.event === '__error__') {
             event = { kind: 'error', error: toLiveThingError(message.payload) };
-          } else return message;
+          } else {
+            return message;
+          }
 
           // A frame for an upload that is not running here is late: drop it.
           if (!deliver(uploadId, event)) {
