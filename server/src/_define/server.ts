@@ -1792,9 +1792,23 @@ type ExactUploadReply<TReply> = { readonly info: Payload } & {
 };
 
 /** Configuration object for a `base.binary.upload(...)` handler. */
-type BinaryUploadConfig<TSlots, TMeta, TInput, TReply, TCaps extends readonly AnyCapability[]> = {
+type BinaryUploadConfig<
+  TSlots,
+  TMeta,
+  TInput,
+  TState extends Validator | undefined,
+  TReply,
+  TCaps extends readonly AnyCapability[],
+> = {
   /** Optional schema for the upload's input, sent once at the start. */
   readonly input?: TInput;
+  /**
+   * Optional schema for the state that `ctx.upload.saved()` keeps. LiveThing checks a stored
+   * state with it when it reads the state back: on a resume, and before `onDiscard`. Without
+   * it, `saved()` keeps no state. It must be synchronous: an async schema throws a
+   * `LiveThingConfigError` when LiveThing first reads a state with it.
+   */
+  readonly state?: TState;
   /** The most bytes the whole upload may have. Default: 100 MiB. */
   readonly maxBytes?: number;
   /** The biggest piece the client sends, in bytes. Default: 256 KiB. */
@@ -1808,7 +1822,7 @@ type BinaryUploadConfig<TSlots, TMeta, TInput, TReply, TCaps extends readonly An
    * `ctx.upload.savedThrough`.
    */
   run(
-    ctx: AppCtx<TSlots, TMeta, TCaps> & { readonly upload: UploadRunHandle },
+    ctx: AppCtx<TSlots, TMeta, TCaps> & { readonly upload: UploadRunHandle<TState> },
     input: InferInput<TInput>,
     pieces: AsyncIterable<UploadPiece>,
   ): TReply | Promise<TReply>;
@@ -1817,7 +1831,7 @@ type BinaryUploadConfig<TSlots, TMeta, TInput, TReply, TCaps extends readonly An
    * Abort a multipart upload here. It runs at least once, so it must be safe to run twice.
    */
   onDiscard?(
-    ctx: ConnectionlessCtx<TSlots, TMeta, TCaps> & { readonly upload: UploadDiscardHandle },
+    ctx: ConnectionlessCtx<TSlots, TMeta, TCaps> & { readonly upload: UploadDiscardHandle<TState> },
     input: InferInput<TInput>,
   ): void | Promise<void>;
 } & RateLimitField<TCaps>;
@@ -1841,10 +1855,11 @@ interface BinaryUploadMethods<TSlots, TMeta, TCaps extends readonly AnyCapabilit
   upload<
     TEvent extends string,
     TSchema extends Validator | undefined = undefined,
+    TState extends Validator | undefined = undefined,
     TReply extends ExactUploadReply<TReply> = { readonly info: null },
   >(
     event: TEvent,
-    config: BinaryUploadConfig<TSlots, TMeta, TSchema, TReply, TCaps>,
+    config: BinaryUploadConfig<TSlots, TMeta, TSchema, TState, TReply, TCaps>,
   ): BinaryUploadHandlerValue<TEvent, InferInput<TSchema>, ReplyInfo<TReply>>;
 }
 

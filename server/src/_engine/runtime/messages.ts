@@ -300,6 +300,8 @@ export interface DispatchIncomingOptions {
   onHandlerStart?: () => void;
   /** The application's bytes when the frame came as a binary frame, else `undefined`. */
   bytes?: Uint8Array;
+  /** The upload service's note for a frame that may start an upload. */
+  pendingStart?: FeatureSlots.PendingUploadStart;
 }
 
 /** Throw `ValidationFailed` when a binary frame's bytes are over its handler's `maxBytes`. */
@@ -550,6 +552,7 @@ export async function dispatchIncoming(
         upload,
         payload: payloadValue,
         livething: livething ?? { channelFamily: null },
+        pendingStart: opts.pendingStart,
       });
       return;
     }
@@ -1069,15 +1072,20 @@ export async function processFrame(
 
   let place: FramePlace = {};
   // Before the first await too, so a cancel sent after this start sees it coming.
-  const startDone = noteUploadStart(runtime, connection, parsed);
+  const pendingStart = noteUploadStart(runtime, connection, received);
   try {
     // Before the first await, so frames take their place in the order they arrived
     // even when hooks below make this frame wait.
     place = placeFrame(connection, parsed, bytes !== undefined);
-    await processParsedMessage(runtime, connection, { ...received, place, release });
+    await processParsedMessage(runtime, connection, {
+      ...received,
+      place,
+      release,
+      pendingStart,
+    });
   } finally {
     release();
-    startDone?.();
+    pendingStart?.end();
     if (place.attempt) finishSubscribe(connection, place.attempt);
   }
 }
@@ -1145,6 +1153,8 @@ interface IncomingFrame extends ReceivedFrame {
   place: FramePlace;
   /** Gives the frame's bytes back to the connection's budget, once its handler starts. */
   release: () => void;
+  /** The upload service's note for a frame that may start an upload. */
+  pendingStart?: FeatureSlots.PendingUploadStart;
 }
 
 function parseFrame(data: string): unknown {
@@ -1303,19 +1313,34 @@ async function takeUploadPiece(
 
 /**
  * Tell the upload service that a frame that may start an upload is being handled, so a cancel
- * that overtakes it is kept for it. Returns the function that ends the note, or `undefined`.
+ * that overtakes it marks it. Returns the frame's note, which travels with it to the upload
+ * service, or `undefined`.
  */
 function noteUploadStart(
   runtime: DispatchRuntime,
   connection: RuntimeConnection,
-  parsed: unknown,
-): (() => void) | undefined {
+  frame: Pick<ReceivedFrame, 'parsed' | 'bytes'>,
+): FeatureSlots.PendingUploadStart | undefined {
+  const { parsed } = frame;
+  const binary = frame.bytes !== undefined;
   if (!runtime.uploadService || !Protocol.isWireTuple(parsed)) return undefined;
+
+  const upload = (parsed[2] as { upload?: { id?: unknown; seq?: unknown } } | null)?.upload;
+  // A cancel marks the starts that arrived before it, here at its own arrival: its handler
+  // runs later, after other frames may have arrived.
+  if (parsed[0] === '__uploadCancel__') {
+    // Only a cancel its handler will take: a malformed or binary one is refused there
+    // (a cancel must be a text frame) and cancels nothing.
+    if (!binary && Protocol.isUploadCancelFrame(parsed)) {
+      runtime.uploadService.cancelArrived(connection, upload!.id as string);
+    }
+
+    return undefined;
+  }
 
   if (Protocol.isProtocolEventName(parsed[0])) return undefined;
 
   // A start has `upload.id` and no `seq`; a piece has a `seq`.
-  const upload = (parsed[2] as { upload?: { id?: unknown; seq?: unknown } } | null)?.upload;
   if (typeof upload?.id !== 'string' || upload.seq !== undefined) return undefined;
 
   return runtime.uploadService.starting(connection, upload.id);
@@ -1549,6 +1574,7 @@ async function processParsedMessage(
       size,
       onHandlerStart: release,
       bytes,
+      pendingStart: message.pendingStart,
     });
   } catch (error) {
     await runtime.handleRuntimeError(connection, {

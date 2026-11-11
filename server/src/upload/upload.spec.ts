@@ -40,6 +40,8 @@ interface BuildOptions {
   throwAfter?: number;
   /** Make `onDiscard` throw this many times first. */
   discardFailures?: number;
+  /** What `onDiscard` throws in those failures. Default: an `Error`. */
+  discardError?: unknown;
   /** `run` waits for this before it reads each piece. */
   readGate?: Promise<void>;
   /** Runs with `ctx.upload` after each piece `run` reads; what it throws is recorded. */
@@ -55,6 +57,8 @@ interface BuildOptions {
   hang?: Promise<void>;
   /** The intercept holds each upload start this long, as an async check would. */
   slowStartMs?: number;
+  /** How long the intercept holds each start frame, in the order they come. */
+  startDelays?: number[];
   /** The server's global rate limit. Default: so high that no test reaches it. */
   rateLimit?: RateLimitGlobalConfig;
   /** The upload handler's own rate limit. */
@@ -63,6 +67,8 @@ interface BuildOptions {
   onExec?: (query: string) => void;
   /** Share one database between engines, as a server that restarts does. */
   sql?: ReturnType<typeof createTestSql>;
+  /** The handler's `state` schema. Default: `v.unknown()`. `null` declares none. */
+  state?: v.GenericSchema | v.GenericSchemaAsync | null;
   logger?: {
     info(): void;
     warn(...args: unknown[]): void;
@@ -94,6 +100,7 @@ function build(options: BuildOptions = {}) {
     maxBytes: 64,
     pieceBytes: 8,
     windowBytes: 16,
+    state: (options.state === null ? undefined : (options.state ?? v.unknown())) as v.GenericSchema,
     ...(options.uploadRateLimit ? { rateLimit: options.uploadRateLimit } : {}),
     async run(ctx, _input, pieces) {
       const run = {
@@ -120,7 +127,8 @@ function build(options: BuildOptions = {}) {
           }
 
           if (options.saveEvery !== false) {
-            ctx.upload.saved(size, { state: { parts: run.offsets.length } });
+            if (options.state === null) (ctx.upload.saved as (offset: number) => void)(size);
+            else ctx.upload.saved(size, { state: { parts: run.offsets.length } });
           }
 
           try {
@@ -152,7 +160,7 @@ function build(options: BuildOptions = {}) {
     onDiscard(ctx, input) {
       if (discardFailures > 0) {
         discardFailures -= 1;
-        throw new Error('the storage is down');
+        throw options.discardError ?? new Error('the storage is down');
       }
 
       discarded.push({ input, savedThrough: ctx.upload.savedThrough, state: ctx.upload.state });
@@ -160,9 +168,8 @@ function build(options: BuildOptions = {}) {
   });
   const watch = intercept(async (_ctx, frame) => {
     kinds.push(`${frame.event}:${frame.kind}`);
-    if (options.slowStartMs) {
-      await new Promise((resolve) => setTimeout(resolve, options.slowStartMs));
-    }
+    const delay = options.startDelays?.shift() ?? options.slowStartMs;
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
 
     return frame.payload;
   });
@@ -242,6 +249,8 @@ async function connect(engine: Engine, userId = 'u_amara') {
       handle.handleMessage(JSON.stringify(['__uploadEnd__', { totalBytes }, { upload: { id } }])),
     cancel: (id: string) =>
       handle.handleMessage(JSON.stringify(['__uploadCancel__', null, { upload: { id } }])),
+    /** Send any text frame. */
+    sendText: (frame: unknown) => handle.handleMessage(JSON.stringify(frame)),
     /** Send piece 1 of `up-1` under another event name. */
     pieceAs: (event: string, bytes: Uint8Array) =>
       handle.handleBinaryMessage(
@@ -252,6 +261,9 @@ async function connect(engine: Engine, userId = 'u_amara') {
       handle.handleBinaryMessage(
         encodeBinaryFrame(JSON.stringify([event, input, { upload: { id } }]), NO_BYTES),
       ),
+    /** Send any frame as a binary frame, with no bytes. */
+    sendBinary: (frame: unknown) =>
+      handle.handleBinaryMessage(encodeBinaryFrame(JSON.stringify(frame), NO_BYTES)),
     /** Send a start frame with any metadata. */
     startWith: (metadata: unknown) =>
       handle.handleBinaryMessage(
@@ -1985,5 +1997,652 @@ describe('base.binary.upload: what the docs promise', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('base.binary.upload: the state schema', () => {
+  const partsState = v.pipe(
+    v.object({ parts: v.number() }),
+    v.transform((state) => ({ ...state, checked: true })),
+  );
+
+  function warnings() {
+    const warned: unknown[][] = [];
+    const logger = { info() {}, warn: (...args: unknown[]) => warned.push(args), error() {} };
+
+    return { warned, logger };
+  }
+
+  it('stores the state as given, and gives a resume and onDiscard the checked state', async () => {
+    const { engine, runs, discarded, sql } = build({ state: partsState });
+    const first = await connect(engine);
+    await first.start('up-1', deck);
+    first.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    expect(rows(sql)[0].state).toBe(JSON.stringify({ parts: 1 }));
+
+    await first.close();
+    await settle();
+    const second = await connect(engine);
+    await second.start('up-1', deck);
+    await settle();
+
+    await second.cancel('up-1');
+    await settle();
+
+    expect(runs.map((run) => run.state)).toEqual([undefined, { parts: 1, checked: true }]);
+    expect(discarded).toEqual([
+      { input: deck, savedThrough: 8, state: { parts: 1, checked: true } },
+    ]);
+  });
+
+  it("ends a resume with 'bad-state' when the stored state fails a newer schema", async () => {
+    const sql = createTestSql();
+    const before = build({ sql });
+    const amara = await connect(before.engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+    await amara.close();
+    await settle();
+
+    // A deploy changed the schema: `{ parts: 1 }` no longer passes it.
+    const { warned, logger } = warnings();
+    const after = build({ sql, logger, state: v.object({ uploadId: v.string() }) });
+    const again = await connect(after.engine);
+    await again.start('up-1', deck);
+    await settle();
+
+    expect(after.runs).toEqual([]);
+    expect(again.of('up-1')).toEqual([
+      [
+        '__error__',
+        { code: 'upload-aborted', detail: { reason: 'bad-state' } },
+        { upload: { id: 'up-1' } },
+      ],
+    ]);
+    expect(after.discarded).toEqual([{ input: deck, savedThrough: 8, state: undefined }]);
+    expect(rows(sql)).toEqual([]);
+    expect(warned).toEqual([
+      [
+        expect.stringContaining("binary.upload('upload-attachment'): the stored state"),
+        { event: 'upload-attachment', uploadId: 'up-1', issues: [expect.any(String)] },
+      ],
+    ]);
+  });
+
+  it('gives onDiscard an undefined state, and warns, when an expired upload has a bad state', async () => {
+    const sql = createTestSql();
+    const before = build({ sql, uploads: { expireAfterMs: 20 } });
+    const amara = await connect(before.engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+    await amara.close();
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const { warned, logger } = warnings();
+    const after = build({
+      sql,
+      logger,
+      state: v.object({ uploadId: v.string() }),
+      uploads: { expireAfterMs: 20 },
+    });
+    await after.engine.initialize();
+    await settle();
+
+    expect(after.discarded).toEqual([{ input: deck, savedThrough: 8, state: undefined }]);
+    expect(rows(sql)).toEqual([]);
+    expect(warned).toEqual([
+      [
+        expect.stringContaining("binary.upload('upload-attachment'): the stored state"),
+        { event: 'upload-attachment', uploadId: 'up-1', issues: [expect.any(String)] },
+      ],
+    ]);
+  });
+
+  it('throws a TypeError from saved() with a state when the handler has no state schema', async () => {
+    const thrown: string[] = [];
+    const { engine } = build({
+      state: null,
+      afterRead(upload) {
+        try {
+          upload.saved(8, { state: { parts: 1 } });
+        } catch (error) {
+          thrown.push(`${(error as Error).name}: ${(error as Error).message}`);
+        }
+      },
+    });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+
+    expect(thrown).toEqual([
+      "TypeError: [livething] ctx.upload.saved(): binary.upload('upload-attachment') declares no 'state' schema, so it keeps no state. Add a 'state' schema to the handler.",
+    ]);
+  });
+});
+
+describe('base.binary.upload: reading the state back', () => {
+  /** An upload with 8 saved bytes and a state, whose connection dropped. */
+  async function droppedUpload(sql: ReturnType<typeof createTestSql>) {
+    const before = build({ sql });
+    const amara = await connect(before.engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    await amara.close();
+    await settle();
+  }
+
+  function aborted(reason: string) {
+    return [
+      '__error__',
+      { code: 'upload-aborted', detail: { reason } },
+      { upload: { id: 'up-1' } },
+    ];
+  }
+
+  it('refuses both starts from one connection when its cancel comes while an intercept holds them', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const after = build({ sql, slowStartMs: 30 });
+    const amara = await connect(after.engine);
+
+    const first = amara.start('up-1', deck);
+    const second = amara.start('up-1', deck);
+    await settle();
+    await amara.cancel('up-1');
+    await Promise.all([first, second]);
+
+    await settle();
+
+    expect(after.runs).toEqual([]);
+    expect(rows(sql)).toEqual([]);
+    expect(amara.of('up-1')).toEqual([aborted('cancelled'), aborted('cancelled')]);
+    expect(after.discarded).toHaveLength(1);
+  });
+
+  it('refuses an async state schema with a clear error, and keeps the record', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const asyncState = v.pipeAsync(
+      v.object({ parts: v.number() }),
+      v.checkAsync(async () => true),
+    );
+    const after = build({ sql, state: asyncState });
+    const again = await connect(after.engine);
+
+    await again.start('up-1', deck);
+    await settle();
+
+    // A config error, not bad data: the app's onError gets it, and the upload is not touched.
+    expect(after.hookErrors.join('\n')).toContain(
+      "binary.upload('upload-attachment'): the 'state' schema must be synchronous",
+    );
+    expect(again.of('up-1').some((frame) => frame[0] === '__uploadAck__')).toBe(false);
+    expect(after.runs).toEqual([]);
+    expect(after.discarded).toEqual([]);
+    expect(rows(sql)).toMatchObject([{ status: 'active', state: JSON.stringify({ parts: 1 }) }]);
+  });
+
+  it('finishes the expiry sweep at server start with an async state schema, keeping the record', async () => {
+    const sql = createTestSql();
+    const before = build({ sql, uploads: { expireAfterMs: 20 } });
+    const amara = await connect(before.engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+    await amara.close();
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const logged: unknown[][] = [];
+    const logger = { info() {}, warn() {}, error: (...args: unknown[]) => logged.push(args) };
+    const asyncState = v.pipeAsync(
+      v.unknown(),
+      v.checkAsync(async () => true),
+    );
+    const after = build({ sql, logger, state: asyncState, uploads: { expireAfterMs: 20 } });
+    await after.engine.initialize();
+
+    await settle();
+
+    expect(after.discarded).toEqual([]);
+    // The sweep marked the record before it read the state: it waits, and is tried again.
+    expect(rows(sql)).toMatchObject([{ status: 'discarding' }]);
+    expect(logged).toEqual([
+      [
+        expect.stringContaining(
+          "the 'state' schema of binary.upload('upload-attachment') is async",
+        ),
+        {
+          event: 'upload-attachment',
+          uploadId: 'up-1',
+          error: expect.stringContaining("the 'state' schema must be synchronous"),
+        },
+      ],
+    ]);
+  });
+
+  it('refuses a state schema that returns a thenable, and keeps the record', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const thenableState = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'huddle-test',
+        validate: () => ({ then: (resolve: (result: unknown) => void) => resolve({ value: 1 }) }),
+      },
+    };
+
+    const after = build({ sql, state: thenableState as never });
+    const again = await connect(after.engine);
+
+    await again.start('up-1', deck);
+    await settle();
+
+    expect(after.hookErrors.join('\n')).toContain("the 'state' schema must be synchronous");
+    expect(after.runs).toEqual([]);
+    expect(rows(sql)).toMatchObject([{ status: 'active', state: JSON.stringify({ parts: 1 }) }]);
+  });
+
+  it('runs a start that comes after the cancel, while an older start is still held', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const after = build({ sql, slowStartMs: 30 });
+    const amara = await connect(after.engine);
+
+    const first = amara.start('up-1', deck);
+    await settle();
+    await amara.cancel('up-1');
+    const second = amara.start('up-1', deck);
+    await Promise.all([first, second]);
+
+    await settle();
+
+    expect(amara.of('up-1')[0]).toEqual(aborted('cancelled'));
+    expect(after.runs).toMatchObject([{ savedThrough: 0 }]);
+  });
+
+  it('refuses only the held start, when a start sent after the cancel overtakes it', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const after = build({ sql, startDelays: [80, 0] });
+    const amara = await connect(after.engine);
+
+    const brief = { attachmentId: 'att_brief' };
+    const first = amara.start('up-1', deck);
+    await settle();
+    await amara.cancel('up-1');
+    const second = amara.start('up-1', brief);
+
+    await Promise.all([first, second]);
+    await settle();
+
+    // The second start ran a new upload; the first one, sent before the cancel, refuses
+    // without touching it.
+    expect(after.runs).toMatchObject([{ savedThrough: 0 }]);
+    expect(rows(sql)).toMatchObject([{ input: JSON.stringify(brief), status: 'active' }]);
+    const refused = amara.of('up-1').filter((frame) => frame[0] === '__error__');
+    expect(refused).toEqual([aborted('cancelled')]);
+
+    amara.piece('up-1', 1, piece(8, 1));
+    await amara.end('up-1', 8);
+    await settle();
+    expect(after.runs.map((run) => run.ended)).toEqual(['done']);
+    expect(amara.of('up-1').at(-1)).toEqual([
+      '__uploadDone__',
+      { info: { size: 8 } },
+      { upload: { id: 'up-1' } },
+    ]);
+  });
+
+  it('marks no held start for a cancel sent as a binary frame', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const after = build({ sql, slowStartMs: 30 });
+    const amara = await connect(after.engine);
+
+    const first = amara.start('up-1', deck);
+    await settle();
+    await amara.sendBinary(['__uploadCancel__', null, { upload: { id: 'up-1' } }]);
+    await first;
+    await settle();
+
+    expect(after.runs).toMatchObject([{ savedThrough: 8 }]);
+  });
+
+  it.each([
+    ['no result object', undefined],
+    ['issues that are not an array', { issues: 'nope' }],
+    ['an issue that is not an object', { issues: [null] }],
+  ])("gives 'bad-state' when a state schema's validate returns %s", async (_, returned) => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const brokenState = {
+      '~standard': { version: 1 as const, vendor: 'huddle-test', validate: () => returned },
+    };
+
+    const after = build({ sql, state: brokenState as never });
+    const again = await connect(after.engine);
+
+    await again.start('up-1', deck);
+    await settle();
+
+    expect(again.of('up-1')).toEqual([aborted('bad-state')]);
+    expect(after.discarded).toEqual([{ input: deck, savedThrough: 8, state: undefined }]);
+  });
+
+  /** Call `saved(8, { state })` after the first piece; return what it threw and the stored row. */
+  async function saveState(state: unknown, schema: v.GenericSchema | v.GenericSchemaAsync) {
+    const thrown: string[] = [];
+    const { engine, sql } = build({
+      state: schema,
+      saveEvery: false,
+      afterRead(upload) {
+        try {
+          upload.saved(8, { state });
+        } catch (error) {
+          thrown.push(`${(error as Error).name}: ${(error as Error).message}`);
+        }
+      },
+    });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+
+    return { thrown, row: rows(sql)[0] };
+  }
+
+  it.each([
+    ['a Date', v.object({ at: v.date() }), { at: new Date(0) }],
+    ['a Map', v.object({ tags: v.map(v.string(), v.string()) }), { tags: new Map([['a', 'b']]) }],
+    ['NaN', v.object({ ratio: v.number() }), { ratio: Number.NaN }],
+  ])(
+    'throws from saved() for a state with %s that would fail the schema after JSON',
+    async (_, schema, state) => {
+      const { thrown, row } = await saveState(state, schema);
+
+      expect(thrown).toEqual([
+        expect.stringMatching(
+          /^TypeError: \[livething\] ctx\.upload\.saved\(\): binary\.upload\('upload-attachment'\): the state fails the 'state' schema in its JSON form/,
+        ),
+      ]);
+      expect(row).toMatchObject({ saved_through: 0, state: null });
+    },
+  );
+
+  it('throws a clear TypeError from saved() for a state that has no JSON form', async () => {
+    const { thrown, row } = await saveState(() => 'att_1', v.unknown());
+
+    expect(thrown).toEqual([
+      "TypeError: [livething] ctx.upload.saved(): binary.upload('upload-attachment'): the state has no JSON form, so it cannot be stored.",
+    ]);
+    expect(row.state).toBeNull();
+  });
+
+  it('throws the async-schema error from saved() for an async state schema', async () => {
+    const { thrown } = await saveState(
+      { parts: 1 },
+      v.pipeAsync(
+        v.unknown(),
+        v.checkAsync(async () => true),
+      ),
+    );
+
+    expect(thrown).toEqual([
+      expect.stringContaining(
+        "LiveThingConfigError: [livething] binary.upload('upload-attachment'): the 'state' schema must be synchronous",
+      ),
+    ]);
+  });
+
+  it('marks no held start for a cancel frame that fails its shape check', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const after = build({ sql, slowStartMs: 30 });
+    const amara = await connect(after.engine);
+
+    const first = amara.start('up-1', deck);
+    await settle();
+    // A payload must be `null`.
+    await amara.sendText(['__uploadCancel__', { now: true }, { upload: { id: 'up-1' } }]);
+    await first;
+    await settle();
+
+    expect(after.runs).toMatchObject([{ savedThrough: 8 }]);
+  });
+
+  it("gives 'bad-state' when a sync state schema throws a LiveThingConfigError", async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const configThrowingState = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'huddle-test',
+        validate(): never {
+          throw new LiveThingConfigError('the schema is set up wrong');
+        },
+      },
+    };
+
+    const after = build({ sql, state: configThrowingState as never });
+    const again = await connect(after.engine);
+
+    await again.start('up-1', deck);
+    await settle();
+
+    expect(again.of('up-1')).toEqual([aborted('bad-state')]);
+    expect(after.discarded).toEqual([{ input: deck, savedThrough: 8, state: undefined }]);
+  });
+
+  it('refuses both held starts when the cancel comes after both, whatever order they finish in', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const after = build({ sql, startDelays: [80, 30] });
+    const amara = await connect(after.engine);
+
+    const first = amara.start('up-1', deck);
+    const second = amara.start('up-1', deck);
+    await settle();
+    await amara.cancel('up-1');
+    await Promise.all([first, second]);
+
+    await settle();
+
+    expect(after.runs).toEqual([]);
+    expect(amara.of('up-1')).toEqual([aborted('cancelled'), aborted('cancelled')]);
+  });
+
+  it('runs a start sent after the cancel when an older held start fails its input check', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const after = build({ sql, startDelays: [80, 0] });
+    const amara = await connect(after.engine);
+
+    const first = amara.start('up-1', { attachmentId: 42 });
+    await settle();
+    await amara.cancel('up-1');
+    const second = amara.start('up-1', deck);
+    await Promise.all([first, second]);
+
+    await settle();
+
+    expect(after.runs).toMatchObject([{ savedThrough: 0 }]);
+    const codes = amara
+      .of('up-1')
+      .flatMap((frame) => (frame[0] === '__error__' ? [frame[1].code] : []));
+    expect(codes).toEqual(['validation-failed']);
+  });
+
+  it('refuses a state option that is not a Standard Schema, when the handler is defined', () => {
+    const base = server({ capabilities: [binary(), uploads()] });
+
+    expect(() =>
+      base.binary.upload('upload-attachment', {
+        state: ((value: unknown) => value) as never,
+        run: async () => ({ info: null }),
+      }),
+    ).toThrow(LiveThingConfigError);
+    expect(() =>
+      base.binary.upload('upload-attachment', {
+        state: ((value: unknown) => value) as never,
+        run: async () => ({ info: null }),
+      }),
+    ).toThrow("base.binary.upload('upload-attachment'): 'state' must be a Standard Schema");
+  });
+
+  it('runs a start sent in the same tick right after the cancel', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const after = build({ sql });
+    const amara = await connect(after.engine);
+
+    void amara.cancel('up-1');
+    await amara.start('up-1', deck);
+    await settle();
+
+    expect(after.runs).toMatchObject([{ savedThrough: 0 }]);
+    expect(amara.of('up-1').filter((frame) => frame[0] === '__error__')).toEqual([]);
+  });
+
+  it("logs a LiveThingConfigError from the app's onDiscard as an onDiscard error", async () => {
+    const logged: unknown[][] = [];
+    const logger = { info() {}, warn() {}, error: (...args: unknown[]) => logged.push(args) };
+    const { engine } = build({
+      logger,
+      discardFailures: 1,
+      discardError: new LiveThingConfigError('the bucket is not set up'),
+    });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+
+    amara.piece('up-1', 1, piece(8, 1));
+    await settle();
+    await amara.cancel('up-1');
+    await settle();
+
+    expect(logged).toEqual([
+      [
+        '[livething] an upload onDiscard threw. It runs again on the next sweep.',
+        {
+          event: 'upload-attachment',
+          uploadId: 'up-1',
+          error: '[livething] the bucket is not set up',
+        },
+      ],
+    ]);
+  });
+
+  it('runs and discards an upload with no state schema as before', async () => {
+    const { engine, runs, discarded, sql } = build({ state: null });
+    const first = await connect(engine);
+    await first.start('up-1', deck);
+    first.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    expect(rows(sql)[0].state).toBeNull();
+    await first.close();
+    await settle();
+
+    const second = await connect(engine);
+    await second.start('up-1', deck);
+    await settle();
+    await second.cancel('up-1');
+    await settle();
+
+    expect(runs.map((run) => [run.savedThrough, run.state])).toEqual([
+      [0, undefined],
+      [8, undefined],
+    ]);
+    expect(discarded).toEqual([{ input: deck, savedThrough: 8, state: undefined }]);
+  });
+
+  it('keeps no state for saved(n, { state: undefined }), so an optional schema resumes', async () => {
+    const { engine, runs, sql } = build({
+      state: v.optional(v.object({ parts: v.number() })),
+      afterRead: (upload) => upload.saved(8, { state: undefined }),
+    });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    expect(rows(sql)[0].state).toBeNull();
+
+    await amara.close();
+    await settle();
+    const again = await connect(engine);
+    await again.start('up-1', deck);
+    await settle();
+
+    expect(runs[1]).toMatchObject({ savedThrough: 8, state: undefined });
+  });
+
+  /** A state schema whose check throws instead of returning issues. */
+  const throwingState = {
+    '~standard': {
+      version: 1 as const,
+      vendor: 'huddle-test',
+      validate(): never {
+        throw new Error('the schema broke');
+      },
+    },
+  };
+
+  it("ends a resume with 'bad-state' when the state schema throws", async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const warned: unknown[][] = [];
+    const logger = { info() {}, warn: (...args: unknown[]) => warned.push(args), error() {} };
+    const after = build({ sql, logger, state: throwingState as never });
+
+    const again = await connect(after.engine);
+    await again.start('up-1', deck);
+    await settle();
+
+    expect(after.runs).toEqual([]);
+    expect(again.of('up-1')).toEqual([aborted('bad-state')]);
+    expect(after.discarded).toEqual([{ input: deck, savedThrough: 8, state: undefined }]);
+    expect(rows(sql)).toEqual([]);
+    expect(warned).toEqual([
+      [
+        expect.stringContaining('the stored state'),
+        { event: 'upload-attachment', uploadId: 'up-1', issues: ['the schema broke'] },
+      ],
+    ]);
+  });
+
+  it('gives onDiscard an undefined state when the state schema throws', async () => {
+    const sql = createTestSql();
+    await droppedUpload(sql);
+    const after = build({ sql, state: throwingState as never });
+    const again = await connect(after.engine);
+    await again.start('up-1', deck).catch(() => {});
+
+    await settle();
+    // The start above already discarded it; a cancel of a live upload goes the same way.
+    expect(after.discarded).toEqual([{ input: deck, savedThrough: 8, state: undefined }]);
+
+    const sql2 = createTestSql();
+    await droppedUpload(sql2);
+    const expired = build({ sql: sql2, state: throwingState as never });
+    const amara = await connect(expired.engine);
+    await amara.cancel('up-1');
+
+    await settle();
+    expect(expired.discarded).toEqual([{ input: deck, savedThrough: 8, state: undefined }]);
+    expect(rows(sql2)).toEqual([]);
   });
 });

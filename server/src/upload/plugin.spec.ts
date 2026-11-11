@@ -33,6 +33,8 @@ interface Seen {
   runs: { bytes: number[]; scoped: boolean }[];
   /** Each `onDiscard`'s input. Whether it ran as the plugin is read from the kv key it wrote. */
   discarded: { input: unknown; scoped: boolean }[];
+  /** The checked `ctx.upload.state` each run and each `onDiscard` got. */
+  states: unknown[];
 }
 
 function filesPlugin(seen: Seen, pluginUploads: UploadsOptions = {}) {
@@ -44,7 +46,12 @@ function filesPlugin(seen: Seen, pluginUploads: UploadsOptions = {}) {
     input: v.object({ fileId: v.string(), full: v.optional(v.boolean()) }),
     pieceBytes: 8,
     windowBytes: 16,
+    state: v.pipe(
+      v.object({ storedBytes: v.number() }),
+      v.transform((state) => ({ ...state, checked: true })),
+    ),
     async run(ctx, input, pieces) {
+      seen.states.push(ctx.upload.state);
       const bytes: number[] = [];
       // A plugin's scoped ctx names its own events: `send` would add the `__acme:files::` prefix.
       seen.runs.push({ bytes, scoped: typeof (ctx as any).plugin === 'function' });
@@ -52,12 +59,14 @@ function filesPlugin(seen: Seen, pluginUploads: UploadsOptions = {}) {
         if (input.full) throw FilesFull();
 
         bytes.push(...piece.bytes);
-        ctx.upload.saved(piece.offset + piece.bytes.byteLength);
+        const storedBytes = piece.offset + piece.bytes.byteLength;
+        ctx.upload.saved(storedBytes, { state: { storedBytes } });
       }
 
       return { info: { size: bytes.length } };
     },
     async onDiscard(ctx, input) {
+      seen.states.push(ctx.upload.state);
       // As the plugin, this key is stored as `__acme:files::discarded`.
       await ctx.kv.set('discarded', input.fileId);
       seen.discarded.push({ input, scoped: true });
@@ -130,7 +139,7 @@ async function connect(engine: Engine) {
 }
 
 function emptySeen(): Seen {
-  return { runs: [], discarded: [] };
+  return { runs: [], discarded: [], states: [] };
 }
 
 describe('uploads in a plugin', () => {
@@ -148,6 +157,30 @@ describe('uploads in a plugin', () => {
       '__uploadDone__',
       { info: { size: 4 } },
       { upload: { id: 'up-1' } },
+    ]);
+  });
+
+  it("checks the plugin's stored state with its schema on a resume and before onDiscard", async () => {
+    const seen = emptySeen();
+    const engine = host(seen);
+    const first = await connect(engine);
+    await first.start(WIRE, { fileId: 'f1' });
+    await first.piece(1, new Uint8Array([1, 2, 3]));
+
+    await settle();
+    await first.close();
+    await settle();
+
+    const second = await connect(engine);
+    await second.start(WIRE, { fileId: 'f1' });
+    await settle();
+    await second.cancel();
+    await settle();
+
+    expect(seen.states).toEqual([
+      undefined,
+      { storedBytes: 3, checked: true },
+      { storedBytes: 3, checked: true },
     ]);
   });
 

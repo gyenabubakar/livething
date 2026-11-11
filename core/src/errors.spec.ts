@@ -14,6 +14,7 @@ import {
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
+  UploadAborted,
   ValidationFailed,
   WrongFrameKind,
 } from '~/errors.ts';
@@ -507,6 +508,33 @@ describe('StreamAlreadyActive parser — bad payload', () => {
       // oxlint-disable-next-line @typescript-eslint/no-explicit-any
       StreamAlreadyActive({ event: 'start-tokens' } as any),
     ).toThrow('Validation failed');
+  });
+});
+
+// ===========================================================================
+// UploadAborted
+// ===========================================================================
+
+describe('UploadAborted', () => {
+  const reasons = [
+    'cancelled',
+    'too-large',
+    'input-mismatch',
+    'bad-state',
+    'bad-piece',
+    'window',
+    'taken-over',
+    'gone',
+    'not-resumable',
+    'interrupted',
+  ] as const;
+
+  it.each(reasons)('factory accepts reason %s', (reason) => {
+    expect(UploadAborted({ reason }).detail).toEqual({ reason });
+  });
+
+  it.each(reasons)('.matches() takes reason %s from the wire', (reason) => {
+    expect(UploadAborted.matches(new LiveThingError('upload-aborted', { reason }))).toBe(true);
   });
 });
 

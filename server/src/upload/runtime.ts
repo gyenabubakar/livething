@@ -1,21 +1,26 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import {
+  assertSynchronousResult,
   Disconnected,
   DurableStreamRequiresUser,
+  LiveThingConfigError,
   UploadAborted,
   utf8ByteLength,
   ValidationFailed,
 } from '@livething/core';
 import { connectionCall, withConnectionCall } from '~/_engine/async-context.ts';
 import type { LiveThingError, UploadAbortedReason } from '@livething/core';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type {
+  PendingUploadStart,
   UploadPieceOptions,
   UploadService,
   UploadStartOptions,
 } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { Validator } from '~/types.ts';
 import { uploadHandler } from './registry.ts';
 import {
   deleteUpload,
@@ -52,11 +57,58 @@ const SWEEP_LIMIT = 100;
  */
 const STOP_GRACE_MS = 10_000;
 
-/** How long a cancel that found no upload is kept, in case its start is still being sent. */
-const EARLY_CANCEL_MS = 60_000;
+/** The config error of an async `state` schema, told apart from one the app's `onDiscard` throws. */
+class AsyncStateSchemaError extends LiveThingConfigError {}
 
-/** The most early cancels kept. The oldest go first. */
-const MAX_EARLY_CANCELS = 1000;
+/** A state's JSON, checked with a `state` schema: its value, or the issues. */
+type StateCheck = { ok: true; value: unknown } | { ok: false; issues: string[] };
+
+/**
+ * Check a state in its JSON form with the handler's `state` schema, the same way when it is
+ * saved and when it is read back. A schema that throws, or that breaks the Standard Schema
+ * contract, fails the check. An async schema throws `AsyncStateSchemaError`.
+ */
+function checkStateJson(schema: Validator, event: string, json: string): StateCheck {
+  let returned: ReturnType<StandardSchemaV1['~standard']['validate']>;
+  try {
+    returned = schema['~standard'].validate(JSON.parse(json));
+  } catch (error) {
+    return { ok: false, issues: [error instanceof Error ? error.message : String(error)] };
+  }
+
+  let result: StandardSchemaV1.Result<unknown>;
+  try {
+    result = assertSynchronousResult(returned, `binary.upload('${event}') state`, 'validator');
+  } catch {
+    throw new AsyncStateSchemaError(
+      `binary.upload('${event}'): the 'state' schema must be synchronous. LiveThing checks a stored state while it holds the upload, also when the server starts, so the check cannot wait.`,
+    );
+  }
+
+  if (typeof result !== 'object' || result === null) return brokenResult();
+
+  if (result.issues === undefined) return { ok: true, value: result.value };
+
+  if (!Array.isArray(result.issues)) return brokenResult();
+
+  const issues: string[] = [];
+  for (const issue of result.issues as unknown[]) {
+    if (typeof issue !== 'object' || issue === null) return brokenResult();
+
+    issues.push(String((issue as { message?: unknown }).message));
+  }
+
+  return { ok: false, issues };
+}
+
+function brokenResult(): StateCheck {
+  return { ok: false, issues: ["The 'state' schema returned no valid result."] };
+}
+
+/** A start frame being handled, as the upload service tracks it for cancels. */
+interface PendingStart extends PendingUploadStart {
+  cancelled: boolean;
+}
 
 /** The most uploads one connection is told are not running here. */
 const MAX_TOLD_PER_CONNECTION = 32;
@@ -118,6 +170,12 @@ interface SavedOptions {
   state?: unknown;
 }
 
+/** A stored state read back: `ok` is false when it failed the `state` schema. */
+interface CheckedState {
+  ok: boolean;
+  state: unknown;
+}
+
 /** What `run` must return. */
 interface RunResult {
   info: unknown;
@@ -154,7 +212,6 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
   const sql = engine.storage.sql as unknown as SqlExec;
   const logger = engine.getLogger?.();
   const sessions = new Map<string, Session>();
-
   function send(session: Session, event: string, payload: Record<string, unknown>): void {
     if (session.connection.closing) return;
 
@@ -172,12 +229,10 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
   /** The session keys each connection was already told are not running here. */
   const interruptedTold = new Map<string, Set<string>>();
   /**
-   * The cancels that came before their start began, by `${connection id}\0${session key}`,
-   * with the time they came. Insertion order is time order.
+   * The start frames each `${connection id}\0${session key}` has being handled, oldest first.
+   * A cancel marks the ones that are pending when it comes.
    */
-  const earlyCancels = new Map<string, number>();
-  /** How many start frames each `${connection id}\0${session key}` has being handled. */
-  const pendingStarts = new Map<string, number>();
+  const pendingStarts = new Map<string, PendingStart[]>();
 
   /**
    * Tell a connection, once, that the upload it sends pieces for is not running here, for
@@ -202,28 +257,6 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
       code: UploadAborted.code,
       detail: { reason: 'interrupted' },
     });
-  }
-
-  /** Note a cancel that came before its start began, dropping old and extra ones first. */
-  function rememberEarlyCancel(key: string, connectionId: string): void {
-    const now = Date.now();
-    for (const [oldKey, at] of earlyCancels) {
-      if (now - at < EARLY_CANCEL_MS && earlyCancels.size < MAX_EARLY_CANCELS) break;
-
-      earlyCancels.delete(oldKey);
-    }
-
-    const entry = `${connectionId}\u0000${key}`;
-    earlyCancels.delete(entry);
-    earlyCancels.set(entry, now);
-  }
-
-  /** Whether this connection cancelled the upload before its start began; forgets the cancel. */
-  function takeEarlyCancel(key: string, connectionId: string): boolean {
-    const entry = `${connectionId}\u0000${key}`;
-    const at = earlyCancels.get(entry);
-    earlyCancels.delete(entry);
-    return at !== undefined && Date.now() - at < EARLY_CANCEL_MS;
   }
 
   function sendAck(session: Session, first: boolean): void {
@@ -297,19 +330,54 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
     });
   }
 
-  /** Run `onDiscard` for a record that is `discarding`, then delete it. On a throw the sweep tries again. */
-  async function discard(row: UploadRow): Promise<void> {
+  /**
+   * Read a record's state back, checked with the handler's `state` schema: an older deploy may
+   * have saved it with another schema. A state that fails the check reads as `undefined`, and
+   * LiveThing warns. Without a schema the handler keeps no state.
+   *
+   * The schema must be synchronous: this runs while LiveThing holds the upload, and in the
+   * sweep at server start, so it must not wait. An async schema throws a
+   * `LiveThingConfigError`, and the record is left as it is.
+   */
+  function readState(
+    handler: UploadPrimitive | undefined,
+    row: Pick<UploadRow, 'event' | 'uploadId' | 'state'>,
+  ): CheckedState {
+    const schema = handler?.stateValidator;
+    if (row.state === null || !schema) return { ok: true, state: undefined };
+
+    const checked = checkStateJson(schema, row.event, row.state);
+    if (checked.ok) return { ok: true, state: checked.value };
+
+    const { issues } = checked;
+    logger?.warn(
+      `[livething] binary.upload('${row.event}'): the stored state of upload '${row.uploadId}' failed the 'state' schema, so it reads as undefined. An older deploy may have saved it with another schema.`,
+      { event: row.event, uploadId: row.uploadId, issues },
+    );
+
+    return { ok: false, state: undefined };
+  }
+
+  /**
+   * Run `onDiscard` for a record that is `discarding`, then delete it. On a throw the sweep
+   * tries again. `checked` is the state when the caller has already read it back.
+   */
+  async function discard(row: UploadRow, checked?: CheckedState): Promise<void> {
     const handler = uploadHandler(sql, row.event);
     if (handler?.onDiscard) {
       const ctx = engine.buildConnectionlessContext() as Record<PropertyKey, unknown>;
-      ctx.upload = {
-        savedThrough: row.savedThrough,
-        state: row.state === null ? undefined : JSON.parse(row.state),
-      };
       try {
+        ctx.upload = {
+          savedThrough: row.savedThrough,
+          state: (checked ?? readState(handler, row)).state,
+        };
         await handler.onDiscard(ctx, JSON.parse(row.input));
       } catch (error) {
-        logger?.error('[livething] an upload onDiscard threw. It runs again on the next sweep.', {
+        const message =
+          error instanceof AsyncStateSchemaError
+            ? `[livething] the 'state' schema of binary.upload('${row.event}') is async, so onDiscard cannot run. Make the schema synchronous and deploy again: the record waits, and the next sweep tries again.`
+            : '[livething] an upload onDiscard threw. It runs again on the next sweep.';
+        logger?.error(message, {
           event: row.event,
           uploadId: row.uploadId,
           error: error instanceof Error ? error.message : String(error),
@@ -361,7 +429,35 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
     };
   }
 
-  function handle(session: Session): UploadRunHandle {
+  /**
+   * The JSON that `saved()` stores for a state. It checks the state the way a resume will read
+   * it back, so a state that would fail there (a `Date`, a `Map`, `NaN`) is never stored.
+   */
+  function savedStateJson(session: Session, state: unknown): string {
+    const method = `[livething] ctx.upload.saved(): binary.upload('${session.upload.event}')`;
+    const json = JSON.stringify(state) as string | undefined;
+    if (json === undefined) {
+      throw new TypeError(`${method}: the state has no JSON form, so it cannot be stored.`);
+    }
+
+    const size = utf8ByteLength(json);
+    if (size > MAX_STATE_BYTES) {
+      throw new RangeError(
+        `[livething] ctx.upload.saved(): the state is ${size} bytes of JSON, over the 64 KiB limit.`,
+      );
+    }
+
+    const checked = checkStateJson(session.upload.stateValidator!, session.upload.event, json);
+    if (!checked.ok) {
+      throw new TypeError(
+        `${method}: the state fails the 'state' schema in its JSON form, the way a resume reads it back: ${checked.issues.join('; ')}`,
+      );
+    }
+
+    return json;
+  }
+
+  function handle(session: Session): UploadRunHandle<Validator> {
     return {
       get savedThrough() {
         return session.savedThrough;
@@ -393,22 +489,22 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
           );
         }
 
-        let stateJson: string | undefined;
+        let stateJson: string | null | undefined;
         if (options !== undefined && 'state' in options) {
-          stateJson = JSON.stringify(options.state ?? null);
-          const size = utf8ByteLength(stateJson);
-          if (size > MAX_STATE_BYTES) {
-            throw new RangeError(
-              `[livething] ctx.upload.saved(): the state is ${size} bytes of JSON, over the 64 KiB limit.`,
+          if (!session.upload.stateValidator) {
+            throw new TypeError(
+              `[livething] ctx.upload.saved(): binary.upload('${session.upload.event}') declares no 'state' schema, so it keeps no state. Add a 'state' schema to the handler.`,
             );
           }
+
+          // `undefined` clears the state, so it reads back as `undefined`, not `null`.
+          stateJson = options.state === undefined ? null : savedStateJson(session, options.state);
         }
 
         const now = Date.now();
         saveUploadProgress(sql, session, { savedThrough: offset, state: stateJson, now });
         session.savedThrough = offset;
         session.touchedAt = now;
-        if (stateJson !== undefined) session.state = options!.state ?? null;
       },
     };
   }
@@ -548,11 +644,13 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
 
       const key = sessionKey(connection.userId, uploadId);
       interruptedTold.get(connection.id)?.delete(key);
-      // This connection's cancel overtook its start: the upload must not begin.
-      if (takeEarlyCancel(key, connection.id)) throw UploadAborted({ reason: 'cancelled' });
 
       const input = JSON.stringify(payload ?? null);
       const rowKey = { userId: connection.userId, uploadId };
+
+      // This connection's cancel came while an intercept held this start. Check before the
+      // takeover: a start sent after the cancel may run now, and must not be stopped.
+      if (options.pendingStart?.cancelled) throw UploadAborted({ reason: 'cancelled' });
 
       // A newer start replaces a running one, but only once that one's `run` has settled.
       for (let running = sessions.get(key); running; running = sessions.get(key)) {
@@ -567,10 +665,11 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
       }
 
       // The cancel can also come while this start waits for the old run.
-      if (takeEarlyCancel(key, connection.id)) throw UploadAborted({ reason: 'cancelled' });
+      if (options.pendingStart?.cancelled) throw UploadAborted({ reason: 'cancelled' });
 
       if (connection.closing) return;
 
+      let state: unknown;
       let row = readUpload(sql, connection.userId, uploadId);
       if (row) {
         if (row.event !== upload.event || row.input !== input) {
@@ -587,6 +686,16 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
         if (size !== null && row.size !== null && size !== row.size) {
           throw UploadAborted({ reason: 'input-mismatch' });
         }
+
+        // Synchronous, like everything from the takeover loop to `sessions.set`.
+        const checked = readState(upload, row);
+        if (!checked.ok) {
+          markUploadDiscarding(sql, rowKey, Date.now());
+          void discard({ ...row, status: 'discarding' }, checked);
+          throw UploadAborted({ reason: 'bad-state' });
+        }
+
+        state = checked.state;
       } else {
         const now = Date.now();
         insertUpload(sql, {
@@ -609,7 +718,7 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
         upload,
         size: row.size,
         savedThrough: row.savedThrough,
-        state: row.state === null ? undefined : JSON.parse(row.state),
+        state,
         received: row.savedThrough,
         read: row.savedThrough,
         seq: 0,
@@ -718,39 +827,37 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
       const uploadId = frame.__livething.uploadId!;
       const key = sessionKey(connection.userId, uploadId);
       const running = sessions.get(key);
-      // A start from this connection is still being handled (held by an intercept, or waiting
-      // for an older run): note the cancel now, so that start refuses. The note is dropped when
-      // the last such start is handled, so it never refuses a later start.
-      if (pendingStarts.has(`${connection.id}\u0000${key}`)) {
-        rememberEarlyCancel(key, connection.id);
-      }
-
       if (running) await stopSession(running, 'cancelled');
 
       const row = readUpload(sql, connection.userId, uploadId);
       if (row && row.status !== 'done') await discardNow(row);
     },
 
+    cancelArrived(connection: RuntimeConnection, uploadId: string) {
+      if (!connection.userId) return;
+
+      // The starts from this connection that are being handled now (held by an intercept, or
+      // waiting for an older run) refuse. A start that arrives after this cancel does not.
+      const entry = `${connection.id}\u0000${sessionKey(connection.userId, uploadId)}`;
+      for (const start of pendingStarts.get(entry) ?? []) start.cancelled = true;
+    },
+
     starting(connection: RuntimeConnection, uploadId: string) {
-      if (!connection.userId) return () => {};
+      if (!connection.userId) return undefined;
 
       const entry = `${connection.id}\u0000${sessionKey(connection.userId, uploadId)}`;
-      pendingStarts.set(entry, (pendingStarts.get(entry) ?? 0) + 1);
-      let done = false;
-
-      return () => {
-        if (done) return;
-
-        done = true;
-        const count = pendingStarts.get(entry)! - 1;
-        if (count === 0) {
-          pendingStarts.delete(entry);
-          // No start of this upload is coming from this connection any more.
-          earlyCancels.delete(entry);
-        } else {
-          pendingStarts.set(entry, count);
-        }
+      const start: PendingStart = {
+        cancelled: false,
+        end() {
+          const rest = (pendingStarts.get(entry) ?? []).filter((s) => s !== start);
+          if (rest.length > 0) pendingStarts.set(entry, rest);
+          else pendingStarts.delete(entry);
+        },
       };
+
+      pendingStarts.set(entry, [...(pendingStarts.get(entry) ?? []), start]);
+
+      return start;
     },
   };
 

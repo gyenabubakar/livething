@@ -2,6 +2,7 @@
 import { LiveThingConfigError } from '@livething/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { assertNonReservedEventName } from '~/event-name.ts';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 import { registerUploadHandler } from './registry.ts';
@@ -14,33 +15,46 @@ export interface UploadPiece {
   readonly offset: number;
 }
 
-/** The `ctx.upload` an upload's `run` gets. */
-export interface UploadRunHandle<TState = unknown> {
+/**
+ * `ctx.upload.state`, when the handler has a `state` schema. Without one the handler keeps no
+ * state, so `ctx.upload` has no `state` to read.
+ */
+type UploadStateField<TStateSchema> = TStateSchema extends StandardSchemaV1
+  ? {
+      /**
+       * The state saved with the last saved offset, checked with the `state` schema when
+       * LiveThing read it back. `undefined` when none was saved, or when the stored state
+       * failed the schema. In `run`, `saved()` does not change it.
+       */
+      readonly state: StandardSchemaV1.InferOutput<TStateSchema> | undefined;
+    }
+  : {};
+
+/** The `ctx.upload` an upload's `run` gets. `TStateSchema` is the handler's `state` schema. */
+export type UploadRunHandle<TStateSchema extends Validator | undefined = undefined> = {
   /** Where this run starts: 0 for a new upload, the saved offset for a resumed one. */
   readonly savedThrough: number;
   /**
-   * The last `state` given to `saved()`, or `undefined` when none was given. A `state` of
-   * `undefined` is stored as JSON, so it reads back as `null`.
+   * Say how many bytes are really stored, so a resume starts there. With a `state` schema,
+   * give `state` to keep a small JSON value with it, such as a multipart upload ID. The
+   * offset and the state are written in one SQL write. Throws a `RangeError` when the offset
+   * goes back, is past the bytes `run` has read, or the state is over 64 KiB.
    */
-  readonly state: TState | undefined;
-  /**
-   * Say how many bytes are really stored, so a resume starts there. Give `state` to keep a
-   * small JSON value with it, such as a multipart upload id. The offset and the state are
-   * written in one SQL write. Throws a `RangeError` when the offset goes back, is past the
-   * bytes `run` has read, or the state is over 64 KiB.
-   */
-  saved(offset: number, options?: { state?: TState }): void;
+  saved(
+    offset: number,
+    ...options: TStateSchema extends StandardSchemaV1
+      ? [options?: { state: StandardSchemaV1.InferInput<TStateSchema> }]
+      : []
+  ): void;
   /** Fires when the client cancels, the connection closes, or a resume takes over. */
   readonly signal: AbortSignal;
-}
+} & UploadStateField<TStateSchema>;
 
 /** The `ctx.upload` that `onDiscard` gets: what the record kept. */
-export interface UploadDiscardHandle<TState = unknown> {
+export type UploadDiscardHandle<TStateSchema extends Validator | undefined = undefined> = {
   /** The last saved offset. */
   readonly savedThrough: number;
-  /** The last `state` given to `saved()`, or `undefined`. */
-  readonly state: TState | undefined;
-}
+} & UploadStateField<TStateSchema>;
 
 /** The resolved options of one upload handler. */
 interface UploadOptions {
@@ -59,6 +73,8 @@ interface UploadOptions {
 export interface UploadPrimitive extends Primitive<'upload'>, UploadOptions {
   readonly event: string;
   readonly validator?: Validator;
+  /** The `state` schema, which checks a stored state when LiveThing reads it back. */
+  readonly stateValidator?: Validator;
   /** Upload frames are binary. */
   readonly binary: true;
   readonly run: (ctx: any, input: any, pieces: AsyncIterable<UploadPiece>) => unknown;
@@ -70,6 +86,7 @@ export type AnyUpload = UploadPrimitive;
 /** The config `base.binary.upload(...)` takes, before its options are checked. */
 export interface UploadBuildConfig {
   input?: Validator;
+  state?: Validator;
   maxBytes?: number;
   pieceBytes?: number;
   windowBytes?: number;
@@ -111,6 +128,16 @@ export function upload(event: string, config: UploadBuildConfig): UploadPrimitiv
 
   if (config.onDiscard !== undefined && typeof config.onDiscard !== 'function') {
     throw new LiveThingConfigError(`${method}: 'onDiscard' must be a function.`);
+  }
+
+  // A bad `state` would fail every check when a state is read back, and discard the uploads.
+  if (
+    config.state !== undefined &&
+    typeof (config.state as Partial<Validator> | null)?.['~standard']?.validate !== 'function'
+  ) {
+    throw new LiveThingConfigError(
+      `${method}: 'state' must be a Standard Schema, such as a Valibot or Zod schema.`,
+    );
   }
 
   const options: UploadOptions = {
@@ -155,6 +182,7 @@ export function upload(event: string, config: UploadBuildConfig): UploadPrimitiv
     },
     event,
     validator: config.input,
+    stateValidator: config.state,
     binary: true,
     run: config.run,
     onDiscard: config.onDiscard,

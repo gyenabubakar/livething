@@ -721,10 +721,14 @@ export const StreamOverflow = /* @__PURE__ */ buildErrorFactory(
 /**
  * An upload stopped before it finished. `detail.reason` says why:
  *
- * - `'cancelled'` — the client called `upload.cancel()`. Raised on the client.
+ * - `'cancelled'` — the client called `upload.cancel()`. Raised on the client, and sent by the
+ *   server to a start it was still handling when the cancel came.
  * - `'too-large'` — the upload went over the handler's `maxBytes`, or over the size the
  *   client sent at the start.
  * - `'input-mismatch'` — a resumed upload sent a different input than the stored one.
+ * - `'bad-state'` — on a resume, the state the server saved for the upload failed the
+ *   handler's `state` schema, for example after a deploy changed the schema. The upload is
+ *   discarded; start it again with a new upload ID.
  * - `'bad-piece'` — a piece came with the wrong `seq` or over the piece size, or the end
  *   frame's total did not match the bytes that came.
  * - `'window'` — the client sent more bytes than the window allows past the last ack.
@@ -751,6 +755,7 @@ const UPLOAD_ABORTED_REASONS = [
   'cancelled',
   'too-large',
   'input-mismatch',
+  'bad-state',
   'bad-piece',
   'window',
   'taken-over',

@@ -130,6 +130,7 @@ function defineUploads(options: UploadsOptions) {
   // resume starts again at the last save.
   const handleUploadAttachment = base.binary.upload('upload-attachment', {
     input: AttachmentInput,
+    state: v.object({ parts: v.number() }),
     maxBytes: 4 * 1024 * KiB,
     pieceBytes: 64 * KiB,
     windowBytes: 256 * KiB,

@@ -24,7 +24,11 @@ const handleUploadAttachment = base.binary.upload('upload-attachment', {
     expectTypeOf(pieces).toEqualTypeOf<AsyncIterable<UploadPiece>>();
     expectTypeOf(ctx.upload.savedThrough).toEqualTypeOf<number>();
     expectTypeOf(ctx.upload.signal).toEqualTypeOf<AbortSignal>();
+    ctx.upload.saved(0);
+    // @ts-expect-error — without a `state` schema, `saved()` keeps no state.
     ctx.upload.saved(0, { state: { parts: 1 } });
+    // @ts-expect-error — without a `state` schema, there is no state to read.
+    ctx.upload.state;
 
     return { info: { size: 1 } };
   },
@@ -33,6 +37,31 @@ const handleUploadAttachment = base.binary.upload('upload-attachment', {
     expectTypeOf(ctx.upload.savedThrough).toEqualTypeOf<number>();
     // @ts-expect-error — `onDiscard` runs with no connection, so it has no `upload.saved`.
     ctx.upload.saved(0);
+    // @ts-expect-error — without a `state` schema, there is no state to read.
+    ctx.upload.state;
+  },
+});
+
+// With a `state` schema, `saved()` takes the schema's input and `state` is its output.
+base.binary.upload('upload-attachment', {
+  state: v.pipe(
+    v.object({ multipartId: v.string() }),
+    v.transform((state) => ({ ...state, checkedAt: 1 })),
+  ),
+  async run(ctx) {
+    expectTypeOf(ctx.upload.state).toEqualTypeOf<
+      { multipartId: string; checkedAt: number } | undefined
+    >();
+    ctx.upload.saved(0, { state: { multipartId: 'mp_1' } });
+    // @ts-expect-error — the state must have the schema's shape.
+    ctx.upload.saved(0, { state: { parts: 1 } });
+
+    return { info: null };
+  },
+  onDiscard(ctx) {
+    expectTypeOf(ctx.upload.state).toEqualTypeOf<
+      { multipartId: string; checkedAt: number } | undefined
+    >();
   },
 });
 

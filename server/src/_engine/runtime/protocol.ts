@@ -278,6 +278,12 @@ export const UploadEndFrame = frame(
   uploadMeta,
 );
 export const UploadCancelFrame = frame('__uploadCancel__', NoPayload, uploadMeta);
+
+/** Whether a parsed frame is a well-formed `__uploadCancel__`, the same check its handler runs. */
+export function isUploadCancelFrame(input: unknown): boolean {
+  return v.is(UploadCancelFrame, input);
+}
+
 const INCOMING_FRAMES = {
   __subscribe__: SubscribeFrame,
   __unsubscribe__: UnsubscribeFrame,

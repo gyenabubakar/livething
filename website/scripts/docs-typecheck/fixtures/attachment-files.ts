@@ -1,21 +1,15 @@
 // The same code as `server/attachment-files.ts` on the uploads page, which Huddle's upload
 // handlers import.
+import * as v from 'valibot';
 import type { UploadDiscardHandle, UploadPiece, UploadRunHandle } from '@livething/server/uploads';
 import { deleteAttachment, isRoomMember, loadAttachment, writeAttachmentBytes } from './helpers';
 
-/** The attachment an upload writes. A new upload gets a new ID, and a resumed one finds it in its state. */
-export function attachmentIdOf(upload: UploadRunHandle): string {
-  if (typeof upload.state === 'string') return upload.state;
-
-  const attachmentId = crypto.randomUUID();
-  upload.saved(upload.savedThrough, { state: attachmentId });
-
-  return attachmentId;
-}
+/** What an attachment upload keeps in its state: the ID of the attachment it writes. */
+export const attachmentUploadState = v.object({ attachmentId: v.string() });
 
 /** Writes each piece into the attachment's file, and returns the size of the file. */
 export async function writePieces(
-  upload: UploadRunHandle,
+  upload: UploadRunHandle<typeof attachmentUploadState>,
   attachmentId: string,
   pieces: AsyncIterable<UploadPiece>,
 ): Promise<number> {
@@ -31,8 +25,10 @@ export async function writePieces(
 }
 
 /** Deletes the file of an upload that did not finish. Safe to run twice. */
-export async function discardAttachment(upload: UploadDiscardHandle): Promise<void> {
-  if (typeof upload.state === 'string') await deleteAttachment(upload.state);
+export async function discardAttachment(
+  upload: UploadDiscardHandle<typeof attachmentUploadState>,
+): Promise<void> {
+  if (upload.state) await deleteAttachment(upload.state.attachmentId);
 }
 
 /** The owner can read an attachment, and so can the members of the room it was posted in. */

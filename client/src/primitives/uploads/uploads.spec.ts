@@ -243,6 +243,21 @@ describe('socket.binary.upload', () => {
     await expect(upload.start()).rejects.toMatchObject({ detail: { reason: 'cancelled' } });
   });
 
+  it("rejects with UploadAborted 'bad-state' when the server could not read back the saved state", async () => {
+    const { socket, ws } = connected();
+    const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });
+    const running = upload.start();
+    await settle();
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'upload-aborted', detail: { reason: 'bad-state' } },
+      metadata: { upload: { id: 'up-1' } },
+    });
+
+    const error = await running.catch((caught: unknown) => caught);
+    expect(UploadAborted.matches(error) && error.detail.reason).toBe('bad-state');
+  });
+
   it('rejects with the server error, and a later start() is a new start', async () => {
     const { socket, ws } = connected();
     const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });

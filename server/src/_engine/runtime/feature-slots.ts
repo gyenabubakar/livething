@@ -140,6 +140,16 @@ export interface UploadStartOptions {
   /** The input, already checked by the handler's schema. */
   payload: unknown;
   livething: Protocol.LiveThingProtocol;
+  /** This start frame's note from `starting()`, which a cancel marks. */
+  pendingStart?: PendingUploadStart;
+}
+
+/** One start frame being handled, from its arrival until it is done. */
+export interface PendingUploadStart {
+  /** A cancel of the same upload came from the same connection while this frame was handled. */
+  readonly cancelled: boolean;
+  /** This frame is handled: forget it. Safe to call twice. */
+  end(): void;
 }
 
 /** One piece of a running upload: its `upload` metadata and its bytes. */
@@ -163,10 +173,15 @@ export interface UploadService {
   end(runtime: any, connection: RuntimeConnection, frame: Protocol.UploadEndFrame): Promise<void>;
   /**
    * Note that a start frame for this upload arrived and is being handled (intercepts, the
-   * input check, a wait for an older run). Returns the function to call when that is over, so
-   * a cancel that comes meanwhile knows a start is still coming.
+   * input check, a wait for an older run). A cancel that comes meanwhile marks it. The note
+   * travels with the frame to `start()`, and its `end()` is called when the frame is handled.
    */
-  starting(connection: RuntimeConnection, uploadId: string): () => void;
+  starting(connection: RuntimeConnection, uploadId: string): PendingUploadStart | undefined;
+  /**
+   * Note that a `__uploadCancel__` frame arrived, before any await, so it marks only the
+   * start frames of that upload that arrived before it. `cancel()` does the rest later.
+   */
+  cancelArrived(connection: RuntimeConnection, uploadId: string): void;
   /** Handle a client `__uploadCancel__` frame. */
   cancel(
     runtime: any,
