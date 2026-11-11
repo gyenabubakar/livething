@@ -46,6 +46,8 @@ interface BuildOptions {
   afterRead?: (upload: any) => void;
   /** What `run` returns instead of `{ info: { size } }`. */
   reply?: unknown;
+  /** `run` catches what stops it (a drop, a takeover) and returns its reply anyway. */
+  swallowStop?: boolean;
   /**
    * After its first piece, the first `run` waits for this and ignores its signal. Then it calls
    * `saved()` once more, and what that throws is recorded.
@@ -61,7 +63,11 @@ interface BuildOptions {
   onExec?: (query: string) => void;
   /** Share one database between engines, as a server that restarts does. */
   sql?: ReturnType<typeof createTestSql>;
-  logger?: { info(): void; warn(): void; error(...args: unknown[]): void };
+  logger?: {
+    info(): void;
+    warn(...args: unknown[]): void;
+    error(...args: unknown[]): void;
+  };
 }
 
 function build(options: BuildOptions = {}) {
@@ -134,7 +140,9 @@ function build(options: BuildOptions = {}) {
         }
       } catch (error) {
         run.ended = (error as { code?: string }).code ?? (error as Error).message;
-        throw error;
+        if (!options.swallowStop) throw error;
+
+        return (options.reply ?? { info: { size } }) as never;
       }
 
       run.ended = 'done';
@@ -320,6 +328,71 @@ describe('base.binary.upload', () => {
     expect(second.of('up-1').at(-1)).toEqual([
       '__uploadDone__',
       { info: { size: 20 } },
+      { upload: { id: 'up-1' } },
+    ]);
+  });
+
+  it('ignores the reply of a run that was stopped before it read every byte, and resumes later', async () => {
+    const warned: unknown[][] = [];
+    const logger = { info() {}, warn: (...args: unknown[]) => warned.push(args), error() {} };
+    const { engine, runs } = build({ swallowStop: true, logger });
+    const first = await connect(engine);
+    await first.start('up-1', deck);
+
+    first.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+    await first.close();
+    await settle();
+
+    const second = await connect(engine);
+    await second.start('up-1', deck);
+    await settle();
+    expect(second.of('up-1')[0]).toEqual([
+      '__uploadAck__',
+      { receivedThrough: 8, savedThrough: 8, pieceBytes: 8, windowBytes: 16 },
+      { upload: { id: 'up-1' } },
+    ]);
+
+    second.piece('up-1', 1, piece(4, 2));
+    await second.end('up-1', 12);
+    await settle();
+
+    expect(runs.map((run) => [run.savedThrough, run.offsets, run.ended])).toEqual([
+      [0, [0], 'disconnected'],
+      [8, [8], 'done'],
+    ]);
+    expect(second.of('up-1').at(-1)).toEqual([
+      '__uploadDone__',
+      { info: { size: 12 } },
+      { upload: { id: 'up-1' } },
+    ]);
+    expect(warned).toEqual([
+      [
+        expect.stringContaining('returned after it was stopped'),
+        expect.objectContaining({ event: 'upload-attachment', uploadId: 'up-1' }),
+      ],
+    ]);
+  });
+
+  it('keeps the reply of a stopped run that had already read every byte', async () => {
+    const { engine, runs } = build({ swallowStop: true });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+    await amara.end('up-1', 8);
+
+    await amara.close();
+    await settle();
+
+    const again = await connect(engine);
+    await again.start('up-1', deck);
+    await settle();
+
+    expect(runs).toHaveLength(1);
+    expect(again.of('up-1').at(-1)).toEqual([
+      '__uploadDone__',
+      { info: { size: 8 } },
       { upload: { id: 'up-1' } },
     ]);
   });

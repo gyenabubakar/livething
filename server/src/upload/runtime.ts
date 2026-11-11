@@ -454,14 +454,28 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
     const key = { userId: session.userId, uploadId: session.uploadId };
     // Before anything reschedules the alarm, which skips the uploads still running.
     if (sessions.get(session.key) === session) sessions.delete(session.key);
+
+    // A drop or a takeover stopped `run` before it read every byte, and `run` returned anyway:
+    // its reply would mark a part of the file done, so the upload resumes later instead.
+    const readAll = session.endAt !== undefined && session.read === session.endAt;
+    const stoppedEarly =
+      (session.stopReason === 'disconnect' || session.stopReason === 'taken-over') && !readAll;
+    if (!threw && stoppedEarly) {
+      runtime.logger.warn(
+        `[livething] binary.upload('${upload.event}'): run returned after it was stopped, before it read every byte. Its reply is ignored, and the upload resumes from its saved offset. Let the error from the pieces reach the end of run.`,
+        { event: upload.event, uploadId: session.uploadId },
+      );
+    }
+
     try {
       if (
         !threw &&
+        !stoppedEarly &&
         session.stopReason !== 'cancelled' &&
         session.stopReason !== 'purged' &&
         session.stopReason !== 'failed'
       ) {
-        // `run` finished, even if it ignored a stop: the upload is done.
+        // `run` read every byte and finished, even if a stop came after: the upload is done.
         try {
           finishUpload(sql, key, { savedThrough: session.read, reply: reply!, now: Date.now() });
         } catch (error) {
