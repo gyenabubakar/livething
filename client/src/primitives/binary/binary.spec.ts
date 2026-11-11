@@ -1046,6 +1046,14 @@ describe('binary input checks', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it.each([['abc'], [null]])('throws an instance of TypeError for bytes %j', (bytes) => {
+    const { socket } = connected(binary());
+
+    expect(() =>
+      socket.binary.send('upload-avatar', { fileType: 'image/png' }, bytes as never),
+    ).toThrow(TypeError);
+  });
+
   it.each([['abc'], [5], [null], [{ length: 3 }]])(
     'throws a clear TypeError for bytes %j',
     (bytes) => {

@@ -61,6 +61,7 @@ interface BuildOptions {
   onExec?: (query: string) => void;
   /** Share one database between engines, as a server that restarts does. */
   sql?: ReturnType<typeof createTestSql>;
+  logger?: { info(): void; warn(): void; error(...args: unknown[]): void };
 }
 
 function build(options: BuildOptions = {}) {
@@ -170,7 +171,7 @@ function build(options: BuildOptions = {}) {
         storage: { sql, kv: createTestKV() },
         timers,
         platform: {},
-        logger: { info() {}, warn() {}, error() {} },
+        logger: options.logger ?? { info() {}, warn() {}, error() {} },
         ...(options.messageLimits ? { messageLimits: options.messageLimits } : {}),
       });
       return {};
@@ -1723,5 +1724,193 @@ describe('base.binary.upload: what the docs promise', () => {
     expect(() =>
       engineOf(base.assemble({ handlers: [handleUpload, other(base)] as never })),
     ).toThrow(/upload-attachment/);
+  });
+
+  it.each([
+    ['an offset that goes back', (upload: any) => upload.saved(upload.savedThrough - 1)],
+    ['an offset past the bytes read', (upload: any) => upload.saved(upload.savedThrough + 1)],
+    [
+      'a state of 64 KiB + 1 byte of JSON',
+      (upload: any) => upload.saved(8, { state: 'x'.repeat(64 * 1024 - 1) }),
+    ],
+  ])('ctx.upload.saved() throws a RangeError for %s', async (_name, call) => {
+    const thrown: unknown[] = [];
+    const { engine } = build({
+      afterRead(upload) {
+        try {
+          call(upload);
+        } catch (error) {
+          thrown.push(error);
+        }
+      },
+    });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+
+    expect(thrown).toHaveLength(1);
+    expect(thrown[0]).toBeInstanceOf(RangeError);
+  });
+
+  it('ctx.upload.saved() takes a state of exactly 64 KiB of JSON', async () => {
+    const thrown: unknown[] = [];
+    const { engine, sql } = build({
+      afterRead(upload) {
+        try {
+          upload.saved(8, { state: 'x'.repeat(64 * 1024 - 2) });
+        } catch (error) {
+          thrown.push(error);
+        }
+      },
+    });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    amara.piece('up-1', 1, piece(8, 1));
+
+    await settle();
+
+    expect(thrown).toEqual([]);
+    expect(rows(sql)[0].state).toHaveLength(64 * 1024);
+  });
+
+  it('writes the offset and the state of ctx.upload.saved() in one SQL write', async () => {
+    const queries: string[] = [];
+    const { engine } = build({ onExec: (query) => queries.push(query) });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    await settle();
+
+    queries.length = 0;
+    amara.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    const writes = queries.filter((query) => query.includes('UPDATE __livething_uploads'));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatch(/saved_through = \?, state = \?/);
+  });
+
+  it('keeps no record and runs no onDiscard for a start whose size is over maxBytes', async () => {
+    const { engine, discarded, sql } = build();
+    const amara = await connect(engine);
+    await amara.start('up-1', deck, 65);
+    await settle();
+    await engine.handleAlarm();
+
+    await settle();
+
+    expect(rows(sql)).toEqual([]);
+    expect(discarded).toEqual([]);
+  });
+
+  it('runs onDiscard again only about a minute after it threw', async () => {
+    const { engine, discarded } = build({ discardFailures: 1 });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    await settle();
+    await amara.cancel('up-1');
+
+    await settle();
+
+    const realNow = Date.now;
+    const at = realNow();
+    try {
+      Date.now = () => at + 30_000;
+      await engine.handleAlarm();
+      await settle();
+      expect(discarded).toEqual([]);
+
+      Date.now = () => at + 61_000;
+      await engine.handleAlarm();
+      await settle();
+      expect(discarded).toHaveLength(1);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("purgeUser runs onDiscard for the user's uploads that are not done, and deletes the done ones", async () => {
+    const { engine, discarded, sql } = build();
+    const amara = await connect(engine);
+    await amara.start('up-done', deck);
+    amara.piece('up-done', 1, piece(8, 1));
+    await amara.end('up-done', 8);
+
+    await amara.start('up-dropped', deck);
+    amara.piece('up-dropped', 1, piece(8, 2));
+    await settle();
+    await amara.close();
+    await settle();
+
+    await (engine.admin() as any).purgeUser('u_amara');
+    await engine.handleAlarm();
+    await settle();
+
+    expect(discarded).toEqual([{ input: deck, savedThrough: 8, state: { parts: 1 } }]);
+    expect(rows(sql)).toEqual([]);
+  });
+
+  it('keeps size NULL with no size at the start, and moves updated_at when a dropped run ends', async () => {
+    const { engine, sql } = build({ saveEvery: false });
+    const amara = await connect(engine);
+    await amara.start('up-1', deck);
+    await settle();
+    const startedAt = rows(sql)[0].updated_at;
+
+    expect(rows(sql)[0].size).toBeNull();
+
+    const realNow = Date.now;
+    try {
+      Date.now = () => startedAt + 30_000;
+      await amara.close();
+      await settle();
+      expect(rows(sql)[0].updated_at).toBe(startedAt + 30_000);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it('logs a run that ignores its signal for 10 s, and ignores what it does later', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const lateRunLogs: string[] = [];
+      let wake!: () => void;
+      const { engine, discarded, probeErrors } = build({
+        hang: new Promise((resolve) => (wake = resolve)),
+        logger: {
+          info() {},
+          warn() {},
+          error(message) {
+            if (String(message).includes('did not stop within 10 s')) {
+              lateRunLogs.push(String(message));
+            }
+          },
+        },
+      });
+      const amara = await connect(engine);
+
+      await amara.start('up-1', deck);
+      amara.piece('up-1', 1, piece(8, 1));
+      await vi.advanceTimersByTimeAsync(10);
+
+      const cancelling = amara.cancel('up-1');
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(lateRunLogs).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      await cancelling;
+      expect(lateRunLogs).toHaveLength(1);
+      expect(discarded).toHaveLength(1);
+      const framesBefore = amara.frames().length;
+
+      wake();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(probeErrors).toEqual(['upload-aborted']);
+      expect(amara.frames()).toHaveLength(framesBefore);
+      expect(discarded).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

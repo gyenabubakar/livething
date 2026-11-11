@@ -483,6 +483,50 @@ describe('a binary frame in the shared pipeline', () => {
     expect(errorCodes()).toEqual(['rate-limited']);
   });
 
+  it.each([
+    [false, 1],
+    [true, 2],
+  ])('with allowInterleaving %s, runs %i frames at once', async (allowInterleaving, running) => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => (release = resolve));
+    let started = 0;
+    const base = server({ capabilities: [binary()] });
+    const handleUploadAvatar = base.binary.on('upload-avatar', {
+      allowInterleaving,
+      async run() {
+        started += 1;
+        await blocked;
+      },
+    });
+
+    const { engine } = build(base.assemble({ handlers: [handleUploadAvatar] }));
+    const { handle } = await connect(engine);
+
+    const sends = [
+      handle.handleBinaryMessage(frame('upload-avatar', null, null)),
+      handle.handleBinaryMessage(frame('upload-avatar', null, null)),
+    ];
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(started).toBe(running);
+    release();
+    await Promise.all(sends);
+    expect(started).toBe(2);
+  });
+
+  it('drops an envelope whose event is not a string, and keeps the socket open', async () => {
+    const seen: Seen[] = [];
+    const { engine } = build(huddle(seen));
+    const { handle, closes, sent } = await connect(engine);
+    const before = sent.length;
+
+    await handle.handleBinaryMessage(encodeBinaryFrame('[42,null,null]', picture));
+
+    expect(closes).toEqual([]);
+    expect(sent.length).toBe(before);
+    expect(seen).toEqual([]);
+  });
+
   it('checks membership, then the rate limit, then runs the intercepts, then the info', async () => {
     const intercepted: string[] = [];
     const base = server({

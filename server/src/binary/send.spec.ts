@@ -466,6 +466,12 @@ describe('declaring binary events and handlers', () => {
     expect(() => base.binary.on('__upload', { run() {} })).toThrow(/reserved '__' prefix/);
   });
 
+  it('refuses an empty name', () => {
+    const base = server({ capabilities: [binary()] });
+
+    expect(() => build(base.assemble({ handlers: [base.binary.on('', { run() {} })] }))).toThrow();
+  });
+
   it('refuses a name with :: when the engine is built', () => {
     const base = server({ capabilities: [binary({ emits: { 'avatar::preview': t<null>() } })] });
 

@@ -757,6 +757,35 @@ describe('socket.binary.upload', () => {
     expect(progress).toEqual([0, 8, 4]);
   });
 
+  it('gives an upload with no uploadId a new id of its own', () => {
+    const { socket } = connected();
+    const first = socket.binary.upload('upload-attachment', deck, file);
+    const second = socket.binary.upload('upload-attachment', deck, file);
+
+    expect(first.id).toEqual(expect.any(String));
+    expect(first.id).not.toBe('');
+    expect(second.id).not.toBe(first.id);
+  });
+
+  it('a start() after the upload is done returns the same result and sends nothing', async () => {
+    const { socket, ws } = connected();
+    const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });
+    const done = upload.start();
+    await settle();
+    ws.emit({
+      event: '__uploadDone__',
+      payload: { info: { size: 10 } },
+      metadata: { upload: { id: 'up-1' } },
+    });
+
+    const result = await done;
+    const count = ws.sent.length;
+
+    await expect(upload.start()).resolves.toBe(result);
+    await settle();
+    expect(ws.sent).toHaveLength(count);
+  });
+
   it('refuses a bad upload id, and needs binary()', () => {
     const { socket } = connected();
     expect(() => socket.binary.upload('upload-attachment', deck, file, { uploadId: '' })).toThrow(

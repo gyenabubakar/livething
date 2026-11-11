@@ -165,6 +165,10 @@ describe('createSql.exec — one-shot result contract', () => {
     } as unknown as DurableObjectState;
   }
 
+  it('limits one stored row to 8 MB, the row limit of Cloudflare SQL', () => {
+    expect(createSql(stateWithCursor([])).limits?.maxValueBytes).toBe(8_000_000);
+  });
+
   it('throws on a second method call against the same result', () => {
     const sql = createSql(stateWithCursor([{ id: 1, name: 'a' }]));
     const result = sql.exec('SELECT id, name FROM things');

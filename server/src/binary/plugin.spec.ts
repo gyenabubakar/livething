@@ -89,6 +89,21 @@ async function connect(engine: Engine) {
 }
 
 describe('a plugin that lists binary()', () => {
+  it('counts its __<id>:: prefix in the 128 characters of a binary name', () => {
+    // '__acme:screens::' is 16 characters, so 112 is the longest name.
+    function screensWith(name: string) {
+      const screens = server({ scope: 'plugin', capabilities: [binary()] });
+      const handleShare = screens.binary.on(name, { run() {} });
+      const Screens = plugin('acme:screens', {
+        definition: screens.assemble({ handlers: [handleShare] }),
+      });
+      return server({ capabilities: [Screens()] }).assemble({ handlers: [] });
+    }
+
+    expect(() => start(screensWith('a'.repeat(112)))).not.toThrow();
+    expect(() => start(screensWith('a'.repeat(113)))).toThrow(/128/);
+  });
+
   it('takes its binary events under its __<id>:: prefix, and sends them back prefixed', async () => {
     const seen: number[][] = [];
     const Screens = screensPlugin(seen);

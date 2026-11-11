@@ -548,6 +548,65 @@ describe('a recorded binary stream at a limit', () => {
     ]);
   });
 
+  it('keeps 500 chunks by default', async () => {
+    const { engine, seen } = build();
+    const amara = await connect(engine);
+
+    await amara.start('download-recording', { ...standup, pieces: 501, size: 1 }, { id: 'rec-1' });
+
+    const sent = amara.streamFrames('rec-1').filter((frame) => frame.kind === 'bytes');
+    expect(sent).toHaveLength(500);
+    expect(seen.at(-1)).toEqual({ reason: 'buffer-full' });
+  });
+
+  it('keeps 64 MiB of chunks by default', async () => {
+    const third = Math.floor((64 * 1024 * 1024) / 3);
+    const { engine, seen } = build();
+    const amara = await connect(engine);
+
+    await amara.start('download-recording', { ...standup, size: third - 100 }, { id: 'rec-1' });
+    expect(seen.filter((entry) => (entry as { reason?: string }).reason)).toEqual([]);
+
+    await amara.start('download-recording', { ...standup, size: third + 100 }, { id: 'rec-2' });
+    expect(seen.filter((entry) => (entry as { reason?: string }).reason)).toEqual([
+      { reason: 'buffer-full' },
+    ]);
+  });
+
+  it('checks the bytes of the frame that starts it with maxBytes', async () => {
+    const base = server({ capabilities: [binary(), recordedStream()] });
+    const handleExportRoomPdf = base.binary.recordedStream('export-room-pdf', {
+      maxBytes: 4,
+      async *run() {
+        yield { info: null, bytes: piece(1, 1) };
+      },
+    });
+    let engine!: Engine;
+    adapter({
+      id: 'recorded-binary-max-bytes-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        engine = createEngine({
+          storage: { sql: createTestSql(), kv: createTestKV() },
+          timers: createTestTimers(),
+          platform: {},
+          logger: { info() {}, warn() {}, error() {} },
+        });
+        return {};
+      },
+    })(base.assemble({ handlers: [handleExportRoomPdf] }), undefined as never);
+    const amara = await connect(engine);
+
+    await amara.start('export-room-pdf', null, { id: 'pdf-1', bytes: piece(4, 1) });
+    await amara.start('export-room-pdf', null, { id: 'pdf-2', bytes: piece(5, 1) });
+
+    expect(amara.streamFrames('pdf-1').map((frame) => frame.envelope[0])).toEqual([
+      'export-room-pdf',
+      '__streamEnd__',
+    ]);
+    expect(amara.frames().at(-1)!.envelope[1]).toMatchObject({ code: 'validation-failed' });
+  });
+
   it('holds a JSON recorded stream to maxBufferBytes too', async () => {
     const { engine } = build({ recording: { maxBufferBytes: 250 } });
     const amara = await connect(engine);

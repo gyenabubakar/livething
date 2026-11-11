@@ -864,6 +864,42 @@ describe('ctx.binary.request', () => {
     ]);
   });
 
+  it('asks every socket of a user, and ignores a binary answer whose info fails in', async () => {
+    const results: unknown[] = [];
+    const engine = start(huddle(results));
+    const amara = await connect(engine, 'u_amara');
+    const kofiPhone = await connect(engine, 'u_kofi');
+    const kofiLaptop = await connect(engine, 'u_kofi');
+
+    await amara.handle.handleMessage(textOf('ask-kofi-for-screen', null, null));
+    function answerOf(socket: typeof kofiPhone) {
+      const { exchange } = socket.frames().at(-1)!.envelope[2] as { exchange: { id: string } };
+      return { exchange: { id: exchange.id, source: 'server' } };
+    }
+
+    await kofiPhone.handle.handleBinaryMessage(
+      frameOf('capture-screen', { fileType: 'image/gif' }, answerOf(kofiPhone)),
+    );
+    await tick();
+    expect(results).toEqual([]);
+
+    await kofiLaptop.handle.handleBinaryMessage(
+      frameWithBytes(
+        ['capture-screen', { fileType: 'image/png' }, answerOf(kofiLaptop)],
+        thumbnail,
+      ),
+    );
+    await tick();
+
+    expect(results).toEqual([
+      {
+        info: { fileType: 'image/png' },
+        bytes: thumbnail,
+        from: expect.objectContaining({ id: kofiLaptop.connection.id }),
+      },
+    ]);
+  });
+
   it('keeps JSON and binary server requests apart', async () => {
     const results: unknown[] = [];
     const { handle, frames } = await connect(start(huddle(results)));
