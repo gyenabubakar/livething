@@ -111,6 +111,11 @@ export declare function collectBytes(
   pieces: AsyncIterable<UploadPiece>,
   totalBytes: number,
 ): Promise<Uint8Array | null>;
+/** Returns a signed URL that lets anyone who has it read the attachment's file from the bucket, until it expires. */
+export declare function signAttachmentUrl(
+  attachmentId: string,
+  expiresInSeconds: number,
+): Promise<string>;
 /** Starts a multipart upload of an attachment in Huddle's S3 or R2 bucket, and returns its id. */
 export declare function startAttachmentUpload(attachmentId: string): Promise<string>;
 /** Uploads one part of a multipart upload. Uploading the same part number again replaces it. */
