@@ -169,7 +169,6 @@ export function frameMatches(
   );
   if (frame.event !== parsed.event) return false;
 
-  // A binary handler matches only a binary frame, and a JSON handler only a text frame.
   if ((binary === true) !== (frame.bytes !== undefined)) return false;
 
   if (!routingMatches(parsed, channel, frame)) return false;

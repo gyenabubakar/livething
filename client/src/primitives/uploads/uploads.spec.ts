@@ -161,6 +161,34 @@ describe('socket.binary.upload', () => {
     expect(ws.sent).toHaveLength(count);
   });
 
+  it('uploads an empty file: no pieces, then the end with totalBytes 0', async () => {
+    const { socket, ws } = connected();
+    const upload = socket.binary.upload('upload-attachment', deck, new Uint8Array(0), {
+      uploadId: 'up-1',
+    });
+    const done = upload.start();
+    await settle();
+
+    ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 8 });
+    await settle();
+    expect(sent(ws)).toEqual([
+      {
+        event: 'upload-attachment',
+        payload: deck,
+        metadata: { upload: { id: 'up-1', size: 0 } },
+        bytes: [],
+      },
+      { event: '__uploadEnd__', payload: { totalBytes: 0 }, metadata: { upload: { id: 'up-1' } } },
+    ]);
+
+    ws.emit({
+      event: '__uploadDone__',
+      payload: { info: { size: 0 } },
+      metadata: { upload: { id: 'up-1' } },
+    });
+    await expect(done).resolves.toEqual({ info: { size: 0 } });
+  });
+
   it('returns the same promise from a second start() while one runs', () => {
     const { socket } = connected();
     const upload = socket.binary.upload('upload-attachment', deck, file);

@@ -309,6 +309,25 @@ describe('base.binary.upload', () => {
     expect(kinds).toEqual(['upload-attachment:upload']);
   });
 
+  it('finishes an empty file: run reads no pieces and replies', async () => {
+    const { engine, runs } = build();
+    const amara = await connect(engine);
+
+    await amara.start('up-1', deck, 0);
+    await amara.end('up-1', 0);
+    await settle();
+
+    expect(amara.of('up-1')).toEqual([
+      [
+        '__uploadAck__',
+        { receivedThrough: 0, savedThrough: 0, pieceBytes: 8, windowBytes: 16 },
+        { upload: { id: 'up-1' } },
+      ],
+      ['__uploadDone__', { info: { size: 0 } }, { upload: { id: 'up-1' } }],
+    ]);
+    expect(runs).toEqual([{ savedThrough: 0, state: undefined, offsets: [], ended: 'done' }]);
+  });
+
   it('resumes from the saved offset on a new connection, with the saved state', async () => {
     const { engine, runs } = build();
     const first = await connect(engine);

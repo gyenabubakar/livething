@@ -1,10 +1,4 @@
-import {
-  Block,
-  encodeBinaryFrame,
-  encodeMessage,
-  LiveThingConfigError,
-  splitBinaryFrame,
-} from '@livething/core';
+import { Block, encodeMessage, LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
@@ -18,10 +12,15 @@ import { reconnection } from '~/primitives/reconnection/index.ts';
 import { replay } from '~/primitives/replay.ts';
 import { serverRequests } from '~/primitives/server-requests/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
-import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
+import {
+  decodeSentFrame as decodeSent,
+  binaryFrame as frame,
+  installMockWebSocket,
+  MockWebSocket,
+} from '~/test-helpers.ts';
 import { injectBinary, injectChannel, injectChannelBinary } from '~/testing.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LiveThingMetadata, Message } from '@livething/core';
+import type { Message } from '@livething/core';
 import type { Primitive } from '~/primitives/types.ts';
 
 interface C {
@@ -76,24 +75,6 @@ function connected(...extras: Primitive[]) {
   ws.open();
 
   return { socket, ws };
-}
-
-// oxlint-disable-next-line max-params -- mirrors the frame: event, info, metadata, bytes
-function frame(
-  event: string,
-  payload: unknown,
-  metadata: LiveThingMetadata | null,
-  bytes?: Uint8Array,
-): ArrayBuffer {
-  return encodeBinaryFrame(encodeMessage({ event, payload, metadata }), bytes).buffer;
-}
-
-function decodeSent(data: unknown): Message {
-  const split = splitBinaryFrame(data as Uint8Array);
-  if (split.kind !== 'frame') throw new Error(`not a binary frame: ${split.kind}`);
-
-  const [event, payload, metadata] = JSON.parse(split.envelope);
-  return { event, payload, metadata, bytes: split.bytes };
 }
 
 const picture = new Uint8Array([137, 80, 78, 71]);

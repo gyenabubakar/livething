@@ -357,7 +357,6 @@ function matchHandlers(
     request: handlers.requests.get(event),
     stream: handlers.streams.get(event),
     recordedStream: handlers.recordedStreams.get(event),
-    // Uploads are top-level only.
     upload: scope.channel ? undefined : compiled.uploads?.get(event),
   };
 }

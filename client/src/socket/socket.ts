@@ -4,6 +4,7 @@ import {
   decodeMessage,
   encodeMessage,
   LiveThingConfigError,
+  utf8ByteLength,
 } from '@livething/core';
 import { assertValidTtl } from '~/internal/config.ts';
 import { dispatchToHandlers, keepFrameKind, runMessageHook } from '~/internal/dispatch.ts';
@@ -66,7 +67,7 @@ function isValidCloseCode(code: unknown): code is number {
 }
 
 function isValidCloseReason(reason: unknown): reason is string {
-  return typeof reason === 'string' && new TextEncoder().encode(reason).byteLength <= 123;
+  return typeof reason === 'string' && utf8ByteLength(reason) <= 123;
 }
 
 /** The URL safe for a log line: no userinfo, query string or hash, which can carry credentials such as an auth token. */

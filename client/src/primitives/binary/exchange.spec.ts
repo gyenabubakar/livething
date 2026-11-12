@@ -1,12 +1,6 @@
 // Binary requests, binary server requests and binary streams on the client (binary spec
 // 7.4, 7.5, 9.2, 9.3). The names and shapes are Huddle's.
-import {
-  encodeBinaryFrame,
-  encodeMessage,
-  LiveThingError,
-  splitBinaryFrame,
-  StreamAborted,
-} from '@livething/core';
+import { LiveThingError, StreamAborted } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { Disconnected, StreamCorrupted, StreamOverflow, Timeout } from '~/errors.ts';
@@ -17,9 +11,13 @@ import { channels } from '~/primitives/channels/index.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { serverRequests } from '~/primitives/server-requests/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
-import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
+import {
+  decodeSentFrame as decodeSent,
+  binaryFrame as frame,
+  installMockWebSocket,
+  MockWebSocket,
+} from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LiveThingMetadata, Message } from '@livething/core';
 import type { Primitive } from '~/primitives/types.ts';
 
 type Attachment = { fileName: string; fileType: string } | null;
@@ -106,24 +104,6 @@ function connected(...extras: Primitive[]) {
 
 function everything() {
   return connected(binary(), channels(), clientRequests(), serverRequests(), stream());
-}
-
-// oxlint-disable-next-line max-params -- mirrors the frame: event, info, metadata, bytes
-function frame(
-  event: string,
-  payload: unknown,
-  metadata: LiveThingMetadata | null,
-  bytes?: Uint8Array,
-): ArrayBuffer {
-  return encodeBinaryFrame(encodeMessage({ event, payload, metadata }), bytes).buffer;
-}
-
-function decodeSent(data: unknown): Message {
-  const split = splitBinaryFrame(data as Uint8Array);
-  if (split.kind !== 'frame') throw new Error(`not a binary frame: ${split.kind}`);
-
-  const [event, payload, metadata] = JSON.parse(split.envelope);
-  return { event, payload, metadata, bytes: split.bytes };
 }
 
 const thumbnail = new Uint8Array([137, 80, 78, 71, 13, 10]);

@@ -21,26 +21,32 @@ export { context } from './ambient-context.ts';
 export { server } from './_define/server.ts';
 export type {
   Base,
-  BinaryIncomingHandlerValue,
-  BinaryRequestHandlerValue,
-  BinaryUploadHandlerValue,
-  ChannelBinaryMethods,
   ChannelCoreMethods,
+  ChannelHandlerContribution,
+  ChannelOwnSlice,
   ChannelRecordedStreamMethod,
   ChannelRequestMethods,
   ChannelStreamMethod,
   CoreBase,
   ServerConfig,
   IncomingHandlerValue,
+  NudgesContract,
   OnConfig,
   RequestConfig,
   RequestHandlerValue,
   ScheduledHandlerValue,
   ScopedServerConfig,
   ScopedUpgradeFn,
+  StreamHandlerValue,
   UpgradeFn,
   UpgradeReturn,
 } from './_define/server.ts';
+export type {
+  BinaryIncomingHandlerValue,
+  BinaryRequestHandlerValue,
+  BinaryUploadHandlerValue,
+  ChannelBinaryMethods,
+} from './binary/types.ts';
 export type {
   AppCtx,
   BinaryEventsCarrier,

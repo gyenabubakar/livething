@@ -1,3 +1,6 @@
+import { encodeBinaryFrame, encodeMessage, splitBinaryFrame } from '@livething/core';
+import type { LiveThingMetadata, Message } from '@livething/core';
+
 type EvParameter = { code: number; reason: string; wasClean: boolean };
 type EvParameter2 = { data: unknown };
 /* oxlint-disable @typescript-eslint/no-explicit-any -- test harness */
@@ -141,4 +144,24 @@ export function installMockWebSocket(): () => void {
   return () => {
     (globalThis as any).WebSocket = original;
   };
+}
+
+/** A binary frame from the server, as the client's socket receives it. */
+// oxlint-disable-next-line max-params -- mirrors the frame: event, info, metadata, bytes
+export function binaryFrame(
+  event: string,
+  payload: unknown,
+  metadata: LiveThingMetadata | null,
+  bytes?: Uint8Array,
+): ArrayBuffer {
+  return encodeBinaryFrame(encodeMessage({ event, payload, metadata }), bytes).buffer;
+}
+
+/** Reads back a binary frame the client sent. */
+export function decodeSentFrame(data: unknown): Message {
+  const split = splitBinaryFrame(data as Uint8Array);
+  if (split.kind !== 'frame') throw new Error(`not a binary frame: ${split.kind}`);
+
+  const [event, payload, metadata] = JSON.parse(split.envelope);
+  return { event, payload, metadata, bytes: split.bytes };
 }

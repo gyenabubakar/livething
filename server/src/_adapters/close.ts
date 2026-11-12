@@ -33,13 +33,12 @@ const MAX_CLOSE_REASON_BYTES = 123;
 export function normalizeCloseReason(reason?: string): string | undefined {
   if (reason === undefined) return undefined;
 
-  const encoder = new TextEncoder();
-  if (encoder.encode(reason).byteLength <= MAX_CLOSE_REASON_BYTES) return reason;
+  if (utf8ByteLength(reason) <= MAX_CLOSE_REASON_BYTES) return reason;
 
   let bytes = 0;
   let limited = '';
   for (const character of reason) {
-    const characterBytes = encoder.encode(character).byteLength;
+    const characterBytes = utf8ByteLength(character);
     if (bytes + characterBytes > MAX_CLOSE_REASON_BYTES) break;
 
     limited += character;
