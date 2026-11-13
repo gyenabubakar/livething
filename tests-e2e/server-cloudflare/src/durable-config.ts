@@ -1,7 +1,7 @@
-import { bind } from '@livething/server-cloudflare';
 import { durableConfigDefinition } from '@livething/tests-e2e-handlers/durable-config';
+import { bindFixture } from './bind-fixture.ts';
 
-const Base = bind(durableConfigDefinition);
+const Base = bindFixture(durableConfigDefinition);
 
 // Adds the test-harness restart() (ctx.abort discards in-memory state while
 // durable storage survives) so persistent-sequence continue is observable.

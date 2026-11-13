@@ -3,6 +3,8 @@ import {
   adapter,
   asUint8Array,
   createOriginCheck,
+  createSseHub,
+  errorAnswer,
   isValidCloseCode,
   normalizeCloseReason,
   resolveTransports,
@@ -21,6 +23,7 @@ import type {
 import { buildAdmin } from './admin.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
+import { createCloudflareSseHandler } from './sse.ts';
 import type { CloudflareAdmin } from './admin.ts';
 
 /** `WebSocket.READY_STATE_OPEN` on Workers. */
@@ -110,12 +113,13 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
     definition: ServerDefinition,
   ) {
     const originAllowed = createOriginCheck(options.allowedOrigins);
-    // ponytail: only checked for now; step 8 serves sse() on Cloudflare.
-    resolveTransports(options.transports, definition);
+    const transports = resolveTransports(options.transports, definition);
+    const maxPostBytes = transports.sse?.maxPostBytes;
 
     return class LiveThingDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine<TApi>;
       private readonly ready: Promise<void>;
+      private readonly handleSse: (request: Request) => Promise<Response>;
 
       constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
@@ -141,7 +145,26 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
           messageLimits: {
             receiveBytes: CLOUDFLARE_MESSAGE_BYTES,
             sendBytes: CLOUDFLARE_MESSAGE_BYTES,
+            ...(maxPostBytes === undefined ? {} : { postBytes: maxPostBytes }),
           },
+        });
+        this.handleSse = createCloudflareSseHandler({
+          hub:
+            maxPostBytes === undefined
+              ? null
+              : createSseHub({ maxPostBytes, receiveBytes: CLOUDFLARE_MESSAGE_BYTES }),
+          originAllowed,
+          authenticate: (request) => this.engine.authenticate(requestWithClientIp(request)),
+          attach: (socket, decision) =>
+            this.engine.accept(socket, {
+              ...socket,
+              userId: decision.userId ?? '',
+              meta: decision.meta ?? {},
+              tags: decision.tags ?? [],
+              // An open stream keeps the object awake, so the engine runs its timers.
+              // `socket` reports the unread bytes, so the engine's slow-client rules apply.
+              survivesHibernation: false,
+            }),
         });
         // Durable Object refs can be passed through application code and must
         // carry the stable DO id so a ref from another DO cannot match a local
@@ -235,7 +258,12 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
         await this.ready;
 
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-          return new Response('Expected Upgrade: websocket', { status: 426 });
+          return this.handleSse(request);
+        }
+
+        if (!transports.websocket) {
+          const answer = errorAnswer(426, 'not-offered', 'WebSocket is not offered');
+          return new Response(answer.body, { status: answer.status, headers: answer.headers });
         }
 
         if (!originAllowed(request)) {

@@ -1,4 +1,5 @@
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { serverRequests } from '@livething/server/server-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -14,6 +15,7 @@ import { requireUsername } from '../_shared/authenticate.ts';
 export const serverRequestContract = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     serverRequests({
       'ask-permission': { out: t<{ action: string }>(), in: v.object({ allowed: v.boolean() }) },
       'ping-ack': { out: t<{ note: string }>() },

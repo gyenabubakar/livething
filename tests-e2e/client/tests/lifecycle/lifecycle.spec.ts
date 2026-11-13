@@ -21,13 +21,15 @@ test.describe('lifecycle (conformance)', () => {
     await expect(page.getByTestId('open-count')).toHaveText('1');
   });
 
-  test('socket.ws is the live instance when open, and protocol is null', async ({
-    page,
-  }, testInfo) => {
-    await open(page, `life-props-${testInfo.testId}`);
-    await expect(page.getByTestId('ws-present')).toHaveText('yes');
-    await expect(page.getByTestId('protocol')).toHaveText('null');
-  });
+  test(
+    'socket.ws is the live instance when open, and protocol is null',
+    { tag: '@websocket' },
+    async ({ page }, testInfo) => {
+      await open(page, `life-props-${testInfo.testId}`);
+      await expect(page.getByTestId('ws-present')).toHaveText('yes');
+      await expect(page.getByTestId('protocol')).toHaveText('null');
+    },
+  );
 
   test('disconnect() rejects a pending request with Disconnected and closes', async ({
     page,

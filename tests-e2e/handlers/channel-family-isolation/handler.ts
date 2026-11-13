@@ -1,6 +1,7 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { dedup } from '@livething/server/dedup';
+import { keepalive } from '@livething/server/keepalive';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { tags } from '@livething/server/tags';
@@ -32,6 +33,7 @@ const PrivateSendDirectPayload = v.object({ name: v.string(), text: v.string() }
 const base = server({
   authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
+    keepalive(),
     emits({
       'public-members-result': t<{ name: string; count: number; ids: string[] }>(),
       'private-members-result': t<{ name: string; count: number; ids: string[] }>(),

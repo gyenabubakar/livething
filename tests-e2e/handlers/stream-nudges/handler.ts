@@ -1,6 +1,7 @@
 import { emits, errors, server, t } from '@livething/server';
 import { dedup } from '@livething/server/dedup';
 import { error } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -15,6 +16,7 @@ export const NudgeRejected = error('nudge-rejected');
 const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     dedup(),
     errors([NudgeRejected]),
     emits({

@@ -1,5 +1,6 @@
 import { server } from '@livething/server';
 import { Disconnect, StreamAborted } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -13,7 +14,7 @@ const overflowGates = new Map<string, () => void>();
 
 const base = server({
   authenticate: (request) => requireUsername(request),
-  capabilities: [recordedStream()],
+  capabilities: [keepalive(), recordedStream()],
 });
 
 const handleReleaseOverflow = base.on('release-overflow', {

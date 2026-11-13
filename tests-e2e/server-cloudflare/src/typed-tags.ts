@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { typedTagsDefinition } from '@livething/tests-e2e-handlers/typed-tags';
+import { bindFixture } from './bind-fixture.ts';
 
-export class TypedTagsServer extends bind(typedTagsDefinition) {}
+export class TypedTagsServer extends bindFixture(typedTagsDefinition) {}

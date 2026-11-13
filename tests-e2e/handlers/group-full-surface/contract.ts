@@ -3,6 +3,7 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
 import { ValidationFailed } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { rateLimit } from '@livething/server/rate-limit';
 import { scheduled } from '@livething/server/scheduled';
 import { sequence } from '@livething/server/sequence';
@@ -23,6 +24,7 @@ export const GroupRequestKey = localKey<{ tag: string }>('group-request');
 export const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     sequence({ persist: true }),
     dedup(),
     rateLimit(),

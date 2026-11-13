@@ -1,5 +1,6 @@
 import { emits, server, t } from '@livething/server';
 import { dedup } from '@livething/server/dedup';
+import { keepalive } from '@livething/server/keepalive';
 import { sequence } from '@livething/server/sequence';
 import { stream } from '@livething/server/streams';
 import { requireUsername } from '@livething/tests-e2e-handlers/_shared/authenticate';
@@ -56,6 +57,7 @@ export function createPluginsDefinition<
   const base = server({
     authenticate: (request) => requireUsername(request),
     capabilities: [
+      keepalive(),
       stream(),
       sequence({ persist: true }),
       dedup(),

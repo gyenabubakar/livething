@@ -5,6 +5,7 @@ import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
 import { Disconnect } from '@livething/server/errors';
 import { inbox } from '@livething/server/inbox';
+import { keepalive } from '@livething/server/keepalive';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { serverRequests } from '@livething/server/server-requests';
@@ -19,6 +20,7 @@ function defineBinary(options: { hibernation: boolean }) {
     hibernation: options.hibernation,
     authenticate: (request) => requireUsername(request),
     capabilities: [
+      keepalive(),
       binary({
         emits: { 'avatar-preview': t<{ fileType: string; size: number }>() },
         serverRequests: {

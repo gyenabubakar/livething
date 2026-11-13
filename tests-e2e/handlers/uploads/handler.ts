@@ -2,6 +2,7 @@ import { errors, server } from '@livething/server';
 import { binary } from '@livething/server/binary';
 import { clientRequests } from '@livething/server/client-requests';
 import { Disconnect, error } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { plugin } from '@livething/server/plugins';
 import { rateLimit } from '@livething/server/rate-limit';
 import { uploads } from '@livething/server/uploads';
@@ -117,6 +118,7 @@ function defineUploads(options: UploadsOptions, { hibernation = false } = {}) {
     hibernation,
     authenticate: (request) => allowAnonymous(request),
     capabilities: [
+      keepalive(),
       binary(),
       uploads(options),
       clientRequests(),

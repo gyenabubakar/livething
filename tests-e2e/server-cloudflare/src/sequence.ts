@@ -1,7 +1,7 @@
-import { bind } from '@livething/server-cloudflare';
 import { sequenceDefinition } from '@livething/tests-e2e-handlers/sequence';
+import { bindFixture } from './bind-fixture.ts';
 
-const Base = bind(sequenceDefinition);
+const Base = bindFixture(sequenceDefinition);
 
 /**
  * `bind()` only offers a graceful `shutdown()` that drains connections while

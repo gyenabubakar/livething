@@ -9,14 +9,17 @@ import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 // stored copy. Only a real worker can prove this: node:sqlite allows 32,766, so
 // a unit test against it passes either way. That is exactly how this shipped.
 
-const MEMBERS = 24; // Comfortably past the 12-member ceiling of one statement.
+// The SSE run uses 5: a browser opens only 6 connections to one host, each member's
+// stream holds one, and the POSTs need the last. 5 stays under the bind limit, so
+// that run checks the inbox flow over SSE, not the batching.
+const MEMBERS = process.env.LIVETHING_E2E_TRANSPORT === 'sse' ? 5 : 24;
 
 test.describe('inbox at scale (raw wire, real Durable Object)', () => {
   // Asserts the DURABLE side directly. A fan-out that throws is logged and the
   // live broadcast still proceeds, so every online member is served either way
   // and live frames alone prove nothing. `get-backlog` reports the rows actually
   // written, which is the thing the bind limit breaks.
-  test('a broadcast writes a durable row for all 23 other members', async ({ page }, testInfo) => {
+  test('a broadcast writes a durable row for every other member', async ({ page }, testInfo) => {
     test.slow();
     const room = `test-${testInfo.testId}`;
     await page.goto('/inbox-handle');
@@ -72,7 +75,7 @@ test.describe('inbox at scale (raw wire, real Durable Object)', () => {
 
   // The same bind limit seen from the member's side, on the plain `inbox`
   // fixture: a row that was never written is a message the member never gets.
-  test('a member offline during a 24-member broadcast still gets it on reconnect', async ({
+  test('a member offline during a large broadcast still gets it on reconnect', async ({
     page,
   }, testInfo) => {
     test.slow();

@@ -1,5 +1,6 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { keepalive } from '@livething/server/keepalive';
 import { stream } from '@livething/server/streams';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
@@ -14,6 +15,7 @@ const KickByTagPayload = v.object({ tag: v.string(), reason: v.string() });
 const base = server({
   authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
+    keepalive(),
     channels(),
     stream(),
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),

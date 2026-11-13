@@ -1,6 +1,7 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { ValidationFailed } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/authenticate.ts';
@@ -12,6 +13,7 @@ const TriggerServerSubscribeDynamicPayload = v.object({ name: v.string() });
 const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     channels(),
     emits({
       'top-only-action-fired': t<{ from: string }>(),

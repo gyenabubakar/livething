@@ -19,36 +19,38 @@ function tokens(text: string | null): string[] {
   return text ? text.split(',') : [];
 }
 
-test('a broadcast chunk never reaches the same listener twice across a reconnect', async ({
-  browser,
-}, testInfo) => {
-  const room = `sbr-${testInfo.testId}`;
-  const trigger = await browser.newContext();
-  const peer = await browser.newContext();
-  const a = await trigger.newPage();
-  const b = await peer.newPage();
+test(
+  'a broadcast chunk never reaches the same listener twice across a reconnect',
+  { tag: '@websocket' },
+  async ({ browser }, testInfo) => {
+    const room = `sbr-${testInfo.testId}`;
+    const trigger = await browser.newContext();
+    const peer = await browser.newContext();
+    const a = await trigger.newPage();
+    const b = await peer.newPage();
 
-  await open(a, room, 'alice');
-  await open(b, room, 'bob');
-  await b.getByTestId('listen').click();
+    await open(a, room, 'alice');
+    await open(b, room, 'bob');
+    await b.getByTestId('listen').click();
 
-  await a.getByTestId('start').click();
-  await expect(b.getByTestId('peer-chunks')).toHaveText(/t2/);
+    await a.getByTestId('start').click();
+    await expect(b.getByTestId('peer-chunks')).toHaveText(/t2/);
 
-  await b.getByTestId('drop').click();
-  await expect(b.getByTestId('status')).not.toHaveText('open');
-  await expect(b.getByTestId('status')).toHaveText('open');
+    await b.getByTestId('drop').click();
+    await expect(b.getByTestId('status')).not.toHaveText('open');
+    await expect(b.getByTestId('status')).toHaveText('open');
 
-  await b.getByTestId('continue').click();
-  await expect(a.getByTestId('trigger-end')).toHaveText('yes');
-  await expect(b.getByTestId('continue-end')).toHaveText('yes');
-  await b.waitForTimeout(1_000);
+    await b.getByTestId('continue').click();
+    await expect(a.getByTestId('trigger-end')).toHaveText('yes');
+    await expect(b.getByTestId('continue-end')).toHaveText('yes');
+    await b.waitForTimeout(1_000);
 
-  const peerChunks = tokens(await b.getByTestId('peer-chunks').textContent());
-  const continueChunks = tokens(await b.getByTestId('continue-chunks').textContent());
-  expect(new Set(peerChunks).size).toBe(peerChunks.length);
-  expect(new Set(continueChunks).size).toBe(continueChunks.length);
+    const peerChunks = tokens(await b.getByTestId('peer-chunks').textContent());
+    const continueChunks = tokens(await b.getByTestId('continue-chunks').textContent());
+    expect(new Set(peerChunks).size).toBe(peerChunks.length);
+    expect(new Set(continueChunks).size).toBe(continueChunks.length);
 
-  await trigger.close();
-  await peer.close();
-});
+    await trigger.close();
+    await peer.close();
+  },
+);

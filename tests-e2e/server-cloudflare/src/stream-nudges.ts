@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { streamNudgesDefinition } from '@livething/tests-e2e-handlers/stream-nudges';
+import { bindFixture } from './bind-fixture.ts';
 
-export class StreamNudgesServer extends bind(streamNudgesDefinition) {}
+export class StreamNudgesServer extends bindFixture(streamNudgesDefinition) {}

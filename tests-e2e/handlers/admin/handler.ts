@@ -1,5 +1,6 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { keepalive } from '@livething/server/keepalive';
 import { lastSeen } from '@livething/server/last-seen';
 import { scheduled } from '@livething/server/scheduled';
 import { recordedStream } from '@livething/server/streams';
@@ -10,6 +11,7 @@ import { requireUsername } from '../_shared/authenticate.ts';
 const base = server({
   authenticate: requireUsername,
   capabilities: [
+    keepalive(),
     channels(),
     scheduled({ 'admin-announce': { data: t<{ text: string }>() } }),
     // Listed but never used: this server declares a durable stream and no test

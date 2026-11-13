@@ -1,5 +1,6 @@
 import { emits, server, t } from '@livething/server';
 import { ValidationFailed } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/authenticate.ts';
@@ -7,6 +8,7 @@ import { requireUsername } from '../_shared/authenticate.ts';
 const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     emits({
       'echo-pong': t<{ text: string }>(),
       'async-done': t<{ message: string }>(),

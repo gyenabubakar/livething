@@ -1,4 +1,6 @@
-import { bind } from '@livething/server-cloudflare';
 import { replayFamilyKeyEqualsNameDefinition } from '@livething/tests-e2e-handlers/replay-family-key-equals-name';
+import { bindFixture } from './bind-fixture.ts';
 
-export class ReplayFamilyKeyEqualsNameServer extends bind(replayFamilyKeyEqualsNameDefinition) {}
+export class ReplayFamilyKeyEqualsNameServer extends bindFixture(
+  replayFamilyKeyEqualsNameDefinition,
+) {}

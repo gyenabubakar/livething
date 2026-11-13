@@ -3,6 +3,11 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [sveltekit()],
+  define: {
+    'import.meta.env.VITE_LIVETHING_TRANSPORT': JSON.stringify(
+      process.env.LIVETHING_E2E_TRANSPORT ?? 'websocket',
+    ),
+  },
   server: {
     host: '127.0.0.1',
     port: 4173,

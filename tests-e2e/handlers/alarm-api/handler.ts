@@ -1,4 +1,5 @@
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { scheduled } from '@livething/server/scheduled';
 import * as v from 'valibot';
 import type { ConnectionContext, InferClient } from '@livething/server';
@@ -9,7 +10,11 @@ function assertNoConnectionAlarm(ctx: ConnectionContext) {
 }
 
 const base = server({
-  capabilities: [scheduled({ 'alarm-api-task': null }), emits({ 'alarm-api-reply': t<{}>() })],
+  capabilities: [
+    keepalive(),
+    scheduled({ 'alarm-api-task': null }),
+    emits({ 'alarm-api-reply': t<{}>() }),
+  ],
   onInit(ctx) {
     // @ts-expect-error Product init handlers cannot call the platform alarm API.
     ctx.setAlarm(Date.now());

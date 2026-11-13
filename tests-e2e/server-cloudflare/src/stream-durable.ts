@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { streamDurableDefinition } from '@livething/tests-e2e-handlers/stream-durable';
+import { bindFixture } from './bind-fixture.ts';
 
-export class StreamDurableServer extends bind(streamDurableDefinition) {}
+export class StreamDurableServer extends bindFixture(streamDurableDefinition) {}

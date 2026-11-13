@@ -1,6 +1,7 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { Disconnect } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/authenticate.ts';
@@ -16,7 +17,7 @@ const SendPayload = v.object({ text: v.string() });
 
 const base = server({
   authenticate: (request) => requireUsername(request),
-  capabilities: [channels()],
+  capabilities: [keepalive(), channels()],
 });
 
 // Uses both check and commit: check validates the token, commit enforces the capacity.

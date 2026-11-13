@@ -1,6 +1,7 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { dedup } from '@livething/server/dedup';
+import { keepalive } from '@livething/server/keepalive';
 import { sequence } from '@livething/server/sequence';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
@@ -37,6 +38,7 @@ const KickAckPayload = v.object({ where: v.string() });
 const base = server({
   authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
+    keepalive(),
     dedup(),
     sequence({ persist: true }),
     channels(),

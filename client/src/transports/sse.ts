@@ -263,6 +263,7 @@ function openSse(options: TransportOpenOptions): Transport {
     let count = 0;
     let size = 0;
     const limit = Math.min(busyRoom, MAX_BATCH_FRAMES);
+
     while (count < dataQueue.length && count < limit) {
       const next = dataQueue[count]!.bytes.byteLength + FRAME_HEADER_BYTES;
       if (size + next > maxPostBytes) break;
@@ -272,6 +273,7 @@ function openSse(options: TransportOpenOptions): Transport {
     }
 
     const batch = dataQueue.slice(0, count);
+
     dataInFlight = sendData(batch).finally(() => {
       dataInFlight = null;
       pumpData();
@@ -291,12 +293,15 @@ function openSse(options: TransportOpenOptions): Transport {
 
     if (response.status === 204) {
       dataQueue.splice(0, batch.length);
+
       for (const frame of batch) queuedBytes -= frame.bytes.byteLength;
+
       busyRoom = MAX_BATCH_FRAMES;
       busyWait = BUSY_FIRST_WAIT_MS;
       busySince = null;
 
       postAccepted();
+
       return;
     }
 
@@ -305,7 +310,9 @@ function openSse(options: TransportOpenOptions): Transport {
         room?: unknown;
         retryAfterMs?: unknown;
       } | null;
+
       busySince ??= Date.now();
+
       if (Date.now() - busySince > BUSY_GIVE_UP_MS) {
         postFailed(response);
         return;
@@ -315,7 +322,9 @@ function openSse(options: TransportOpenOptions): Transport {
       busyRoom = typeof answer?.room === 'number' && answer.room > 0 ? answer.room : 1;
       const retryAfterMs = typeof answer?.retryAfterMs === 'number' ? answer.retryAfterMs : 0;
       const wait = Math.max(busyWait, retryAfterMs);
+
       busyWait = Math.min(busyWait * 2, BUSY_MAX_WAIT_MS);
+
       busyTimer = setTimeout(() => {
         busyTimer = null;
         pumpData();
@@ -331,6 +340,7 @@ function openSse(options: TransportOpenOptions): Transport {
     if (controlInFlight || state !== 'open' || controlQueue.length === 0) return;
 
     const frames = controlQueue.splice(0);
+
     controlInFlight = sendControlBatch(frames).finally(() => {
       controlInFlight = null;
       pumpControl();
@@ -371,13 +381,16 @@ function openSse(options: TransportOpenOptions): Transport {
     dataQueue.length = 0;
     controlQueue.length = 0;
     queuedBytes = 0;
+
     await settleWithin(dataInFlight);
 
     await settleWithin(controlInFlight);
     const frame = JSON.stringify(['__close__', { code, reason }, null]);
+
     await settleWithin(
       post('control', encodeBatch([{ binary: false, bytes: encoder.encode(frame) }])),
     );
+
     finish(code, reason, true);
   }
 
@@ -428,6 +441,7 @@ function encodeBatch(frames: readonly QueuedFrame[]): Uint8Array<ArrayBuffer> {
   const size = frames.reduce((sum, frame) => sum + FRAME_HEADER_BYTES + frame.bytes.byteLength, 0);
   const body = new Uint8Array(size);
   const view = new DataView(body.buffer);
+
   let offset = 0;
   for (const frame of frames) {
     body[offset] = frame.binary ? 1 : 0;
@@ -452,12 +466,14 @@ async function settleWithin(promise: Promise<unknown> | null): Promise<void> {
   if (!promise) return;
 
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   await Promise.race([
     promise.catch(() => {}),
     new Promise((resolve) => {
       timer = setTimeout(resolve, CLOSE_WAIT_MS);
     }),
   ]);
+
   clearTimeout(timer);
 }
 

@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { channelDynamicDefinition } from '@livething/tests-e2e-handlers/channel-dynamic';
+import { bindFixture } from './bind-fixture.ts';
 
-export class ChannelDynamicServer extends bind(channelDynamicDefinition) {}
+export class ChannelDynamicServer extends bindFixture(channelDynamicDefinition) {}

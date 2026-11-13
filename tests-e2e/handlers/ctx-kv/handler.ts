@@ -1,4 +1,5 @@
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/authenticate.ts';
@@ -6,6 +7,7 @@ import { requireUsername } from '../_shared/authenticate.ts';
 const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     emits({
       'kv-result': t<{ key: string; value: string | null }>(),
       'kv-list-result': t<{ keys: string[] }>(),

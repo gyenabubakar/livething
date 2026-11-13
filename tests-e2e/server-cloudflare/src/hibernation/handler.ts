@@ -1,5 +1,6 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { keepalive } from '@livething/server/keepalive';
 import { stream } from '@livething/server/streams';
 import { tags } from '@livething/server/tags';
 import { requireUsernameWithUserTag } from '@livething/tests-e2e-handlers/_shared/authenticate';
@@ -20,6 +21,7 @@ const base = server({
   hibernation: true,
   authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
+    keepalive(),
     channels(),
     stream(),
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),

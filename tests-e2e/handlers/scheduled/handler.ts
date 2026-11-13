@@ -1,4 +1,5 @@
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { scheduled } from '@livething/server/scheduled';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
@@ -11,6 +12,7 @@ let defaultRetryAttempts = 0;
 const base = server({
   authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
+    keepalive(),
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('role', t<string>())]),
     scheduled({
       cleanup: null,

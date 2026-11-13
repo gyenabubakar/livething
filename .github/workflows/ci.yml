@@ -232,6 +232,27 @@ jobs:
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
+          # The same suites again, with every client connecting over SSE.
+          - name: cf-raw-sse
+            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-server-cloudflare run test:e2e:cloudflare
+            report-path: |
+              tests-e2e/client-raw/playwright-report/
+              tests-e2e/client-raw/test-results/
+          - name: cf-packaged-sse
+            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-client run test:e2e:cloudflare
+            report-path: |
+              tests-e2e/client/playwright-report/
+              tests-e2e/client/test-results/
+          - name: node-http-raw-sse
+            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-server-node run test:e2e:node:http
+            report-path: |
+              tests-e2e/client-raw/playwright-report/
+              tests-e2e/client-raw/test-results/
+          - name: node-http-packaged-sse
+            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-client run test:e2e:node:http
+            report-path: |
+              tests-e2e/client/playwright-report/
+              tests-e2e/client/test-results/
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5

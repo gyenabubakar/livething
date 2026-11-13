@@ -3,6 +3,7 @@ import { channels } from '@livething/server/channels';
 import { dedup } from '@livething/server/dedup';
 import { Disconnect } from '@livething/server/errors';
 import { inbox } from '@livething/server/inbox';
+import { keepalive } from '@livething/server/keepalive';
 import { lastSeen } from '@livething/server/last-seen';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
@@ -21,6 +22,7 @@ import type { RoomMsg } from './events.ts';
 const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     channels(),
     sequence({ persist: true }),
     dedup(),

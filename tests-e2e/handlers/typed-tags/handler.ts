@@ -1,5 +1,6 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { keepalive } from '@livething/server/keepalive';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -19,6 +20,7 @@ const GroupStatsPayload = v.object({ key: v.string() });
 const base = server({
   authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
+    keepalive(),
     channels(),
     tags((ephemeral, persistent) => [
       ephemeral('user', t<string>()),

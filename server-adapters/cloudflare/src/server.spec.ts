@@ -1,6 +1,9 @@
+import { server } from '@livething/server';
+import { sse, websocket } from '@livething/server/adapters';
+import { keepalive } from '@livething/server/keepalive';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as ServerAdapters from '@livething/server/adapters';
-import type { ConnectionDescriptor } from '@livething/server/adapters';
+import type { ConnectionDescriptor, ServerTransport } from '@livething/server/adapters';
 import {
   FakeDurableObjectBase,
   installPermissiveResponse,
@@ -24,6 +27,7 @@ vi.mock('cloudflare:workers', () => ({
 type AdapterSetup = (
   createEngine: (runtimeOptions: unknown) => unknown,
   options: unknown,
+  definition: unknown,
 ) => unknown;
 
 let fake: FakeEngine;
@@ -32,11 +36,15 @@ vi.mock('@livething/server/adapters', async (importOriginal) => ({
   ...(await importOriginal<typeof ServerAdapters>()),
   adapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
-    (_handler: unknown, options: TOpts): TSvc => {
-      return config.setup((runtimeOptions: unknown) => {
-        fake.calls.create.push(runtimeOptions);
-        return fake.engine;
-      }, options) as TSvc;
+    (definition: unknown, options: TOpts): TSvc => {
+      return config.setup(
+        (runtimeOptions: unknown) => {
+          fake.calls.create.push(runtimeOptions);
+          return fake.engine;
+        },
+        options,
+        definition,
+      ) as TSvc;
     },
 }));
 
@@ -59,13 +67,20 @@ type AdminSurface = CloudflareAdmin & Record<string, unknown>;
 interface BuildClassOptions {
   hibernation?: boolean;
   allowedOrigins?: string[];
+  transports?: ServerTransport[];
 }
+
+const huddleDefinition = server({ capabilities: [keepalive()] }).assemble({ handlers: [] });
 
 function buildClass(opts?: BuildClassOptions) {
   fake = makeFakeEngine();
   if (opts?.hibernation !== false) fake.setHibernation(true);
-  const bindOptions = opts?.allowedOrigins ? { allowedOrigins: opts.allowedOrigins } : undefined;
-  return bind({} as never, bindOptions) as unknown as new (
+  const bindOptions = {
+    ...(opts?.allowedOrigins ? { allowedOrigins: opts.allowedOrigins } : {}),
+    ...(opts?.transports ? { transports: opts.transports } : {}),
+  };
+
+  return bind(huddleDefinition, bindOptions) as unknown as new (
     ctx: DurableObjectState,
     env: unknown,
   ) => DOInstance;
@@ -91,7 +106,96 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
 
     const res = await instance.fetch(new Request('https://do.example/'));
     expect(res.status).toBe(426);
+    expect(res.headers.get('LiveThing-Error')).toBe('not-offered');
     expect(fake.calls.authenticate).toHaveLength(0);
+  });
+
+  it('returns 426 to an upgrade when websocket() is not listed', async () => {
+    const Cls = buildClass({ transports: [sse()] });
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+    const res = await instance.fetch(upgradeRequest());
+
+    expect(res.status).toBe(426);
+    expect(res.headers.get('LiveThing-Error')).toBe('not-offered');
+    expect(fake.calls.authenticate).toHaveLength(0);
+  });
+
+  describe('a server-sent events stream', () => {
+    async function openStream() {
+      const Cls = buildClass({ transports: [websocket(), sse()] });
+      const state = makeFakeDOState();
+      const instance = new Cls(state as unknown as DurableObjectState, {});
+      const res = await instance.fetch(
+        new Request('https://do.example/', { headers: { Accept: 'text/event-stream' } }),
+      );
+      const descriptor = fake.calls.accept[0]!.descriptor as ConnectionDescriptor;
+
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+
+      return { state, res, descriptor, reader };
+    }
+
+    async function readAll(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
+      const decoder = new TextDecoder();
+      let text = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return text;
+
+        text += decoder.decode(value, { stream: true });
+      }
+    }
+
+    const history = { kind: 'text', text: 'x'.repeat(100_000) } as const;
+
+    it('does not survive hibernation, and has a POST secret', async () => {
+      const { state, res, descriptor } = await openStream();
+
+      expect(res.status).toBe(200);
+      expect(state.acceptWebSocket).not.toHaveBeenCalled();
+      expect(descriptor).toMatchObject({
+        survivesHibernation: false,
+        backpressureSupported: true,
+        maxPostBytes: 512 * 1024,
+      });
+      expect(descriptor.secret).toEqual(expect.any(String));
+    });
+
+    it('reports the bytes the client has not read yet', async () => {
+      const { descriptor, reader } = await openStream();
+
+      expect(descriptor.bufferedAmount()).toBe(0);
+      descriptor.send(history);
+      expect(descriptor.bufferedAmount()).toBe(100_008);
+
+      await reader.read();
+      expect(descriptor.bufferedAmount()).toBe(0);
+    });
+
+    it('ends the stream only after the client read the frames before the close', async () => {
+      const { descriptor, reader } = await openStream();
+
+      descriptor.send(history);
+      descriptor.close(4000, 'left the huddle');
+      const text = await readAll(reader);
+
+      expect(text).toContain(history.text);
+      expect(
+        text.endsWith('data: ["__close__",{"code":4000,"reason":"left the huddle"},null]\n\n'),
+      ).toBe(true);
+    });
+
+    it('drops the stream of a client that stopped reading when terminated', async () => {
+      const { descriptor, reader } = await openStream();
+
+      descriptor.send(history);
+      descriptor.close(1013, 'slow client');
+      descriptor.terminate!();
+
+      await expect(reader.read()).rejects.toThrow(/stopped reading/);
+      expect(descriptor.bufferedAmount()).toBe(0);
+    });
   });
 
   describe('Origin check', () => {

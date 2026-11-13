@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { ctxChannelsDefinition } from '@livething/tests-e2e-handlers/ctx-channels';
+import { bindFixture } from './bind-fixture.ts';
 
-export class CtxChannelsServer extends bind(ctxChannelsDefinition) {}
+export class CtxChannelsServer extends bindFixture(ctxChannelsDefinition) {}

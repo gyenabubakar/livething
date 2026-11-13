@@ -1,5 +1,6 @@
 import { emits, errors, server, t } from '@livething/server';
 import { error } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -10,6 +11,7 @@ const StreamNotFound = error('not-found', v.object({ id: v.string() }));
 const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     stream(),
     emits({ 'cancel-observed': t<{ cancelled: boolean }>() }),
     errors([StreamNotFound]),

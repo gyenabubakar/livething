@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { ctxSqlDefinition } from '@livething/tests-e2e-handlers/ctx-sql';
+import { bindFixture } from './bind-fixture.ts';
 
-export class CtxSqlServer extends bind(ctxSqlDefinition) {}
+export class CtxSqlServer extends bindFixture(ctxSqlDefinition) {}

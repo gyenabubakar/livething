@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setup } from '@livething/server-node';
+import { setup, sse, websocket } from '@livething/server-node';
+import { hasCapability } from '@livething/server/adapters';
 import type { NodeEndpointBinding, NodeEndpointOptions } from '@livething/server-node';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
@@ -120,7 +121,11 @@ export async function getFixture(route: string, room: string): Promise<Fixture> 
 
     if (!bindFixture) throw new Error('[livething] E2E fixture binding was not configured');
 
-    const service = bindFixture(definition, { sql: databasePath(route, room) });
+    // Every fixture with keepalive() offers both transports, so one suite runs over each.
+    const service = bindFixture(definition, {
+      sql: databasePath(route, room),
+      ...(hasCapability(definition, 'keepalive') ? { transports: [websocket(), sse()] } : {}),
+    });
     const fixture = {
       service,
       sockets: new Set<Duplex>(),
@@ -404,8 +409,18 @@ export async function handleRequest(
       return;
     }
 
+    // A stream, its POSTs and the CORS preflight. An open stream holds the room like a socket.
     if (FEATURE_DEFINITIONS[url.pathname]) {
-      writeText(response, 426, 'Upgrade Required');
+      const fixture = await getRequestFixture(url.pathname);
+      await fixture.service.ready;
+      const release = releaseFixture;
+      releaseFixture = undefined;
+      response.once('close', () => release?.());
+
+      const lease = url.searchParams.get('__livethingFixtureLease');
+      if (lease) fixture.leases.add(lease);
+
+      (fixture.service.endpoint as NodeEndpointBinding<unknown>).handle(request, response);
       return;
     }
 

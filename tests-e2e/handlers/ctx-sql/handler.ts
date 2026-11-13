@@ -1,4 +1,5 @@
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { scheduled } from '@livething/server/scheduled';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -19,6 +20,7 @@ function selectNotes(ctx: {
 const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     emits({
       'notes-list': t<{ notes: Array<{ id: number; title: string; body: string }> }>(),
       'sql-one-result': t<{ row: { c: number } | null }>(),

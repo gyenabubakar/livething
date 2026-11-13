@@ -185,29 +185,31 @@ test.describe('channel-dynamic', () => {
     await ctxB.close();
   });
 
-  test('onUnsubscribe broadcasts a system message when client leaves the dynamic channel', async ({
-    browser,
-  }, testInfo) => {
-    const room = `test-${testInfo.testId}`;
-    const ctxA = await browser.newContext();
-    const ctxB = await browser.newContext();
-    const a = await ctxA.newPage();
-    const b = await ctxB.newPage();
+  test(
+    'onUnsubscribe broadcasts a system message when client leaves the dynamic channel',
+    { tag: '@drop' },
+    async ({ browser }, testInfo) => {
+      const room = `test-${testInfo.testId}`;
+      const ctxA = await browser.newContext();
+      const ctxB = await browser.newContext();
+      const a = await ctxA.newPage();
+      const b = await ctxB.newPage();
 
-    await openPage(a, room, 'alice');
-    await a.getByTestId('sub-general').click();
-    await expect(a.getByTestId('subscribe-ok')).toContainText('room:general');
+      await openPage(a, room, 'alice');
+      await a.getByTestId('sub-general').click();
+      await expect(a.getByTestId('subscribe-ok')).toContainText('room:general');
 
-    await openPage(b, room, 'bob');
-    await b.getByTestId('sub-general').click();
-    await expect(a.getByTestId('system-msgs-general')).toContainText('bob entered');
+      await openPage(b, room, 'bob');
+      await b.getByTestId('sub-general').click();
+      await expect(a.getByTestId('system-msgs-general')).toContainText('bob entered');
 
-    await b.close();
-    await expect(a.getByTestId('system-msgs-general')).toContainText('bob left');
+      await b.close();
+      await expect(a.getByTestId('system-msgs-general')).toContainText('bob left');
 
-    await ctxA.close();
-    await ctxB.close();
-  });
+      await ctxA.close();
+      await ctxB.close();
+    },
+  );
 
   test('check sync rejection prevents subscription for banned-user', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`, 'banned-user');

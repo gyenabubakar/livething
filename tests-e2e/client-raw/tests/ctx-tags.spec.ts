@@ -116,37 +116,41 @@ test.describe('ctx-tags', () => {
     await expect(page.getByTestId('conn-count')).toHaveText('1');
   });
 
-  test('connectionCount in multi-client scenario', async ({ browser }, testInfo) => {
-    // Use a distinct room so the beforeEach's default `page` (which also
-    // connects) doesn't count against this test's DO.
-    const room = `multi-${testInfo.testId}`;
-    const ctx1 = await browser.newContext();
-    const ctx2 = await browser.newContext();
-    const page1 = await ctx1.newPage();
-    const page2 = await ctx2.newPage();
+  test(
+    'connectionCount in multi-client scenario',
+    { tag: '@drop' },
+    async ({ browser }, testInfo) => {
+      // Use a distinct room so the beforeEach's default `page` (which also
+      // connects) doesn't count against this test's DO.
+      const room = `multi-${testInfo.testId}`;
+      const ctx1 = await browser.newContext();
+      const ctx2 = await browser.newContext();
+      const page1 = await ctx1.newPage();
+      const page2 = await ctx2.newPage();
 
-    await page1.goto(`/ctx-tags?room=${room}`);
-    await page2.goto(`/ctx-tags?room=${room}`);
+      await page1.goto(`/ctx-tags?room=${room}`);
+      await page2.goto(`/ctx-tags?room=${room}`);
 
-    await page1.getByTestId('connect').click();
-    await expect(page1.getByTestId('status')).toHaveText('connected');
-    await page1.getByTestId('conn-info').click();
-    await expect(page1.getByTestId('conn-count')).toHaveText('1');
-
-    await page2.getByTestId('connect').click();
-    await expect(page2.getByTestId('status')).toHaveText('connected');
-    await page1.getByTestId('conn-info').click();
-    await expect(page1.getByTestId('conn-count')).toHaveText('2');
-
-    await ctx2.close();
-    // Give the server event loop a moment to observe the close before polling.
-    // Playwright's toHaveText already polls with a default of 5s; bump to 10s
-    // since miniflare's disconnect propagation under parallel load can be slow.
-    await expect(async () => {
+      await page1.getByTestId('connect').click();
+      await expect(page1.getByTestId('status')).toHaveText('connected');
       await page1.getByTestId('conn-info').click();
       await expect(page1.getByTestId('conn-count')).toHaveText('1');
-    }).toPass({ timeout: 10_000 });
 
-    await ctx1.close();
-  });
+      await page2.getByTestId('connect').click();
+      await expect(page2.getByTestId('status')).toHaveText('connected');
+      await page1.getByTestId('conn-info').click();
+      await expect(page1.getByTestId('conn-count')).toHaveText('2');
+
+      await ctx2.close();
+      // Give the server event loop a moment to observe the close before polling.
+      // Playwright's toHaveText already polls with a default of 5s; bump to 10s
+      // since miniflare's disconnect propagation under parallel load can be slow.
+      await expect(async () => {
+        await page1.getByTestId('conn-info').click();
+        await expect(page1.getByTestId('conn-count')).toHaveText('1');
+      }).toPass({ timeout: 10_000 });
+
+      await ctx1.close();
+    },
+  );
 });

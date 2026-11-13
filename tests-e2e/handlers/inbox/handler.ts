@@ -3,6 +3,7 @@ import { channels } from '@livething/server/channels';
 import { dedup } from '@livething/server/dedup';
 import { Disconnect } from '@livething/server/errors';
 import { inbox } from '@livething/server/inbox';
+import { keepalive } from '@livething/server/keepalive';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -18,7 +19,7 @@ import type { RoomMsg } from './events.ts';
 // so a later reconnect does not re-deliver.
 const base = server({
   authenticate: (request) => requireUsername(request),
-  capabilities: [channels(), sequence({ persist: true }), dedup()],
+  capabilities: [keepalive(), channels(), sequence({ persist: true }), dedup()],
 });
 
 export const handleServerDrop = base.on('server-drop', {

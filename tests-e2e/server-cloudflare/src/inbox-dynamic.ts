@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { inboxDynamicDefinition } from '@livething/tests-e2e-handlers/inbox-dynamic';
+import { bindFixture } from './bind-fixture.ts';
 
-export class InboxDynamicServer extends bind(inboxDynamicDefinition) {}
+export class InboxDynamicServer extends bindFixture(inboxDynamicDefinition) {}

@@ -1,5 +1,6 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { keepalive } from '@livething/server/keepalive';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -8,6 +9,7 @@ import { requireUsernameWithUserTag } from '../_shared/authenticate.ts';
 const base = server({
   authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
+    keepalive(),
     emits({
       'members-result': t<{ channel: string; count: number }>(),
       'member-id-result': t<{ id: string }>(),

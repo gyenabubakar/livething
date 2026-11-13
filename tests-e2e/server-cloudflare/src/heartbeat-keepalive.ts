@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { heartbeatKeepaliveDefinition } from '@livething/tests-e2e-handlers/heartbeat-keepalive';
+import { bindFixture } from './bind-fixture.ts';
 
-export class HeartbeatKeepaliveServer extends bind(heartbeatKeepaliveDefinition) {}
+export class HeartbeatKeepaliveServer extends bindFixture(heartbeatKeepaliveDefinition) {}

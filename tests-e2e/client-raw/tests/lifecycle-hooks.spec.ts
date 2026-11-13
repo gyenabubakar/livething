@@ -16,27 +16,29 @@ test.describe('lifecycle-hooks', () => {
     await expect(page.getByTestId('connected-user')).toHaveText('alice');
   });
 
-  test('onDisconnect broadcasts to remaining peers when a client leaves', async ({
-    browser,
-  }, testInfo) => {
-    const room = `test-${testInfo.testId}`;
-    const ctxA = await browser.newContext();
-    const ctxB = await browser.newContext();
-    const a = await ctxA.newPage();
-    const b = await ctxB.newPage();
+  test(
+    'onDisconnect broadcasts to remaining peers when a client leaves',
+    { tag: '@drop' },
+    async ({ browser }, testInfo) => {
+      const room = `test-${testInfo.testId}`;
+      const ctxA = await browser.newContext();
+      const ctxB = await browser.newContext();
+      const a = await ctxA.newPage();
+      const b = await ctxB.newPage();
 
-    await openPage(a, room, 'alice');
-    await openPage(b, room, 'bob');
+      await openPage(a, room, 'alice');
+      await openPage(b, room, 'bob');
 
-    // Close bob's context entirely — equivalent to the client going away.
-    // Alice's DO observes the ws close and fires onDisconnect.
-    await ctxB.close();
+      // Close bob's context entirely — equivalent to the client going away.
+      // Alice's DO observes the ws close and fires onDisconnect.
+      await ctxB.close();
 
-    // Alice (peer) should observe bob leaving.
-    await expect(a.getByTestId('disconnected-users')).toContainText('bob');
+      // Alice (peer) should observe bob leaving.
+      await expect(a.getByTestId('disconnected-users')).toContainText('bob');
 
-    await ctxA.close();
-  });
+      await ctxA.close();
+    },
+  );
 
   test('onShutdown broadcasts to all clients before closing the DO', async ({ page }, testInfo) => {
     const room = `test-${testInfo.testId}`;

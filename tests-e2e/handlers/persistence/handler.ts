@@ -2,6 +2,7 @@ import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { Disconnect } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -22,6 +23,7 @@ const base = server({
       ? allowAnonymous(request)
       : requireUsername(request),
   capabilities: [
+    keepalive(),
     channels(),
     clientRequests(),
     recordedStream(),

@@ -1,5 +1,6 @@
 import { server } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { keepalive } from '@livething/server/keepalive';
 import { recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -10,7 +11,7 @@ const StopPayload = v.object({});
 
 const base = server({
   authenticate: (request) => requireUsername(request),
-  capabilities: [channels(), stream(), recordedStream()],
+  capabilities: [keepalive(), channels(), stream(), recordedStream()],
 });
 
 const handleStartConcurrent = base.stream('start-concurrent', {

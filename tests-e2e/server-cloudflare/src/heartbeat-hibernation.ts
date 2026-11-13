@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
+import { bindFixture } from './bind-fixture.ts';
 import { heartbeatHibernationDefinition } from './heartbeat-hibernation/handler.ts';
 
-export class HeartbeatHibernationServer extends bind(heartbeatHibernationDefinition) {}
+export class HeartbeatHibernationServer extends bindFixture(heartbeatHibernationDefinition) {}

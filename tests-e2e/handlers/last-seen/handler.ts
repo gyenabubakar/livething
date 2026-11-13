@@ -1,4 +1,5 @@
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { lastSeen } from '@livething/server/last-seen';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
@@ -13,6 +14,7 @@ import { requireUsername } from '../_shared/authenticate.ts';
 const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     lastSeen(),
     emits({
       'last-seen-answer': t<{ identity: string; at: number | null; online: boolean }>(),

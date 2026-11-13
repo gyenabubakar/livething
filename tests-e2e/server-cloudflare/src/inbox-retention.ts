@@ -1,7 +1,7 @@
-import { bind } from '@livething/server-cloudflare';
 import { inboxRetentionDefinition } from '@livething/tests-e2e-handlers/inbox-retention';
+import { bindFixture } from './bind-fixture.ts';
 
-const Base = bind(inboxRetentionDefinition);
+const Base = bindFixture(inboxRetentionDefinition);
 
 export class InboxRetentionServer extends Base {
   #ctx: DurableObjectState;

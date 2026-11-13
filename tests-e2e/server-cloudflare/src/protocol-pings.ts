@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { protocolPingsDefinition } from '@livething/tests-e2e-handlers/protocol-pings';
+import { bindFixture } from './bind-fixture.ts';
 
-export class ProtocolPingsServer extends bind(protocolPingsDefinition) {}
+export class ProtocolPingsServer extends bindFixture(protocolPingsDefinition) {}

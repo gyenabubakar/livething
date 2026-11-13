@@ -3,6 +3,7 @@
 // assemble composition fans out from here.
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { keepalive } from '@livething/server/keepalive';
 import type * as v from 'valibot';
 import { requireUsername } from '../_shared/authenticate.ts';
 import type { NotificationPayload } from './events.ts';
@@ -10,6 +11,7 @@ import type { NotificationPayload } from './events.ts';
 export const base = server({
   authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     emits({ notification: t<v.InferOutput<typeof NotificationPayload>>() }),
     channels(),
   ],
