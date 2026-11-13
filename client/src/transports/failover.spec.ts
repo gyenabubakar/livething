@@ -266,6 +266,113 @@ describe('failover while connecting', () => {
   });
 });
 
+describe('what the app sees during a failover', () => {
+  it('gets no error for a transport that failed over, and one token() call', async () => {
+    const token = vi.fn(() => 'kofi-session');
+    const socket = build(connect(url, { transports: [websocket(), fakeSse()], token }));
+    const errors: unknown[] = [];
+    socket.onError((error) => errors.push(error));
+
+    socket.connect();
+    await opened(() => MockWebSocket.instances.length, 1);
+    MockWebSocket.last().onerror?.({});
+    MockWebSocket.last().serverClose(1006);
+    await opened(() => FakeSse.opened.length, 1);
+
+    FakeSse.last().connected();
+
+    expect(errors).toEqual([]);
+    expect(token).toHaveBeenCalledTimes(1);
+    expect(FakeSse.last().options.token).toBe('kofi-session');
+  });
+
+  it('still reports a bad __connected__ frame, which is final', async () => {
+    const socket = build(connect(url, { transports: [websocket(), fakeSse()] }));
+    const errors: unknown[] = [];
+    const closes: number[] = [];
+    socket.onError((error) => errors.push(error));
+    socket.onClose((event) => closes.push(event.code));
+
+    socket.connect();
+    await opened(() => MockWebSocket.instances.length, 1);
+    MockWebSocket.last().open('', null);
+    MockWebSocket.last().emit(['__connected__', { bogus: 1 }, null]);
+
+    expect(closes).toEqual([CloseCodes.PROTOCOL_ERROR]);
+    expect(errors).toHaveLength(1);
+    expect(FakeSse.opened).toHaveLength(0);
+  });
+
+  it('a disconnect() while the second transport connects ends it, with no third try', async () => {
+    const socket = build(connect(url, { transports: [websocket(), fakeSse()] }));
+    socket.connect();
+    await opened(() => MockWebSocket.instances.length, 1);
+    MockWebSocket.last().serverClose(1006);
+    await opened(() => FakeSse.opened.length, 1);
+
+    const second = FakeSse.last();
+
+    socket.disconnect();
+    await vi.advanceTimersByTimeAsync(60_000);
+    second.connected();
+
+    expect(second.closed).toBe(true);
+    expect(socket.state.get()).toBe('closed');
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it('ignores a late frame from an abandoned sse', async () => {
+    const socket = build(
+      connect(url, { transports: [fakeSse(), websocket()], connectTimeoutMs: 1_000 }),
+    );
+    socket.connect();
+    await opened(() => FakeSse.opened.length, 1);
+    const stalled = FakeSse.last();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await opened(() => MockWebSocket.instances.length, 1);
+
+    stalled.connected();
+
+    expect(socket.state.get()).toBe('connecting');
+    MockWebSocket.last().open();
+    expect(socket.transport.get()).toBe('websocket');
+  });
+
+  it('waits 5 s for each transport by default when it has several', async () => {
+    const socket = build(connect(url, { transports: [websocket(), fakeSse()] }));
+    socket.connect();
+    await opened(() => MockWebSocket.instances.length, 1);
+    MockWebSocket.last().open('', null);
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(FakeSse.opened).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await opened(() => FakeSse.opened.length, 1);
+  });
+
+  it('moves on when a transport throws while it opens', async () => {
+    const broken: TransportFactory = {
+      name: 'sse',
+      open() {
+        throw new Error('no fetch here');
+      },
+    };
+
+    const socket = build(connect(url, { transports: [broken, websocket()] }));
+    const errors: unknown[] = [];
+    socket.onError((error) => errors.push(error));
+
+    socket.connect();
+    await opened(() => MockWebSocket.instances.length, 1);
+    MockWebSocket.last().open();
+
+    expect(socket.transport.get()).toBe('websocket');
+    expect(errors).toEqual([]);
+  });
+});
+
 describe('failure after the open', () => {
   it('marks sse at once when a POST fails before any POST worked', async () => {
     const socket = build(

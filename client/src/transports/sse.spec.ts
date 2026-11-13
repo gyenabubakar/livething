@@ -1,7 +1,8 @@
-import { encodeBinaryFrame } from '@livething/core';
+import { CloseCodes, encodeBinaryFrame } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { binary } from '~/primitives/binary/index.ts';
+import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { sse } from '~/transports/sse.ts';
@@ -457,6 +458,22 @@ describe('sse(): a POST that fails before any POST worked', () => {
 
     await vi.waitFor(() => expect(server.streams).toHaveLength(2));
     expect(MockWebSocket.instances).toHaveLength(0);
+  });
+});
+
+describe('sse() and keepalive()', () => {
+  it('closes a stream that hangs after its first frame, and opens a new one', async () => {
+    vi.useFakeTimers();
+    const { socket, closes } = open({}, keepalive(), reconnection({ maxDelay: 1 }));
+    await vi.waitFor(() => expect(server.streams).toHaveLength(1));
+    server.accept({ pingIntervalMs: 1_000, idleTimeoutMs: 3_000 });
+    await vi.waitFor(() => expect(socket.state.get()).toBe('open'));
+
+    // The stream stays open but sends nothing more: no pong ever comes back.
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    expect(closes.map((close) => close.code)).toEqual([CloseCodes.IDLE]);
+    await vi.waitFor(() => expect(server.streams).toHaveLength(2));
   });
 });
 

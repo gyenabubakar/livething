@@ -636,10 +636,28 @@ export class LiveThingSocket {
     return usable.length > 0 ? usable : [...listed];
   }
 
-  /** Open the next untried transport of this attempt. */
+  /**
+   * Open the next untried transport of this attempt. One that throws while opening counts
+   * as failed, and the one after it is tried. Throws only when none is left.
+   */
   private _openTransport(attemptId: number): void {
-    const factory = this._untried.shift()!;
+    for (;;) {
+      const factory = this._untried.shift()!;
+      try {
+        this._startTransport(attemptId, factory);
+        return;
+      } catch (error) {
+        if (this._untried.length === 0) throw error;
+
+        this._log(`${factory.name} could not open; trying the next one`, error);
+        this._failedThisOpen.push(factory.name);
+      }
+    }
+  }
+
+  private _startTransport(attemptId: number, factory: TransportFactory): void {
     const target = this._target!;
+    let heldError: unknown;
     // Kept from the start, so a teardown can close it before the server accepts it.
     // Events from a transport that is no longer the current one, such as a late
     // frame after a timeout or a close, are ignored.
@@ -658,14 +676,22 @@ export class LiveThingSocket {
           if (!isCurrent()) return;
 
           const close = { code, reason, wasClean };
-          if (!this._failOver(attemptId, close)) this._handleTransportClose(attemptId, close);
+          const error = heldError;
+          heldError = undefined;
+          if (this._failOver(attemptId, close)) return;
+
+          if (error !== undefined) this._reportError(error);
+
+          this._handleTransportClose(attemptId, close);
         },
         error: (event) => {
           if (!isCurrent()) return;
 
           this._log(`${transport.name} error`);
-          // A transport that will fail over is not the app's problem yet.
-          if (!this._mayFailOver()) this._reportError(event);
+          // While connecting, the close that follows decides: a transport that fails over
+          // is not the app's problem, so its error is only reported if it does not.
+          if (this._state === 'connecting') heldError = event;
+          else this._reportError(event);
         },
         message: (data) => {
           if (isCurrent()) this._handleMessage(data);
@@ -711,7 +737,7 @@ export class LiveThingSocket {
       this._openTransport(attemptId);
     } catch (error) {
       this._reportError(error);
-      if (!this._failOver(attemptId, close)) this._handleTransportClose(attemptId, close);
+      this._handleTransportClose(attemptId, close);
     }
 
     return true;
@@ -746,11 +772,13 @@ export class LiveThingSocket {
   private _abandonTransport(attemptId: number, error: Error, close: CloseEvent): void {
     if (attemptId !== this._connectAttemptId) return;
 
-    if (!this._mayFailOver()) this._reportError(error);
-    else this._log(error.message);
+    // A transport that fails over is not the app's problem, so its error is only logged.
+    if (this._failOver(attemptId, close)) {
+      this._log(error.message);
+      return;
+    }
 
-    if (this._failOver(attemptId, close)) return;
-
+    this._reportError(error);
     this._transport?.dispose();
     this._handleTransportClose(attemptId, close);
   }
