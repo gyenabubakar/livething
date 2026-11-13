@@ -78,6 +78,8 @@
       { "name": "LAST_SEEN_SERVER", "class_name": "LastSeenServer" },
       { "name": "UPLOADS_SERVER", "class_name": "UploadsServer" },
       { "name": "UPLOADS_EXPIRY_SERVER", "class_name": "UploadsExpiryServer" },
+      { "name": "BINARY_HIBERNATION_SERVER", "class_name": "BinaryHibernationServer" },
+      { "name": "UPLOADS_HIBERNATION_SERVER", "class_name": "UploadsHibernationServer" },
     ],
   },
   "observability": {
@@ -151,6 +153,8 @@
         "BinaryServer",
         "UploadsServer",
         "UploadsExpiryServer",
+        "BinaryHibernationServer",
+        "UploadsHibernationServer",
       ],
     },
   ],

@@ -112,8 +112,9 @@ export const FilesPlugin = plugin('acme:files', {
 /** The plugin's client contract, for its client half. */
 export type FilesWire = InferPluginClient<typeof FilesPlugin>;
 
-function defineUploads(options: UploadsOptions) {
+function defineUploads(options: UploadsOptions, { hibernation = false } = {}) {
   const base = server({
+    hibernation,
     upgrade: (request) => allowAnonymous(request),
     capabilities: [
       binary(),
@@ -281,5 +282,8 @@ export const uploadsExpiryDefinition = defineUploads({
   expireAfterMs: 1500,
   retentionAfterDoneMs: 1500,
 });
+
+/** The same handlers on a hibernating Durable Object (Cloudflare only). */
+export const uploadsHibernationDefinition = defineUploads({}, { hibernation: true });
 
 export type UploadsClient = InferClient<typeof uploadsDefinition>;
