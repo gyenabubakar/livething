@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { context, server as createServerDefinition, emits, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { CloseCodes, RejectAuth } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { scheduled } from '@livething/server/scheduled';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +21,10 @@ import {
   isConnectedFrame,
   nextJsonMessage,
   nextRawMessage,
+  openRawClient,
+  rawRequestListener,
+  rawTransport,
+  rawTransportOptions,
 } from './test-utils.ts';
 import type { NodeAdmin } from './endpoint.ts';
 import type { NodeServerEndpointOptions } from './setup.ts';
@@ -31,6 +36,9 @@ vi.mock('./socket.ts', async (importOriginal) => {
 });
 
 type WireFrame = readonly [event: string, payload: unknown, metadata: null];
+
+/** A test of the WebSocket handshake or of `ws` itself, which has no meaning over SSE. */
+const wsOnly = it.skipIf(rawTransport === 'sse');
 
 interface IntegrationState {
   upgradeRequest?: Request;
@@ -51,12 +59,9 @@ function createTestService<TDefinition extends ServerDefinition>(
   definition: TDefinition,
   options: NodeServerEndpointOptions & { port: number },
 ): TestService<NodeAdmin<TDefinition>> {
-  const httpServer = createServer((_request, response) => {
-    response.statusCode = 404;
-    response.end();
-  });
   const livething = setup();
-  const endpoint = livething.bind(definition, options);
+  const endpoint = livething.bind(definition, { ...rawTransportOptions, ...options });
+  const httpServer = createServer(rawRequestListener(endpoint));
   httpServer.on('upgrade', endpoint.upgrade);
   let shutdown: Promise<void> | undefined;
 
@@ -112,6 +117,7 @@ function buildServerDefinition(state: IntegrationState) {
       };
     },
     capabilities: [
+      keepalive(),
       emits({
         adminAnnouncement: t<{ text: string }>(),
         buffered: t<{ amount: number }>(),
@@ -221,7 +227,7 @@ function buildContextDefinition() {
 
       return { userId: user, meta: { role: row?.role ?? 'guest' } };
     },
-    capabilities: [emits({ whoami: t<{ user: string; role: string }>() })],
+    capabilities: [keepalive(), emits({ whoami: t<{ user: string; role: string }>() })],
     onInit(ctx) {
       ctx.sql.exec('CREATE TABLE IF NOT EXISTS context_roles (user TEXT PRIMARY KEY, role TEXT)');
       ctx.sql.exec("INSERT OR REPLACE INTO context_roles VALUES ('alice', 'admin')");
@@ -555,7 +561,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat?user=alice`, {
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat?user=alice`, {
       headers: { Cookie: 'session=abc', 'x-role': 'member' },
     });
     clients.push(socket);
@@ -589,7 +595,7 @@ describe('Node server integration', () => {
       ['alice', 'admin'],
       ['bob', 'guest'],
     ] as const) {
-      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/?user=${user}`);
+      const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/?user=${user}`);
       clients.push(socket);
       await waitForOpen(socket);
       const reply = waitForMessage(socket);
@@ -608,7 +614,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`, {
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`, {
       headers: { 'x-forwarded-for': '203.0.113.7' },
     });
     clients.push(socket);
@@ -619,7 +625,7 @@ describe('Node server integration', () => {
     expect(state.upgradeRequest?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
   });
 
-  it('rejects a real upgrade with an HTTP response', async () => {
+  wsOnly('rejects a real upgrade with an HTTP response', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
@@ -632,7 +638,7 @@ describe('Node server integration', () => {
     expect(state.upgradeRequest).toBeDefined();
   });
 
-  it('turns an invalid upgrade close code into a safe HTTP rejection', async () => {
+  wsOnly('turns an invalid upgrade close code into a safe HTTP rejection', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
@@ -644,7 +650,7 @@ describe('Node server integration', () => {
     expect(response).toContain('Authentication rejected');
   });
 
-  it('answers a non-WebSocket upgrade with 400 without running upgrade', async () => {
+  wsOnly('answers a non-WebSocket upgrade with 400 without running upgrade', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
@@ -662,15 +668,14 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/reject-socket`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/reject-socket`);
     clients.push(socket);
     const closed = waitForClose(socket);
 
-    await waitForOpen(socket);
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
   });
 
-  describe('the token subprotocol', () => {
+  describe.skipIf(rawTransport === 'sse')('the token subprotocol', () => {
     async function startService(state: IntegrationState) {
       const service = createTestService(buildServerDefinition(state), { port: 0 });
       services.push(service);
@@ -731,7 +736,7 @@ describe('Node server integration', () => {
     });
   });
 
-  it('rejects an authority-changing request target over the real HTTP boundary', async () => {
+  wsOnly('rejects an authority-changing request target over the real HTTP boundary', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
@@ -742,7 +747,7 @@ describe('Node server integration', () => {
     expect(response).toContain('HTTP/1.1 400 Bad Request');
   });
 
-  it('does not retain a malformed upgrade while shutting down', async () => {
+  wsOnly('does not retain a malformed upgrade while shutting down', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const observed = createObservedWebSocketServer();
     const service = createTestService(buildServerDefinition(state), {
@@ -767,11 +772,10 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/reject-long-reason`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/reject-long-reason`);
     clients.push(socket);
     const closed = waitForClose(socket);
 
-    await waitForOpen(socket);
     await expect(closed).resolves.toEqual({
       code: CloseCodes.AUTH_INVALID,
       reason: '🙂'.repeat(30),
@@ -784,7 +788,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     const closed = waitForClose(socket);
@@ -797,14 +801,14 @@ describe('Node server integration', () => {
     await expect(closed).resolves.toEqual({ code: 1011, reason: 'Internal error' });
   });
 
-  describe('maxMessageBytes', () => {
+  describe.skipIf(rawTransport === 'sse')('maxMessageBytes', () => {
     async function connectTo(options: NodeServerEndpointOptions) {
       const state: IntegrationState = { errors: [], shutdowns: 0 };
       const service = createTestService(buildServerDefinition(state), { port: 0, ...options });
       services.push(service);
       await service.ready;
 
-      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+      const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
       clients.push(socket);
       const connected = waitForMessage(socket);
       await waitForOpen(socket);
@@ -891,7 +895,7 @@ describe('Node server integration', () => {
     });
   });
 
-  describe('compression', () => {
+  describe.skipIf(rawTransport === 'sse')('compression', () => {
     async function connectTo(options: NodeServerEndpointOptions) {
       const state: IntegrationState = { errors: [], shutdowns: 0 };
       const service = createTestService(buildServerDefinition(state), { port: 0, ...options });
@@ -899,7 +903,7 @@ describe('Node server integration', () => {
       await service.ready;
 
       // A ws client offers permessage-deflate by default, like browsers do.
-      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+      const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
       clients.push(socket);
       const connected = waitForMessage(socket);
       await waitForOpen(socket);
@@ -998,7 +1002,7 @@ describe('Node server integration', () => {
       services.push(service);
       await service.ready;
 
-      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+      const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
       clients.push(socket);
       const connected = waitForMessage(socket);
       await waitForOpen(socket);
@@ -1041,64 +1045,68 @@ describe('Node server integration', () => {
     });
   });
 
-  it('drops a client that stops reading about one second after its 1013 close, not 30 seconds', async () => {
-    // The handler moves the clock that the slow-member check reads, so the 10-second grace
-    // passes at once. Sockets and timers stay real, and the test measures with the real clock.
-    const realNow = performance.now.bind(performance);
-    let skew = 0;
-    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => realNow() + skew);
+  wsOnly(
+    'drops a client that stops reading about one second after its 1013 close, not 30 seconds',
+    async () => {
+      // The handler moves the clock that the slow-member check reads, so the 10-second grace
+      // passes at once. Sockets and timers stay real, and the test measures with the real clock.
+      const realNow = performance.now.bind(performance);
+      let skew = 0;
+      const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => realNow() + skew);
 
-    let refused!: (at: number) => void;
-    let disconnected!: (at: number) => void;
-    const refusedAt = new Promise<number>((resolve) => (refused = resolve));
-    const disconnectedAt = new Promise<number>((resolve) => (disconnected = resolve));
+      let refused!: (at: number) => void;
+      let disconnected!: (at: number) => void;
+      const refusedAt = new Promise<number>((resolve) => (refused = resolve));
+      const disconnectedAt = new Promise<number>((resolve) => (disconnected = resolve));
 
-    const base = createServerDefinition({
-      authenticate: () => ({ userId: 'kofi' }),
-      capabilities: [emits({ 'history-page': t<{ text: string }>() })],
-      onDisconnect() {
-        disconnected(realNow());
-      },
-    });
-    const handleLoadHistory = base.on('load-history', {
-      async run(ctx) {
-        // Each turn writes a burst. Once the kernel buffer is full, `ws` holds the rest, and
-        // the 1013 close comes when that stays over the limit for longer than the grace.
-        for (let turn = 0; turn < 5000; turn += 1) {
-          for (let page = 0; page < 64; page += 1) {
-            if (!ctx.send('history-page', { text: 'x'.repeat(900) })) {
-              refused(realNow());
-              return;
+      const base = createServerDefinition({
+        authenticate: () => ({ userId: 'kofi' }),
+        capabilities: [emits({ 'history-page': t<{ text: string }>() })],
+        onDisconnect() {
+          disconnected(realNow());
+        },
+      });
+      const handleLoadHistory = base.on('load-history', {
+        async run(ctx) {
+          // Each turn writes a burst. Once the kernel buffer is full, `ws` holds the rest, and
+          // the 1013 close comes when that stays over the limit for longer than the grace.
+          for (let turn = 0; turn < 5000; turn += 1) {
+            for (let page = 0; page < 64; page += 1) {
+              if (!ctx.send('history-page', { text: 'x'.repeat(900) })) {
+                refused(realNow());
+                return;
+              }
             }
+
+            skew += 1000;
+            await new Promise((resolve) => setTimeout(resolve, 1));
           }
+        },
+      });
+      const service = createTestService(base.assemble({ handlers: [handleLoadHistory] }), {
+        port: 0,
+        maxMessageBytes: 1024,
+      });
 
-          skew += 1000;
-          await new Promise((resolve) => setTimeout(resolve, 1));
-        }
-      },
-    });
-    const service = createTestService(base.assemble({ handlers: [handleLoadHistory] }), {
-      port: 0,
-      maxMessageBytes: 1024,
-    });
+      services.push(service);
+      await service.ready;
 
-    services.push(service);
-    await service.ready;
+      const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+      try {
+        await waitForOpen(socket);
+        socket.send(JSON.stringify(['load-history', null, null]));
+        (socket as WebSocket & { _socket: { pause(): void } })._socket.pause();
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
-    try {
-      await waitForOpen(socket);
-      socket.send(JSON.stringify(['load-history', null, null]));
-      (socket as WebSocket & { _socket: { pause(): void } })._socket.pause();
+        const [refusedTime, disconnectedTime] = await Promise.all([refusedAt, disconnectedAt]);
 
-      const [refusedTime, disconnectedTime] = await Promise.all([refusedAt, disconnectedAt]);
-
-      expect(disconnectedTime - refusedTime).toBeLessThan(3000);
-    } finally {
-      nowSpy.mockRestore();
-      socket.terminate();
-    }
-  }, 40_000);
+        expect(disconnectedTime - refusedTime).toBeLessThan(3000);
+      } finally {
+        nowSpy.mockRestore();
+        socket.terminate();
+      }
+    },
+    40_000,
+  );
 
   it('forwards a client close through the real engine lifecycle', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
@@ -1106,7 +1114,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -1119,7 +1127,7 @@ describe('Node server integration', () => {
     await vi.waitFor(() => expect(state.disconnect).toEqual({ code: 4000, reason: 'client bye' }));
   });
 
-  it('forwards a real WebSocket transport error through the engine', async () => {
+  wsOnly('forwards a real WebSocket transport error through the engine', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const captured = createCapturingWebSocketServer();
     const service = createTestService(buildServerDefinition(state), {
@@ -1129,7 +1137,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -1142,7 +1150,7 @@ describe('Node server integration', () => {
     await vi.waitFor(() => expect(state.errors).toEqual(['transport failed']));
   });
 
-  it('reports a send to a closing socket as not delivered', async () => {
+  wsOnly('reports a send to a closing socket as not delivered', async () => {
     let releaseReply!: () => void;
     const replyAllowed = new Promise<void>((resolve) => (releaseReply = resolve));
     const sent: boolean[] = [];
@@ -1166,7 +1174,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     await waitForOpen(socket);
     await vi.waitFor(() => expect(captured.getAccepted()).toBeDefined());
@@ -1187,7 +1195,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -1210,36 +1218,39 @@ describe('Node server integration', () => {
     }
   });
 
-  it('lets a custom host prepare and attach a peer through the public binding seam', async () => {
-    const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const node = binding();
-    const endpoint = node.bind(buildServerDefinition(state), {});
-    await endpoint.ready();
+  wsOnly(
+    'lets a custom host prepare and attach a peer through the public binding seam',
+    async () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      const node = binding();
+      const endpoint = node.bind(buildServerDefinition(state), {});
+      await endpoint.ready();
 
-    const upgrade = await endpoint.prepare(
-      new Request('https://example.test/chat', { headers: { 'LiveThing-Client-IP': 'spoofed' } }),
-      { clientIp: '203.0.113.7' },
-    );
-    expect(upgrade.type).toBe('accept');
-    if (upgrade.type !== 'accept') throw new Error('Expected an accepted upgrade');
+      const upgrade = await endpoint.prepare(
+        new Request('https://example.test/chat', { headers: { 'LiveThing-Client-IP': 'spoofed' } }),
+        { clientIp: '203.0.113.7' },
+      );
+      expect(upgrade.type).toBe('accept');
+      if (upgrade.type !== 'accept') throw new Error('Expected an accepted upgrade');
 
-    const transport = {
-      sent: [] as string[],
-      send({ text }: { kind: 'text'; text: string }) {
-        this.sent.push(text);
-      },
-      close() {},
-      bufferedAmount: () => 0,
-      backpressureSupported: true,
-    };
+      const transport = {
+        sent: [] as string[],
+        send({ text }: { kind: 'text'; text: string }) {
+          this.sent.push(text);
+        },
+        close() {},
+        bufferedAmount: () => 0,
+        backpressureSupported: true,
+      };
 
-    const connection = upgrade.accept(transport);
-    await connection.message(JSON.stringify(['echo', { text: 'custom host' }, null]));
+      const connection = upgrade.accept(transport);
+      await connection.message(JSON.stringify(['echo', { text: 'custom host' }, null]));
 
-    await vi.waitFor(() => expect(transport.sent.join()).toContain('custom host'));
-    expect(state.upgradeRequest?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
-    await node.shutdown();
-  });
+      await vi.waitFor(() => expect(transport.sent.join()).toContain('custom host'));
+      expect(state.upgradeRequest?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
+      await node.shutdown();
+    },
+  );
 
   it('uses injected KV and logger configuration through a real WebSocket endpoint', async () => {
     const values = new Map<string, unknown>();
@@ -1257,7 +1268,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -1283,7 +1294,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -1303,7 +1314,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -1324,7 +1335,7 @@ describe('Node server integration', () => {
         userId: new URL(request.url).searchParams.get('user') ?? 'anonymous',
         meta: {},
       }),
-      capabilities: [channels(), emits({ done: t<{}>() })],
+      capabilities: [keepalive(), channels(), emits({ done: t<{}>() })],
     });
     const general = base.channel('general', {
       capabilities: [emits({ huddleClosing: t<{ reason: string }>() })],
@@ -1338,7 +1349,7 @@ describe('Node server integration', () => {
     await service.ready;
 
     async function join(user: string, channel: { name: string; family?: string }) {
-      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/?user=${user}`);
+      const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/?user=${user}`);
       clients.push(socket);
       const messages = createMessageQueue(socket);
       await waitForOpen(socket);
@@ -1385,7 +1396,7 @@ describe('Node server integration', () => {
 
     await first.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(first.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(first.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -1410,7 +1421,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -1430,7 +1441,7 @@ describe('Node server integration', () => {
     services.push(service);
     await service.ready;
 
-    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    const socket = openRawClient(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
     clients.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -1444,7 +1455,7 @@ describe('Node server integration', () => {
     expect(state.shutdowns).toBe(1);
   });
 
-  it('drops upgrades that arrive after LiveThing shutdown starts', async () => {
+  wsOnly('drops upgrades that arrive after LiveThing shutdown starts', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
@@ -1455,43 +1466,46 @@ describe('Node server integration', () => {
     await expect(sendOpenUpgrade(serverPort(service.server), '/chat')).resolves.toBe('');
   });
 
-  it('does not hand a reset socket to the WebSocket host after upgrade preparation', async () => {
-    let started!: () => void;
-    let finished = false;
-    const startedUpgrade = new Promise<void>((resolve) => {
-      started = resolve;
-    });
-    const definition = createServerDefinition({
-      async authenticate(request) {
-        started();
-        await new Promise<void>((resolve) =>
-          request.signal.addEventListener('abort', () => resolve()),
-        );
-        finished = true;
-        return { userId: 'left' };
-      },
-    }).assemble({ handlers: [] });
-    const webSocketServer = createFailingWebSocketServer();
+  wsOnly(
+    'does not hand a reset socket to the WebSocket host after upgrade preparation',
+    async () => {
+      let started!: () => void;
+      let finished = false;
+      const startedUpgrade = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const definition = createServerDefinition({
+        async authenticate(request) {
+          started();
+          await new Promise<void>((resolve) =>
+            request.signal.addEventListener('abort', () => resolve()),
+          );
+          finished = true;
+          return { userId: 'left' };
+        },
+      }).assemble({ handlers: [] });
+      const webSocketServer = createFailingWebSocketServer();
 
-    const service = createTestService(definition, {
-      port: 0,
-      webSocketServer: webSocketServer.server,
-    });
-    services.push(service);
-    await service.ready;
+      const service = createTestService(definition, {
+        port: 0,
+        webSocketServer: webSocketServer.server,
+      });
+      services.push(service);
+      await service.ready;
 
-    const socket = await openPendingUpgrade(serverPort(service.server), '/chat');
-    socket.on('error', () => {});
-    await startedUpgrade;
-    socket.resetAndDestroy();
+      const socket = await openPendingUpgrade(serverPort(service.server), '/chat');
+      socket.on('error', () => {});
+      await startedUpgrade;
+      socket.resetAndDestroy();
 
-    await vi.waitFor(() => expect(finished).toBe(true));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(webSocketServer.attempts()).toBe(0);
-    await expect(service.shutdown()).resolves.toBeUndefined();
-  });
+      await vi.waitFor(() => expect(finished).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(webSocketServer.attempts()).toBe(0);
+      await expect(service.shutdown()).resolves.toBeUndefined();
+    },
+  );
 
-  it('cancels a pending upgrade when the client half-closes its socket', async () => {
+  wsOnly('cancels a pending upgrade when the client half-closes its socket', async () => {
     let started!: () => void;
     let aborted = false;
     const startedUpgrade = new Promise<void>((resolve) => {

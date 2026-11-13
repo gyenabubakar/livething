@@ -1,15 +1,26 @@
 import { connect as connectTcp } from 'node:net';
 import websocket from '@fastify/websocket';
-import { client, connect } from '@livething/client';
+import { client, sse as clientSse, websocket as clientWebSocket, connect } from '@livething/client';
 import { emits, server, t } from '@livething/server';
 import { RejectAuth } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerDefinition } from '@livething/server/adapters';
-import { capturedBridges, nextJsonMessage, nextRawMessage } from '../../test-utils.ts';
+import {
+  capturedBridges,
+  nextJsonMessage,
+  nextRawMessage,
+  openRawClient,
+  rawTransport,
+  rawTransportOptions,
+} from '../../test-utils.ts';
 import { setup } from './index.ts';
 import type { NodeEndpointOptions } from '../../binding.ts';
+
+/** A test of the WebSocket upgrade or of `ws` itself, which has no meaning over SSE. */
+const wsOnly = it.skipIf(rawTransport === 'sse');
 
 vi.mock('../../socket.ts', async (importOriginal) => {
   const { captureBridges } = await import('../../test-utils.ts');
@@ -42,6 +53,7 @@ const base = server({
     return { userId: pathname.split('/').at(-1) ?? 'anonymous' };
   },
   capabilities: [
+    keepalive(),
     emits({
       connected: t<{ clientIp: string | null }>(),
       echoed: t<{ text?: string }>(),
@@ -85,8 +97,10 @@ async function createApp(
   const app = Fastify();
   await app.register(websocket);
   const livething = setup();
-  const endpoint = livething.bind(definition, options);
-  app.get('/ws/:room', endpoint.upgrade);
+  const endpoint = livething.bind(definition, { ...rawTransportOptions, ...options });
+  app.get('/ws/:room', endpoint.connect);
+
+  app.route({ method: ['POST', 'OPTIONS'], url: '/ws/:room', ...endpoint.handle });
 
   await livething.ready();
   await app.listen({ host: '127.0.0.1', port: 0 });
@@ -254,7 +268,7 @@ describe('Fastify binding', () => {
   });
 
   async function openLobbySocket(port: number): Promise<WebSocket> {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/lobby`);
+    const socket = openRawClient(`ws://127.0.0.1:${port}/ws/lobby`);
     sockets.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -263,7 +277,7 @@ describe('Fastify binding', () => {
     return socket;
   }
 
-  it('uses Fastify route parameters and forwards messages through LiveThing', async () => {
+  wsOnly('uses Fastify route parameters and forwards messages through LiveThing', async () => {
     const app = await createApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`);
@@ -277,7 +291,7 @@ describe('Fastify binding', () => {
     await expect(waitForMessage(socket)).resolves.toEqual(['echoed', {}, null]);
   });
 
-  it('answers the token subprotocol and passes the token to authenticate', async () => {
+  wsOnly('answers the token subprotocol and passes the token to authenticate', async () => {
     const app = await createApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`, TOKEN_OFFER);
@@ -288,7 +302,7 @@ describe('Fastify binding', () => {
     expect(lastAuthorization).toBe('Bearer session-8f2c');
   });
 
-  it('answers the token subprotocol on a socket rejected by close code', async () => {
+  wsOnly('answers the token subprotocol on a socket rejected by close code', async () => {
     const app = await createApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/socket-reject`, TOKEN_OFFER);
@@ -300,7 +314,7 @@ describe('Fastify binding', () => {
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
   });
 
-  it('applies the endpoint client IP configuration to the Node request', async () => {
+  wsOnly('applies the endpoint client IP configuration to the Node request', async () => {
     const app = await createApp({ clientIp: { mode: 'direct' } });
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`);
@@ -313,7 +327,7 @@ describe('Fastify binding', () => {
     ]);
   });
 
-  it('derives the client IP through a trusted proxy before Fastify upgrades', async () => {
+  wsOnly('derives the client IP through a trusted proxy before Fastify upgrades', async () => {
     const app = await createApp({
       clientIp: { mode: 'proxy', trustedProxies: ['127.0.0.1', '::1'] },
     });
@@ -328,7 +342,7 @@ describe('Fastify binding', () => {
     await expect(connected).resolves.toEqual(['connected', { clientIp: '203.0.113.7' }, null]);
   });
 
-  it('cancels a pending upgrade before shutdown', async () => {
+  wsOnly('cancels a pending upgrade before shutdown', async () => {
     let release!: () => void;
     let started!: () => void;
     let aborted = false;
@@ -374,7 +388,7 @@ describe('Fastify binding', () => {
     await shutdown;
   });
 
-  it('drops upgrades that arrive after LiveThing shutdown starts', async () => {
+  wsOnly('drops upgrades that arrive after LiveThing shutdown starts', async () => {
     const app = await createApp();
     apps.push(app);
 
@@ -383,7 +397,7 @@ describe('Fastify binding', () => {
     await expect(sendOpenUpgrade(app.port, '/ws/lobby')).resolves.toBe('');
   });
 
-  it('rejects before upgrade through Fastify preHandler', async () => {
+  wsOnly('rejects before upgrade through Fastify preHandler', async () => {
     const app = await createApp();
     apps.push(app);
 
@@ -393,7 +407,7 @@ describe('Fastify binding', () => {
     expect(response).toContain('No token');
   });
 
-  it('answers a plain HTTP request with 426 without running authenticate', async () => {
+  wsOnly('answers a plain HTTP request with 426 without running authenticate', async () => {
     const authenticate = vi.fn(() => ({ userId: 'plain' }));
     const app = await createApp({}, server({ authenticate }).assemble({ handlers: [] }));
     apps.push(app);
@@ -404,7 +418,7 @@ describe('Fastify binding', () => {
     expect(authenticate).not.toHaveBeenCalled();
   });
 
-  it('does not run authenticate for a non-WebSocket upgrade request', async () => {
+  wsOnly('does not run authenticate for a non-WebSocket upgrade request', async () => {
     const authenticate = vi.fn(() => ({ userId: 'plain' }));
     const app = await createApp({}, server({ authenticate }).assemble({ handlers: [] }));
     apps.push(app);
@@ -414,7 +428,7 @@ describe('Fastify binding', () => {
     expect(authenticate).not.toHaveBeenCalled();
   });
 
-  it('closes a socket-level rejection after Fastify upgrades it', async () => {
+  wsOnly('closes a socket-level rejection after Fastify upgrades it', async () => {
     const app = await createApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/socket-reject`);
@@ -425,7 +439,7 @@ describe('Fastify binding', () => {
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
   });
 
-  it('closes with an internal error when connection setup fails after upgrade', async () => {
+  wsOnly('closes with an internal error when connection setup fails after upgrade', async () => {
     const app = await createApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/accept-failure`);
@@ -442,7 +456,11 @@ describe('Fastify binding', () => {
   it('works with the LiveThing client', async () => {
     const app = await createApp();
     apps.push(app);
-    const socket = client<TestClient>()(connect(`ws://127.0.0.1:${app.port}/ws/lobby`));
+    const socket = client<TestClient>()(
+      connect(`ws://127.0.0.1:${app.port}/ws/lobby`, {
+        transports: [rawTransport === 'sse' ? clientSse() : clientWebSocket()],
+      }),
+    );
     const connected = new Promise<{ clientIp: string | null }>((resolve) =>
       socket.on('connected', resolve),
     );
@@ -529,7 +547,7 @@ describe('Fastify binding', () => {
     expect(lastDisconnect).toEqual({ code: 1001, reason: 'Server shutting down' });
   });
 
-  it('reports the real outbound queue while a Fastify client is slow', async () => {
+  wsOnly('reports the real outbound queue while a Fastify client is slow', async () => {
     const queued = server({
       authenticate() {
         return { userId: 'slow-client' };
@@ -572,7 +590,7 @@ describe('Fastify binding', () => {
     await expect(queuedAmount).resolves.toBeGreaterThan(0);
   });
 
-  it('keeps the connection until close after a transport error', async () => {
+  wsOnly('keeps the connection until close after a transport error', async () => {
     const app = await createApp();
     apps.push(app);
 

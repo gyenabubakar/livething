@@ -1,5 +1,5 @@
 import { encodeBinaryFrame } from '@livething/core';
-import { createSseHub } from '~/_adapters/sse.ts';
+import { createSseHub, sseCloseEvent } from '~/_adapters/sse.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { SseAnswer, SseHub, SsePost } from '~/_adapters/sse.ts';
 import type { ConnectionHandle } from '~/_adapters/types.ts';
@@ -55,6 +55,15 @@ function postNow(started: SsePost | SseAnswer, body: Uint8Array): SseAnswer {
 function flush(): Promise<unknown> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
+
+describe('sseCloseEvent', () => {
+  it('cuts the reason to 123 UTF-8 bytes, as a WebSocket close does', () => {
+    const event = sseCloseEvent(4002, '🙂'.repeat(100));
+    const [, payload] = JSON.parse(event.slice('data: '.length)) as [string, { reason: string }];
+
+    expect(payload.reason).toBe('🙂'.repeat(30));
+  });
+});
 
 describe('createSseHub: the stream', () => {
   it('writes a text frame as one data line, and a binary frame as b and base64', () => {

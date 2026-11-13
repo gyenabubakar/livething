@@ -6,7 +6,7 @@ import { relativizeTildeImports } from '../scripts/vite-dts.ts';
 export default defineConfig({
   plugins: [
     dts({
-      exclude: ['**/*.spec.ts', '**/*.test.ts', '**/*.test-d.ts'],
+      exclude: ['**/*.spec.ts', '**/*.test.ts', '**/*.test-d.ts', '**/*.bench.ts', 'src/_test/**'],
       beforeWriteFile: relativizeTildeImports(resolve(__dirname, 'dist')),
     }),
   ],

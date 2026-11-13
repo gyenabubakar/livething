@@ -27,8 +27,8 @@ export interface FastifyHttpRoute {
 
 /** One LiveThing definition registered as a Fastify WebSocket route. */
 export interface FastifyEndpoint<TAdmin = NodeAdmin> {
-  /** The `GET` route: a WebSocket upgrade, or the server-sent events stream. */
-  upgrade: FastifyWebSocketRoute;
+  /** The `GET` route a client connects on: a WebSocket upgrade, or the server-sent events stream. */
+  connect: FastifyWebSocketRoute;
   /** The `POST` and `OPTIONS` route on the same path, for server-sent events. */
   handle: FastifyHttpRoute;
   ready(): Promise<void>;
@@ -136,7 +136,7 @@ export function setup(): FastifySetup {
       };
 
       return {
-        upgrade: route,
+        connect: route,
         handle: {
           onRequest: serveHttp,
           // `onRequest` already answered, so Fastify never calls this.

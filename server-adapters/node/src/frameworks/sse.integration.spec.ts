@@ -73,12 +73,12 @@ describe('server-sent events through the framework helpers', () => {
     expect(await roundTrip(`http://127.0.0.1:${port}/huddle`)).toEqual(['kofi:hello']);
   });
 
-  it('works on Fastify, with upgrade on GET and handle on POST and OPTIONS', async () => {
+  it('works on Fastify, with connect on GET and handle on POST and OPTIONS', async () => {
     const app = Fastify();
     await app.register(websocketPlugin);
     const livething = setupFastify();
     const huddleEndpoint = livething.bind(huddleDefinition, { transports: [sse()] });
-    app.get('/huddle', huddleEndpoint.upgrade);
+    app.get('/huddle', huddleEndpoint.connect);
 
     app.route({ method: ['POST', 'OPTIONS'], url: '/huddle', ...huddleEndpoint.handle });
     await livething.ready();
@@ -96,7 +96,7 @@ describe('server-sent events through the framework helpers', () => {
     const app = Fastify();
     await app.register(websocketPlugin);
     const livething = setupFastify();
-    app.get('/huddle', livething.bind(huddleDefinition, {}).upgrade);
+    app.get('/huddle', livething.bind(huddleDefinition, {}).connect);
     await app.listen({ host: '127.0.0.1', port: 0 });
 
     cleanups.push(async () => {

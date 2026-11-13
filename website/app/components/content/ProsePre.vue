@@ -1,15 +1,3 @@
-<script lang="ts">
-const LINE_HEIGHT = 23
-
-const BLOCK_CSS = `
-:host {
-  --diffs-font-family: var(--font-mono, "DM Mono", monospace);
-  --diffs-font-size: 14.5px;
-  --diffs-line-height: ${LINE_HEIGHT}px;
-}
-`
-</script>
-
 <script setup lang="ts">
 import { useClipboard } from '@vueuse/core'
 import UPre from '#ui/components/prose/Pre.vue'
@@ -27,129 +15,86 @@ const props = defineProps<{
 }>()
 
 const route = useRoute()
-const enabled = computed(() => route.path !== '/')
-const code = computed(() => (props.code ?? '').replace(/\n+$/, ''))
-const language = computed(() => props.language || 'text')
-const isDiff = computed(() => language.value === 'diff' || language.value === 'patch')
-const showHeader = computed(() => !!props.filename && !props.hideHeader)
-const name = computed(() => props.filename || `snippet.${language.value}`)
+const enabled = route.path !== '/'
+const code = (props.code ?? '').replace(/\n+$/, '')
 
-const colorMode = useColorMode()
-const themeType = computed<'light' | 'dark'>(() => (colorMode.value === 'dark' ? 'dark' : 'light'))
+// The server highlights the block (server/api/code-block.post.ts), so the highlighter never ships
+// to the browser. A prerendered page carries the result in its payload.
+async function highlight() {
+  try {
+    const { html } = await $fetch('/api/code-block', {
+      method: 'POST',
+      body: {
+        code,
+        language: props.language || 'text',
+        filename: props.filename,
+        hideHeader: props.hideHeader,
+      },
+    })
+
+    return html
+  } catch (error) {
+    console.error('Could not highlight a code block, so it stays plain.', error)
+    return null
+  }
+}
+
+// The key must not depend on where the block sits in the component tree: `useId()` changes after a
+// client-side navigation, so the page's prerendered payload would not be found. FNV-1a of the
+// block's content is the same on the server and in the browser.
+function blockKey() {
+  let hash = 0x811c9dc5
+  for (const char of `${props.language}\0${props.filename}\0${props.hideHeader}\0${code}`) {
+    hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193)
+  }
+
+  return `${(hash >>> 0).toString(36)}-${code.length}`
+}
+
+const [{ data: sharedHTML }, { data: shadowHTML }] = enabled
+  ? await Promise.all([
+      useAsyncData('code-block-shared', () => $fetch('/api/code-block-shared').then(r => r.html)),
+      useAsyncData(`code-block-${blockKey()}`, highlight),
+    ])
+  : [{ data: ref(null) }, { data: ref(null) }]
+
+const markup = computed(() =>
+  sharedHTML.value == null || shadowHTML.value == null
+    ? null
+    : `<diffs-container><template shadowrootmode="open">${sharedHTML.value}${shadowHTML.value}</template></diffs-container>`,
+)
+
+// The HTML parser turns the template into a shadow root on the first page load. After a client-side
+// navigation the template comes from innerHTML, which leaves it inert, so attach it here.
+const wrapper = ref<HTMLElement>()
+
+function attachShadowRoot() {
+  const host = wrapper.value?.querySelector('diffs-container')
+  const template = host?.querySelector('template')
+  if (!host || !template) return
+
+  const shadowRoot = host.shadowRoot ?? host.attachShadow({ mode: 'open' })
+  shadowRoot.replaceChildren(template.content)
+  template.remove()
+}
+
+onMounted(attachShadowRoot)
+onUpdated(attachShadowRoot)
+
 const { copy, copied } = useClipboard()
 const appConfig = useAppConfig()
-
-const container = ref<HTMLElement>()
-const block = ref<HTMLElement>()
-const visible = ref(false)
-const rendered = ref(false)
-const placeholderHeight = computed(() => {
-  const lines = Math.max(1, code.value.split('\n').length)
-  const headerHeight = showHeader.value ? 38 : 0
-
-  return `${lines * LINE_HEIGHT + headerHeight + 2}px`
-})
-
-let instance: { setThemeType: (type: 'light' | 'dark') => void, cleanUp: () => void } | undefined
-let observer: IntersectionObserver | undefined
-
-async function draw() {
-  if (!container.value) return
-
-  const { File, FileDiff, parsePatchFiles } = await import('@pierre/diffs')
-
-  if (isDiff.value) {
-    let fileDiff
-
-    try {
-      fileDiff = parsePatchFiles(code.value, name.value, true)[0]?.files[0]
-    } catch {
-      fileDiff = undefined
-    }
-
-    if (fileDiff) {
-      const diff = new FileDiff({
-        theme: { light: 'pierre-light', dark: 'pierre-dark-soft' },
-        themeType: themeType.value,
-        diffStyle: 'unified',
-        lineDiffType: 'none',
-        overflow: 'scroll' as const,
-        disableFileHeader: !showHeader.value,
-        unsafeCSS: BLOCK_CSS,
-      })
-      diff.render({ fileDiff, containerWrapper: container.value })
-      instance = diff
-      return
-    }
-  }
-
-  const file = new File({
-    theme: { light: 'pierre-light', dark: 'pierre-dark-soft' },
-    themeType: themeType.value,
-    overflow: 'scroll' as const,
-    disableFileHeader: !showHeader.value,
-    unsafeCSS: BLOCK_CSS,
-  })
-  file.render({
-    file: { name: name.value, contents: code.value, lang: language.value },
-    containerWrapper: container.value,
-  })
-  instance = file
-}
-
-watch(themeType, type => instance?.setThemeType(type))
-
-async function render() {
-  if (visible.value) return
-
-  visible.value = true
-  await nextTick()
-  await draw()
-  rendered.value = true
-  observer?.disconnect()
-  observer = undefined
-}
-
-onMounted(() => {
-  if (!enabled.value) return
-
-  if (!block.value || typeof IntersectionObserver === 'undefined') {
-    void render()
-    return
-  }
-
-  observer = new IntersectionObserver(
-    (entries) => {
-      if (entries[0]?.isIntersecting) void render()
-    },
-    { rootMargin: '200px 0px' },
-  )
-  observer.observe(block.value)
-})
-
-onBeforeUnmount(() => {
-  observer?.disconnect()
-  observer = undefined
-  instance?.cleanUp()
-  instance = undefined
-})
 </script>
 
 <template>
-  <UPre
-    v-if="!enabled"
-    v-bind="props"
-  >
-    <slot />
-  </UPre>
-
   <div
-    v-else
-    ref="block"
+    v-if="markup"
     class="not-prose group relative my-5"
-    :style="{ minHeight: rendered ? undefined : placeholderHeight }"
   >
-    <div v-if="visible" ref="container" class="diffs-block" />
+    <div
+      ref="wrapper"
+      class="diffs-block"
+      v-html="markup"
+    />
 
     <UButton
       :icon="copied ? appConfig.ui.icons.copyCheck : appConfig.ui.icons.copy"
@@ -162,6 +107,13 @@ onBeforeUnmount(() => {
       @click="copy(code)"
     />
   </div>
+
+  <UPre
+    v-else
+    v-bind="props"
+  >
+    <slot />
+  </UPre>
 </template>
 
 <style scoped>
@@ -169,5 +121,10 @@ onBeforeUnmount(() => {
   display: block;
   overflow: hidden;
   border: 1px solid var(--ui-border-muted);
+  color-scheme: light;
+}
+
+.dark .diffs-block :deep(diffs-container) {
+  color-scheme: dark;
 }
 </style>

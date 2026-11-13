@@ -127,7 +127,7 @@ if (false) {
 }
 const app = createApp();
 const router = createRouter();
-router.get('/ws', endpoint.upgrade);
+router.get('/ws', endpoint.connect);
 app.use(router);
 const websocket = nodeWebSocketAdapter(app.websocket);
 const http = createServer(toNodeListener(app));
@@ -169,7 +169,7 @@ const base = defineServer({
 const livething = setup();
 const endpoint = livething.bind(base.assemble({ handlers: [] }), { sql: ':memory:' });
 const app = new H3();
-app.get('/ws', endpoint.upgrade);
+app.get('/ws', endpoint.connect);
 await livething.ready();
 const served = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0, websocket: {} });
 const http = served.node?.server;

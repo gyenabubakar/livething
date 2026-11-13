@@ -1,13 +1,24 @@
 import { connect as connectTcp } from 'node:net';
 import { createAdaptorServer } from '@hono/node-server';
-import { client, connect } from '@livething/client';
+import { client, sse as clientSse, websocket as clientWebSocket, connect } from '@livething/client';
 import { server as createServerDefinition, emits, t } from '@livething/server';
 import { RejectAuth } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
-import { capturedBridges, nextJsonMessage, nextRawMessage } from '../../test-utils.ts';
+import {
+  capturedBridges,
+  nextJsonMessage,
+  nextRawMessage,
+  openRawClient,
+  rawTransport,
+  rawTransportOptions,
+} from '../../test-utils.ts';
 import { setup } from './index.ts';
+
+/** A test of the WebSocket upgrade or of `ws` itself, which has no meaning over SSE. */
+const wsOnly = it.skipIf(rawTransport === 'sse');
 
 vi.mock('../../socket.ts', async (importOriginal) => {
   const { captureBridges } = await import('../../test-utils.ts');
@@ -41,6 +52,7 @@ const base = createServerDefinition({
     return { userId: pathname.split('/').at(-1) ?? 'anonymous' };
   },
   capabilities: [
+    keepalive(),
     emits({
       connected: t<{ userId: string; clientIp: string | null }>(),
       echoed: t<{ text: string }>(),
@@ -258,8 +270,10 @@ describe('Hono binding', () => {
   async function startLobby() {
     const app = new Hono();
     const livething = setup();
-    const endpoint = livething.bind(assembled, {});
+    const endpoint = livething.bind(assembled, rawTransportOptions);
     app.get('/ws/:room', endpoint.upgrade);
+    app.all('/ws/:room', endpoint.handle);
+
     const server = await listen(app, livething.websocket, () => livething.shutdown());
 
     servers.push(server);
@@ -269,7 +283,7 @@ describe('Hono binding', () => {
   }
 
   async function openLobbySocket(port: number): Promise<WebSocket> {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/lobby`);
+    const socket = openRawClient(`ws://127.0.0.1:${port}/ws/lobby`);
     sockets.push(socket);
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
@@ -278,32 +292,35 @@ describe('Hono binding', () => {
     return socket;
   }
 
-  it('answers the token subprotocol, passes the token to authenticate, and answers a close-code rejection', async () => {
-    const app = new Hono();
-    const livething = setup();
-    const endpoint = livething.bind(assembled, {});
-    app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, livething.websocket, () => livething.shutdown());
+  wsOnly(
+    'answers the token subprotocol, passes the token to authenticate, and answers a close-code rejection',
+    async () => {
+      const app = new Hono();
+      const livething = setup();
+      const endpoint = livething.bind(assembled, {});
+      app.get('/ws/:room', endpoint.upgrade);
+      const server = await listen(app, livething.websocket, () => livething.shutdown());
 
-    servers.push(server);
-    await livething.ready();
+      servers.push(server);
+      await livething.ready();
 
-    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/lobby`, TOKEN_OFFER);
-    sockets.push(socket);
-    await waitForOpen(socket);
-    expect(socket.protocol).toBe('livething-v1');
-    expect(lastAuthorization).toBe('Bearer session-8f2c');
+      const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/lobby`, TOKEN_OFFER);
+      sockets.push(socket);
+      await waitForOpen(socket);
+      expect(socket.protocol).toBe('livething-v1');
+      expect(lastAuthorization).toBe('Bearer session-8f2c');
 
-    const rejected = new WebSocket(`ws://127.0.0.1:${server.port}/ws/socket-reject`, TOKEN_OFFER);
-    sockets.push(rejected);
-    const closed = waitForClose(rejected);
-    await waitForOpen(rejected);
-    expect(rejected.protocol).toBe('livething-v1');
+      const rejected = new WebSocket(`ws://127.0.0.1:${server.port}/ws/socket-reject`, TOKEN_OFFER);
+      sockets.push(rejected);
+      const closed = waitForClose(rejected);
+      await waitForOpen(rejected);
+      expect(rejected.protocol).toBe('livething-v1');
 
-    await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
-  });
+      await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
+    },
+  );
 
-  it('uses Hono route matching while LiveThing handles the accepted socket', async () => {
+  wsOnly('uses Hono route matching while LiveThing handles the accepted socket', async () => {
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(assembled, {});
@@ -323,35 +340,41 @@ describe('Hono binding', () => {
     await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text: 'hello' }, null]);
   });
 
-  it('sets maxMessageBytes on the shared WebSocket server, so a bigger message closes with 1009', async () => {
-    const app = new Hono();
-    const livething = setup({ maxMessageBytes: 1024 });
-    const endpoint = livething.bind(assembled, { maxMessageBytes: 1024 });
-    app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, livething.websocket, () => livething.shutdown());
+  wsOnly(
+    'sets maxMessageBytes on the shared WebSocket server, so a bigger message closes with 1009',
+    async () => {
+      const app = new Hono();
+      const livething = setup({ maxMessageBytes: 1024 });
+      const endpoint = livething.bind(assembled, { maxMessageBytes: 1024 });
+      app.get('/ws/:room', endpoint.upgrade);
+      const server = await listen(app, livething.websocket, () => livething.shutdown());
 
-    servers.push(server);
-    await livething.ready();
+      servers.push(server);
+      await livething.ready();
 
-    expect(livething.websocket.server.options.maxPayload).toBe(1024);
-    const socket = await openLobbySocket(server.port);
-    const closed = new Promise<number>((resolve) => socket.once('close', resolve));
-    socket.send('x'.repeat(2000));
+      expect(livething.websocket.server.options.maxPayload).toBe(1024);
+      const socket = await openLobbySocket(server.port);
+      const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+      socket.send('x'.repeat(2000));
 
-    expect(await closed).toBe(1009);
-  });
+      expect(await closed).toBe(1009);
+    },
+  );
 
-  it('refuses a maxMessageBytes that ws cannot hold, and both webSocketServer and maxMessageBytes', () => {
-    for (const maxMessageBytes of [0, 1.5, Number.NaN, 2 ** 31]) {
-      expect(() => setup({ maxMessageBytes })).toThrow(/setup\(\) maxMessageBytes must be/);
-    }
+  wsOnly(
+    'refuses a maxMessageBytes that ws cannot hold, and both webSocketServer and maxMessageBytes',
+    () => {
+      for (const maxMessageBytes of [0, 1.5, Number.NaN, 2 ** 31]) {
+        expect(() => setup({ maxMessageBytes })).toThrow(/setup\(\) maxMessageBytes must be/);
+      }
 
-    expect(() =>
-      setup({ webSocketServer: new WebSocketServer({ noServer: true }), maxMessageBytes: 1024 }),
-    ).toThrow(/both webSocketServer and maxMessageBytes/);
-  });
+      expect(() =>
+        setup({ webSocketServer: new WebSocketServer({ noServer: true }), maxMessageBytes: 1024 }),
+      ).toThrow(/both webSocketServer and maxMessageBytes/);
+    },
+  );
 
-  it('leaves compression off by default', async () => {
+  wsOnly('leaves compression off by default', async () => {
     const { livething, server } = await startLobby();
 
     expect(livething.websocket.server.options.perMessageDeflate).toBe(false);
@@ -359,49 +382,52 @@ describe('Hono binding', () => {
     expect(socket.extensions).toBe('');
   });
 
-  it('turns on compression for the shared WebSocket server, and JSON and binary still round-trip', async () => {
-    const app = new Hono();
-    const livething = setup({ compression: { threshold: 64 } });
-    const endpoint = livething.bind(assembled, {});
-    app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, livething.websocket, () => livething.shutdown());
+  wsOnly(
+    'turns on compression for the shared WebSocket server, and JSON and binary still round-trip',
+    async () => {
+      const app = new Hono();
+      const livething = setup({ compression: { threshold: 64 } });
+      const endpoint = livething.bind(assembled, {});
+      app.get('/ws/:room', endpoint.upgrade);
+      const server = await listen(app, livething.websocket, () => livething.shutdown());
 
-    servers.push(server);
-    await livething.ready();
+      servers.push(server);
+      await livething.ready();
 
-    expect(livething.websocket.server.options.perMessageDeflate).toMatchObject({
-      threshold: 64,
-      serverNoContextTakeover: true,
-      clientNoContextTakeover: true,
-    });
-    const socket = await openLobbySocket(server.port);
-    expect(socket.extensions).toContain('permessage-deflate');
+      expect(livething.websocket.server.options.perMessageDeflate).toMatchObject({
+        threshold: 64,
+        serverNoContextTakeover: true,
+        clientNoContextTakeover: true,
+      });
+      const socket = await openLobbySocket(server.port);
+      expect(socket.extensions).toContain('permessage-deflate');
 
-    const text = 'a new message in #general '.repeat(100);
-    socket.send(JSON.stringify(['echo', { text }, null]));
-    await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text }, null]);
+      const text = 'a new message in #general '.repeat(100);
+      socket.send(JSON.stringify(['echo', { text }, null]));
+      await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text }, null]);
 
-    const bridge = capturedBridges.at(-1)!;
-    const tcp = (socket as WebSocket & { _socket: { bytesRead: number } })._socket;
-    const before = tcp.bytesRead;
-    const textMessage = nextRawMessage(socket);
-    bridge.transport.send({ kind: 'text', text: 'x'.repeat(2000) });
+      const bridge = capturedBridges.at(-1)!;
+      const tcp = (socket as WebSocket & { _socket: { bytesRead: number } })._socket;
+      const before = tcp.bytesRead;
+      const textMessage = nextRawMessage(socket);
+      bridge.transport.send({ kind: 'text', text: 'x'.repeat(2000) });
 
-    await textMessage;
-    expect(tcp.bytesRead - before).toBeLessThan(200);
+      await textMessage;
+      expect(tcp.bytesRead - before).toBeLessThan(200);
 
-    const outgoing = nextRawMessage(socket);
-    bridge.transport.send({ kind: 'bytes', bytes: new Uint8Array(4096).fill(7) });
-    const { data, isBinary } = await outgoing;
-    expect(isBinary).toBe(true);
-    expect([...(data as Buffer)]).toEqual(Array.from({ length: 4096 }, () => 7));
+      const outgoing = nextRawMessage(socket);
+      bridge.transport.send({ kind: 'bytes', bytes: new Uint8Array(4096).fill(7) });
+      const { data, isBinary } = await outgoing;
+      expect(isBinary).toBe(true);
+      expect([...(data as Buffer)]).toEqual(Array.from({ length: 4096 }, () => 7));
 
-    socket.send(new Uint8Array(4096).fill(9));
-    await vi.waitFor(() => expect(bridge.binaryMessages).toHaveLength(1));
-    expect([...bridge.binaryMessages[0]!]).toEqual(Array.from({ length: 4096 }, () => 9));
-  });
+      socket.send(new Uint8Array(4096).fill(9));
+      await vi.waitFor(() => expect(bridge.binaryMessages).toHaveLength(1));
+      expect([...bridge.binaryMessages[0]!]).toEqual(Array.from({ length: 4096 }, () => 9));
+    },
+  );
 
-  it('uses the ws default threshold of 1024 bytes for compression: true', () => {
+  wsOnly('uses the ws default threshold of 1024 bytes for compression: true', () => {
     const livething = setup({ compression: true });
 
     expect(livething.websocket.server.options.perMessageDeflate).toMatchObject({
@@ -409,7 +435,7 @@ describe('Hono binding', () => {
     });
   });
 
-  it('refuses a bad compression, and both webSocketServer and compression', () => {
+  wsOnly('refuses a bad compression, and both webSocketServer and compression', () => {
     expect(() => setup({ compression: 'yes' as unknown as boolean })).toThrow(
       /\[livething\] setup\(\) compression must be true, false or \{ threshold \}/,
     );
@@ -423,7 +449,7 @@ describe('Hono binding', () => {
     );
   });
 
-  it('refuses an endpoint maxMessageBytes larger than the shared server limit', () => {
+  wsOnly('refuses an endpoint maxMessageBytes larger than the shared server limit', () => {
     const livething = setup({ maxMessageBytes: 1024 });
 
     expect(() => livething.bind(assembled, { maxMessageBytes: 2048 })).toThrow(
@@ -431,7 +457,7 @@ describe('Hono binding', () => {
     );
   });
 
-  it('uses a caller-provided WebSocket server', async () => {
+  wsOnly('uses a caller-provided WebSocket server', async () => {
     const app = new Hono();
     const webSocketServer = new WebSocketServer({ noServer: true });
     const close = vi.spyOn(webSocketServer, 'close');
@@ -453,7 +479,7 @@ describe('Hono binding', () => {
     close.mockRestore();
   });
 
-  it('applies the endpoint client IP configuration to the Node request', async () => {
+  wsOnly('applies the endpoint client IP configuration to the Node request', async () => {
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(assembled, { clientIp: { mode: 'direct' } });
@@ -471,7 +497,7 @@ describe('Hono binding', () => {
     ]);
   });
 
-  it('derives the client IP through a trusted proxy before Hono upgrades', async () => {
+  wsOnly('derives the client IP through a trusted proxy before Hono upgrades', async () => {
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(assembled, {
@@ -495,7 +521,7 @@ describe('Hono binding', () => {
     ]);
   });
 
-  it('reports the real outbound queue while a Hono client is slow', async () => {
+  wsOnly('reports the real outbound queue while a Hono client is slow', async () => {
     const queued = createServerDefinition({
       authenticate() {
         return { userId: 'slow-client' };
@@ -543,7 +569,7 @@ describe('Hono binding', () => {
     await expect(queuedAmount).resolves.toBeGreaterThan(0);
   });
 
-  it('cancels a pending upgrade before shutdown', async () => {
+  wsOnly('cancels a pending upgrade before shutdown', async () => {
     let release!: () => void;
     let started!: () => void;
     let aborted = false;
@@ -594,7 +620,7 @@ describe('Hono binding', () => {
     await shutdown;
   });
 
-  it('drops upgrades that arrive after LiveThing shutdown starts', async () => {
+  wsOnly('drops upgrades that arrive after LiveThing shutdown starts', async () => {
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(assembled, {});
@@ -608,7 +634,7 @@ describe('Hono binding', () => {
     await expect(sendOpenUpgrade(server.port, '/ws/lobby')).resolves.toBe('');
   });
 
-  it('keeps the connection until close after a transport error', async () => {
+  wsOnly('keeps the connection until close after a transport error', async () => {
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(assembled, {});
@@ -620,7 +646,7 @@ describe('Hono binding', () => {
     await vi.waitFor(() => expect(disconnects).toBe(1));
   });
 
-  it('returns an HTTP rejection before Hono upgrades the connection', async () => {
+  wsOnly('returns an HTTP rejection before Hono upgrades the connection', async () => {
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(assembled, {});
@@ -636,43 +662,49 @@ describe('Hono binding', () => {
     expect(response).not.toContain('No token');
   });
 
-  it('passes a plain HTTP request to the next Hono handler without running authenticate', async () => {
-    const authenticate = vi.fn(() => ({ userId: 'plain' }));
-    const definition = createServerDefinition({ authenticate }).assemble({ handlers: [] });
-    const app = new Hono();
-    const livething = setup();
-    const endpoint = livething.bind(definition, {});
+  wsOnly(
+    'passes a plain HTTP request to the next Hono handler without running authenticate',
+    async () => {
+      const authenticate = vi.fn(() => ({ userId: 'plain' }));
+      const definition = createServerDefinition({ authenticate }).assemble({ handlers: [] });
+      const app = new Hono();
+      const livething = setup();
+      const endpoint = livething.bind(definition, {});
 
-    app.get('/ws/:room', endpoint.upgrade, (context) => context.text('plain page'));
-    const server = await listen(app, livething.websocket, () => livething.shutdown());
+      app.get('/ws/:room', endpoint.upgrade, (context) => context.text('plain page'));
+      const server = await listen(app, livething.websocket, () => livething.shutdown());
 
-    servers.push(server);
-    await livething.ready();
+      servers.push(server);
+      await livething.ready();
 
-    const response = await fetch(`http://127.0.0.1:${server.port}/ws/lobby`);
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe('plain page');
-    expect(authenticate).not.toHaveBeenCalled();
-  });
+      const response = await fetch(`http://127.0.0.1:${server.port}/ws/lobby`);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('plain page');
+      expect(authenticate).not.toHaveBeenCalled();
+    },
+  );
 
-  it('does not run authenticate for a plain HTTP request when no other Hono handler matches', async () => {
-    const authenticate = vi.fn(() => ({ userId: 'plain' }));
-    const definition = createServerDefinition({ authenticate }).assemble({ handlers: [] });
-    const app = new Hono();
-    const livething = setup();
-    const endpoint = livething.bind(definition, {});
+  wsOnly(
+    'does not run authenticate for a plain HTTP request when no other Hono handler matches',
+    async () => {
+      const authenticate = vi.fn(() => ({ userId: 'plain' }));
+      const definition = createServerDefinition({ authenticate }).assemble({ handlers: [] });
+      const app = new Hono();
+      const livething = setup();
+      const endpoint = livething.bind(definition, {});
 
-    app.get('/ws/:room', endpoint.upgrade);
-    const server = await listen(app, livething.websocket, () => livething.shutdown());
+      app.get('/ws/:room', endpoint.upgrade);
+      const server = await listen(app, livething.websocket, () => livething.shutdown());
 
-    servers.push(server);
-    await livething.ready();
+      servers.push(server);
+      await livething.ready();
 
-    const response = await fetch(`http://127.0.0.1:${server.port}/ws/lobby`);
-    expect(response.status).toBe(404);
-    expect(authenticate).not.toHaveBeenCalled();
-  });
-  it('upgrades then closes a socket-level rejection', async () => {
+      const response = await fetch(`http://127.0.0.1:${server.port}/ws/lobby`);
+      expect(response.status).toBe(404);
+      expect(authenticate).not.toHaveBeenCalled();
+    },
+  );
+  wsOnly('upgrades then closes a socket-level rejection', async () => {
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(assembled, {});
@@ -688,7 +720,7 @@ describe('Hono binding', () => {
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
   });
 
-  it('trims a long socket rejection reason to the WebSocket control-frame limit', async () => {
+  wsOnly('trims a long socket rejection reason to the WebSocket control-frame limit', async () => {
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(assembled, {});
@@ -704,7 +736,7 @@ describe('Hono binding', () => {
     await expect(closed).resolves.toEqual({ code: 4001, reason: '🙂'.repeat(30) });
   });
 
-  it('closes with an internal error when connection setup fails after upgrade', async () => {
+  wsOnly('closes with an internal error when connection setup fails after upgrade', async () => {
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(assembled, {});
@@ -725,7 +757,11 @@ describe('Hono binding', () => {
 
   it('works with the LiveThing client', async () => {
     const { server } = await startLobby();
-    const socket = client<TestClient>()(connect(`ws://127.0.0.1:${server.port}/ws/lobby`));
+    const socket = client<TestClient>()(
+      connect(`ws://127.0.0.1:${server.port}/ws/lobby`, {
+        transports: [rawTransport === 'sse' ? clientSse() : clientWebSocket()],
+      }),
+    );
     const connected = new Promise<{ userId: string }>((resolve) => socket.on('connected', resolve));
     const echoed = new Promise<{ text: string }>((resolve) => socket.on('echoed', resolve));
 

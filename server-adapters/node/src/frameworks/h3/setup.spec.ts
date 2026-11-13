@@ -29,7 +29,7 @@ describe('H3 v2 Fetch request fallback', () => {
 
     await livething.ready();
 
-    expect(endpoint.upgrade).toBe(route);
+    expect(endpoint.connect).toBe(route);
     const request = {
       url: 'http://localhost/ws',
       method: 'GET',

@@ -1,16 +1,27 @@
 import { createServer } from 'node:http';
 import { connect as connectTcp } from 'node:net';
-import { client, connect } from '@livething/client';
+import { client, sse as clientSse, websocket as clientWebSocket, connect } from '@livething/client';
 import { server as createServerDefinition, emits, t } from '@livething/server';
 import { RejectAuth } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import nodeWebSocketAdapter from 'crossws-v1/adapters/node';
-import { createApp, createRouter, defineWebSocketHandler, toNodeListener } from 'h3-v1';
+import { createApp, createRouter, defineEventHandler, toNodeListener } from 'h3-v1';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type { AddressInfo } from 'node:net';
-import { capturedBridges, nextJsonMessage, nextRawMessage } from '../../../test-utils.ts';
+import {
+  capturedBridges,
+  nextJsonMessage,
+  nextRawMessage,
+  openRawClient,
+  rawTransport,
+  rawTransportOptions,
+} from '../../../test-utils.ts';
 import { createH3V1Setup } from './setup.ts';
+
+/** A test of the WebSocket upgrade or of `ws` itself, which has no meaning over SSE. */
+const wsOnly = it.skipIf(rawTransport === 'sse');
 
 vi.mock('../../../socket.ts', async (importOriginal) => {
   const { captureBridges } = await import('../../../test-utils.ts');
@@ -49,6 +60,7 @@ const base = createServerDefinition({
     return { userId: lastUserId };
   },
   capabilities: [
+    keepalive(),
     emits({
       connected: t<{ clientIp: string | null; userId: string }>(),
       echoed: t<{ text: string }>(),
@@ -88,10 +100,14 @@ async function createTestApp(
 ) {
   const app = createApp();
   const router = createRouter();
-  const livething = createH3V1Setup(defineWebSocketHandler);
-  const endpoint = livething.bind(serverDefinition, { sql: ':memory:' });
+  const livething = createH3V1Setup(defineEventHandler);
+  const endpoint = livething.bind(serverDefinition, {
+    ...rawTransportOptions,
+    sql: ':memory:',
+  });
 
-  router.get('/ws/:room', endpoint.upgrade);
+  router.get('/ws/:room', endpoint.connect);
+  router.use('/ws/:room', endpoint.handle);
   app.use(router);
 
   const websocket = nodeWebSocketAdapter({ ...app.websocket, serverOptions });
@@ -239,13 +255,14 @@ function sendInvalidClientFrame(port: number, path: string): Promise<void> {
   });
 }
 
-type H3V1Hooks = Parameters<Parameters<typeof createH3V1Setup>[0]>[0];
+type H3V1Hooks = NonNullable<Parameters<Parameters<typeof createH3V1Setup>[0]>[0]['websocket']>;
 
 function captureAuthHook(serverDefinition: ServerDefinition) {
   let hooks!: H3V1Hooks;
-  const livething = createH3V1Setup((value) => {
-    hooks = value;
-    return value;
+  const livething = createH3V1Setup((definition) => {
+    if (definition.websocket) hooks = definition.websocket;
+
+    return definition;
   });
   const endpoint = livething.bind(serverDefinition, { sql: ':memory:' });
 
@@ -271,7 +288,11 @@ describe('H3 v1 binding', () => {
   it('uses an H3 v1 route and forwards messages through LiveThing', async () => {
     const app = await createTestApp();
     apps.push(app);
-    const socket = client<TestClient>()(connect(`ws://127.0.0.1:${app.port}/ws/lobby`));
+    const socket = client<TestClient>()(
+      connect(`ws://127.0.0.1:${app.port}/ws/lobby`, {
+        transports: [rawTransport === 'sse' ? clientSse() : clientWebSocket()],
+      }),
+    );
     sockets.push(socket);
 
     const connected = new Promise<{ userId: string }>((resolve) => socket.on('connected', resolve));
@@ -284,7 +305,7 @@ describe('H3 v1 binding', () => {
     await expect(echoed).resolves.toEqual({ text: 'hello' });
   });
 
-  it('keeps endpoints isolated when one setup binds more than one route', async () => {
+  wsOnly('keeps endpoints isolated when one setup binds more than one route', async () => {
     function namedDefinition(name: string) {
       const named = createServerDefinition({
         authenticate() {
@@ -300,12 +321,12 @@ describe('H3 v1 binding', () => {
 
     const app = createApp();
     const router = createRouter();
-    const livething = createH3V1Setup(defineWebSocketHandler);
+    const livething = createH3V1Setup(defineEventHandler);
     const first = livething.bind(namedDefinition('first'), { sql: ':memory:' });
     const second = livething.bind(namedDefinition('second'), { sql: ':memory:' });
 
-    router.get('/first', first.upgrade);
-    router.get('/second', second.upgrade);
+    router.get('/first', first.connect);
+    router.get('/second', second.connect);
     app.use(router);
 
     const websocket = nodeWebSocketAdapter(app.websocket);
@@ -338,7 +359,7 @@ describe('H3 v1 binding', () => {
     await expect(secondMessage).resolves.toEqual(['identity', { name: 'second' }, null]);
   });
 
-  it('answers the token subprotocol and passes the token to authenticate', async () => {
+  wsOnly('answers the token subprotocol and passes the token to authenticate', async () => {
     const app = await createTestApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`, TOKEN_OFFER);
@@ -349,7 +370,7 @@ describe('H3 v1 binding', () => {
     expect(lastAuthorization).toBe('Bearer session-8f2c');
   });
 
-  it('answers the token subprotocol on a socket rejected by close code', async () => {
+  wsOnly('answers the token subprotocol on a socket rejected by close code', async () => {
     const app = await createTestApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/socket-reject`, TOKEN_OFFER);
@@ -361,7 +382,7 @@ describe('H3 v1 binding', () => {
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
   });
 
-  it('removes a client-supplied LiveThing client IP header', async () => {
+  wsOnly('removes a client-supplied LiveThing client IP header', async () => {
     const app = await createTestApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`, {
@@ -379,7 +400,7 @@ describe('H3 v1 binding', () => {
   });
 
   async function openLobbySocket(port: number): Promise<WebSocket> {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/lobby`);
+    const socket = openRawClient(`ws://127.0.0.1:${port}/ws/lobby`);
     rawSockets.push(socket);
     const connected = waitForRawMessage(socket);
     await waitForOpen(socket);
@@ -421,7 +442,7 @@ describe('H3 v1 binding', () => {
     await expect(closed).resolves.toMatchObject({ code: 1006 });
   });
 
-  it('compresses outgoing messages when CrossWS turns on perMessageDeflate', async () => {
+  wsOnly('compresses outgoing messages when CrossWS turns on perMessageDeflate', async () => {
     const app = await createTestApp(definition, { perMessageDeflate: true });
     apps.push(app);
     const socket = await openLobbySocket(app.port);
@@ -449,7 +470,7 @@ describe('H3 v1 binding', () => {
     expect([...(data as Buffer)]).toEqual([7, 8, 9]);
   });
 
-  it('returns an HTTP rejection before the WebSocket handshake', async () => {
+  wsOnly('returns an HTTP rejection before the WebSocket handshake', async () => {
     const app = await createTestApp();
     apps.push(app);
 
@@ -460,7 +481,7 @@ describe('H3 v1 binding', () => {
     expect(response).not.toMatch(/^content-type:/im);
   });
 
-  it('answers a plain HTTP request with 426 without running authenticate', async () => {
+  wsOnly('answers a plain HTTP request with 426 without running authenticate', async () => {
     const authenticate = vi.fn(() => ({ userId: 'plain' }));
     const app = await createTestApp(
       createServerDefinition({ authenticate }).assemble({ handlers: [] }),
@@ -472,7 +493,7 @@ describe('H3 v1 binding', () => {
     expect(authenticate).not.toHaveBeenCalled();
   });
 
-  it('does not run authenticate for a non-WebSocket upgrade request', async () => {
+  wsOnly('does not run authenticate for a non-WebSocket upgrade request', async () => {
     const authenticate = vi.fn(() => ({ userId: 'plain' }));
     const app = await createTestApp(
       createServerDefinition({ authenticate }).assemble({ handlers: [] }),
@@ -484,7 +505,7 @@ describe('H3 v1 binding', () => {
     expect(authenticate).not.toHaveBeenCalled();
   });
 
-  it('returns 400 for a malformed upgrade URL', async () => {
+  wsOnly('returns 400 for a malformed upgrade URL', async () => {
     const { hooks, livething } = captureAuthHook(definition);
 
     const response = await hooks.upgrade?.({
@@ -499,7 +520,7 @@ describe('H3 v1 binding', () => {
     await livething.shutdown();
   });
 
-  it('returns 500 when endpoint startup prevents upgrade preparation', async () => {
+  wsOnly('returns 500 when endpoint startup prevents upgrade preparation', async () => {
     const invalidDefinition = createServerDefinition({}).assemble({
       handlers: [],
       api: () => ({ then() {} }),
@@ -518,7 +539,7 @@ describe('H3 v1 binding', () => {
     await expect(livething.shutdown()).rejects.toThrow();
   });
 
-  it('closes a socket-level rejection after the handshake', async () => {
+  wsOnly('closes a socket-level rejection after the handshake', async () => {
     const app = await createTestApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/socket-reject`);
@@ -533,7 +554,7 @@ describe('H3 v1 binding', () => {
   it('passes the client close code and reason to onDisconnect', async () => {
     const app = await createTestApp();
     apps.push(app);
-    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`);
+    const socket = openRawClient(`ws://127.0.0.1:${app.port}/ws/lobby`);
     rawSockets.push(socket);
     const connected = waitForRawMessage(socket);
 
@@ -547,7 +568,7 @@ describe('H3 v1 binding', () => {
     );
   });
 
-  it('trims a long socket rejection reason to the control-frame limit', async () => {
+  wsOnly('trims a long socket rejection reason to the control-frame limit', async () => {
     const app = await createTestApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/socket-reject-long`);
@@ -559,7 +580,7 @@ describe('H3 v1 binding', () => {
     await expect(closed).resolves.toEqual({ code: 4001, reason: '🙂'.repeat(30) });
   });
 
-  it('closes with an internal error when connection setup fails', async () => {
+  wsOnly('closes with an internal error when connection setup fails', async () => {
     const app = await createTestApp();
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/accept-failure`);
@@ -574,8 +595,8 @@ describe('H3 v1 binding', () => {
     });
   });
 
-  it('rejects client IP configuration that H3 v1 cannot apply safely', async () => {
-    const livething = createH3V1Setup(defineWebSocketHandler);
+  wsOnly('rejects client IP configuration that H3 v1 cannot apply safely', async () => {
+    const livething = createH3V1Setup(defineEventHandler);
 
     expect(() =>
       livething.bind(definition, {
@@ -586,7 +607,7 @@ describe('H3 v1 binding', () => {
     await livething.shutdown();
   });
 
-  it('aborts pending upgrade work during shutdown and waits for it to settle', async () => {
+  wsOnly('aborts pending upgrade work during shutdown and waits for it to settle', async () => {
     let release!: () => void;
     let started!: () => void;
     let aborted = false;
@@ -633,7 +654,7 @@ describe('H3 v1 binding', () => {
     await shutdown;
   });
 
-  it('cleans up a connection when the client leaves during upgrade work', async () => {
+  wsOnly('cleans up a connection when the client leaves during upgrade work', async () => {
     let release!: () => void;
     let started!: () => void;
     let connections = 0;
@@ -674,7 +695,7 @@ describe('H3 v1 binding', () => {
     expect(connections).toBe(1);
   });
 
-  it('rejects upgrades that arrive after shutdown starts', async () => {
+  wsOnly('rejects upgrades that arrive after shutdown starts', async () => {
     const app = await createTestApp();
     apps.push(app);
 
@@ -686,7 +707,7 @@ describe('H3 v1 binding', () => {
   it('closes connected clients with going-away during shutdown', async () => {
     const app = await createTestApp();
     apps.push(app);
-    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`);
+    const socket = openRawClient(`ws://127.0.0.1:${app.port}/ws/lobby`);
     rawSockets.push(socket);
     const connected = waitForRawMessage(socket);
 
@@ -700,7 +721,7 @@ describe('H3 v1 binding', () => {
     expect(lastDisconnect).toEqual({ code: 1001, reason: 'Server shutting down' });
   });
 
-  it('reports the real outbound queue while an H3 v1 client is slow', async () => {
+  wsOnly('reports the real outbound queue while an H3 v1 client is slow', async () => {
     const queued = createServerDefinition({
       authenticate() {
         return { userId: 'slow-client' };
@@ -743,7 +764,7 @@ describe('H3 v1 binding', () => {
     await expect(queuedAmount).resolves.toBeGreaterThan(0);
   });
 
-  it('keeps the connection until close after a transport error', async () => {
+  wsOnly('keeps the connection until close after a transport error', async () => {
     const app = await createTestApp();
     apps.push(app);
 

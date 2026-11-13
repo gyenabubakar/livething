@@ -3,16 +3,21 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { server as createServerDefinition, emits, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { sequence } from '@livething/server/sequence';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import WebSocket from 'ws';
 import type { Server } from 'node:http';
 import { setup } from './setup.ts';
+import { openRawClient, rawRequestListener, rawTransportOptions } from './test-utils.ts';
 
 function buildDefinition() {
   const base = createServerDefinition({
-    capabilities: [sequence({ persist: true, batchSize: 1 }), emits({ note: t<{}>() })],
+    capabilities: [
+      keepalive(),
+      sequence({ persist: true, batchSize: 1 }),
+      emits({ note: t<{}>() }),
+    ],
   });
   const rolledBack = base.on('rolled-back', {
     run(ctx) {
@@ -65,12 +70,12 @@ interface Running {
 }
 
 async function start(sqlFile: string): Promise<Running> {
-  const httpServer = createServer((_request, response) => {
-    response.statusCode = 404;
-    response.end();
-  });
   const livething = setup();
-  const endpoint = livething.bind(buildDefinition(), { sql: sqlFile } as never);
+  const endpoint = livething.bind(buildDefinition(), {
+    ...rawTransportOptions,
+    sql: sqlFile,
+  } as never);
+  const httpServer = createServer(rawRequestListener(endpoint));
   httpServer.on('upgrade', endpoint.upgrade);
   await endpoint.ready();
 
@@ -88,7 +93,7 @@ async function start(sqlFile: string): Promise<Running> {
 }
 
 async function collect(url: string, event: string, expected: number): Promise<number[]> {
-  const socket = new WebSocket(url);
+  const socket = openRawClient(url);
   const seqs: number[] = [];
   const collected = new Promise<number[]>((resolve, reject) => {
     const timer = setTimeout(

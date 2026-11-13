@@ -1,4 +1,5 @@
 import type { ServerDefinition } from '@livething/server/adapters';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RawData } from 'ws';
 import { binding } from '../../../binding.ts';
 import { closeWebSocket } from '../../../close.ts';
@@ -43,7 +44,18 @@ interface H3V1Hooks {
   error(peer: H3V1Peer, error: unknown): void;
 }
 
-type DefineWebSocketHandler<THandler> = (hooks: Partial<H3V1Hooks>) => THandler;
+interface H3V1Event {
+  readonly node: { readonly req: IncomingMessage; readonly res: ServerResponse };
+}
+
+/**
+ * H3 v1's `defineEventHandler` in its object form. CrossWS takes the WebSocket hooks of the
+ * handler that matches an upgrade. H3 runs `handler` for every plain request.
+ */
+type DefineEventHandler<THandler> = (definition: {
+  handler(event: H3V1Event): Promise<void>;
+  websocket?: Partial<H3V1Hooks>;
+}) => THandler;
 
 /** Node endpoint options available through H3 v1's public upgrade request. */
 export type H3V1EndpointOptions = Omit<NodeEndpointOptions, 'clientIp'> & {
@@ -52,7 +64,10 @@ export type H3V1EndpointOptions = Omit<NodeEndpointOptions, 'clientIp'> & {
 
 /** One LiveThing definition registered as an H3 v1 and CrossWS WebSocket route. */
 export interface H3V1Endpoint<THandler, TAdmin = NodeAdmin> {
-  upgrade: THandler;
+  /** The `GET` route a client connects on: a WebSocket upgrade, or the server-sent events stream. */
+  connect: THandler;
+  /** The route for the server-sent events POSTs and their CORS preflight. */
+  handle: THandler;
   ready(): Promise<void>;
   admin(): Promise<TAdmin>;
 }
@@ -68,7 +83,7 @@ export interface H3V1Setup<THandler> {
 }
 
 export function createH3V1Setup<THandler>(
-  defineWebSocketHandler: DefineWebSocketHandler<THandler>,
+  defineEventHandler: DefineEventHandler<THandler>,
 ): H3V1Setup<THandler> {
   const node = binding();
   const lifecycle = createWebUpgradeLifecycle();
@@ -82,7 +97,11 @@ export function createH3V1Setup<THandler>(
       const endpoint = node.bind(definition, options);
       const connections = new WeakMap<H3V1Peer, NodeConnection>();
 
-      const route = defineWebSocketHandler({
+      async function serveHttp(event: H3V1Event): Promise<void> {
+        await endpoint.handleNode(event.node.req, event.node.res);
+      }
+
+      const hooks: Partial<H3V1Hooks> = {
         async upgrade(request) {
           if (!isWebSocketUpgrade(request.headers.get('upgrade'))) {
             return toH3V1HttpRejection(invalidUpgradeResponse());
@@ -182,10 +201,11 @@ export function createH3V1Setup<THandler>(
         error(peer, error) {
           void connections.get(peer)?.error(error);
         },
-      });
+      };
 
       return {
-        upgrade: route,
+        connect: defineEventHandler({ handler: serveHttp, websocket: hooks }),
+        handle: defineEventHandler({ handler: serveHttp }),
         ready: endpoint.ready,
         admin: endpoint.admin,
       };

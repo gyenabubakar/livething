@@ -1,5 +1,6 @@
 import { CloseCodes, encodeBase64, splitBinaryFrame } from '@livething/core';
 import { isProtocolEventName } from '~/_engine/runtime/protocol.ts';
+import { normalizeCloseReason } from './close.ts';
 import type { ConnectionHandle, SocketDescriptor, TransportFrame } from './types.ts';
 
 /** The headers of a server-sent events response. `no-transform` stops a proxy compressing it. */
@@ -39,9 +40,12 @@ function sseEvent(frame: TransportFrame): string {
     : `data: b${encodeBase64(frame.bytes)}\n\n`;
 }
 
-/** The last event of a stream: the close code and reason, because SSE has no close frame. */
+/**
+ * The last event of a stream: the close code and reason, because SSE has no close frame.
+ * The reason keeps the WebSocket limit, so it reads the same over both transports.
+ */
 export function sseCloseEvent(code: number, reason: string): string {
-  return `data: ${JSON.stringify(['__close__', { code, reason }, null])}\n\n`;
+  return `data: ${JSON.stringify(['__close__', { code, reason: normalizeCloseReason(reason) }, null])}\n\n`;
 }
 
 /** An error answer that the client can tell apart from a proxy's. */

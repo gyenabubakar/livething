@@ -5,6 +5,7 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
 import { inbox } from '@livething/server/inbox';
+import { keepalive } from '@livething/server/keepalive';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { serverRequests } from '@livething/server/server-requests';
@@ -15,7 +16,12 @@ import type { ServerDefinition } from '@livething/server';
 import type { AddressInfo } from 'node:net';
 import type { RawData } from 'ws';
 import { setup } from './setup.ts';
-import { isConnectedFrame } from './test-utils.ts';
+import {
+  isConnectedFrame,
+  openRawClient,
+  rawRequestListener,
+  rawTransportOptions,
+} from './test-utils.ts';
 
 const general = { channel: { name: 'room:general', family: 'rooms' } };
 const picture = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -58,7 +64,7 @@ function huddle(avatars: { info: unknown; bytes: number[] }[]) {
     authenticate(request) {
       return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
     },
-    capabilities: [binary(), channels()],
+    capabilities: [keepalive(), binary(), channels()],
   });
   const rooms = base.channel(['rooms', 'room:{roomId}'], {
     capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
@@ -84,6 +90,7 @@ function huddleFiles(log: string[]) {
       return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
     },
     capabilities: [
+      keepalive(),
       binary({ serverRequests: { 'capture-screen': { out: t<{ maxWidth: number }>() } } }),
       clientRequests(),
       serverRequests(),
@@ -129,9 +136,9 @@ function huddleFiles(log: string[]) {
 }
 
 async function start(definition: ServerDefinition): Promise<number> {
-  const httpServer = createServer();
   const livething = setup();
-  const endpoint = livething.bind(definition, {});
+  const endpoint = livething.bind(definition, rawTransportOptions);
+  const httpServer = createServer(rawRequestListener(endpoint));
   httpServer.on('upgrade', endpoint.upgrade);
   await endpoint.ready();
 
@@ -145,7 +152,7 @@ async function start(definition: ServerDefinition): Promise<number> {
 }
 
 async function connect(port: number, user: string) {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/huddle?user=${user}`);
+  const socket = openRawClient(`ws://127.0.0.1:${port}/huddle?user=${user}`);
   const received: Received[] = [];
   socket.on('message', (data: RawData, isBinary) => {
     if (!isConnectedFrame(data, isBinary)) received.push({ data: data as Buffer, isBinary });
@@ -257,7 +264,14 @@ describe('replay of binary messages over a real ws socket', () => {
       authenticate(request) {
         return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
       },
-      capabilities: [binary(), channels(), dedup(), sequence({ persist: true }), replay.history()],
+      capabilities: [
+        keepalive(),
+        binary(),
+        channels(),
+        dedup(),
+        sequence({ persist: true }),
+        replay.history(),
+      ],
     });
     const rooms = base.channel(['rooms', 'room:{roomId}'], {
       capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
@@ -275,8 +289,11 @@ describe('replay of binary messages over a real ws socket', () => {
     const port = await start(huddleWithReplay());
     const amara = await connect(port, 'u_amara');
     const kofi = await connect(port, 'u_kofi');
+    const esi = await connect(port, 'u_esi');
     await amara.subscribe();
+
     await kofi.subscribe();
+    await esi.subscribe();
 
     const subscribed = kofi.texts().find((frame) => frame[0] === '__subscribeOk__');
     const lastKnownSeq = (subscribed[1] as { seq: number }).seq;
@@ -284,6 +301,8 @@ describe('replay of binary messages over a real ws socket', () => {
 
     const frames = [new Uint8Array([1, 2, 3]), new Uint8Array(200_000).fill(9)];
     for (const bytes of frames) amara.sendBinary(['share-screen-frame', null, general], bytes);
+    // Esi got both, so the server has stored them before Kofi comes back.
+    await esi.until(() => esi.received.filter((m) => m.isBinary).length === 2);
     const kofiAgain = await connect(port, 'u_kofi');
     await kofiAgain.subscribe();
     kofiAgain.socket.send(JSON.stringify(['__replay__', { lastKnownSeq }, general]));
@@ -311,7 +330,7 @@ describe('inbox binary messages over a real ws socket', () => {
       authenticate(request) {
         return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
       },
-      capabilities: [binary(), channels(), dedup(), sequence({ persist: true })],
+      capabilities: [keepalive(), binary(), channels(), dedup(), sequence({ persist: true })],
     });
     const dms = base.channel(['dms', 'dm:{pair}'], {
       membership: 'persistent',
@@ -367,7 +386,7 @@ describe('recorded binary streams over a real ws socket', () => {
       authenticate(request) {
         return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
       },
-      capabilities: [binary(), recordedStream()],
+      capabilities: [keepalive(), binary(), recordedStream()],
     });
     const handleExportRoomPdf = base.binary.recordedStream('export-room-pdf', {
       async *run() {
