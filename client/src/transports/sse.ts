@@ -386,7 +386,9 @@ function openSse(options: TransportOpenOptions): Transport {
     protocol: '',
     webSocket: null,
     reportsStable: true,
+
     isOpen: () => state === 'open',
+
     send(data) {
       if (state !== 'open') return;
 
@@ -399,16 +401,21 @@ function openSse(options: TransportOpenOptions): Transport {
 
       dataQueue.push({ binary: typeof data !== 'string', bytes });
       queuedBytes += bytes.byteLength;
+
       pumpData();
     },
+
     sendControl(frame) {
       controlQueue.push(frame);
       pumpControl();
     },
+
     bufferedAmount: () => queuedBytes,
+
     close(code = CloseCodes.NORMAL, reason = '') {
       void closeInOrder(code, reason);
     },
+
     dispose(code = CloseCodes.NORMAL, reason = '') {
       silent = true;
       void closeInOrder(code, reason);
