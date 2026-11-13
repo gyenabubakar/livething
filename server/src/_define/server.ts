@@ -2440,6 +2440,14 @@ export function server(config: any): any {
         __livething: 'server' as const,
         __baseId: baseId,
         primitives: Object.freeze(primitives) as readonly Primitive[],
+        // Read by `hasCapability`, so an adapter transport can check its needs.
+        __capabilityKinds: Object.freeze(
+          new Set(
+            ((config.capabilities ?? []) as readonly AnyCapability[]).flatMap(
+              (cap) => cap.__capabilityKind ?? [],
+            ),
+          ),
+        ),
         ...(config.users ? { __usersPolicy: config.users } : {}),
         // Read by plugin() on a scoped server definition, by Engine.admin() on an app one.
         ...(api ? { __apiFactory: api } : {}),

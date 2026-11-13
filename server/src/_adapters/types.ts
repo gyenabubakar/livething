@@ -6,6 +6,7 @@ import type {
   TagRef,
   TimerProvider,
 } from '~/context.ts';
+import type { ServerDefinition } from '~/server-definition.ts';
 
 /**
  * One frame the engine hands a transport. A WebSocket sends a `text` frame as a text
@@ -182,6 +183,11 @@ export interface EngineRuntimeOptions {
 export interface MessageLimits {
   receiveBytes: number;
   sendBytes: number;
+  /**
+   * The largest POST body, when the adapter takes messages over POST (server-sent events).
+   * At most half of `receiveBytes`, so one POST of frames fits the connection's budget.
+   */
+  postBytes?: number;
 }
 
 /** Complete configuration passed to the engine constructor by the adapter factory. */
@@ -254,5 +260,7 @@ export interface AdapterConfig<TOptions, TService> {
   setup<TApi>(
     createEngine: (runtimeOptions: EngineRuntimeOptions) => Engine<TApi>,
     options: TOptions,
+    /** The definition being bound, for startup checks such as `resolveTransports`. */
+    definition: ServerDefinition,
   ): TService;
 }

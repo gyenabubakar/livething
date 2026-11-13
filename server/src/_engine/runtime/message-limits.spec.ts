@@ -176,6 +176,19 @@ describe('a binary message', () => {
   );
 });
 
+describe('the POST limit', () => {
+  it('refuses a postBytes over half of receiveBytes, so a batch fits the connection budget', () => {
+    const definition = server({}).assemble({ handlers: [] });
+
+    expect(() =>
+      build(definition, { receiveBytes: 1000, sendBytes: 1000, postBytes: 501 }),
+    ).toThrow(/maxPostBytes \(501\) is more than half of maxMessageBytes \(1000\)/);
+    expect(() =>
+      build(definition, { receiveBytes: 1000, sendBytes: 1000, postBytes: 500 }),
+    ).not.toThrow();
+  });
+});
+
 describe('the send limit', () => {
   it('throws instead of sending a message over sendBytes', async () => {
     const base = server({ capabilities: [emits({ 'history-loaded': t<{ text: string }>() })] });

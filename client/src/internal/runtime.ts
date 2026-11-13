@@ -209,6 +209,12 @@ export interface PrimitiveRuntime {
   onReconnect?(): Message[] | null;
 
   /**
+   * Runs once the open connection has proved it carries data both ways: at once on a
+   * WebSocket, and on server-sent events after 30 seconds open with one POST accepted.
+   */
+  onStable?(): void;
+
+  /**
    * Runs when the socket closes. `intentional` is `true` for a public
    * `disconnect()` call. `suspended` is `true` for a temporary platform pause
    * that will resume as the same client session.

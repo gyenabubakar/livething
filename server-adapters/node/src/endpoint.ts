@@ -1,4 +1,10 @@
-import { adapter, createOriginCheck, resolveTransports } from '@livething/server/adapters';
+import {
+  adapter,
+  createOriginCheck,
+  createSseHub,
+  ERROR_HEADER,
+  resolveTransports,
+} from '@livething/server/adapters';
 import type {
   AdminOf,
   AuthDecision,
@@ -16,9 +22,11 @@ import { createClientIpResolver } from './client-ip.ts';
 import { requestToWebRequest } from './request.ts';
 import { createRuntime } from './runtime.ts';
 import { createConnectionBridge } from './socket.ts';
+import { createNodeSseHandler } from './sse.ts';
 import type { NodeClientIpConfig } from './client-ip.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
 import type { ConnectionTransport } from './socket.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
 
 /** The default `maxMessageBytes`: 32 MiB, Cloudflare's limit, so an app behaves the same on both. */
 const DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
@@ -108,7 +116,11 @@ interface NodeEndpoint<TAdmin = NodeAdmin> {
 
 /** Internal endpoint operations used by framework route bindings. */
 export interface NodeEndpointInternals<TAdmin = NodeAdmin> extends NodeEndpoint<TAdmin> {
+  /** Whether the endpoint offers WebSocket. Without it, an upgrade gets a 404. */
+  readonly offersWebSocket: boolean;
   decideNodeUpgrade(request: IncomingMessage, signal?: AbortSignal): Promise<AuthDecision>;
+  /** Serve a server-sent events request: the stream, a POST, or a CORS preflight. */
+  handle(request: NodeHttpRequest, response: NodeHttpResponse): Promise<void>;
   decideWebUpgrade(request: Request, clientIp?: string): Promise<AuthDecision>;
   attachTransport(
     token: unknown,
@@ -124,12 +136,13 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
   setup<TApi>(
     createEngine: (options: EngineRuntimeOptions) => Engine<TApi>,
     options: NodeEndpointOptions,
+    definition: ServerDefinition,
   ) {
     const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes, 'The endpoint');
     const resolveClientIp = createClientIpResolver(options.clientIp);
     const originAllowed = createOriginCheck(options.allowedOrigins);
-    // ponytail: only checked for now; step 7 reads the result once sse() exists.
-    resolveTransports(options.transports);
+    const transports = resolveTransports(options.transports, definition);
+    const maxPostBytes = transports.sse?.maxPostBytes;
 
     const runtime = createRuntime({
       sql: options.sql,
@@ -145,11 +158,42 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       platform: runtime.platform,
       storage: runtime.storage,
       timers: runtime.timers,
-      messageLimits: { receiveBytes: maxMessageBytes, sendBytes: maxMessageBytes },
+      messageLimits: {
+        receiveBytes: maxMessageBytes,
+        sendBytes: maxMessageBytes,
+        ...(maxPostBytes === undefined ? {} : { postBytes: maxPostBytes }),
+      },
+    });
+    const hub =
+      maxPostBytes === undefined
+        ? null
+        : createSseHub({ maxPostBytes, receiveBytes: maxMessageBytes });
+
+    function nodeRequest(request: NodeHttpRequest, signal?: AbortSignal): Request {
+      // An HTTP/2 compatibility request has the same `socket` and `headers` fields.
+      const clientIp = resolveClientIp(request as IncomingMessage);
+      return requestToWebRequest(request, { clientIp, signal });
+    }
+
+    const handleSse = createNodeSseHandler({
+      hub,
+      originAllowed(request) {
+        try {
+          return originAllowed(nodeRequest(request));
+        } catch {
+          return false;
+        }
+      },
+      authenticate: (request, signal) => decideNodeUpgrade(request, signal),
+      attach(transport, decision) {
+        if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
+
+        return createConnectionBridge({ engine, token: transport, transport, decision });
+      },
     });
 
     async function decideNodeUpgrade(
-      request: IncomingMessage,
+      request: NodeHttpRequest,
       signal?: AbortSignal,
     ): Promise<AuthDecision> {
       await ready;
@@ -157,10 +201,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 
       let webRequest: Request;
       try {
-        webRequest = requestToWebRequest(request, {
-          clientIp: resolveClientIp(request),
-          signal,
-        });
+        webRequest = nodeRequest(request, signal);
       } catch {
         return { reject: true, code: 400, reason: 'Invalid upgrade request' };
       }
@@ -198,8 +239,18 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 
     return {
       ready,
+      offersWebSocket: transports.websocket,
       decideNodeUpgrade,
       decideWebUpgrade,
+      async handle(request, response) {
+        if (shuttingDown) {
+          response.writeHead(503, { [ERROR_HEADER]: 'shutting-down' });
+          response.end();
+          return;
+        }
+
+        await handleSse(request, response);
+      },
 
       attachTransport(token, transport, decision) {
         if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');

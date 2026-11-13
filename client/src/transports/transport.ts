@@ -1,5 +1,5 @@
 /** The name of a transport, as `socket.transport` reports it. */
-export type TransportName = 'websocket';
+export type TransportName = 'websocket' | 'sse';
 
 /** How a transport reports what happens on its connection. */
 interface TransportEvents {
@@ -8,14 +8,23 @@ interface TransportEvents {
   message(data: unknown): void;
   close(code: number, reason: string, wasClean: boolean): void;
   error(event: unknown): void;
+  /**
+   * The connection has proved it carries data both ways, so `reconnection()` may forget
+   * its earlier failed tries. Only a transport whose `reportsStable` is `true` emits it.
+   */
+  stable(): void;
 }
 
 /** What the socket kernel passes when it opens a transport. */
 export interface TransportOpenOptions {
   url: string;
   protocols: string[] | undefined;
+  /** The login token of this try, from the `token` option, or `null`. */
+  token: string | null;
   /** Whether `binary()` is in use, so binary frames must arrive as `ArrayBuffer`. */
   binary: boolean;
+  /** A warning for the developer, shown in debug mode. */
+  warn(message: string): void;
   events: TransportEvents;
 }
 
@@ -26,6 +35,11 @@ export interface Transport {
   readonly protocol: string;
   /** The native WebSocket, for `socket.ws`. Only the WebSocket transport has one. */
   readonly webSocket: WebSocket | null;
+  /**
+   * `true` when the transport emits `stable` itself. Otherwise the connection counts as
+   * stable as soon as it opens, because one connection carries both directions.
+   */
+  readonly reportsStable: boolean;
   isOpen(): boolean;
   send(data: string | Uint8Array<ArrayBuffer>): void;
   /** Send a frame of the protocol itself, such as `ping` or `pong`. */
@@ -47,4 +61,12 @@ export interface TransportFactory {
   readonly name: TransportName;
   /** @internal */
   open(options: TransportOpenOptions): Transport;
+}
+
+/**
+ * The URL with the scheme a transport needs. An app gives one URL, and each transport
+ * accepts `ws`, `wss`, `http` and `https` for it.
+ */
+export function withScheme(url: string, secure: string, plain: string): string {
+  return url.replace(/^(wss|https):/i, `${secure}:`).replace(/^(ws|http):/i, `${plain}:`);
 }

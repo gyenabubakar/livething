@@ -576,7 +576,9 @@ export class LiveThingSocket {
       const transport: Transport = factory.open({
         url,
         protocols: tokenSubprotocols(token, this._config.protocols),
+        token: token ?? null,
         binary: this._binary !== null,
+        warn: (message) => this._logger.warn(message),
         events: {
           open: () => {
             if (isCurrent()) this._log('waiting for __connected__');
@@ -587,11 +589,14 @@ export class LiveThingSocket {
           error: (event) => {
             if (!isCurrent()) return;
 
-            this._log('WebSocket error');
+            this._log(`${transport.name} error`);
             this._reportError(event);
           },
           message: (data) => {
             if (isCurrent()) this._handleMessage(data);
+          },
+          stable: () => {
+            if (isCurrent() && this._state === 'open') this._handleStable();
           },
         },
       });
@@ -740,10 +745,23 @@ export class LiveThingSocket {
     this._emitter.emit('open');
     if (isReconnect) this._emitter.emit('reconnect');
 
+    // One connection that carries both directions has proved itself by opening.
+    if (!transport.reportsStable && this._transport === transport) this._handleStable();
+
     // If we opened with no active listeners (e.g. the last one unsubscribed
     // while reconnecting), start the idle timer now — the open is the only
     // place that can, because _lazyRelease only runs while the socket is open.
     if (this._lazy && this._lazyConsumers === 0) this._startLazyIdleTimer();
+  }
+
+  private _handleStable(): void {
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onStable?.();
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
   }
 
   private _handleTransportClose(attemptId: number, event: CloseEvent): void {

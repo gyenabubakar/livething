@@ -71,4 +71,15 @@ describe('connect() transports', () => {
       build(connect('wss://huddle.test/huddle', { transports: [websocket(), websocket()] })),
     ).toThrow(/twice/);
   });
+
+  it.each([
+    ['https://huddle.test/huddle', 'wss://huddle.test/huddle'],
+    ['http://localhost:3000/huddle', 'ws://localhost:3000/huddle'],
+    ['wss://huddle.test/huddle', 'wss://huddle.test/huddle'],
+  ])('opens a WebSocket at the ws scheme of %s', async (url, expected) => {
+    build(connect(url)).connect();
+
+    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    expect(MockWebSocket.last().url).toBe(expected);
+  });
 });

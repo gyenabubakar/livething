@@ -36,6 +36,10 @@ export interface ConnectionTransport {
   terminate?(): void;
   bufferedAmount(): number;
   backpressureSupported: boolean;
+  /** The POST secret of a server-sent events stream. Absent on a WebSocket. */
+  secret?: string;
+  /** The largest POST body of a server-sent events stream. Absent on a WebSocket. */
+  maxPostBytes?: number;
 }
 
 /** Inputs required to connect an accepted WebSocket transport to the engine. */
@@ -55,6 +59,8 @@ export function createConnectionBridge(options: ConnectionBridgeOptions): Connec
     ...(transport.terminate ? { terminate: () => transport.terminate?.() } : {}),
     bufferedAmount: () => transport.bufferedAmount(),
     backpressureSupported: transport.backpressureSupported,
+    secret: transport.secret ?? null,
+    maxPostBytes: transport.maxPostBytes ?? null,
     userId: decision.userId ?? '',
     meta: decision.meta ?? {},
     tags: decision.tags ?? [],

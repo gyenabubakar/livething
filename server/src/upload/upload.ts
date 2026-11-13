@@ -160,7 +160,14 @@ export function upload(event: string, config: UploadBuildConfig): UploadPrimitiv
     __requires: {},
     __requiresCapabilities: [CAPABILITY_KIND.binary, CAPABILITY_KIND.uploads],
     __setup(engine) {
-      const { receiveBytes } = engine.getMessageLimits();
+      const { receiveBytes, postBytes } = engine.getMessageLimits();
+      // Over server-sent events a piece goes up in a POST, with the 5-byte batch header too.
+      if (postBytes !== undefined && options.pieceBytes + 4 * KiB + 5 > postBytes) {
+        throw new LiveThingConfigError(
+          `${method}: 'pieceBytes' (${options.pieceBytes}) does not fit sse() maxPostBytes (${postBytes} bytes) with room for the frame's header. Lower 'pieceBytes' or raise maxPostBytes.`,
+        );
+      }
+
       // A piece is one binary frame: the 9-byte header and a small envelope, then its bytes.
       if (options.pieceBytes + 4 * KiB > receiveBytes) {
         throw new LiveThingConfigError(

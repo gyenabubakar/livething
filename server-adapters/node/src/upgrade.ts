@@ -11,7 +11,8 @@ import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
 import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
 import type { ConnectionTransport } from './socket.ts';
 
-function upgradeRejection(decision: AuthDecision): { body: string; status: number } {
+/** The HTTP status and body of an `authenticate` rejection that is not a close code. */
+export function upgradeRejection(decision: AuthDecision): { body: string; status: number } {
   const status =
     decision.code !== undefined && decision.code >= 400 && decision.code <= 599
       ? decision.code

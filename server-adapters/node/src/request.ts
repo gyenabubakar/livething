@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http';
+import type { Http2ServerRequest } from 'node:http2';
 
 /** Optional request metadata supplied while adapting a Node upgrade. */
 export interface WebRequestOptions {
@@ -8,13 +9,15 @@ export interface WebRequestOptions {
 
 /** Converts Node's incoming upgrade request into the standard Web API shape. */
 export function requestToWebRequest(
-  request: IncomingMessage,
+  request: IncomingMessage | Http2ServerRequest,
   options: WebRequestOptions = {},
 ): Request {
   const { signal, clientIp } = options;
   const encrypted = 'encrypted' in request.socket && request.socket.encrypted === true;
   const protocol = encrypted ? 'https' : 'http';
-  const host = request.headers.host ?? 'localhost';
+  // HTTP/2 has `:authority` and no `Host` header.
+  const authority = request.headers[':authority'];
+  const host = request.headers.host ?? (typeof authority === 'string' ? authority : 'localhost');
   const target = request.url ?? '/';
 
   const base = new URL(`${protocol}://${host}`);
@@ -32,7 +35,8 @@ export function requestToWebRequest(
   const headers = new Headers();
 
   for (const [name, value] of Object.entries(request.headers)) {
-    if (value === undefined) continue;
+    // HTTP/2 pseudo-headers such as `:path` are not headers, and `Headers` refuses them.
+    if (value === undefined || name.startsWith(':')) continue;
 
     if (Array.isArray(value)) {
       for (const item of value) headers.append(name, item);

@@ -1272,6 +1272,36 @@ describe('base.binary.upload', () => {
     await expect(engine.initialize()).rejects.toThrow(/pieceBytes/);
   });
 
+  it('refuses a pieceBytes that does not fit the POST limit of server-sent events, at startup', async () => {
+    const base = server({ capabilities: [binary(), uploads()] });
+    const handleUploadAttachment = base.binary.upload('upload-attachment', {
+      pieceBytes: 64 * 1024,
+      run: async () => ({ info: null }),
+    });
+    const definition = base.assemble({ handlers: [handleUploadAttachment] });
+    let engine!: Engine;
+    adapter({
+      id: 'upload-post-limit-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        engine = createEngine({
+          storage: { sql: createTestSql(), kv: createTestKV() },
+          timers: createTestTimers(),
+          platform: {},
+          logger: { info() {}, warn() {}, error() {} },
+          messageLimits: {
+            receiveBytes: 1024 * 1024,
+            sendBytes: 1024 * 1024,
+            postBytes: 64 * 1024,
+          },
+        });
+        return {};
+      },
+    })(definition, undefined as never);
+
+    await expect(engine.initialize()).rejects.toThrow(/does not fit sse\(\) maxPostBytes/);
+  });
+
   it('refuses a window that does not fit half the connection budget, at startup', async () => {
     const base = server({ capabilities: [binary(), uploads()] });
     const handleUploadAttachment = base.binary.upload('upload-attachment', {

@@ -28,7 +28,7 @@ export default defineConfig({
       external: [
         /^node:/,
         /^@fastify\/websocket$/,
-        /^@hono\/node-server$/,
+        /^@hono\/node-server(?:\/.*)?$/,
         /^@livething\/server(?:\/.*)?$/,
         /^better-sqlite3$/,
         /^crossws(?:\/.*)?$/,

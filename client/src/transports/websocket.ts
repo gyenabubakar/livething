@@ -1,3 +1,4 @@
+import { withScheme } from './transport.ts';
 import type { Transport, TransportFactory, TransportOpenOptions } from './transport.ts';
 
 const OPEN = 1;
@@ -9,7 +10,7 @@ export function websocket(): TransportFactory {
 
 function openWebSocket(options: TransportOpenOptions): Transport {
   const { events } = options;
-  const ws = new WebSocket(options.url, options.protocols);
+  const ws = new WebSocket(withScheme(options.url, 'wss', 'ws'), options.protocols);
   // A Blob can only be read with `await`, and a later message could be handled first.
   if (options.binary) ws.binaryType = 'arraybuffer';
 
@@ -24,6 +25,7 @@ function openWebSocket(options: TransportOpenOptions): Transport {
       return ws.protocol;
     },
     webSocket: ws,
+    reportsStable: false,
     isOpen: () => ws.readyState === OPEN,
     send: (data) => ws.send(data),
     sendControl: (frame) => ws.send(frame),

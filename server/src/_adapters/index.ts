@@ -2,8 +2,23 @@ export { asUint8Array } from '@livething/core';
 export { adapter } from './adapter.ts';
 export { normalizeCloseReason } from './close.ts';
 export { createOriginCheck } from './origin.ts';
-export { resolveTransports, websocket } from './transports.ts';
-export type { ServerTransport, ServerTransportName } from './transports.ts';
+export { hasCapability, resolveTransports, sse, websocket } from './transports.ts';
+export type {
+  ResolvedTransports,
+  ServerTransport,
+  ServerTransportName,
+  SseOptions,
+} from './transports.ts';
+export {
+  ERROR_HEADER,
+  SSE_HEADERS,
+  corsHeaders,
+  createSseHub,
+  errorAnswer,
+  preflightAnswer,
+  sseCloseEvent,
+} from './sse.ts';
+export type { SseAnswer, SseHub, SsePost, SseSink, SseStream } from './sse.ts';
 export { isValidCloseCode } from '~/_engine/close-code.ts';
 export {
   rejectAsyncTransactionCallback,

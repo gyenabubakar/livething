@@ -121,6 +121,8 @@ export interface ServerDefinition<
   /** Id of the `base` that assembled this definition. Read by the `context.*` accessors. @internal */
   readonly __baseId?: symbol;
   readonly primitives: TPrimitives;
+  /** The kinds of the definition's top-level capabilities, such as `keepalive`. @internal */
+  readonly __capabilityKinds?: ReadonlySet<string>;
   /**
    * Type-only field — never set at runtime.
    *

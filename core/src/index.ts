@@ -51,6 +51,7 @@ export {
 } from './identifier.ts';
 export { decodeMessage, encodeMessage } from './wire.ts';
 export { utf8ByteLength } from './utf8.ts';
+export { decodeBase64, encodeBase64 } from './base64.ts';
 export {
   LIVETHING_SUBPROTOCOL,
   TOKEN_SUBPROTOCOL_PREFIX,

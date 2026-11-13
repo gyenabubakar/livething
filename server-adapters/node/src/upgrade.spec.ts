@@ -51,6 +51,7 @@ function fakeEndpoint(upgrade: NodeUpgrade): NodeBindingEndpoint {
     ready: () => Promise.resolve(),
     prepare: vi.fn(async () => upgrade),
     prepareNode: vi.fn(async () => upgrade),
+    handleNode: vi.fn(async () => {}),
     admin: vi.fn(async () => ({}) as never),
   };
 }

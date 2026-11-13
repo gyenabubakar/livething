@@ -5,6 +5,7 @@ import {
   CrossInstanceRef,
   DurableStreamRequiresUser,
   InternalError,
+  LiveThingConfigError,
   RateLimited,
   RejoinRejected,
   RequestNoCorrelation,
@@ -63,7 +64,19 @@ function resolveMessageLimits(
     );
   }
 
-  return { receiveBytes: limits.receiveBytes, sendBytes: limits.sendBytes };
+  const { receiveBytes, sendBytes, postBytes } = limits;
+  if (postBytes === undefined) return { receiveBytes, sendBytes };
+
+  assertPositiveInteger(postBytes, 'messageLimits.postBytes', `Adapter "${options.adapterId}"`);
+  // Frames in flight and one more batch must fit half of the connection's budget (twice
+  // `receiveBytes`), so a POST must stay within a quarter of it.
+  if (postBytes > receiveBytes / 2) {
+    throw new LiveThingConfigError(
+      `sse() maxPostBytes (${postBytes}) is more than half of maxMessageBytes (${receiveBytes}). Lower maxPostBytes or raise maxMessageBytes.`,
+    );
+  }
+
+  return { receiveBytes, sendBytes, postBytes };
 }
 
 /**

@@ -218,6 +218,24 @@ describe('backoff growth and jitter', () => {
     vi.advanceTimersByTime(1);
     expect(MockWebSocket.instances).toHaveLength(4);
   });
+
+  it('disconnect() resets the attempt counter, so the next connect starts with no old backoff', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const built = build(reconnection());
+    const socket = built.socket as typeof built.socket & ReconnectionApi;
+    built.ws.serverClose(1006);
+    vi.advanceTimersByTime(1000);
+
+    MockWebSocket.last().serverClose(1006);
+
+    expect(socket.reconnection.get().attempt).toBe(2);
+
+    socket.disconnect();
+    socket.connect();
+    MockWebSocket.last().serverClose(1006);
+
+    expect(socket.reconnection.get().attempt).toBe(1);
+  });
 });
 
 describe('online signal resets attempt counter', () => {

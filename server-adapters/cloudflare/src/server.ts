@@ -107,10 +107,11 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
   setup<TApi>(
     createEngine: (options: EngineRuntimeOptions) => Engine<TApi>,
     options: CloudflareBindOptions,
+    definition: ServerDefinition,
   ) {
     const originAllowed = createOriginCheck(options.allowedOrigins);
-    // ponytail: only checked for now; step 7 reads the result once sse() exists.
-    resolveTransports(options.transports);
+    // ponytail: only checked for now; step 8 serves sse() on Cloudflare.
+    resolveTransports(options.transports, definition);
 
     return class LiveThingDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine<TApi>;
