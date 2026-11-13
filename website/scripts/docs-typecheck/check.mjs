@@ -182,9 +182,9 @@ const fileExamples = new Map();
 const pageFileKey = (page, name) => `${page}\0${name}`;
 const withoutExtension = (path) => basename(path).replace(/(\.svelte)?\.\w+$/, '');
 const NITRO_PAGES = [
-  '3.server/02.adapters/01.node/07.nuxt',
-  '3.server/02.adapters/01.node/08.solidstart',
-  '3.server/02.adapters/01.node/09.tanstack-start',
+  '3.server/02.adapters/02.node/07.nuxt',
+  '3.server/02.adapters/02.node/08.solidstart',
+  '3.server/02.adapters/02.node/09.tanstack-start',
 ];
 
 function pageFile(containing, name) {

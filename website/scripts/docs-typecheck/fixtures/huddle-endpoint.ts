@@ -1,6 +1,6 @@
 // The Huddle endpoint that the Node adapter pages create in their own files and import elsewhere.
 import { setup } from '@livething/server-node';
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { huddle } from './huddle-definition';
 
@@ -11,3 +11,8 @@ export declare function handleHuddleUpgrade(
   socket: Duplex,
   head: Buffer,
 ): boolean;
+export declare function handleHuddleRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: () => void,
+): void;
