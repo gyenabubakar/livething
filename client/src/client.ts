@@ -68,13 +68,13 @@ export type AppSocket<
  * so it never asks for `binary()`. An index signature does not fill a named key, so a contract
  * with an index signature and a real `binary` or `channels` key is still checked. A channel
  * map with an index signature is checked through its value type. An empty `binary: {}` has
- * no entries.
+ * no entries. In a union contract, one member with binary entries is enough.
  */
 type HasBinary<C> = 0 extends 1 & C
   ? false
-  : ScopeHasBinary<C> extends true
-    ? true
-    : HasChannelBinary<C>;
+  : [ScopeHasBinary<C>] extends [false]
+    ? HasChannelBinary<C>
+    : true;
 
 type ScopeHasBinary<S> = 0 extends 1 & S
   ? false

@@ -96,6 +96,7 @@ export type {
   ServerRequestsOf,
   ErrorsOf,
   BinaryOf,
+  UploadsOf,
   BinaryContract,
   Simplify,
   RequestMethod,

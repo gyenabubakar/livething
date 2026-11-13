@@ -9,8 +9,9 @@ import { channels } from '~/primitives/channels/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { injectBinary, injectChannelBinary } from '~/testing.ts';
 import { expectTypeOf } from 'vitest';
+import type { UploadsOf as UploadsOfFromIndex } from '~/index.ts';
 import type { Socket } from '~/socket/api.ts';
-import type { ScopeContract, SocketContract } from '~/types.ts';
+import type { ScopeContract, SocketContract, UploadsOf } from '~/types.ts';
 
 interface HuddleSocket {
   incoming: { 'avatar-saved': { userId: string } };
@@ -141,6 +142,21 @@ client<MixedChannel>()(connect('wss://huddle.example.com/huddle'), channels());
 client<{ incoming: { 'avatar-saved': { userId: string } }; binary: {} }>()(
   connect('wss://huddle.example.com/huddle'),
 );
+
+// A union contract asks for binary() when any member has binary entries.
+interface AvatarWire {
+  binary: { incoming: { 'avatar-preview': null } };
+}
+
+interface RoomWire {
+  channels: { rooms: { binary: { incoming: { 'screen-frame': { from: string } } } } };
+}
+
+// @ts-expect-error: this server sends binary. Register binary() in client().
+client<AvatarWire | {}>()(connect('wss://huddle.example.com/huddle'));
+client<AvatarWire | {}>()(connect('wss://huddle.example.com/huddle'), binary());
+// @ts-expect-error: a channel's binary entries need binary() too
+client<RoomWire | { channels: {} }>()(connect('wss://huddle.example.com/huddle'), channels());
 
 // A channel map with an index signature is checked through its value type.
 interface AnyRoomBinary {
@@ -300,3 +316,10 @@ injectChannelBinary(lobbySocket, 'lobby', 'screen-frame', { from: 'u_amara' });
 injectChannelBinary(lobbySocket, { family: 'lobby', name: 'lobby' }, 'screen-frame', {
   from: 'u_amara',
 });
+
+// `UploadsOf` is public, like `BinaryOf`.
+interface AvatarUploads {
+  uploads: { 'upload-avatar': { input: { fileType: string }; output: { url: string } } };
+}
+
+expectTypeOf<UploadsOfFromIndex<AvatarUploads>>().toEqualTypeOf<UploadsOf<AvatarUploads>>();
