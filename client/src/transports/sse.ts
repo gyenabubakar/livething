@@ -254,6 +254,9 @@ function openSse(options: TransportOpenOptions): Transport {
       return;
     }
 
+    // A 404 means the server forgot this connection, which says nothing about the path.
+    if (!confirmed && response?.status !== 404 && !silent) events.unusable();
+
     fail(response ? `POST answered ${response.status}` : 'POST failed', error);
   }
 

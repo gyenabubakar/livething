@@ -32,7 +32,7 @@ import type {
 } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { SendOptions } from '~/messaging.ts';
-import type { Transport, TransportName } from '~/transports/transport.ts';
+import type { Transport, TransportFactory, TransportName } from '~/transports/transport.ts';
 import type { ConnectionState } from '~/types.ts';
 
 /** What an `onClose` handler receives. */
@@ -76,6 +76,18 @@ function isValidCloseReason(reason: unknown): reason is string {
 }
 
 const DEFAULT_TRANSPORT = websocket();
+
+/** How long a transport that failed is skipped, so one slow start cannot keep a page on the fallback. */
+const FAILED_TRANSPORT_MS = 5 * 60_000;
+
+/** A close with no close frame, as a dropped connection reports it. */
+const ABNORMAL_CLOSE = 1006;
+
+/** Where the transports of one open connect, and with which token. */
+interface TransportTarget {
+  url: string;
+  token: string | null;
+}
 
 /** The URL safe for a log line: no userinfo, query string or hash, which can carry credentials such as an auth token. */
 function redactUrl(url: string): string {
@@ -189,6 +201,18 @@ export class LiveThingSocket {
 
   /** Runs out when the transport of the current attempt sends no `__connected__` frame in time. */
   private _connectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Until when each transport that failed recently is skipped. Memory only, never stored. */
+  private readonly _failedUntil = new Map<TransportName, number>();
+
+  /** The transports this open has not tried yet, in list order. */
+  private _untried: TransportFactory[] = [];
+
+  /** The transports this open gave up on, marked failed only if a later one connects. */
+  private _failedThisOpen: TransportName[] = [];
+
+  /** Where this open's transports connect, and with which token. */
+  private _target: TransportTarget | null = null;
 
   private readonly _warnedFeatures = new Set<string>();
 
@@ -568,40 +592,10 @@ export class LiveThingSocket {
 
       this._log(`connecting to ${redactUrl(url)}`);
 
-      const factory = this._config.transports?.[0] ?? DEFAULT_TRANSPORT;
-      // Kept from the start, so a teardown can close it before the server accepts it.
-      // Events from a transport that is no longer the current one, such as a late
-      // frame after a timeout or a close, are ignored.
-      const isCurrent = () => this._transport === transport;
-      const transport: Transport = factory.open({
-        url,
-        protocols: tokenSubprotocols(token, this._config.protocols),
-        token: token ?? null,
-        binary: this._binary !== null,
-        warn: (message) => this._logger.warn(message),
-        events: {
-          open: () => {
-            if (isCurrent()) this._log('waiting for __connected__');
-          },
-          close: (code, reason, wasClean) => {
-            if (isCurrent()) this._handleTransportClose(attemptId, { code, reason, wasClean });
-          },
-          error: (event) => {
-            if (!isCurrent()) return;
-
-            this._log(`${transport.name} error`);
-            this._reportError(event);
-          },
-          message: (data) => {
-            if (isCurrent()) this._handleMessage(data);
-          },
-          stable: () => {
-            if (isCurrent() && this._state === 'open') this._handleStable();
-          },
-        },
-      });
-      this._transport = transport;
-      this._startConnectTimer(attemptId);
+      this._untried = this._transportOrder();
+      this._failedThisOpen = [];
+      this._target = { url, token: token ?? null };
+      this._openTransport(attemptId);
     } catch (error) {
       if (attemptId !== this._connectAttemptId) return;
 
@@ -629,6 +623,98 @@ export class LiveThingSocket {
 
       this._emitter.emit('close', { code: 1006, reason: 'connection failed', wasClean: false });
     }
+  }
+
+  /**
+   * The transports to try, in list order, without the ones that failed in the last 5 minutes.
+   * When every one failed, all of them, so a socket always has something to try.
+   */
+  private _transportOrder(): TransportFactory[] {
+    const listed = this._config.transports ?? [DEFAULT_TRANSPORT];
+    const now = Date.now();
+    const usable = listed.filter((factory) => (this._failedUntil.get(factory.name) ?? 0) <= now);
+    return usable.length > 0 ? usable : [...listed];
+  }
+
+  /** Open the next untried transport of this attempt. */
+  private _openTransport(attemptId: number): void {
+    const factory = this._untried.shift()!;
+    const target = this._target!;
+    // Kept from the start, so a teardown can close it before the server accepts it.
+    // Events from a transport that is no longer the current one, such as a late
+    // frame after a timeout or a close, are ignored.
+    const isCurrent = () => this._transport === transport;
+    const transport: Transport = factory.open({
+      url: target.url,
+      protocols: tokenSubprotocols(target.token, this._config.protocols),
+      token: target.token,
+      binary: this._binary !== null,
+      warn: (message) => this._logger.warn(message),
+      events: {
+        open: () => {
+          if (isCurrent()) this._log('waiting for __connected__');
+        },
+        close: (code, reason, wasClean) => {
+          if (!isCurrent()) return;
+
+          const close = { code, reason, wasClean };
+          if (!this._failOver(attemptId, close)) this._handleTransportClose(attemptId, close);
+        },
+        error: (event) => {
+          if (!isCurrent()) return;
+
+          this._log(`${transport.name} error`);
+          // A transport that will fail over is not the app's problem yet.
+          if (!this._mayFailOver()) this._reportError(event);
+        },
+        message: (data) => {
+          if (isCurrent()) this._handleMessage(data);
+        },
+        stable: () => {
+          if (isCurrent() && this._state === 'open') this._handleStable();
+        },
+        unusable: () => {
+          if (!isCurrent()) return;
+
+          this._log(`${transport.name} cannot carry data here; skipping it for 5 minutes`);
+          this._failedUntil.set(transport.name, Date.now() + FAILED_TRANSPORT_MS);
+        },
+      },
+    });
+    this._transport = transport;
+    this._startConnectTimer(attemptId);
+  }
+
+  /** Whether a failure now would move on to another transport instead of closing. */
+  private _mayFailOver(): boolean {
+    return this._state === 'connecting' && this._untried.length > 0 && !this._intentionalClose;
+  }
+
+  /**
+   * Try the next transport when the current one failed before its `__connected__` frame
+   * with no answer: a timeout or a drop (1006). A close with any other code is the server's
+   * answer and is final. Returns whether it moved on.
+   */
+  private _failOver(attemptId: number, close: CloseEvent): boolean {
+    if (attemptId !== this._connectAttemptId || !this._target) return false;
+
+    if (close.code !== ABNORMAL_CLOSE || !this._mayFailOver()) return false;
+
+    const failed = this._transport;
+    this._clearConnectTimer();
+    this._transport = null;
+    failed?.dispose();
+    if (failed) this._failedThisOpen.push(failed.name);
+
+    this._log(`${failed?.name ?? 'transport'} failed while connecting; trying the next one`);
+    try {
+      this._openTransport(attemptId);
+    } catch (error) {
+      this._reportError(error);
+      if (!this._failOver(attemptId, close)) this._handleTransportClose(attemptId, close);
+    }
+
+    return true;
   }
 
   private _setTransport(transport: Transport | null): void {
@@ -660,8 +746,12 @@ export class LiveThingSocket {
   private _abandonTransport(attemptId: number, error: Error, close: CloseEvent): void {
     if (attemptId !== this._connectAttemptId) return;
 
+    if (!this._mayFailOver()) this._reportError(error);
+    else this._log(error.message);
+
+    if (this._failOver(attemptId, close)) return;
+
     this._transport?.dispose();
-    this._reportError(error);
     this._handleTransportClose(attemptId, close);
   }
 
@@ -707,6 +797,12 @@ export class LiveThingSocket {
   }
 
   private _handleOpen(transport: Transport): void {
+    // A later transport connected, so the ones before it really failed on this network.
+    for (const name of this._failedThisOpen) {
+      this._failedUntil.set(name, Date.now() + FAILED_TRANSPORT_MS);
+    }
+
+    this._failedThisOpen = [];
     this._transportStore.set(transport.name);
     const protocol = transport.protocol;
     this.protocol = protocol && !isLiveThingSubprotocol(protocol) ? protocol : null;

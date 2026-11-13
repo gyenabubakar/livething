@@ -3,7 +3,9 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { binary } from '~/primitives/binary/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
+import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { sse } from '~/transports/sse.ts';
+import { websocket } from '~/transports/websocket.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectOptions } from '~/connect.ts';
 import type { Primitive } from '~/primitives/types.ts';
@@ -419,6 +421,42 @@ describe('sse(): closing', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(server.posts).toEqual([]);
+  });
+});
+
+describe('sse(): a POST that fails before any POST worked', () => {
+  let restoreWebSocket: () => void;
+  beforeEach(() => {
+    restoreWebSocket = installMockWebSocket();
+  });
+  afterEach(() => {
+    restoreWebSocket();
+  });
+
+  async function firstPostAnswered(status: number) {
+    server.autoAnswer = false;
+    const { socket } = await opened(
+      { transports: [sse(), websocket()] },
+      reconnection({ maxDelay: 1 }),
+    );
+    socket.send('sendMessage', { text: 'hi' });
+    await vi.waitFor(() => expect(server.posts).toHaveLength(1));
+
+    server.posts[0]!.answer(status);
+  }
+
+  it('skips sse on the next open, so the WebSocket is tried', async () => {
+    await firstPostAnswered(500);
+
+    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    expect(server.streams).toHaveLength(1);
+  });
+
+  it('keeps sse after a 404, which only means the server forgot the connection', async () => {
+    await firstPostAnswered(404);
+
+    await vi.waitFor(() => expect(server.streams).toHaveLength(2));
+    expect(MockWebSocket.instances).toHaveLength(0);
   });
 });
 

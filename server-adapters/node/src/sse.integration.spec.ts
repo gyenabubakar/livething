@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { createServer as createHttp2Server, connect as http2Connect } from 'node:http2';
 import {
@@ -7,6 +8,7 @@ import {
   reconnection as clientReconnection,
   replay as clientReplay,
   sse as clientSse,
+  websocket as clientWebsocket,
   connect,
 } from '@livething/client';
 import { emits, server, t } from '@livething/server';
@@ -19,7 +21,8 @@ import { sequence } from '@livething/server/sequence';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InferClient } from '@livething/server';
 import type { ServerDefinition } from '@livething/server/adapters';
-import type { Server, ServerOptions } from 'node:http';
+import type { IncomingMessage, Server, ServerOptions } from 'node:http';
+import type { Duplex } from 'node:stream';
 import { sse, websocket } from './index.ts';
 import { setup } from './setup.ts';
 import type { NodeServerEndpointOptions } from './setup.ts';
@@ -510,6 +513,49 @@ describe('replay over server-sent events', () => {
     await vi.waitFor(() => expect(seen).toEqual(['standup at 10', 'standup moved to 11']));
     expect(socket.transport.get()).toBe('sse');
     socket.disconnect();
+  });
+});
+
+describe('failover on Node', () => {
+  it('moves to server-sent events when a proxy accepts the upgrade and passes nothing', async () => {
+    const url = await start({ transports: [websocket(), sse()] });
+    // The proxy: it answers the handshake, then never forwards a frame.
+    running!.http.removeAllListeners('upgrade');
+    const stalled: Duplex[] = [];
+    running!.http.on('upgrade', (request: IncomingMessage, socket: Duplex) => {
+      stalled.push(socket);
+      const accept = createHash('sha1')
+        .update(`${request.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+        .digest('base64');
+      socket.write(
+        `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+    });
+
+    const socket = client<HuddleClient>()(
+      connect(url, {
+        transports: [clientWebsocket(), clientSse()],
+        token: () => 'kofi',
+        connectTimeoutMs: 1_000,
+      }),
+      clientBinary(),
+    );
+    const errors: unknown[] = [];
+    socket.onError((error) => errors.push(error));
+    const received: string[] = [];
+    socket.on('messageCreated', (message) => received.push(message.text));
+
+    socket.connect();
+    await vi.waitFor(() => expect(socket.state.get()).toBe('open'), { timeout: 5_000 });
+    expect(socket.transport.get()).toBe('sse');
+    // The app never heard about the stalled WebSocket.
+    expect(errors).toEqual([]);
+
+    socket.send('sendMessage', { text: 'standup at 10' });
+    await vi.waitFor(() => expect(received).toEqual(['standup at 10']));
+    socket.disconnect();
+    // An upgraded socket has left the HTTP server, so its shutdown would wait for it.
+    for (const proxied of stalled) proxied.destroy();
   });
 });
 

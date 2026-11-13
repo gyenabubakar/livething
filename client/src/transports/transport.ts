@@ -13,6 +13,11 @@ interface TransportEvents {
    * its earlier failed tries. Only a transport whose `reportsStable` is `true` emits it.
    */
   stable(): void;
+  /**
+   * The connection opened but cannot carry data here, such as an SSE POST that failed before
+   * any POST worked. The socket skips this transport for a while. A close follows.
+   */
+  unusable(): void;
 }
 
 /** What the socket kernel passes when it opens a transport. */
