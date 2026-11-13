@@ -37,6 +37,7 @@ export function connect(
       if (options?.lazyIdleTimeoutMs !== undefined) {
         config.lazyIdleTimeoutMs = options.lazyIdleTimeoutMs;
       }
+
       if (options?.protocols !== undefined) config.protocols = options.protocols;
     },
   };

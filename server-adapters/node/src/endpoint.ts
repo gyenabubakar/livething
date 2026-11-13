@@ -1,4 +1,4 @@
-import { adapter } from '@livething/server/adapters';
+import { adapter, createOriginCheck } from '@livething/server/adapters';
 import type {
   AdminOf,
   AuthDecision,
@@ -74,7 +74,16 @@ export interface NodeEndpointOptions extends Omit<NodeStorageOptions, 'logger'> 
    * Fastify or h3 creates the `ws` server, set its `maxPayload` to the same value.
    */
   maxMessageBytes?: number;
+  /**
+   * Browser origins, besides the server's own, that may connect, such as
+   * `['http://localhost:5173']`. A request whose `Origin` header is neither the same
+   * host and port as its `Host` header nor in this list gets a 403. A request with no
+   * `Origin` header, such as one from a Node or mobile client, is not checked.
+   */
+  allowedOrigins?: readonly string[];
 }
+
+const ORIGIN_REJECTION: AuthDecision = { reject: true, code: 403, reason: 'Origin not allowed' };
 
 /**
  * The in-process admin surface for one Node endpoint: the definition's
@@ -111,6 +120,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
   ) {
     const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes, 'The endpoint');
     const resolveClientIp = createClientIpResolver(options.clientIp);
+    const originAllowed = createOriginCheck(options.allowedOrigins);
 
     const runtime = createRuntime({
       sql: options.sql,
@@ -146,12 +156,16 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         return { reject: true, code: 400, reason: 'Invalid upgrade request' };
       }
 
+      if (!originAllowed(webRequest)) return ORIGIN_REJECTION;
+
       return engine.authenticate(webRequest);
     }
 
     async function decideWebUpgrade(request: Request, clientIp?: string): Promise<AuthDecision> {
       await ready;
       if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
+
+      if (!originAllowed(request)) return ORIGIN_REJECTION;
 
       const headers = new Headers(request.headers);
       headers.delete('LiveThing-Client-IP');

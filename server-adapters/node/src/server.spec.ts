@@ -42,7 +42,7 @@ function createTestEndpoint(definition: never, options: NodeEndpointOptions) {
   return createNodeEndpoint(definition, options);
 }
 
-function incomingRequest(): IncomingMessage {
+function incomingRequest(origin?: string): IncomingMessage {
   return Object.assign(new IncomingMessage(new Socket()), {
     url: '/socket',
     method: 'GET',
@@ -50,6 +50,7 @@ function incomingRequest(): IncomingMessage {
       host: 'example.test',
       connection: 'Upgrade',
       upgrade: 'websocket',
+      ...(origin ? { origin } : {}),
     },
   });
 }
@@ -117,6 +118,69 @@ describe('createNodeEndpoint()', () => {
     await prepared;
 
     await service.shutdown();
+  });
+
+  describe('Origin check', () => {
+    it('accepts a Node request from the same origin', async () => {
+      const service = createTestEndpoint({} as never, {});
+
+      await expect(
+        service.decideNodeUpgrade(incomingRequest('http://example.test')),
+      ).resolves.toEqual({ userId: 'user-1' });
+      await service.shutdown();
+    });
+
+    it('answers 403 to another origin without running authenticate', async () => {
+      const service = createTestEndpoint({} as never, {});
+
+      await expect(
+        service.decideNodeUpgrade(incomingRequest('https://evil.test')),
+      ).resolves.toEqual({
+        reject: true,
+        code: 403,
+        reason: 'Origin not allowed',
+      });
+      await expect(
+        service.decideWebUpgrade(
+          new Request('https://example.test/socket', { headers: { origin: 'https://evil.test' } }),
+        ),
+      ).resolves.toMatchObject({ reject: true, code: 403 });
+      expect(fake.authenticate).not.toHaveBeenCalled();
+      await service.shutdown();
+    });
+
+    it('accepts a request with no Origin header', async () => {
+      const service = createTestEndpoint({} as never, {});
+
+      await expect(service.decideNodeUpgrade(incomingRequest())).resolves.toEqual({
+        userId: 'user-1',
+      });
+      await service.shutdown();
+    });
+
+    it('accepts an origin listed in allowedOrigins', async () => {
+      const service = createTestEndpoint({} as never, {
+        allowedOrigins: ['http://localhost:5173'],
+      });
+
+      await expect(
+        service.decideNodeUpgrade(incomingRequest('http://localhost:5173')),
+      ).resolves.toEqual({ userId: 'user-1' });
+      await expect(
+        service.decideWebUpgrade(
+          new Request('https://example.test/socket', {
+            headers: { origin: 'http://localhost:5173' },
+          }),
+        ),
+      ).resolves.toEqual({ userId: 'user-1' });
+      await service.shutdown();
+    });
+
+    it('throws at setup for an allowedOrigins entry that is not an origin', () => {
+      expect(() => createTestEndpoint({} as never, { allowedOrigins: ['localhost:5173'] })).toThrow(
+        /allowedOrigins/,
+      );
+    });
   });
 
   it('waits for initialization before exposing the admin surface', async () => {

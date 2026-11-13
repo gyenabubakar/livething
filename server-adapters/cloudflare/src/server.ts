@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   adapter,
   asUint8Array,
+  createOriginCheck,
   isValidCloseCode,
   normalizeCloseReason,
 } from '@livething/server/adapters';
@@ -69,7 +70,21 @@ function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
 }
 
-const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unknown>>({
+/** Options for `bind()`. */
+export interface CloudflareBindOptions {
+  /**
+   * Browser origins, besides the Worker's own, that may connect, such as
+   * `['http://localhost:5173']`. A request whose `Origin` header is neither the same
+   * host and port as its `Host` header nor in this list gets a 403. A request with no
+   * `Origin` header, such as one from a Node or mobile client, is not checked. The
+   * Durable Object sees the browser's `Host` only when the Worker passes the request
+   * on as it is. If the Worker builds a new request, the object compares the Origin
+   * with that request's URL, so list your site here.
+   */
+  allowedOrigins?: readonly string[];
+}
+
+const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<unknown, unknown>>({
   id: 'cloudflare',
   hibernation: {
     persist(socketKey, snapshot) {
@@ -81,7 +96,12 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
   },
   asyncContextFactory: createAsyncContext,
 
-  setup<TApi>(createEngine: (options: EngineRuntimeOptions) => Engine<TApi>) {
+  setup<TApi>(
+    createEngine: (options: EngineRuntimeOptions) => Engine<TApi>,
+    options: CloudflareBindOptions,
+  ) {
+    const originAllowed = createOriginCheck(options.allowedOrigins);
+
     return class LiveThingDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine<TApi>;
       private readonly ready: Promise<void>;
@@ -203,6 +223,10 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
 
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
           return new Response('Expected Upgrade: websocket', { status: 426 });
+        }
+
+        if (!originAllowed(request)) {
+          return new Response('Origin not allowed', { status: 403 });
         }
 
         const result = await this.engine.authenticate(requestWithClientIp(request));
@@ -411,8 +435,9 @@ function answerClientClose(ws: WebSocket, code: number, reason: string): void {
  */
 export function bind<TDefinition extends ServerDefinition>(
   definition: TDefinition,
+  options: CloudflareBindOptions = {},
 ): CloudflareDurableObjectClass<unknown, CloudflareAdmin<TDefinition>> {
-  return buildBind(definition, undefined) as unknown as CloudflareDurableObjectClass<
+  return buildBind(definition, options) as unknown as CloudflareDurableObjectClass<
     unknown,
     CloudflareAdmin<TDefinition>
   >;

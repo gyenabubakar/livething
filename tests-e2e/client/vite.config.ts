@@ -12,10 +12,11 @@ export default defineConfig({
     port: Number(process.env.LIVETHING_E2E_CLIENT_PORT ?? 4180),
     proxy: {
       '/wsx': { target: 'http://127.0.0.1:8788', ws: true, changeOrigin: true },
+      // Keep the browser's Host, like a same-origin reverse proxy, so the server's Origin check passes.
       '/ws': {
         target: `http://127.0.0.1:${process.env.LIVETHING_E2E_SERVER_PORT ?? 8787}`,
         ws: true,
-        changeOrigin: true,
+        changeOrigin: false,
       },
     },
   },

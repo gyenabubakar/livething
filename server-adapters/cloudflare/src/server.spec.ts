@@ -56,10 +56,19 @@ type DOInstance = {
 /** The real built-in surface, plus whatever dev api methods a test stages on it. */
 type AdminSurface = CloudflareAdmin & Record<string, unknown>;
 
-function buildClass(opts?: { hibernation?: boolean }) {
+interface BuildClassOptions {
+  hibernation?: boolean;
+  allowedOrigins?: string[];
+}
+
+function buildClass(opts?: BuildClassOptions) {
   fake = makeFakeEngine();
   if (opts?.hibernation !== false) fake.setHibernation(true);
-  return bind({} as never) as unknown as new (ctx: DurableObjectState, env: unknown) => DOInstance;
+  const bindOptions = opts?.allowedOrigins ? { allowedOrigins: opts.allowedOrigins } : undefined;
+  return bind({} as never, bindOptions) as unknown as new (
+    ctx: DurableObjectState,
+    env: unknown,
+  ) => DOInstance;
 }
 
 function upgradeRequest() {
@@ -83,6 +92,60 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     const res = await instance.fetch(new Request('https://do.example/'));
     expect(res.status).toBe(426);
     expect(fake.calls.authenticate).toHaveLength(0);
+  });
+
+  describe('Origin check', () => {
+    function originRequest(url: string, origin?: string) {
+      const headers: Record<string, string> = { Upgrade: 'websocket' };
+      if (origin) headers.Origin = origin;
+      return new Request(url, { headers });
+    }
+
+    async function fetchWith(request: Request, allowedOrigins?: string[]) {
+      const Cls = buildClass({ hibernation: false, allowedOrigins });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+      return instance.fetch(request);
+    }
+
+    it('accepts a request from the same origin', async () => {
+      const res = await fetchWith(originRequest('https://huddle.test/', 'https://huddle.test'));
+
+      expect(res.status).toBe(101);
+      expect(fake.calls.authenticate).toHaveLength(1);
+    });
+
+    it('answers 403 to another origin without running authenticate', async () => {
+      const res = await fetchWith(originRequest('https://huddle.test/', 'https://evil.test'));
+
+      expect(res.status).toBe(403);
+      expect(fake.calls.authenticate).toHaveLength(0);
+    });
+
+    it('accepts a request with no Origin header', async () => {
+      const res = await fetchWith(originRequest('https://huddle.test/'));
+
+      expect(res.status).toBe(101);
+    });
+
+    it('accepts an origin listed in allowedOrigins', async () => {
+      const res = await fetchWith(originRequest('https://huddle.test/', 'http://localhost:5173'), [
+        'http://localhost:5173',
+      ]);
+
+      expect(res.status).toBe(101);
+    });
+
+    it('checks a request that the Worker rebuilt against its own URL', async () => {
+      const res = await fetchWith(originRequest('https://do.internal/', 'https://huddle.test'));
+
+      expect(res.status).toBe(403);
+    });
+
+    it('throws at bind() for an allowedOrigins entry that is not an origin', () => {
+      expect(() => bind({} as never, { allowedOrigins: ['huddle.test'] })).toThrow(
+        /allowedOrigins/,
+      );
+    });
   });
 
   it('passes Cloudflare client IP metadata to the engine request', async () => {
