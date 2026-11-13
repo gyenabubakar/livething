@@ -137,11 +137,17 @@ await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
 const address = http.address();
 if (!address || typeof address === 'string') throw new Error('Expected a TCP address');
 const socket = new WebSocket(\`ws://127.0.0.1:\${address.port}/ws\`);
-const message = await new Promise<string>((resolve, reject) => {
-  socket.once('message', (data) => resolve(data.toString()));
+// The first frame is always __connected__; the app's own frame comes after it.
+const messages = await new Promise<string[]>((resolve, reject) => {
+  const received: string[] = [];
+  socket.on('message', (data) => {
+    received.push(data.toString());
+    if (received.length === 2) resolve(received);
+  });
   socket.once('error', reject);
 });
-if (message !== '["ready",{"version":"v1"},null]') throw new Error(message);
+if (!messages[0].startsWith('["__connected__",')) throw new Error(messages[0]);
+if (messages[1] !== '["ready",{"version":"v1"},null]') throw new Error(messages[1]);
 const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
 await livething.shutdown();
 await closed;
@@ -175,11 +181,17 @@ await new Promise<void>((resolve, reject) => {
 const address = http.address();
 if (!address || typeof address === 'string') throw new Error('Expected a TCP address');
 const socket = new WebSocket(\`ws://127.0.0.1:\${address.port}/ws\`);
-const message = await new Promise<string>((resolve, reject) => {
-  socket.once('message', (data) => resolve(data.toString()));
+// The first frame is always __connected__; the app's own frame comes after it.
+const messages = await new Promise<string[]>((resolve, reject) => {
+  const received: string[] = [];
+  socket.on('message', (data) => {
+    received.push(data.toString());
+    if (received.length === 2) resolve(received);
+  });
   socket.once('error', reject);
 });
-if (message !== '["ready",{"version":"v2"},null]') throw new Error(message);
+if (!messages[0].startsWith('["__connected__",')) throw new Error(messages[0]);
+if (messages[1] !== '["ready",{"version":"v2"},null]') throw new Error(messages[1]);
 const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
 await livething.shutdown();
 await closed;

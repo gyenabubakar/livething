@@ -1,5 +1,4 @@
 import { CloseCodes, LiveThingConfigError } from '@livething/core';
-import { MAX_TIMER_DELAY_MS } from '~/internal/config.ts';
 import { createStore } from '~/internal/store.ts';
 import { KeepaliveLoop } from '~/primitives/keepalive/loop.ts';
 import type { ReadableStore } from '~/internal/store.ts';
@@ -9,8 +8,6 @@ import type { ConnectionQuality } from '~/types.ts';
 
 /** Options for `keepalive()`. */
 export interface KeepaliveOptions {
-  /** How often to ping, in ms. Must be from 1 to `2 ** 31 - 1`, the longest a timer can hold. Default: `30_000`. */
-  interval?: number;
   /** How many pongs can be missed before the socket is force-closed. Must be a whole number, 1 or more. Default: `2`. */
   maxMissedPongs?: number;
   /**
@@ -40,6 +37,9 @@ export interface QualityApi {
   latency: ReadableStore<number | null>;
 }
 
+/** The ping interval when the server sends none of its own pings. */
+const DEFAULT_PING_INTERVAL_MS = 30_000;
+
 interface KeepaliveTypeFn extends TypeFn {
   readonly _api: QualityApi;
 }
@@ -66,17 +66,7 @@ function areValidThresholds(thresholds: QualityThresholds): boolean {
 export function keepalive(
   options: KeepaliveOptions = {},
 ): Primitive<KeepaliveTypeFn> & PrimitiveIdentity<'keepalive'> {
-  const { interval, maxMissedPongs, thresholds } = options;
-  if (
-    interval !== undefined &&
-    !(Number.isFinite(interval) && interval >= 1 && interval <= MAX_TIMER_DELAY_MS)
-  ) {
-    throw new LiveThingConfigError(
-      `keepalive interval must be a number of ms from 1 to ${MAX_TIMER_DELAY_MS}, got ${interval}. ` +
-        `To turn keepalive off, leave keepalive() out.`,
-    );
-  }
-
+  const { maxMissedPongs, thresholds } = options;
   if (maxMissedPongs !== undefined && !(Number.isInteger(maxMissedPongs) && maxMissedPongs >= 1)) {
     throw new LiveThingConfigError(
       `keepalive maxMissedPongs must be a whole number, 1 or more, got ${maxMissedPongs}.`,
@@ -99,11 +89,7 @@ export function keepalive(
       const latency = createStore<number | null>(null, (error) => helpers.log.report(error));
 
       const loop = new KeepaliveLoop(
-        {
-          interval,
-          maxMissedPongs,
-          thresholds,
-        },
+        { maxMissedPongs, thresholds },
         {
           sendPing: () => helpers.sendPing(),
           forceClose: () => helpers.forceClose(CloseCodes.IDLE, 'missed pong'),
@@ -125,9 +111,9 @@ export function keepalive(
           socket.latency = latency.store;
         },
 
-        onOpen() {
-          loop.start();
-          return null;
+        // Ping as often as the server does, so the two sides agree on when a connection is dead.
+        onConnected(info) {
+          loop.start(info.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS);
         },
 
         onClose() {

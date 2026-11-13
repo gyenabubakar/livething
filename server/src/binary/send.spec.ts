@@ -254,7 +254,7 @@ describe('sending a binary event', () => {
     const preview = base.on('preview-avatar', {
       run(ctx) {
         try {
-          ctx.binary.send('avatar-preview', null, new Uint8Array(200));
+          ctx.binary.send('avatar-preview', null, new Uint8Array(400));
         } catch (error) {
           results.push((error as Error).message);
         }
@@ -262,13 +262,13 @@ describe('sending a binary event', () => {
     });
     const { engine } = build(base.assemble({ handlers: [preview] }), {
       receiveBytes: 1000,
-      sendBytes: 100,
+      sendBytes: 300,
     });
     const amara = await connect(engine, 'u_amara');
 
     await amara.send('preview-avatar');
 
-    expect(results).toEqual([expect.stringMatching(/over the send limit of 100 bytes/)]);
+    expect(results).toEqual([expect.stringMatching(/over the send limit of 300 bytes/)]);
   });
 
   it('runs onOutgoing once, with the info as payload and the bytes', async () => {

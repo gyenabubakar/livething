@@ -9,6 +9,7 @@ import {
   utf8ByteLength,
 } from '@livething/core';
 import { assertValidTtl } from '~/internal/config.ts';
+import { parseConnectedInfo } from '~/internal/connected.ts';
 import { dispatchToHandlers, keepFrameKind, runMessageHook } from '~/internal/dispatch.ts';
 import { toLiveThingError } from '~/internal/error-frame.ts';
 import { NAMESPACE_DELIMITER } from '~/internal/namespace.ts';
@@ -186,6 +187,11 @@ export class LiveThingSocket {
 
   private _pongHandlers: (() => void)[] = [];
 
+  /** Runs out when the transport of the current attempt sends no `__connected__` frame in time. */
+  private _connectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private readonly _warnedFeatures = new Set<string>();
+
   private _outgoingFallback:
     | ((message: Message, options?: InternalSendOptions) => 'buffered' | 'dropped' | null)
     | null = null;
@@ -270,6 +276,8 @@ export class LiveThingSocket {
     this._connectAttemptId++;
     if (intentional) this._isFirstConnect = true;
     this._clearLazyIdleTimer();
+
+    this._clearConnectTimer();
 
     // Was there anything to tear down? A teardown on an already-closed socket
     // must not fire a second onClose. Closing a connecting/reconnecting socket
@@ -561,27 +569,34 @@ export class LiveThingSocket {
       this._log(`connecting to ${redactUrl(url)}`);
 
       const factory = this._config.transports?.[0] ?? DEFAULT_TRANSPORT;
+      // Kept from the start, so a teardown can close it before the server accepts it.
+      // Events from a transport that is no longer the current one, such as a late
+      // frame after a timeout or a close, are ignored.
+      const isCurrent = () => this._transport === transport;
       const transport: Transport = factory.open({
         url,
         protocols: tokenSubprotocols(token, this._config.protocols),
         binary: this._binary !== null,
         events: {
-          open: () => this._handleTransportOpen(transport, attemptId),
-          close: (code, reason, wasClean) =>
-            this._handleTransportClose(attemptId, { code, reason, wasClean }),
+          open: () => {
+            if (isCurrent()) this._log('waiting for __connected__');
+          },
+          close: (code, reason, wasClean) => {
+            if (isCurrent()) this._handleTransportClose(attemptId, { code, reason, wasClean });
+          },
           error: (event) => {
-            if (attemptId !== this._connectAttemptId) return;
+            if (!isCurrent()) return;
 
             this._log('WebSocket error');
             this._reportError(event);
           },
           message: (data) => {
-            if (attemptId !== this._connectAttemptId) return;
-
-            this._handleMessage(data);
+            if (isCurrent()) this._handleMessage(data);
           },
         },
       });
+      this._transport = transport;
+      this._startConnectTimer(attemptId);
     } catch (error) {
       if (attemptId !== this._connectAttemptId) return;
 
@@ -616,13 +631,78 @@ export class LiveThingSocket {
     this._transportStore.set(transport?.name ?? null);
   }
 
-  private _handleTransportOpen(transport: Transport, attemptId: number): void {
-    if (attemptId !== this._connectAttemptId) {
-      transport.close();
+  private _startConnectTimer(attemptId: number): void {
+    const transportCount = this._config.transports?.length ?? 1;
+    const timeout = this._config.connectTimeoutMs ?? (transportCount > 1 ? 5_000 : 30_000);
+    this._connectTimer = setTimeout(() => {
+      this._connectTimer = null;
+      this._abandonTransport(
+        attemptId,
+        new Error(`[livething] the server did not accept the connection within ${timeout} ms.`),
+        { code: 1006, reason: 'connect timeout', wasClean: false },
+      );
+    }, timeout);
+  }
+
+  private _clearConnectTimer(): void {
+    if (this._connectTimer === null) return;
+
+    clearTimeout(this._connectTimer);
+    this._connectTimer = null;
+  }
+
+  /** Close a transport that sent no usable `__connected__` frame, and handle it as a drop. */
+  private _abandonTransport(attemptId: number, error: Error, close: CloseEvent): void {
+    if (attemptId !== this._connectAttemptId) return;
+
+    this._transport?.dispose();
+    this._reportError(error);
+    this._handleTransportClose(attemptId, close);
+  }
+
+  private _handleConnected(payload: unknown): void {
+    const attemptId = this._connectAttemptId;
+    const info = parseConnectedInfo(payload);
+    if (!info) {
+      this._abandonTransport(
+        attemptId,
+        new Error('[livething] the server sent a __connected__ frame this client cannot read.'),
+        { code: CloseCodes.PROTOCOL_ERROR, reason: 'bad __connected__ frame', wasClean: false },
+      );
       return;
     }
 
-    this._setTransport(transport);
+    this._clearConnectTimer();
+    this._warnMissingFeatures(info.features);
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onConnected?.(info);
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+
+    // A hook can disconnect, and then there is nothing left to open.
+    const transport = this._transport;
+    if (attemptId === this._connectAttemptId && transport) this._handleOpen(transport);
+  }
+
+  /** Warn once for each client primitive whose server feature is off. */
+  private _warnMissingFeatures(features: readonly string[]): void {
+    for (const feature of ['replay', 'binary', 'uploads']) {
+      if (!this._knownTags.has(feature) || features.includes(feature)) continue;
+
+      if (this._warnedFeatures.has(feature)) continue;
+
+      this._warnedFeatures.add(feature);
+      this._logger.warn(
+        `${feature}() is on the client, but the server does not have it on, so it will not work. Turn it on in the server, or remove ${feature}() from the client.`,
+      );
+    }
+  }
+
+  private _handleOpen(transport: Transport): void {
+    this._transportStore.set(transport.name);
     const protocol = transport.protocol;
     this.protocol = protocol && !isLiveThingSubprotocol(protocol) ? protocol : null;
     this._setState('open');
@@ -669,6 +749,7 @@ export class LiveThingSocket {
   private _handleTransportClose(attemptId: number, event: CloseEvent): void {
     if (attemptId !== this._connectAttemptId) return;
 
+    this._clearConnectTimer();
     this._setTransport(null);
     this.protocol = null;
 
@@ -707,6 +788,18 @@ export class LiveThingSocket {
     if (raw === 'pong') {
       this._log('pong received');
       dispatchToHandlers(this._pongHandlers, this._logger);
+      return;
+    }
+
+    // A transport counts as working only once the server accepts it with `__connected__`.
+    if (this._state !== 'open') {
+      const first = typeof raw === 'string' ? decodeMessage(raw) : null;
+      if (first?.event === '__connected__') {
+        this._handleConnected(first.payload);
+      } else {
+        this._log('a frame arrived before __connected__ — dropping it');
+      }
+
       return;
     }
 

@@ -265,8 +265,8 @@ async function connect(
     close: () => handle.handleClose(1000, 'bye'),
     sendText: (text) => handle.handleMessage(text),
     resumeSeq: () => {
-      const resume = frames().find((frame) => frame.envelope[0] === '__resume__');
-      return (resume!.envelope[1] as { seq: number }).seq;
+      const connected = frames().find((frame) => frame.envelope[0] === '__connected__');
+      return (connected!.envelope[1] as { resume: { seq: number } }).resume.seq;
     },
   };
 }
@@ -622,7 +622,7 @@ describe('what a catch-up holds back', () => {
     await amara.send('save-avatar', { text: 'sent during the catch-up' });
 
     expect(kofiAgain.frames().map((frame) => frame.envelope[0])).toEqual([
-      '__resume__',
+      '__connected__',
       'confirm-avatar',
       '__subscribeOk__',
       '__memberSync__',
@@ -742,7 +742,7 @@ describe('what a catch-up holds back', () => {
     kofiAgain.buffered.bytes = 0;
     await catchUp;
 
-    const frames = kofiAgain.frames().filter((frame) => frame.envelope[0] !== '__resume__');
+    const frames = kofiAgain.frames().filter((frame) => frame.envelope[0] !== '__connected__');
     const gapAt = frames.findIndex((frame) => frame.envelope[0] === '__gap__');
     expect(gapAt).toBe(256);
     expect(frames[gapAt]!.envelope[1]).toEqual({ missedThrough: stored.at(-1) });
@@ -882,7 +882,7 @@ describe('catch-up in pages', () => {
     kofiAgain.buffered.bytes = 0;
     await catchUp;
 
-    const frames = kofiAgain.frames().filter((frame) => frame.envelope[0] !== '__resume__');
+    const frames = kofiAgain.frames().filter((frame) => frame.envelope[0] !== '__connected__');
     const gapAt = frames.findIndex((frame) => frame.envelope[0] === '__gap__');
     expect(gapAt).toBe(256);
     const missedThrough = (frames[gapAt]!.envelope[1] as { missedThrough: number }).missedThrough;

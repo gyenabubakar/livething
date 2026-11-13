@@ -91,7 +91,7 @@ const url = `${scheme}://${location.host}/wsx/${path}?room=${encodeURIComponent(
 
 const primitives: Primitive[] = [];
 if (useReconnect) primitives.push(reconnection({ networkAware: usePlatform, maxDelay: 500 }));
-if (useKeepalive) primitives.push(keepalive({ interval: 100, maxMissedPongs: 2 }));
+if (useKeepalive) primitives.push(keepalive({ maxMissedPongs: 2 }));
 if (useBuffering) primitives.push(buffering());
 if (usePlatform) {
   primitives.push(

@@ -157,6 +157,21 @@ export interface PrimitiveLogger {
  * The runtime hooks a primitive exposes. A primitive's `setup` returns one of
  * these, and the socket calls each hook at the right moment.
  */
+/** The values the server sends in its first frame, `__connected__`. The client follows them. */
+export interface ConnectedInfo {
+  /** How often the server pings, or `null` when it sends no pings. */
+  pingIntervalMs: number | null;
+  /** How long the server waits for any frame before it closes the connection, or `null`. */
+  idleTimeoutMs: number | null;
+  /** The most resume tokens one `__replay__` may list. */
+  maxResumeTokens: number;
+  connectionId: string;
+  /** The server features a client primitive needs: `replay`, `binary` and `uploads`. */
+  features: readonly string[];
+  /** This connection's resume token and starting seq, or `null` when replay is off. */
+  resume: { token: string; seq: number | null } | null;
+}
+
 export interface PrimitiveRuntime {
   /** A name for debug logs. */
   id: string;
@@ -180,6 +195,12 @@ export interface PrimitiveRuntime {
    * so the re-subscribe message carries a fresh one.
    */
   onBeforeReopen?(): void | Promise<void>;
+
+  /**
+   * Runs when the server's `__connected__` frame arrives, with the values it sent,
+   * before `onOpen` and `onReconnect`. The socket is still `connecting` here.
+   */
+  onConnected?(info: ConnectedInfo): void;
 
   /** Runs every time the socket opens. Return messages to send right away. */
   onOpen?(): Message[] | null;

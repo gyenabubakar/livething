@@ -6,7 +6,7 @@ import { RejectAuth } from '@livething/server/errors';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
-import { capturedBridges, nextRawMessage } from '../../test-utils.ts';
+import { capturedBridges, nextJsonMessage, nextRawMessage } from '../../test-utils.ts';
 import { setup } from './index.ts';
 
 vi.mock('../../socket.ts', async (importOriginal) => {
@@ -108,10 +108,7 @@ function listen(
 }
 
 function waitForMessage(socket: WebSocket): Promise<WireFrame> {
-  return new Promise((resolve, reject) => {
-    socket.once('message', (raw) => resolve(JSON.parse(raw.toString())));
-    socket.once('error', reject);
-  });
+  return nextJsonMessage<WireFrame>(socket);
 }
 
 function waitForOpen(socket: WebSocket): Promise<void> {

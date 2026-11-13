@@ -637,7 +637,7 @@ describe('reliable leave', () => {
 
       const leave = room.unsubscribe();
       first.serverClose(1006, 'drop');
-      vi.advanceTimersByTime(60_000);
+      vi.advanceTimersByTime(5_000);
       MockWebSocket.last().serverClose(1006, 'still down');
 
       await expect(leave).rejects.toMatchObject({ code: 'disconnected' });

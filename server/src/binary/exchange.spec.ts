@@ -4,6 +4,7 @@ import { encodeBinaryFrame, splitBinaryFrame } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
+import { isConnectedFrame } from '~/_test/connected.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { binary } from '~/binary/capability.ts';
@@ -71,7 +72,9 @@ async function connect(engine: Engine, userId = 'u_amara') {
   await engine.initialize();
   const sent: TransportFrame[] = [];
   const handle = engine.accept(Symbol(userId), {
-    send: (data: TransportFrame) => sent.push(data),
+    send: (data: TransportFrame) => {
+      if (!isConnectedFrame(data)) sent.push(data);
+    },
     close: () => {},
     bufferedAmount: () => 0,
     userId,

@@ -2,7 +2,7 @@
 export type TransportName = 'websocket';
 
 /** How a transport reports what happens on its connection. */
-export interface TransportEvents {
+interface TransportEvents {
   open(): void;
   /** A frame from the server: a string, or an `ArrayBuffer` for binary. */
   message(data: unknown): void;

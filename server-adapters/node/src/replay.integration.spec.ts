@@ -77,8 +77,9 @@ async function exchange(
       socket.on('message', (data) => {
         const frame = JSON.parse(data.toString()) as Frame;
         frames.push(frame);
-        if (frame[0] === '__resume__') {
-          socket.send(JSON.stringify(outgoing(String(frame[1].token))));
+        if (frame[0] === '__connected__') {
+          const resume = frame[1].resume as { token: string };
+          socket.send(JSON.stringify(outgoing(resume.token)));
         }
 
         if (done(frames)) {

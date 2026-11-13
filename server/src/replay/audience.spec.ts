@@ -16,6 +16,13 @@ import type { Engine } from '~/_engine/engine.ts';
 
 type Frame = [event: string, payload: Record<string, unknown>, livething: Record<string, unknown>];
 
+/** The resume point of a connection's `__connected__` frame. */
+function resumeOf(frames: Frame[]) {
+  const connected = frames.find(([event]) => event === '__connected__');
+
+  return connected?.[1].resume as { token: string; seq: number | null } | null | undefined;
+}
+
 const Text = t<{ text: string }>();
 
 function buildDefinition(replayCapability: ReturnType<typeof replay.history>) {
@@ -128,7 +135,7 @@ async function connect(engine: Engine, userId: string) {
   return {
     userId,
     frames,
-    token: String(frames.find(([event]) => event === '__resume__')?.[1].token),
+    token: String(resumeOf(frames)?.token),
     send: (frame: unknown[]) =>
       handle.handleMessage(JSON.stringify(frame.length === 2 ? [...frame, null] : frame)),
   };

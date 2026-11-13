@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { encodeBinaryFrame, LiveThingConfigError, splitBinaryFrame } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
+import { isConnectedFrame } from '~/_test/connected.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { binary } from '~/binary/capability.ts';
@@ -201,7 +202,7 @@ async function connect(engine: Engine, userId = 'u_amara') {
   const sent: TransportFrame[] = [];
   const handle = engine.accept(Symbol(userId), {
     send: (data: TransportFrame) => {
-      sent.push(data);
+      if (!isConnectedFrame(data)) sent.push(data);
     },
     close: () => {},
     bufferedAmount: () => 0,

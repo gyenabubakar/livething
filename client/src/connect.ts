@@ -1,4 +1,5 @@
 import { LiveThingConfigError } from '@livething/core';
+import { timerDelayError } from '~/internal/config.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { TransportFactory } from '~/transports/transport.ts';
 
@@ -33,6 +34,12 @@ export interface ConnectOptions {
   token?: () => string | null | undefined | Promise<string | null | undefined>;
   /** The transports to connect with, such as `[websocket()]`. Default: WebSocket only. */
   transports?: readonly TransportFactory[];
+  /**
+   * How long to wait, in ms, for the server to accept a connection. A connection that
+   * takes longer is closed, goes to `onError`, and is retried like any other drop.
+   * Default: `30_000` with one transport, `5_000` with several.
+   */
+  connectTimeoutMs?: number;
 }
 
 /** What `connect()` returns. */
@@ -68,6 +75,13 @@ export function connect(
       if (options?.transports !== undefined) {
         assertValidTransports(options.transports);
         config.transports = options.transports;
+      }
+
+      if (options?.connectTimeoutMs !== undefined) {
+        const error = timerDelayError(options.connectTimeoutMs, 'connect() connectTimeoutMs');
+        if (error) throw error;
+
+        config.connectTimeoutMs = options.connectTimeoutMs;
       }
     },
   };

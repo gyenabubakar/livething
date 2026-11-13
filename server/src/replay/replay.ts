@@ -82,7 +82,7 @@ const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
  * - A send to chosen connections (`ctx.send`, `ctx.connections.get(ref).send`,
  *   `ctx.channel.send`, `broadcastTo` a connection, tag or group, and a tag
  *   broadcast) is recorded once, with the resume tokens of those connections.
- *   Each connection gets its secret token in `__resume__`. The frame replays
+ *   Each connection gets its secret token in `__connected__`. The frame replays
  *   only to a client that shows one of those tokens and has the same user (or
  *   is anonymous, when the connection was). `maxMessages` counts it once for
  *   each user and each anonymous token it reached.

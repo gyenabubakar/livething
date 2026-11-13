@@ -58,12 +58,13 @@ function messages(peer: Peer): Promise<Received[]> {
   });
 }
 
-/** The resume token the server sent this socket in `__resume__`. */
+/** The resume token the server sent this socket in `__connected__`. */
 async function resumeToken(peer: Peer): Promise<string> {
   let token: unknown;
   await expect
     .poll(async () => {
-      token = (await messages(peer)).find((m) => m.event === '__resume__')?.payload?.token;
+      const connected = (await messages(peer)).find((m) => m.event === '__connected__');
+      token = (connected?.payload?.resume as { token?: string } | null | undefined)?.token;
       return token;
     })
     .toEqual(expect.any(String));

@@ -66,6 +66,18 @@ export interface ConnectionDescriptor extends SocketDescriptor {
   meta?: Record<string, unknown>;
 
   tags?: readonly TagRef[];
+
+  /**
+   * The secret a client sends with each POST to this connection, or `null` (the default)
+   * when the transport has none. The engine puts it in the `__connected__` frame.
+   */
+  secret?: string | null;
+
+  /**
+   * The largest POST body this connection accepts, in bytes, or `null` (the default) when
+   * it receives no POSTs. The engine puts it in the `__connected__` frame.
+   */
+  maxPostBytes?: number | null;
 }
 
 /**

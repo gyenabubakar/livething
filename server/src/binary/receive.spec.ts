@@ -633,7 +633,7 @@ describe('a binary frame in the shared pipeline', () => {
     });
     const { engine } = build(base.assemble({ handlers: [handleUploadAvatar] }), {
       receiveBytes: 120,
-      sendBytes: 120,
+      sendBytes: 1000,
     });
 
     const { handle, connection, errorCodes } = await connect(engine);

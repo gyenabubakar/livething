@@ -89,12 +89,13 @@ describe('max attempts exhaustion', () => {
     MockWebSocket.last().open();
     socket.onReconnectFailed(onFailed);
 
+    // Each wait is past the backoff and short of the 30 s connect timeout.
     MockWebSocket.last().serverClose(1006);
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(5_000);
     expect(MockWebSocket.instances).toHaveLength(2);
 
     MockWebSocket.last().serverClose(1006);
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(5_000);
     expect(MockWebSocket.instances).toHaveLength(3);
 
     MockWebSocket.last().serverClose(1006);
@@ -151,7 +152,9 @@ describe('backoff growth and jitter', () => {
   it('never schedules a wait longer than a timer can hold, even with jitter on the largest maxDelay', () => {
     vi.spyOn(Math, 'random').mockReturnValue(1);
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-    build(reconnection({ maxDelay: 2 ** 31 - 1, maxAttempts: Infinity }));
+    const { socket } = build(reconnection({ maxDelay: 2 ** 31 - 1, maxAttempts: Infinity }));
+    // Each long wait also runs out the connect timeout of the socket that is still connecting.
+    socket.onError(() => {});
 
     for (let attempt = 0; attempt < 24; attempt++) {
       MockWebSocket.last().serverClose(1006);
@@ -408,7 +411,7 @@ describe('socket.reconnection store', () => {
     ws.serverClose(1006);
     expect(socket.reconnection.get().retrying).toBe(true);
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(5_000);
     MockWebSocket.last().open();
 
     expect(socket.reconnection.get()).toEqual({
@@ -450,12 +453,12 @@ describe('socket.reconnection store', () => {
     const { ws, socket } = buildWithReconnection({ maxAttempts: 2 });
 
     ws.serverClose(1006);
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(5_000);
     MockWebSocket.last().serverClose(1006);
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(5_000);
     MockWebSocket.last().serverClose(1006);
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(5_000);
 
     const info = socket.reconnection.get();
     expect(info.retrying).toBe(false);

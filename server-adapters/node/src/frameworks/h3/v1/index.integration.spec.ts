@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type { AddressInfo } from 'node:net';
-import { capturedBridges, nextRawMessage } from '../../../test-utils.ts';
+import { capturedBridges, nextJsonMessage, nextRawMessage } from '../../../test-utils.ts';
 import { createH3V1Setup } from './setup.ts';
 
 vi.mock('../../../socket.ts', async (importOriginal) => {
@@ -130,10 +130,7 @@ function waitForClose(socket: WebSocket): Promise<{ code: number; reason: string
 }
 
 function waitForRawMessage(socket: WebSocket): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    socket.once('message', (data) => resolve(JSON.parse(data.toString())));
-    socket.once('error', reject);
-  });
+  return nextJsonMessage(socket);
 }
 
 function getClientSocket(socket: WebSocket): { pause(): void; resume(): void } {

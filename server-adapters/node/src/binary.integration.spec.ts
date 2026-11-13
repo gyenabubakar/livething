@@ -15,6 +15,7 @@ import type { ServerDefinition } from '@livething/server';
 import type { AddressInfo } from 'node:net';
 import type { RawData } from 'ws';
 import { setup } from './setup.ts';
+import { isConnectedFrame } from './test-utils.ts';
 
 const general = { channel: { name: 'room:general', family: 'rooms' } };
 const picture = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -147,7 +148,7 @@ async function connect(port: number, user: string) {
   const socket = new WebSocket(`ws://127.0.0.1:${port}/huddle?user=${user}`);
   const received: Received[] = [];
   socket.on('message', (data: RawData, isBinary) => {
-    received.push({ data: data as Buffer, isBinary });
+    if (!isConnectedFrame(data, isBinary)) received.push({ data: data as Buffer, isBinary });
   });
   await new Promise<void>((resolve, reject) => {
     socket.once('open', () => resolve());

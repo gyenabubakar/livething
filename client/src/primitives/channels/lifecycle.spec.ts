@@ -200,7 +200,6 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
 
       const onSubFailed = vi.fn();
       const onServerError = vi.fn();
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       room.onSubscriptionFailed(onSubFailed);
       socket.onServerError(onServerError);
 
@@ -214,9 +213,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       expect(onServerError).toHaveBeenCalledWith(
         expect.objectContaining({ code: 'unsupported-protocol' }),
       );
-      expect(warn.mock.calls.some((args) => String(args[1] ?? '').includes('replay()'))).toBe(true);
       expect(room.status.get()).toBe('subscribing');
-      warn.mockRestore();
 
       second.emit({
         event: '__subscribeOk__',

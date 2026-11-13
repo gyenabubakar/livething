@@ -2,26 +2,26 @@ import { evictDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { expect, it } from 'vitest';
 
+/** The next frame after the `__connected__` frame, which these tests do not check. */
 function nextMessage(socket: WebSocket): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    socket.addEventListener(
-      'message',
-      (event) => {
-        const frame = JSON.parse(String(event.data));
-        if (
-          !Array.isArray(frame) ||
-          frame.length !== 3 ||
-          typeof frame[0] !== 'string' ||
-          (frame[2] !== null && (typeof frame[2] !== 'object' || Array.isArray(frame[2])))
-        ) {
-          reject(new Error('invalid LiveThing wire frame'));
-          return;
-        }
+    socket.addEventListener('message', function onMessage(event) {
+      const frame = JSON.parse(String(event.data));
+      if (Array.isArray(frame) && frame[0] === '__connected__') return;
 
-        resolve({ event: frame[0], payload: frame[1], metadata: frame[2] });
-      },
-      { once: true },
-    );
+      socket.removeEventListener('message', onMessage);
+      if (
+        !Array.isArray(frame) ||
+        frame.length !== 3 ||
+        typeof frame[0] !== 'string' ||
+        (frame[2] !== null && (typeof frame[2] !== 'object' || Array.isArray(frame[2])))
+      ) {
+        reject(new Error('invalid LiveThing wire frame'));
+        return;
+      }
+
+      resolve({ event: frame[0], payload: frame[1], metadata: frame[2] });
+    });
 
     socket.addEventListener(
       'close',

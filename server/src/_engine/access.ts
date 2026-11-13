@@ -442,6 +442,14 @@ export interface EngineAccess {
   getHibernationEnabled(): boolean;
 
   /**
+   * Give the engine the keepalive timings, so the `__connected__` frame can tell the
+   * client how often to ping and how long the server waits before an idle close.
+   *
+   * @internal
+   */
+  setKeepaliveTimings(timings: { pingIntervalMs: number; idleTimeoutMs: number }): void;
+
+  /**
    * Tell the engine that automatic replay is enabled for this handler.
    *
    * The engine uses this only for internal startup validation.

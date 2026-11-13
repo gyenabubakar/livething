@@ -39,6 +39,8 @@ export interface SocketConfig {
   protocols?: string[];
   /** The transports to connect with. Default: WebSocket only. */
   transports?: readonly TransportFactory[];
+  /** How long to wait for the `__connected__` frame. Default: 30_000 with one transport, 5_000 with several. */
+  connectTimeoutMs?: number;
   /** Returns the login token on every connect/reconnect. */
   token?: () => string | null | undefined | Promise<string | null | undefined>;
 

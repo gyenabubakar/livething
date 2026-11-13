@@ -77,7 +77,7 @@ describe('the receive limit', () => {
 
   it('closes the socket with 1009 for a message over receiveBytes, counted in UTF-8 bytes', async () => {
     const posts: string[] = [];
-    const { engine } = build(postServer(posts), { receiveBytes: 100, sendBytes: 100 });
+    const { engine } = build(postServer(posts), { receiveBytes: 100, sendBytes: 1000 });
     const { handle, closes } = await connect(engine);
 
     // 40 'é' are 40 UTF-16 units but 80 UTF-8 bytes, so the frame is over 100 bytes.
@@ -89,10 +89,10 @@ describe('the receive limit', () => {
 
   it('runs no handler for a frame that arrives while the 1009 close completes', async () => {
     const posts: string[] = [];
-    const { engine } = build(postServer(posts), { receiveBytes: 100, sendBytes: 100 });
+    const { engine } = build(postServer(posts), { receiveBytes: 100, sendBytes: 1000 });
     const { handle } = await connect(engine);
 
-    await handle.handleMessage(JSON.stringify(['post-message', { text: 'x'.repeat(200) }, null]));
+    await handle.handleMessage(JSON.stringify(['post-message', { text: 'x'.repeat(400) }, null]));
     await handle.handleMessage(JSON.stringify(['post-message', { text: 'small' }, null]));
 
     expect(posts).toEqual([]);
@@ -100,7 +100,7 @@ describe('the receive limit', () => {
 
   it('lets a message of exactly receiveBytes through', async () => {
     const posts: string[] = [];
-    const { engine } = build(postServer(posts), { receiveBytes: 100, sendBytes: 100 });
+    const { engine } = build(postServer(posts), { receiveBytes: 100, sendBytes: 1000 });
     const { handle, closes } = await connect(engine);
     const empty = JSON.stringify(['post-message', { text: '' }, null]);
     const text = 'x'.repeat(100 - empty.length);
@@ -137,7 +137,7 @@ describe('a binary message', () => {
   }
 
   it('closes the socket with 1009 when it is over receiveBytes', async () => {
-    const { engine } = build(postServer([]), { receiveBytes: 100, sendBytes: 100 });
+    const { engine } = build(postServer([]), { receiveBytes: 100, sendBytes: 1000 });
     const { handle, closes } = await connect(engine);
 
     await handle.handleBinaryMessage(new Uint8Array(101));
@@ -146,7 +146,7 @@ describe('a binary message', () => {
   });
 
   it('closes the socket with 1003 while no capability takes binary frames', async () => {
-    const { engine } = build(postServer([]), { receiveBytes: 100, sendBytes: 100 });
+    const { engine } = build(postServer([]), { receiveBytes: 100, sendBytes: 1000 });
     const { handle, closes } = await connect(engine);
 
     await handle.handleBinaryMessage(new Uint8Array(100));
@@ -163,7 +163,7 @@ describe('a binary message', () => {
     'runs no handler for a frame that arrives while the close for %i bytes completes',
     async (size) => {
       const posts: string[] = [];
-      const { engine } = build(postServer(posts), { receiveBytes: 100, sendBytes: 100 });
+      const { engine } = build(postServer(posts), { receiveBytes: 100, sendBytes: 1000 });
       const { handle, closes } = await connect(engine);
 
       await handle.handleBinaryMessage(new Uint8Array(size));
@@ -183,7 +183,7 @@ describe('the send limit', () => {
     const load = base.on('load-history', {
       run(ctx) {
         try {
-          ctx.send('history-loaded', { text: 'x'.repeat(200) });
+          ctx.send('history-loaded', { text: 'x'.repeat(400) });
           outcomes.push('sent');
         } catch (error) {
           outcomes.push((error as Error).message);
@@ -192,14 +192,14 @@ describe('the send limit', () => {
     });
     const { engine } = build(base.assemble({ handlers: [load] }), {
       receiveBytes: 1000,
-      sendBytes: 100,
+      sendBytes: 300,
     });
     const { handle, sent } = await connect(engine);
 
     await handle.handleMessage(JSON.stringify(['load-history', null, null]));
 
     expect(outcomes).toHaveLength(1);
-    expect(outcomes[0]).toMatch(/over the send limit of 100 bytes/);
+    expect(outcomes[0]).toMatch(/over the send limit of 300 bytes/);
     expect(sent.some((data) => data.includes('history-loaded'))).toBe(false);
   });
 });
@@ -337,12 +337,10 @@ describe('the slow-member check during a burst of sends', () => {
 
   // A socket that never drains: everything written stays in its buffer.
   async function stalledClient(engine: Engine) {
-    // `client` is set once `connect` returns; the engine may read the buffer before that.
-    const client: Awaited<ReturnType<typeof connect>> = await connect(
-      engine,
-      'kofi',
-      () => client?.sent.join('').length ?? 0,
-    );
+    // The engine reads the buffer while it accepts, before `connect` returns `sent`.
+    const buffer: { sent?: string[] } = {};
+    const client = await connect(engine, 'kofi', () => buffer.sent?.join('').length ?? 0);
+    buffer.sent = client.sent;
     const connection = [...engine.core.connections.values()].at(-1)!;
 
     return { ...client, connection };

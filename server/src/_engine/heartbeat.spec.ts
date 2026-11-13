@@ -1,5 +1,6 @@
 import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
+import { isConnectedFrame } from '~/_test/connected.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { keepalive } from '~/keepalive/capability.ts';
@@ -31,7 +32,9 @@ function testSocket() {
   return {
     frames,
     descriptor: {
-      send: ({ text }: { kind: 'text'; text: string }) => void frames.push(text),
+      send: ({ text }: { kind: 'text'; text: string }) => {
+        if (!isConnectedFrame(text)) frames.push(text);
+      },
       close: () => {},
       bufferedAmount: () => 0,
       userId: 'tester',

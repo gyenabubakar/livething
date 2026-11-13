@@ -13,6 +13,7 @@ import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
+import { MAX_RESUME_TOKENS } from './protocol.ts';
 import { releaseSubscribes } from './subscribe-order.ts';
 import { serializeWireFrame } from './wire-serialize.ts';
 import type * as ConnectionStore from './connection-store.ts';
@@ -235,8 +236,11 @@ interface ConnectionRuntime {
   /** Whether a replay capability is listed, so each connection gets a resume token. */
   replayEnabled?(): boolean;
 
-  /** Take the next delivery seq, for the `__resume__` frame's starting cursor. */
+  /** Take the next delivery seq, for the resume cursor in the `__connected__` frame. */
   allocateDeliverySeq?(): number | undefined;
+
+  /** The engine-wide values of the `__connected__` frame. Omitted by test harnesses. */
+  connectedSettings?(): ConnectedSettings;
 
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
@@ -410,6 +414,27 @@ function createHandle(
       }
     },
   };
+}
+
+export type ConnectedFeature = 'replay' | 'binary' | 'uploads';
+
+/** The engine-wide values of the `__connected__` frame. */
+interface ConnectedSettings {
+  pingIntervalMs: number | null;
+  idleTimeoutMs: number | null;
+  features: ConnectedFeature[];
+}
+
+/** The resume token and starting seq for the `__connected__` frame, or `null` when replay is off. */
+function resumePoint(
+  runtime: ConnectionRuntime,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+): { token: string; seq: number | null } | null {
+  if (!connection.resumeToken) return null;
+
+  // A fresh seq sits after every frame sent so far and before every later
+  // one, so a client that saw no frame yet still has a cursor to catch up from.
+  return { token: connection.resumeToken, seq: runtime.allocateDeliverySeq?.() ?? null };
 }
 
 function closedHandle(): EngineAdapterTypes.ConnectionHandle {
@@ -755,15 +780,17 @@ export function acceptConnection(
   // flush after the hook resolves.
   try {
     runtime.persistAttachment(connection);
-    if (connection.resumeToken && !connection.closing) {
-      // A fresh seq sits after every frame sent so far and before every later
-      // one, so a client that saw no frame yet still has a cursor to catch up from.
-      const seq = runtime.allocateDeliverySeq?.();
+    const settings = runtime.connectedSettings?.();
+    if (settings && !connection.closing) {
       connection.descriptor.send({
         kind: 'text',
-        text: serializeWireFrame('__resume__', {
-          token: connection.resumeToken,
-          ...(seq === undefined ? {} : { seq }),
+        text: serializeWireFrame('__connected__', {
+          ...settings,
+          maxResumeTokens: MAX_RESUME_TOKENS,
+          connectionId: connection.id,
+          resume: resumePoint(runtime, connection),
+          secret: descriptor.secret ?? null,
+          maxPostBytes: descriptor.maxPostBytes ?? null,
         }),
       });
     }

@@ -71,8 +71,8 @@ describe('url-as-function / async url resolution', () => {
   });
 });
 
-describe('stale-attempt onopen closes the superseded socket', () => {
-  it('calls close() on the stale ws when disconnect() bumps attemptId before onopen fires', () => {
+describe('a superseded socket', () => {
+  it('is closed at once when disconnect() runs while it is still connecting', () => {
     const socket = c(connect('wss://host/ws'));
     const onOpen = vi.fn();
     socket.onOpen(onOpen);
@@ -81,15 +81,13 @@ describe('stale-attempt onopen closes the superseded socket', () => {
     const ws = MockWebSocket.last();
 
     socket.disconnect();
-    expect(ws.onopen).not.toBeNull();
+    expect(ws.readyState).toBe(3);
+    expect(ws.onopen).toBeNull();
 
     ws.open();
 
-    expect(ws.readyState).toBe(3);
     expect(onOpen).not.toHaveBeenCalled();
-    // The stale ws must not be stored as this.ws.
     expect(socket['ws']).toBeNull();
-    // State must not have jumped to 'open'.
     expect(socket.state.get()).toBe('closed');
   });
 
@@ -119,8 +117,9 @@ describe('stale-attempt onopen closes the superseded socket', () => {
 describe('stale-attempt onclose is a no-op', () => {
   // These tests use reconnection() so that an unexpected drop triggers reopen()
   // directly — without nulling the old ws handlers — which is the only way to
-  // reach the attemptId guard at socket.ts:496.
+  // reach the guard that ignores events from a transport that is not the current one.
   // disconnect() would null ws.onclose first, so the guard would never be reached.
+  // Each wait is past the backoff and short of the 30 s connect timeout.
 
   it('does not null this.ws or fire user close when an old socket fires onclose', () => {
     vi.useFakeTimers();
@@ -140,13 +139,13 @@ describe('stale-attempt onclose is a no-op', () => {
 
     const closeCallsBefore = onClose.mock.calls.length;
 
-    vi.runAllTimers();
+    vi.advanceTimersByTime(5_000);
     const ws2 = MockWebSocket.instances[1]!;
     ws2.open();
     expect(socket.state.get()).toBe('open');
     expect(socket['ws']).toBe(ws2);
 
-    // ws1 still has its onclose attached (socket.ts:496 guard is the only thing
+    // ws1 still has its onclose attached (the current-transport guard is the only thing
     // stopping this from clobbering ws2).
     expect(ws1.onclose).not.toBeNull();
 
@@ -172,15 +171,15 @@ describe('stale-attempt onclose is a no-op', () => {
     ws1.serverClose(1001, 'going away');
     expect(socket.state.get()).toBe('reconnecting');
 
-    vi.runAllTimers();
+    vi.advanceTimersByTime(5_000);
     const ws2 = MockWebSocket.instances[1]!;
     ws2.open();
 
     expect(socket['ws']).toBe(ws2);
     expect(socket.state.get()).toBe('open');
 
-    // ws1 still has its onclose handler. Firing it now hits the attemptId guard
-    // (socket.ts:496) and must leave ws2 and state untouched.
+    // ws1 still has its onclose handler. Firing it now hits the current-transport guard
+    // and must leave ws2 and state untouched.
     expect(ws1.onclose).not.toBeNull();
     ws1.serverClose(1001, 'going away');
 

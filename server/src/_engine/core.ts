@@ -104,6 +104,8 @@ export class EngineCore {
   engineInstanceId: string | undefined;
 
   hibernationEnabled = false;
+  /** The ping and idle timings `keepalive()` gave at setup, for the `__connected__` frame. */
+  keepaliveTimings: { pingIntervalMs: number; idleTimeoutMs: number } | null = null;
   replayEnabled = false;
   sequencePersistent = false;
   incomingDedupCap = 0;

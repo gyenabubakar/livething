@@ -1,4 +1,4 @@
-import { CloseCodes, LiveThingConfigError } from '@livething/core';
+import { CloseCodes } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
@@ -28,15 +28,49 @@ function build<const P extends readonly Primitive<any, any>[]>(
     ApplyPrimitives<P, C>;
   socket.connect();
   const ws = MockWebSocket.last();
-  ws.open();
+  ws.open('', { pingIntervalMs: 1000 });
 
   return { socket, ws };
 }
 
+describe('keepalive — the ping interval comes from the server', () => {
+  function pingsAfter(pingIntervalMs: number | null, elapsedMs: number): number {
+    vi.useFakeTimers();
+    const socket = client<C>()(connect('wss://test'), keepalive());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open('', { pingIntervalMs });
+
+    vi.advanceTimersByTime(elapsedMs);
+
+    return ws.sent.filter((frame) => frame === 'ping').length;
+  }
+
+  it("pings at the server's interval", () => {
+    expect(pingsAfter(20_000, 19_999)).toBe(0);
+    expect(pingsAfter(20_000, 20_000)).toBe(1);
+  });
+
+  it('pings every 30 seconds when the server sends no pings', () => {
+    expect(pingsAfter(null, 29_999)).toBe(0);
+    expect(pingsAfter(null, 30_000)).toBe(1);
+  });
+
+  it('sends no ping before the server accepts the connection', () => {
+    vi.useFakeTimers();
+    const socket = client<C>()(connect('wss://test', { connectTimeoutMs: 60_000 }), keepalive());
+    socket.connect();
+    MockWebSocket.last().open('', null);
+    vi.advanceTimersByTime(40_000);
+
+    expect(MockWebSocket.last().sent).toEqual([]);
+  });
+});
+
 describe('keepalive — missed pong force close', () => {
   it('counts each unanswered ping as a missed pong and sets quality to poor on first miss', () => {
     vi.useFakeTimers();
-    const { socket, ws } = build(keepalive({ interval: 1000, maxMissedPongs: 3 }));
+    const { socket, ws } = build(keepalive({ maxMissedPongs: 3 }));
 
     vi.advanceTimersByTime(1000);
 
@@ -47,7 +81,7 @@ describe('keepalive — missed pong force close', () => {
 
   it('force-closes the socket with CloseCodes.IDLE once missedPongs reaches maxMissedPongs', () => {
     vi.useFakeTimers();
-    const { ws } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
+    const { ws } = build(keepalive({ maxMissedPongs: 2 }));
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
@@ -58,7 +92,7 @@ describe('keepalive — missed pong force close', () => {
 
   it('triggers onclose with CloseCodes.IDLE after force-close', () => {
     vi.useFakeTimers();
-    const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
+    const { socket } = build(keepalive({ maxMissedPongs: 2 }));
 
     const onClose = vi.fn();
     socket.onClose(onClose);
@@ -72,7 +106,7 @@ describe('keepalive — missed pong force close', () => {
 
   it('does not force-close when pong arrives before max is reached', () => {
     vi.useFakeTimers();
-    const { socket, ws } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
+    const { socket, ws } = build(keepalive({ maxMissedPongs: 2 }));
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
@@ -87,7 +121,7 @@ describe('keepalive — quality tier transitions', () => {
   it('maps a latency below the excellent threshold to excellent', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 100, good: 200, degraded: 400 } }),
+      keepalive({ thresholds: { excellent: 100, good: 200, degraded: 400 } }),
     );
 
     vi.advanceTimersByTime(1000);
@@ -100,7 +134,7 @@ describe('keepalive — quality tier transitions', () => {
   it('maps a latency at or above the excellent threshold to good', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 100, good: 200, degraded: 400 } }),
+      keepalive({ thresholds: { excellent: 100, good: 200, degraded: 400 } }),
     );
 
     vi.advanceTimersByTime(1000);
@@ -113,7 +147,7 @@ describe('keepalive — quality tier transitions', () => {
   it('maps latency in the good range to degraded', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 50, good: 150, degraded: 500 } }),
+      keepalive({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
     );
 
     vi.advanceTimersByTime(1000);
@@ -126,7 +160,7 @@ describe('keepalive — quality tier transitions', () => {
   it('maps latency above the degraded threshold to poor', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 50, good: 150, degraded: 500 } }),
+      keepalive({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
     );
 
     vi.advanceTimersByTime(1000);
@@ -139,7 +173,7 @@ describe('keepalive — quality tier transitions', () => {
   it('deduplicates the quality store — does not fire again for the same tier', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 1000, good: 2000, degraded: 3000 } }),
+      keepalive({ thresholds: { excellent: 1000, good: 2000, degraded: 3000 } }),
     );
 
     const onChange = vi.fn();
@@ -161,7 +195,6 @@ describe('keepalive — quality tier transitions', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
       keepalive({
-        interval: 1000,
         maxMissedPongs: 2,
         thresholds: { excellent: 50, good: 150, degraded: 500 },
       }),
@@ -183,7 +216,7 @@ describe('keepalive — quality tier transitions', () => {
   it('goes disconnected with null latency on a clean close, not with a stale latency', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 50, good: 150, degraded: 500 } }),
+      keepalive({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
     );
     const tiers: string[] = [];
     const latencies: Array<number | null> = [];
@@ -213,9 +246,9 @@ describe('keepalive — default thresholds match the server', () => {
     [1000, 'poor'],
   ])('maps a %i ms round trip to %s', (latencyMs, tier) => {
     vi.useFakeTimers();
-    const { socket, ws } = build(keepalive({ interval: 5000 }));
+    const { socket, ws } = build(keepalive());
 
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(latencyMs);
     ws.emit('pong');
 
@@ -223,36 +256,22 @@ describe('keepalive — default thresholds match the server', () => {
   });
 });
 
-describe('keepalive — interval must be positive', () => {
-  it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(
-    'throws a LiveThingConfigError for interval %s',
-    (interval) => {
-      expect(() => keepalive({ interval })).toThrow(LiveThingConfigError);
-      expect(() => keepalive({ interval })).toThrow(/leave keepalive\(\) out/);
-    },
-  );
-
-  it('accepts an interval of 1', () => {
-    expect(() => keepalive({ interval: 1 })).not.toThrow();
-  });
-});
-
 describe('keepalive — quality at open and the first measurement', () => {
   it('does not publish a quality tier at open — it waits for the first measured pong', () => {
     vi.useFakeTimers();
-    const socket = client<C>()(connect('wss://test'), keepalive({ interval: 1000 }));
+    const socket = client<C>()(connect('wss://test'), keepalive());
     const onChange = vi.fn();
     socket.quality.subscribe(onChange);
 
     socket.connect();
-    MockWebSocket.last().open();
+    MockWebSocket.last().open('', { pingIntervalMs: 1000 });
 
     expect(onChange).not.toHaveBeenCalled();
   });
 
   it('quality.get() starts disconnected and latency.get() is null before any pong', () => {
     vi.useFakeTimers();
-    const { socket } = build(keepalive({ interval: 1000 }));
+    const { socket } = build(keepalive());
     expect(socket.quality.get()).toBe('disconnected');
     expect(socket.latency.get()).toBeNull();
   });
@@ -260,7 +279,7 @@ describe('keepalive — quality at open and the first measurement', () => {
   it('publishes the first quality tier on the first measured pong (disconnected → measured tier)', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 50, good: 150, degraded: 500 } }),
+      keepalive({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
     );
     const onChange = vi.fn();
     socket.quality.subscribe(onChange);
@@ -275,17 +294,13 @@ describe('keepalive — quality at open and the first measurement', () => {
 
   it('publishes a new quality tier on reconnect when a tier change is detectable', () => {
     vi.useFakeTimers();
-    const socket = client<C>()(
-      connect('wss://test'),
-      keepalive({ interval: 1000 }),
-      reconnection(),
-    );
+    const socket = client<C>()(connect('wss://test'), keepalive(), reconnection());
     const onChange = vi.fn();
     socket.quality.subscribe(onChange);
 
     socket.connect();
     const ws1 = MockWebSocket.last();
-    ws1.open();
+    ws1.open('', { pingIntervalMs: 1000 });
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
@@ -298,7 +313,7 @@ describe('keepalive — quality at open and the first measurement', () => {
 describe('helpers.forceClose', () => {
   it('calls ws.close with the given code when a live ws exists', () => {
     vi.useFakeTimers();
-    const { socket, ws } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
+    const { socket, ws } = build(keepalive({ maxMissedPongs: 2 }));
 
     const closeSpy = vi.spyOn(ws, 'close');
 
@@ -312,7 +327,7 @@ describe('helpers.forceClose', () => {
 
   it('is a safe no-op when ws is null mid-loop (the ws?.close optional chain prevents a throw)', () => {
     vi.useFakeTimers();
-    const { socket, ws } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
+    const { socket, ws } = build(keepalive({ maxMissedPongs: 2 }));
 
     // Spy on close before we null the ws reference, so we can confirm it was
     // never called (the ?.  guard short-circuits when ws is null).
@@ -331,20 +346,16 @@ describe('helpers.forceClose', () => {
 
 describe('socket.quality — state gating', () => {
   it('returns disconnected while the socket is in connecting state', () => {
-    const socket = client<C>()(connect('wss://test'), keepalive({ interval: 1000 }));
+    const socket = client<C>()(connect('wss://test'), keepalive());
     socket.connect();
     expect(socket.quality.get()).toBe('disconnected');
   });
 
   it('returns disconnected while the socket is in reconnecting state', () => {
     vi.useFakeTimers();
-    const socket = client<C>()(
-      connect('wss://test'),
-      keepalive({ interval: 1000 }),
-      reconnection(),
-    );
+    const socket = client<C>()(connect('wss://test'), keepalive(), reconnection());
     socket.connect();
-    MockWebSocket.last().open();
+    MockWebSocket.last().open('', { pingIntervalMs: 1000 });
     MockWebSocket.last().serverClose(1006);
 
     expect(socket.state.get()).toBe('reconnecting');
@@ -353,7 +364,7 @@ describe('socket.quality — state gating', () => {
 
   it('returns disconnected while open until the first pong is measured', () => {
     vi.useFakeTimers();
-    const { socket } = build(keepalive({ interval: 1000 }));
+    const { socket } = build(keepalive());
 
     expect(socket.state.get()).toBe('open');
     expect(socket.quality.get()).toBe('disconnected');
@@ -362,7 +373,7 @@ describe('socket.quality — state gating', () => {
   it('returns the live quality tier once a pong has been measured while open', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 50, good: 150, degraded: 500 } }),
+      keepalive({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
     );
 
     vi.advanceTimersByTime(1000);
@@ -375,7 +386,7 @@ describe('socket.quality — state gating', () => {
 
   it('returns disconnected after the socket is closed', () => {
     vi.useFakeTimers();
-    const { socket } = build(keepalive({ interval: 1000 }));
+    const { socket } = build(keepalive());
     socket.disconnect();
     expect(socket.quality.get()).toBe('disconnected');
   });
@@ -385,7 +396,7 @@ describe('quality change event and latency refresh', () => {
   it('getLatency reflects the latest pong even when the tier does not change', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 1000, good: 2000, degraded: 3000 } }),
+      keepalive({ thresholds: { excellent: 1000, good: 2000, degraded: 3000 } }),
     );
 
     vi.advanceTimersByTime(1000);
@@ -402,7 +413,7 @@ describe('quality change event and latency refresh', () => {
   it('does not publish a quality tier when the pong lands at the same tier', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 1000, good: 2000, degraded: 3000 } }),
+      keepalive({ thresholds: { excellent: 1000, good: 2000, degraded: 3000 } }),
     );
 
     const onChange = vi.fn();
@@ -424,7 +435,7 @@ describe('quality change event and latency refresh', () => {
   it('publishes a quality tier when the tier genuinely changes', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 50, good: 150, degraded: 500 } }),
+      keepalive({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
     );
 
     const onChange = vi.fn();
@@ -447,7 +458,7 @@ describe('quality change event and latency refresh', () => {
 describe('forceClose is called exactly once even when onclose is delayed', () => {
   it('interval stops after forceClose — ws.close not called again on next tick', () => {
     vi.useFakeTimers();
-    const { ws } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
+    const { ws } = build(keepalive({ maxMissedPongs: 2 }));
 
     const closeSpy = vi.spyOn(ws, 'close').mockImplementation((code, reason) => {
       // Simulate a delayed close event: set readyState but do NOT call onclose yet.
@@ -476,7 +487,7 @@ describe('forceClose is called exactly once even when onclose is delayed', () =>
 describe('latency store is null when no pong was received', () => {
   it('latency is null and quality is poor when going poor via missed pongs', () => {
     vi.useFakeTimers();
-    const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
+    const { socket } = build(keepalive({ maxMissedPongs: 2 }));
 
     const onQuality = vi.fn();
     const onLatency = vi.fn();
@@ -495,7 +506,7 @@ describe('keepalive — quality uses a rolling average of the last samples', () 
   it('a single slow pong does not flip the tier (the average stays in band)', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 100, good: 200, degraded: 500 } }),
+      keepalive({ thresholds: { excellent: 100, good: 200, degraded: 500 } }),
     );
 
     let now = 0;
@@ -521,7 +532,7 @@ describe('keepalive — quality uses a rolling average of the last samples', () 
   it('a sustained latency rise moves the tier once the window fills with the new samples', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
-      keepalive({ interval: 1000, thresholds: { excellent: 100, good: 200, degraded: 500 } }),
+      keepalive({ thresholds: { excellent: 100, good: 200, degraded: 500 } }),
     );
 
     let now = 0;
@@ -544,7 +555,7 @@ describe('keepalive — quality uses a rolling average of the last samples', () 
 describe('keepalive — latency cleared on missed pong', () => {
   it('clears latency to null on the poor change after a previously healthy pong', () => {
     vi.useFakeTimers();
-    const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 5 }));
+    const { socket } = build(keepalive({ maxMissedPongs: 5 }));
 
     const tiers: string[] = [];
     const latencies: Array<number | null> = [];
@@ -569,7 +580,7 @@ describe('keepalive — quality listener isolation', () => {
   it('a throwing quality-store listener does not block the others and is reported', () => {
     vi.useFakeTimers();
     const errors: unknown[] = [];
-    const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 5 }));
+    const { socket } = build(keepalive({ maxMissedPongs: 5 }));
     socket.onError((error) => errors.push(error));
     const second = vi.fn();
 

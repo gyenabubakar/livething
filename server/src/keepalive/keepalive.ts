@@ -91,6 +91,7 @@ export function keepalive(options: KeepaliveOptions = {}): KeepalivePrimitive {
     __requires: {},
     __setup(engine) {
       engine.installOnce(KEEPALIVE_KEY, () => {
+        engine.setKeepaliveTimings(timings);
         // Under hibernation this capability supervises nothing: the runtime
         // answers a client's ping at the edge, so a server ping would only
         // wake the instance, and a `setTimeout` idle timer would itself hold

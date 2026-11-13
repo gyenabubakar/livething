@@ -15,7 +15,12 @@ import type { Server } from 'node:http';
 import type { RawData } from 'ws';
 import { binding } from './binding.ts';
 import { setup } from './setup.ts';
-import { capturedBridges, nextRawMessage } from './test-utils.ts';
+import {
+  capturedBridges,
+  isConnectedFrame,
+  nextJsonMessage,
+  nextRawMessage,
+} from './test-utils.ts';
 import type { NodeAdmin } from './endpoint.ts';
 import type { NodeServerEndpointOptions } from './setup.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
@@ -262,16 +267,7 @@ function waitForOpen(socket: WebSocket): Promise<void> {
 }
 
 function waitForJson<T>(socket: WebSocket): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    socket.once('message', (data) => {
-      try {
-        resolve(JSON.parse(data.toString()) as T);
-      } catch (error) {
-        reject(error);
-      }
-    });
-    socket.once('error', reject);
-  });
+  return nextJsonMessage<T>(socket);
 }
 
 function waitForMessage(socket: WebSocket): Promise<WireFrame> {
@@ -288,7 +284,9 @@ function createMessageQueue(socket: WebSocket): {
     reject: (error: unknown) => void;
   }> = [];
 
-  function onMessage(data: RawData): void {
+  function onMessage(data: RawData, isBinary: boolean): void {
+    if (isConnectedFrame(data, isBinary)) return;
+
     try {
       const message = JSON.parse(data.toString()) as WireFrame;
       const waiter = waiters.shift();

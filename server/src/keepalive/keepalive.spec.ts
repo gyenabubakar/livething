@@ -31,6 +31,7 @@ function createFakeEngine(options: { hibernating?: boolean } = {}) {
       installed.add(key);
       install();
     },
+    setKeepaliveTimings: () => {},
     onConnect: (handler: CtxHandler) => void connectHandlers.push(handler),
     onDisconnect: (handler: CtxHandler) => void disconnectHandlers.push(handler),
     onConnectionCleanup: (handler: (id: string) => void) => void cleanupHandlers.push(handler),

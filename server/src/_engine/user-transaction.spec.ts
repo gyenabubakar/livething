@@ -7,6 +7,7 @@ import {
   createEngineTimers,
   UserTransactionTracker,
 } from '~/_engine/user-transaction.ts';
+import { isConnectedFrame } from '~/_test/connected.ts';
 import { createTestSql, createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { emits } from '~/emits/emits.ts';
@@ -662,7 +663,9 @@ function frame(event: string): string {
 
 function open(engine: Engine, frames: string[] = []) {
   return engine.accept(Symbol('ws'), {
-    send: ({ text }: { kind: 'text'; text: string }) => frames.push(text),
+    send: ({ text }: { kind: 'text'; text: string }) => {
+      if (!isConnectedFrame(text)) frames.push(text);
+    },
     close() {},
     bufferedAmount: () => 0,
     userId: 'alice',

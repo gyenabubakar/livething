@@ -515,6 +515,20 @@ function buildConnectionRuntime(core: EngineCore) {
 
     replayEnabled: () => core.replayEnabled,
     allocateDeliverySeq: () => core.allocateDeliverySeq?.(),
+    connectedSettings: () => {
+      // ponytail: engine-wide hibernation flag until step 6 makes it per connection.
+      const timings = core.hibernationEnabled ? null : core.keepaliveTimings;
+      const features: EngineConnectionRuntime.ConnectedFeature[] = [];
+      if (core.replayEnabled) features.push('replay');
+      if (core.binaryService) features.push('binary');
+      if (core.uploadService) features.push('uploads');
+
+      return {
+        pingIntervalMs: timings?.pingIntervalMs ?? null,
+        idleTimeoutMs: timings?.idleTimeoutMs ?? null,
+        features,
+      };
+    },
 
     persistAttachment: (connection: RuntimeConnection, options?: PersistAttachmentOptions) =>
       EngineHibernation.persistAttachment(core, connection, options),

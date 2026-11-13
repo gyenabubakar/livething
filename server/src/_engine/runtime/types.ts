@@ -380,7 +380,7 @@ export interface RuntimeConnection {
   meta: Record<string, unknown>;
 
   /**
-   * A secret, random token the client gets in `__resume__` when replay is on.
+   * A secret, random token the client gets in `__connected__` when replay is on.
    * Frames sent to this connection are recorded under it, and the client shows
    * it in a later `__replay__` to get them back on a new connection.
    */

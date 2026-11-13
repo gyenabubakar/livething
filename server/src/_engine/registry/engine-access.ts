@@ -242,6 +242,9 @@ export function createEngineAccess(
       core.hibernationEnabled = true;
     },
     getHibernationEnabled: () => core.hibernationEnabled,
+    setKeepaliveTimings: (timings) => {
+      core.keepaliveTimings = timings;
+    },
     setReplayEnabled: (enabled) => {
       core.replayEnabled = enabled;
     },
