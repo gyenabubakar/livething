@@ -12,7 +12,7 @@ import {
 } from './_ws-rig.ts';
 import type { WireFrame } from './_ws-rig.ts';
 
-// Uploads over the raw wire (binary spec Part 12), against the `uploads` server definition:
+// Uploads over the raw wire, against the `uploads` server definition:
 // 64 KiB pieces, a 256 KiB window and a 4 MiB limit. Each piece is `pattern(size, seed)`, so
 // the spec knows the hash of the whole file.
 const KiB = 1024;

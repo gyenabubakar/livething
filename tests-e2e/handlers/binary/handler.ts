@@ -41,7 +41,7 @@ function defineBinary(options: { hibernation: boolean }) {
     ],
   });
 
-  // A room: its members share their screens with each other (binary spec 9.1).
+  // A room: its members share their screens with each other.
   const rooms = base.channel(['rooms', 'room:{roomId}'], {
     capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
   });
@@ -111,7 +111,7 @@ function defineBinary(options: { hibernation: boolean }) {
     return pattern(n * 1000, n);
   }
 
-  // The thumbnail is the first 4 KB of the attachment (binary spec 9.3).
+  // The thumbnail is the first 4 KB of the attachment.
   const handleGetThumbnail = base.binary.request('get-thumbnail', {
     input: v.object({ attachmentId: v.string() }),
     run(_ctx, input) {
@@ -125,7 +125,7 @@ function defineBinary(options: { hibernation: boolean }) {
   // Users whose last download the client cancelled, so a test can check the cancel arrived.
   const cancelledDownloads = new Set<string>();
 
-  // The attachment in 64 KiB pieces, from `fromByte` (binary spec 9.2). `att_0` never ends,
+  // The attachment in 64 KiB pieces, from `fromByte`. `att_0` never ends,
   // so a test can cancel it while it runs.
   const handleDownloadAttachment = base.binary.stream('download-attachment', {
     input: v.object({ attachmentId: v.string(), fromByte: v.number() }),

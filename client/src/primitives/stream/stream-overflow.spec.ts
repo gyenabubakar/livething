@@ -1,5 +1,5 @@
-// `stream({ maxBytes })`: the chunks a loop has not read yet have a byte limit (binary
-// spec 7.5). Over it, the stream fails with StreamOverflow.
+// `stream({ maxBytes })`: the chunks a loop has not read yet have a byte limit. Over it, the
+// stream fails with StreamOverflow.
 import {
   encodeBinaryFrame,
   encodeMessage,

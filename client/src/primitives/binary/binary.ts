@@ -1,4 +1,4 @@
-/* oxlint-disable max-params -- binary.send takes (event, info, bytes, options), as the spec sets */
+/* oxlint-disable max-params -- binary.send takes (event, info, bytes, options) */
 import {
   asUint8Array,
   BINARY_ENVELOPE_LIMIT,

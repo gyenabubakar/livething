@@ -426,7 +426,7 @@ describe('recorded binary streams over a real ws socket', () => {
 describe('binary requests and streams over a real ws socket', () => {
   const NO_BYTES = new Uint8Array(0);
 
-  it('answer a binary request with one binary frame with the same exchange (spec 9.3)', async () => {
+  it('answer a binary request with one binary frame with the same exchange', async () => {
     const log: string[] = [];
     const port = await start(huddleFiles(log));
     const amara = await connect(port, 'u_amara');
@@ -445,7 +445,7 @@ describe('binary requests and streams over a real ws socket', () => {
     ]);
   });
 
-  it('send each stream chunk as a binary frame, and end with a text frame (spec 9.2)', async () => {
+  it('send each stream chunk as a binary frame, and end with a text frame', async () => {
     const port = await start(huddleFiles([]));
     const amara = await connect(port, 'u_amara');
 

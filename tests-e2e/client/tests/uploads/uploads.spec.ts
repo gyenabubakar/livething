@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 import { hash, pattern } from '../binary/bytes.ts';
 
 // Conformance: @livething/client's uploads() against the real LiveThing `uploads` server
-// definition (binary spec Part 12). Adapter-oblivious — it talks to whatever server the run
+// definition. Adapter-oblivious — it talks to whatever server the run
 // booted over the /ws proxy. Each reply carries the server's hash of the stored bytes.
 const KiB = 1024;
 const PHOTOS = [

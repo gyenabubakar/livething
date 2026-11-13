@@ -182,7 +182,7 @@ describe('a binary event', () => {
   });
 });
 
-describe('frames the server rejects (spec 6.5)', () => {
+describe('frames the server rejects', () => {
   it('closes with 1003 for binary data without the magic', async () => {
     const { engine } = build(huddle([]));
     const { handle, closes } = await connect(engine);

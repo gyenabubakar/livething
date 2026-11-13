@@ -107,7 +107,7 @@ function tick(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-describe('base.binary.request (spec 9.3)', () => {
+describe('base.binary.request', () => {
   function huddle(seen: unknown[]) {
     const base = server({
       capabilities: [binary(), channels(), clientRequests(), errors([AttachmentNotFound])],
@@ -237,7 +237,7 @@ describe('base.binary.request (spec 9.3)', () => {
   });
 });
 
-describe('base.binary.stream (spec 9.2)', () => {
+describe('base.binary.stream', () => {
   function huddle(log: string[], options: { broadcast?: boolean; fail?: boolean } = {}) {
     const base = server({ capabilities: [binary(), channels(), stream()] });
     const rooms = base.channel(['rooms', 'room:{roomId}'], {});
@@ -353,7 +353,7 @@ describe('base.binary.stream (spec 9.2)', () => {
       frameOf('download-attachment', null, { stream: { id: 'download-1' } }),
     );
     await tick();
-    // A hibernation wake ends every stream in this list with stream-aborted, as for JSON (spec 8.8).
+    // A hibernation wake ends every stream in this list with stream-aborted, as for JSON.
     expect(connection.activeStreamIds?.has('download-1')).toBe(true);
     await handle.handleMessage(textOf('__streamCancel__', null, { stream: { id: 'download-1' } }));
 
@@ -364,7 +364,7 @@ describe('base.binary.stream (spec 9.2)', () => {
     ]);
   });
 
-  it('takes a text nudge, and answers wrong-frame-kind to a binary one (spec 6.5)', async () => {
+  it('takes a text nudge, and answers wrong-frame-kind to a binary one', async () => {
     const log: string[] = [];
     let resume!: () => void;
     const paused = new Promise<void>((resolve) => (resume = resolve));
@@ -768,7 +768,7 @@ describe('ctx.binary.request', () => {
     expect(results).toEqual([{ info: { fileType: 'image/png' }, bytes: thumbnail }]);
   });
 
-  it('rejects a text answer with request-invalid-response (spec 6.5)', async () => {
+  it('rejects a text answer with request-invalid-response', async () => {
     const { handle, answer, results } = await ask();
 
     await handle.handleMessage(textOf('capture-screen', { fileType: 'image/png' }, answer));
@@ -777,7 +777,7 @@ describe('ctx.binary.request', () => {
     expect(results).toEqual(['request-invalid-response']);
   });
 
-  it('rejects a binary answer to a JSON ctx.request with request-invalid-response (spec 6.5)', async () => {
+  it('rejects a binary answer to a JSON ctx.request with request-invalid-response', async () => {
     const { handle, request, answer, results } = await ask('leave-huddle');
     expect(request.kind).toBe('text');
 

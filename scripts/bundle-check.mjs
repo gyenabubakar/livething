@@ -1,4 +1,4 @@
-// Tree-shaking guard for the published `@livething/*` packages (server spec §24).
+// Tree-shaking guard for the published `@livething/*` packages.
 //
 // Each package ships lightweight subpath entries alongside its main one, and
 // promises that importing a light subpath does NOT drag heavy runtime code in.

@@ -1,5 +1,5 @@
 /**
- * Mechanical guard for LiveThing's tree-shaking architecture (server spec §24).
+ * Mechanical guard for LiveThing's tree-shaking architecture.
  *
  * The `@livething/server` package splits into one bundle entry per feature. Each
  * `<feature>/capability.ts` is that entry; whatever it statically value-imports

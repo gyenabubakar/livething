@@ -1,4 +1,4 @@
-// Uploads on the client (binary spec Part 12). The names and shapes are Huddle's.
+// Uploads on the client. The names and shapes are Huddle's.
 import {
   LiveThingConfigError,
   LiveThingError,

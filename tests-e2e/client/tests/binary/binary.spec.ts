@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 import { hash, pattern } from './bytes.ts';
 
 // Conformance: @livething/client's binary() against the real LiveThing `binary` server
-// definition (binary spec 9.1). Adapter-oblivious — it talks to whatever server the run
+// definition. Adapter-oblivious — it talks to whatever server the run
 // booted over the /ws proxy. The page shows a hash of the whole bytes it got.
 interface Member {
   /** The test's own server room (one Durable Object on Cloudflare). */
@@ -77,9 +77,7 @@ test.describe('binary (conformance)', () => {
     await Promise.all([amara.close(), kofi.close(), priya.close()]);
   });
 
-  test('a binary request gets the thumbnail back as bytes (spec 9.3)', async ({
-    page,
-  }, testInfo) => {
+  test('a binary request gets the thumbnail back as bytes', async ({ page }, testInfo) => {
     await open(page, { room: `binary-thumbnail-${testInfo.testId}`, username: 'amara' });
 
     await page.getByTestId('get-thumbnail').click();
@@ -89,9 +87,7 @@ test.describe('binary (conformance)', () => {
     await expect(page.getByTestId('errors')).toHaveText('');
   });
 
-  test('a binary download stream gives every piece, then ends (spec 9.2)', async ({
-    page,
-  }, testInfo) => {
+  test('a binary download stream gives every piece, then ends', async ({ page }, testInfo) => {
     await open(page, { room: `binary-download-${testInfo.testId}`, username: 'amara' });
 
     await page.getByTestId('download-attachment').click();
@@ -201,7 +197,7 @@ test.describe('binary (conformance)', () => {
 
   const exportedPdf = `room:300.pdf 5 300000 ${hash(pattern(300_000, 300))}`;
 
-  test('a recorded binary export goes on after a drop, and gives every byte (spec 8.4)', async ({
+  test('a recorded binary export goes on after a drop, and gives every byte', async ({
     browser,
   }, testInfo) => {
     const room = `binary-export-drop-${testInfo.testId}`;

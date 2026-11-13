@@ -1,7 +1,7 @@
 /* oxlint-disable no-unused-vars */
-// Compile-time checks for binary requests, server requests and streams on the client
-// (binary spec 7.4, 7.5, 11.4). tsc checks these; vitest never runs them. The contract is
-// shaped like `InferClient` output for Huddle.
+// Compile-time checks for binary requests, server requests and streams on the client. tsc
+// checks these; vitest never runs them. The contract is shaped like `InferClient` output for
+// Huddle.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';

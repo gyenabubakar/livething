@@ -2,7 +2,7 @@
  * The client reads a binary frame's envelope with `decodeMessage` from `@livething/core`, and
  * the server reads it on its real text path: `JSON.parse`, the three-item shape check, then
  * `parseUserEventFrame` (its fast metadata check first, then the schema). Two parsers can
- * drift apart, so the same frames must get the same answer from both (binary spec 3.4, 11.4).
+ * drift apart, so the same frames must get the same answer from both.
  */
 import {
   BINARY_ENVELOPE_LIMIT,

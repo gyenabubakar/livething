@@ -1,5 +1,5 @@
-// Binary requests, binary server requests and binary streams on the client (binary spec
-// 7.4, 7.5, 9.2, 9.3). The names and shapes are Huddle's.
+// Binary requests, binary server requests and binary streams on the client. The names and
+// shapes are Huddle's.
 import { LiveThingError, StreamAborted } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
@@ -118,7 +118,7 @@ async function joinGeneral(socket: ReturnType<typeof everything>['socket'], ws: 
   return room;
 }
 
-describe('socket.binary.request (spec 7.4, 9.3)', () => {
+describe('socket.binary.request', () => {
   it('sends one binary frame with a new exchange id, and resolves the binary reply', async () => {
     const { socket, ws } = everything();
 
@@ -323,7 +323,7 @@ describe('without binary()', () => {
   });
 });
 
-describe('socket.binary.onRequest (spec 7.4)', () => {
+describe('socket.binary.onRequest', () => {
   it('answers with one binary frame with the same exchange, from (info, bytes)', async () => {
     const { socket, ws } = everything();
     const handler = vi.fn(async (info: { maxWidth: number }, bytes: Uint8Array) => ({
@@ -523,7 +523,7 @@ async function readAll<T>(handle: AsyncIterable<T>): Promise<{ items: T[]; error
   return { items };
 }
 
-describe('socket.binary.stream (spec 7.5, 9.2)', () => {
+describe('socket.binary.stream', () => {
   it('starts with a binary frame of zero bytes, gives { info, bytes } and ends on the text end', async () => {
     const { socket, ws } = everything();
     const { download, id, trigger } = await startDownload(socket, ws);
@@ -614,7 +614,7 @@ describe('socket.binary.stream (spec 7.5, 9.2)', () => {
     expect(error).toMatchObject({ code: 'not-found' });
   });
 
-  it('ends with StreamAborted on a hibernation wake, as a JSON stream does (spec 8.8)', async () => {
+  it('ends with StreamAborted on a hibernation wake, as a JSON stream does', async () => {
     const { socket, ws } = everything();
     const { download, id } = await startDownload(socket, ws);
     ws.emit({
@@ -712,7 +712,7 @@ function pdfPiece(ws: MockWebSocket, id: string, seq: number, info: unknown, byt
   );
 }
 
-describe('socket.binary.continueStream (binary spec 8.4)', () => {
+describe('socket.binary.continueStream', () => {
   it('sends a text __continueStream__, and gives the stored binary chunks after lastKnownSeq as { info, bytes }', async () => {
     const { socket, ws } = everything();
     const pdf = socket.binary.continueStream('export-room-pdf', 'pdf-1', { lastKnownSeq: 2 });
@@ -750,7 +750,7 @@ describe('socket.binary.continueStream (binary spec 8.4)', () => {
     expect(StreamCorrupted.matches(error)).toBe(true);
   });
 
-  it('continues by itself after a hibernation wake, from the last chunk it got (spec 8.8)', async () => {
+  it('continues by itself after a hibernation wake, from the last chunk it got', async () => {
     const { socket, ws } = everything();
     const pdf = socket.binary.continueStream('export-room-pdf', 'pdf-1');
     pdfPiece(ws, 'pdf-1', 1, { fileName: 'room-design.pdf' }, new Uint8Array([1]));
@@ -788,7 +788,7 @@ describe('socket.binary.continueStream (binary spec 8.4)', () => {
   });
 });
 
-describe('binary.onStream (spec 7.5)', () => {
+describe('binary.onStream', () => {
   it('gives each broadcast chunk as { info, bytes }, then onEnd', () => {
     const { socket, ws } = everything();
     const onChunk = vi.fn();
@@ -878,7 +878,7 @@ describe('binary.onStream (spec 7.5)', () => {
   });
 });
 
-describe('plugin scoped sockets (spec 7.6)', () => {
+describe('plugin scoped sockets', () => {
   interface RecorderWire {
     binary: {
       clientRequests: { 'get-clip': { payload: null; response: null } };

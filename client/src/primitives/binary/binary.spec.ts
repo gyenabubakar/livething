@@ -141,7 +141,7 @@ describe('binary() setup', () => {
   });
 });
 
-describe('a binary frame on a client with binary() (spec 7.7)', () => {
+describe('a binary frame on a client with binary()', () => {
   it('routes a frame with the magic to its listener with the info and the bytes', () => {
     const { socket, ws } = connected(binary());
     const listener = vi.fn();
