@@ -2,6 +2,7 @@ import type { LiveThingError } from '@livething/core';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { CloseEvent } from '~/socket/socket.ts';
+import type { TransportName } from '~/transports/transport.ts';
 import type { ConnectionState, ErrorsOf, IncomingOf, OutgoingOf, SocketContract } from '~/types.ts';
 
 /**
@@ -46,6 +47,8 @@ export interface SocketConnection {
   readonly protocol: string | null;
   /** The native WebSocket, or `null` when not connected. */
   readonly ws: WebSocket | null;
+  /** The transport in use, as a reactive store: `'websocket'`, or `null` when not connected. */
+  readonly transport: ReadableStore<TransportName | null>;
 }
 
 /**

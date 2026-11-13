@@ -1,4 +1,21 @@
+import { LiveThingConfigError } from '@livething/core';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { TransportFactory } from '~/transports/transport.ts';
+
+function assertValidTransports(transports: readonly TransportFactory[]): void {
+  const names = transports.map((transport) => transport?.name);
+  if (names.length === 0 || names.some((name) => typeof name !== 'string')) {
+    throw new LiveThingConfigError(
+      'connect() transports must list at least one transport, such as [websocket()].',
+    );
+  }
+
+  if (new Set(names).size !== names.length) {
+    throw new LiveThingConfigError(
+      `connect() transports lists the same transport twice: ${names.join(', ')}.`,
+    );
+  }
+}
 
 /** Options for `connect()`. */
 export interface ConnectOptions {
@@ -14,6 +31,8 @@ export interface ConnectOptions {
    * `Authorization` header as `Bearer <token>`.
    */
   token?: () => string | null | undefined | Promise<string | null | undefined>;
+  /** The transports to connect with, such as `[websocket()]`. Default: WebSocket only. */
+  transports?: readonly TransportFactory[];
 }
 
 /** What `connect()` returns. */
@@ -46,6 +65,10 @@ export function connect(
 
       if (options?.protocols !== undefined) config.protocols = options.protocols;
       if (options?.token !== undefined) config.token = options.token;
+      if (options?.transports !== undefined) {
+        assertValidTransports(options.transports);
+        config.transports = options.transports;
+      }
     },
   };
 }

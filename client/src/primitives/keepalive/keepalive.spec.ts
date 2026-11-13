@@ -7,7 +7,6 @@ import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApplyPrimitives, Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 import type { Socket } from '~/socket/api.ts';
-import type { LiveThingSocket } from '~/socket/socket.ts';
 import type { SocketContract } from '~/types.ts';
 
 type C = SocketContract;
@@ -321,7 +320,7 @@ describe('helpers.forceClose', () => {
 
     vi.advanceTimersByTime(1000);
 
-    (socket as unknown as LiveThingSocket).ws = null;
+    (socket as unknown as { _transport: unknown })._transport = null;
 
     expect(() => vi.advanceTimersByTime(2000)).not.toThrow();
 

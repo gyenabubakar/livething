@@ -1,5 +1,6 @@
 import { LiveThingConfigError } from '@livething/core';
 import type { InterceptFn } from '~/internal/runtime.ts';
+import type { TransportFactory } from '~/transports/transport.ts';
 
 /** The longest delay a timer can hold. Above this, `setTimeout` and `setInterval` fire after 1 ms. */
 export const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
@@ -36,6 +37,8 @@ export interface SocketConfig {
   lazyIdleTimeoutMs?: number;
   /** WebSocket subprotocols. */
   protocols?: string[];
+  /** The transports to connect with. Default: WebSocket only. */
+  transports?: readonly TransportFactory[];
   /** Returns the login token on every connect/reconnect. */
   token?: () => string | null | undefined | Promise<string | null | undefined>;
 
