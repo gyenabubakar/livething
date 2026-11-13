@@ -3,7 +3,9 @@ import {
   CloseCodes,
   decodeMessage,
   encodeMessage,
+  isLiveThingSubprotocol,
   LiveThingConfigError,
+  tokenSubprotocols,
   utf8ByteLength,
 } from '@livething/core';
 import { assertValidTtl } from '~/internal/config.ts';
@@ -500,7 +502,7 @@ export class LiveThingSocket {
   private async _openConnection(): Promise<void> {
     const attemptId = ++this._connectAttemptId;
     this._setState('connecting');
-    let urlIsNotAString = false;
+    let configReturnsWrongType = false;
 
     try {
       const url =
@@ -508,7 +510,7 @@ export class LiveThingSocket {
       if (attemptId !== this._connectAttemptId) return; // a disconnect() cancelled us mid-resolve
 
       if (typeof url !== 'string') {
-        urlIsNotAString = true;
+        configReturnsWrongType = true;
         throw new LiveThingConfigError(
           `the connect() url must be a string, or a function that returns one, got ${url === null ? 'null' : typeof url}.`,
         );
@@ -534,9 +536,19 @@ export class LiveThingSocket {
         }
       }
 
+      const token = this._config.token ? await this._config.token() : undefined;
+      if (attemptId !== this._connectAttemptId) return;
+
+      if (token !== undefined && token !== null && typeof token !== 'string') {
+        configReturnsWrongType = true;
+        throw new LiveThingConfigError(
+          `the connect() token function must return a string or null, got ${typeof token}.`,
+        );
+      }
+
       this._log(`connecting to ${redactUrl(url)}`);
 
-      const ws = new WebSocket(url, this._config.protocols);
+      const ws = new WebSocket(url, tokenSubprotocols(token, this._config.protocols));
       // A Blob can only be read with `await`, and a later message could be handled first.
       if (this._binary) ws.binaryType = 'arraybuffer';
 
@@ -547,7 +559,7 @@ export class LiveThingSocket {
         }
 
         this.ws = ws;
-        this.protocol = ws.protocol || null;
+        this.protocol = ws.protocol && !isLiveThingSubprotocol(ws.protocol) ? ws.protocol : null;
         this._setState('open');
 
         const isReconnect = !this._isFirstConnect;
@@ -652,8 +664,8 @@ export class LiveThingSocket {
         }
       }
 
-      // A retry would call the same broken url function and report the same error.
-      if (urlIsNotAString) {
+      // A retry would call the same broken url or token function and report the same error.
+      if (configReturnsWrongType) {
         this._abandonReconnect(false);
       } else if (this._unexpectedCloseHandler) {
         this._unexpectedCloseHandler(1006, 'connection failed');

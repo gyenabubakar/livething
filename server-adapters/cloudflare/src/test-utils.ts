@@ -320,7 +320,9 @@ export function installPermissiveResponse(): { restore: () => void } {
       this.init = init;
       this.status = (init.status as number | undefined) ?? 200;
       Object.assign(this, init);
+      this.headers = new Headers(init.headers as HeadersInit | undefined);
     }
+    readonly headers: Headers;
     text() {
       return Promise.resolve(typeof this.body === 'string' ? this.body : String(this.body ?? ''));
     }

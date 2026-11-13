@@ -26,7 +26,9 @@ interface UsernameAuthWithUserTag extends UsernameAuth {
  */
 export function requireUsername(request: Request): UsernameAuth {
   const url = new URL(request.url);
-  const username = url.searchParams.get('username');
+  // A client that uses the `token` option sends the username as its bearer token.
+  const bearer = request.headers.get('authorization')?.match(/^Bearer (.+)$/)?.[1];
+  const username = bearer ?? url.searchParams.get('username');
   if (!username) throw RejectAuth(4001, 'Missing username');
 
   return { userId: username, meta: { username } };

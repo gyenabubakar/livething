@@ -17,6 +17,12 @@ vi.mock('../../socket.ts', async (importOriginal) => {
 });
 
 let lastClientIp: string | null = null;
+let lastAuthorization: string | null = null;
+// What @livething/client offers for the token 'session-8f2c'.
+const TOKEN_OFFER = [
+  'livething-v1',
+  `livething-v1.token.${Buffer.from('session-8f2c').toString('base64url')}`,
+];
 let disconnects = 0;
 let lastDisconnect: { code: number; reason: string } | undefined;
 
@@ -30,6 +36,7 @@ const base = createServerDefinition({
     if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
     lastClientIp = request.headers.get('LiveThing-Client-IP');
+    lastAuthorization = request.headers.get('authorization');
 
     return { userId: pathname.split('/').at(-1) ?? 'anonymous' };
   },
@@ -305,6 +312,29 @@ describe('H3 binding', () => {
 
     socket.send(JSON.stringify(['echo', {}, null]));
     await expect(waitForMessage(socket)).resolves.toEqual(['echoed', {}, null]);
+  });
+
+  it('answers the token subprotocol and passes the token to authenticate', async () => {
+    const app = await createApp();
+    apps.push(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`, TOKEN_OFFER);
+    sockets.push(socket);
+
+    await waitForOpen(socket);
+    expect(socket.protocol).toBe('livething-v1');
+    expect(lastAuthorization).toBe('Bearer session-8f2c');
+  });
+
+  it('answers the token subprotocol on a socket rejected by close code', async () => {
+    const app = await createApp();
+    apps.push(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/socket-reject`, TOKEN_OFFER);
+    sockets.push(socket);
+    const closed = waitForClose(socket);
+
+    await waitForOpen(socket);
+    expect(socket.protocol).toBe('livething-v1');
+    await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
   });
 
   it('applies the endpoint client IP configuration to the Node request', async () => {

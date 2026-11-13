@@ -154,7 +154,10 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
         this.ready = ready;
       }
 
-      private handleRejectedUpgrade(result: Awaited<ReturnType<Engine['authenticate']>>): Response {
+      private handleRejectedUpgrade(
+        request: Request,
+        result: Awaited<ReturnType<Engine['authenticate']>>,
+      ): Response {
         // >= 1000 is a WS close code (HTTP statuses cap at 599); below that, an HTTP status.
         if (result.code !== undefined && result.code >= 1000) {
           const pair = new WebSocketPair();
@@ -164,10 +167,7 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
             normalizeCloseReason(result.reason ?? 'Authentication rejected'),
           );
 
-          return new Response(null, {
-            status: 101,
-            webSocket: pair[0],
-          } as ResponseInit & { webSocket: WebSocket });
+          return switchingProtocols(request, pair[0]);
         }
 
         const status = result.code && result.code >= 400 && result.code <= 599 ? result.code : 403;
@@ -231,7 +231,7 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
 
         const result = await this.engine.authenticate(requestWithClientIp(request));
         if (result.reject) {
-          return this.handleRejectedUpgrade(result);
+          return this.handleRejectedUpgrade(request, result);
         }
 
         const pair = new WebSocketPair();
@@ -265,10 +265,7 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
           this.wireStandardSocket(server, connection);
         }
 
-        return new Response(null, {
-          status: 101,
-          webSocket: client,
-        } as ResponseInit & { webSocket: WebSocket });
+        return switchingProtocols(request, client);
       }
 
       // Cloudflare calls these three methods only for sockets accepted with
@@ -361,6 +358,21 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
     };
   },
 });
+
+/**
+ * The `101` for a socket, answering with the first subprotocol the client offered. A
+ * browser fails a connection whose offer gets no answer, and the first name is never the
+ * token, so the token is not sent back.
+ */
+function switchingProtocols(request: Request, webSocket: WebSocket): Response {
+  const first = request.headers.get('Sec-WebSocket-Protocol')?.split(',')[0]?.trim();
+
+  return new Response(null, {
+    status: 101,
+    webSocket,
+    headers: first ? { 'Sec-WebSocket-Protocol': first } : undefined,
+  } as ResponseInit & { webSocket: WebSocket });
+}
 
 function requestWithClientIp(request: Request): Request {
   const headers = new Headers(request.headers);

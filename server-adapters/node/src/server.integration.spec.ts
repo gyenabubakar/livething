@@ -238,6 +238,13 @@ function buildContextDefinition() {
   return base.assemble({ handlers: [whoami] });
 }
 
+// What @livething/client offers for a token, built with Node's own base64url.
+function tokenSubprotocols(token: string, protocols: string[] | undefined): string[] {
+  const encoded = Buffer.from(token, 'utf8').toString('base64url');
+
+  return [...(protocols ?? ['livething-v1']), `livething-v1.token.${encoded}`];
+}
+
 function serverPort(serverInstance: Server): number {
   const address = serverInstance.address();
   if (!address || typeof address === 'string') throw new Error('Expected a TCP server address');
@@ -663,6 +670,67 @@ describe('Node server integration', () => {
 
     await waitForOpen(socket);
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
+  });
+
+  describe('the token subprotocol', () => {
+    async function startService(state: IntegrationState) {
+      const service = createTestService(buildServerDefinition(state), { port: 0 });
+      services.push(service);
+      await service.ready;
+
+      return `ws://127.0.0.1:${serverPort(service.server)}`;
+    }
+
+    it('reaches authenticate as Authorization, and the answer is the first offered name', async () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      const base = await startService(state);
+      const token = 'x'.repeat(11_625);
+
+      const socket = new WebSocket(`${base}/chat`, tokenSubprotocols(token, undefined));
+      clients.push(socket);
+      await waitForOpen(socket);
+
+      expect(socket.protocol).toBe('livething-v1');
+      expect(state.upgradeRequest?.headers.get('authorization')).toBe(`Bearer ${token}`);
+      expect(state.upgradeRequest?.headers.get('sec-websocket-protocol')).toBe('livething-v1');
+    });
+
+    it("answers with the app's own name when it offers one", async () => {
+      const base = await startService({ errors: [], shutdowns: 0 });
+
+      const socket = new WebSocket(`${base}/chat`, tokenSubprotocols('t', ['huddle.v2']));
+      clients.push(socket);
+      await waitForOpen(socket);
+
+      expect(socket.protocol).toBe('huddle.v2');
+    });
+
+    it('answers a socket rejected by close code with the first offered name', async () => {
+      const base = await startService({ errors: [], shutdowns: 0 });
+
+      const socket = new WebSocket(`${base}/reject-socket`, tokenSubprotocols('t', undefined));
+      clients.push(socket);
+      const closed = waitForClose(socket);
+      await waitForOpen(socket);
+
+      expect(socket.protocol).toBe('livething-v1');
+      await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
+    });
+
+    it('fails a handshake whose headers are too large with 431', async () => {
+      const base = await startService({ errors: [], shutdowns: 0 });
+
+      const socket = new WebSocket(
+        `${base}/chat`,
+        tokenSubprotocols('x'.repeat(13_000), undefined),
+      );
+      const status = await new Promise<number | undefined>((resolve) => {
+        socket.once('unexpected-response', (_request, response) => resolve(response.statusCode));
+        socket.once('error', () => resolve(undefined));
+      });
+
+      expect(status).toBe(431);
+    });
   });
 
   it('rejects an authority-changing request target over the real HTTP boundary', async () => {

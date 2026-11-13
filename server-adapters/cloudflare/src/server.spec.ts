@@ -410,6 +410,49 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   });
 });
 
+describe('the subprotocol answer', () => {
+  beforeEach(() => {
+    installWebSocketPair();
+  });
+
+  function offering(protocols: string) {
+    return new Request('https://huddle.test/', {
+      headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': protocols },
+    });
+  }
+
+  async function fetchWith(request: Request) {
+    const Cls = buildClass({ hibernation: false });
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+    return instance.fetch(request);
+  }
+
+  it('answers an accepted socket with the first offered name', async () => {
+    const res = await fetchWith(offering('livething-v1, livething-v1.token.dG9rZW4'));
+
+    expect(res.status).toBe(101);
+    expect(res.headers.get('Sec-WebSocket-Protocol')).toBe('livething-v1');
+  });
+
+  it('answers a socket rejected by close code with the first offered name', async () => {
+    const Cls = buildClass({ hibernation: false });
+    fake.stageAuth({ reject: true, code: 4001, reason: 'No token' });
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+    const res = await instance.fetch(offering('huddle.v2, livething-v1.token.dG9rZW4'));
+
+    expect(res.status).toBe(101);
+    expect(res.headers.get('Sec-WebSocket-Protocol')).toBe('huddle.v2');
+  });
+
+  it('sends no subprotocol when the client offered none', async () => {
+    const res = await fetchWith(
+      new Request('https://huddle.test/', { headers: { Upgrade: 'websocket' } }),
+    );
+
+    expect(res.headers.get('Sec-WebSocket-Protocol')).toBeNull();
+  });
+});
+
 describe('handleRejectedUpgrade', () => {
   let pairs: ReturnType<typeof installWebSocketPair>['pairs'];
 

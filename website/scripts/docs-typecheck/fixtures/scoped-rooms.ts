@@ -11,7 +11,7 @@ import { Message } from './base';
 
 export const base = server({
   async authenticate(request) {
-    const token = new URL(request.url).searchParams.get('token');
+    const token = request.headers.get('Authorization')?.replace('Bearer ', '');
     const user = await verifySession(token);
     if (!user) throw RejectAuth(CloseCodes.AUTH_INVALID, 'invalid session');
     return {

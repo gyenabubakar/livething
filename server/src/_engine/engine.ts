@@ -9,6 +9,7 @@ import {
   withInvocationScope,
   withInvocationScopeSync,
 } from '~/_engine/runtime/invocation-scope.ts';
+import { moveTokenToAuthorization } from '~/_engine/runtime/token.ts';
 import { RESERVED_ADMIN_API_NAMES } from '~/admin/context.ts';
 import { createInitContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
@@ -115,6 +116,9 @@ export class Engine<TApi = unknown> {
 
   /** Run the authenticate hook before the adapter commits to the handshake. */
   async authenticate(request: Request): Promise<AuthDecision> {
+    const withToken = moveTokenToAuthorization(request);
+    if (!withToken) return { reject: true, code: 400, reason: 'Invalid token subprotocol' };
+
     return EngineConnectionRuntime.authenticate(
       {
         authHooks: this.core.hooks.authenticate,
@@ -126,7 +130,7 @@ export class Engine<TApi = unknown> {
         isTagGroupDeclared: (kind, group) => this.core.isTagGroupDeclared(kind, group),
         getTagGroupSchema: (kind, group) => this.core.getTagGroupSchema(kind, group),
       },
-      request,
+      withToken,
     );
   }
 

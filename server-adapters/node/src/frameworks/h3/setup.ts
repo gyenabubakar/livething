@@ -19,7 +19,9 @@ interface H3Event {
 }
 
 interface H3Hooks {
-  upgrade(): Promise<Response | { context: { upgrade: NodeUpgrade } } | void>;
+  upgrade(): Promise<
+    Response | { context: { upgrade: NodeUpgrade }; headers?: Record<string, string> } | void
+  >;
   open(peer: WebSocketPeer): void;
   message(peer: WebSocketPeer, message: WebSocketMessage): void;
   close(peer: WebSocketPeer, details: { code?: number; reason?: string }): void;
@@ -100,7 +102,13 @@ export function createH3Setup<THandler>(
 
             if (upgrade.type === 'http') return upgrade.response;
 
-            return { context: { upgrade } };
+            // CrossWS answers no subprotocol by itself, and a browser fails a connection whose
+            // offer gets no answer. The first name is never the token, so it is not sent back.
+            const first = event.req.headers.get('sec-websocket-protocol')?.split(',')[0]?.trim();
+
+            return first
+              ? { context: { upgrade }, headers: { 'sec-websocket-protocol': first } }
+              : { context: { upgrade } };
           },
 
           open(peer) {

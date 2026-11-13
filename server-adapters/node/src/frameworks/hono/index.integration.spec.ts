@@ -15,6 +15,12 @@ vi.mock('../../socket.ts', async (importOriginal) => {
 });
 
 let lastClientIp: string | null = null;
+let lastAuthorization: string | null = null;
+// What @livething/client offers for the token 'session-8f2c'.
+const TOKEN_OFFER = [
+  'livething-v1',
+  `livething-v1.token.${Buffer.from('session-8f2c').toString('base64url')}`,
+];
 let disconnects = 0;
 let lastDisconnect: { code: number; reason: string } | undefined;
 
@@ -30,6 +36,7 @@ const base = createServerDefinition({
     if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
     lastClientIp = request.headers.get('LiveThing-Client-IP');
+    lastAuthorization = request.headers.get('authorization');
 
     return { userId: pathname.split('/').at(-1) ?? 'anonymous' };
   },
@@ -273,6 +280,31 @@ describe('Hono binding', () => {
 
     return socket;
   }
+
+  it('answers the token subprotocol, passes the token to authenticate, and answers a close-code rejection', async () => {
+    const app = new Hono();
+    const livething = setup();
+    const endpoint = livething.bind(assembled, {});
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
+
+    servers.push(server);
+    await livething.ready();
+
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/lobby`, TOKEN_OFFER);
+    sockets.push(socket);
+    await waitForOpen(socket);
+    expect(socket.protocol).toBe('livething-v1');
+    expect(lastAuthorization).toBe('Bearer session-8f2c');
+
+    const rejected = new WebSocket(`ws://127.0.0.1:${server.port}/ws/socket-reject`, TOKEN_OFFER);
+    sockets.push(rejected);
+    const closed = waitForClose(rejected);
+    await waitForOpen(rejected);
+    expect(rejected.protocol).toBe('livething-v1');
+
+    await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
+  });
 
   it('uses Hono route matching while LiveThing handles the accepted socket', async () => {
     const app = new Hono();

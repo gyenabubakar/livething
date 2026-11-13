@@ -8,6 +8,12 @@ export interface ConnectOptions {
   lazyIdleTimeoutMs?: number;
   /** Subprotocols to pass to the WebSocket (e.g. `['graphql-ws']`). */
   protocols?: string[];
+  /**
+   * Returns the login token, or `null` for none. It runs on every connect and reconnect,
+   * so a refreshed token is used. The server's `authenticate` reads it from the
+   * `Authorization` header as `Bearer <token>`.
+   */
+  token?: () => string | null | undefined | Promise<string | null | undefined>;
 }
 
 /** What `connect()` returns. */
@@ -39,6 +45,7 @@ export function connect(
       }
 
       if (options?.protocols !== undefined) config.protocols = options.protocols;
+      if (options?.token !== undefined) config.token = options.token;
     },
   };
 }

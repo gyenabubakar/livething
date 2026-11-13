@@ -36,6 +36,8 @@ export interface SocketConfig {
   lazyIdleTimeoutMs?: number;
   /** WebSocket subprotocols. */
   protocols?: string[];
+  /** Returns the login token on every connect/reconnect. */
+  token?: () => string | null | undefined | Promise<string | null | undefined>;
 
   /** Functions that get to inspect/transform/drop each incoming message. */
   intercepts?: InterceptFn[];

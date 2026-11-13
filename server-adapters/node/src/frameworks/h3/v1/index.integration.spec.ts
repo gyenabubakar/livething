@@ -20,6 +20,12 @@ vi.mock('../../../socket.ts', async (importOriginal) => {
 let lastUserId = '';
 let disconnects = 0;
 let lastClientIp: string | null = null;
+let lastAuthorization: string | null = null;
+// What @livething/client offers for the token 'session-8f2c'.
+const TOKEN_OFFER = [
+  'livething-v1',
+  `livething-v1.token.${Buffer.from('session-8f2c').toString('base64url')}`,
+];
 let lastDisconnect: { code: number; reason: string } | undefined;
 let transportErrors = 0;
 
@@ -38,6 +44,7 @@ const base = createServerDefinition({
 
     lastUserId = pathname.split('/').at(-1) ?? 'anonymous';
     lastClientIp = request.headers.get('LiveThing-Client-IP');
+    lastAuthorization = request.headers.get('authorization');
 
     return { userId: lastUserId };
   },
@@ -332,6 +339,29 @@ describe('H3 v1 binding', () => {
     await Promise.all([waitForOpen(firstSocket), waitForOpen(secondSocket)]);
     await expect(firstMessage).resolves.toEqual(['identity', { name: 'first' }, null]);
     await expect(secondMessage).resolves.toEqual(['identity', { name: 'second' }, null]);
+  });
+
+  it('answers the token subprotocol and passes the token to authenticate', async () => {
+    const app = await createTestApp();
+    apps.push(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`, TOKEN_OFFER);
+    rawSockets.push(socket);
+
+    await waitForOpen(socket);
+    expect(socket.protocol).toBe('livething-v1');
+    expect(lastAuthorization).toBe('Bearer session-8f2c');
+  });
+
+  it('answers the token subprotocol on a socket rejected by close code', async () => {
+    const app = await createTestApp();
+    apps.push(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/socket-reject`, TOKEN_OFFER);
+    rawSockets.push(socket);
+    const closed = waitForClose(socket);
+
+    await waitForOpen(socket);
+    expect(socket.protocol).toBe('livething-v1');
+    await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
   });
 
   it('removes a client-supplied LiveThing client IP header', async () => {
