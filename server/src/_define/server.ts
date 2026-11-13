@@ -248,7 +248,7 @@ export interface ServerConfig<
 > extends ServerHooks<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps> {
   /** Auth gate. Return `{ userId, meta }` to accept, or throw `RejectAuth(...)` to deny. */
   readonly authenticate?: AuthFn<TMeta, EphemeralGroupsOf<TCaps>>;
-  /** Turn on Cloudflare Durable Object hibernation (which disables server pings). */
+  /** Turn on Cloudflare Durable Object hibernation. The server sends no pings to the sockets the platform holds while it sleeps. */
   readonly hibernation?: boolean;
   /**
    * Cap how many live connections one user may hold at once. `onExceed` decides

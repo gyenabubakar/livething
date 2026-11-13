@@ -60,7 +60,7 @@ export class Engine<TApi = unknown> {
 
   /** True if the handler opted into hibernation. */
   usesHibernation(): boolean {
-    return this.core.hibernationEnabled;
+    return this.core.hibernationAllowed;
   }
 
   /** One-time startup: validate capabilities, install plugins, run boot + init hooks. */

@@ -77,7 +77,6 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
     usesTags: false,
     isTagGroupDeclared: vi.fn(() => false),
     instanceId: undefined,
-    hibernationEnabled: false,
     ...overrides,
   };
 }

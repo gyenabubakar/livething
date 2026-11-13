@@ -239,9 +239,10 @@ export function createEngineAccess(
     },
     getInvocationScope: () => getInvocationScope(core.asyncContext),
     enableHibernation: () => {
-      core.hibernationEnabled = true;
+      core.hibernationAllowed = true;
     },
-    getHibernationEnabled: () => core.hibernationEnabled,
+    connectionSurvivesHibernation: (connectionId) =>
+      core.connections.get(connectionId)?.survivesHibernation === true,
     setKeepaliveTimings: (timings) => {
       core.keepaliveTimings = timings;
     },

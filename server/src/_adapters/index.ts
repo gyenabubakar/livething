@@ -2,6 +2,8 @@ export { asUint8Array } from '@livething/core';
 export { adapter } from './adapter.ts';
 export { normalizeCloseReason } from './close.ts';
 export { createOriginCheck } from './origin.ts';
+export { resolveTransports, websocket } from './transports.ts';
+export type { ServerTransport, ServerTransportName } from './transports.ts';
 export { isValidCloseCode } from '~/_engine/close-code.ts';
 export {
   rejectAsyncTransactionCallback,

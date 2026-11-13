@@ -183,6 +183,12 @@ describe('createNodeEndpoint()', () => {
     });
   });
 
+  it('throws at setup for a transports list with nothing in it', () => {
+    expect(() => createTestEndpoint({} as never, { transports: [] })).toThrow(
+      /at least one transport/,
+    );
+  });
+
   it('waits for initialization before exposing the admin surface', async () => {
     let finishInitialization!: () => void;
     fake.initialize.mockImplementation(

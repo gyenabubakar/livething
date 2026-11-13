@@ -378,7 +378,7 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   /** Round-trip latency in milliseconds, measured by ping/pong. `null` if not yet measured. */
   readonly latency: number | null;
 
-  /** Connection quality tier derived from the rolling latency average. `null` when hibernation is enabled (no server-side ping is sent). */
+  /** Connection quality tier derived from the rolling latency average. `null` for a connection the platform holds while the server sleeps (no server-side ping is sent). */
   readonly quality: 'excellent' | 'good' | 'degraded' | 'poor' | null;
 
   /** Bytes waiting to be sent over the wire. High values mean the network is slower than the send rate. */
@@ -970,7 +970,7 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
   /** Round-trip latency in milliseconds, or `null` until the first ping/pong completes. */
   latency: number | null;
 
-  /** A simple health label derived from recent ping/pong measurements. `null` when hibernation is enabled. */
+  /** A simple health label derived from recent ping/pong measurements. `null` for a connection the platform holds while the server sleeps. */
   quality: 'excellent' | 'good' | 'degraded' | 'poor' | null;
 
   /**

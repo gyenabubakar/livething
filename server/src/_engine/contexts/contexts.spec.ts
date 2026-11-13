@@ -689,7 +689,7 @@ describe('persistAttachment', () => {
     const sql = createTestSql();
     ensureConnectionSchema(sql);
     return {
-      hibernationEnabled: true,
+      hibernationAllowed: true,
       storage: { sql },
       asyncContext: undefined,
       options: {},
@@ -702,7 +702,7 @@ describe('persistAttachment', () => {
     const core = fakeCore({
       options: { hibernation: { persist, restore: () => undefined } } as never,
     });
-    const connection = createConnection('c1');
+    const connection = { ...createConnection('c1'), survivesHibernation: true };
     connection.socketKey = Symbol('ws') as unknown as RuntimeConnection['socketKey'];
     connection.meta = { username: 'user1' };
 
@@ -732,16 +732,16 @@ describe('persistAttachment', () => {
 
   it('still writes the row when the adapter does not provide a hibernation API', () => {
     const core = fakeCore();
-    const connection = createConnection('c2');
+    const connection = { ...createConnection('c2'), survivesHibernation: true };
     connection.socketKey = Symbol('ws') as unknown as RuntimeConnection['socketKey'];
 
     expect(() => persistAttachment(core, connection)).not.toThrow();
     expect(readConnectionRow(core.storage.sql, 'c2')).not.toBeNull();
   });
 
-  it('no-ops when hibernation is not enabled', () => {
-    const core = fakeCore({ hibernationEnabled: false });
-    const connection = createConnection('c3');
+  it('no-ops for a connection that does not survive hibernation', () => {
+    const core = fakeCore();
+    const connection = { ...createConnection('c3'), survivesHibernation: false };
     connection.socketKey = Symbol('ws') as unknown as RuntimeConnection['socketKey'];
 
     persistAttachment(core, connection);

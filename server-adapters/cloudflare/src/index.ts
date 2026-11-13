@@ -1,4 +1,6 @@
 /** Public entrypoint for the Cloudflare adapter package. */
+export { websocket } from '@livething/server/adapters';
+export type { ServerTransport } from '@livething/server/adapters';
 export { bind } from './server.ts';
 export type {
   CloudflareBindOptions,

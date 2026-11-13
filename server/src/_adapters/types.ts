@@ -68,6 +68,15 @@ export interface ConnectionDescriptor extends SocketDescriptor {
   tags?: readonly TagRef[];
 
   /**
+   * Whether the platform holds this connection while the server sleeps, as a Cloudflare
+   * socket accepted through the hibernation API does. Default: `false`. When `true`, the
+   * engine runs no keepalive timers for the connection, sends `null` ping timings in its
+   * `__connected__` frame, and saves its state through `hibernation.persist` so a wake can
+   * rebuild it. When `false`, the engine runs the timers and saves nothing for a wake.
+   */
+  survivesHibernation?: boolean;
+
+  /**
    * The secret a client sends with each POST to this connection, or `null` (the default)
    * when the transport has none. The engine puts it in the `__connected__` frame.
    */

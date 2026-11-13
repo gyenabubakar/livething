@@ -103,7 +103,11 @@ export class EngineCore {
    */
   engineInstanceId: string | undefined;
 
-  hibernationEnabled = false;
+  /**
+   * Whether the definition set `hibernation: true`, so the adapter may hand the engine
+   * connections that survive a sleep. Each connection says for itself whether it does.
+   */
+  hibernationAllowed = false;
   /** The ping and idle timings `keepalive()` gave at setup, for the `__connected__` frame. */
   keepaliveTimings: { pingIntervalMs: number; idleTimeoutMs: number } | null = null;
   replayEnabled = false;
@@ -368,7 +372,7 @@ export class EngineCore {
   }
 
   usesHibernation(): boolean {
-    return this.hibernationEnabled;
+    return this.hibernationAllowed;
   }
 
   usesTags(): boolean {

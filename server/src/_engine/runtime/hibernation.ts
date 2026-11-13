@@ -28,7 +28,7 @@ export function persistAttachment(
 ): void {
   if (!options.force && connection.pendingWrites?.active) return;
 
-  if (!core.hibernationEnabled) return;
+  if (!connection.survivesHibernation) return;
 
   if (!options.force && connection.closing) return;
 
@@ -52,7 +52,7 @@ export function flushDirtyAttachment(
   connection: RuntimeConnection,
   options: PersistAttachmentOptions = {},
 ): void {
-  if (!core.hibernationEnabled) return;
+  if (!connection.survivesHibernation) return;
 
   if (!options.force && connection.closing) return;
 
@@ -101,7 +101,7 @@ export function readConnectionState(
   core: EngineCore,
   connectionId: string,
 ): ConnectionStore.StoredConnectionRow | null {
-  if (!core.hibernationEnabled) return null;
+  if (!core.hibernationAllowed) return null;
 
   const preloaded = core.preloadedConnectionRows;
   if (preloaded) return preloaded.get(connectionId) ?? null;
@@ -116,7 +116,7 @@ export function readConnectionState(
  * back to reading live rows.
  */
 export function withPreloadedConnectionRows(core: EngineCore, run: () => void): void {
-  if (!core.hibernationEnabled) {
+  if (!core.hibernationAllowed) {
     run();
     return;
   }
@@ -134,7 +134,7 @@ export function withPreloadedConnectionRows(core: EngineCore, run: () => void): 
  * rebuild it when a hibernated object wakes. No-op without hibernation.
  */
 export function deleteConnectionState(core: EngineCore, connectionId: string): void {
-  if (!core.hibernationEnabled) return;
+  if (!core.hibernationAllowed) return;
 
   // Drop this connection's pending row write first — without it, the write that
   // runs when this engine call finishes would re-create the row we just deleted.
@@ -156,7 +156,7 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
  * Adapters call this with the sockets the platform still holds (empty = wipe).
  */
 export function reconcileConnections(core: EngineCore, surviving: ReadonlySet<string>): void {
-  if (!core.hibernationEnabled) return;
+  if (!core.hibernationAllowed) return;
 
   ConnectionStore.reconcileConnectionRows(core.storage.sql, surviving);
 }

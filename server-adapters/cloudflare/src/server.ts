@@ -5,6 +5,7 @@ import {
   createOriginCheck,
   isValidCloseCode,
   normalizeCloseReason,
+  resolveTransports,
 } from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
 import { DurableObject } from 'cloudflare:workers';
@@ -14,6 +15,7 @@ import type {
   EngineRuntimeOptions,
   Logger,
   ServerDefinition,
+  ServerTransport,
   TransportFrame,
 } from '@livething/server/adapters';
 import { buildAdmin } from './admin.ts';
@@ -82,6 +84,12 @@ export interface CloudflareBindOptions {
    * with that request's URL, so list your site here.
    */
   allowedOrigins?: readonly string[];
+  /**
+   * The transports this Durable Object offers, such as `[websocket()]`. Default:
+   * WebSocket only. The order does not matter. An empty list, a transport listed
+   * twice, or something that is not a transport makes `bind()` throw.
+   */
+  transports?: readonly ServerTransport[];
 }
 
 const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<unknown, unknown>>({
@@ -101,6 +109,8 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
     options: CloudflareBindOptions,
   ) {
     const originAllowed = createOriginCheck(options.allowedOrigins);
+    // ponytail: only checked for now; step 7 reads the result once sse() exists.
+    resolveTransports(options.transports);
 
     return class LiveThingDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine<TApi>;
@@ -177,6 +187,7 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
       private createConnectionDescriptor(
         socket: WebSocket,
         result: Awaited<ReturnType<Engine['authenticate']>>,
+        survivesHibernation: boolean,
       ) {
         let closed = false;
         return {
@@ -199,6 +210,7 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
           userId: result.userId ?? '',
           meta: result.meta ?? {},
           tags: result.tags ?? [],
+          survivesHibernation,
         };
       }
 
@@ -238,12 +250,12 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
         const client = pair[0];
         const server = pair[1];
 
-        const descriptor = this.createConnectionDescriptor(server, result);
-
         // Tags are NOT forwarded into Cloudflare's per-socket tag store: LiveThing
         // persists them in its hibernation attachment, and the store's caps (10
         // tags, 256 chars each) would crash the upgrade for larger LiveThing tags.
         const hibernating = this.engine.usesHibernation();
+        // A socket accepted through the hibernation API stays open while the object sleeps.
+        const descriptor = this.createConnectionDescriptor(server, result, hibernating);
         if (hibernating) {
           this.ctx.acceptWebSocket(server);
         } else {

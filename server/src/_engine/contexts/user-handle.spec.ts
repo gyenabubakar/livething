@@ -235,7 +235,6 @@ describe('UserHandle.info — last-seen storage reads', () => {
     const deps = baseDeps(tabs, {
       toConnectionInfo: (c: RuntimeConnection) =>
         toConnectionInfo(c, undefined, {
-          hibernationEnabled: false,
           lastSeenAt: (userId: string) => readLastSeen(sql, userId),
         }),
     });

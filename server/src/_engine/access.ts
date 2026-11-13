@@ -434,12 +434,13 @@ export interface EngineAccess {
   enableHibernation(): void;
 
   /**
-   * Read whether connection hibernation is enabled. `keepalive()` reads this in
-   * its `ctx.quality` getter, which returns `null` while hibernating (no pings).
+   * Whether the platform holds this connection while the server sleeps. `keepalive()`
+   * neither pings nor arms an idle timer for such a connection: the platform watches it,
+   * and a timer would keep a sleeping server awake. `false` for an unknown id.
    *
    * @internal
    */
-  getHibernationEnabled(): boolean;
+  connectionSurvivesHibernation(connectionId: string): boolean;
 
   /**
    * Give the engine the keepalive timings, so the `__connected__` frame can tell the

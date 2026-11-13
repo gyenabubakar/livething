@@ -219,8 +219,6 @@ interface HibernatableWebSocket {
 interface ConnectionRuntime {
   compiled: EngineCompileTypes.CompiledServer;
 
-  hibernationEnabled?: boolean;
-
   /** The adapter's message limits. The engine always passes them; a test runtime may not. */
   messageLimits?: EngineAdapterTypes.MessageLimits;
 
@@ -240,7 +238,7 @@ interface ConnectionRuntime {
   allocateDeliverySeq?(): number | undefined;
 
   /** The engine-wide values of the `__connected__` frame. Omitted by test harnesses. */
-  connectedSettings?(): ConnectedSettings;
+  connectedSettings?(connection: EngineRuntimeTypes.RuntimeConnection): ConnectedSettings;
 
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
@@ -752,6 +750,7 @@ export function acceptConnection(
     socketKey,
     descriptor: normalizedDescriptor,
     meta: descriptor.meta ?? {},
+    survivesHibernation: descriptor.survivesHibernation ?? false,
     ...(runtime.replayEnabled?.() ? { resumeToken: crypto.randomUUID() } : {}),
 
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -780,7 +779,7 @@ export function acceptConnection(
   // flush after the hook resolves.
   try {
     runtime.persistAttachment(connection);
-    const settings = runtime.connectedSettings?.();
+    const settings = runtime.connectedSettings?.(connection);
     if (settings && !connection.closing) {
       connection.descriptor.send({
         kind: 'text',
@@ -1004,6 +1003,8 @@ export function wakeHibernatedConnection(
     socketKey,
     descriptor,
     meta,
+    // Only a socket the platform held while the server slept can wake.
+    survivesHibernation: true,
     ...(typeof row?.metadata?.resumeToken === 'string'
       ? { resumeToken: row.metadata.resumeToken }
       : {}),

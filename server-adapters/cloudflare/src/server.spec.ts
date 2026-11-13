@@ -148,6 +148,10 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     });
   });
 
+  it('throws at bind() for a transports list with nothing in it', () => {
+    expect(() => bind({} as never, { transports: [] })).toThrow(/at least one transport/);
+  });
+
   it('passes Cloudflare client IP metadata to the engine request', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
@@ -221,6 +225,21 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       // Cloudflare's own 32 MiB limit, in both directions.
       messageLimits: { receiveBytes: 33_554_432, sendBytes: 33_554_432 },
     });
+  });
+
+  it.each([
+    [true, 'accepted through the hibernation API'],
+    [false, 'accepted as a standard socket'],
+  ])('marks survivesHibernation %s for a socket %s', async (hibernation) => {
+    const Cls = buildClass({ hibernation });
+    const state = makeFakeDOState();
+    fake.stageAuth({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const desc = fake.calls.accept[0]!.descriptor as ConnectionDescriptor;
+    expect(desc.survivesHibernation).toBe(hibernation);
   });
 
   it('returns false for a send to a closed socket', async () => {

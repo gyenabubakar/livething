@@ -26,7 +26,7 @@ function createFakeCore(): {
   };
 
   const core = {
-    hibernationEnabled: true,
+    hibernationAllowed: true,
     asyncContext: new AsyncLocalStorage<EngineAsyncContextStore>(),
     options: {
       hibernation: {
@@ -49,6 +49,7 @@ function createFakeConnection(id: string): RuntimeConnection {
     socketKey: { key: id },
     descriptor: { close() {} } as never,
     meta: {},
+    survivesHibernation: true,
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships: new Map(),
     latency: null,
@@ -269,10 +270,9 @@ describe('withInvocationScope', () => {
     expect(writes.filter((q) => q.startsWith('INSERT'))).toHaveLength(1);
   });
 
-  it('no-ops when hibernation is disabled, with or without an active scope', async () => {
+  it('no-ops for a connection that does not survive hibernation, with or without an active scope', async () => {
     const { core, writes } = createFakeCore();
-    (core as unknown as { hibernationEnabled: boolean }).hibernationEnabled = false;
-    const connection = createFakeConnection('c1');
+    const connection = { ...createFakeConnection('c1'), survivesHibernation: false };
 
     persistAttachment(core, connection);
     await withInvocationScope(core, async () => {

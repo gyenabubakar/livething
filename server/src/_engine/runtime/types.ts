@@ -380,6 +380,14 @@ export interface RuntimeConnection {
   meta: Record<string, unknown>;
 
   /**
+   * Whether the platform holds this connection while the server sleeps. When `true`, the
+   * engine runs no keepalive timers for it, and saves its state so a wake can rebuild it.
+   * From the adapter's descriptor; always `true` for a connection rebuilt on wake.
+   * Absent means `false`.
+   */
+  survivesHibernation?: boolean;
+
+  /**
    * A secret, random token the client gets in `__connected__` when replay is on.
    * Frames sent to this connection are recorded under it, and the client shows
    * it in a later `__replay__` to get them back on a new connection.

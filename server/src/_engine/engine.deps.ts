@@ -242,7 +242,6 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
-        hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
           ? (identity) => core.lastSeenService!.at(identity)
           : undefined,
@@ -299,7 +298,6 @@ function buildMemberRuntime(core: EngineCore) {
     channelMembers: core.channelMembers,
     toConnectionInfo: (connection: RuntimeConnection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
-        hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
           ? (identity) => core.lastSeenService!.at(identity)
           : undefined,
@@ -503,7 +501,6 @@ function buildConnectionRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     compiled: core.compiled,
-    hibernationEnabled: core.hibernationEnabled,
     messageLimits: core.messageLimits,
     connections: core.connections,
     usersByKey: core.usersByKey,
@@ -515,9 +512,9 @@ function buildConnectionRuntime(core: EngineCore) {
 
     replayEnabled: () => core.replayEnabled,
     allocateDeliverySeq: () => core.allocateDeliverySeq?.(),
-    connectedSettings: () => {
-      // ponytail: engine-wide hibernation flag until step 6 makes it per connection.
-      const timings = core.hibernationEnabled ? null : core.keepaliveTimings;
+    connectedSettings: (connection: RuntimeConnection) => {
+      // The platform watches a connection that survives a sleep, so the engine pings it never.
+      const timings = connection.survivesHibernation ? null : core.keepaliveTimings;
       const features: EngineConnectionRuntime.ConnectedFeature[] = [];
       if (core.replayEnabled) features.push('replay');
       if (core.binaryService) features.push('binary');

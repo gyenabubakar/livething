@@ -102,7 +102,7 @@ describe('the __connected__ frame', () => {
     });
   });
 
-  it('has null timings when the server hibernates, since no ping timer runs', async () => {
+  it('has null timings for a connection that survives hibernation, and timings for one that does not', async () => {
     const engine = await start(
       server({
         hibernation: true,
@@ -111,9 +111,11 @@ describe('the __connected__ frame', () => {
       { hibernation: true },
     );
 
-    const { frame } = await firstFrame(engine);
+    const held = await firstFrame(engine, { survivesHibernation: true });
+    const notHeld = await firstFrame(engine);
 
-    expect(frame[1]).toMatchObject({ pingIntervalMs: null, idleTimeoutMs: null });
+    expect(held.frame[1]).toMatchObject({ pingIntervalMs: null, idleTimeoutMs: null });
+    expect(notHeld.frame[1]).toMatchObject({ pingIntervalMs: 20_000, idleTimeoutMs: 60_000 });
   });
 
   it('carries the POST secret and size limit the transport gave the connection', async () => {

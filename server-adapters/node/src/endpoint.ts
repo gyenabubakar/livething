@@ -1,4 +1,4 @@
-import { adapter, createOriginCheck } from '@livething/server/adapters';
+import { adapter, createOriginCheck, resolveTransports } from '@livething/server/adapters';
 import type {
   AdminOf,
   AuthDecision,
@@ -7,6 +7,7 @@ import type {
   EngineRuntimeOptions,
   Logger,
   ServerDefinition,
+  ServerTransport,
 } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { PerMessageDeflateOptions } from 'ws';
@@ -81,6 +82,12 @@ export interface NodeEndpointOptions extends Omit<NodeStorageOptions, 'logger'> 
    * `Origin` header, such as one from a Node or mobile client, is not checked.
    */
   allowedOrigins?: readonly string[];
+  /**
+   * The transports this endpoint offers, such as `[websocket()]`. Default: WebSocket only.
+   * The order does not matter. An empty list, a transport listed twice, or something
+   * that is not a transport fails at startup.
+   */
+  transports?: readonly ServerTransport[];
 }
 
 const ORIGIN_REJECTION: AuthDecision = { reject: true, code: 403, reason: 'Origin not allowed' };
@@ -121,6 +128,8 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes, 'The endpoint');
     const resolveClientIp = createClientIpResolver(options.clientIp);
     const originAllowed = createOriginCheck(options.allowedOrigins);
+    // ponytail: only checked for now; step 7 reads the result once sse() exists.
+    resolveTransports(options.transports);
 
     const runtime = createRuntime({
       sql: options.sql,

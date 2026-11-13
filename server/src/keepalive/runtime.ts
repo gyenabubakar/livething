@@ -52,19 +52,18 @@ export interface KeepaliveMonitor {
 }
 
 /**
- * Build the monitor `keepalive()` drives. `supervise` decides whether this
- * monitor does anything at all for a connection: pinging it AND arming its
- * idle timer. Under hibernation neither can work — the runtime answers a
- * client's ping at the edge, so a server ping would only wake the instance and
- * could never be timed, and a `setTimeout` idle timer would itself hold the
- * instance in memory, defeating hibernation, while producing false
- * disconnects for quiet-but-alive clients whose traffic never reaches the
- * instance to refresh it.
+ * Build the monitor `keepalive()` drives. `supervises` decides, per connection, whether
+ * this monitor does anything at all for it: pinging it AND arming its idle timer. For a
+ * connection the platform holds while the server sleeps, neither can work — the runtime
+ * answers a client's ping at the edge, so a server ping would only wake the instance and
+ * could never be timed, and a `setTimeout` idle timer would itself hold the instance in
+ * memory, defeating hibernation, while producing false disconnects for quiet-but-alive
+ * clients whose traffic never reaches the instance to refresh it.
  */
 export function createKeepaliveMonitor(
   engine: Pick<EngineAccess, 'sendPing' | 'setConnectionLatency' | 'refreshConnectionIdleTimeout'>,
   timings: KeepaliveTimings,
-  supervise: boolean,
+  supervises: (connectionId: string) => boolean,
 ): KeepaliveMonitor {
   const watched = new Map<string, WatchedConnection>();
 
@@ -103,7 +102,7 @@ export function createKeepaliveMonitor(
     watch(connectionId) {
       if (watched.has(connectionId)) return;
 
-      if (!supervise) return;
+      if (!supervises(connectionId)) return;
 
       const connection: WatchedConnection = {
         pingSentAt: null,
@@ -117,7 +116,7 @@ export function createKeepaliveMonitor(
     },
 
     touch(connectionId) {
-      if (!supervise) return;
+      if (!supervises(connectionId)) return;
 
       engine.refreshConnectionIdleTimeout(connectionId, timings.idleTimeoutMs);
     },
