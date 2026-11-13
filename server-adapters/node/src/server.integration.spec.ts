@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { context, server as createServerDefinition, emits, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
-import { CloseCodes, RejectUpgrade } from '@livething/server/errors';
+import { CloseCodes, RejectAuth } from '@livething/server/errors';
 import { scheduled } from '@livething/server/scheduled';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -88,17 +88,17 @@ function createTestService<TDefinition extends ServerDefinition>(
 
 function buildServerDefinition(state: IntegrationState) {
   const base = createServerDefinition({
-    upgrade(request) {
+    authenticate(request) {
       state.upgradeRequest = request;
       const url = new URL(request.url);
-      if (url.pathname === '/reject') throw RejectUpgrade(401, 'No token');
+      if (url.pathname === '/reject') throw RejectAuth(401, 'No token');
 
-      if (url.pathname === '/reject-socket') throw RejectUpgrade(4001, 'No token');
+      if (url.pathname === '/reject-socket') throw RejectAuth(4001, 'No token');
 
-      if (url.pathname === '/reject-fractional') throw RejectUpgrade(4000.5, 'No token');
+      if (url.pathname === '/reject-fractional') throw RejectAuth(4000.5, 'No token');
 
       if (url.pathname === '/reject-long-reason') {
-        throw RejectUpgrade(CloseCodes.AUTH_INVALID, '🙂'.repeat(100));
+        throw RejectAuth(CloseCodes.AUTH_INVALID, '🙂'.repeat(100));
       }
 
       return {
@@ -208,7 +208,7 @@ function buildServerDefinition(state: IntegrationState) {
 
 function buildContextDefinition() {
   const base = createServerDefinition({
-    upgrade(request, ctx) {
+    authenticate(request, ctx) {
       const user = new URL(request.url).searchParams.get('user') ?? 'anonymous';
       const row = ctx.sql
         .exec<{ role: string }>('SELECT role FROM context_roles WHERE user = ?', user)
@@ -636,7 +636,7 @@ describe('Node server integration', () => {
     const response = await sendRawUpgrade(serverPort(service.server), '/reject-fractional');
 
     expect(response).toContain('HTTP/1.1 403 Forbidden');
-    expect(response).toContain('Upgrade rejected');
+    expect(response).toContain('Authentication rejected');
   });
 
   it('answers a non-WebSocket upgrade with 400 without running upgrade', async () => {
@@ -988,7 +988,7 @@ describe('Node server integration', () => {
     const disconnectedAt = new Promise<number>((resolve) => (disconnected = resolve));
 
     const base = createServerDefinition({
-      upgrade: () => ({ userId: 'kofi' }),
+      authenticate: () => ({ userId: 'kofi' }),
       capabilities: [emits({ 'history-page': t<{ text: string }>() })],
       onDisconnect() {
         disconnected(realNow());
@@ -1082,7 +1082,7 @@ describe('Node server integration', () => {
     const sent: boolean[] = [];
 
     const base = createServerDefinition({
-      upgrade: () => ({ userId: 'alice' }),
+      authenticate: () => ({ userId: 'alice' }),
       capabilities: [emits({ answer: t<{ text: string }>() })],
     });
     const handleAsk = base.on('ask', {
@@ -1254,7 +1254,7 @@ describe('Node server integration', () => {
 
   it("admin channels.broadcast reaches only that channel's members", async () => {
     const base = createServerDefinition({
-      upgrade: (request) => ({
+      authenticate: (request) => ({
         userId: new URL(request.url).searchParams.get('user') ?? 'anonymous',
         meta: {},
       }),
@@ -1396,7 +1396,7 @@ describe('Node server integration', () => {
       started = resolve;
     });
     const definition = createServerDefinition({
-      async upgrade(request) {
+      async authenticate(request) {
         started();
         await new Promise<void>((resolve) =>
           request.signal.addEventListener('abort', () => resolve()),
@@ -1432,7 +1432,7 @@ describe('Node server integration', () => {
       started = resolve;
     });
     const definition = createServerDefinition({
-      async upgrade(request) {
+      async authenticate(request) {
         started();
         await new Promise<void>((resolve) => {
           request.signal.addEventListener('abort', () => {

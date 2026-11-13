@@ -49,7 +49,7 @@ function fakeConnection(id: string, userId: string): RuntimeConnection {
   return {
     id,
     userId,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: { send() {}, close() {}, bufferedAmount: () => 0 },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },

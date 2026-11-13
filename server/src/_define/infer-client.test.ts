@@ -12,7 +12,7 @@ const NotFound = error('not-found', v.object({ id: v.string() }));
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
 const base = server({
-  upgrade: () => ({ userId: 'x', meta: { username: 'x' } }),
+  authenticate: () => ({ userId: 'x', meta: { username: 'x' } }),
   capabilities: [
     emits({
       welcome: t<{ username: string }>(),

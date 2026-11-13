@@ -6,7 +6,7 @@ import { inbox } from '@livething/server/inbox';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { SendRoomMsg } from './events.ts';
 import type { RoomMsg } from './events.ts';
 
@@ -17,7 +17,7 @@ import type { RoomMsg } from './events.ts';
 // next reconnect (after the auto-rejoin), and its `__received__` ack deletes them
 // so a later reconnect does not re-deliver.
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
 

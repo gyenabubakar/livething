@@ -4,11 +4,11 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import type * as v from 'valibot';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import type { NotificationPayload } from './events.ts';
 
 export const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     emits({ notification: t<v.InferOutput<typeof NotificationPayload>>() }),
     channels(),

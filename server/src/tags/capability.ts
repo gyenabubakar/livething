@@ -59,7 +59,7 @@ function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroup
 /**
  * Enable tags — named groups you attach to connections to address or count them
  * (for example everyone with `role:admin`). Listing this grants the `ctx.tags`
- * surface and the optional initial ephemeral tags in `upgrade(...)`. Persistent
+ * surface and the optional initial ephemeral tags in `authenticate(...)`. Persistent
  * groups survive restarts; ephemeral ones do not.
  *
  * Declare groups with the two builders: `ephemeral(name, type?)` for in-memory

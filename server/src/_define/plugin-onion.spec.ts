@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
+  authenticate,
   handleShutdown,
-  handleUpgrade,
   runConnectionLifecycle,
 } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it } from 'vitest';
@@ -74,26 +74,26 @@ describe('plugin onion ordering — shutdown', () => {
   });
 });
 
-describe('plugin upgrade — meta merge + user id single owner', () => {
+describe('plugin authenticate — meta merge + user id single owner', () => {
   const helpers = { ctx: {} };
 
   function baseRuntime(overrides: Record<string, unknown>) {
     return {
-      upgradeHooks: [],
-      pluginUpgradeHooks: [],
-      builderUpgradeHook: undefined,
-      upgradeHelpers: helpers,
+      authHooks: [],
+      pluginAuthHooks: [],
+      builderAuthHook: undefined,
+      authHelpers: helpers,
       isTagGroupDeclared: () => true,
       getTagGroupSchema: () => undefined,
       ...overrides,
     } as any;
   }
 
-  it('runs plugin upgrades first, app wins on meta key conflict', async () => {
+  it('runs plugin authenticate hooks first, app wins on meta key conflict', async () => {
     const order: string[] = [];
-    const decision = await handleUpgrade(
+    const decision = await authenticate(
       baseRuntime({
-        pluginUpgradeHooks: [
+        pluginAuthHooks: [
           {
             pluginId: 'acme:a',
             handler: () => {
@@ -102,7 +102,7 @@ describe('plugin upgrade — meta merge + user id single owner', () => {
             },
           },
         ],
-        builderUpgradeHook: () => {
+        builderAuthHook: () => {
           order.push('app');
           return { userId: 'u1', meta: { shared: 'app' } };
         },
@@ -115,9 +115,9 @@ describe('plugin upgrade — meta merge + user id single owner', () => {
   });
 
   it('lets a plugin own the user id when the app does not', async () => {
-    const decision = await handleUpgrade(
+    const decision = await authenticate(
       baseRuntime({
-        pluginUpgradeHooks: [
+        pluginAuthHooks: [
           {
             pluginId: 'clerk:auth',
             handler: () => ({ userId: 'sub_1', meta: { userId: 'sub_1' } }),
@@ -130,23 +130,23 @@ describe('plugin upgrade — meta merge + user id single owner', () => {
     expect(decision.meta).toEqual({ userId: 'sub_1' });
   });
 
-  it('rejects when two upgrade hooks both return a user id', async () => {
-    const decision = await handleUpgrade(
+  it('rejects when two authenticate hooks both return a user id', async () => {
+    const decision = await authenticate(
       baseRuntime({
-        pluginUpgradeHooks: [{ pluginId: 'clerk:auth', handler: () => ({ userId: 'sub_1' }) }],
-        builderUpgradeHook: () => ({ userId: 'sub_2' }),
+        pluginAuthHooks: [{ pluginId: 'clerk:auth', handler: () => ({ userId: 'sub_1' }) }],
+        builderAuthHook: () => ({ userId: 'sub_2' }),
       }),
       new Request('https://x/'),
     );
-    // A thrown error inside upgrade surfaces as a 500 reject, not a crash.
+    // A thrown error inside authenticate surfaces as a 500 reject, not a crash.
     expect(decision.reject).toBe(true);
     expect(decision.code).toBe(500);
   });
 
-  it('concatenates tags across plugin and app upgrades', async () => {
-    const decision = await handleUpgrade(
+  it('concatenates tags across plugin and app authenticate hooks', async () => {
+    const decision = await authenticate(
       baseRuntime({
-        pluginUpgradeHooks: [
+        pluginAuthHooks: [
           {
             pluginId: 'acme:a',
             handler: () => ({
@@ -154,7 +154,7 @@ describe('plugin upgrade — meta merge + user id single owner', () => {
             }),
           },
         ],
-        builderUpgradeHook: () => ({
+        builderAuthHook: () => ({
           userId: 'u',
           tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'g', key: 'k2' }],
         }),

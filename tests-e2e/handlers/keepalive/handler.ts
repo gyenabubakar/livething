@@ -1,10 +1,10 @@
 import { server } from '@livething/server';
 import { keepalive } from '@livething/server/keepalive';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     // Ping every 1s, close after 2s of silence. The ping lands with a ~1s margin
     // before the idle window elapses, so a live client's pong always keeps it

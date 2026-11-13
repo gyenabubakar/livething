@@ -30,7 +30,7 @@ function passthroughAsyncContext(): AsyncContextFactory {
 
 function buildEngine(): Engine {
   const base = server({
-    upgrade(request) {
+    authenticate(request) {
       const userId = new URL(request.url).searchParams.get('user') ?? undefined;
       return userId === 'ada'
         ? { userId, tags: { ephemeral: { team: ['design', 'eng'] } } }
@@ -72,7 +72,7 @@ function buildEngine(): Engine {
 }
 
 async function connect(engine: Engine, user: string) {
-  const decision = await engine.handleUpgrade(new Request(`https://huddle.test/?user=${user}`));
+  const decision = await engine.authenticate(new Request(`https://huddle.test/?user=${user}`));
   const frames: string[] = [];
   const handle = engine.accept(Symbol(user), {
     send: ({ text }: { kind: 'text'; text: string }) => void frames.push(text),
@@ -91,7 +91,7 @@ async function connect(engine: Engine, user: string) {
   };
 }
 
-describe('upgrade with several keys in one tag group', () => {
+describe('authenticate with several keys in one tag group', () => {
   it('attaches every key, so a broadcast to either ref reaches the connection', async () => {
     const engine = buildEngine();
     await engine.initialize();

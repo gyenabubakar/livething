@@ -1,9 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { Block, LiveThingError } from '@livething/core';
-import { handleUpgrade, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
+import { authenticate, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
-import { Disconnect, RejectUpgrade } from '~/errors/errors.ts';
+import { Disconnect, RejectAuth } from '~/errors/errors.ts';
 import { cancelStream } from '~/stream/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -14,7 +14,7 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
   return {
     id,
     userId: id,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
       close: vi.fn(),
@@ -106,16 +106,16 @@ function baseDispatchRuntime(
   } as any;
 }
 
-describe('handleUpgrade', () => {
-  it('returns reject shape when RejectUpgrade is thrown', async () => {
-    const result = await handleUpgrade(
+describe('authenticate', () => {
+  it('returns reject shape when RejectAuth is thrown', async () => {
+    const result = await authenticate(
       {
-        upgradeHooks: [
+        authHooks: [
           async () => {
-            throw RejectUpgrade(4002, 'nope');
+            throw RejectAuth(4002, 'nope');
           },
         ],
-        upgradeHelpers: { ctx: {} as never },
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -125,16 +125,16 @@ describe('handleUpgrade', () => {
     expect(result).toEqual({ reject: true, code: 4002, reason: 'nope' });
   });
 
-  it('maps non-RejectUpgrade errors to a 500 reject decision and logs the real error', async () => {
+  it('maps non-RejectAuth errors to a 500 reject decision and logs the real error', async () => {
     const logger = { error: vi.fn() };
-    const result = await handleUpgrade(
+    const result = await authenticate(
       {
-        upgradeHooks: [
+        authHooks: [
           async () => {
             throw new Error('boom');
           },
         ],
-        upgradeHelpers: { ctx: {} as never },
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
         logger,
@@ -142,22 +142,22 @@ describe('handleUpgrade', () => {
       new Request('https://example.com/'),
     );
 
-    expect(result).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+    expect(result).toEqual({ reject: true, code: 500, reason: 'Authentication failed' });
     expect(logger.error).toHaveBeenCalledWith(
-      '[livething] upgrade hook threw; rejecting with HTTP 500',
+      '[livething] authenticate hook threw; rejecting with HTTP 500',
       expect.objectContaining({ error: 'boom', stack: expect.stringContaining('boom') }),
     );
   });
 
   it('logs the helpful message for an undeclared ephemeral tag group', async () => {
     const logger = { error: vi.fn() };
-    await handleUpgrade(
+    await authenticate(
       {
-        upgradeHooks: [],
-        builderUpgradeHook: async () => ({
+        authHooks: [],
+        builderAuthHook: async () => ({
           tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
         }),
-        upgradeHelpers: { ctx: {} as never },
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => false,
         getTagGroupSchema: () => undefined,
         logger,
@@ -166,23 +166,23 @@ describe('handleUpgrade', () => {
     );
 
     expect(logger.error).toHaveBeenCalledWith(
-      '[livething] upgrade hook threw; rejecting with HTTP 500',
+      '[livething] authenticate hook threw; rejecting with HTTP 500',
       expect.objectContaining({
-        error: expect.stringContaining("onUpgrade returned an ephemeral tag for group 'typo'"),
+        error: expect.stringContaining("onAuthenticate returned an ephemeral tag for group 'typo'"),
       }),
     );
   });
 
-  it('does not log a RejectUpgrade as an error', async () => {
+  it('does not log a RejectAuth as an error', async () => {
     const logger = { error: vi.fn() };
-    await handleUpgrade(
+    await authenticate(
       {
-        upgradeHooks: [
+        authHooks: [
           async () => {
-            throw RejectUpgrade(4002, 'nope');
+            throw RejectAuth(4002, 'nope');
           },
         ],
-        upgradeHelpers: { ctx: {} as never },
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
         logger,
@@ -198,12 +198,12 @@ describe('handleUpgrade', () => {
       return { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
     }
 
-    function upgradeWith(key: string, logger = { error: vi.fn() }) {
-      return handleUpgrade(
+    function authenticateWith(key: string, logger = { error: vi.fn() }) {
+      return authenticate(
         {
-          upgradeHooks: [],
-          builderUpgradeHook: async () => ({ tags: [roleRef(key)] }),
-          upgradeHelpers: { ctx: {} as never },
+          authHooks: [],
+          builderAuthHook: async () => ({ tags: [roleRef(key)] }),
+          authHelpers: { ctx: {} as never },
           isTagGroupDeclared: () => true,
           getTagGroupSchema: () => v.picklist(['admin', 'member']),
           logger,
@@ -213,35 +213,35 @@ describe('handleUpgrade', () => {
     }
 
     it('accepts a key the schema allows', async () => {
-      const result = await upgradeWith('admin');
+      const result = await authenticateWith('admin');
       expect((result.tags ?? []).map((r) => r.key)).toEqual(['admin']);
     });
 
-    it('rejects the upgrade for a key the schema rejects, and logs why', async () => {
+    it('rejects the connection for a key the schema rejects, and logs why', async () => {
       const logger = { error: vi.fn() };
-      const result = await upgradeWith('root', logger);
+      const result = await authenticateWith('root', logger);
 
-      expect(result).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+      expect(result).toEqual({ reject: true, code: 500, reason: 'Authentication failed' });
       expect(logger.error).toHaveBeenCalledWith(
-        '[livething] upgrade hook threw; rejecting with HTTP 500',
+        '[livething] authenticate hook threw; rejecting with HTTP 500',
         expect.objectContaining({
           error:
-            "[livething] onUpgrade returned the ephemeral tag key 'root' for group 'role', which the group's schema rejects.",
+            "[livething] onAuthenticate returned the ephemeral tag key 'root' for group 'role', which the group's schema rejects.",
         }),
       );
     });
 
     it('drops an empty key, the same as add()', async () => {
-      const result = await upgradeWith('');
+      const result = await authenticateWith('');
       expect(result.tags).toBeUndefined();
     });
   });
 
   it('returns empty decision when no hooks are registered', async () => {
-    const result = await handleUpgrade(
+    const result = await authenticate(
       {
-        upgradeHooks: [],
-        upgradeHelpers: { ctx: {} as never },
+        authHooks: [],
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -250,17 +250,17 @@ describe('handleUpgrade', () => {
     expect(result).toEqual({});
   });
 
-  it('builder upgrade hook overrides internal hooks on meta key conflict', async () => {
-    const result = await handleUpgrade(
+  it('builder authenticate hook overrides internal hooks on meta key conflict', async () => {
+    const result = await authenticate(
       {
-        upgradeHooks: [
+        authHooks: [
           async () => ({ meta: { region: 'us', tenant: 't_internal' } }),
           async () => ({ meta: { region: 'eu' } }),
         ],
-        builderUpgradeHook: async () => ({
+        builderAuthHook: async () => ({
           meta: { region: 'ap', user_id: 'u_42' },
         }),
-        upgradeHelpers: { ctx: {} as never },
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -277,14 +277,14 @@ describe('handleUpgrade', () => {
       return { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
     }
 
-    const result = await handleUpgrade(
+    const result = await authenticate(
       {
-        upgradeHooks: [
+        authHooks: [
           async () => ({ tags: [ref('authed'), ref('beta')] }),
           async () => ({ tags: [ref('beta'), ref('eu-west')] }),
         ],
-        builderUpgradeHook: async () => ({ tags: [ref('user-tag')] }),
-        upgradeHelpers: { ctx: {} as never },
+        builderAuthHook: async () => ({ tags: [ref('user-tag')] }),
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -301,11 +301,11 @@ describe('handleUpgrade', () => {
       return { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
     }
 
-    const result = await handleUpgrade(
+    const result = await authenticate(
       {
-        upgradeHooks: [],
-        builderUpgradeHook: async () => ({ meta: { user_id: 'u_42' }, tags: [ref('authed')] }),
-        upgradeHelpers: { ctx: {} as never },
+        authHooks: [],
+        builderAuthHook: async () => ({ meta: { user_id: 'u_42' }, tags: [ref('authed')] }),
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -317,11 +317,11 @@ describe('handleUpgrade', () => {
   });
 
   it('returns undefined meta and tags when no hook contributes either', async () => {
-    const result = await handleUpgrade(
+    const result = await authenticate(
       {
-        upgradeHooks: [async () => ({})],
-        builderUpgradeHook: async () => ({}),
-        upgradeHelpers: { ctx: {} as never },
+        authHooks: [async () => ({})],
+        builderAuthHook: async () => ({}),
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: () => true,
         getTagGroupSchema: () => undefined,
       },
@@ -333,20 +333,20 @@ describe('handleUpgrade', () => {
   });
 
   it('rejects an ephemeral tag whose group is not declared', async () => {
-    const result = await handleUpgrade(
+    const result = await authenticate(
       {
-        upgradeHooks: [],
-        builderUpgradeHook: async () => ({
+        authHooks: [],
+        builderAuthHook: async () => ({
           tags: [{ __livething: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
         }),
-        upgradeHelpers: { ctx: {} as never },
+        authHelpers: { ctx: {} as never },
         isTagGroupDeclared: (_kind, group) => group === 'role',
         getTagGroupSchema: () => undefined,
       },
       new Request('https://example.com/'),
     );
 
-    expect(result).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+    expect(result).toEqual({ reject: true, code: 500, reason: 'Authentication failed' });
   });
 });
 
@@ -953,7 +953,7 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
       usersByKey: new Map(),
       channelMembers: new Map(),
       tagMembers: new Map(),
-      wsToConnectionId: new Map(),
+      socketToConnectionId: new Map(),
       generateId: () => 'conn_new',
       persistAttachment() {},
       restoreAttachment: () => ({ id }),
@@ -980,9 +980,9 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
       ],
       active_stream_ids: [],
     });
-    const wsKey = { send() {}, close() {} };
+    const socketKey = { send() {}, close() {} };
 
-    wakeHibernatedConnection(runtime as any, wsKey);
+    wakeHibernatedConnection(runtime as any, socketKey);
 
     const connection = runtime.connections.get('hib_1');
     expect(connection).toBeDefined();
@@ -997,9 +997,9 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
 
   it('starts with no memberships when there is no row for the socket', () => {
     const runtime = makeRuntime('hib_2', null);
-    const wsKey = { send() {}, close() {} };
+    const socketKey = { send() {}, close() {} };
 
-    wakeHibernatedConnection(runtime as any, wsKey);
+    wakeHibernatedConnection(runtime as any, socketKey);
 
     // No id in attachment means the wake path generates a fresh id rather
     // than using the missing-row id. The connection still lands in the map

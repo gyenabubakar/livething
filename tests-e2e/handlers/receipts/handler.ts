@@ -6,7 +6,7 @@ import { inbox, readReceipts } from '@livething/server/inbox';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { SendRoomMsg } from './events.ts';
 import type { RoomMsg } from './events.ts';
 
@@ -18,7 +18,7 @@ import type { RoomMsg } from './events.ts';
 // `cursor-answer` emit surfaces the authoritative server view, independent of
 // the live fan-out.
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     channels(),
     sequence({ persist: true }),

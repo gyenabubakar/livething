@@ -20,26 +20,26 @@ export const RESERVED_USER_ID_PREFIX = '__';
 
 /**
  * Reject a user id the framework cannot safely store. Runs at the boundary
- * where a user id first arrives, so the app hears about it at the upgrade that
+ * where a user id first arrives, so the app hears about it at the `authenticate` call that
  * produced it rather than at some later read.
  */
 export function assertUsableUserId(userId: string): void {
   if (userId.length > MAX_USER_ID_LENGTH) {
     throw new LiveThingConfigError(
-      `the user id returned from onUpgrade is ${userId.length} characters; the most allowed is ${MAX_USER_ID_LENGTH}. Use a stable id such as a user id or a ULID, not a token.`,
+      `the user id returned from onAuthenticate is ${userId.length} characters; the most allowed is ${MAX_USER_ID_LENGTH}. Use a stable id such as a user id or a ULID, not a token.`,
     );
   }
 
   if (userId.startsWith(RESERVED_USER_ID_PREFIX)) {
     throw new LiveThingConfigError(
-      `the user id returned from onUpgrade starts with "${RESERVED_USER_ID_PREFIX}", which is reserved for keys LiveThing files internally. Give this user an id that starts with anything else.`,
+      `the user id returned from onAuthenticate starts with "${RESERVED_USER_ID_PREFIX}", which is reserved for keys LiveThing files internally. Give this user an id that starts with anything else.`,
     );
   }
 }
 
 /**
  * Resolve the real user id behind a connection. Returns `null` for an
- * anonymous connection — one with no `onUpgrade` hook, or whose upgrade hook
+ * anonymous connection — one with no `onAuthenticate` hook, or whose authenticate hook
  * returned no user id, so `userId` defaults to `''` at the adapter boundary.
  *
  * Every caller that reaches a socket BY USER IDENTITY — `ctx.user`,
@@ -65,9 +65,9 @@ export function userKeyOf(
 
 /**
  * Resolve the storage row key for one connection's durable per-connection
- * state. Returns the connection's user id when it was supplied at upgrade, or
- * its engine-assigned `id` when not. An anonymous connection (no `onUpgrade`,
- * or an upgrade that returned no user id, so `userId` is `''`) has no user
+ * state. Returns the connection's user id when it was supplied by `authenticate`, or
+ * its engine-assigned `id` when not. An anonymous connection (no `onAuthenticate`,
+ * or an authenticate that returned no user id, so `userId` is `''`) has no user
  * identity, and using the empty string as a real key would collapse every
  * anonymous connection onto one row and let them read each other's private
  * durable streams.

@@ -24,7 +24,7 @@ import { expectTypeOf } from 'vitest';
 // Gap 5 — gated broadcast in `init` / `shutdown`.
 // ---------------------------------------------------------------------------
 export const lifecycleBase = server({
-  upgrade: () => ({ userId: 'u', meta: { who: 'x' } }),
+  authenticate: () => ({ userId: 'u', meta: { who: 'x' } }),
   capabilities: [emits({ bye: t<{ reason: string }>() })],
   onInit(ctx) {
     void ctx;

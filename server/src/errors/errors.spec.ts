@@ -1,6 +1,6 @@
 import { LiveThingError } from '@livething/core';
 import { describe, expect, it } from 'vitest';
-import { CloseCodes, CrossInstanceRef, Disconnect, RejectUpgrade } from './errors.ts';
+import { CloseCodes, CrossInstanceRef, Disconnect, RejectAuth } from './errors.ts';
 
 describe('CloseCodes', () => {
   it('exposes the standard 1xxx codes', () => {
@@ -51,16 +51,16 @@ describe('Disconnect', () => {
   });
 });
 
-describe('RejectUpgrade', () => {
+describe('RejectAuth', () => {
   it('creates frozen object with __livething, code, reason', () => {
-    const ru = RejectUpgrade(4002, 'Invalid token');
-    expect(ru.__livething).toBe('reject-upgrade');
+    const ru = RejectAuth(4002, 'Invalid token');
+    expect(ru.__livething).toBe('reject-auth');
     expect(ru.code).toBe(4002);
     expect(ru.reason).toBe('Invalid token');
   });
 
   it('is frozen', () => {
-    expect(Object.isFrozen(RejectUpgrade(403, 'test'))).toBe(true);
+    expect(Object.isFrozen(RejectAuth(403, 'test'))).toBe(true);
   });
 });
 

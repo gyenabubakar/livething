@@ -62,7 +62,7 @@ describe('idempotent on() unsubscribe', () => {
   it('a live listener keeps the socket open even after a sibling is unsubbed twice', () => {
     vi.useFakeTimers();
     try {
-      const socket = build(connect('wss://test', { lazy: true, idleTimeout: 1000 }));
+      const socket = build(connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }));
       const unsubA = socket.on('a', () => {});
       socket.on('b', () => {});
       MockWebSocket.last().open();
@@ -252,7 +252,7 @@ describe('lazy idle-close after a zero-consumer reconnect', () => {
     vi.useFakeTimers();
     try {
       const socket = build(
-        connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+        connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }),
         reconnection(),
       );
       const unsub = socket.on('x', () => {});
@@ -300,7 +300,7 @@ describe('idle timer armed during close must not fire during reconnect', () => {
     vi.useFakeTimers();
     try {
       const socket = client<RequestContract>()(
-        connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+        connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }),
         reconnection(),
         clientRequests({ timeout: 60_000 }),
       );

@@ -72,11 +72,11 @@ function createAsyncContext<TStore>() {
 const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unknown>>({
   id: 'cloudflare',
   hibernation: {
-    persist(wsKey, snapshot) {
-      (wsKey as WebSocket).serializeAttachment(snapshot);
+    persist(socketKey, snapshot) {
+      (socketKey as WebSocket).serializeAttachment(snapshot);
     },
-    restore(wsKey) {
-      return (wsKey as WebSocket).deserializeAttachment();
+    restore(socketKey) {
+      return (socketKey as WebSocket).deserializeAttachment();
     },
   },
   asyncContextFactory: createAsyncContext,
@@ -134,14 +134,15 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
         this.ready = ready;
       }
 
-      private handleRejectedUpgrade(
-        result: Awaited<ReturnType<Engine['handleUpgrade']>>,
-      ): Response {
+      private handleRejectedUpgrade(result: Awaited<ReturnType<Engine['authenticate']>>): Response {
         // >= 1000 is a WS close code (HTTP statuses cap at 599); below that, an HTTP status.
         if (result.code !== undefined && result.code >= 1000) {
           const pair = new WebSocketPair();
           pair[1].accept();
-          pair[1].close(result.code, normalizeCloseReason(result.reason ?? 'Upgrade rejected'));
+          pair[1].close(
+            result.code,
+            normalizeCloseReason(result.reason ?? 'Authentication rejected'),
+          );
 
           return new Response(null, {
             status: 101,
@@ -150,12 +151,12 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
         }
 
         const status = result.code && result.code >= 400 && result.code <= 599 ? result.code : 403;
-        return new Response(result.reason ?? 'Upgrade rejected', { status });
+        return new Response(result.reason ?? 'Authentication rejected', { status });
       }
 
       private createConnectionDescriptor(
         socket: WebSocket,
-        result: Awaited<ReturnType<Engine['handleUpgrade']>>,
+        result: Awaited<ReturnType<Engine['authenticate']>>,
       ) {
         let closed = false;
         return {
@@ -204,7 +205,7 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           return new Response('Expected Upgrade: websocket', { status: 426 });
         }
 
-        const result = await this.engine.handleUpgrade(requestWithClientIp(request));
+        const result = await this.engine.authenticate(requestWithClientIp(request));
         if (result.reject) {
           return this.handleRejectedUpgrade(result);
         }

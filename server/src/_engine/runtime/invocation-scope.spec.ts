@@ -12,10 +12,10 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 function createFakeCore(): {
   core: EngineCore;
   writes: string[];
-  attachments: { wsKey: unknown; snapshot: unknown }[];
+  attachments: { socketKey: unknown; snapshot: unknown }[];
 } {
   const writes: string[] = [];
-  const attachments: { wsKey: unknown; snapshot: unknown }[] = [];
+  const attachments: { socketKey: unknown; snapshot: unknown }[] = [];
 
   const sql = {
     exec: vi.fn((query: string) => {
@@ -30,8 +30,8 @@ function createFakeCore(): {
     asyncContext: new AsyncLocalStorage<EngineAsyncContextStore>(),
     options: {
       hibernation: {
-        persist(wsKey: unknown, snapshot: unknown) {
-          attachments.push({ wsKey, snapshot });
+        persist(socketKey: unknown, snapshot: unknown) {
+          attachments.push({ socketKey, snapshot });
         },
       },
     },
@@ -46,7 +46,7 @@ function createFakeConnection(id: string): RuntimeConnection {
   return {
     id,
     userId: id,
-    wsKey: { key: id },
+    socketKey: { key: id },
     descriptor: { close() {} } as never,
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },

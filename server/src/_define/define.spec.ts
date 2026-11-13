@@ -20,7 +20,7 @@ const NotFound = error('not-found', v.object({ id: v.string() }));
 
 function makeBase() {
   return server({
-    upgrade(request) {
+    authenticate(request) {
       const username = new URL(request.url).searchParams.get('username') ?? 'anon';
       return { userId: username, meta: { username } };
     },
@@ -65,7 +65,7 @@ describe('server() option checks', () => {
 
   it('throws LiveThingConfigError for an unknown option and a hook that is not a function', () => {
     expect(() => server({ hibernat: true } as never)).toThrow(LiveThingConfigError);
-    expect(() => server({ upgrade: 'nope' } as never)).toThrow(LiveThingConfigError);
+    expect(() => server({ authenticate: 'nope' } as never)).toThrow(LiveThingConfigError);
   });
 
   it.each([[true], [[]], ['lobby'], [7]])('refuses a channel config of %j', (config) => {
@@ -114,9 +114,9 @@ describe('server() send/receive core', () => {
     );
   });
 
-  it('assembles handlers, capabilities, and the upgrade hook into a bootable server', () => {
+  it('assembles handlers, capabilities, and the authenticate hook into a bootable server', () => {
     const base = server({
-      upgrade(request) {
+      authenticate(request) {
         const username = new URL(request.url).searchParams.get('username') ?? 'anon';
         return { userId: username, meta: { username } };
       },
@@ -138,7 +138,7 @@ describe('server() send/receive core', () => {
 
     expect(compiled.incoming.has('echo')).toBe(true);
     expect(compiled.outgoing.has('welcome')).toBe(true);
-    expect(definition.primitives.some((p) => p.__livething === 'onUpgrade')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'onAuthenticate')).toBe(true);
     expect(definition.primitives.some((p) => p.__livething === 'onConnect')).toBe(true);
     expect(definition.primitives.some((p) => p.__livething === 'errors')).toBe(true);
   });

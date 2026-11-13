@@ -1,7 +1,7 @@
 import { STATUS_CODES } from 'node:http';
 import { asUint8Array } from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
-import type { UpgradeDecision } from '@livething/server/adapters';
+import type { AuthDecision } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { RawData, WebSocket } from 'ws';
@@ -11,12 +11,12 @@ import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
 import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
 import type { ConnectionTransport } from './socket.ts';
 
-function upgradeRejection(decision: UpgradeDecision): { body: string; status: number } {
+function upgradeRejection(decision: AuthDecision): { body: string; status: number } {
   const status =
     decision.code !== undefined && decision.code >= 400 && decision.code <= 599
       ? decision.code
       : 403;
-  const body = decision.reason ?? 'Upgrade rejected';
+  const body = decision.reason ?? 'Authentication rejected';
 
   return { body, status };
 }
@@ -43,11 +43,11 @@ export function isNodeWebSocketUpgrade(request: IncomingMessage): boolean {
   return asksForUpgrade && isWebSocketUpgrade(request.headers.upgrade);
 }
 
-export function isSocketRejection(decision: UpgradeDecision): boolean {
+export function isSocketRejection(decision: AuthDecision): boolean {
   return decision.code !== undefined && decision.code >= 1000;
 }
 
-export function createHttpRejectionResponse(decision: UpgradeDecision): Response {
+export function createHttpRejectionResponse(decision: AuthDecision): Response {
   const { body, status } = upgradeRejection(decision);
 
   return new Response(body, {

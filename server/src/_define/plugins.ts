@@ -44,7 +44,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'onDisconnect',
   'onShutdown',
   'onError',
-  'onUpgrade',
+  'onAuthenticate',
   'onPing',
   'onPong',
   // Hooks that ride along stamped with their owner, not namespaced events.

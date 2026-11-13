@@ -247,7 +247,7 @@ export class EngineCore {
   readonly channelMembers = new Map<string, Set<RuntimeConnection>>();
   // Tag-key → members index, so tag fan-out skips a full connections scan.
   readonly tagMembers = new Map<string, Set<RuntimeConnection>>();
-  readonly wsToConnectionId = new Map<unknown, string>();
+  readonly socketToConnectionId = new Map<unknown, string>();
   readonly activeStreams = new Map<string, ActiveStream>();
   readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();
 

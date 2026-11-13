@@ -3,15 +3,15 @@ import { namespaceError } from '@livething/core';
 import { getCurrentCall, runInCall } from '~/_engine/call-context.ts';
 import {
   pluginWireName,
+  scopeAuthHelpers,
   scopePluginContext,
   scopePluginThrow,
-  scopeUpgradeHelpers,
 } from '~/plugin-scope.ts';
 import { serverRequestKey } from '~/request/outgoing-runtime.ts';
 import type { ErrorDefWithFactory } from '@livething/core';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { ScopeDeclaration } from '~/channel/channel.ts';
-import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
+import type { AuthHandler, AuthResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ResolvedServerRequest } from '~/request/server-requests.ts';
 
@@ -258,8 +258,8 @@ export function namespacePluginPrimitives(
       ).__withServerRequests(declarations);
     }
 
-    if ((primitive as { __scopedUpgrade?: boolean }).__scopedUpgrade) {
-      return namespaceUpgrade(id, primitive);
+    if ((primitive as { __scopedAuth?: boolean }).__scopedAuth) {
+      return namespaceAuth(id, primitive);
     }
 
     const lifecycleKind = LIFECYCLE_KINDS[primitive.__livething];
@@ -523,15 +523,15 @@ function scopeChannelLifecycle(scope: PluginScope, primitive: Primitive): Primit
 }
 
 /**
- * Rebuild a plugin's `upgrade` carrier so it registers into the plugin upgrade
+ * Rebuild a plugin's `authenticate` carrier so it registers into the plugin authenticate
  * registry (bound to the plugin id) instead of the app's single builder slot.
  * The handler gets the raw request and the plugin's scoped `ctx`. It never sees app identity.
  */
-function namespaceUpgrade(id: string, primitive: Primitive): Primitive {
-  const handler = (primitive as unknown as { handler: UpgradeHandler }).handler;
-  async function scoped(...args: Parameters<UpgradeHandler>): Promise<UpgradeResult> {
+function namespaceAuth(id: string, primitive: Primitive): Primitive {
+  const handler = (primitive as unknown as { handler: AuthHandler }).handler;
+  async function scoped(...args: Parameters<AuthHandler>): Promise<AuthResult> {
     const [request, helpers] = args;
-    const result = await handler(request, scopeUpgradeHelpers(id, helpers));
+    const result = await handler(request, scopeAuthHelpers(id, helpers));
     if (!result?.tags) return result;
 
     return {
@@ -547,7 +547,7 @@ function namespaceUpgrade(id: string, primitive: Primitive): Primitive {
     __plugin: id,
     handler: scoped,
     __setup(engine: EngineAccess) {
-      engine.registerPluginUpgrade(id, scoped, (primitive as { __baseId?: symbol }).__baseId);
+      engine.registerPluginAuth(id, scoped, (primitive as { __baseId?: symbol }).__baseId);
     },
   } as unknown as Primitive;
 }

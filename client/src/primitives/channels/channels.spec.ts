@@ -926,7 +926,7 @@ describe('stream-error routing (order-independent)', () => {
 
 describe('lazy hold lifecycle (no leak)', () => {
   function lazySocket() {
-    return client<C>()(connect('wss://test', { lazy: true, idleTimeout: 1000 }), channels());
+    return client<C>()(connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }), channels());
   }
 
   it('releases the subscribe hold when the subscribe is rejected, so the socket idle-closes', async () => {

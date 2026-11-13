@@ -82,7 +82,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
 
     const res = await instance.fetch(new Request('https://do.example/'));
     expect(res.status).toBe(426);
-    expect(fake.calls.handleUpgrade).toHaveLength(0);
+    expect(fake.calls.authenticate).toHaveLength(0);
   });
 
   it('passes Cloudflare client IP metadata to the engine request', async () => {
@@ -100,7 +100,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       }),
     );
 
-    expect(fake.calls.handleUpgrade[0]?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
+    expect(fake.calls.authenticate[0]?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
   });
 
   it('does not pass through a client-supplied IP metadata header', async () => {
@@ -117,7 +117,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       }),
     );
 
-    expect(fake.calls.handleUpgrade[0]?.headers.get('LiveThing-Client-IP')).toBeNull();
+    expect(fake.calls.authenticate[0]?.headers.get('LiveThing-Client-IP')).toBeNull();
   });
 
   it('upgrades and returns 101 with client socket when accepted (standard mode)', async () => {
@@ -127,7 +127,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       return { __livething: 'tag-ref' as const, kind, group, key };
     }
 
-    fake.stageUpgrade({ meta: { user: 'a' }, tags: [ref('ephemeral', 'role', 't1')] });
+    fake.stageAuth({ meta: { user: 'a' }, tags: [ref('ephemeral', 'role', 't1')] });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
@@ -163,7 +163,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('returns false for a send to a closed socket', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -183,7 +183,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('sends a text frame as text and a bytes frame as the bytes themselves', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -202,7 +202,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('closes an accepted socket when engine connection setup throws', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
     const setupError = new Error('connection setup failed');
     (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw setupError;
@@ -220,7 +220,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('does not close an accepted socket again when the engine already closed it', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
     const setupError = new Error('connection state could not be persisted');
     (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (_ws: unknown, descriptor: { close(code: number, reason: string): void }) => {
@@ -244,7 +244,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -263,7 +263,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('asks a standard socket for binary as an ArrayBuffer before it accepts it', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -275,7 +275,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('forwards a binary frame in standard mode to the engine as a Uint8Array', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -293,7 +293,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('calls state.acceptWebSocket(ws) without forwarding handler tags into the cf tag store', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
-    fake.stageUpgrade({
+    fake.stageAuth({
       tags: [
         {
           __livething: 'tag-ref' as const,
@@ -321,7 +321,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('registers a ping/pong auto-response under hibernation so keepalives do not wake the DO', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -338,7 +338,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('does not register an auto-response in standard (non-hibernation) mode', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -357,7 +357,7 @@ describe('handleRejectedUpgrade', () => {
   it('returns a 101 response that immediately closes with a WS close code (code >= 1000)', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, code: 4002, reason: 'bad' });
+    fake.stageAuth({ reject: true, code: 4002, reason: 'bad' });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
@@ -375,7 +375,7 @@ describe('handleRejectedUpgrade', () => {
   it('limits an oversized WebSocket close reason before closing the pair', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, code: 4002, reason: '🙂'.repeat(100) });
+    fake.stageAuth({ reject: true, code: 4002, reason: '🙂'.repeat(100) });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -387,7 +387,7 @@ describe('handleRejectedUpgrade', () => {
   it('returns an HTTP response of the given status when 400 <= code <= 599', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, code: 401, reason: 'nope' });
+    fake.stageAuth({ reject: true, code: 401, reason: 'nope' });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
@@ -399,7 +399,7 @@ describe('handleRejectedUpgrade', () => {
   it('defaults to HTTP 403 when reject code is outside WS (>=1000) and HTTP (400-599) ranges', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, code: 42 });
+    fake.stageAuth({ reject: true, code: 42 });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
@@ -410,13 +410,13 @@ describe('handleRejectedUpgrade', () => {
   it('defaults to HTTP 403 when no code is provided on reject', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, reason: 'Upgrade rejected' });
+    fake.stageAuth({ reject: true, reason: 'Authentication rejected' });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
 
     expect(res.status).toBe(403);
-    expect(await res.text()).toBe('Upgrade rejected');
+    expect(await res.text()).toBe('Authentication rejected');
   });
 });
 
@@ -616,7 +616,7 @@ describe('engine wiring in the constructor', () => {
       await expect(call).rejects.toBe(failure);
     }
 
-    expect(fake.calls.handleUpgrade).toHaveLength(0);
+    expect(fake.calls.authenticate).toHaveLength(0);
     expect(fake.calls.handleHibernationWake).toHaveLength(0);
     expect(fake.calls.handleAlarm).toBe(0);
     expect(fake.calls.handleShutdown).toBe(0);

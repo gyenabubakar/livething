@@ -11,13 +11,13 @@ import { serverRequests } from '@livething/server/server-requests';
 import { recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { pattern } from '../_shared/bytes.ts';
-import { requireUsername } from '../_shared/upgrade.ts';
 
 function defineBinary(options: { hibernation: boolean }) {
   const base = server({
     hibernation: options.hibernation,
-    upgrade: (request) => requireUsername(request),
+    authenticate: (request) => requireUsername(request),
     capabilities: [
       binary({
         emits: { 'avatar-preview': t<{ fileType: string; size: number }>() },

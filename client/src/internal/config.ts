@@ -33,7 +33,7 @@ export interface SocketConfig {
   /** Wait to connect until something needs the socket. */
   lazy?: boolean;
   /** In lazy mode, close after this many ms of no use. `0` means never. Default: 10_000. */
-  idleTimeout?: number;
+  lazyIdleTimeoutMs?: number;
   /** WebSocket subprotocols. */
   protocols?: string[];
 

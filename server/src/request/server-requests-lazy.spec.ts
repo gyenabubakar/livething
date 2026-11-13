@@ -13,7 +13,7 @@ import type { Engine } from '~/_engine/engine.ts';
 
 function buildEngine(builtSlots: string[][]): Engine {
   const base = server({
-    upgrade: () => ({ userId: 'ada' }),
+    authenticate: () => ({ userId: 'ada' }),
     capabilities: [
       channels(),
       tags((ephemeral) => [ephemeral('team')]),

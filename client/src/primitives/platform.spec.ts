@@ -126,7 +126,7 @@ describe('background disconnect', () => {
   it('keeps the lazy consumer count across a background disconnect/reconnect', () => {
     const m = mockEnvironment();
     const socket = client<C>()(
-      connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+      connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }),
       platform({ environment: m.environment, backgroundDisconnectMs: 500 }),
     );
     const un1 = socket.on('message', () => undefined);

@@ -2,7 +2,7 @@ import { connect as connectTcp } from 'node:net';
 import { createAdaptorServer } from '@hono/node-server';
 import { client, connect } from '@livething/client';
 import { server as createServerDefinition, emits, t } from '@livething/server';
-import { RejectUpgrade } from '@livething/server/errors';
+import { RejectAuth } from '@livething/server/errors';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
@@ -19,13 +19,13 @@ let disconnects = 0;
 let lastDisconnect: { code: number; reason: string } | undefined;
 
 const base = createServerDefinition({
-  upgrade(request) {
+  authenticate(request) {
     const pathname = new URL(request.url).pathname;
-    if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
+    if (pathname.endsWith('/http-reject')) throw RejectAuth(401, 'No token');
 
-    if (pathname.endsWith('/socket-reject')) throw RejectUpgrade(4001, 'No token');
+    if (pathname.endsWith('/socket-reject')) throw RejectAuth(4001, 'No token');
 
-    if (pathname.endsWith('/socket-reject-long')) throw RejectUpgrade(4001, '🙂'.repeat(100));
+    if (pathname.endsWith('/socket-reject-long')) throw RejectAuth(4001, '🙂'.repeat(100));
 
     if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
@@ -468,7 +468,7 @@ describe('Hono binding', () => {
 
   it('reports the real outbound queue while a Hono client is slow', async () => {
     const queued = createServerDefinition({
-      upgrade() {
+      authenticate() {
         return { userId: 'slow-client' };
       },
       capabilities: [
@@ -526,7 +526,7 @@ describe('Hono binding', () => {
     });
 
     const slowDefinition = createServerDefinition({
-      async upgrade(request) {
+      async authenticate(request) {
         started();
         request.signal.addEventListener('abort', () => {
           aborted = true;
@@ -607,9 +607,9 @@ describe('Hono binding', () => {
     expect(response).not.toContain('No token');
   });
 
-  it('passes a plain HTTP request to the next Hono handler without running upgrade', async () => {
-    const upgrade = vi.fn(() => ({ userId: 'plain' }));
-    const definition = createServerDefinition({ upgrade }).assemble({ handlers: [] });
+  it('passes a plain HTTP request to the next Hono handler without running authenticate', async () => {
+    const authenticate = vi.fn(() => ({ userId: 'plain' }));
+    const definition = createServerDefinition({ authenticate }).assemble({ handlers: [] });
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(definition, {});
@@ -623,12 +623,12 @@ describe('Hono binding', () => {
     const response = await fetch(`http://127.0.0.1:${server.port}/ws/lobby`);
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('plain page');
-    expect(upgrade).not.toHaveBeenCalled();
+    expect(authenticate).not.toHaveBeenCalled();
   });
 
-  it('does not run upgrade for a plain HTTP request when no other Hono handler matches', async () => {
-    const upgrade = vi.fn(() => ({ userId: 'plain' }));
-    const definition = createServerDefinition({ upgrade }).assemble({ handlers: [] });
+  it('does not run authenticate for a plain HTTP request when no other Hono handler matches', async () => {
+    const authenticate = vi.fn(() => ({ userId: 'plain' }));
+    const definition = createServerDefinition({ authenticate }).assemble({ handlers: [] });
     const app = new Hono();
     const livething = setup();
     const endpoint = livething.bind(definition, {});
@@ -641,7 +641,7 @@ describe('Hono binding', () => {
 
     const response = await fetch(`http://127.0.0.1:${server.port}/ws/lobby`);
     expect(response.status).toBe(404);
-    expect(upgrade).not.toHaveBeenCalled();
+    expect(authenticate).not.toHaveBeenCalled();
   });
   it('upgrades then closes a socket-level rejection', async () => {
     const app = new Hono();

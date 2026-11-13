@@ -15,7 +15,7 @@ type Frame = [event: string, payload: Record<string, unknown>, livething: unknow
 
 function buildDefinition() {
   const base = createServerDefinition({
-    upgrade: () => ({ userId: 'kofi' }),
+    authenticate: () => ({ userId: 'kofi' }),
     capabilities: [
       dedup(),
       sequence({ persist: true }),

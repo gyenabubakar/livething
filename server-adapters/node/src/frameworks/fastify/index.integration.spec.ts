@@ -2,7 +2,7 @@ import { connect as connectTcp } from 'node:net';
 import websocket from '@fastify/websocket';
 import { client, connect } from '@livething/client';
 import { emits, server, t } from '@livething/server';
-import { RejectUpgrade } from '@livething/server/errors';
+import { RejectAuth } from '@livething/server/errors';
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
@@ -22,11 +22,11 @@ let lastDisconnect: { code: number; reason: string } | undefined;
 let transportErrors = 0;
 
 const base = server({
-  upgrade(request) {
+  authenticate(request) {
     const pathname = new URL(request.url).pathname;
-    if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
+    if (pathname.endsWith('/http-reject')) throw RejectAuth(401, 'No token');
 
-    if (pathname.endsWith('/socket-reject')) throw RejectUpgrade(4001, 'No token');
+    if (pathname.endsWith('/socket-reject')) throw RejectAuth(4001, 'No token');
 
     if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
@@ -313,7 +313,7 @@ describe('Fastify binding', () => {
     });
 
     const slowDefinition = server({
-      async upgrade(request) {
+      async authenticate(request) {
         started();
         request.signal.addEventListener('abort', () => {
           aborted = true;
@@ -366,25 +366,25 @@ describe('Fastify binding', () => {
     expect(response).toContain('No token');
   });
 
-  it('answers a plain HTTP request with 426 without running upgrade', async () => {
-    const upgrade = vi.fn(() => ({ userId: 'plain' }));
-    const app = await createApp({}, server({ upgrade }).assemble({ handlers: [] }));
+  it('answers a plain HTTP request with 426 without running authenticate', async () => {
+    const authenticate = vi.fn(() => ({ userId: 'plain' }));
+    const app = await createApp({}, server({ authenticate }).assemble({ handlers: [] }));
     apps.push(app);
 
     const response = await fetch(`http://127.0.0.1:${app.port}/ws/lobby`);
     expect(response.status).toBe(426);
     expect(await response.text()).toBe('Upgrade Required');
-    expect(upgrade).not.toHaveBeenCalled();
+    expect(authenticate).not.toHaveBeenCalled();
   });
 
-  it('does not run upgrade for a non-WebSocket upgrade request', async () => {
-    const upgrade = vi.fn(() => ({ userId: 'plain' }));
-    const app = await createApp({}, server({ upgrade }).assemble({ handlers: [] }));
+  it('does not run authenticate for a non-WebSocket upgrade request', async () => {
+    const authenticate = vi.fn(() => ({ userId: 'plain' }));
+    const app = await createApp({}, server({ authenticate }).assemble({ handlers: [] }));
     apps.push(app);
 
     const response = await sendUpgrade(app.port, '/ws/lobby', 'h2c');
     expect(response).toMatch(/^HTTP\/1\.1 400 /);
-    expect(upgrade).not.toHaveBeenCalled();
+    expect(authenticate).not.toHaveBeenCalled();
   });
 
   it('closes a socket-level rejection after Fastify upgrades it', async () => {
@@ -504,7 +504,7 @@ describe('Fastify binding', () => {
 
   it('reports the real outbound queue while a Fastify client is slow', async () => {
     const queued = server({
-      upgrade() {
+      authenticate() {
         return { userId: 'slow-client' };
       },
       capabilities: [

@@ -69,7 +69,7 @@ function flushConnectionState(core: EngineCore, connection: RuntimeConnection): 
   if (connection.lastPersistedFingerprint === fingerprint) return;
 
   ConnectionStore.writeConnectionRow(core.storage.sql, row);
-  const persistResult = core.options.hibernation?.persist(connection.wsKey, {
+  const persistResult = core.options.hibernation?.persist(connection.socketKey, {
     id: connection.id,
   });
   assertSynchronousResult(persistResult, 'adapter hibernation.persist');

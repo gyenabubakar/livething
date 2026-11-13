@@ -3,10 +3,10 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 export const requestContract = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [clientRequests(), channels()],
 });
 

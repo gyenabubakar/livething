@@ -6,7 +6,7 @@ import { inbox } from '@livething/server/inbox';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { SendRoomMsg } from './events.ts';
 import type { RoomMsg } from './events.ts';
 
@@ -18,7 +18,7 @@ import type { RoomMsg } from './events.ts';
 // consumes and acknowledges the gap even without `replay()`; `replay()` owns the
 // optional `onGap` callback that makes the loss visible to application code.
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     channels(),
     sequence({ persist: true }),

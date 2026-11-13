@@ -8,7 +8,7 @@ export type TagKind = 'ephemeral' | 'persistent';
  * A `TagRef` returned from a `TagGroupHandle.ref(key)` call. Same data as a
  * plain `TagRef` plus the methods that act on the group of connections
  * matching that exact `(kind, group, key)`. Anywhere a plain `TagRef` is
- * accepted (`onUpgrade` return, `ConnectionInfo.tags`, `channelHandle.kick`),
+ * accepted (`onAuthenticate` return, `ConnectionInfo.tags`, `channelHandle.kick`),
  * a `TagRefHandle` works too — the methods are stripped at serialization.
  */
 export interface TagRefHandle<Meta = Record<string, unknown>> extends TagRef {

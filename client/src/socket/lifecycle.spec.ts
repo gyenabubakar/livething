@@ -239,10 +239,10 @@ describe('event ordering on reconnect open', () => {
   });
 });
 
-describe('lazy idleTimeout:0 never idle-closes', () => {
-  it('stays open indefinitely after the last consumer releases when idleTimeout is 0', () => {
+describe('lazy lazyIdleTimeoutMs:0 never idle-closes', () => {
+  it('stays open indefinitely after the last consumer releases when lazyIdleTimeoutMs is 0', () => {
     vi.useFakeTimers();
-    const socket = c(connect('wss://test', { lazy: true, idleTimeout: 0 }));
+    const socket = c(connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 0 }));
 
     const unsub = socket.on('some-event', () => {});
     MockWebSocket.last().open();
@@ -256,7 +256,7 @@ describe('lazy idleTimeout:0 never idle-closes', () => {
 
   it('does not idle-close when the idle timer would be 0 even after multiple release cycles', () => {
     vi.useFakeTimers();
-    const socket = c(connect('wss://test', { lazy: true, idleTimeout: 0 }));
+    const socket = c(connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 0 }));
 
     const unsubA = socket.on('a', () => {});
     const unsubB = socket.on('b', () => {});
@@ -274,7 +274,7 @@ describe('lazy idleTimeout:0 never idle-closes', () => {
 describe('lazy idle window resets on send', () => {
   it('a send refreshes the idle countdown so send-only usage is not idle-closed', () => {
     vi.useFakeTimers();
-    const socket = c(connect('wss://test', { lazy: true, idleTimeout: 10_000 }));
+    const socket = c(connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 10_000 }));
     const raw = socket as unknown as { send(event: string, payload: unknown): boolean };
 
     raw.send('echo', {});

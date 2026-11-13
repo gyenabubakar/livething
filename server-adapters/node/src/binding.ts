@@ -1,8 +1,4 @@
-import type {
-  ConnectionHandle,
-  ServerDefinition,
-  UpgradeDecision,
-} from '@livething/server/adapters';
+import type { AuthDecision, ConnectionHandle, ServerDefinition } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import { createNodeEndpoint } from './endpoint.ts';
 import { createHttpRejectionResponse, isSocketRejection } from './upgrade.ts';
@@ -82,7 +78,7 @@ export interface NodeBinding {
  * This does not create, listen on, or close an HTTP server. A host integration
  * calls `prepare()` or `prepareNode()`, performs its own handshake, then passes
  * accepted transport events through the returned connection. Both run the
- * definition's `upgrade` hook, so call them only for a WebSocket upgrade request.
+ * definition's `authenticate` hook, so call them only for a WebSocket upgrade request.
  */
 export function binding(): NodeBinding {
   const endpoints = new Set<NodeEndpointInternals>();
@@ -129,7 +125,7 @@ function createBindingEndpoint<TAdmin>(
 }
 
 function toNodeUpgrade<TAdmin>(
-  decision: UpgradeDecision,
+  decision: AuthDecision,
   endpoint: NodeEndpointInternals<TAdmin>,
 ): NodeUpgrade {
   if (!decision.reject) {
@@ -153,7 +149,7 @@ function toNodeUpgrade<TAdmin>(
     return {
       type: 'socket',
       code: decision.code!,
-      reason: decision.reason ?? 'Upgrade rejected',
+      reason: decision.reason ?? 'Authentication rejected',
     };
   }
 

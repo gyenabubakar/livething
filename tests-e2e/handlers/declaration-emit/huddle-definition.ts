@@ -30,7 +30,7 @@ export const pollsDefinition = polls.assemble({ handlers: [handlePing, handleClo
 export const Polls = plugin('acme:polls', { definition: pollsDefinition });
 
 export const base = server({
-  async upgrade(request) {
+  async authenticate(request) {
     return { userId: request.url, meta: { name: 'a', role: 'admin' as string } };
   },
   capabilities: [

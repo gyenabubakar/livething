@@ -36,10 +36,10 @@ export type {
   RequestHandlerValue,
   ScheduledHandlerValue,
   ScopedServerConfig,
-  ScopedUpgradeFn,
+  ScopedAuthFn,
   StreamHandlerValue,
-  UpgradeFn,
-  UpgradeReturn,
+  AuthFn,
+  AuthReturn,
 } from './_define/server.ts';
 export type {
   BinaryIncomingHandlerValue,

@@ -4,13 +4,13 @@ import { clientRequests } from '@livething/server/client-requests';
 import { rateLimit } from '@livething/server/rate-limit';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const RoomMsgPayload = v.object({ text: v.string() });
 const EchoReqPayload = v.object({ text: v.string() });
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     rateLimit({ windowMs: 60_000, maxMessages: 3 }),
     channels(),

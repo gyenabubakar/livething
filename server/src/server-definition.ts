@@ -184,12 +184,12 @@ export type AdminOf<TDefinition> =
     : ConnectionlessContext<Record<string, unknown>, unknown>;
 
 /**
- * The per-connection metadata type a server definition's `upgrade(...)` returns, read off
+ * The per-connection metadata type a server definition's `authenticate(...)` returns, read off
  * the ctx the definition is branded with.
  *
  * Adapters that carry connection snapshots across a serializing boundary need
  * the concrete type: a `Record<string, unknown>` fallback is not something
- * Cloudflare's RPC types accept as sendable. A server definition with no `upgrade` hook
+ * Cloudflare's RPC types accept as sendable. A server definition with no `authenticate` hook
  * has no metadata type to read, so it lands on the empty fallback rather than
  * `unknown` — which would fail the same sendability check.
  */

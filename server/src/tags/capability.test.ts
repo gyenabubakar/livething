@@ -35,9 +35,9 @@ describe('tags typing', () => {
     });
   });
 
-  it('gates the upgrade ephemeral-tag sugar to declared ephemeral group names', () => {
+  it('gates the authenticate ephemeral-tag sugar to declared ephemeral group names', () => {
     server({
-      upgrade() {
+      authenticate() {
         return { userId: 'a', tags: { ephemeral: { role: 'admin' } } };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
@@ -45,7 +45,7 @@ describe('tags typing', () => {
 
     server({
       // @ts-expect-error 'nope' is not a declared ephemeral group
-      upgrade() {
+      authenticate() {
         return { userId: 'a', tags: { ephemeral: { nope: 'x' } } };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],

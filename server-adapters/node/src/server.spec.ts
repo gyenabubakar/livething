@@ -9,7 +9,7 @@ type FakeEngine = {
   reconcileConnections: ReturnType<typeof vi.fn>;
   handleAlarm: ReturnType<typeof vi.fn>;
   handleShutdown: ReturnType<typeof vi.fn>;
-  handleUpgrade: ReturnType<typeof vi.fn>;
+  authenticate: ReturnType<typeof vi.fn>;
   accept: ReturnType<typeof vi.fn>;
   admin: ReturnType<typeof vi.fn>;
 };
@@ -61,7 +61,7 @@ function makeEngine(): FakeEngine {
     reconcileConnections: vi.fn(),
     handleAlarm: vi.fn(async () => {}),
     handleShutdown: vi.fn(async () => {}),
-    handleUpgrade: vi.fn(async () => ({ userId: 'user-1' })),
+    authenticate: vi.fn(async () => ({ userId: 'user-1' })),
     accept: vi.fn(() => ({
       handleMessage: vi.fn(async () => {}),
       handleClose: vi.fn(async () => {}),
@@ -109,11 +109,11 @@ describe('createNodeEndpoint()', () => {
 
     const prepared = service.decideNodeUpgrade(incomingRequest());
     await Promise.resolve();
-    expect(fake.handleUpgrade).not.toHaveBeenCalled();
+    expect(fake.authenticate).not.toHaveBeenCalled();
 
     finishInitialization();
     await service.ready;
-    await vi.waitFor(() => expect(fake.handleUpgrade).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(fake.authenticate).toHaveBeenCalledOnce());
     await prepared;
 
     await service.shutdown();
@@ -241,7 +241,7 @@ describe('binding()', () => {
     const endpoint = node.bind({} as never, {});
     await endpoint.ready();
 
-    fake.handleUpgrade.mockResolvedValueOnce({ reject: true, code: 401, reason: 'No token' });
+    fake.authenticate.mockResolvedValueOnce({ reject: true, code: 401, reason: 'No token' });
     const http = await endpoint.prepare(
       new Request('https://example.test/socket', { headers: { 'LiveThing-Client-IP': 'spoofed' } }),
       { clientIp: '203.0.113.7' },
@@ -252,11 +252,11 @@ describe('binding()', () => {
       await expect(http.response.text()).resolves.toBe('No token');
     }
 
-    const request = fake.handleUpgrade.mock.calls[0]?.[0] as Request;
+    const request = fake.authenticate.mock.calls[0]?.[0] as Request;
 
     expect(request.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
 
-    fake.handleUpgrade.mockResolvedValueOnce({ reject: true, code: 4001, reason: 'No token' });
+    fake.authenticate.mockResolvedValueOnce({ reject: true, code: 4001, reason: 'No token' });
     await expect(endpoint.prepareNode(incomingRequest())).resolves.toEqual({
       type: 'socket',
       code: 4001,

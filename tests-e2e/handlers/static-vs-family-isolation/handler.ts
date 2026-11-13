@@ -5,7 +5,7 @@ import { sequence } from '@livething/server/sequence';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/authenticate.ts';
 
 const MsgPayload = v.object({ from: v.string(), text: v.string() });
 const SendInGeneralPayload = v.object({ text: v.string() });
@@ -35,7 +35,7 @@ const KickFamilyPayload = v.object({
 const KickAckPayload = v.object({ where: v.string() });
 
 const base = server({
-  upgrade: (request) => requireUsernameWithUserTag(request),
+  authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     dedup(),
     sequence({ persist: true }),

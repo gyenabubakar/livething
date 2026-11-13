@@ -3,7 +3,7 @@ import { channels } from '@livething/server/channels';
 import { Disconnect } from '@livething/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 // Stand-in for a real token store (database, auth service, etc.).
 const TOKEN_ROLES: Record<string, 'member' | 'vip' | 'banned'> = {
@@ -15,7 +15,7 @@ const TOKEN_ROLES: Record<string, 'member' | 'vip' | 'banned'> = {
 const SendPayload = v.object({ text: v.string() });
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [channels()],
 });
 

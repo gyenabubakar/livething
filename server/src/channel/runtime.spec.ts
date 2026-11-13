@@ -21,7 +21,7 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}, use
   return {
     id,
     userId,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send() {},
       close() {},

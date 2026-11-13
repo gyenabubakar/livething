@@ -19,7 +19,7 @@ function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
     userId: id,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
       close() {},
@@ -368,7 +368,7 @@ describe('broadcastToConnections — fanout resilience', () => {
     return {
       id,
       userId: id,
-      wsKey: Symbol(id),
+      socketKey: Symbol(id),
       descriptor: {
         send: ({ text }: { kind: 'text'; text: string }) => send(text),
         close() {},
@@ -537,7 +537,7 @@ describe('broadcastToChannel — fanout resilience', () => {
     const conn: RuntimeConnection = {
       id,
       userId: id,
-      wsKey: Symbol(id),
+      socketKey: Symbol(id),
       descriptor: {
         send: ({ text }: { kind: 'text'; text: string }) => send(text),
         close() {},
@@ -622,7 +622,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     const conn: RuntimeConnection = {
       id,
       userId: id,
-      wsKey: Symbol(id),
+      socketKey: Symbol(id),
       descriptor: {
         send: ({ text }: { kind: 'text'; text: string }) => send(text),
         close() {},
@@ -773,7 +773,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     const secondTab: RuntimeConnection = {
       id: 'A-tab2',
       userId: 'A',
-      wsKey: Symbol('A-tab2'),
+      socketKey: Symbol('A-tab2'),
       descriptor: {
         send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
         close() {},

@@ -9,8 +9,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import type { InferPluginClient } from '@livething/server/plugins';
 import type { UploadsOptions } from '@livething/server/uploads';
+import { allowAnonymous } from '../_shared/authenticate.ts';
 import { hash } from '../_shared/bytes.ts';
-import { allowAnonymous } from '../_shared/upgrade.ts';
 
 /** `run` throws this when the test asks the disk to fill up. */
 export const StorageFull = error('storage-full');
@@ -115,7 +115,7 @@ export type FilesWire = InferPluginClient<typeof FilesPlugin>;
 function defineUploads(options: UploadsOptions, { hibernation = false } = {}) {
   const base = server({
     hibernation,
-    upgrade: (request) => allowAnonymous(request),
+    authenticate: (request) => allowAnonymous(request),
     capabilities: [
       binary(),
       uploads(options),

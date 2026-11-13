@@ -74,7 +74,7 @@ test.describe('lifecycle-hooks', () => {
     await ctxB.close();
   });
 
-  test('onUpgrade rejection (missing username) closes the socket with code 4001', async ({
+  test('onAuthenticate rejection (missing username) closes the socket with code 4001', async ({
     page,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -200,10 +200,10 @@ test.describe('lifecycle-hooks', () => {
     expect(shutdownResponse.status()).toBe(204);
   });
 
-  test('onUpgrade can attach meta and tags to connection', async ({ page }, testInfo) => {
+  test('onAuthenticate can attach meta and tags to connection', async ({ page }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     await openPage(page, room, 'alice');
-    await expect(page.getByTestId('upgrade-meta')).toHaveText('alice');
+    await expect(page.getByTestId('auth-meta')).toHaveText('alice');
   });
 
   test('onConnect hook delivers connect-count event on client join', async ({ page }, testInfo) => {

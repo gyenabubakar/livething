@@ -5,13 +5,13 @@ import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const RoomMessage = v.object({ text: v.string() });
 const SendBatch = v.object({ count: v.number() });
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [channels(), dedup(), sequence({ persist: true }), replay.history()],
 });
 

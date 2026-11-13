@@ -6,7 +6,7 @@ import { sequence } from '@livething/server/sequence';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/authenticate.ts';
 
 const SendInPublicPayload = v.object({ name: v.string(), text: v.string() });
 const SendInPrivatePayload = v.object({ name: v.string(), text: v.string() });
@@ -30,7 +30,7 @@ const PublicSendDirectPayload = v.object({ name: v.string(), text: v.string() })
 const PrivateSendDirectPayload = v.object({ name: v.string(), text: v.string() });
 
 const base = server({
-  upgrade: (request) => requireUsernameWithUserTag(request),
+  authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({
       'public-members-result': t<{ name: string; count: number; ids: string[] }>(),

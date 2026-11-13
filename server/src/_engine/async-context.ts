@@ -106,7 +106,7 @@ export function withConnectionCall<T>(
 
 /**
  * Run `fn` so `context.*` can reach a `ctx`. Used directly for code that has no connection
- * (init, task, shutdown, upgrade) and for the channel gate and lifecycle hooks.
+ * (init, task, shutdown, authenticate) and for the channel gate and lifecycle hooks.
  */
 export function withCallContext<T>(
   asyncContext: EngineAsyncContext | undefined,

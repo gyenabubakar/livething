@@ -850,7 +850,7 @@ export class LiveThingSocket {
   private _startLazyIdleTimer(): void {
     this._clearLazyIdleTimer();
 
-    const timeout = this._config.idleTimeout ?? 10_000;
+    const timeout = this._config.lazyIdleTimeoutMs ?? 10_000;
     if (timeout <= 0) return;
 
     this._lazyIdleTimer = setTimeout(() => {

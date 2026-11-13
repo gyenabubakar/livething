@@ -15,7 +15,7 @@ function fakeConnection(overrides: Partial<RuntimeConnection> = {}): RuntimeConn
   return {
     id: 'conn_1',
     userId: 'user-1',
-    wsKey: Symbol('ws'),
+    socketKey: Symbol('ws'),
     descriptor: {
       send() {},
       close() {},

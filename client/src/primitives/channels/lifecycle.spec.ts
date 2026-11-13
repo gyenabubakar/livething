@@ -892,7 +892,7 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(
-        connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+        connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }),
         channels(),
         reconnection(),
       );

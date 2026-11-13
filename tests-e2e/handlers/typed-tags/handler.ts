@@ -3,7 +3,7 @@ import { channels } from '@livething/server/channels';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/authenticate.ts';
 
 const TagPayload = v.object({
   kind: v.picklist(['ephemeral', 'persistent']),
@@ -17,7 +17,7 @@ const KickByPayload = v.object({ group: v.string(), key: v.string(), reason: v.s
 const GroupStatsPayload = v.object({ key: v.string() });
 
 const base = server({
-  upgrade: (request) => requireUsernameWithUserTag(request),
+  authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),
     tags((ephemeral, persistent) => [

@@ -3,10 +3,10 @@ import { channels } from '@livething/server/channels';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/authenticate.ts';
 
 const base = server({
-  upgrade: (request) => requireUsernameWithUserTag(request),
+  authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({
       'members-result': t<{ channel: string; count: number }>(),

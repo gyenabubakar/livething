@@ -31,7 +31,7 @@ function passthroughAsyncContext(): AsyncContextFactory {
 
 function buildEngine(gate: Promise<void>, said: string[]): Engine {
   const base = server({
-    upgrade: () => ({ userId: 'unused' }),
+    authenticate: () => ({ userId: 'unused' }),
     capabilities: [channels()],
   });
 
@@ -131,7 +131,7 @@ describe('a channel frame sent right after its subscribe', () => {
 
   it('does not hold the answer to a request the onSubscribe hook is waiting for', async () => {
     const base = server({
-      upgrade: () => ({ userId: 'unused' }),
+      authenticate: () => ({ userId: 'unused' }),
       capabilities: [channels(), serverRequests({})],
     });
     const outcomes: string[] = [];

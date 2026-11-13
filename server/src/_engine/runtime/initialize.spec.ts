@@ -594,7 +594,7 @@ describe('tags() restores persistent tags on reconnect', () => {
     return {
       id,
       userId,
-      wsKey: {},
+      socketKey: {},
       descriptor: { send() {}, close() {}, bufferedAmount: () => 0 },
       meta: {},
       tags: { ephemeral: new Map(), persistent: new Map() },
@@ -676,7 +676,7 @@ function fakeConnection(id: string, userId: string): EngineRuntimeTypes.RuntimeC
   return {
     id,
     userId,
-    wsKey: {},
+    socketKey: {},
     descriptor: { send() {}, close() {}, bufferedAmount: () => 0 },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },

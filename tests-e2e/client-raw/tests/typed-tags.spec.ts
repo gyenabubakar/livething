@@ -131,10 +131,10 @@ test.describe('typed tags', () => {
     await installRig(page);
   });
 
-  test('upgrade helper attaches an ephemeral user ref via requireUsername', async ({
+  test('authenticate helper attaches an ephemeral user ref via requireUsername', async ({
     page,
   }, testInfo) => {
-    const room = `tt-upgrade-${testInfo.testId}`;
+    const room = `tt-authenticate-${testInfo.testId}`;
     const c = await connect(page, 'alice', room);
     await send(page, c, { event: 'list-my-tags', payload: {} });
     const list = await waitForFrame(page, c, (f) => f.event === 'tags-list');

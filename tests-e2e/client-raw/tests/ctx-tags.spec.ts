@@ -22,14 +22,14 @@ test.describe('ctx-tags', () => {
   });
 
   test('tag ref connections() returns self', async ({ page }) => {
-    // onUpgrade tags this connection with its username; so the username tag
+    // onAuthenticate tags this connection with its username; so the username tag
     // should match exactly this one connection.
     await page.getByTestId('get-by-username').click();
     await expect(page.getByTestId('by-tag')).toHaveText(/testuser:[1-9]\d*/);
   });
 
   test('untag of non-existent tag is a no-op', async ({ page }) => {
-    // onUpgrade already tagged this connection with its username, so 'tags'
+    // onAuthenticate already tagged this connection with its username, so 'tags'
     // is non-empty from the start. Untagging 'vip' (which was never set)
     // must not remove the username tag and must not crash the pipeline.
     await page.getByTestId('untag-vip').click();

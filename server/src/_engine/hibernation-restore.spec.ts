@@ -51,8 +51,8 @@ function hibernatedSocket(id: string) {
 
 function buildEngine(
   storage: { sql: SQLProvider; kv: KVProvider },
-  restore: (wsKey: unknown) => unknown = (wsKey) =>
-    (wsKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
+  restore: (socketKey: unknown) => unknown = (socketKey) =>
+    (socketKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
   withReplay = false,
 ): Engine {
   const base = server({

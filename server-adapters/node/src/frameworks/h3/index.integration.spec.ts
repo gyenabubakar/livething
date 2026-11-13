@@ -1,7 +1,7 @@
 import { connect as connectTcp } from 'node:net';
 import { client, connect } from '@livething/client';
 import { server as createServerDefinition, emits, t } from '@livething/server';
-import { RejectUpgrade } from '@livething/server/errors';
+import { RejectAuth } from '@livething/server/errors';
 import { serve } from 'crossws/server/node';
 import { H3 } from 'h3/node';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -21,11 +21,11 @@ let disconnects = 0;
 let lastDisconnect: { code: number; reason: string } | undefined;
 
 const base = createServerDefinition({
-  upgrade(request) {
+  authenticate(request) {
     const pathname = new URL(request.url).pathname;
-    if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
+    if (pathname.endsWith('/http-reject')) throw RejectAuth(401, 'No token');
 
-    if (pathname.endsWith('/socket-reject')) throw RejectUpgrade(4001, 'No token');
+    if (pathname.endsWith('/socket-reject')) throw RejectAuth(4001, 'No token');
 
     if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
@@ -347,7 +347,7 @@ describe('H3 binding', () => {
     });
 
     const slowDefinition = createServerDefinition({
-      async upgrade(request) {
+      async authenticate(request) {
         started();
         request.signal.addEventListener('abort', () => {
           aborted = true;
@@ -464,24 +464,30 @@ describe('H3 binding', () => {
     expect(response).toContain('No token');
   });
 
-  it('answers a plain HTTP request with 426 without running upgrade', async () => {
-    const upgrade = vi.fn(() => ({ userId: 'plain' }));
-    const app = await createApp({}, createServerDefinition({ upgrade }).assemble({ handlers: [] }));
+  it('answers a plain HTTP request with 426 without running authenticate', async () => {
+    const authenticate = vi.fn(() => ({ userId: 'plain' }));
+    const app = await createApp(
+      {},
+      createServerDefinition({ authenticate }).assemble({ handlers: [] }),
+    );
     apps.push(app);
 
     const response = await fetch(`http://127.0.0.1:${app.port}/ws/lobby`);
     expect(response.status).toBe(426);
-    expect(upgrade).not.toHaveBeenCalled();
+    expect(authenticate).not.toHaveBeenCalled();
   });
 
-  it('does not run upgrade for a non-WebSocket upgrade request', async () => {
-    const upgrade = vi.fn(() => ({ userId: 'plain' }));
-    const app = await createApp({}, createServerDefinition({ upgrade }).assemble({ handlers: [] }));
+  it('does not run authenticate for a non-WebSocket upgrade request', async () => {
+    const authenticate = vi.fn(() => ({ userId: 'plain' }));
+    const app = await createApp(
+      {},
+      createServerDefinition({ authenticate }).assemble({ handlers: [] }),
+    );
     apps.push(app);
 
     const response = await sendNonWebSocketUpgrade(app.port, '/ws/lobby');
     expect(response).toMatch(/^HTTP\/1\.1 400 /);
-    expect(upgrade).not.toHaveBeenCalled();
+    expect(authenticate).not.toHaveBeenCalled();
   });
 
   it('closes a socket-level rejection after CrossWS upgrades it', async () => {
@@ -555,7 +561,7 @@ describe('H3 binding', () => {
 
   it('reports the real outbound queue while an H3 client is slow', async () => {
     const queued = createServerDefinition({
-      upgrade() {
+      authenticate() {
         return { userId: 'slow-client' };
       },
       capabilities: [

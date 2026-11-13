@@ -21,7 +21,7 @@ type OptionsParameter = { terminal?: boolean };
 
 type ConnectionDescriptor = EngineAdapterTypes.ConnectionDescriptor;
 type ConnectionHandle = EngineAdapterTypes.ConnectionHandle;
-type UpgradeDecision = EngineAdapterTypes.UpgradeDecision;
+type AuthDecision = EngineAdapterTypes.AuthDecision;
 
 /**
  * Runs one compiled server definition. Adapters call methods on this class;
@@ -73,17 +73,17 @@ export class Engine<TApi = unknown> {
   }
 
   /** Accept a new websocket and return the callbacks the adapter uses to drive it. */
-  accept(wsKey: unknown, descriptor: ConnectionDescriptor): ConnectionHandle {
+  accept(socketKey: unknown, descriptor: ConnectionDescriptor): ConnectionHandle {
     const handle = EngineConnectionRuntime.acceptConnection(
       EngineDeps.connectionRuntime(this.core),
-      wsKey,
+      socketKey,
       descriptor,
     );
     return this.wrapHandle(handle);
   }
 
   /** Rebuild a connection handle for a websocket woken from hibernation. */
-  handleHibernationWake(wsKey: unknown): ConnectionHandle {
+  handleHibernationWake(socketKey: unknown): ConnectionHandle {
     if (!this.usesHibernation()) {
       throw new Error(
         '[livething] hibernation is not enabled for this server definition. Set `hibernation: true` in server().',
@@ -92,7 +92,7 @@ export class Engine<TApi = unknown> {
 
     const handle = EngineConnectionRuntime.wakeHibernatedConnection(
       EngineDeps.connectionRuntime(this.core),
-      wsKey,
+      socketKey,
     );
     return this.wrapHandle(handle);
   }
@@ -113,14 +113,14 @@ export class Engine<TApi = unknown> {
     };
   }
 
-  /** Run the upgrade hook before the adapter commits to the handshake. */
-  async handleUpgrade(request: Request): Promise<UpgradeDecision> {
-    return EngineConnectionRuntime.handleUpgrade(
+  /** Run the authenticate hook before the adapter commits to the handshake. */
+  async authenticate(request: Request): Promise<AuthDecision> {
+    return EngineConnectionRuntime.authenticate(
       {
-        upgradeHooks: this.core.hooks.upgrade,
-        pluginUpgradeHooks: this.core.hooks.pluginUpgrade,
-        builderUpgradeHook: this.core.hooks.builderUpgrade,
-        upgradeHelpers: this.buildUpgradeHelpers(),
+        authHooks: this.core.hooks.authenticate,
+        pluginAuthHooks: this.core.hooks.pluginAuth,
+        builderAuthHook: this.core.hooks.builderAuth,
+        authHelpers: this.buildAuthHelpers(),
         asyncContext: this.core.asyncContext,
         logger: this.core.logger,
         isTagGroupDeclared: (kind, group) => this.core.isTagGroupDeclared(kind, group),
@@ -200,19 +200,19 @@ export class Engine<TApi = unknown> {
     const runtime = EngineDeps.connectionRuntime(this.core);
     const restored = new Set<string>();
     EngineHibernation.withPreloadedConnectionRows(this.core, () => {
-      for (const wsKey of sockets) {
+      for (const socketKey of sockets) {
         withInvocationScopeSync(this.core, () => {
-          EngineConnectionRuntime.wakeHibernatedConnection(runtime, wsKey);
+          EngineConnectionRuntime.wakeHibernatedConnection(runtime, socketKey);
         });
-        const id = this.core.wsToConnectionId.get(wsKey);
+        const id = this.core.socketToConnectionId.get(socketKey);
         if (id) restored.add(id);
       }
     });
     EngineHibernation.reconcileConnections(this.core, restored);
   }
 
-  /** Build the helper bag passed to every `onUpgrade` hook. @internal */
-  private buildUpgradeHelpers(): LifecycleTypes.UpgradeHelpers {
+  /** Build the helper bag passed to every `onAuthenticate` hook. @internal */
+  private buildAuthHelpers(): LifecycleTypes.AuthHelpers {
     const ctx = createInitContext({
       logger: this.core.logger,
       platform: this.core.platform,

@@ -109,10 +109,10 @@ describe('plugin typing', () => {
     expectTypeOf<C['errors']>().toHaveProperty('__acme:feed::denied');
   });
 
-  it('types a plugin upgrade meta through the scoped server generic', () => {
+  it('types a plugin authenticate meta through the scoped server generic', () => {
     server<{ userId: string }>({
       scope: 'plugin',
-      upgrade() {
+      authenticate() {
         return { userId: 'u1', meta: { userId: 'u1' } };
       },
     });

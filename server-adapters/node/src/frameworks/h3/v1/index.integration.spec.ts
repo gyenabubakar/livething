@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { connect as connectTcp } from 'node:net';
 import { client, connect } from '@livething/client';
 import { server as createServerDefinition, emits, t } from '@livething/server';
-import { RejectUpgrade } from '@livething/server/errors';
+import { RejectAuth } from '@livething/server/errors';
 import nodeWebSocketAdapter from 'crossws-v1/adapters/node';
 import { createApp, createRouter, defineWebSocketHandler, toNodeListener } from 'h3-v1';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -24,15 +24,15 @@ let lastDisconnect: { code: number; reason: string } | undefined;
 let transportErrors = 0;
 
 const base = createServerDefinition({
-  upgrade(request) {
+  authenticate(request) {
     const pathname = new URL(request.url).pathname;
-    if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
+    if (pathname.endsWith('/http-reject')) throw RejectAuth(401, 'No token');
 
     if (pathname.endsWith('/socket-reject-long')) {
-      throw RejectUpgrade(4001, '🙂'.repeat(50));
+      throw RejectAuth(4001, '🙂'.repeat(50));
     }
 
-    if (pathname.endsWith('/socket-reject')) throw RejectUpgrade(4001, 'No token');
+    if (pathname.endsWith('/socket-reject')) throw RejectAuth(4001, 'No token');
 
     if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
@@ -237,7 +237,7 @@ function sendInvalidClientFrame(port: number, path: string): Promise<void> {
 
 type H3V1Hooks = Parameters<Parameters<typeof createH3V1Setup>[0]>[0];
 
-function captureUpgradeHook(serverDefinition: ServerDefinition) {
+function captureAuthHook(serverDefinition: ServerDefinition) {
   let hooks!: H3V1Hooks;
   const livething = createH3V1Setup((value) => {
     hooks = value;
@@ -283,7 +283,7 @@ describe('H3 v1 binding', () => {
   it('keeps endpoints isolated when one setup binds more than one route', async () => {
     function namedDefinition(name: string) {
       const named = createServerDefinition({
-        upgrade() {
+        authenticate() {
           return { userId: name };
         },
         capabilities: [emits({ identity: t<{ name: string }>() })],
@@ -433,28 +433,32 @@ describe('H3 v1 binding', () => {
     expect(response).not.toMatch(/^content-type:/im);
   });
 
-  it('answers a plain HTTP request with 426 without running upgrade', async () => {
-    const upgrade = vi.fn(() => ({ userId: 'plain' }));
-    const app = await createTestApp(createServerDefinition({ upgrade }).assemble({ handlers: [] }));
+  it('answers a plain HTTP request with 426 without running authenticate', async () => {
+    const authenticate = vi.fn(() => ({ userId: 'plain' }));
+    const app = await createTestApp(
+      createServerDefinition({ authenticate }).assemble({ handlers: [] }),
+    );
     apps.push(app);
 
     const response = await fetch(`http://127.0.0.1:${app.port}/ws/lobby`);
     expect(response.status).toBe(426);
-    expect(upgrade).not.toHaveBeenCalled();
+    expect(authenticate).not.toHaveBeenCalled();
   });
 
-  it('does not run upgrade for a non-WebSocket upgrade request', async () => {
-    const upgrade = vi.fn(() => ({ userId: 'plain' }));
-    const app = await createTestApp(createServerDefinition({ upgrade }).assemble({ handlers: [] }));
+  it('does not run authenticate for a non-WebSocket upgrade request', async () => {
+    const authenticate = vi.fn(() => ({ userId: 'plain' }));
+    const app = await createTestApp(
+      createServerDefinition({ authenticate }).assemble({ handlers: [] }),
+    );
     apps.push(app);
 
     const response = await sendNonWebSocketUpgrade(app.port, '/ws/lobby');
     expect(response).toMatch(/^HTTP\/1\.1 400 /);
-    expect(upgrade).not.toHaveBeenCalled();
+    expect(authenticate).not.toHaveBeenCalled();
   });
 
   it('returns 400 for a malformed upgrade URL', async () => {
-    const { hooks, livething } = captureUpgradeHook(definition);
+    const { hooks, livething } = captureAuthHook(definition);
 
     const response = await hooks.upgrade?.({
       context: {},
@@ -473,7 +477,7 @@ describe('H3 v1 binding', () => {
       handlers: [],
       api: () => ({ then() {} }),
     });
-    const { hooks, livething } = captureUpgradeHook(invalidDefinition);
+    const { hooks, livething } = captureAuthHook(invalidDefinition);
 
     const response = await hooks.upgrade?.({
       context: {},
@@ -567,7 +571,7 @@ describe('H3 v1 binding', () => {
     });
 
     const slowDefinition = createServerDefinition({
-      async upgrade(request) {
+      async authenticate(request) {
         started();
         request.signal.addEventListener('abort', () => {
           aborted = true;
@@ -615,7 +619,7 @@ describe('H3 v1 binding', () => {
       release = resolve;
     });
     const slow = createServerDefinition({
-      async upgrade() {
+      async authenticate() {
         started();
         await releaseUpgrade;
         return { userId: 'gone' };
@@ -671,7 +675,7 @@ describe('H3 v1 binding', () => {
 
   it('reports the real outbound queue while an H3 v1 client is slow', async () => {
     const queued = createServerDefinition({
-      upgrade() {
+      authenticate() {
         return { userId: 'slow-client' };
       },
       capabilities: [

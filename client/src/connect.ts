@@ -5,7 +5,7 @@ export interface ConnectOptions {
   /** Don't open the socket until something actually needs it. Default: `false`. */
   lazy?: boolean;
   /** In lazy mode, close after this many ms of no use. `0` means never. Default: `10_000`. */
-  idleTimeout?: number;
+  lazyIdleTimeoutMs?: number;
   /** Subprotocols to pass to the WebSocket (e.g. `['graphql-ws']`). */
   protocols?: string[];
 }
@@ -34,7 +34,9 @@ export function connect(
     applyConfig(config) {
       config.url = url;
       if (options?.lazy !== undefined) config.lazy = options.lazy;
-      if (options?.idleTimeout !== undefined) config.idleTimeout = options.idleTimeout;
+      if (options?.lazyIdleTimeoutMs !== undefined) {
+        config.lazyIdleTimeoutMs = options.lazyIdleTimeoutMs;
+      }
       if (options?.protocols !== undefined) config.protocols = options.protocols;
     },
   };

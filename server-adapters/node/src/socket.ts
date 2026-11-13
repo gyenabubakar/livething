@@ -1,9 +1,9 @@
 import type {
+  AuthDecision,
   ConnectionDescriptor,
   ConnectionHandle,
   Engine,
   TransportFrame,
-  UpgradeDecision,
 } from '@livething/server/adapters';
 
 /** What a WebSocket `send()` takes for a frame: a string goes as text, bytes go as binary. */
@@ -43,7 +43,7 @@ export interface ConnectionBridgeOptions {
   engine: Pick<Engine, 'accept'>;
   token: unknown;
   transport: ConnectionTransport;
-  decision: UpgradeDecision;
+  decision: AuthDecision;
 }
 
 /** Creates the engine connection handle for an accepted transport. */

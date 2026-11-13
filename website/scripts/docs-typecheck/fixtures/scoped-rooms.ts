@@ -2,7 +2,7 @@
 import { CloseCodes } from '@livething/core';
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
-import { RejectUpgrade } from '@livething/server/errors';
+import { RejectAuth } from '@livething/server/errors';
 import { serverRequests } from '@livething/server/server-requests';
 import { recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
@@ -10,10 +10,10 @@ import { verifySession } from './auth';
 import { Message } from './base';
 
 export const base = server({
-  async upgrade(request) {
+  async authenticate(request) {
     const token = new URL(request.url).searchParams.get('token');
     const user = await verifySession(token);
-    if (!user) throw RejectUpgrade(CloseCodes.AUTH_INVALID, 'invalid session');
+    if (!user) throw RejectAuth(CloseCodes.AUTH_INVALID, 'invalid session');
     return {
       userId: user.id,
       meta: { name: user.name, role: user.role },

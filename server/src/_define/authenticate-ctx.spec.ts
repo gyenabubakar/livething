@@ -12,7 +12,7 @@ import { plugin } from './plugins.ts';
 function buildEngine(definition: ServerDefinition, platform: unknown = {}): Engine {
   let captured: Engine | undefined;
   const runAdapter = adapter({
-    id: 'upgrade-ctx',
+    id: 'authenticate-ctx',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       captured = createEngine({
@@ -30,10 +30,10 @@ function buildEngine(definition: ServerDefinition, platform: unknown = {}): Engi
   return captured;
 }
 
-describe('upgrade(request, ctx)', () => {
+describe('authenticate(request, ctx)', () => {
   it('reads tables created in onInit and decides userId and meta from them', async () => {
     const base = server({
-      upgrade: (request, ctx) => {
+      authenticate: (request, ctx) => {
         const token = new URL(request.url).searchParams.get('token');
         const session = ctx.sql
           .exec<{
@@ -53,19 +53,19 @@ describe('upgrade(request, ctx)', () => {
     const engine = buildEngine(base.assemble({ handlers: [] }));
     await engine.initialize();
 
-    const known = await engine.handleUpgrade(new Request('https://x/?token=abc'));
+    const known = await engine.authenticate(new Request('https://x/?token=abc'));
     expect(known.userId).toBe('user-1');
     expect(known.meta).toEqual({ role: 'admin' });
 
-    const unknown = await engine.handleUpgrade(new Request('https://x/?token=nope'));
+    const unknown = await engine.authenticate(new Request('https://x/?token=nope'));
     expect(unknown.meta).toEqual({ role: 'guest' });
   });
 
-  it('gives the upgrade the kv store, logger and platform', async () => {
+  it('gives the authenticate the kv store, logger and platform', async () => {
     const platform = { name: 'test-platform' };
     let seen: InitContext | undefined;
     const base = server({
-      upgrade: (_request, ctx) => {
+      authenticate: (_request, ctx) => {
         seen = ctx;
         return { userId: 'u1' };
       },
@@ -73,7 +73,7 @@ describe('upgrade(request, ctx)', () => {
 
     const engine = buildEngine(base.assemble({ handlers: [] }), platform);
     await engine.initialize();
-    await engine.handleUpgrade(new Request('https://x/'));
+    await engine.authenticate(new Request('https://x/'));
 
     expect(seen?.platform).toBe(platform);
     expect(typeof seen?.log.info).toBe('function');
@@ -82,12 +82,12 @@ describe('upgrade(request, ctx)', () => {
   });
 });
 
-describe("a plugin's upgrade(request, ctx)", () => {
+describe("a plugin's authenticate(request, ctx)", () => {
   function buildWithStorage(definition: ServerDefinition) {
     const storage = createTestStorage();
     let captured: Engine | undefined;
     adapter({
-      id: 'plugin-upgrade-ctx',
+      id: 'plugin-authenticate-ctx',
       asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
       setup(createEngine) {
         captured = createEngine({
@@ -107,11 +107,11 @@ describe("a plugin's upgrade(request, ctx)", () => {
   function authPlugin(seen: Record<string, unknown>) {
     const scoped = server({
       scope: 'plugin',
-      upgrade: async (_request, ctx) => {
+      authenticate: async (_request, ctx) => {
         seen.ctx = ctx;
-        seen.sameAsAccessor = context.upgrade(scoped) === ctx;
+        seen.sameAsAccessor = context.authenticate(scoped) === ctx;
         try {
-          context.upgrade(app);
+          context.authenticate(app);
         } catch (error) {
           seen.appBaseInPlugin = (error as Error).message;
         }
@@ -128,14 +128,14 @@ describe("a plugin's upgrade(request, ctx)", () => {
 
   const app = server({});
 
-  it('receives its own ctx, which context.upgrade(pluginBase) returns', async () => {
+  it('receives its own ctx, which context.authenticate(pluginBase) returns', async () => {
     const seen: Record<string, unknown> = {};
     const Auth = authPlugin(seen);
     const base = server({ capabilities: [Auth()] });
     const { engine } = buildWithStorage(base.assemble({ handlers: [] }));
     await engine.initialize();
 
-    await engine.handleUpgrade(new Request('https://x/'));
+    await engine.authenticate(new Request('https://x/'));
 
     const ctx = seen.ctx as InitContext;
     expect(typeof ctx.sql.exec).toBe('function');
@@ -150,34 +150,34 @@ describe("a plugin's upgrade(request, ctx)", () => {
     const { engine, storage } = buildWithStorage(base.assemble({ handlers: [] }));
     await engine.initialize();
 
-    await engine.handleUpgrade(new Request('https://x/'));
+    await engine.authenticate(new Request('https://x/'));
 
     expect(await storage.kv.get('__acme:auth::last-seen')).toBe('yes');
     expect(await storage.kv.get('last-seen')).toBeUndefined();
   });
 
-  it("does not accept the app's base inside a plugin upgrade", async () => {
+  it("does not accept the app's base inside a plugin authenticate", async () => {
     const seen: Record<string, unknown> = {};
     const Auth = authPlugin(seen);
     const base = server({ capabilities: [Auth()] });
     const { engine } = buildWithStorage(base.assemble({ handlers: [] }));
     await engine.initialize();
 
-    await engine.handleUpgrade(new Request('https://x/'));
+    await engine.authenticate(new Request('https://x/'));
 
     expect(seen.appBaseInPlugin).toMatch(/not the one running now/);
     expect(seen.appBaseInPlugin).toMatch(/a plugin's own base in that plugin's code/);
   });
 
-  it("does not accept a plugin's base inside the app's upgrade", async () => {
+  it("does not accept a plugin's base inside the app's authenticate", async () => {
     const seen: Record<string, unknown> = {};
     const Auth = authPlugin({});
     const pluginBase = server({ scope: 'plugin' });
     const base = server({
       capabilities: [Auth()],
-      upgrade: () => {
+      authenticate: () => {
         try {
-          context.upgrade(pluginBase);
+          context.authenticate(pluginBase);
         } catch (error) {
           seen.pluginBaseInApp = (error as Error).message;
         }
@@ -189,25 +189,25 @@ describe("a plugin's upgrade(request, ctx)", () => {
 
     await engine.initialize();
 
-    const decision = await engine.handleUpgrade(new Request('https://x/'));
+    const decision = await engine.authenticate(new Request('https://x/'));
 
     expect(seen.pluginBaseInApp).toMatch(/not the one running now/);
     expect(decision.reject).toBeFalsy();
   });
 });
 
-describe('plugin upgrades and the single userId', () => {
+describe('plugin authenticate hooks and the single userId', () => {
   function pluginReturning(
     id: string,
     result: { userId?: string; meta?: Record<string, unknown> },
   ) {
-    const scoped = server({ scope: 'plugin', upgrade: () => result });
+    const scoped = server({ scope: 'plugin', authenticate: () => result });
     const go = scoped.on('go', { run() {} });
 
     return plugin(id, { definition: scoped.assemble({ handlers: [go] }) });
   }
 
-  async function upgradeWith(
+  async function authenticateWith(
     definition: ServerDefinition,
     logged: { message: string; data: Record<string, unknown> }[] = [],
   ) {
@@ -232,15 +232,15 @@ describe('plugin upgrades and the single userId', () => {
     })(definition, undefined as never);
     await captured!.initialize();
 
-    return captured!.handleUpgrade(new Request('https://x/'));
+    return captured!.authenticate(new Request('https://x/'));
   }
 
-  it('names the plugin in the log, and not in the response, when its upgrade throws', async () => {
+  it('names the plugin in the log, and not in the response, when its authenticate throws', async () => {
     const logged: { message: string; data: Record<string, unknown> }[] = [];
     const Ok = pluginReturning('acme:first', { meta: { first: 1 } });
     const failing = server({
       scope: 'plugin',
-      upgrade: () => {
+      authenticate: () => {
         throw new Error('region lookup failed');
       },
     });
@@ -249,9 +249,9 @@ describe('plugin upgrades and the single userId', () => {
     });
     const base = server({ capabilities: [Ok(), Failing()] });
 
-    const decision = await upgradeWith(base.assemble({ handlers: [] }), logged);
+    const decision = await authenticateWith(base.assemble({ handlers: [] }), logged);
 
-    expect(decision).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+    expect(decision).toEqual({ reject: true, code: 500, reason: 'Authentication failed' });
     expect(logged).toHaveLength(1);
     expect(logged[0]?.data).toMatchObject({
       hook: "plugin 'acme:region'",
@@ -259,29 +259,29 @@ describe('plugin upgrades and the single userId', () => {
     });
   });
 
-  it('names the app in the log when the app upgrade throws', async () => {
+  it('names the app in the log when the app authenticate throws', async () => {
     const logged: { message: string; data: Record<string, unknown> }[] = [];
     const Plugin = pluginReturning('acme:region', { meta: { region: 'eu' } });
     const base = server({
       capabilities: [Plugin()],
-      upgrade: () => {
+      authenticate: () => {
         throw new Error('session store down');
       },
     });
 
-    await upgradeWith(base.assemble({ handlers: [] }), logged);
+    await authenticateWith(base.assemble({ handlers: [] }), logged);
 
     expect(logged[0]?.data).toMatchObject({ hook: 'the app', error: 'session store down' });
   });
 
-  it('merges the meta of a plugin that returns no userId with an app upgrade that returns one', async () => {
+  it('merges the meta of a plugin that returns no userId with an app authenticate that returns one', async () => {
     const Plugin = pluginReturning('acme:region', { meta: { region: 'eu' } });
     const base = server({
       capabilities: [Plugin()],
-      upgrade: () => ({ userId: 'u1', meta: { role: 'admin' } }),
+      authenticate: () => ({ userId: 'u1', meta: { role: 'admin' } }),
     });
 
-    const decision = await upgradeWith(base.assemble({ handlers: [] }));
+    const decision = await authenticateWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.userId).toBe('u1');
@@ -293,37 +293,40 @@ describe('plugin upgrades and the single userId', () => {
     const Second = pluginReturning('acme:second', { meta: { second: 2 } });
     const base = server({ capabilities: [First(), Second()] });
 
-    const decision = await upgradeWith(base.assemble({ handlers: [] }));
+    const decision = await authenticateWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.meta).toEqual({ first: 1, second: 2 });
   });
 
-  it('lets a plugin own the userId when the app upgrade returns none', async () => {
+  it('lets a plugin own the userId when the app authenticate returns none', async () => {
     const Plugin = pluginReturning('acme:auth', { userId: 'from-plugin' });
     const base = server({ capabilities: [Plugin()] });
 
-    const decision = await upgradeWith(base.assemble({ handlers: [] }));
+    const decision = await authenticateWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.userId).toBe('from-plugin');
   });
 
-  it('lets a plugin own the userId when the app upgrade returns only meta', async () => {
+  it('lets a plugin own the userId when the app authenticate returns only meta', async () => {
     const Plugin = pluginReturning('acme:auth', { userId: 'from-plugin' });
-    const base = server({ capabilities: [Plugin()], upgrade: () => ({ meta: { role: 'admin' } }) });
+    const base = server({
+      capabilities: [Plugin()],
+      authenticate: () => ({ meta: { role: 'admin' } }),
+    });
 
-    const decision = await upgradeWith(base.assemble({ handlers: [] }));
+    const decision = await authenticateWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.userId).toBe('from-plugin');
     expect(decision.meta).toEqual({ role: 'admin' });
   });
 
-  it('leaves the userId out when no upgrade returns one, so the connection stays anonymous', async () => {
-    const base = server({ upgrade: () => ({ meta: { role: 'guest' } }) });
+  it('leaves the userId out when no authenticate returns one, so the connection stays anonymous', async () => {
+    const base = server({ authenticate: () => ({ meta: { role: 'guest' } }) });
 
-    const decision = await upgradeWith(base.assemble({ handlers: [] }));
+    const decision = await authenticateWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBeFalsy();
     expect(decision.userId).toBeUndefined();
@@ -331,9 +334,9 @@ describe('plugin upgrades and the single userId', () => {
 
   it('still rejects the handshake when a plugin and the app both return a userId', async () => {
     const Plugin = pluginReturning('acme:auth', { userId: 'from-plugin' });
-    const base = server({ capabilities: [Plugin()], upgrade: () => ({ userId: 'u1' }) });
+    const base = server({ capabilities: [Plugin()], authenticate: () => ({ userId: 'u1' }) });
 
-    const decision = await upgradeWith(base.assemble({ handlers: [] }));
+    const decision = await authenticateWith(base.assemble({ handlers: [] }));
 
     expect(decision.reject).toBe(true);
   });

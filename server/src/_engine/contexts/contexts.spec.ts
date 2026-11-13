@@ -18,7 +18,7 @@ function createConnection(id: string, userId: string = id): RuntimeConnection {
   return {
     id,
     userId,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
       close: vi.fn(),
@@ -223,7 +223,7 @@ describe('usersByKey fan-out index — anonymous connections', () => {
       usersByKey,
       channelMembers: new Map(),
       tagMembers: new Map(),
-      wsToConnectionId: new Map(),
+      socketToConnectionId: new Map(),
       generateId: (prefix?: string) => `${prefix ?? 'id'}_${++idCounter}`,
       persistAttachment: vi.fn(),
       buildConnectionContext: vi.fn(() => ({})),
@@ -703,7 +703,7 @@ describe('persistAttachment', () => {
       options: { hibernation: { persist, restore: () => undefined } } as never,
     });
     const connection = createConnection('c1');
-    connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
+    connection.socketKey = Symbol('ws') as unknown as RuntimeConnection['socketKey'];
     connection.meta = { username: 'user1' };
 
     connection.tags.ephemeral.set('role', new Set(['vip']));
@@ -716,7 +716,7 @@ describe('persistAttachment', () => {
     persistAttachment(core, connection);
 
     expect(persist).toHaveBeenCalledTimes(1);
-    expect(persist).toHaveBeenCalledWith(connection.wsKey, { id: 'c1' });
+    expect(persist).toHaveBeenCalledWith(connection.socketKey, { id: 'c1' });
 
     const row = readConnectionRow(core.storage.sql, 'c1');
     expect(row).toEqual({
@@ -733,7 +733,7 @@ describe('persistAttachment', () => {
   it('still writes the row when the adapter does not provide a hibernation API', () => {
     const core = fakeCore();
     const connection = createConnection('c2');
-    connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
+    connection.socketKey = Symbol('ws') as unknown as RuntimeConnection['socketKey'];
 
     expect(() => persistAttachment(core, connection)).not.toThrow();
     expect(readConnectionRow(core.storage.sql, 'c2')).not.toBeNull();
@@ -742,7 +742,7 @@ describe('persistAttachment', () => {
   it('no-ops when hibernation is not enabled', () => {
     const core = fakeCore({ hibernationEnabled: false });
     const connection = createConnection('c3');
-    connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
+    connection.socketKey = Symbol('ws') as unknown as RuntimeConnection['socketKey'];
 
     persistAttachment(core, connection);
 

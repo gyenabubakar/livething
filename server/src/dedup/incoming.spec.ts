@@ -38,7 +38,7 @@ function makeConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
     userId: id,
-    wsKey: {},
+    socketKey: {},
     descriptor: { send() {}, close() {} } as unknown as RuntimeConnection['descriptor'],
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },

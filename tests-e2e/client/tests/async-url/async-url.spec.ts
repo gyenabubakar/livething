@@ -10,7 +10,7 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('async-url (conformance)', () => {
-  test('the async URL function username reaches the server upgrade and comes back via who-am-i', async ({
+  test('the async URL function username reaches the server authenticate and comes back via who-am-i', async ({
     page,
   }, testInfo) => {
     await open(page, `async-url-${testInfo.testId}`);

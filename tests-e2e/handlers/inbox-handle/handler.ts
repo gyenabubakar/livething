@@ -7,7 +7,7 @@ import { lastSeen } from '@livething/server/last-seen';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { SendRoomMsg } from './events.ts';
 import type { RoomMsg } from './events.ts';
 
@@ -19,7 +19,7 @@ import type { RoomMsg } from './events.ts';
 // `null`. `lastSeen()` rides along so `backlog()` fills each member's
 // `lastSeenAt` instead of omitting the field.
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     channels(),
     sequence({ persist: true }),

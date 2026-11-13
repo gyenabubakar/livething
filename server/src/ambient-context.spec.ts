@@ -214,13 +214,13 @@ describe('context.connection', () => {
   });
 });
 
-describe('context.init, context.shutdown and context.upgrade', () => {
-  it('returns the ctx of onInit, onShutdown and upgrade', async () => {
+describe('context.init, context.shutdown and context.authenticate', () => {
+  it('returns the ctx of onInit, onShutdown and authenticate', async () => {
     const platform = { name: 'spec' };
     const seen: Record<string, unknown> = {};
     const base = server({
-      upgrade: (_request, upgradeCtx) => {
-        seen.upgrade = context.upgrade(base) === upgradeCtx;
+      authenticate: (_request, authCtx) => {
+        seen.authenticate = context.authenticate(base) === authCtx;
         return { userId: 'u1' };
       },
       onInit(ctx) {
@@ -233,10 +233,10 @@ describe('context.init, context.shutdown and context.upgrade', () => {
 
     const engine = buildEngine(base.assemble({ handlers: [] }), platform);
     await engine.initialize();
-    await engine.handleUpgrade(new Request('https://x/'));
+    await engine.authenticate(new Request('https://x/'));
     await engine.handleShutdown();
 
-    expect(seen).toEqual({ init: true, upgrade: true, shutdown: true });
+    expect(seen).toEqual({ init: true, authenticate: true, shutdown: true });
   });
 });
 

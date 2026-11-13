@@ -412,7 +412,7 @@ interface ConnectionlessUserHandle<TSlots, TMeta> extends UserHandleCore<TSlots,
 
 /** What every user handle has. */
 interface UserHandleCore<TSlots, TMeta> {
-  /** The user id — the value `upgrade(...)` returned, or `''` on an anonymous connection. */
+  /** The user id — the value `authenticate(...)` returned, or `''` on an anonymous connection. */
   readonly id: string;
   /** Build a `UserRef` for this user — pass it to `kick` and the like. */
   ref(): UserRef;
@@ -443,7 +443,7 @@ type UserHandleCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = User
 /**
  * `ctx.user` (the current connection's user) and `ctx.users` (reach any user by
  * id), always present. A user is one or more connections sharing the id
- * `upgrade(...)` returned. An anonymous connection has no user identity —
+ * `authenticate(...)` returned. An anonymous connection has no user identity —
  * `ctx.user` is still there but reaches nobody.
  */
 interface UsersCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
@@ -462,7 +462,7 @@ interface UsersCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
  * so reading one without its capability is a compile error.
  *
  * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
- * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
+ * @template TMeta  The per-connection metadata returned from `authenticate(...)`.
  */
 type CoreCtx<TSlots, TMeta> = {
   /**
@@ -471,7 +471,7 @@ type CoreCtx<TSlots, TMeta> = {
    * user id; pass the ref itself to `kick`, `subscribe`, and the like.
    */
   readonly connection: ConnectionRef;
-  /** The metadata returned from `upgrade(...)`, typed from its return value. */
+  /** The metadata returned from `authenticate(...)`, typed from its return value. */
   readonly meta: TMeta;
   /** Merge a patch into this connection's `meta`. Persists once at the end of the handler. */
   setMeta(patch: Partial<TMeta>): void;
@@ -857,7 +857,7 @@ type CtxExtensionsOf<
  * present only when their capability is listed (see `CtxExtensionsOf`).
  *
  * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
- * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
+ * @template TMeta  The per-connection metadata returned from `authenticate(...)`.
  * @template TCaps  The capabilities listed, gating the capability-owned ctx fields.
  */
 export type AppCtx<
@@ -990,7 +990,7 @@ interface ConnectionlessManagersCtx<TSlots, TMeta> {
  * no-ops when there is nothing durable to clean up.
  *
  * @template TSlots The merged contract slots — drives the typed `broadcast` and `send`.
- * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
+ * @template TMeta  The per-connection metadata returned from `authenticate(...)`.
  * @template TCaps  The capabilities listed, gating the capability-owned fields.
  */
 export type ConnectionlessCtx<

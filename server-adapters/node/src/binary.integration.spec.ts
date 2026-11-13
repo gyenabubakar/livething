@@ -54,7 +54,7 @@ interface Received {
 
 function huddle(avatars: { info: unknown; bytes: number[] }[]) {
   const base = server({
-    upgrade(request) {
+    authenticate(request) {
       return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
     },
     capabilities: [binary(), channels()],
@@ -79,7 +79,7 @@ function huddle(avatars: { info: unknown; bytes: number[] }[]) {
 /** Huddle's binary requests and streams: thumbnails, attachment downloads and screen capture. */
 function huddleFiles(log: string[]) {
   const base = server({
-    upgrade(request) {
+    authenticate(request) {
       return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
     },
     capabilities: [
@@ -253,7 +253,7 @@ describe('binary messages over a real ws socket', () => {
 describe('replay of binary messages over a real ws socket', () => {
   function huddleWithReplay() {
     const base = server({
-      upgrade(request) {
+      authenticate(request) {
         return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
       },
       capabilities: [binary(), channels(), dedup(), sequence({ persist: true }), replay.history()],
@@ -307,7 +307,7 @@ describe('replay of binary messages over a real ws socket', () => {
 describe('inbox binary messages over a real ws socket', () => {
   function huddleWithDms() {
     const base = server({
-      upgrade(request) {
+      authenticate(request) {
         return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
       },
       capabilities: [binary(), channels(), dedup(), sequence({ persist: true })],
@@ -363,7 +363,7 @@ describe('inbox binary messages over a real ws socket', () => {
 describe('recorded binary streams over a real ws socket', () => {
   function huddleWithPdfExport(release: Promise<void>) {
     const base = server({
-      upgrade(request) {
+      authenticate(request) {
         return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
       },
       capabilities: [binary(), recordedStream()],

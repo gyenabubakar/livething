@@ -9,7 +9,7 @@ test.describe('ctx-meta', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
   }
 
-  test('ctx.meta (set by onUpgrade) is readable in an incoming handler', async ({
+  test('ctx.meta (set by onAuthenticate) is readable in an incoming handler', async ({
     page,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;

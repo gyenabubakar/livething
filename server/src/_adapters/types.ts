@@ -49,16 +49,16 @@ export interface SocketDescriptor {
 
 /**
  * The low-level send/close callbacks an adapter provides for each WebSocket,
- * plus the identity its upgrade gave the connection.
+ * plus the identity its authenticate gave the connection.
  *
  * When you build a custom platform adapter, you create one of these for every
  * accepted connection so the engine can push data to the client.
  */
 export interface ConnectionDescriptor extends SocketDescriptor {
   /**
-   * The user this socket belongs to, forwarded from the `onUpgrade` result.
-   * Required because the descriptor is only built for an accepted upgrade — by
-   * then the answer is known. An empty string means the upgrade returned no
+   * The user this socket belongs to, forwarded from the `onAuthenticate` result.
+   * Required because the descriptor is only built for an accepted connection — by
+   * then the answer is known. An empty string means the authenticate returned no
    * user id, so the connection is anonymous.
    */
   userId: string;
@@ -86,10 +86,10 @@ export interface ConnectionHandle {
 }
 
 /**
- * The result of the `onUpgrade` hook — tells the adapter whether to accept or
- * reject the WebSocket upgrade request, along with any initial metadata and tags.
+ * The result of the `onAuthenticate` hook — tells the adapter whether to accept or
+ * reject the connection, along with any initial metadata and tags.
  */
-export interface UpgradeDecision {
+export interface AuthDecision {
   reject?: boolean;
 
   code?: number;
@@ -98,7 +98,7 @@ export interface UpgradeDecision {
 
   /**
    * The user this socket belongs to. Set when `reject` is falsy — every
-   * accepted upgrade carries it. Omitted on reject decisions, where there is no
+   * accepted authenticate carries it. Omitted on reject decisions, where there is no
    * connection to attach it to.
    */
   userId?: string;
@@ -111,8 +111,8 @@ export interface UpgradeDecision {
 /**
  * The pluggable mechanism an adapter provides for persisting and restoring
  * per-socket state across hibernation cycles. The engine writes a snapshot to
- * `persist(wsKey, snapshot)` whenever connection state changes; on wake,
- * `restore(wsKey)` returns the most recent snapshot the platform held onto.
+ * `persist(socketKey, snapshot)` whenever connection state changes; on wake,
+ * `restore(socketKey)` returns the most recent snapshot the platform held onto.
  * Both callbacks must finish synchronously. The engine rejects a Promise or
  * thenable from either callback because a hibernation wake cannot safely defer
  * its attachment or index updates.
@@ -130,9 +130,9 @@ export interface UpgradeDecision {
  * ```
  */
 interface HibernationApi {
-  persist(wsKey: unknown, snapshot: unknown): void;
+  persist(socketKey: unknown, snapshot: unknown): void;
 
-  restore(wsKey: unknown): unknown;
+  restore(socketKey: unknown): unknown;
 }
 
 /** Runtime surfaces a platform adapter must provide for each engine instance. */

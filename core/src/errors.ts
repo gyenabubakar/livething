@@ -809,12 +809,12 @@ export const WrongFrameKind = /* @__PURE__ */ buildErrorFactory(
 export const StreamIdCollision = /* @__PURE__ */ buildErrorFactory('stream-id-collision');
 
 /**
- * Sent to the client when an anonymous connection (one whose `upgrade` returned
+ * Sent to the client when an anonymous connection (one whose `authenticate` returned
  * no `userId`) tries to start a durable stream. Those
  * streams key their stored state by the user id so a later reconnect can continue
  * them — an anonymous connection has no stable id to continue against, so the
  * server refuses rather than write state that can never be reached again. Give
- * the connection a `userId` in `upgrade`, or use a plain (non-durable) stream.
+ * the connection a `userId` in `authenticate`, or use a plain (non-durable) stream.
  *
  * @example
  * ```ts

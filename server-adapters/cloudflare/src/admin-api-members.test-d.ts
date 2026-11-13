@@ -4,7 +4,7 @@ import { bind } from './index.ts';
 import type { CloudflareAdmin } from './index.ts';
 
 const huddleBase = server({
-  upgrade: () => ({ userId: 'user_9', meta: { displayName: 'Ada' } }),
+  authenticate: () => ({ userId: 'user_9', meta: { displayName: 'Ada' } }),
   capabilities: [],
 });
 const huddle = huddleBase.assemble({

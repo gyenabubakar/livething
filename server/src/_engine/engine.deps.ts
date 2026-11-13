@@ -509,7 +509,7 @@ function buildConnectionRuntime(core: EngineCore) {
     usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,
     tagMembers: core.tagMembers,
-    wsToConnectionId: core.wsToConnectionId,
+    socketToConnectionId: core.socketToConnectionId,
 
     generateId: (prefix?: string) => core.generateId(prefix),
 
@@ -522,7 +522,7 @@ function buildConnectionRuntime(core: EngineCore) {
     flushAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.flushDirtyAttachment(core, connection),
 
-    restoreAttachment: (wsKey: unknown) => core.options.hibernation?.restore(wsKey),
+    restoreAttachment: (socketKey: unknown) => core.options.hibernation?.restore(socketKey),
 
     readConnectionState: (connectionId: string) =>
       EngineHibernation.readConnectionState(core, connectionId),
@@ -720,7 +720,7 @@ export function handleConnectionClose(
       connections: core.connections,
       usersByKey: core.usersByKey,
       tagMembers: core.tagMembers,
-      wsToConnectionId: core.wsToConnectionId,
+      socketToConnectionId: core.socketToConnectionId,
       deleteConnectionState: (connectionId) =>
         EngineHibernation.deleteConnectionState(core, connectionId),
       cancelActiveStreamsForConnection: (connectionId) =>

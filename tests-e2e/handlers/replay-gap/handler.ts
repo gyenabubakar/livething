@@ -6,7 +6,7 @@ import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { SendMsg, SendRoomMsg } from './events.ts';
 import type { ChatMsg, RoomMsg } from './events.ts';
 
@@ -15,7 +15,7 @@ import type { ChatMsg, RoomMsg } from './events.ts';
 // a client is offline evicts the row the client last held and bumps the eviction
 // watermark above its `lastKnownSeq` — the exact condition a `__gap__` reports.
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     emits({
       'chat-msg': t<ChatMsg>(),

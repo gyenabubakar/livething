@@ -1,12 +1,12 @@
 import { adapter } from '@livething/server/adapters';
 import type {
   AdminOf,
+  AuthDecision,
   ConnectionHandle,
   Engine,
   EngineRuntimeOptions,
   Logger,
   ServerDefinition,
-  UpgradeDecision,
 } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { PerMessageDeflateOptions } from 'ws';
@@ -92,12 +92,12 @@ interface NodeEndpoint<TAdmin = NodeAdmin> {
 
 /** Internal endpoint operations used by framework route bindings. */
 export interface NodeEndpointInternals<TAdmin = NodeAdmin> extends NodeEndpoint<TAdmin> {
-  decideNodeUpgrade(request: IncomingMessage, signal?: AbortSignal): Promise<UpgradeDecision>;
-  decideWebUpgrade(request: Request, clientIp?: string): Promise<UpgradeDecision>;
+  decideNodeUpgrade(request: IncomingMessage, signal?: AbortSignal): Promise<AuthDecision>;
+  decideWebUpgrade(request: Request, clientIp?: string): Promise<AuthDecision>;
   attachTransport(
     token: unknown,
     transport: ConnectionTransport,
-    decision: UpgradeDecision,
+    decision: AuthDecision,
   ): ConnectionHandle;
 }
 
@@ -132,7 +132,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     async function decideNodeUpgrade(
       request: IncomingMessage,
       signal?: AbortSignal,
-    ): Promise<UpgradeDecision> {
+    ): Promise<AuthDecision> {
       await ready;
       if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
@@ -146,10 +146,10 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         return { reject: true, code: 400, reason: 'Invalid upgrade request' };
       }
 
-      return engine.handleUpgrade(webRequest);
+      return engine.authenticate(webRequest);
     }
 
-    async function decideWebUpgrade(request: Request, clientIp?: string): Promise<UpgradeDecision> {
+    async function decideWebUpgrade(request: Request, clientIp?: string): Promise<AuthDecision> {
       await ready;
       if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
@@ -157,7 +157,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       headers.delete('LiveThing-Client-IP');
       if (clientIp !== undefined) headers.set('LiveThing-Client-IP', clientIp);
 
-      return engine.handleUpgrade(
+      return engine.authenticate(
         new Request(request.url, {
           method: request.method,
           headers,

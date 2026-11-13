@@ -3,7 +3,7 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const EchoPayload = v.object({ text: v.string() });
 
@@ -12,7 +12,7 @@ export const NsKey = localKey<{ tag: string }>('ns');
 export const ChannelKey = localKey<{ tag: string }>('channel');
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [emits({ echoed: t<{ text: string }>() }), clientRequests(), channels()],
   intercept(ctx) {
     ctx.provide(TopKey, { tag: 'top' });

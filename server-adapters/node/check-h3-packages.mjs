@@ -114,7 +114,7 @@ import { createApp, createRouter, toNodeListener } from 'h3';
 import WebSocket from 'ws';
 
 const base = defineServer({
-  upgrade() { return { userId: 'packed-v1' }; },
+  authenticate() { return { userId: 'packed-v1' }; },
   capabilities: [emits({ ready: t<{ version: string }>() })],
   onConnect(ctx) { ctx.send('ready', { version: 'v1' }); },
 });
@@ -156,7 +156,7 @@ import { H3 } from 'h3/node';
 import WebSocket from 'ws';
 
 const base = defineServer({
-  upgrade() { return { userId: 'packed-v2' }; },
+  authenticate() { return { userId: 'packed-v2' }; },
   capabilities: [emits({ ready: t<{ version: string }>() })],
   onConnect(ctx) { ctx.send('ready', { version: 'v2' }); },
 });

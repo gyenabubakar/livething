@@ -104,7 +104,7 @@ if (usePlatform) {
 
 const connectOptions = {
   lazy: useLazy,
-  ...(idleMs ? { idleTimeout: Number(idleMs) } : {}),
+  ...(idleMs ? { lazyIdleTimeoutMs: Number(idleMs) } : {}),
 };
 
 // The primitive set is chosen at runtime from query params, so it can't be the

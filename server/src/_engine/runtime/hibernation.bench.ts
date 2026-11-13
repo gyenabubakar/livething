@@ -37,7 +37,7 @@ async function makeEngine(): Promise<Engine> {
     id: 'bench',
     hibernation: {
       persist() {},
-      restore: (wsKey: unknown) => ({ id: (wsKey as FakeSocket).id }),
+      restore: (socketKey: unknown) => ({ id: (socketKey as FakeSocket).id }),
     },
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
@@ -90,7 +90,7 @@ async function seed(count: number): Promise<{ engine: Engine; sockets: FakeSocke
 
   engine.core.connections.clear();
   engine.core.usersByKey.clear();
-  engine.core.wsToConnectionId.clear();
+  engine.core.socketToConnectionId.clear();
 
   return { engine, sockets };
 }
@@ -103,7 +103,7 @@ for (const socketCount of [200, 1000]) {
       // Back to the woken-but-empty state before each run; the rows stay on disk.
       engine.core.connections.clear();
       engine.core.usersByKey.clear();
-      engine.core.wsToConnectionId.clear();
+      engine.core.socketToConnectionId.clear();
       await engine.restoreHibernatedConnections(sockets);
     });
   });

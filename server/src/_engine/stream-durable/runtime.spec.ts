@@ -15,7 +15,7 @@ function createConnection(id = 'c1', userId = 'u1'): RuntimeConnection {
   return {
     id,
     userId,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
       close() {},

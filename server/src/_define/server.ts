@@ -10,6 +10,7 @@ import {
   outgoingHook as outgoingHookFactory,
 } from '~/intercept/intercept.ts';
 import {
+  onAuthenticate,
   onConnect,
   onDisconnect,
   onError,
@@ -17,7 +18,6 @@ import {
   onPing,
   onPong,
   onShutdown,
-  onUpgrade,
 } from '~/lifecycle/lifecycle.ts';
 import type { BinaryCapability } from '~/binary/capability.ts';
 import type { BinaryMethods, ChannelBinaryMethods } from '~/binary/types.ts';
@@ -38,7 +38,7 @@ import type { EmitDefs, EmitsCapability } from '~/emits/emits.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptFrame, OutgoingFrame } from '~/intercept/intercept.ts';
-import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
+import type { AuthHandler, AuthResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitCapability } from '~/rate-limit/capability.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
@@ -113,16 +113,16 @@ type ServerAssembleConfigParameter = {
 };
 
 /**
- * What an `upgrade(...)` function returns to accept a connection. Return a
+ * What an `authenticate(...)` function returns to accept a connection. Return a
  * `userId` (the stable per-user key) and optional `meta`. Throw
- * `RejectUpgrade(code, reason)` to refuse the handshake.
+ * `RejectAuth(code, reason)` to refuse the handshake.
  *
  * `tags.ephemeral` seeds initial ephemeral tags before any handler runs — the
  * keys are the ephemeral group names declared by the `tags(...)` capability.
  * Persistent tags cannot be set here; add them at runtime with
  * `ctx.tags.persistent(group).add(key)`.
  */
-export interface UpgradeReturn<TMeta, TEphemeralGroups extends string = string> {
+export interface AuthReturn<TMeta, TEphemeralGroups extends string = string> {
   /**
    * Stable key for the user behind this socket — used as the row key for durable
    * state. Omit it (or return `undefined`) to accept the connection as
@@ -142,24 +142,24 @@ export interface UpgradeReturn<TMeta, TEphemeralGroups extends string = string> 
 }
 
 /**
- * The `upgrade(...)` function shape. Receives the raw upgrade request and a
+ * The `authenticate(...)` function shape. Receives the raw request and a
  * `ctx` with storage, a logger and the platform. The same shape as the `onInit`
  * context: no connection exists yet, so there is no user, `meta` or `send`.
  */
-export type UpgradeFn<TMeta, TEphemeralGroups extends string = string> = (
+export type AuthFn<TMeta, TEphemeralGroups extends string = string> = (
   request: Request,
   ctx: InitContext,
-) => UpgradeReturn<TMeta, TEphemeralGroups> | Promise<UpgradeReturn<TMeta, TEphemeralGroups>>;
+) => AuthReturn<TMeta, TEphemeralGroups> | Promise<AuthReturn<TMeta, TEphemeralGroups>>;
 
 /**
- * A plugin's `upgrade(...)`. Receives the raw upgrade request and the plugin's own scoped
+ * A plugin's `authenticate(...)`. Receives the raw request and the plugin's own scoped
  * `ctx`: the same shape as the app's, with `ctx.kv` namespaced to the plugin like the `ctx`
  * of its handlers.
  */
-export type ScopedUpgradeFn<TMeta, TEphemeralGroups extends string = string> = (
+export type ScopedAuthFn<TMeta, TEphemeralGroups extends string = string> = (
   request: Request,
   ctx: InitContext,
-) => UpgradeReturn<TMeta, TEphemeralGroups> | Promise<UpgradeReturn<TMeta, TEphemeralGroups>>;
+) => AuthReturn<TMeta, TEphemeralGroups> | Promise<AuthReturn<TMeta, TEphemeralGroups>>;
 
 /** The ephemeral tag-group names declared across a list of capabilities. */
 type EphemeralGroupsOf<TCaps extends readonly AnyCapability[]> = keyof SlotOr<
@@ -169,14 +169,14 @@ type EphemeralGroupsOf<TCaps extends readonly AnyCapability[]> = keyof SlotOr<
   string;
 
 /**
- * The hooks of a server, written in `server({ ... })`. List `upgrade` and
+ * The hooks of a server, written in `server({ ... })`. List `authenticate` and
  * `capabilities` before them: TypeScript reads the object from top to bottom, so
- * a hook above `upgrade` sees `ctx.meta` as `unknown`.
+ * a hook above `authenticate` sees `ctx.meta` as `unknown`.
  */
 interface ServerHooks<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Run once at server startup, before any connection. Use it for schema creation or migrations. */
   readonly onInit?: (ctx: InitContext) => void | Promise<void>;
-  /** Run each time a connection opens, after `upgrade(...)` succeeds. */
+  /** Run each time a connection opens, after `authenticate(...)` succeeds. */
   readonly onConnect?: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>;
   /** Run each time a connection closes, for any reason. `ctx.closeCode` / `ctx.closeReason` are set. */
   readonly onDisconnect?: (ctx: AppCtx<TSlots, TMeta, TCaps>) => void | Promise<void>;
@@ -246,8 +246,8 @@ export interface ServerConfig<
   // capabilities the server never listed.
   TCaps extends readonly AnyCapability[] = readonly [],
 > extends ServerHooks<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps> {
-  /** Auth gate. Return `{ userId, meta }` to accept, or throw `RejectUpgrade(...)` to deny. */
-  readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
+  /** Auth gate. Return `{ userId, meta }` to accept, or throw `RejectAuth(...)` to deny. */
+  readonly authenticate?: AuthFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** Turn on Cloudflare Durable Object hibernation (which disables server pings). */
   readonly hibernation?: boolean;
   /**
@@ -300,15 +300,15 @@ export interface ScopedServerConfig<
   /** Marks this as a plugin's scoped server definition. */
   readonly scope: 'plugin';
   /**
-   * The plugin's upgrade gate. Runs before the app's upgrade in the inbound
+   * The plugin's authenticate gate. Runs before the app's authenticate in the inbound
    * onion: it sees the raw request and the plugin's scoped `ctx`, not the app's identity.
-   * `context.upgrade(pluginBase)` returns that `ctx` inside it. Return
+   * `context.authenticate(pluginBase)` returns that `ctx` inside it. Return
    * `meta` (shallow-merged, app wins on key conflict) and/or `tags`
-   * (concatenated); throw `RejectUpgrade(...)` to veto the handshake. A plugin
-   * may own `userId` — but only one upgrade hook (the app's or one plugin's)
+   * (concatenated); throw `RejectAuth(...)` to veto the handshake. A plugin
+   * may own `userId` — but only one authenticate hook (the app's or one plugin's)
    * may return it, or the build/runtime errors.
    */
-  readonly upgrade?: ScopedUpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
+  readonly authenticate?: ScopedAuthFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** The features this plugin uses. Host-owned capabilities are a compile error here. */
   readonly capabilities?: TCaps & UniqueCapabilityKinds<TCaps>;
 }
@@ -1548,7 +1548,7 @@ export interface CoreBase<
    * Pass them as `{ handlers: [...] }` — each `base.on(...)` (and, with their
    * capabilities, `request` / `stream` / `channel`) value. A channel handler
    * enables only itself; passing the channel includes its configuration but no
-   * handlers. Pass each `base.scheduled(...)` value too. The hooks and upgrade from
+   * handlers. Pass each `base.scheduled(...)` value too. The hooks and authenticate from
    * `server({ ... })`, and listed capabilities, are folded in automatically.
    *
    * A scoped plugin server definition (`server({ scope: 'plugin' })`) may also pass `api` —
@@ -1777,7 +1777,7 @@ const SERVER_HOOK_PRIMITIVES = {
 } as const satisfies Record<string, (hook: any) => Primitive>;
 
 const SERVER_CONFIG = {
-  hooks: ['upgrade', ...Object.keys(SERVER_HOOK_PRIMITIVES)],
+  hooks: ['authenticate', ...Object.keys(SERVER_HOOK_PRIMITIVES)],
   options: ['capabilities', 'hibernation', 'users', 'scope'],
 };
 
@@ -1876,7 +1876,7 @@ function mergeScheduled(
   return primitives;
 }
 
-/** Turn the `upgrade` ephemeral-tag sugar `{ group: key | keys }` into the engine's tag refs. */
+/** Turn the `authenticate` ephemeral-tag sugar `{ group: key | keys }` into the engine's tag refs. */
 function toEphemeralTagRefs(
   ephemeral: Record<string, string | readonly string[] | undefined> | undefined,
 ): TagRef[] {
@@ -1894,47 +1894,47 @@ function toEphemeralTagRefs(
   return refs;
 }
 
-/** Wrap a bootstrap `upgrade(...)` function as the engine's builder upgrade hook. */
-function adaptUpgrade(fn: UpgradeFn<any>): UpgradeHandler {
-  return async (request, helpers): Promise<UpgradeResult> => {
+/** Wrap a bootstrap `authenticate(...)` function as the engine's builder authenticate hook. */
+function adaptAuth(fn: AuthFn<any>): AuthHandler {
+  return async (request, helpers): Promise<AuthResult> => {
     const result = await fn(request, helpers.ctx);
     const tags = toEphemeralTagRefs(result.tags?.ephemeral);
     return {
-      // An upgrade that omits userId stays anonymous and does not claim the single userId that
+      // An authenticate that omits userId stays anonymous and does not claim the single userId that
       // the server allows. The adapters key an anonymous connection by its connection id.
       ...(result.userId === undefined ? {} : { userId: result.userId }),
       meta: result.meta,
       ...(tags.length > 0 ? { tags } : {}),
-    } as UpgradeResult;
+    } as AuthResult;
   };
 }
 
-/** Symbol key for a plugin's scoped upgrade primitive. */
-const SCOPED_UPGRADE_KEY = Symbol('scopedUpgrade');
+/** Symbol key for a plugin's scoped authenticate primitive. */
+const SCOPED_AUTH_KEY = Symbol('scopedAuth');
 
 /**
- * Build the carrier for a plugin's `upgrade(...)`. It is tagged `onUpgrade` so it
- * is visible to `assertSupported`, but carries `__scopedUpgrade` so
- * `namespacePluginPrimitives` reroutes its `__setup` to `registerPluginUpgrade`
+ * Build the carrier for a plugin's `authenticate(...)`. It is tagged `onAuthenticate` so it
+ * is visible to `assertSupported`, but carries `__scopedAuth` so
+ * `namespacePluginPrimitives` reroutes its `__setup` to `registerPluginAuth`
  * (bound to the real plugin id) — never the app's single builder slot.
  */
-function scopedUpgradePrimitive(handler: UpgradeHandler, baseId: symbol): Primitive {
+function scopedAuthPrimitive(handler: AuthHandler, baseId: symbol): Primitive {
   return {
-    __livething: 'onUpgrade',
-    __identity: [SCOPED_UPGRADE_KEY],
+    __livething: 'onAuthenticate',
+    __identity: [SCOPED_AUTH_KEY],
     __requires: {},
-    __scopedUpgrade: true,
+    __scopedAuth: true,
     __baseId: baseId,
     handler,
     __setup() {
       // Rewritten by namespacePluginPrimitives to bind the plugin id. Left inert
-      // so a stray scoped upgrade that never went through plugin(...) is a no-op.
+      // so a stray scoped authenticate that never went through plugin(...) is a no-op.
     },
   } as unknown as Primitive;
 }
 
 /**
- * Create a LiveThing server. `server(...)` holds the options (`upgrade`,
+ * Create a LiveThing server. `server(...)` holds the options (`authenticate`,
  * `hibernation`, `users`, `scope`) and the app-wide hooks; every other feature is a
  * capability you list. It returns a `base` builder whose methods are typed against
  * your metadata and capabilities.
@@ -1944,9 +1944,9 @@ function scopedUpgradePrimitive(handler: UpgradeHandler, baseId: symbol): Primit
  * import * as v from 'valibot';
  *
  * const base = server({
- *   async upgrade(request) {
+ *   async authenticate(request) {
  *     const username = new URL(request.url).searchParams.get('username');
- *     if (!username) throw RejectUpgrade(4001, 'Missing username');
+ *     if (!username) throw RejectAuth(4001, 'Missing username');
  *     return { userId: username, meta: { username } };
  *   },
  *   capabilities: [emits({ welcome: t<{ username: string }>() })],
@@ -2347,11 +2347,11 @@ export function server(config: any): any {
       const rateLimitPrimitive = buildRateLimitPrimitive(handlerPrimitives, channelObjects);
 
       const primitives: Primitive[] = [];
-      if (config.upgrade) {
+      if (config.authenticate) {
         primitives.push(
           scoped
-            ? scopedUpgradePrimitive(adaptUpgrade(config.upgrade), baseId)
-            : onUpgrade(adaptUpgrade(config.upgrade)),
+            ? scopedAuthPrimitive(adaptAuth(config.authenticate), baseId)
+            : onAuthenticate(adaptAuth(config.authenticate)),
         );
       }
 

@@ -2,7 +2,7 @@ import { emits, server, t } from '@livething/server';
 import { lastSeen } from '@livething/server/last-seen';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 // Drives `ctx.lastSeen` (`at`, `atMany`) and `ConnectionInfo.lastSeen()` end
 // to end. `lastSeen()` stamps a durable per-identity timestamp on connect and
@@ -11,7 +11,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 // it does not own, so a still-connected member can answer for one that has
 // since disconnected. Online status comes from `ctx.users`, not `ctx.lastSeen`.
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     lastSeen(),
     emits({

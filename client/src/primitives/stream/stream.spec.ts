@@ -469,7 +469,10 @@ describe('scoped streams', () => {
 
 describe('lazy consumer leak on failed send', () => {
   it('lazyConsumers returns to 0 when the trigger send fails, and stream() rejects', async () => {
-    const socket = client<C>()(connect('wss://test', { lazy: true, idleTimeout: 0 }), stream());
+    const socket = client<C>()(
+      connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 0 }),
+      stream(),
+    );
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();

@@ -9,7 +9,7 @@ function createConnection(id: string) {
   return {
     id,
     userId: id,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send() {},
       close() {},

@@ -5,10 +5,10 @@ import { scheduled } from '@livething/server/scheduled';
 import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const base = server({
-  upgrade: requireUsername,
+  authenticate: requireUsername,
   capabilities: [
     channels(),
     scheduled({ 'admin-announce': { data: t<{ text: string }>() } }),

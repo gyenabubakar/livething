@@ -23,7 +23,7 @@ function createConnection(id: string): RuntimeConnection {
   return {
     id,
     userId: id,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send() {},
       close() {},
@@ -370,7 +370,7 @@ describe('tag value validation', () => {
 describe("persistent tags across one user's connections", () => {
   async function bootTabs() {
     const base = server({
-      upgrade: () => ({ userId: 'ada' }),
+      authenticate: () => ({ userId: 'ada' }),
       capabilities: [
         emits({ designUpdate: t<{ title: string }>() }),
         tags((_ephemeral, persistent) => [persistent('team', t<string>())]),

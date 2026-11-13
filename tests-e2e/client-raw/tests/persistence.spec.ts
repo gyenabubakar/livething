@@ -474,7 +474,7 @@ test.describe('persistence', () => {
   test('anonymous connection does NOT auto-rejoin on reconnect (no durable membership row)', async ({
     page,
   }, testInfo) => {
-    // Anonymous upgrade (`&anon`, no username) yields an empty identity. The
+    // Anonymous connection (`&anon`, no username) yields an empty identity. The
     // engine keys durable membership rows by identity, so an empty-identity
     // subscribe writes NO durable row — there is nothing to auto-rejoin from on
     // reconnect. Mirrors 'removeMember … no auto-rejoin': subscribe, get
@@ -600,7 +600,7 @@ test.describe('persistence', () => {
     await waitForFrame(page, alice, (f) => f.event === '__subscribeOk__');
 
     // Bob joins after alice, so bob's initial __memberSync__ lists alice with
-    // her meta (the { username } set by the upgrade).
+    // her meta (the { username } set by `authenticate`).
     const bob = await connect(page, 'bob', room);
     await send(page, bob, {
       event: '__subscribe__',
@@ -617,7 +617,7 @@ test.describe('persistence', () => {
   });
 
   test('an anonymous connection cannot start a durable stream', async ({ page }, testInfo) => {
-    // Anonymous upgrade (`&anon`, no username) yields an empty identity. A
+    // Anonymous connection (`&anon`, no username) yields an empty identity. A
     // durable stream keys its stored state by that identity so a reconnect can
     // continue it — with no stable identity, the engine rejects the start with
     // `durable-stream-requires-user` instead of writing unreachable state.
