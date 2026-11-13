@@ -1,6 +1,6 @@
-import { CloseCodes } from '@livething/server/errors';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as ServerAdapters from '@livething/server/adapters';
+import type { ConnectionDescriptor } from '@livething/server/adapters';
 import {
   FakeDurableObjectBase,
   installPermissiveResponse,
@@ -155,6 +155,8 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       platform: expect.any(Object),
       storage: expect.any(Object),
       timers: expect.any(Object),
+      // Cloudflare's own 32 MiB limit, in both directions.
+      messageLimits: { receiveBytes: 33_554_432, sendBytes: 33_554_432 },
     });
   });
 
@@ -172,10 +174,29 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     server.send.mockImplementation(() => {
       throw new Error("Can't call WebSocket send() after close().");
     });
-    const desc = fake.calls.accept[0]!.descriptor as { send(data: string): unknown };
+    const desc = fake.calls.accept[0]!.descriptor as ConnectionDescriptor;
 
-    expect(desc.send('frame')).toBe(false);
+    expect(desc.send({ kind: 'text', text: 'frame' })).toBe(false);
     expect(server.send).not.toHaveBeenCalled();
+  });
+
+  it('sends a text frame as text and a bytes frame as the bytes themselves', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const [, server] = pairs[0]!;
+    const desc = fake.calls.accept[0]!.descriptor as ConnectionDescriptor;
+    const bytes = new Uint8Array([1, 2, 3]);
+
+    desc.send({ kind: 'text', text: 'frame' });
+    desc.send({ kind: 'bytes', bytes });
+
+    expect(server.send.mock.calls).toEqual([['frame'], [bytes]]);
+    expect(server.send.mock.calls[1]![0]).toBe(bytes);
   });
 
   it('closes an accepted socket when engine connection setup throws', async () => {
@@ -239,7 +260,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     expect(fake.connectionHandle.handleError).toHaveBeenCalled();
   });
 
-  it('closes the connection on a binary frame in standard mode instead of silently dropping it', async () => {
+  it('asks a standard socket for binary as an ArrayBuffer before it accepts it', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
     fake.stageUpgrade({});
@@ -248,13 +269,10 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     await instance.fetch(upgradeRequest());
 
     const [, server] = pairs[0]!;
-    server.dispatch('message', { data: new ArrayBuffer(4) });
-
-    expect(server.close).toHaveBeenCalledWith(1003, expect.stringContaining('binary'));
-    expect(fake.connectionHandle.handleMessage).not.toHaveBeenCalled();
+    expect(server.binaryTypeAtAccept).toBe('arraybuffer');
   });
 
-  it('runs connection cleanup when the standard-mode binary close fires its close event', async () => {
+  it('forwards a binary frame in standard mode to the engine as a Uint8Array', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
     fake.stageUpgrade({});
@@ -263,18 +281,13 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     await instance.fetch(upgradeRequest());
 
     const [, server] = pairs[0]!;
-    // The runtime fires a 'close' event on a server-initiated close; the fake's
-    // close() is a bare spy, so wire it to fire that event the way the runtime does.
-    server.close.mockImplementation((code: number, reason: string) =>
-      server.dispatch('close', { code, reason }),
-    );
+    server.dispatch('message', { data: new Uint8Array([1, 2, 3]).buffer });
 
-    server.dispatch('message', { data: new ArrayBuffer(4) });
-
-    expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(
-      1003,
-      expect.stringContaining('binary'),
+    expect(fake.connectionHandle.handleBinaryMessage).toHaveBeenCalledWith(
+      new Uint8Array([1, 2, 3]),
     );
+    expect(server.close).not.toHaveBeenCalled();
+    expect(fake.connectionHandle.handleMessage).not.toHaveBeenCalled();
   });
 
   it('calls state.acceptWebSocket(ws) without forwarding handler tags into the cf tag store', async () => {
@@ -425,20 +438,21 @@ describe('hibernation wake callbacks', () => {
   });
 
   it.each([
-    ['ArrayBuffer', new ArrayBuffer(4)],
-    ['ArrayBufferView', new Uint8Array(4)],
-  ])('webSocketMessage closes with 1003 on a binary %s frame', async (_kind, frame) => {
+    ['ArrayBuffer', new Uint8Array([1, 2, 3]).buffer],
+    // A view into the middle of a bigger buffer: only its own bytes may reach the engine.
+    ['ArrayBufferView', new DataView(new Uint8Array([9, 1, 2, 3, 9]).buffer, 1, 3)],
+  ])('webSocketMessage forwards a binary %s frame as a Uint8Array', async (_kind, frame) => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
     const instance = new Cls(state as unknown as DurableObjectState, {});
 
     const ws = { close: vi.fn() } as unknown as WebSocket;
-    await expect(instance.webSocketMessage(ws, frame)).resolves.toBeUndefined();
+    await instance.webSocketMessage(ws, frame);
 
-    expect(ws.close).toHaveBeenCalledWith(
-      CloseCodes.UNSUPPORTED_DATA,
-      '[livething] binary frames are not supported yet',
-    );
+    const [bytes] = fake.connectionHandle.handleBinaryMessage.mock.calls[0]! as [Uint8Array];
+    expect(Object.getPrototypeOf(bytes)).toBe(Uint8Array.prototype);
+    expect([...bytes]).toEqual([1, 2, 3]);
+    expect(ws.close).not.toHaveBeenCalled();
     expect(fake.connectionHandle.handleMessage).not.toHaveBeenCalled();
   });
 
@@ -712,6 +726,57 @@ describe('LiveThingDurableObject admin()', () => {
     admin.channels.get('rooms', 'rooms:42').members();
     expect(channels.get).toHaveBeenCalledWith('rooms', 'rooms:42');
     expect(fake.adminSpies.channel.members).toHaveBeenCalled();
+  });
+
+  it('sends binary events through the .binary part of each sender', async () => {
+    const { admin } = await adminOf();
+    const bytes = new Uint8Array([137, 80, 78, 71]);
+    const surface = fake.adminApi as Record<string, Record<string, unknown>>;
+    const binary = { broadcast: vi.fn() };
+    const userBinary = { broadcast: vi.fn(() => 2) };
+
+    const connectionBinary = { send: vi.fn(() => true) };
+    const channelsBinary = { broadcast: vi.fn() };
+    surface.binary = binary;
+    surface.users!.get = vi.fn(() => ({ binary: userBinary }));
+    surface.connections!.get = vi.fn(() => ({ binary: connectionBinary }));
+
+    surface.channels!.binary = channelsBinary;
+    const binaryAdmin = admin as unknown as {
+      binary: { broadcast(...args: unknown[]): unknown };
+      users: { get(id: string): { binary: { broadcast(...args: unknown[]): unknown } } };
+      connections: { get(ref: unknown): { binary: { send(...args: unknown[]): unknown } } };
+      channels: { binary: { broadcast(...args: unknown[]): unknown } };
+    };
+    const ref = { __livething: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' };
+
+    binaryAdmin.binary.broadcast('avatar-preview', null, bytes);
+    const reached = binaryAdmin.users.get('u1').binary.broadcast('avatar-preview', null, bytes);
+    const sent = binaryAdmin.connections.get(ref).binary.send('avatar-preview', null, bytes);
+    const room = { family: 'rooms', name: 'room:42' };
+    binaryAdmin.channels.binary.broadcast(room, 'screen-frame', { from: 'admin' }, bytes);
+
+    expect(binary.broadcast).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    expect(reached).toBe(2);
+    expect(userBinary.broadcast).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    expect(sent).toBe(true);
+    expect(connectionBinary.send).toHaveBeenCalledWith('avatar-preview', null, bytes);
+
+    expect(channelsBinary.broadcast).toHaveBeenCalledWith(
+      room,
+      'screen-frame',
+      { from: 'admin' },
+      bytes,
+    );
+  });
+
+  it('throws a clear error for a binary send when binary() is not listed', async () => {
+    const { admin } = await adminOf();
+    const binaryAdmin = admin as unknown as { binary: { broadcast(...args: unknown[]): unknown } };
+
+    expect(() => binaryAdmin.binary.broadcast('avatar-preview', null)).toThrow(
+      /needs binary\(\) in server/,
+    );
   });
 
   it('channels.broadcast passes the channel, event and payload to the context', async () => {

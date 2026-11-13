@@ -12,12 +12,6 @@ export { keepalive } from '~/primitives/keepalive/index.ts';
 export type { KeepaliveOptions, QualityApi } from '~/primitives/keepalive/index.ts';
 export { buffering } from '~/primitives/buffering/index.ts';
 export type { BufferingOptions } from '~/primitives/buffering/index.ts';
-export { serialization } from '~/primitives/serialization/index.ts';
-export type {
-  ParsedFrame,
-  ArrayBufferSerialization,
-  BlobSerialization,
-} from '~/primitives/serialization/index.ts';
 export { intercept } from '~/primitives/intercept.ts';
 export type { InterceptFn } from '~/primitives/intercept.ts';
 export { platform } from '~/primitives/platform.ts';
@@ -60,6 +54,15 @@ export type {
   ReadReceiptsOptions,
 } from '~/primitives/inbox/index.ts';
 export { stream } from '~/primitives/stream/index.ts';
+export { binary } from '~/primitives/binary/index.ts';
+export type {
+  BinaryAnswer,
+  BinaryItem,
+  BinaryMessaging,
+  BinaryOptions,
+} from '~/primitives/binary/index.ts';
+export { uploads } from '~/primitives/uploads/index.ts';
+export type { Upload, UploadOptions, UploadSource } from '~/primitives/uploads/index.ts';
 export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/index.ts';
 
 export { CloseCodes } from '@livething/core';
@@ -92,6 +95,9 @@ export type {
   ClientRequestsOf,
   ServerRequestsOf,
   ErrorsOf,
+  BinaryOf,
+  UploadsOf,
+  BinaryContract,
   Simplify,
   RequestMethod,
   ScopedMessaging,
@@ -108,6 +114,7 @@ export type {
   EmptyTypeFn,
   Apply,
   Primitive,
+  PrimitiveIdentity,
   ApplyPrimitives,
   ValidatePrimitives,
   SocketWithPrimitives,

@@ -1,8 +1,7 @@
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import type { Message } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
-import type { ServerRequestsTypeFn } from '~/primitives/server-requests/types.ts';
-import type { Primitive } from '~/primitives/types.ts';
+import type { ServerRequestsPrimitive } from '~/primitives/server-requests/types.ts';
 
 /** A registered handler that answers one server→client request event. */
 type RequestHandler = (payload: unknown) => unknown | Promise<unknown>;
@@ -30,7 +29,7 @@ function handlerKey(markers: ScopeMarkers, event: string): string {
  * everything else), so a reply to the client's own request and a server-initiated
  * request never reach the wrong primitive regardless of registration order.
  */
-export function serverRequests(): Primitive<ServerRequestsTypeFn> {
+export function serverRequests(): ServerRequestsPrimitive {
   return {
     _tag: 'serverRequests',
 
@@ -94,7 +93,8 @@ export function serverRequests(): Primitive<ServerRequestsTypeFn> {
         onIncoming(message) {
           const metadata = message.metadata;
           const correlationId = metadata?.exchange?.id;
-          if (typeof correlationId !== 'string') return message;
+          // A binary request is not a JSON request: `binary()` routes it.
+          if (typeof correlationId !== 'string' || message.bytes) return message;
 
           // Only a server-originated request is ours to answer. A reply to the
           // client's own request (source !== 'server') passes through for
@@ -143,4 +143,4 @@ export function serverRequests(): Primitive<ServerRequestsTypeFn> {
   };
 }
 
-serverRequests.tag = 'serverRequests';
+serverRequests.tag = 'serverRequests' as const;

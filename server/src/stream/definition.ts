@@ -2,7 +2,6 @@
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import { assertNonReservedEventName } from '~/event-name.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Validator } from '~/types.ts';
 
 /**
@@ -16,9 +15,8 @@ export interface NudgeDef<TName extends string = string, TPayload = unknown> {
   readonly schema?: Validator<TPayload>;
 }
 
-interface StreamConfig<TPayload, TChunk, TNudges extends readonly NudgeDef<string, any>[]> {
+interface StreamConfig<TPayload, TNudges extends readonly NudgeDef<string, any>[]> {
   payload?: Validator<TPayload>;
-  chunk?: TypeMarker<TChunk>;
   nudges?: TNudges;
   broadcast?: boolean;
   allowConcurrent?: boolean;
@@ -32,13 +30,11 @@ interface StreamConfig<TPayload, TChunk, TNudges extends readonly NudgeDef<strin
 export interface StreamDef<
   TName extends string = string,
   TPayload = unknown,
-  TChunk = unknown,
   TNudges extends readonly NudgeDef<string, any>[] = readonly NudgeDef<string, any>[],
 > {
   readonly _: 'stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
-  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges: TNudges;
   readonly broadcast: boolean;
   readonly allowConcurrent: boolean;
@@ -64,12 +60,8 @@ export function nudge(name: string, schema?: Validator): NudgeDef {
 export function stream<
   TName extends string,
   TPayload = unknown,
-  TChunk = unknown,
   const TNudges extends readonly NudgeDef<string, any>[] = readonly [],
->(
-  name: TName,
-  config?: StreamConfig<TPayload, TChunk, TNudges>,
-): StreamDef<TName, TPayload, TChunk, TNudges> {
+>(name: TName, config?: StreamConfig<TPayload, TNudges>): StreamDef<TName, TPayload, TNudges> {
   assertNonReservedEventName(name, 'stream');
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context: `stream("${name}")` });
@@ -78,7 +70,6 @@ export function stream<
     _: 'stream',
     name,
     payload: config?.payload,
-    chunk: config?.chunk,
     nudges,
     broadcast: config?.broadcast ?? false,
     allowConcurrent: config?.allowConcurrent ?? false,

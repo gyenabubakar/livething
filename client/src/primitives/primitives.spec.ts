@@ -5,7 +5,6 @@ import { buffering } from '~/primitives/buffering/index.ts';
 import { intercept } from '~/primitives/intercept.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
-import { serialization } from '~/primitives/serialization/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
@@ -237,21 +236,14 @@ describe('keepalive (opt-in)', () => {
   });
 });
 
-describe('serialization (binary)', () => {
-  it('applies binaryType to the socket but surfaces a binary frame on onError (not the decoder)', () => {
+describe('a binary frame', () => {
+  it('is reported on onError and never reaches a handler', () => {
     const handler = vi.fn();
-    const socket = client<TestContract>()(
-      connect('wss://test'),
-      serialization({
-        binaryType: 'arraybuffer',
-        parseBinary: () => ({ event: 'message', payload: { text: 'binary' } }),
-      }),
-    );
+    const socket = client<TestContract>()(connect('wss://test'));
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
 
-    expect(ws.binaryType).toBe('arraybuffer');
     socket.on('message', handler);
     const onError = vi.fn();
     socket.onError(onError);

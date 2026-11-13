@@ -32,12 +32,23 @@ export interface LiveThingStreamMetadata {
   terminated?: boolean;
 }
 
+/**
+ * Metadata describing one upload: its id, and a piece's `seq` or the total `size` the
+ * start frame announces.
+ */
+export interface LiveThingUploadMetadata {
+  id: string;
+  seq?: number;
+  size?: number;
+}
+
 /** Framework metadata carried in the third item of every wire tuple. */
 export interface LiveThingMetadata {
   exchange?: LiveThingExchangeMetadata;
   channel?: LiveThingChannelMetadata;
   delivery?: LiveThingDeliveryMetadata;
   stream?: LiveThingStreamMetadata;
+  upload?: LiveThingUploadMetadata;
 }
 
 /** One message as it travels through the LiveThing wire protocol. */
@@ -46,6 +57,12 @@ export interface Message {
   payload: unknown;
   /** Internal callers may omit this; encoding always writes the tuple's null slot. */
   metadata?: LiveThingMetadata | null;
+  /**
+   * The bytes of a binary message, after its envelope. Absent on a text message. On a
+   * received message it is a view of the whole frame, so `bytes.buffer` holds the header
+   * and the envelope too.
+   */
+  bytes?: Uint8Array;
 }
 
 /** The only JSON shape accepted on the LiveThing wire. */
@@ -133,6 +150,17 @@ function isStreamMetadata(group: Record<string, unknown>): boolean {
   );
 }
 
+function isUploadMetadata(group: Record<string, unknown>): boolean {
+  return (
+    hasOnlyKeys(group, ['id', 'seq', 'size']) &&
+    isBoundedString(group.id, WIRE_LIMITS.wireId) &&
+    isOptionalSequence(group) &&
+    !('seq' in group && 'size' in group) &&
+    (!('size' in group) ||
+      (typeof group.size === 'number' && Number.isSafeInteger(group.size) && group.size >= 0))
+  );
+}
+
 function isMetadata(value: unknown): value is LiveThingMetadata | null {
   if (value === null) return true;
 
@@ -141,7 +169,7 @@ function isMetadata(value: unknown): value is LiveThingMetadata | null {
   if (Object.keys(value).length === 0) return false;
 
   for (const [key, group] of Object.entries(value)) {
-    if (!['exchange', 'channel', 'delivery', 'stream'].includes(key)) return false;
+    if (!['exchange', 'channel', 'delivery', 'stream', 'upload'].includes(key)) return false;
 
     if (!isRecord(group)) return false;
 
@@ -154,6 +182,8 @@ function isMetadata(value: unknown): value is LiveThingMetadata | null {
     if (key === 'delivery' && !isDeliveryMetadata(group)) return false;
 
     if (key === 'stream' && !isStreamMetadata(group)) return false;
+
+    if (key === 'upload' && !isUploadMetadata(group)) return false;
   }
 
   return true;

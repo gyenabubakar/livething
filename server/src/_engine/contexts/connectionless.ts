@@ -41,7 +41,7 @@ export function createConnectionlessContext(
       if (!resolved) throw ChannelNotFound();
 
       const { channelName, channelFamily } = resolved;
-      return {
+      const handle: PublicApi.ConnectionlessChannelHandle = {
         broadcast: (event, payload) =>
           deps.broadcastToChannel({
             channelName,
@@ -59,6 +59,10 @@ export function createConnectionlessContext(
             reason: opts.reason,
           }),
       };
+
+      deps.addBinarySenders?.(handle, { broadcast: 'event-first' });
+
+      return handle;
     },
     broadcast(channel, event, payload) {
       const handle =
@@ -69,7 +73,9 @@ export function createConnectionlessContext(
     },
   };
 
-  return {
+  deps.addBinarySenders?.(channels, { broadcast: 'event-second' });
+
+  const ctx: PublicApi.ConnectionlessContext<Record<string, unknown>, unknown> = {
     broadcast: (event, payload) => {
       deps.broadcastToConnections(deps.connections.values(), { event, payload });
     },
@@ -99,4 +105,8 @@ export function createConnectionlessContext(
     log: deps.logger,
     platform: deps.platform,
   };
+
+  deps.addBinarySenders?.(ctx, { broadcast: 'event-first' });
+
+  return ctx;
 }

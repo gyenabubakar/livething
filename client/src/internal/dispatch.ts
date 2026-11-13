@@ -27,6 +27,16 @@ export function runMessageHook(
 }
 
 /**
+ * A hook's result with the bytes of the frame it was given. A hook can change the event,
+ * the payload and the metadata, but not the bytes, so a binary frame stays binary and a text
+ * frame stays text, as on the server. `bytes` is read before the hook runs, so a hook that
+ * sets `message.bytes` in place changes nothing either.
+ */
+export function keepFrameKind(bytes: Uint8Array | undefined, result: Message): Message {
+  return result.bytes === bytes ? result : { ...result, bytes };
+}
+
+/**
  * Call every handler with the given arguments. If one handler throws, it is
  * surfaced on the socket's `error` event (via `log.report`) and the remaining
  * handlers still run. Used everywhere an event fans out to user `on()` handlers:

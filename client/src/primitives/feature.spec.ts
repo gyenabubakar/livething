@@ -55,6 +55,8 @@ describe('dedup', () => {
 
 describe('replay', () => {
   it('requires dedup', () => {
+    // The type already rejects this; the runtime check covers plain JavaScript callers.
+    // @ts-expect-error — replay() requires dedup()
     expect(() => client<C>()(connect('wss://test'), replay())).toThrow(/replay requires dedup/);
   });
 

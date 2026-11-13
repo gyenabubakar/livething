@@ -430,8 +430,9 @@ function clearDurableLeaveState(
 
   runtime.deleteDurableMembership(connection.userId, scope.channelName, scope.channelFamily);
 
-  if (connection.userId)
+  if (connection.userId) {
     runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);
+  }
 }
 
 export async function leaveChannel(
@@ -680,8 +681,9 @@ async function runSubscribeFlow(
   // request, the socket closing, or `purgeUser`.
   if (attempt?.abandoned || connection.closing) return;
 
-  if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily))
+  if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily)) {
     return;
+  }
 
   // Nothing awaits from here to addChannelMembership(), so commit sees the
   // members exactly as they are when the joiner is added.

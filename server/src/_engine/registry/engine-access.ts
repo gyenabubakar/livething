@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CloseCodes } from '@livething/core';
 import { getInvocationScope, withConnectionCall } from '~/_engine/async-context.ts';
-import { assertPayloadRecord } from '~/_engine/runtime/json-guard.ts';
+import { assertPayload } from '~/_engine/runtime/json-guard.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import { createChannelMembershipKey, hasChannelMembership } from '~/channel/runtime.ts';
 import * as InboxRuntime from '~/inbox/runtime.ts';
@@ -26,7 +26,7 @@ type OptsParameter4 = {
   channelName: string;
   channelFamily: string | null;
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
 };
 type CreateEngineAccessScopeParameter = { channelKey?: string };
 
@@ -46,6 +46,8 @@ export interface EngineAccessDeps {
    * prepared once for many peers).
    */
   buildCurrentContext(): unknown;
+  /** Build the context with no connection: the one scheduled task bodies receive. */
+  buildConnectionlessContext(): unknown;
   /**
    * Build the context object for one connection by id, or `undefined` when no
    * such connection is live. Unlike `buildCurrentContext`, this does not need a
@@ -98,6 +100,9 @@ export function createEngineAccess(
     },
     onAnswerFrame: (handler) => {
       core.hooks.answerFrame.push(handler);
+    },
+    onAnswerAwaited: (handler) => {
+      core.hooks.answerAwaited.push(handler);
     },
     sendServerRequest: (connectionId, opts) => deps.sendServerRequest(connectionId, opts),
     openServerRequestBroadcast: (opts) => deps.openServerRequestBroadcast(opts),
@@ -213,6 +218,22 @@ export function createEngineAccess(
       channelKey: scope?.channelKey,
     }),
     getReplayClaimedChannelKeys: () => core.compiled.replayClaimedChannelKeys,
+    getMessageLimits: () => core.messageLimits,
+    getBinaryEvents: () => {
+      const { compiled } = core;
+      const declaring = [
+        [undefined, compiled] as const,
+        ...[...compiled.channels, ...compiled.channelFamilies],
+      ];
+      const found: { channelKey: string | undefined; event: string }[] = [];
+      for (const [channelKey, declared] of declaring) {
+        for (const [event, outgoing] of declared.outgoing) {
+          if (outgoing.binary === true) found.push({ channelKey, event });
+        }
+      }
+
+      return found;
+    },
     extendContext: (factory) => {
       core.hooks.contextExtenders.push(factory);
     },
@@ -306,7 +327,7 @@ export function createEngineAccess(
       const connection = core.connections.get(connectionId);
       if (!connection) return false;
 
-      return connection.descriptor.send('ping') !== false;
+      return connection.descriptor.send({ kind: 'text', text: 'ping' }) !== false;
     },
     setConnectionLatency: (connectionId, latency, quality) => {
       const connection = core.connections.get(connectionId);
@@ -356,15 +377,14 @@ export function createEngineAccess(
 
       sendGap(core, connection, options);
     },
-    assertReplaySendContract: (event, payload, routing) => {
+    assertReplaySendContract: (event, payload, send) => {
       // The shape only. A payload that fails to serialize (a BigInt, a Date) becomes a sanitized
       // __error__ for that row in sendReplay, so the replay loop keeps going.
-      assertPayloadRecord(event, payload);
-      if (!OutgoingRuntime.isDeclaredOutgoingEvent(core.compiled, event, routing)) {
-        throw new Error(
-          `[livething] Outgoing event "${event}" was not declared in the active scope.`,
-        );
-      }
+      assertPayload(event, payload);
+      OutgoingRuntime.assertDeclaredSend(core.compiled, event, {
+        routing: send && { channel: send.channel, channelFamily: send.channelFamily },
+        bytes: send?.bytes,
+      });
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),
@@ -399,8 +419,15 @@ export function createEngineAccess(
     setDurableStreamService: (service) => {
       core.durableStream = service;
     },
+    setUploadService: (service) => {
+      core.uploadService = service;
+    },
+    buildConnectionlessContext: () => deps.buildConnectionlessContext(),
     setRequestDispatch: (dispatch) => {
       core.requestDispatch = dispatch;
+    },
+    setBinaryService: (service) => {
+      core.binaryService = service;
     },
     setBuildTagsApi: (build) => {
       core.buildTagsApi = build;

@@ -1,5 +1,8 @@
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { context, server as createServerDefinition, emits, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { CloseCodes, RejectUpgrade } from '@livething/server/errors';
@@ -12,9 +15,15 @@ import type { Server } from 'node:http';
 import type { RawData } from 'ws';
 import { binding } from './binding.ts';
 import { setup } from './setup.ts';
+import { capturedBridges, nextRawMessage } from './test-utils.ts';
 import type { NodeAdmin } from './endpoint.ts';
 import type { NodeServerEndpointOptions } from './setup.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
+
+vi.mock('./socket.ts', async (importOriginal) => {
+  const { captureBridges } = await import('./test-utils.ts');
+  return captureBridges(await importOriginal());
+});
 
 type WireFrame = readonly [event: string, payload: unknown, metadata: null];
 
@@ -722,32 +731,308 @@ describe('Node server integration', () => {
     await expect(closed).resolves.toEqual({ code: 1011, reason: 'Internal error' });
   });
 
-  it('rejects binary frames through the real bridge', async () => {
-    const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(buildServerDefinition(state), { port: 0 });
+  describe('maxMessageBytes', () => {
+    async function connectTo(options: NodeServerEndpointOptions) {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      const service = createTestService(buildServerDefinition(state), { port: 0, ...options });
+      services.push(service);
+      await service.ready;
+
+      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+      clients.push(socket);
+      const connected = waitForMessage(socket);
+      await waitForOpen(socket);
+      await connected;
+
+      return socket;
+    }
+
+    it('refuses a value that ws cannot hold, naming the option', () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      for (const maxMessageBytes of [0, -1, 1.5, Number.NaN, 2 ** 31]) {
+        expect(() => setup().bind(buildServerDefinition(state), { maxMessageBytes })).toThrow(
+          /The endpoint maxMessageBytes must be a whole number of bytes from 1 to 2147483647/,
+        );
+      }
+    });
+
+    it('refuses a bad option before it opens the database', () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      const directory = mkdtempSync(join(tmpdir(), 'livething-limits-'));
+      const sql = join(directory, 'huddle.sqlite');
+      try {
+        expect(() =>
+          binding().bind(buildServerDefinition(state), { sql, maxMessageBytes: 0 }),
+        ).toThrow(/maxMessageBytes/);
+        expect(() =>
+          binding().bind(buildServerDefinition(state), {
+            sql,
+            clientIp: { mode: 'proxy', trustedProxies: [] },
+          }),
+        ).toThrow(/trustedProxies/);
+        expect(existsSync(sql)).toBe(false);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+
+    it('closes the socket with 1009 for a message over the limit', async () => {
+      const socket = await connectTo({ maxMessageBytes: 1024 });
+
+      const closed = waitForClose(socket);
+      socket.send('x'.repeat(2000));
+
+      expect((await closed).code).toBe(CloseCodes.MESSAGE_TOO_BIG);
+    });
+
+    it('still holds when the app passes its own WebSocket server without a limit', async () => {
+      const socket = await connectTo({
+        maxMessageBytes: 1024,
+        webSocketServer: new WebSocketServer({ noServer: true }),
+      });
+
+      const closed = waitForClose(socket);
+      socket.send('x'.repeat(2000));
+
+      expect(await closed).toEqual({
+        code: CloseCodes.MESSAGE_TOO_BIG,
+        reason: 'Message is too big',
+      });
+    });
+
+    it('closes the socket with 1009 for a binary message over the limit', async () => {
+      const socket = await connectTo({
+        maxMessageBytes: 1024,
+        webSocketServer: new WebSocketServer({ noServer: true }),
+      });
+
+      const closed = waitForClose(socket);
+      socket.send(new Uint8Array(2000));
+
+      expect(await closed).toEqual({
+        code: CloseCodes.MESSAGE_TOO_BIG,
+        reason: 'Message is too big',
+      });
+    });
+
+    it('defaults to 32 MiB', async () => {
+      const socket = await connectTo({});
+
+      const closed = waitForClose(socket);
+      socket.send('x'.repeat(32 * 1024 * 1024 + 1));
+
+      expect((await closed).code).toBe(CloseCodes.MESSAGE_TOO_BIG);
+    });
+  });
+
+  describe('compression', () => {
+    async function connectTo(options: NodeServerEndpointOptions) {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      const service = createTestService(buildServerDefinition(state), { port: 0, ...options });
+      services.push(service);
+      await service.ready;
+
+      // A ws client offers permessage-deflate by default, like browsers do.
+      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+      clients.push(socket);
+      const connected = waitForMessage(socket);
+      await waitForOpen(socket);
+      await connected;
+
+      return socket;
+    }
+
+    async function wireBytesOf(socket: WebSocket, text: string): Promise<number> {
+      const tcp = (socket as WebSocket & { _socket: { bytesRead: number } })._socket;
+      const before = tcp.bytesRead;
+      const received = nextRawMessage(socket);
+      capturedBridges.at(-1)!.transport.send({ kind: 'text', text });
+      await received;
+
+      return tcp.bytesRead - before;
+    }
+
+    it('is off by default, so the extension is not negotiated', async () => {
+      const socket = await connectTo({});
+
+      expect(socket.extensions).toBe('');
+      expect(await wireBytesOf(socket, 'x'.repeat(2000))).toBeGreaterThan(2000);
+    });
+
+    it('negotiates permessage-deflate, and JSON and binary messages still round-trip', async () => {
+      const socket = await connectTo({ compression: true });
+
+      expect(socket.extensions).toBe('permessage-deflate');
+
+      const text = 'a new message in #general '.repeat(100);
+      socket.send(JSON.stringify(['echo', { text }, null]));
+      await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text }, null]);
+      expect(await wireBytesOf(socket, 'x'.repeat(2000))).toBeLessThan(200);
+
+      const bridge = capturedBridges.at(-1)!;
+      const outgoing = nextRawMessage(socket);
+      bridge.transport.send({ kind: 'bytes', bytes: new Uint8Array(4096).fill(7) });
+      const { data, isBinary } = await outgoing;
+      expect(isBinary).toBe(true);
+
+      expect([...(data as Buffer)]).toEqual(Array.from({ length: 4096 }, () => 7));
+
+      const closed = waitForClose(socket);
+      socket.send(new Uint8Array(4096).fill(9));
+      await closed;
+      expect([...bridge.binaryMessages[0]!]).toEqual(Array.from({ length: 4096 }, () => 9));
+    });
+
+    it('passes threshold to ws, so a smaller message goes out as it is', async () => {
+      const socket = await connectTo({ compression: { threshold: 4096 } });
+
+      expect(socket.extensions).toContain('permessage-deflate');
+      expect(await wireBytesOf(socket, 'x'.repeat(2000))).toBeGreaterThan(2000);
+      expect(await wireBytesOf(socket, 'x'.repeat(5000))).toBeLessThan(200);
+    });
+
+    it('refuses a value that is not true, false or { threshold }', () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      for (const compression of ['yes', 1, null]) {
+        expect(() =>
+          setup().bind(buildServerDefinition(state), {
+            compression: compression as unknown as boolean,
+          }),
+        ).toThrow(/\[livething\] The endpoint compression must be true, false or \{ threshold \}/);
+      }
+
+      for (const threshold of [-1, 1.5, Number.NaN, '1024']) {
+        expect(() =>
+          setup().bind(buildServerDefinition(state), {
+            compression: { threshold: threshold as number },
+          }),
+        ).toThrow(
+          /\[livething\] The endpoint compression\.threshold must be a whole number of bytes from 0/,
+        );
+      }
+    });
+
+    it('refuses compression together with your own WebSocket server', () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+
+      expect(() =>
+        setup().bind(buildServerDefinition(state), {
+          compression: true,
+          webSocketServer: new WebSocketServer({ noServer: true }),
+        }),
+      ).toThrow(
+        /\[livething\] bind\(\) got both webSocketServer and compression\. Set perMessageDeflate on your own WebSocketServer instead\./,
+      );
+    });
+  });
+
+  describe('binary messages', () => {
+    async function connectTo(state: IntegrationState) {
+      const service = createTestService(buildServerDefinition(state), { port: 0 });
+      services.push(service);
+      await service.ready;
+
+      const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+      clients.push(socket);
+      const connected = waitForMessage(socket);
+      await waitForOpen(socket);
+      await connected;
+
+      return socket;
+    }
+
+    it('reach the engine as a plain Uint8Array, which closes the socket with 1003', async () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      const socket = await connectTo(state);
+
+      const closed = waitForClose(socket);
+      // ws hands the server a small frame as a view into a bigger shared buffer.
+      socket.send(Buffer.from([1, 2, 3]));
+
+      await expect(closed).resolves.toEqual({
+        code: 1003,
+        reason: '[livething] this server does not use binary()',
+      });
+      const [received] = capturedBridges.at(-1)!.binaryMessages;
+      expect(Object.getPrototypeOf(received)).toBe(Uint8Array.prototype);
+      expect([...received!]).toEqual([1, 2, 3]);
+      await vi.waitFor(() => expect(state.disconnect?.code).toBe(1003));
+    });
+
+    it('go out from a bytes frame, and text frames still go out as text', async () => {
+      const socket = await connectTo({ errors: [], shutdowns: 0 });
+      const { transport } = capturedBridges.at(-1)!;
+
+      const binary = nextRawMessage(socket);
+      transport.send({ kind: 'bytes', bytes: new Uint8Array([7, 8, 9]) });
+      const { data, isBinary } = await binary;
+      const text = nextRawMessage(socket);
+      transport.send({ kind: 'text', text: 'pong' });
+
+      expect(isBinary).toBe(true);
+      expect([...(data as Buffer)]).toEqual([7, 8, 9]);
+      await expect(text).resolves.toMatchObject({ isBinary: false });
+    });
+  });
+
+  it('drops a client that stops reading about one second after its 1013 close, not 30 seconds', async () => {
+    // The handler moves the clock that the slow-member check reads, so the 10-second grace
+    // passes at once. Sockets and timers stay real, and the test measures with the real clock.
+    const realNow = performance.now.bind(performance);
+    let skew = 0;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => realNow() + skew);
+
+    let refused!: (at: number) => void;
+    let disconnected!: (at: number) => void;
+    const refusedAt = new Promise<number>((resolve) => (refused = resolve));
+    const disconnectedAt = new Promise<number>((resolve) => (disconnected = resolve));
+
+    const base = createServerDefinition({
+      upgrade: () => ({ userId: 'kofi' }),
+      capabilities: [emits({ 'history-page': t<{ text: string }>() })],
+      onDisconnect() {
+        disconnected(realNow());
+      },
+    });
+    const handleLoadHistory = base.on('load-history', {
+      async run(ctx) {
+        // Each turn writes a burst. Once the kernel buffer is full, `ws` holds the rest, and
+        // the 1013 close comes when that stays over the limit for longer than the grace.
+        for (let turn = 0; turn < 5000; turn += 1) {
+          for (let page = 0; page < 64; page += 1) {
+            if (!ctx.send('history-page', { text: 'x'.repeat(900) })) {
+              refused(realNow());
+              return;
+            }
+          }
+
+          skew += 1000;
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+      },
+    });
+    const service = createTestService(base.assemble({ handlers: [handleLoadHistory] }), {
+      port: 0,
+      maxMessageBytes: 1024,
+    });
+
     services.push(service);
     await service.ready;
 
     const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
-    clients.push(socket);
-    const connected = waitForMessage(socket);
-    await waitForOpen(socket);
-    await connected;
+    try {
+      await waitForOpen(socket);
+      socket.send(JSON.stringify(['load-history', null, null]));
+      (socket as WebSocket & { _socket: { pause(): void } })._socket.pause();
 
-    const closed = waitForClose(socket);
-    socket.send(Buffer.from('binary'));
+      const [refusedTime, disconnectedTime] = await Promise.all([refusedAt, disconnectedAt]);
 
-    await expect(closed).resolves.toEqual({
-      code: 1003,
-      reason: '[livething] binary frames are not supported yet',
-    });
-    await vi.waitFor(() =>
-      expect(state.disconnect).toEqual({
-        code: 1003,
-        reason: '[livething] binary frames are not supported yet',
-      }),
-    );
-  });
+      expect(disconnectedTime - refusedTime).toBeLessThan(3000);
+    } finally {
+      nowSpy.mockRestore();
+      socket.terminate();
+    }
+  }, 40_000);
 
   it('forwards a client close through the real engine lifecycle', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
@@ -874,8 +1159,8 @@ describe('Node server integration', () => {
 
     const transport = {
       sent: [] as string[],
-      send(data: string) {
-        this.sent.push(data);
+      send({ text }: { kind: 'text'; text: string }) {
+        this.sent.push(text);
       },
       close() {},
       bufferedAmount: () => 0,

@@ -1,12 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { binaryHandlerFields } from '~/incoming/incoming.ts';
 import { definePrimitive } from '~/primitive.ts';
 import { registerActiveStreamOps } from '~/stream/active-ops.ts';
 import { compileStreamDef } from '~/stream/compile.ts';
 import { stream as streamDef } from '~/stream/definition.ts';
 import { runStream } from '~/stream/runtime.ts';
-import { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
+import { binaryChunks, toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -67,8 +68,13 @@ export const stream = withCapabilityKind(function stream(): StreamCapability {
         broadcast: config.broadcast,
         allowConcurrent: config.allowConcurrent,
       });
-      const handlers = new Map([[event, wrapStreamGenerator(config.run)]]);
-      return compileStreamDef(def, handlers);
+      const method = `binary.stream('${event}')`;
+      const run = config.binary ? binaryChunks(method, config.run) : config.run;
+      const primitive = compileStreamDef(def, new Map([[event, wrapStreamGenerator(run)]]));
+
+      return config.binary
+        ? { ...primitive, ...binaryHandlerFields(method, config.maxBytes) }
+        : primitive;
     },
   };
   return stampKind(cap, CAPABILITY_KIND.stream);

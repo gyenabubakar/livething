@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
-import type { Primitive, TypeFn } from '~/primitives/types.ts';
+import type { Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 import type { NudgesOf, PersistentStreamKeys, StreamHandle, StreamHandlers } from '~/types.ts';
 
 /** Options for the `stream()` primitive. */
@@ -11,6 +11,13 @@ export interface StreamOptions {
   timeout?: number;
   /** How long `nudge()` waits for `__nudgeOk__`, in ms. Default: `10_000`. */
   nudgeTimeout?: number;
+  /**
+   * The most bytes of chunks that each stream keeps for a `for await` loop that has not
+   * read them yet. A text chunk counts the UTF-8 bytes of its payload, and a binary chunk
+   * counts its info and its bytes. A chunk that would go over it fails the stream with
+   * `StreamOverflow`, and a plain stream is also cancelled. Default: `16777216` (16 MiB).
+   */
+  maxBytes?: number;
 }
 
 /** Per-call options when triggering a stream. */
@@ -47,4 +54,4 @@ export interface StreamTypeFn extends TypeFn {
 }
 
 /** The descriptor `stream()` returns. */
-export type StreamPrimitive = Primitive<StreamTypeFn>;
+export type StreamPrimitive = Primitive<StreamTypeFn> & PrimitiveIdentity<'stream'>;

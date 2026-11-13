@@ -7,15 +7,32 @@ import type {
   TimerProvider,
 } from '~/context.ts';
 
+/**
+ * One frame the engine hands a transport. A WebSocket sends a `text` frame as a text
+ * message and a `bytes` frame as a binary message. The bytes are always backed by a plain
+ * `ArrayBuffer`, which is what a web `WebSocket.send()` accepts.
+ */
+export type TransportFrame =
+  | { kind: 'text'; text: string }
+  | { kind: 'bytes'; bytes: Uint8Array<ArrayBuffer> };
+
 /** The low-level send/close callbacks of one accepted WebSocket. */
 export interface SocketDescriptor {
   /**
    * Returning `false` means the descriptor deliberately did not put the frame
    * on the wire. The outgoing pipeline does not count it as delivered.
    */
-  send(data: string): unknown;
+  send(frame: TransportFrame): unknown;
 
   close(code?: number, reason?: string): void;
+
+  /**
+   * Drop the connection at once, with no close handshake. Optional. The engine calls it one
+   * second after it closes a client that reads too slowly (`1013`), because that client may never
+   * read the close frame queued behind its unsent data. Without it, the platform's own close
+   * timeout decides when the socket goes away.
+   */
+  terminate?(): void;
 
   bufferedAmount(): number;
 
@@ -59,6 +76,9 @@ export interface ConnectionDescriptor extends SocketDescriptor {
  */
 export interface ConnectionHandle {
   handleMessage(data: string): Promise<void>;
+
+  /** A binary message, as a plain `Uint8Array` view of its bytes. */
+  handleBinaryMessage(data: Uint8Array): Promise<void>;
 
   handleClose(code: number, reason: string): Promise<void>;
 
@@ -128,6 +148,19 @@ export interface EngineRuntimeOptions {
 
   /** Structured logger exposed as `ctx.log`. */
   logger: Logger;
+
+  /**
+   * The largest message, in bytes, the platform can receive and send. The engine closes a
+   * connection with `1009` (`CloseCodes.MESSAGE_TOO_BIG`) for a bigger incoming message, and
+   * throws instead of sending a bigger one. Default: 32 MiB each.
+   */
+  messageLimits?: MessageLimits;
+}
+
+/** An adapter's message limits, in bytes. See `EngineRuntimeOptions.messageLimits`. */
+export interface MessageLimits {
+  receiveBytes: number;
+  sendBytes: number;
 }
 
 /** Complete configuration passed to the engine constructor by the adapter factory. */

@@ -1,6 +1,7 @@
 // Compiled with `declaration: true` through the package's public exports. If an inferred
 // type here needs a type the package doesn't export, the typecheck fails with TS2883 or TS4023.
 import { context, emits, errors, server, t } from '@livething/server';
+import { binary } from '@livething/server/binary';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
@@ -35,6 +36,15 @@ export const base = server({
   capabilities: [
     emits({ notification: t<{ title: string }>() }),
     errors([NotFound]),
+    binary({
+      emits: { 'avatar-preview': t<null>() },
+      serverRequests: {
+        'capture-screen': {
+          out: t<{ maxWidth: number }>(),
+          in: v.object({ fileType: v.literal('image/png') }),
+        },
+      },
+    }),
     channels(),
     keepalive(),
     scheduled({ 'send-digest': { data: t<{ userId: string }>() } }),
@@ -54,7 +64,13 @@ export const base = server({
 
 export const rooms = base.channel(['rooms', 'room:{roomId}'], {
   subscribe: v.object({ inviteToken: v.string() }),
-  capabilities: [emits({ typing: t<{ from: string }>() })],
+  capabilities: [
+    emits({ typing: t<{ from: string }>() }),
+    binary({
+      emits: { 'screen-frame': t<{ from: string }>() },
+      serverRequests: { 'capture-whiteboard': { out: t<null>(), in: v.null() } },
+    }),
+  ],
   onSubscribe(ctx) {
     ctx.channel.broadcast('typing', { from: ctx.user.id });
   },
@@ -72,13 +88,11 @@ export const announcements = base.channel('announcements', {
 export const handleSend = rooms.on('send', { input: v.object({ text: v.string() }), run() {} });
 export const handleAsk = rooms.request('ask', { run: () => ({ ok: true }) });
 export const handleFeed = rooms.stream('feed', {
-  chunk: t<{ line: string }>(),
   async *run() {
     yield { line: 'x' };
   },
 });
 export const handleRecorded = rooms.recordedStream('summary', {
-  chunk: t<{ line: string }>(),
   maxChunks: 10,
   async *run() {
     yield { line: 'x' };
@@ -87,19 +101,84 @@ export const handleRecorded = rooms.recordedStream('summary', {
 export const handleTop = base.on('top', { input: v.object({ text: v.string() }), run() {} });
 export const handleTopAsk = base.request('top-ask', { run: () => ({ ok: true }) });
 export const handleTopFeed = base.stream('top-feed', {
-  chunk: t<{ line: string }>(),
   async *run() {
     yield { line: 'x' };
   },
 });
 export const handleTopRecorded = base.recordedStream('top-summary', {
-  chunk: t<{ line: string }>(),
   maxChunks: 10,
   async *run() {
     yield { line: 'x' };
   },
 });
 export const handleDigest = base.scheduled('send-digest', { run() {} });
+export const handleUploadAvatar = base.binary.on('upload-avatar', {
+  input: v.object({ fileType: v.string() }),
+  run(ctx, _input, bytes) {
+    ctx.binary.send('avatar-preview', null, bytes);
+  },
+});
+export const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
+  run(ctx, _input, bytes) {
+    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+  },
+});
+
+export const handleGetThumbnail = base.binary.request('get-thumbnail', {
+  input: v.object({ attachmentId: v.string() }),
+  run: () => ({ info: { fileType: 'image/png' }, bytes: new Uint8Array(1) }),
+});
+export const handleDownloadAttachment = base.binary.stream('download-attachment', {
+  async *run(ctx): AsyncGenerator<{ info: { fileName: string } | null; bytes: Uint8Array }> {
+    yield { info: null, bytes: new Uint8Array(1) };
+    await ctx.stream.drain();
+  },
+});
+export const handleStartScreenShare = rooms.on('start-screen-share', {
+  async run(ctx) {
+    const { bytes } = await ctx.binary.request('capture-screen', { maxWidth: 1280 });
+    await ctx.channel.binary.request('capture-whiteboard', null);
+    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+  },
+});
+export const handleGetPinnedFile = rooms.binary.request('get-pinned-file', {
+  run: () => ({ info: null }),
+});
+export const handleDownloadRecording = rooms.binary.stream('download-recording', {
+  async *run() {
+    yield { info: { part: 1 }, bytes: new Uint8Array(1) };
+  },
+});
+
+const files = server({
+  scope: 'plugin',
+  capabilities: [
+    binary({ serverRequests: { 'capture-camera': { out: t<null>(), in: v.null() } } }),
+    channels(),
+    clientRequests(),
+    serverRequests(),
+    stream(),
+  ],
+});
+const stage = files.channel('stage', {});
+export const handleGetFile = files.binary.request('get-file', { run: () => ({ info: null }) });
+export const handleDownloadFile = files.binary.stream('download-file', {
+  async *run() {
+    yield { info: null, bytes: new Uint8Array(1) };
+  },
+});
+export const handleGetStageFile = stage.binary.request('get-stage-file', {
+  run: () => ({ info: null }),
+});
+export const handleCaptureCamera = files.on('capture-camera-now', {
+  async run(ctx) {
+    await ctx.binary.request('capture-camera', null);
+  },
+});
+export const filesDefinition = files.assemble({
+  handlers: [handleGetFile, handleDownloadFile, stage, handleGetStageFile, handleCaptureCamera],
+});
+export const Files = plugin('acme:files', { definition: filesDefinition });
 
 export function currentContext() {
   return context.connection(base);
@@ -118,6 +197,13 @@ export const handlers = [
   handleTopFeed,
   handleTopRecorded,
   handleDigest,
+  handleUploadAvatar,
+  handleShareScreenFrame,
+  handleGetThumbnail,
+  handleDownloadAttachment,
+  handleStartScreenShare,
+  handleGetPinnedFile,
+  handleDownloadRecording,
 ] as const;
 
 export const definition = base.assemble({ handlers });

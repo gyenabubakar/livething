@@ -10,7 +10,7 @@ test.describe('surface-area gaps', () => {
     await installRig(page);
     const a = await connect(page, { path: '/ws/rate-limit', username: 'alice', room: room });
 
-    // Layer 1 — contract cap (top-level max=3). Fourth 'tick' rejected.
+    // Layer 1 — contract cap (top-level maxMessages=3). Fourth 'tick' rejected.
     for (let i = 0; i < 3; i += 1) {
       await send(page, a, { event: 'tick', payload: {} });
     }
@@ -35,10 +35,10 @@ test.describe('surface-area gaps', () => {
 
     expect(topErrors.length).toBeGreaterThanOrEqual(1);
 
-    // Layer 2 — channel cap (rooms channel max=50, looser than contract).
+    // Layer 2 — channel cap (rooms channel maxMessages=50, looser than contract).
     // No errors when sending one chatter — it would have been rate-limited at
     // the contract level had the channel not raised the cap. But the channel
-    // also has a per-handler override on 'chatter' (max=1), so a second
+    // also has a per-handler override on 'chatter' (maxMessages=1), so a second
     // 'chatter' is rejected at layer 3.
     await send(page, a, {
       event: '__subscribe__',
@@ -59,7 +59,7 @@ test.describe('surface-area gaps', () => {
       [a],
     );
 
-    // Layer 3 — per-handler override (chatter max=1) — second chatter rejected.
+    // Layer 3 — per-handler override (chatter maxMessages=1) — second chatter rejected.
     await send(page, a, {
       event: 'chatter',
       payload: { text: 'hi2' },

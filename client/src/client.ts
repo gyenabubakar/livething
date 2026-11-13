@@ -5,6 +5,7 @@ import type { ConnectDescriptor } from '~/connect.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveRuntime } from '~/internal/runtime.ts';
 import type { TopLevelContract } from '~/plugins/contract.ts';
+import type { BinaryScopeSurface } from '~/primitives/binary/types.ts';
 import type {
   ApplyPrimitives,
   Primitive,
@@ -40,7 +41,9 @@ type AppSocketFor<
   TPrimitives extends readonly Primitive<any, any>[],
 > = WithMissingPrimitiveStubs<
   WithChannelPrimitiveSurface<
-    Socket<AsSocketContract<C>> & ApplyPrimitives<TPrimitives, C>,
+    Socket<AsSocketContract<C>> &
+      ApplyPrimitives<TPrimitives, C> &
+      BinaryScopeSurface<C, TPrimitives[number]['_tag']>,
     C,
     TPrimitives
   >,
@@ -58,6 +61,52 @@ export type AppSocket<
   TContract extends SocketContract,
   TPrimitives extends readonly Primitive<any, any>[],
 > = AppSocketFor<TopLevelContract<TContract, ClaimedIds<TPrimitives>>, TPrimitives>;
+
+/**
+ * True when the contract has binary entries, at the top level or in any channel. A loose
+ * contract (`any`, or an index signature such as `Record<string, any>`) has none it can name,
+ * so it never asks for `binary()`. An index signature does not fill a named key, so a contract
+ * with an index signature and a real `binary` or `channels` key is still checked. A channel
+ * map with an index signature is checked through its value type. An empty `binary: {}` has
+ * no entries. In a union contract, one member with binary entries is enough.
+ */
+type HasBinary<C> = 0 extends 1 & C
+  ? false
+  : [ScopeHasBinary<C>] extends [false]
+    ? HasChannelBinary<C>
+    : true;
+
+type ScopeHasBinary<S> = 0 extends 1 & S
+  ? false
+  : S extends { binary: infer B extends object }
+    ? keyof B extends never
+      ? false
+      : true
+    : false;
+
+type HasChannelBinary<C> = C extends { channels: infer TChannels }
+  ? string extends keyof TChannels
+    ? ScopeHasBinary<TChannels[keyof TChannels]>
+    : true extends { [K in keyof TChannels]: ScopeHasBinary<TChannels[K]> }[keyof TChannels]
+      ? true
+      : false
+  : false;
+
+/**
+ * The type of `client()`'s first argument. A contract with binary entries needs
+ * `binary()`, so without it the `connect(...)` argument shows this error. The contract is
+ * checked first, so for a known contract with no binary entries the type does not depend on
+ * the primitives. A wrapper that is generic over the contract (`client<C>()(connect(url))`
+ * with `C` a type parameter) cannot be checked, so TypeScript rejects its `connect(...)`
+ * argument, and the wrapper must cast it (`connect(url) as never`). A generic wrapper that
+ * passes primitives already needed casts at HEAD, because of `ValidatePrimitives`.
+ */
+type ConnectArgument<TContract, TPrimitives extends readonly Primitive<any, any>[]> =
+  HasBinary<TContract> extends false
+    ? ConnectDescriptor
+    : 'binary' extends TPrimitives[number]['_tag']
+      ? ConnectDescriptor
+      : { error: '[livething] this server sends binary. Register binary() in client().' };
 
 /**
  * Build a typed socket. You call it in two steps: first pick the contract, then
@@ -79,11 +128,11 @@ export type AppSocket<
  */
 export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
-    connectDescriptor: ConnectDescriptor,
+    connectDescriptor: ConnectArgument<TContract, TPrimitives>,
     ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
   ): AppSocket<TContract, TPrimitives> {
     return buildSocket(
-      connectDescriptor,
+      connectDescriptor as ConnectDescriptor,
       primitives as readonly Primitive[],
     ) as unknown as AppSocket<TContract, TPrimitives>;
   };

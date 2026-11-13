@@ -31,7 +31,7 @@ async function startEngine(definition: Parameters<ReturnType<typeof adapter>>[0]
 async function connect(engine: Engine) {
   const sent: unknown[][] = [];
   const handle = engine.accept(Symbol('ama'), {
-    send: (data: string) => sent.push(JSON.parse(data) as unknown[]),
+    send: ({ text }: { kind: 'text'; text: string }) => sent.push(JSON.parse(text) as unknown[]),
     close: () => {},
     bufferedAmount: () => 0,
     userId: 'ama',
@@ -196,7 +196,7 @@ describe('hooks written in server({ ... })', () => {
     const meta = { name: 'Ama' };
     const sent: unknown[][] = [];
     const handle = engine.accept(Symbol('ama'), {
-      send: (data: string) => sent.push(JSON.parse(data) as unknown[]),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(JSON.parse(text) as unknown[]),
       close: () => {},
       bufferedAmount: () => 0,
       userId: 'ama',

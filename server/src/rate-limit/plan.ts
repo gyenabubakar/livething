@@ -71,15 +71,20 @@ function mergeRule(opts: MergeRuleOptions): RuleInstance | null {
   if (self === false) return null;
 
   const windowMs = self.windowMs ?? parent?.windowMs ?? RATE_LIMIT_DEFAULTS.windowMs;
-  const max = self.max ?? parent?.max ?? RATE_LIMIT_DEFAULTS.max;
+  const maxMessages = self.maxMessages ?? parent?.maxMessages ?? RATE_LIMIT_DEFAULTS.maxMessages;
+  const maxBytes = self.maxBytes ?? parent?.maxBytes;
 
   assertPositiveInteger(windowMs, 'windowMs', `rateLimit at ${context}`);
-  assertPositiveInteger(max, 'max', `rateLimit at ${context}`);
+  assertPositiveInteger(maxMessages, 'maxMessages', `rateLimit at ${context}`);
+  if (maxBytes !== undefined) {
+    assertPositiveInteger(maxBytes, 'maxBytes', `rateLimit at ${context}`);
+  }
 
   return {
     id: alloc.next(),
     windowMs,
-    max,
+    maxMessages,
+    ...(maxBytes === undefined ? {} : { maxBytes }),
     per: self.per ?? parent?.per ?? RATE_LIMIT_DEFAULTS.per,
   };
 }

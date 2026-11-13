@@ -1,6 +1,7 @@
 // What a short docs example may use without declaring it: Huddle itself. Every name is real and
 // typed, so a short example is checked against the same app as the long ones.
 import {
+  binary,
   channels,
   client,
   clientRequests,
@@ -15,6 +16,7 @@ import {
   replay,
   serverRequests,
   stream,
+  uploads,
 } from '@livething/client';
 import { WebEnvironment } from '@livething/client/environment';
 import { emits, server, t } from '@livething/server';
@@ -36,6 +38,8 @@ export declare const ctx: CtxOf<typeof base> extends never
 
 export const socket = client<HuddleSocket>()(
   connect('wss://huddle.example.com/huddle'),
+  binary(),
+  uploads(),
   channels(),
   clientRequests(),
   serverRequests(),

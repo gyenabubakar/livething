@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/adapter.ts';
-import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
 import { purgeUser } from '~/_engine/runtime/purge-user.ts';
 import { createTestStorage } from '~/_test/sql.ts';
@@ -33,20 +32,17 @@ async function setup() {
     handlers: [
       base.recordedStream('feed', {
         input: v.object({}),
-        chunk: t<{ n: number }>(),
         broadcast: true,
         ...retention,
         run: ticking,
       }),
       base.recordedStream('solo', {
         input: v.object({}),
-        chunk: t<{ n: number }>(),
         ...retention,
         run: ticking,
       }),
       base.recordedStream('stuck', {
         input: v.object({}),
-        chunk: t<{ n: number }>(),
         ...retention,
         async *run(ctx) {
           ctx.stream.signal.addEventListener('abort', () => {
@@ -103,7 +99,7 @@ async function setup() {
     const before = new Set(engine.core.connections.keys());
     const socket = { close: (): void => {} };
     const handle = engine.accept(Symbol(userId), {
-      send(data: string) {
+      send({ text: data }: { kind: 'text'; text: string }) {
         frames.push(JSON.parse(data) as Frame);
         return true;
       },

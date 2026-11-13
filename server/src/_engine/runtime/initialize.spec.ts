@@ -113,7 +113,6 @@ async function initWithFakeStorage(definition: ServerDefinition, warm = false) {
 
 const Empty = v.object({});
 const Text = v.object({ text: v.string() });
-const NumChunk = t<{ n: number }>();
 
 const EmptyOut = t<Record<string, never>>();
 const TextOut = t<{ text: string }>();
@@ -161,7 +160,6 @@ const mediumDefinition = mediumBase.assemble({
     }),
     mediumBase.stream('tail', {
       input: Empty,
-      chunk: NumChunk,
       async *run() {
         yield { n: 1 };
       },
@@ -212,7 +210,6 @@ for (const name of ['s-a', 's-b']) {
   heavyHandlers.push(
     heavyBase.stream(name, {
       input: Empty,
-      chunk: NumChunk,
       async *run() {
         yield { n: 1 };
       },
@@ -223,7 +220,6 @@ for (const name of ['s-a', 's-b']) {
 heavyHandlers.push(
   heavyBase.recordedStream('rec-a', {
     input: Empty,
-    chunk: NumChunk,
     async *run() {
       yield { n: 1 };
     },

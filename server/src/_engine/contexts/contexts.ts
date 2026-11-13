@@ -50,6 +50,7 @@ type MessagingDeps = Pick<
   | 'sendThroughPipeline'
   | 'toConnectionInfo'
   | 'persistAttachment'
+  | 'addBinarySenders'
 >;
 
 /** Reach any specific connection by ref, or list every live connection. */
@@ -94,8 +95,10 @@ function buildUserInfo(
   const channels = new Set<string>();
   const tagsByKey = new Map<string, PublicApi.TagRef>();
   for (const connection of connections) {
-    for (const membership of connection.channelMemberships.values())
+    for (const membership of connection.channelMemberships.values()) {
       channels.add(membership.channelName);
+    }
+
     for (const tag of connectionTagRefs(connection)) {
       tagsByKey.set(JSON.stringify([tag.kind, tag.group, tag.key]), tag);
     }
@@ -120,7 +123,7 @@ function buildUserHandle(
   userId: string,
   deps: MessagingDeps,
 ): PublicApi.UserHandle<Record<string, unknown>> {
-  return {
+  const handle: PublicApi.UserHandle<Record<string, unknown>> = {
     id: userId,
 
     ref: () => buildUserRef(userId, deps.instanceId),
@@ -147,6 +150,10 @@ function buildUserHandle(
 
     isOnline: () => (deps.usersByKey.get(userId)?.size ?? 0) > 0,
   };
+
+  deps.addBinarySenders?.(handle, { broadcast: 'event-first', request: 'event-first' });
+
+  return handle;
 }
 
 /**
@@ -232,6 +239,14 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
     },
   };
 
+  deps.addBinarySenders?.(proto, {
+    send: 'event-first',
+    broadcast: 'event-first',
+    request: 'event-first',
+    // There only when a replay capability added `ctx.sendReplay`.
+    sendReplay: 'event-first',
+  });
+
   // `ctx.channels` exists only when the `channels()` capability is listed, and
   // is built on first access. Defined conditionally (not a throwing getter) so a
   // channel-less handler simply has no `channels` property — enumerating the
@@ -267,6 +282,8 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
       persistAttachment: deps.persistAttachment,
       getStorage: deps.getStorage,
       isUserPurging: deps.isUserPurging,
+      addBinarySenders: deps.addBinarySenders,
+      logger: deps.logger,
     };
 
     Object.defineProperty(proto, 'tags', {

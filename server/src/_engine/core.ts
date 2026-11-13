@@ -13,7 +13,9 @@ import {
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,
+  UploadAborted,
   ValidationFailed,
+  WrongFrameKind,
 } from '@livething/core';
 import { createAsyncContext, getInvocationScope } from '~/_engine/async-context.ts';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
@@ -23,6 +25,7 @@ import {
   createEngineTimers,
   UserTransactionTracker,
 } from '~/_engine/user-transaction.ts';
+import { assertPositiveInteger } from '~/_engine/validation.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext, PendingScopeFlush } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -41,6 +44,27 @@ type Primitive = PrimitiveCore.Primitive;
 
 /** How many purged users `isUserPurging` remembers for handlers that started before their purge. */
 const MAX_PURGE_RECORDS = 10_000;
+
+/** The message limit when the adapter gives none: Cloudflare's, so Node behaves the same. */
+const DEFAULT_MESSAGE_BYTES = 32 * 1024 * 1024;
+
+function resolveMessageLimits(
+  options: EngineAdapterTypes.EngineOptions,
+): EngineAdapterTypes.MessageLimits {
+  const limits = options.messageLimits ?? {
+    receiveBytes: DEFAULT_MESSAGE_BYTES,
+    sendBytes: DEFAULT_MESSAGE_BYTES,
+  };
+  for (const field of ['receiveBytes', 'sendBytes'] as const) {
+    assertPositiveInteger(
+      limits[field],
+      `messageLimits.${field}`,
+      `Adapter "${options.adapterId}"`,
+    );
+  }
+
+  return { receiveBytes: limits.receiveBytes, sendBytes: limits.sendBytes };
+}
 
 /**
  * Holds every piece of state one engine needs at runtime. No behaviour —
@@ -68,6 +92,8 @@ export class EngineCore {
   timers: PublicApi.TimerProvider;
   platform: unknown;
   logger: PublicApi.Logger;
+  /** The adapter's message limits, with the 32 MiB defaults filled in. */
+  messageLimits: EngineAdapterTypes.MessageLimits;
 
   /**
    * Engine id for multi-instance setups. Adapters that expose more than one
@@ -92,7 +118,9 @@ export class EngineCore {
   streamCancel?: FeatureSlots.StreamCancel;
   streamChannelLeave?: FeatureSlots.StreamChannelLeave;
   durableStream?: FeatureSlots.DurableStreamService;
+  uploadService?: FeatureSlots.UploadService;
   requestDispatch?: FeatureSlots.RequestDispatch;
+  binaryService?: FeatureSlots.BinaryService;
   buildTagsApi?: FeatureSlots.BuildTagsApi;
   channelMembershipService?: FeatureSlots.ChannelMembershipService;
   tagPersistenceService?: FeatureSlots.TagPersistenceService;
@@ -150,13 +178,13 @@ export class EngineCore {
   >();
 
   /**
-   * In-memory count of each member's inbox rows, keyed by channel and identity.
-   * Seeded from storage on first touch and bumped as fan-out writes rows, so the
-   * per-member retention prune runs only when the row cap could be exceeded. It
-   * is invalidated when rows are acknowledged, backfilled, or cleared, and an
+   * In-memory count and byte total of each member's inbox rows, keyed by channel and
+   * identity. Seeded from storage on first touch and bumped as fan-out writes rows, so the
+   * per-member retention prune runs only when the row or byte cap could be exceeded. It
+   * is invalidated when rows are acknowledged, backfilled, cleared or pruned, and an
    * undercount only keeps a few rows past the cap until the next prune.
    */
-  readonly inboxMemberCounts = new Map<string, number>();
+  readonly inboxMemberCounts = new Map<string, { rows: number; bytes: number }>();
 
   /** Tag groups declared via the contract's `tagGroups` config. Empty when none are declared. */
   readonly declaredTagGroups = {
@@ -198,6 +226,8 @@ export class EngineCore {
     StreamAlreadyActive.code,
     StreamIdCollision.code,
     UnsupportedProtocol.code,
+    UploadAborted.code,
+    WrongFrameKind.code,
   ]);
 
   /** How many `purgeUser` calls are running, per user. Use `isUserPurging` to ask about a user. */
@@ -281,6 +311,7 @@ export class EngineCore {
 
     this.platform = options.platform;
     this.logger = options.logger;
+    this.messageLimits = resolveMessageLimits(options);
     this.userTransactions = new UserTransactionTracker(
       (error) => {
         this.logger.error('[livething] could not redo a storage write after a rollback', {
@@ -291,6 +322,7 @@ export class EngineCore {
       (error) => this.logger.error(error.message),
     );
     this.storage = createEngineStorage(options.storage, this.userTransactions);
+
     this.timers = createEngineTimers(options.timers, this.userTransactions);
 
     this.asyncContext = createAsyncContext(options.asyncContextFactory, definition.__baseId);
@@ -305,7 +337,7 @@ export class EngineCore {
    * pings is what `keepalive()` owns, answering them is not.
    */
   private replyPong(connectionId: string): void {
-    this.connections.get(connectionId)?.descriptor.send('pong');
+    this.connections.get(connectionId)?.descriptor.send({ kind: 'text', text: 'pong' });
   }
 
   setInstanceId(id: string): void {

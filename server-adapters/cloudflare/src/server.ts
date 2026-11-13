@@ -1,5 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter, isValidCloseCode, normalizeCloseReason } from '@livething/server/adapters';
+import {
+  adapter,
+  asUint8Array,
+  isValidCloseCode,
+  normalizeCloseReason,
+} from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
 import { DurableObject } from 'cloudflare:workers';
 import type {
@@ -8,6 +13,7 @@ import type {
   EngineRuntimeOptions,
   Logger,
   ServerDefinition,
+  TransportFrame,
 } from '@livething/server/adapters';
 import { buildAdmin } from './admin.ts';
 import { createPlatform } from './platform.ts';
@@ -19,6 +25,9 @@ const WEB_SOCKET_OPEN = 1;
 
 /** The close code for a socket that ended with no close frame from the client. */
 const ABNORMAL_CLOSURE = 1006;
+
+/** The largest WebSocket message a Durable Object receives or sends: 32 MiB. */
+const CLOUDFLARE_MESSAGE_BYTES = 32 * 1024 * 1024;
 
 /**
  * The instance shape of a `bind()`-produced Durable Object.
@@ -97,6 +106,11 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           platform: createPlatform(ctx, env),
           storage: createStorage(ctx, logger),
           timers: createTimers(ctx),
+          // Fixed by the platform. Cloudflare drops a bigger outgoing message with no error.
+          messageLimits: {
+            receiveBytes: CLOUDFLARE_MESSAGE_BYTES,
+            sendBytes: CLOUDFLARE_MESSAGE_BYTES,
+          },
         });
         // Durable Object refs can be passed through application code and must
         // carry the stable DO id so a ref from another DO cannot match a local
@@ -146,10 +160,10 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
         let closed = false;
         return {
           // workerd throws on send() after close; report a refused frame instead.
-          send: (data: string) => {
+          send: (frame: TransportFrame) => {
             if (socket.readyState !== WEB_SOCKET_OPEN) return false;
 
-            socket.send(data);
+            socket.send(frame.kind === 'text' ? frame.text : frame.bytes);
             return true;
           },
           close: (code?: number, reason?: string) => {
@@ -172,7 +186,7 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           if (typeof event.data === 'string') {
             connection.handleMessage(event.data);
           } else {
-            closeBinaryFrame(socket);
+            connection.handleBinaryMessage(asUint8Array(event.data));
           }
         });
         socket.addEventListener('close', (event) => {
@@ -208,6 +222,9 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
         if (hibernating) {
           this.ctx.acceptWebSocket(server);
         } else {
+          // From compatibility date 2026-03-17 a standard socket gives binary as a Blob, which
+          // the engine cannot read in step. Hibernation's webSocketMessage always gets an ArrayBuffer.
+          server.binaryType = 'arraybuffer';
           server.accept();
         }
 
@@ -244,7 +261,7 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           return;
         }
 
-        closeBinaryFrame(ws);
+        await connection.handleBinaryMessage(asUint8Array(message));
       }
 
       async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -342,10 +359,6 @@ function answerClientClose(ws: WebSocket, code: number, reason: string): void {
   } else {
     ws.close();
   }
-}
-
-function closeBinaryFrame(socket: WebSocket): void {
-  socket.close(CloseCodes.UNSUPPORTED_DATA, '[livething] binary frames are not supported yet');
 }
 
 /**

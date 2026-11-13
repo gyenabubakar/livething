@@ -426,7 +426,12 @@ describe('stream/runtime', () => {
     });
 
     await cancelStream(
-      { activeStreams, connections: new Map(), sendProtocolMessage: vi.fn() },
+      {
+        activeStreams,
+        connections: new Map(),
+        sendProtocolMessage: vi.fn(),
+        logger: { error: vi.fn() },
+      },
       stranger,
       streamId,
     );
@@ -506,7 +511,12 @@ describe('stream/runtime', () => {
     ]);
     const sendProtocolMessage = vi.fn();
 
-    await cancelStream({ activeStreams, connections, sendProtocolMessage }, owner, streamId);
+    const logger = { error: vi.fn() };
+    await cancelStream(
+      { activeStreams, connections, sendProtocolMessage, logger },
+      owner,
+      streamId,
+    );
 
     expect(activeStreams.has(streamId)).toBe(false);
     // Only the peer gets the terminal; the creator initiated the cancel.
@@ -550,6 +560,7 @@ describe('stream/runtime', () => {
           [bob.id, bob],
         ]),
         sendProtocolMessage,
+        logger: { error: vi.fn() },
       },
       owner,
       's',

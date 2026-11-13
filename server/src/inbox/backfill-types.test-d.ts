@@ -1,10 +1,12 @@
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
+import { binary } from '~/binary/capability.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox } from '~/inbox/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
+import { expectTypeOf } from 'vitest';
 
 const base = server({
   capabilities: [channels(), sequence({ persist: true }), dedup()],
@@ -60,6 +62,46 @@ export const backfillTypes = chat.on('seed', {
         __livething: { messageId: 'm5' },
       },
     ]);
+  },
+});
+
+// The binary backfill: on a channel with binary events, typed from its `binary({ emits })`.
+const voiceBase = server({
+  capabilities: [binary(), channels(), sequence({ persist: true }), dedup()],
+});
+const dms = voiceBase.channel(['dms', 'dm:{pair}'], {
+  membership: 'persistent',
+  capabilities: [
+    inbox(),
+    emits({ message: t<{ text: string }>() }),
+    binary({ emits: { 'voice-note': t<{ from: string; durationMs: number }>() } }),
+  ],
+});
+
+export const binaryBackfillTypes = dms.on('seed-voice-notes', {
+  run(ctx) {
+    ctx.channel.inbox.binary.backfill('user-1', [
+      {
+        event: 'voice-note',
+        info: { from: 'user-2', durationMs: 1200 },
+        bytes: new Uint8Array(4),
+        __livething: { messageId: 'v1' },
+      },
+    ]);
+    ctx.channel.inbox.binary.backfill('user-1', [
+      // @ts-expect-error — a JSON event is not a binary event.
+      { event: 'message', info: { text: 'hi' }, __livething: { messageId: 'v2' } },
+    ]);
+    ctx.channel.inbox.binary.backfill('user-1', [
+      // @ts-expect-error — a binary event must receive its declared info.
+      { event: 'voice-note', info: { from: 'user-2' }, __livething: { messageId: 'v3' } },
+    ]);
+  },
+});
+
+export const noBinaryBackfill = chat.on('seed-nothing', {
+  run(ctx) {
+    expectTypeOf(ctx.channel.inbox.binary).toBeNever();
   },
 });
 

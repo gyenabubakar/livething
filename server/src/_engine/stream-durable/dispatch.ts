@@ -45,6 +45,7 @@ function buildRuntimeDef(
     broadcast: durable.broadcast,
     nudges: durable.nudges,
     maxChunks: durable.maxChunks,
+    maxBufferBytes: durable.maxBufferBytes,
     maxAgeMs: durable.maxAgeMs,
     retentionAfterEndMs: durable.retentionAfterEndMs,
   };
@@ -90,13 +91,14 @@ export const durableStreamService: DurableStreamService = {
     connection: RuntimeConnection,
     options: DurableTriggerOptions,
   ): Promise<void> {
-    const { scope, durable, payload, livething } = options;
+    const { scope, durable, payload, livething, bytes } = options;
     ensureSchemaOnce(runtime);
     await DurableStreamRuntime.runDurableStream(runtime, connection, {
       scope,
       def: buildRuntimeDef(durable),
       payload,
       livething,
+      bytes,
     });
   },
 

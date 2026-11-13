@@ -17,6 +17,7 @@ type ChannelHandleDeps = Pick<
   | 'sendThroughPipeline'
   | 'broadcastToChannelRecipient'
   | 'subscribeConnectionAsServer'
+  | 'addBinarySenders'
 >;
 
 interface ChannelHandleScope {
@@ -87,6 +88,15 @@ export function buildChannelHandle(
         channelFamily: scope.channelFamily,
       }),
   };
+
+  deps.addBinarySenders?.(handle, {
+    send: 'event-first',
+    broadcastTo: 'event-second',
+    broadcast: 'event-first',
+    request: 'event-first',
+    // There only on `ctx.channel`, when replay added `sendReplay` to it.
+    sendReplay: 'event-first',
+  });
 
   if (!scope.isSubscribeGate) {
     handle.inbox = () => null;

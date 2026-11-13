@@ -1,6 +1,8 @@
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
+import { isBinaryPayload } from '~/outgoing/binary-payload.ts';
 import { matchesReplayScope, readReplayContextScope } from '~/replay/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { BinaryPayload } from '~/outgoing/binary-payload.ts';
 import type { ReplayWire } from './wire.ts';
 
 /**
@@ -57,6 +59,17 @@ function resolveReplayChannel(channel: unknown): ReplayChannelTarget {
 }
 
 /**
+ * The info and the bytes of a `.binary.sendReplay(...)`, which hands its info and bytes to
+ * `sendReplay` in the payload's place, or a JSON payload as it is.
+ */
+function splitReplayPayload(given: unknown): { payload: unknown; bytes?: Uint8Array } {
+  if (!isBinaryPayload(given)) return { payload: given };
+
+  const binary = given as BinaryPayload;
+  return { payload: binary.info, bytes: binary.bytes };
+}
+
+/**
  * Resolve the current connection's id from a handler ctx. Reads the engine's
  * stashed runtime connection first — it is always present on a built ctx — so
  * the id is available regardless of how the public `ctx.connection` ref is
@@ -97,28 +110,40 @@ export function createSendReplayExtender(
 
       const channelName = scope.channelName ?? null;
       const channelFamily = scope.channelFamily ?? null;
-      base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
+      base.channel.sendReplay = (event: string, given: unknown, wire: ReplayWire) => {
+        const { payload, bytes } = splitReplayPayload(given);
         engine.assertReplaySendContract(event, payload, {
           channel: channelName ?? undefined,
           channelFamily,
+          bytes,
         });
-        engine.sendReplay(connectionId, { channelName, channelFamily, event, payload, wire });
+        engine.sendReplay(connectionId, {
+          channelName,
+          channelFamily,
+          event,
+          payload,
+          bytes,
+          wire,
+        });
       };
 
       return {};
     }
 
-    base.sendReplay = (event, payload, wire) => {
+    base.sendReplay = (event, given, wire) => {
       const target = resolveReplayChannel(wire.channel);
+      const { payload, bytes } = splitReplayPayload(given);
       engine.assertReplaySendContract(event, payload, {
         channel: target.channelName ?? undefined,
         channelFamily: target.channelFamily,
+        bytes,
       });
       engine.sendReplay(connectionId, {
         channelName: target.channelName,
         channelFamily: target.channelFamily,
         event,
         payload,
+        bytes,
         wire: { deliverySeq: wire.deliverySeq, messageId: wire.messageId },
       });
     };

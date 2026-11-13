@@ -22,6 +22,7 @@ const EVENT_KINDS = new Set([
   'outgoing',
   'stream-generate',
   'recorded-stream-generate',
+  'upload',
 ]);
 
 /**
@@ -122,10 +123,12 @@ function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
     copy.nudges = nudges.map((n) => ({ ...n, event: pluginWireName(id, n.event) }));
   }
 
-  const handler = (primitive as { handler?: (ctx: any, payload: any) => unknown }).handler;
+  const handler = (primitive as { handler?: (ctx: any, payload: any, bytes?: any) => unknown })
+    .handler;
   if (handler) {
-    copy.handler = scopePluginThrow(id, shortCodes, (ctx: any, payload: any) =>
-      runAsPlugin(scope, ctx, (scoped) => handler(scoped, payload)),
+    // A binary handler gets the frame's bytes as a third argument.
+    copy.handler = scopePluginThrow(id, shortCodes, (ctx: any, payload: any, bytes?: any) =>
+      runAsPlugin(scope, ctx, (scoped) => handler(scoped, payload, bytes)),
     );
   }
 
@@ -138,6 +141,14 @@ function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
 
   const generator = (primitive as { generator?: PluginGenerator }).generator;
   if (generator) copy.generator = generatorAsPlugin(scope, generator);
+
+  // An upload's `onDiscard` runs with no connection, but as the plugin all the same.
+  const onDiscard = (primitive as { onDiscard?: (ctx: any, input: any) => unknown }).onDiscard;
+  if (onDiscard) {
+    copy.onDiscard = scopePluginThrow(id, shortCodes, (ctx: any, input: any) =>
+      runAsPlugin(scope, ctx, (scoped) => onDiscard(scoped, input)),
+    );
+  }
 
   return copy as unknown as Primitive;
 }
@@ -303,7 +314,11 @@ function runAsPlugin<T>(scope: PluginScope, ctx: any, fn: (scoped: any) => T): T
   return asPlugin(scope, scoped, () => fn(scoped));
 }
 
-type PluginGenerator = (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
+type PluginGenerator = (
+  ctx: any,
+  payload: any,
+  bytes?: Uint8Array,
+) => AsyncGenerator<unknown, void, unknown>;
 
 /**
  * A plugin stream's generator, given the plugin's scoped ctx. The engine advances the
@@ -311,12 +326,12 @@ type PluginGenerator = (ctx: any, payload: any) => AsyncGenerator<unknown, void,
  * plugin declared leaves with its namespaced code, as it does from a handler.
  */
 function generatorAsPlugin(scope: PluginScope, generator: PluginGenerator): PluginGenerator {
-  return (ctx, payload) => {
+  return (ctx, payload, bytes) => {
     const scoped = scopeHookCtx(scope.id, ctx);
     const step = scopePluginThrow(scope.id, scope.shortCodes, <T>(fn: () => T) =>
       asPlugin(scope, scoped, fn),
     );
-    const inner = step(() => generator(scoped, payload));
+    const inner = step(() => generator(scoped, payload, bytes));
     const wrapped = {
       next: (value: unknown) => step(() => inner.next(value)),
       return: (value: void) => step(() => inner.return(value)),

@@ -12,6 +12,7 @@ import {
   ensureReplaySchema,
   getReplayRowByKey,
   isChannelReplayAuthorized,
+  loadReplayPage,
   loadReplayRows,
   matchesReplayScope,
   MAX_ANONYMOUS_BUDGETS,
@@ -228,7 +229,7 @@ describe('replay/runtime', () => {
       buildReplayRow('message', {
         options: {
           type: 'snapshot',
-          snapshotKey: (_event: string, next: Record<string, unknown>) => String(next.text),
+          snapshotKey: (_event: string, next: Record<string, unknown> | null) => String(next?.text),
         },
         payload,
         livething,
@@ -289,14 +290,15 @@ describe('replay/runtime', () => {
     persistReplayMessage(sql, {
       options: {
         type: 'snapshot',
-        snapshotKey: (_event: string, payload: Record<string, unknown>) => String(payload.id),
+        snapshotKey: (_event: string, payload: Record<string, unknown> | null) =>
+          String(payload?.id),
         reduce(previous, next) {
           return {
             event: 'doc-snapshot',
             payload: {
-              id: next.payload.id,
-              title: previous?.payload.title ?? '',
-              content: next.payload.content ?? previous?.payload.content ?? '',
+              id: next.payload?.id,
+              title: previous?.payload?.title ?? '',
+              content: next.payload?.content ?? previous?.payload?.content ?? '',
             },
           };
         },
@@ -321,7 +323,8 @@ describe('replay/runtime', () => {
     persistReplayMessage(sql, {
       options: {
         type: 'snapshot',
-        snapshotKey: (_event: string, payload: Record<string, unknown>) => String(payload.id),
+        snapshotKey: (_event: string, payload: Record<string, unknown> | null) =>
+          String(payload?.id),
         reduce() {
           return null;
         },
@@ -344,6 +347,8 @@ describe('replay/runtime', () => {
       seq: 1,
       event: 'message',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: null,
       channelFamily: null,
       userId: null,
@@ -357,6 +362,8 @@ describe('replay/runtime', () => {
       seq: 2,
       event: 'message',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: null,
       channelFamily: null,
       userId: null,
@@ -370,6 +377,8 @@ describe('replay/runtime', () => {
       seq: 3,
       event: 'message',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: 'room-1',
       channelFamily: 'rooms',
       userId: null,
@@ -383,6 +392,8 @@ describe('replay/runtime', () => {
       seq: 4,
       event: 'message',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: 'room-1',
       channelFamily: 'rooms',
       userId: null,
@@ -396,6 +407,8 @@ describe('replay/runtime', () => {
       seq: 5,
       event: 'message',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: 'room-1',
       channelFamily: 'rooms',
       userId: null,
@@ -436,6 +449,8 @@ describe('replay/runtime', () => {
         seq,
         event: 'message',
         payload: '{}',
+        binaryPayload: null,
+        rowBytes: 2,
         channel: null,
         channelFamily: null,
         userId: null,
@@ -518,6 +533,8 @@ describe('replay/runtime', () => {
       seq: 1,
       event: 'room-msg',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: 'replay-room',
       channelFamily: null,
       userId: null,
@@ -531,6 +548,8 @@ describe('replay/runtime', () => {
       seq: 2,
       event: 'room-msg',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: 'replay-room',
       channelFamily: null,
       userId: null,
@@ -558,6 +577,8 @@ describe('replay/runtime', () => {
       seq: 1,
       event: 'notice',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: null,
       channelFamily: null,
       userId: null,
@@ -571,6 +592,8 @@ describe('replay/runtime', () => {
       seq: 2,
       event: 'notice',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: null,
       channelFamily: null,
       userId: null,
@@ -592,6 +615,8 @@ describe('replay/runtime', () => {
         seq,
         event: 'notice',
         payload: '{}',
+        binaryPayload: null,
+        rowBytes: 2,
         channel: null,
         channelFamily: null,
         userId,
@@ -654,6 +679,8 @@ describe('replay/runtime', () => {
         messageId: `msg_${seq}`,
         event: 'message',
         payload: '{}',
+        binaryPayload: null,
+        rowBytes: 2,
         channel: null,
         channelFamily: null,
         userId: null,
@@ -953,6 +980,8 @@ describe('replay/runtime', () => {
         messageId: `msg_${index}`,
         event: 'message',
         payload: '{}',
+        binaryPayload: null,
+        rowBytes: 2,
         ...top,
         userId: null,
         seq: index + 1,
@@ -978,6 +1007,7 @@ describe('replay/runtime', () => {
           scopes: [anonymousScope(index)],
           owner,
           stamp: index,
+          rowBytes: 2,
         });
       }
 
@@ -985,6 +1015,29 @@ describe('replay/runtime', () => {
       expect(replaySeqs(sql)).toContain(total);
       const firstToken = replayAudiencesOfRequester(null, ['token-0']);
       expect(readReplayGapWatermark(sql, top, firstToken)).toBeGreaterThanOrEqual(1);
+    });
+
+    it('holds the bytes of all anonymous tokens of one store to maxBytes, oldest first', () => {
+      const sql = replayDb();
+      const gate = new ReplayPruneGate();
+      const owner = { channelKey: undefined, claimedChannelKeys: new Set<string>() };
+      // 15 tokens with one 2-byte row each: each token is far under maxBytes, all of them are not.
+      for (let index = 0; index < 15; index += 1) {
+        storeReplayRow(sql, toAnonymous(index));
+        gate.prune(sql, {
+          retention: { maxBytes: 20 },
+          scopes: [anonymousScope(index)],
+          owner,
+          stamp: index,
+          rowBytes: 2,
+        });
+      }
+
+      const left = replaySeqs(sql).sort((a, b) => a - b);
+      expect(left.length * 2).toBeLessThanOrEqual(20);
+      expect(left).toEqual(Array.from({ length: left.length }, (_, i) => 15 - left.length + 1 + i));
+      const oldest = replayAudiencesOfRequester(null, ['token-0']);
+      expect(readReplayGapWatermark(sql, top, oldest)).toBe(15 - left.length);
     });
 
     it('folds the lowest token watermarks past the limit, so a real gap is still reported', () => {
@@ -1022,6 +1075,8 @@ describe('purgeReplayUser', () => {
         messageId: `msg_${seq}`,
         event: 'message',
         payload: '{}',
+        binaryPayload: null,
+        rowBytes: 2,
         channel: null,
         channelFamily: null,
         userId: 'bob',
@@ -1055,6 +1110,8 @@ describe('purgeReplayUser', () => {
       messageId: 'm',
       event: 'message',
       payload: '{}',
+      binaryPayload: null,
+      rowBytes: 2,
       channel: null,
       channelFamily: null,
       userId: null,
@@ -1083,6 +1140,52 @@ describe('purgeReplayUser', () => {
       }).map((row) => row.rowKey),
     ).toEqual(['both']);
     expect(getReplayRowByKey(sql, 'only-bob')).toBeNull();
+  });
+});
+
+describe('loadReplayPage', () => {
+  function storeRows(sql: ReturnType<typeof createTestSql>, sizes: number[]): void {
+    sizes.forEach((size, index) => {
+      const bytes = new Uint8Array(size).fill(index + 1);
+      storeReplayRow(
+        sql,
+        buildReplayRow('screen-frame', {
+          options: {},
+          payload: null,
+          bytes,
+          livething: { deliverySeq: index + 1, messageId: `m-${index + 1}` },
+          now: 1,
+        }),
+      );
+    });
+  }
+
+  const top = { channelFamily: null, userId: null };
+
+  it('reads at most maxRows rows, after `since` and up to throughSeq, in seq order', () => {
+    const sql = replayDb();
+    storeRows(sql, [10, 10, 10, 10, 10]);
+
+    const page = { throughSeq: 4, maxRows: 2, maxBytes: 1_000_000 };
+    function seqs(since: number): number[] {
+      return loadReplayPage(sql, top, { ...page, since }).map((row) => row.seq);
+    }
+
+    expect(seqs(0)).toEqual([1, 2]);
+    expect(seqs(2)).toEqual([3, 4]);
+    expect(seqs(4)).toEqual([]);
+  });
+
+  it('stops at maxBytes, but always reads one row, with its bytes', () => {
+    const sql = replayDb();
+    // Each row is `null` (4 bytes of info) plus its bytes.
+    storeRows(sql, [100, 100, 100, 500]);
+
+    const page = { throughSeq: 4, maxRows: 100, maxBytes: 250 };
+    expect(loadReplayPage(sql, top, { ...page, since: 0 }).map((row) => row.seq)).toEqual([1, 2]);
+    const [big] = loadReplayPage(sql, top, { ...page, since: 3 });
+    expect(big!.seq).toBe(4);
+    expect([...big!.binaryPayload!]).toEqual(new Array(500).fill(4));
   });
 });
 
@@ -1193,8 +1296,9 @@ describe('replay retention on an engine with a bound-parameter cap', () => {
     ensureReplaySchema(sql);
     for (let index = 0; index < 500; index += 1) {
       sql.exec(
-        `INSERT INTO __livething_replay (rowKey, messageId, seq, event, payload, channel, createdAt)
-         VALUES (?, ?, ?, 'news', '{}', ?, 1)`,
+        `INSERT INTO __livething_replay
+           (rowKey, messageId, seq, event, payload, rowBytes, channel, createdAt)
+         VALUES (?, ?, ?, 'news', '{}', 2, ?, 1)`,
         `row-${index}`,
         `m-${index}`,
         index + 1,

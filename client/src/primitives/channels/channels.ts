@@ -282,10 +282,12 @@ export function channels(): ChannelsPrimitive {
 
       function handleChannelEvent(incoming: ChannelIncoming): Message {
         const { message, state, name, familyKey, metadata } = incoming;
+        // A binary frame goes on to `binary()`, which gives it to the binary listeners.
         if (
           isProtocolFrameEvent(message.event) ||
           metadata?.exchange?.id !== undefined ||
-          metadata?.stream !== undefined
+          metadata?.stream !== undefined ||
+          message.bytes
         ) {
           return message;
         }
@@ -429,7 +431,7 @@ export function channels(): ChannelsPrimitive {
             if (!state.persistent) {
               resubscribes.push({
                 event: '__subscribe__',
-                payload: state.resolvedSubscribeData ?? {},
+                payload: state.resolvedSubscribeData ?? null,
                 metadata: { channel: channelMarkers(state) },
               });
             } else {
@@ -442,7 +444,7 @@ export function channels(): ChannelsPrimitive {
 
                 helpers.rawSend({
                   event: '__subscribe__',
-                  payload: rejoining.resolvedSubscribeData ?? {},
+                  payload: rejoining.resolvedSubscribeData ?? null,
                   metadata: { channel: channelMarkers(rejoining) },
                 });
               }, PERSISTENT_REJOIN_FALLBACK_MS);
@@ -539,4 +541,4 @@ export function channels(): ChannelsPrimitive {
   };
 }
 
-channels.tag = 'channels';
+channels.tag = 'channels' as const;

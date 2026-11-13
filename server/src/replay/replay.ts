@@ -1,13 +1,24 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { LiveThingConfigError } from '@livething/core';
+import { closeSlowClient } from '~/_adapters/close.ts';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
+import { seqScopeKey } from '~/_engine/runtime/catch-up-hold.ts';
+import {
+  CATCH_UP_PAGE,
+  catchUpBufferIsHigh,
+  catchUpDeadline,
+  runCatchUp,
+  waitForCatchUpBuffer,
+} from '~/_engine/runtime/catch-up.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import {
   dropQueuedReplaySnapshots,
   ensureReplaySchema,
   isChannelReplayAuthorized,
-  loadReplayRows,
+  loadReplayPage,
   matchesReplayScope,
+  maxReplaySeq,
   persistReplayMessage,
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
@@ -22,8 +33,10 @@ import {
 } from '~/replay/runtime.ts';
 import { createSendReplayExtender, readConnectionId } from '~/replay/send-replay.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
+import type { StoredRowSkip } from '~/_engine/runtime/stored-row.ts';
 import type {
   FrameRecipient,
   RuntimeConnection,
@@ -32,7 +45,7 @@ import type {
 import type { SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplaySnapshotEntry, ReplayStoreOwner } from '~/replay/runtime.ts';
-import type { ReplayOptions } from '~/replay/types.ts';
+import type { ReplayOptions, ReplayRow } from '~/replay/types.ts';
 
 /** The primitive type produced by `replay.history()` and `replay.snapshot()`. */
 export interface ReplayPrimitive extends Primitive<'replay'> {
@@ -47,6 +60,9 @@ export interface ReplayPrimitive extends Primitive<'replay'> {
 
 /** Unique symbol used to enforce one replay registration per handler scope. */
 const REPLAY_KEY = Symbol('replay');
+
+/** The default `retention.maxBytes` of one audience in one store. */
+const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
  * Enables message replay. The server records every message it sends so
@@ -73,6 +89,8 @@ const REPLAY_KEY = Symbol('replay');
  * - A broadcast that left out its sender replays to anyone but a client showing
  *   that sender's token. Another tab of the same user still gets it.
  * - Request replies, server requests and stream chunks are never recorded.
+ * - A binary event is recorded like a JSON one, with its bytes, and replays as
+ *   one binary frame. Only history mode stores binary events.
  *
  * **Cascade behavior.** A server-level `replay: true` captures every outgoing
  * message, including channel-scoped traffic. To use a different replay
@@ -119,11 +137,20 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
     };
   }
 
-  const opts = options ?? {};
-  if (opts.retention) {
-    assertOptionalPositiveInteger(opts.retention.maxAgeMs, 'retention.maxAgeMs', 'replay()');
-    assertOptionalPositiveInteger(opts.retention.maxMessages, 'retention.maxMessages', 'replay()');
+  if (options?.retention) {
+    const { retention } = options;
+    assertOptionalPositiveInteger(retention.maxAgeMs, 'retention.maxAgeMs', 'replay()');
+    assertOptionalPositiveInteger(retention.maxMessages, 'retention.maxMessages', 'replay()');
+    assertOptionalPositiveInteger(retention.maxBytes, 'retention.maxBytes', 'replay()');
   }
+
+  const opts: ReplayOptions = {
+    ...options,
+    retention: {
+      ...options?.retention,
+      maxBytes: options?.retention?.maxBytes ?? DEFAULT_MAX_BYTES,
+    },
+  };
 
   if (opts.durability !== undefined) {
     assertOneOf(opts.durability, ['strict', 'best-effort'] as const, {
@@ -149,6 +176,7 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
 
       const { channelKey } = engine.getScopeInfo();
       const exclude = new Set(opts.exclude ?? []);
+      if (opts.type === 'snapshot') assertNoSnapshotBinary(engine, channelKey, exclude);
 
       const installer = new ReplayInstaller({ engine, channelKey, exclude, opts });
 
@@ -174,8 +202,10 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
         engine.onBeforeBroadcast(installer.persist);
       } else {
         engine.onAfterBroadcast((message) => {
+          // The bytes are a view of the sender's buffer, which it may reuse once the send returns.
+          const sent = message.bytes ? { ...message, bytes: message.bytes.slice() } : message;
           return Promise.resolve().then(() => {
-            installer.persist(message);
+            installer.persist(sent);
           });
         });
       }
@@ -190,6 +220,35 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
       });
     },
   };
+}
+
+/**
+ * A snapshot's `reduce` combines JSON values and has no way to combine bytes, so a snapshot store
+ * cannot hold a binary event. Fail at startup instead of on the first send.
+ */
+function assertNoSnapshotBinary(
+  engine: EngineAccess,
+  channelKey: string | undefined,
+  exclude: ReadonlySet<string>,
+): void {
+  const claimed = engine.getReplayClaimedChannelKeys();
+  const stored = engine
+    .getBinaryEvents()
+    .find(
+      (declared) =>
+        !exclude.has(declared.event) &&
+        (channelKey
+          ? declared.channelKey === channelKey
+          : declared.channelKey === undefined || !claimed.has(declared.channelKey)),
+    );
+  if (!stored) return;
+
+  const where = stored.channelKey ? ` of channel '${stored.channelKey}'` : '';
+  throw new LiveThingConfigError(
+    `replay.snapshot() cannot store the binary event '${stored.event}'${where}: a snapshot ` +
+      "cannot combine bytes. Use replay.history() (history mode), or list the event in the replay's " +
+      '`exclude`.',
+  );
 }
 
 /** Who one stored row is for: one user, or the chosen connections a frame was sent to. */
@@ -223,6 +282,7 @@ class ReplayInstaller {
   private readonly exclude: Set<string>;
   private readonly opts: ReplayOptions;
   private readonly pruneGate = new ReplayPruneGate();
+  private readonly warnedTooBig = new Set<string>();
 
   constructor(options: ReplayInstallerOptions) {
     const { engine, channelKey, exclude, opts } = options;
@@ -251,8 +311,9 @@ class ReplayInstaller {
         exclude: this.exclude,
         claimedChannelKeys: this.engine.getReplayClaimedChannelKeys(),
       })
-    )
+    ) {
       return;
+    }
 
     const isSnapshot = (this.opts.type ?? 'history') === 'snapshot';
     if (!wireMessage.recipients) {
@@ -308,6 +369,23 @@ class ReplayInstaller {
     }
   };
 
+  /** Warn once per event that replay could not store a message over the storage row limit. */
+  private warnRowTooBig = (row: ReplayRow, skip: StoredRowSkip): void => {
+    const key = JSON.stringify([row.event, skip.limit]);
+    if (this.warnedTooBig.has(key)) return;
+
+    this.warnedTooBig.add(key);
+    const limit = SKIPPED_ROW_LIMITS[skip.limit];
+    this.engine
+      .getLogger?.()
+      ?.warn(
+        `[livething] replay did not store "${row.event}" because the message is over ${limit} ` +
+          `of ${skip.bytes} bytes. A client that reconnects does not get it back. This warning ` +
+          'shows once for each event and limit.',
+        { event: row.event, rowBytes: row.rowBytes },
+      );
+  };
+
   /** The open handler scope's snapshot queue, when snapshot rows are queued instead of written. */
   private snapshotQueue(): Map<string, ReplaySnapshotEntry> | undefined {
     if ((this.opts.type ?? 'history') !== 'snapshot') return undefined;
@@ -340,20 +418,23 @@ class ReplayInstaller {
     function pruneSnapshotRows(
       sqlForPrune: Pick<SQLProvider, 'exec' | 'limits'>,
       now: number,
+      rowBytes: number,
     ): void {
       pruneExpiredReplayRows(sqlForPrune, { retention, now, owner });
       for (const one of audienceScopes) pruneReplayScopeRows(sqlForPrune, retention, one);
-      pruneGate.pruneAnonymousTotal(sqlForPrune, retention, audienceScopes);
+      pruneGate.pruneBytes(sqlForPrune, { retention, scopes: audienceScopes, rowBytes });
+      pruneGate.pruneAnonymousTotal(sqlForPrune, { retention, scopes: audienceScopes, rowBytes });
     }
 
-    function runPrune(sqlForPrune: Pick<SQLProvider, 'exec' | 'limits'>): void {
-      pruneSnapshotRows(sqlForPrune, Date.now());
+    function runPrune(sqlForPrune: Pick<SQLProvider, 'exec' | 'limits'>, rowBytes: number): void {
+      pruneSnapshotRows(sqlForPrune, Date.now(), rowBytes);
     }
 
     const row = persistReplayMessage(sql, {
       options: this.opts,
       event: wireMessage.event,
       payload: wireMessage.payload,
+      bytes: wireMessage.bytes,
       livething: wireMessage.livething,
       userId: audience.userId,
       recipients: audience.recipients,
@@ -371,6 +452,8 @@ class ReplayInstaller {
               channelFamily: replayScope.channelFamily,
             })
         : undefined,
+      onRowTooBig: this.warnRowTooBig,
+      sendBytes: this.engine.getMessageLimits().sendBytes,
     });
 
     // Only snapshot writes that ran inside an open handler scope get queued
@@ -388,9 +471,15 @@ class ReplayInstaller {
       if (isHistory) {
         // History stores one new row per message, so the gate can count exactly
         // and skip the prune whenever the store is under its caps.
-        this.pruneGate.prune(sql, { retention, scopes: audienceScopes, owner, stamp });
+        this.pruneGate.prune(sql, {
+          retention,
+          scopes: audienceScopes,
+          owner,
+          stamp,
+          rowBytes: row?.rowBytes ?? 0,
+        });
       } else {
-        pruneSnapshotRows(sql, stamp);
+        pruneSnapshotRows(sql, stamp, row?.rowBytes ?? 0);
       }
     }
   }
@@ -415,54 +504,146 @@ class ReplayInstaller {
       return true;
     }
 
-    const since = frame.payload.lastKnownSeq ?? 0;
-    const { sql } = this.engine.storage;
-
     const connectionId = readConnectionId(ctx as Record<PropertyKey, unknown>);
     if (!connectionId) return true;
 
-    // Snapshot resends current state, so only history mode can have a gap.
-    // Detected against the eviction watermark, not MIN(seq): the global seq counter is sparse.
-    const resumeTokens = frame.payload.resume ?? [];
-    if ((this.opts.type ?? 'history') === 'history' && since > 0) {
-      const watermark = readReplayGapWatermark(
-        sql,
-        { channel: scope.channelName ?? null, channelFamily: scope.channelFamily ?? null },
-        replayAudiencesOfRequester(connection?.userId || null, resumeTokens),
-      );
-      if (watermark !== null && since < watermark) {
-        this.engine.sendGap(connectionId, {
-          channelName: scope.channelName ?? null,
-          channelFamily: scope.channelFamily ?? null,
-          missedThrough: watermark,
-        });
-        if (connection?.closing) return true;
-      }
+    const request: CatchUpRequest = {
+      connectionId,
+      connection,
+      scope,
+      since: frame.payload.lastKnownSeq ?? 0,
+      resumeTokens: frame.payload.resume ?? [],
+    };
+
+    if (!connection) {
+      await this.catchUp(request);
+      return true;
     }
 
-    const rows = loadReplayRows(sql, since, {
+    const storeKey = seqScopeKey(scope.channelName ?? null, scope.channelFamily ?? null);
+    await runCatchUp(connection, [storeKey], () => this.catchUp(request));
+
+    return true;
+  };
+
+  /**
+   * Send a `__gap__` when the client is behind the watermark, then every row it missed, in seq
+   * order. The rows are read a page at a time, so one catch-up holds at most a page in memory.
+   * Rows stored after it starts are left out: their live frames are held, and go out after it.
+   */
+  private async catchUp(request: CatchUpRequest): Promise<void> {
+    const { connectionId, connection, scope, resumeTokens } = request;
+    const { sql } = this.engine.storage;
+    const loadScope = {
       channelName: scope.channelName,
       channelFamily: scope.channelFamily ?? null,
       userId: connection?.userId || null,
       resumeTokens,
-    });
+    };
 
-    for (const row of rows) {
-      const rowPayload = JSON.parse(row.payload) as Record<string, unknown>;
+    const page = { throughSeq: maxReplaySeq(sql), ...CATCH_UP_PAGE };
+
+    if (this.sendGapIfBehind(request, request.since) && connection?.closing) return;
+
+    let cursor = request.since;
+    let rows = loadReplayPage(sql, loadScope, { ...page, since: cursor });
+    let next = 0;
+    // One budget for every wait of this catch-up, so a client that stops reading is closed
+    // after about 50 seconds, however many rows are left.
+    const waitUntil = catchUpDeadline();
+    while (next < rows.length) {
+      if (connection && catchUpBufferIsHigh(connection)) {
+        if (!(await waitForCatchUpBuffer(connection, waitUntil))) {
+          // The client reconnects and asks again from where it got to.
+          if (!connection.closing) closeSlowClient(connection.descriptor);
+          return;
+        }
+
+        if (connection.closing) return;
+
+        // Retention can delete rows while the catch-up waits, so read again from the cursor.
+        // The client gets a gap for deleted rows, as it would have before the catch-up started.
+        if (this.sendGapIfBehind(request, cursor, page.throughSeq) && connection.closing) return;
+
+        rows = loadReplayPage(sql, loadScope, { ...page, since: cursor });
+        next = 0;
+        if (rows.length === 0) return;
+      }
+
+      const row = rows[next]!;
+      next += 1;
       this.engine.sendReplay(connectionId, {
         channelName: row.channel,
         channelFamily: row.channelFamily,
         event: row.event,
-        payload: rowPayload,
+        payload: JSON.parse(row.payload) as Record<string, unknown> | null,
+        bytes: row.binaryPayload ?? undefined,
         wire: {
           deliverySeq: row.seq,
           messageId: row.messageId,
           channel: row.channel ?? undefined,
         },
       });
-      if (connection?.closing) return true;
+      if (connection?.closing) return;
+
+      cursor = row.seq;
+      if (next === rows.length) {
+        rows = loadReplayPage(sql, loadScope, { ...page, since: cursor });
+        next = 0;
+      }
     }
+  }
+
+  /**
+   * Send a `__gap__` when rows after `cursor` the client could have had were deleted. The
+   * request remembers the gap it sent, so a later check never sends the same one again.
+   */
+  private sendGapIfBehind(
+    request: CatchUpRequest,
+    sentThrough: number,
+    coveredThrough = Infinity,
+  ): boolean {
+    const cursor = Math.max(sentThrough, request.gapThrough ?? 0);
+    const { connectionId, connection, scope, resumeTokens } = request;
+    // Snapshot resends current state, so only history mode can have a gap. A client at 0 has
+    // seen nothing, so it cannot be behind.
+    if ((this.opts.type ?? 'history') !== 'history' || cursor <= 0) return false;
+
+    // Detected against the eviction watermark, not MIN(seq): the global seq counter is sparse.
+    const evicted = readReplayGapWatermark(
+      this.engine.storage.sql,
+      { channel: scope.channelName ?? null, channelFamily: scope.channelFamily ?? null },
+      replayAudiencesOfRequester(connection?.userId || null, resumeTokens),
+    );
+    // During a catch-up, a deleted row newer than the rows it covers was held as a live frame,
+    // so the client still gets it. Only the covered rows can be missed.
+    const watermark = evicted === null ? null : Math.min(evicted, coveredThrough);
+    if (watermark === null || cursor >= watermark) return false;
+
+    this.engine.sendGap(connectionId, {
+      channelName: scope.channelName ?? null,
+      channelFamily: scope.channelFamily ?? null,
+      missedThrough: watermark,
+    });
+    request.gapThrough = watermark;
 
     return true;
-  };
+  }
 }
+
+interface CatchUpRequest {
+  connectionId: string;
+  connection: RuntimeConnection | undefined;
+  scope: EngineChannelMeta;
+  since: number;
+  resumeTokens: readonly string[];
+  /** The `missedThrough` of the last `__gap__` this catch-up sent. */
+  gapThrough?: number;
+}
+
+/** How each limit that keeps a row out of replay is named in the warning. */
+const SKIPPED_ROW_LIMITS: Record<StoredRowSkip['limit'], string> = {
+  storage: 'the storage row limit',
+  send: 'the send limit',
+  retention: 'retention.maxBytes',
+};

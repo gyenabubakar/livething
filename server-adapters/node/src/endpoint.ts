@@ -9,6 +9,7 @@ import type {
   UpgradeDecision,
 } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
+import type { PerMessageDeflateOptions } from 'ws';
 import { createAsyncContext } from './async-context.ts';
 import { createClientIpResolver } from './client-ip.ts';
 import { requestToWebRequest } from './request.ts';
@@ -18,10 +19,61 @@ import type { NodeClientIpConfig } from './client-ip.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
 import type { ConnectionTransport } from './socket.ts';
 
+/** The default `maxMessageBytes`: 32 MiB, Cloudflare's limit, so an app behaves the same on both. */
+const DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
+
+/** `ws` keeps `maxPayload` as a 32-bit number, so a bigger value would turn off its limit. */
+const MAX_WS_PAYLOAD = 2 ** 31 - 1;
+
+/** A `maxMessageBytes` option with its default, checked so `ws` and the engine agree on it. */
+export function resolveMaxMessageBytes(value: number | undefined, where: string): number {
+  const bytes = value ?? DEFAULT_MAX_MESSAGE_BYTES;
+  if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_WS_PAYLOAD) {
+    throw new Error(
+      `[livething] ${where} maxMessageBytes must be a whole number of bytes from 1 to ${MAX_WS_PAYLOAD}, got ${bytes}.`,
+    );
+  }
+
+  return bytes;
+}
+
+/** The `compression` option where LiveThing creates the `ws` server. */
+export type NodeCompressionOption = boolean | { threshold?: number };
+
+/** A `compression` option as the `perMessageDeflate` options of a `ws` server. */
+export function resolveCompression(
+  value: NodeCompressionOption | undefined,
+  where: string,
+): false | PerMessageDeflateOptions {
+  if (value === undefined || value === false) return false;
+
+  if (value !== true && (typeof value !== 'object' || value === null)) {
+    throw new Error(
+      `[livething] ${where} compression must be true, false or { threshold }, got ${String(value)}.`,
+    );
+  }
+
+  const threshold = value === true ? 1024 : (value.threshold ?? 1024);
+  if (!Number.isSafeInteger(threshold) || threshold < 0) {
+    throw new Error(
+      `[livething] ${where} compression.threshold must be a whole number of bytes from 0, got ${String(threshold)}.`,
+    );
+  }
+
+  // Each message compresses alone, so a connection keeps no state from past messages.
+  return { threshold, serverNoContextTakeover: true, clientNoContextTakeover: true };
+}
+
 /** Configuration shared by every Node framework endpoint. */
 export interface NodeEndpointOptions extends Omit<NodeStorageOptions, 'logger'> {
   logger?: Logger;
   clientIp?: NodeClientIpConfig;
+  /**
+   * The largest message, in bytes, this endpoint receives or sends. A bigger incoming message
+   * closes the socket with `1009`, and a bigger send throws. Default: 32 MiB. When the app,
+   * Fastify or h3 creates the `ws` server, set its `maxPayload` to the same value.
+   */
+  maxMessageBytes?: number;
 }
 
 /**
@@ -57,13 +109,15 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     createEngine: (options: EngineRuntimeOptions) => Engine<TApi>,
     options: NodeEndpointOptions,
   ) {
+    const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes, 'The endpoint');
+    const resolveClientIp = createClientIpResolver(options.clientIp);
+
     const runtime = createRuntime({
       sql: options.sql,
       kv: options.kv,
       logger: options.logger,
     });
     const logger = runtime.logger;
-    const resolveClientIp = createClientIpResolver(options.clientIp);
     let shuttingDown = false;
     let shutdownPromise: Promise<void> | undefined;
 
@@ -72,6 +126,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       platform: runtime.platform,
       storage: runtime.storage,
       timers: runtime.timers,
+      messageLimits: { receiveBytes: maxMessageBytes, sendBytes: maxMessageBytes },
     });
 
     async function decideNodeUpgrade(

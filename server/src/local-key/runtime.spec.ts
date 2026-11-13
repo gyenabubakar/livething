@@ -176,7 +176,14 @@ describe('ctx.provide / ctx.inject', () => {
 
     await runIntercepts(makeRuntime(), connection, {
       intercepts: [topIntercept],
-      frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {}, owner: { kind: 'app' } },
+      frame: {
+        event: 'echo',
+        payload: {},
+        kind: 'incoming',
+        routing: {},
+        owner: { kind: 'app' },
+        size: 2,
+      },
       getCtx: () => ctx,
     });
 
@@ -200,7 +207,14 @@ describe('ctx.provide / ctx.inject', () => {
 
     await runIntercepts(makeRuntime(), connection, {
       intercepts: [first, second],
-      frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {}, owner: { kind: 'app' } },
+      frame: {
+        event: 'echo',
+        payload: {},
+        kind: 'incoming',
+        routing: {},
+        owner: { kind: 'app' },
+        size: 2,
+      },
       getCtx: () => ctx,
     });
 

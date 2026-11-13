@@ -31,7 +31,7 @@ function testSocket() {
   return {
     frames,
     descriptor: {
-      send: (data: string) => void frames.push(data),
+      send: ({ text }: { kind: 'text'; text: string }) => void frames.push(text),
       close: () => {},
       bufferedAmount: () => 0,
       userId: 'tester',
@@ -103,7 +103,7 @@ describe('a ping the socket refused', () => {
       await engine.initialize();
       const pingAttempts: string[] = [];
       const handle = engine.accept(Symbol('ws'), {
-        send: (data: string) => {
+        send: ({ text: data }: { kind: 'text'; text: string }) => {
           if (data === 'ping') pingAttempts.push(data);
           return data !== 'ping';
         },

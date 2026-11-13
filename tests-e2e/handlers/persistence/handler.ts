@@ -86,7 +86,6 @@ const handleReadExecCount = base.request('read-exec-count', {
 // engine rejects the start with `DurableStreamRequiresUser` before this runs.
 const handleAnonStream = base.recordedStream('anon-stream', {
   input: v.object({}),
-  chunk: t<{ n: number }>(),
   async *run() {
     yield { n: 1 };
   },

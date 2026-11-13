@@ -13,6 +13,55 @@ import {
   UserEventFrameSchema,
 } from './protocol.ts';
 
+describe('upload metadata', () => {
+  it('reads an upload id, seq and size, and writes them back', () => {
+    const frame = parseUserEventFrame([
+      'upload-attachment',
+      null,
+      { upload: { id: 'up-1', seq: 2 } },
+    ]);
+    expect(frame.__livething).toMatchObject({ uploadId: 'up-1', uploadSeq: 2 });
+    expect(metadataFromLiveThing({ uploadId: 'up-1', uploadSize: 20 })).toEqual({
+      upload: { id: 'up-1', size: 20 },
+    });
+  });
+
+  it('refuses upload metadata with an unknown key, a bad seq, or both a seq and a size', () => {
+    for (const upload of [
+      { id: 'up-1', offset: 0 },
+      { id: 'up-1', seq: -1 },
+      { seq: 1 },
+      { id: 'up-1', seq: 1, size: 5 },
+    ]) {
+      expect(() => parseUserEventFrame(['upload-attachment', null, { upload }])).toThrow();
+    }
+  });
+
+  it('parses __uploadEnd__ and __uploadCancel__, and the acks and the reply the server sends', () => {
+    expect(() =>
+      v.parse(OutgoingProtocolFrame, [
+        '__uploadAck__',
+        { receivedThrough: 8, savedThrough: 0, pieceBytes: 8, windowBytes: 16 },
+        { upload: { id: 'up-1' } },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      v.parse(OutgoingProtocolFrame, [
+        '__uploadDone__',
+        { info: null },
+        { upload: { id: 'up-1' } },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      v.parse(OutgoingProtocolFrame, [
+        '__uploadAck__',
+        { receivedThrough: 8 },
+        { upload: { id: 'up-1' } },
+      ]),
+    ).toThrow();
+  });
+});
+
 describe('LiveThing wire tuples', () => {
   it('always serializes exactly three elements', () => {
     expect(JSON.parse(serializeWireFrame('ping', undefined))).toEqual(['ping', null, null]);
@@ -140,22 +189,45 @@ describe('__replay__ resume tokens', () => {
 describe('nested protocol frame schemas', () => {
   it('validates tuple frames with the required metadata group', () => {
     expect(
-      v.safeParse(SubscribeOkFrame, ['__subscribeOk__', {}, { channel: { name: 'room' } }]).success,
-    ).toBe(true);
-    expect(
       v.safeParse(SubscribeOkFrame, ['__subscribeOk__', null, { channel: { name: 'room' } }])
         .success,
+    ).toBe(true);
+    expect(
+      v.safeParse(SubscribeOkFrame, ['__subscribeOk__', { seq: 2 }, { channel: { name: 'room' } }])
+        .success,
+    ).toBe(true);
+    expect(
+      v.safeParse(SubscribeOkFrame, ['__subscribeOk__', {}, { channel: { name: 'room' } }]).success,
     ).toBe(false);
     expect(
       v.safeParse(ReadFrame, ['__read__', { readThrough: 1 }, { channel: { name: 'room' } }])
         .success,
     ).toBe(true);
-    expect(
-      v.safeParse(OutgoingProtocolFrame, {
-        event: '__subscribeOk__',
-        payload: null,
-        __livething: { channel: 'room' },
-      }).success,
-    ).toBe(false);
+  });
+
+  it.each([
+    ['__subscribeOk__', { channel: 'room' }],
+    ['__unsubscribeOk__', { channel: 'room' }],
+    ['__streamOk__', { streamId: 'stream-1' }],
+    ['__nudgeOk__', { streamId: 'stream-1' }],
+    ['__streamEnd__', { streamId: 'stream-1' }],
+  ])('accepts the %s frame the serializer writes', (event, livething) => {
+    const wire = JSON.parse(serializeWireFrame(event, {}, livething)) as unknown[];
+
+    expect(wire[1]).toBeNull();
+    expect(v.safeParse(OutgoingProtocolFrame, wire).success).toBe(true);
+  });
+
+  it('accepts the __subscribeOk__ frame the serializer writes when replay gives a seq', () => {
+    const wire = JSON.parse(
+      serializeWireFrame(
+        '__subscribeOk__',
+        { seq: 2 },
+        { channel: 'room:general', channelFamily: 'rooms', channelMembership: 'ephemeral' },
+      ),
+    ) as unknown[];
+
+    expect(wire[1]).toEqual({ seq: 2 });
+    expect(v.safeParse(OutgoingProtocolFrame, wire).success).toBe(true);
   });
 });

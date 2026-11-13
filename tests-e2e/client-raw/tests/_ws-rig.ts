@@ -14,6 +14,16 @@ export type WireFrame = {
 };
 
 type WireInput = Omit<WireFrame, 'payload'> & { payload: Record<string, unknown> | null };
+
+/**
+ * The bytes of a binary frame the rig sends: `size` bytes of the `pattern(size, seed)` that
+ * `handlers/_shared/bytes.ts` makes, so the server's hash of them is known.
+ */
+export interface BinaryPattern {
+  size: number;
+  seed: number;
+}
+
 type RawWireFrame = [string, unknown, Record<string, Record<string, unknown>> | null];
 
 interface RigWindow {
@@ -24,6 +34,7 @@ interface RigWindow {
   ) => Promise<{ id: string; frames: WireFrame[] }>;
   __livethingSend?: (id: string, frame: WireInput) => void;
   __livethingSendRaw?: (id: string, text: string) => void;
+  __livethingSendBinary?: (id: string, frame: WireInput, bytes: BinaryPattern | null) => void;
   __livethingClose?: (id: string) => void;
   __livethingFrames?: (id: string) => WireFrame[];
   __livethingRawFrames?: (id: string) => string[];
@@ -90,6 +101,21 @@ export async function installRig(page: Page) {
     };
     window.__livethingSend = (id, frame) => sockets.get(id)?.send(JSON.stringify(encode(frame)));
     window.__livethingSendRaw = (id, text) => sockets.get(id)?.send(text);
+    // A LiveThing binary frame: "ltbf", version 1, the envelope's length, the envelope, the bytes.
+    window.__livethingSendBinary = (id, frame, pattern) => {
+      const envelope = new TextEncoder().encode(JSON.stringify(encode(frame)));
+      const size = pattern?.size ?? 0;
+      const out = new Uint8Array(9 + envelope.byteLength + size);
+      out.set([0x6c, 0x74, 0x62, 0x66, 1], 0);
+      new DataView(out.buffer).setUint32(5, envelope.byteLength, false);
+
+      out.set(envelope, 9);
+      for (let i = 0; i < size; i++) {
+        out[9 + envelope.byteLength + i] = (i * 31 + pattern!.seed * 7 + (i >> 8)) % 256;
+      }
+
+      sockets.get(id)?.send(out);
+    };
     window.__livethingClose = (id) => sockets.get(id)?.close();
     window.__livethingFrames = (id) => socketFrames.get(id) ?? [];
 
@@ -115,6 +141,20 @@ export async function send(page: Page, id: string, frame: WireInput) {
   await page.evaluate(([sid, f]) => window.__livethingSend!(sid, f as WireInput), [
     id,
     frame,
+  ] as const);
+}
+
+/** Send one binary frame: the envelope, then `pattern(size, seed)` bytes (none without `bytes`). */
+export async function sendBinary(
+  page: Page,
+  id: string,
+  input: WireInput & { bytes?: BinaryPattern },
+) {
+  const { bytes, ...frame } = input;
+  await page.evaluate(([sid, f, b]) => window.__livethingSendBinary!(sid, f as WireInput, b), [
+    id,
+    frame,
+    bytes ?? null,
   ] as const);
 }
 

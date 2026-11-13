@@ -80,6 +80,19 @@ export interface SendRuntimeErrorOptions {
 
   /** The socket itself failed, such as a reset connection. No handler threw. */
   fromSocket?: boolean;
+
+  /**
+   * Send the `__error__` frame this way, after the hooks ran. A recorded stream uses it to hold
+   * the frame back until a continue has sent the stored chunks.
+   */
+  deliver?: (connection: RuntimeConnection, frame: RuntimeErrorFrame) => void;
+}
+
+/** The `__error__` frame `sendRuntimeError` sends. */
+export interface RuntimeErrorFrame {
+  event: '__error__';
+  payload: Record<string, unknown>;
+  livething: Record<string, unknown>;
 }
 
 /**
@@ -140,5 +153,7 @@ export async function sendRuntimeError(
   }
 
   const { payload, livething } = normalizeRuntimeError(error, routing, deps.declaredErrorCodes);
-  deps.sendProtocolMessage(connection, { event: '__error__', payload, livething });
+  const frame: RuntimeErrorFrame = { event: '__error__', payload, livething };
+  if (options.deliver) options.deliver(connection, frame);
+  else deps.sendProtocolMessage(connection, frame);
 }

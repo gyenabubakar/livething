@@ -35,6 +35,20 @@ export type BuildContract<TSlots> = {
   readonly errors: AsRecord<SlotOr<TSlots, 'errors'>>;
   /** Per-plugin contract slices — declared by each `plugin(...)` capability. */
   readonly plugins: AsRecord<SlotOr<TSlots, 'plugins'>>;
+  /** Client→server binary events (event → info) — declared by assembled `base.binary.on(...)` values. */
+  readonly binaryIncoming: AsRecord<SlotOr<TSlots, 'binaryIncoming'>>;
+  /** Server→client binary events (event → info) — declared by `binary({ emits })`. */
+  readonly binaryOutgoing: AsRecord<SlotOr<TSlots, 'binaryOutgoing'>>;
+  /** Client→server binary requests (event → { payload, response }) — `base.binary.request(...)`. */
+  readonly binaryClientRequests: AsRecord<SlotOr<TSlots, 'binaryClientRequests'>>;
+  /** Server-pushed binary streams (event → { payload, chunk, nudges }) — `base.binary.stream(...)`. */
+  readonly binaryStreams: AsRecord<SlotOr<TSlots, 'binaryStreams'>>;
+  /** Server-pushed recorded binary streams — `base.binary.recordedStream(...)`. */
+  readonly binaryRecordedStreams: AsRecord<SlotOr<TSlots, 'binaryRecordedStreams'>>;
+  /** Client→server uploads (event → { payload, response }) — `base.binary.upload(...)`. */
+  readonly binaryUploads: AsRecord<SlotOr<TSlots, 'binaryUploads'>>;
+  /** Server→client binary requests (event → { payload, response }) — `binary({ serverRequests })`. */
+  readonly binaryServerRequests: AsRecord<SlotOr<TSlots, 'binaryServerRequests'>>;
 };
 
 /** Coerce a slot to a record so the built contract always satisfies `ServerContract`. */

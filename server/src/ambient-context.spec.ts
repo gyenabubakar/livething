@@ -453,7 +453,6 @@ describe('context in the features of a channel', () => {
     const room = base.channel('room', {});
     const feed = room.stream('feed', {
       input: v.object({}),
-      chunk: t<{ n: number }>(),
       run(ctx) {
         seen.beforeGenerator = context.channel(room) === ctx;
         return (async function* () {
@@ -480,7 +479,6 @@ describe('context in the features of a channel', () => {
     const room = base.channel('room', {});
     const feed = room.recordedStream('feed', {
       input: v.object({}),
-      chunk: t<{ n: number }>(),
       maxChunks: 10,
       run(ctx) {
         seen.beforeGenerator = context.channel(room) === ctx;
@@ -567,7 +565,6 @@ describe('context in the onError hook for a stream that throws', () => {
     });
     const feed = base.stream('feed', {
       input: v.object({}),
-      chunk: t<{ n: number }>(),
       async *run() {
         yield { n: 1 };
         fail();
@@ -632,7 +629,6 @@ describe('a recorded stream chunk that does not stay an object in JSON', () => {
 
     const base = server({ capabilities: [recordedStream()] });
     const progress = base.recordedStream('progress', {
-      chunk: t<number | Date | typeof record>(),
       maxChunks: 10,
       async *run() {
         yield 1;
@@ -646,7 +642,7 @@ describe('a recorded stream chunk that does not stay an object in JSON', () => {
     const sent: string[] = [];
 
     const handle = engine.accept(Symbol('alice'), {
-      send: (message: string) => sent.push(message),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
       close() {},
       bufferedAmount: () => 0,
       userId: 'alice',
@@ -665,13 +661,13 @@ describe('a recorded stream chunk that does not stay an object in JSON', () => {
   });
 });
 
-describe('a stream that yields a value that is not an object', () => {
+describe('a stream that yields a value that is not an object or null', () => {
   it('ends with internal-error and logs which stream broke the payload rule', async () => {
     const base = server({ capabilities: [stream()] });
     const feed = base.stream('feed', {
       async *run() {
-        // The types refuse null; this checks the runtime refuses it too.
-        yield null as never;
+        // The types refuse a number; this checks the runtime refuses it too.
+        yield 42 as never;
       },
     });
     const logged: unknown[][] = [];
@@ -693,7 +689,7 @@ describe('a stream that yields a value that is not an object', () => {
     await engine!.initialize();
     const sent: string[] = [];
     const handle = engine!.accept(Symbol('alice'), {
-      send: (message: string) => sent.push(message),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
       close() {},
       bufferedAmount: () => 0,
       userId: 'alice',
@@ -704,8 +700,8 @@ describe('a stream that yields a value that is not an object', () => {
     await vi.waitFor(() => expect(sent.at(-1)).toMatch(/"code":"internal-error"/));
     const meta = logged[0]?.[1] as { error: Error } | undefined;
     expect(meta?.error.message).toBe(
-      `[livething] The payload for "feed" must be a plain object, such as { text: 'hi' }, ` +
-        'but it was null. A stream chunk is a payload too, so yield an object.',
+      `[livething] The payload for "feed" must be a plain object, such as { text: 'hi' }, or ` +
+        'null, but it was number. A stream chunk is a payload too, so yield an object or null.',
     );
   });
 });
@@ -827,7 +823,7 @@ describe('context inside a plugin', () => {
     await engine.initialize();
     const sent: string[] = [];
     const handle = engine.accept(Symbol('alice'), {
-      send: (message: string) => sent.push(message),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
       close() {},
       bufferedAmount: () => 0,
       userId: 'alice',
@@ -943,7 +939,6 @@ describe('context inside a plugin', () => {
     const seen: Record<string, unknown> = {};
     const feed = room.recordedStream('feed', {
       input: v.object({}),
-      chunk: t<{ n: number }>(),
       maxChunks: 10,
       async *run(ctx) {
         await sleep(1);
@@ -981,7 +976,7 @@ describe('context inside a plugin', () => {
     await engine.initialize();
     const sent: string[] = [];
     const handle = engine.accept(Symbol('alice'), {
-      send: (message: string) => sent.push(message),
+      send: ({ text }: { kind: 'text'; text: string }) => sent.push(text),
       close() {},
       bufferedAmount: () => 0,
       userId: 'alice',

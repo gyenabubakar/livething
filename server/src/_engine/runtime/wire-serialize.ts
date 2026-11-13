@@ -56,6 +56,14 @@ export function metadataFromLiveThing(
     };
   }
 
+  if (livething.uploadId !== undefined) {
+    metadata.upload = {
+      id: livething.uploadId,
+      ...(livething.uploadSeq === undefined ? {} : { seq: livething.uploadSeq }),
+      ...(livething.uploadSize === undefined ? {} : { size: livething.uploadSize }),
+    };
+  }
+
   return Object.keys(metadata).length === 0 ? null : metadata;
 }
 

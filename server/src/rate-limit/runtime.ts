@@ -18,14 +18,16 @@
  * One concrete rate-limit rule, after cascade resolution.
  *
  * - `id` — unique numeric tag used in the bucket key. Two rules can have the
- *   same `windowMs` / `max` but different ids and so different buckets.
+ *   same `windowMs` / `maxMessages` but different ids and so different buckets.
+ * - `maxBytes` — the byte budget per window, or none.
  * - `per` — bucket-key extractor. Default is `ctx.connection.id` (connection
  *   id), so different connections never share a bucket.
  */
 export interface RuleInstance {
   readonly id: number;
   readonly windowMs: number;
-  readonly max: number;
+  readonly maxMessages: number;
+  readonly maxBytes?: number;
   readonly per: (ctx: any) => string;
 }
 
@@ -46,8 +48,10 @@ export interface ResolvedRateLimitPlan {
 
 interface BucketState {
   tokens: number;
+  /** The bytes left, when the rule has `maxBytes`. */
+  bytes: number;
   lastRefillMs: number;
-  /** When the bucket is back to `max`. From then on it equals a fresh bucket, so it can go. */
+  /** When both budgets are full again. From then on it equals a fresh bucket, so it can go. */
   fullAtMs: number;
 }
 
@@ -117,13 +121,12 @@ export class RateLimitRuntime {
   }
 
   /**
-   * Resolve the rule that applies to this frame, then consume a token.
-   * Returns `null` to let the frame through, or `{ retryAfterMs }` to reject.
-   * `retryAfterMs` is the time until the next token, rounded up to a whole
-   * millisecond and never less than 1000, so a client backing off by it has
-   * enough time for that token to become available.
+   * Resolve the rule that applies to this frame, then take one message and `size` bytes from
+   * its budgets. Returns `null` to let the frame through, or `{ retryAfterMs }` to reject.
+   * `retryAfterMs` is the time until both budgets have enough, rounded up to a whole
+   * millisecond and never less than 1000, so a client backing off by it has enough time.
    */
-  check(ctx: any, event: string): { retryAfterMs: number } | null {
+  check(ctx: any, event: string, size: number): { retryAfterMs: number } | null {
     const scopeKey = resolveScopeKey(ctx);
 
     const overrideMap = this.plan.eventOverrides.get(scopeKey);
@@ -137,28 +140,38 @@ export class RateLimitRuntime {
       ? `${rule.id}|shared|${perKey}`
       : `${rule.id}|connection|${connectionBudgetKey(ctx)}`;
     const now = this.now();
-    const refillRate = rule.max / rule.windowMs;
     this.sweep(now);
 
+    const { windowMs, maxMessages } = rule;
+    const maxBytes = rule.maxBytes ?? 0;
     const state = this.buckets.get(bucketKey);
-    let tokens: number;
-    if (!state) {
-      tokens = rule.max;
-    } else {
-      const elapsed = Math.max(0, now - state.lastRefillMs);
-      tokens = Math.min(rule.max, state.tokens + elapsed * refillRate);
-    }
+    const elapsed = state ? Math.max(0, now - state.lastRefillMs) : 0;
+    const tokens = state
+      ? Math.min(maxMessages, state.tokens + (elapsed * maxMessages) / windowMs)
+      : maxMessages;
 
-    if (tokens < 1) {
-      const msUntilOne = (1 - tokens) / refillRate;
-      const fullAtMs = now + (rule.max - tokens) / refillRate;
-      this.buckets.set(bucketKey, { tokens, lastRefillMs: now, fullAtMs });
-      return { retryAfterMs: Math.max(1_000, Math.ceil(msUntilOne)) };
-    }
+    const bytes = state
+      ? Math.min(maxBytes, state.bytes + (elapsed * maxBytes) / windowMs)
+      : maxBytes;
+    // A frame bigger than the whole byte budget costs all of it, so it passes when the budget is full.
+    const byteCost = Math.min(size, maxBytes);
 
-    const fullAtMs = now + (rule.max - tokens + 1) / refillRate;
-    this.buckets.set(bucketKey, { tokens: tokens - 1, lastRefillMs: now, fullAtMs });
+    const wait = Math.max(
+      msUntilRefilled(1 - tokens, maxMessages, windowMs),
+      msUntilRefilled(byteCost - bytes, maxBytes, windowMs),
+    );
+    const next = wait > 0 ? { tokens, bytes } : { tokens: tokens - 1, bytes: bytes - byteCost };
+    const msUntilFull = Math.max(
+      msUntilRefilled(maxMessages - next.tokens, maxMessages, windowMs),
+      msUntilRefilled(maxBytes - next.bytes, maxBytes, windowMs),
+    );
+    this.buckets.set(bucketKey, { ...next, lastRefillMs: now, fullAtMs: now + msUntilFull });
 
-    return null;
+    return wait > 0 ? { retryAfterMs: Math.max(1_000, Math.ceil(wait)) } : null;
   }
+}
+
+/** How long a budget of `max` per `windowMs` takes to refill `missing`. Exact for whole numbers. */
+function msUntilRefilled(missing: number, max: number, windowMs: number): number {
+  return missing > 0 ? (missing * windowMs) / max : 0;
 }

@@ -32,8 +32,12 @@ export const CloseCodes = Object.freeze({
   PROTOCOL_ERROR: 1002,
   /** Unsupported data — the peer sent a frame type this server does not accept. */
   UNSUPPORTED_DATA: 1003,
+  /** Message too big — the peer sent a message over the adapter's message limit. */
+  MESSAGE_TOO_BIG: 1009,
   /** Internal error — the server could not complete an operation. */
   INTERNAL_ERROR: 1011,
+  /** Try again later — the client read too slowly and its socket buffer grew too big. Reconnect. */
+  TRY_AGAIN_LATER: 1013,
   /** Authentication token expired. Client should refresh and reconnect. */
   AUTH_EXPIRED: 4001,
   /** Authentication token invalid. Don't reconnect with the same token. */
@@ -236,6 +240,10 @@ const RESERVED_ERROR_CODES = new Set([
   'request-no-correlation',
   'request-invalid-response',
   'stream-aborted',
+  'stream-corrupted',
+  'stream-overflow',
+  'upload-aborted',
+  'wrong-frame-kind',
   'nudge-overflow',
   'stream-id-collision',
   'durable-stream-requires-user',
@@ -374,7 +382,12 @@ export const ValidationFailed = /* @__PURE__ */ buildErrorFactory(
  */
 export const ChannelNotFound = /* @__PURE__ */ buildErrorFactory('channel-not-found');
 
-const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist(['__replay__', '__continueStream__']);
+const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist([
+  '__replay__',
+  '__continueStream__',
+  '__uploadEnd__',
+  '__uploadCancel__',
+]);
 
 export type UnsupportedProtocolEvent = v.InferInput<typeof UNSUPPORTED_PROTOCOL_EVENTS>;
 
@@ -576,7 +589,9 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  * reason the client should react to. `detail.reason` describes why:
  *
  * - `'cancelled'` — the stream was cancelled (by `__streamCancel__` or server-side teardown).
- * - `'buffer-full'` — a durable (recorded) stream's chunk buffer hit its cap.
+ * - `'buffer-full'` — a durable (recorded) stream's buffer hit `maxChunks` or
+ *   `maxBufferBytes`, or one chunk was too big to store or send. That chunk was
+ *   neither stored nor sent.
  *   The framework throws this into the generator's `yield` so handler code can
  *   catch and decide; if uncaught it surfaces on the wire.
  * - `'expired'` — a suspended durable stream aged out of its retention window before the client returned.
@@ -656,6 +671,122 @@ export const StreamAborted = /* @__PURE__ */ buildErrorFactory(
 export const NudgeOverflow = /* @__PURE__ */ buildErrorFactory(
   'nudge-overflow',
   v.object({ cap: v.number() }),
+);
+
+/**
+ * A stream chunk is missing, so the stream fails instead of ending quietly with a
+ * hole in it. `detail.expected` is the `seq` the client was waiting for and
+ * `detail.got` is the one that came. When the end frame shows a chunk missing at
+ * the end, `expected` is the last `seq` the server sent and `got` is the last one
+ * that arrived. Raised on the client.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   for await (const chunk of reply) render(chunk);
+ * } catch (err) {
+ *   if (StreamCorrupted.matches(err)) {
+ *     // a chunk was lost: start the stream again
+ *   }
+ * }
+ * ```
+ */
+export const StreamCorrupted = /* @__PURE__ */ buildErrorFactory(
+  'stream-corrupted',
+  v.object({ expected: v.number(), got: v.number() }),
+);
+
+/**
+ * A stream's loop reads more slowly than its chunks arrive, and the chunks it has not
+ * read yet went over `stream({ maxBytes })`. The stream fails, so it never loses chunks
+ * in silence. `detail.maxBytes` is the limit. A plain stream is also cancelled, so the
+ * server stops sending. Raised on the client.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   for await (const { bytes } of download) await saveToDisk(bytes);
+ * } catch (err) {
+ *   if (StreamOverflow.matches(err)) {
+ *     // the loop fell behind: start again from the last byte you saved
+ *   }
+ * }
+ * ```
+ */
+export const StreamOverflow = /* @__PURE__ */ buildErrorFactory(
+  'stream-overflow',
+  v.object({ maxBytes: v.number() }),
+);
+
+/**
+ * An upload stopped before it finished. `detail.reason` says why:
+ *
+ * - `'cancelled'` — the client called `upload.cancel()`. Raised on the client, and sent by the
+ *   server to a start it was still handling when the cancel came.
+ * - `'too-large'` — the upload went over the handler's `maxBytes`, or over the size the
+ *   client sent at the start.
+ * - `'input-mismatch'` — a resumed upload sent a different input than the stored one.
+ * - `'bad-state'` — on a resume, the state the server saved for the upload failed the
+ *   handler's `state` schema, for example after a deploy changed the schema. The upload is
+ *   discarded; start it again with a new upload ID.
+ * - `'bad-piece'` — a piece came with the wrong `seq` or over the piece size, or the end
+ *   frame's total did not match the bytes that came.
+ * - `'window'` — the client sent more bytes than the window allows past the last ack.
+ * - `'taken-over'` — another connection started the same upload, for example a second tab.
+ * - `'gone'` — the upload's record is being discarded (cancelled, failed or purged).
+ * - `'not-resumable'` — the source is an `AsyncIterable` that was already read, so the
+ *   upload cannot start again after a drop. Raised on the client.
+ * - `'interrupted'` — the server no longer runs this upload, for example after a Durable
+ *   Object was evicted while the socket stayed open. The client starts the upload again on its
+ *   own, so `start()` sees this reason only when that fails three times.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await upload.start();
+ * } catch (err) {
+ *   if (UploadAborted.matches(err) && err.detail.reason === 'too-large') showTooLarge();
+ * }
+ * ```
+ */
+export type UploadAbortedReason = (typeof UPLOAD_ABORTED_REASONS)[number];
+
+const UPLOAD_ABORTED_REASONS = [
+  'cancelled',
+  'too-large',
+  'input-mismatch',
+  'bad-state',
+  'bad-piece',
+  'window',
+  'taken-over',
+  'gone',
+  'not-resumable',
+  'interrupted',
+] as const;
+
+export const UploadAborted = /* @__PURE__ */ buildErrorFactory(
+  'upload-aborted',
+  v.object({ reason: v.picklist(UPLOAD_ABORTED_REASONS) }),
+);
+
+/**
+ * Sent to the client when a frame came as text but must be binary, or came as binary but
+ * must be text: a binary frame for a JSON handler, a text frame for a binary handler, a
+ * binary nudge, or a binary frame with a framework event name (`__subscribe__` and the
+ * rest). `detail.expected` is the kind the server wanted. The handler does not run, and
+ * the socket stays open. No real LiveThing client sends these frames, so this error points
+ * to a bug in a client.
+ *
+ * @example
+ * ```ts
+ * if (WrongFrameKind.matches(err)) {
+ *   console.error(`'${err.detail.event}' must be sent as ${err.detail.expected}`);
+ * }
+ * ```
+ */
+export const WrongFrameKind = /* @__PURE__ */ buildErrorFactory(
+  'wrong-frame-kind',
+  v.object({ event: v.string(), expected: v.picklist(['text', 'binary']) }),
 );
 
 /**

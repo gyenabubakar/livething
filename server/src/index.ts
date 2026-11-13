@@ -22,22 +22,38 @@ export { server } from './_define/server.ts';
 export type {
   Base,
   ChannelCoreMethods,
+  ChannelHandlerContribution,
+  ChannelOwnSlice,
   ChannelRecordedStreamMethod,
   ChannelRequestMethods,
   ChannelStreamMethod,
   CoreBase,
   ServerConfig,
   IncomingHandlerValue,
+  NudgesContract,
   OnConfig,
   RequestConfig,
   RequestHandlerValue,
   ScheduledHandlerValue,
   ScopedServerConfig,
   ScopedUpgradeFn,
+  StreamHandlerValue,
   UpgradeFn,
   UpgradeReturn,
 } from './_define/server.ts';
-export type { AppCtx, ChannelRef, ConnectionlessCtx } from './_define/app-ctx.ts';
+export type {
+  BinaryIncomingHandlerValue,
+  BinaryRequestHandlerValue,
+  BinaryUploadHandlerValue,
+  ChannelBinaryMethods,
+} from './binary/types.ts';
+export type {
+  AppCtx,
+  BinaryEventsCarrier,
+  ChannelRef,
+  ConnectionlessCtx,
+} from './_define/app-ctx.ts';
+export { BINARY_EVENTS } from './_define/app-ctx.ts';
 export type { Capability, Contribution, HostCapability } from './_define/capability.ts';
 export type { BuildContract } from './_define/contract.ts';
 export type { TypeMarker } from './_api/definitions.ts';

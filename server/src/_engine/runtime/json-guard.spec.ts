@@ -22,6 +22,13 @@ describe('serializePayload', () => {
     );
   });
 
+  it('accepts null as no payload, and still refuses a primitive or an array', () => {
+    expect(serializePayload('news', null)).toBe('null');
+    expect(() => serializePayload('news', undefined)).toThrow(/but it was undefined/);
+    expect(() => serializePayload('news', 'hi')).toThrow(/but it was string/);
+    expect(() => serializePayload('news', [1])).toThrow(/but it was an array/);
+  });
+
   it('accepts a toJSON() that returns a plain object', () => {
     expect(serializePayload('news', { toJSON: () => ({ text: 'hi' }) })).toBe('{"text":"hi"}');
   });
@@ -37,7 +44,7 @@ describe('serializeJsonOrThrow', () => {
   });
 
   it('throws when the value has toJSON that returns undefined', () => {
-    // assertPayloadRecord-style shape checks pass for this object, but the
+    // assertPayload-style shape checks pass for this object, but the
     // wire/storage layer that splices the result expects a real string —
     // splicing JS undefined produces invalid JSON or drops the column.
     const bad = { toJSON: () => undefined };

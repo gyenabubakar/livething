@@ -72,8 +72,9 @@ const checkOnly = base.channel('check-only', {
 const commitOnly = base.channel('commit-only', {
   capabilities: [emits({ joined: t<{ username: string }>() })],
   commit(ctx) {
-    if (ctx.channel.members().length >= 1)
+    if (ctx.channel.members().length >= 1) {
       throw new Error('commit-only room allows one subscriber');
+    }
   },
   onSubscribe(ctx) {
     ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });

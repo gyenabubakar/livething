@@ -224,7 +224,7 @@ describe('inbox runtime install', () => {
       receivedThrough: 1,
       readThrough: 1,
     });
-    core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'alice']), 1);
+    core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'alice']), { rows: 1, bytes: 2 });
     const setAlarm = vi.fn(async () => {});
     const deleteAlarm = vi.fn(async () => {});
     core.timers.setAlarm = setAlarm;
@@ -266,7 +266,7 @@ describe('inbox runtime install', () => {
         receivedThrough: 1,
         readThrough: 1,
       });
-      core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'alice']), 1);
+      core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'alice']), { rows: 1, bytes: 2 });
 
       insertInboxRows(core.storage.sql, {
         userIds: ['alice'],
@@ -340,12 +340,15 @@ describe('inbox runtime install', () => {
     await engine.initialize();
     const core = engine.core;
 
-    core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'alice']), 4);
-    core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'bob']), 2);
+    core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'alice']), { rows: 4, bytes: 8 });
+    core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'bob']), { rows: 2, bytes: 4 });
 
     await purgeUser(core, 'alice');
 
     expect(core.inboxMemberCounts.has(JSON.stringify(['chat', null, 'alice']))).toBe(false);
-    expect(core.inboxMemberCounts.get(JSON.stringify(['chat', null, 'bob']))).toBe(2);
+    expect(core.inboxMemberCounts.get(JSON.stringify(['chat', null, 'bob']))).toEqual({
+      rows: 2,
+      bytes: 4,
+    });
   });
 });

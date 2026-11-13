@@ -24,7 +24,7 @@ export function serializeJsonOrThrow(value: unknown, context: string): string {
 }
 
 /*
- * The payload rule: what LiveThing sends must be an object in JSON. These checks live in this
+ * The payload rule: what LiveThing sends must be an object or `null` in JSON. These checks live in this
  * module, which imports nothing, because the send path and durable streams both use them: an
  * import from `outgoing/runtime.ts` into stream code once made a cycle that left functions
  * undefined in the Cloudflare bundle.
@@ -36,8 +36,8 @@ export function serializeJsonOrThrow(value: unknown, context: string): string {
 
 function payloadError(event: string, got: string): Error {
   return new Error(
-    `[livething] The payload for "${event}" must be a plain object, such as { text: 'hi' }, ` +
-      `but it was ${got}. A stream chunk is a payload too, so yield an object.`,
+    `[livething] The payload for "${event}" must be a plain object, such as { text: 'hi' }, or ` +
+      `null, but it was ${got}. A stream chunk is a payload too, so yield an object or null.`,
   );
 }
 
@@ -68,17 +68,17 @@ function isIterableWithoutToJSON(value: object): boolean {
 }
 
 /**
- * The checks that can run before serializing, without calling `toJSON()`: `null`, a primitive,
- * a function, an array and an iterable without `toJSON()` are refused. `serializePayload` checks
- * the rest on the JSON text.
+ * The checks that can run before serializing, without calling `toJSON()`: a primitive, a
+ * function, an array and an iterable without `toJSON()` are refused, and `null` passes.
+ * `serializePayload` checks the rest on the JSON text.
  */
-export function assertPayloadRecord(
+export function assertPayload(
   event: string,
   payload: unknown,
-): asserts payload is Record<string, unknown> {
-  if (typeof payload !== 'object' || payload === null) {
-    throw payloadError(event, payload === null ? 'null' : typeof payload);
-  }
+): asserts payload is Record<string, unknown> | null {
+  if (payload === null) return;
+
+  if (typeof payload !== 'object') throw payloadError(event, typeof payload);
 
   if (Array.isArray(payload)) throw payloadError(event, 'an array');
 
@@ -124,9 +124,11 @@ function toJsonGaveIterable(value: unknown, root: unknown): boolean {
   return iterable && !(root instanceof String);
 }
 
-/** Serialize a payload once, and require the JSON to be an object. */
+/** Serialize a payload once, and require the JSON to be an object or `null`. */
 export function serializePayload(event: string, payload: unknown): string {
-  assertPayloadRecord(event, payload);
+  assertPayload(event, payload);
+  if (payload === null) return 'null';
+
   const { json, root } = stringifyReadingRoot(payload);
   if (json === undefined) {
     throw new Error(

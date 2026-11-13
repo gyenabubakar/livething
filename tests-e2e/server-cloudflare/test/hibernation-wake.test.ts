@@ -105,7 +105,7 @@ it('closes a hibernating socket with 1003 when the client sends a binary frame',
 
   await expect(closed).resolves.toEqual({
     code: 1003,
-    reason: '[livething] binary frames are not supported yet',
+    reason: '[livething] this server does not use binary()',
   });
 });
 

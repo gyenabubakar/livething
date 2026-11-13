@@ -36,11 +36,18 @@ export interface InterceptFrame<TOwnerId extends string = string> {
    */
   readonly payload: unknown;
   /** Which primitive family handles this event, or `'unknown'` if none match. */
-  readonly kind: 'incoming' | 'request' | 'stream' | 'nudge' | 'unknown';
+  readonly kind: 'incoming' | 'request' | 'stream' | 'upload' | 'nudge' | 'unknown';
   /** Curated routing metadata from the wire `__livething` envelope. */
   readonly routing: InterceptRouting;
   /** Whether this event is app-owned or plugin-owned, derived from its name. */
   readonly owner: FrameOwner<TOwnerId>;
+  /** The size of the whole frame as it arrived, in bytes (UTF-8 for a text frame). */
+  readonly size: number;
+  /**
+   * The application's bytes of a binary frame, or `undefined` for a text frame. An
+   * intercept can read them but not replace them: its return value replaces `payload` only.
+   */
+  readonly bytes?: Uint8Array;
 }
 
 /**
@@ -77,9 +84,11 @@ export interface OutgoingFrame<TOwnerId extends string = string> {
   /**
    * The payload as it was sent. `ctx.matches()` / `ctx.unsafeCast()` take only
    * an incoming `InterceptFrame`, so check `frame.event` and narrow the payload
-   * yourself.
+   * yourself. For a binary send it is the info.
    */
   readonly payload: unknown;
+  /** The bytes of a binary send, or `undefined` for a text frame. */
+  readonly bytes?: Uint8Array;
   /** Whether this event is app-owned or plugin-owned, derived from its name. */
   readonly owner: FrameOwner<TOwnerId>;
   /** The channel the frame was sent in, or `null` for a top-level frame. */

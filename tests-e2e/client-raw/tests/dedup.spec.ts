@@ -59,8 +59,9 @@ test.describe('dedup', () => {
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') {
           const frame = window.__livethingDecode(ev.data);
-          if (frame.event === '__subscribeOk__' && frame.metadata?.channel?.name === 'room')
+          if (frame.event === '__subscribeOk__' && frame.metadata?.channel?.name === 'room') {
             acks += 1;
+          }
         }
 
         if (typeof original === 'function') original.call(ws, ev);

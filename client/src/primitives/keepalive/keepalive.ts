@@ -4,7 +4,7 @@ import { createStore } from '~/internal/store.ts';
 import { KeepaliveLoop } from '~/primitives/keepalive/loop.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { QualityThresholds } from '~/primitives/keepalive/loop.ts';
-import type { Primitive, TypeFn } from '~/primitives/types.ts';
+import type { Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 import type { ConnectionQuality } from '~/types.ts';
 
 /** Options for `keepalive()`. */
@@ -63,7 +63,9 @@ function areValidThresholds(thresholds: QualityThresholds): boolean {
  * pongs, so they live here — added to the socket only when you install
  * `keepalive()`.
  */
-export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTypeFn> {
+export function keepalive(
+  options: KeepaliveOptions = {},
+): Primitive<KeepaliveTypeFn> & PrimitiveIdentity<'keepalive'> {
   const { interval, maxMissedPongs, thresholds } = options;
   if (
     interval !== undefined &&
@@ -136,4 +138,4 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
   };
 }
 
-keepalive.tag = 'keepalive';
+keepalive.tag = 'keepalive' as const;

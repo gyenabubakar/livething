@@ -1,4 +1,4 @@
-import { server, t } from '@livething/server';
+import { server } from '@livething/server';
 import { Disconnect, StreamAborted } from '@livething/server/errors';
 import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
@@ -6,12 +6,8 @@ import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const CountTokensPayload = v.object({ hold: v.optional(v.boolean()) });
-const TokenChunk = t<{ idx: number }>();
 const PaginatePayload = v.object({});
-const RowChunk = t<{ row: number }>();
 const BufferFullPayload = v.object({});
-const BufferChunk = t<{ n: number }>();
-const NumberChunk = t<number>();
 const StopPayload = v.object({});
 const overflowGates = new Map<string, () => void>();
 
@@ -29,7 +25,6 @@ const handleReleaseOverflow = base.on('release-overflow', {
 
 const handleCountTokens = base.recordedStream('count-tokens', {
   input: CountTokensPayload,
-  chunk: TokenChunk,
   maxChunks: 100,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
@@ -43,7 +38,6 @@ const handleCountTokens = base.recordedStream('count-tokens', {
 
 const handlePaginate = base.recordedStream('paginate', {
   input: PaginatePayload,
-  chunk: RowChunk,
   maxChunks: 100,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
@@ -57,7 +51,6 @@ const handlePaginate = base.recordedStream('paginate', {
 
 const handleBufferFullDemo = base.recordedStream('buffer-full-demo', {
   input: BufferFullPayload,
-  chunk: BufferChunk,
   maxChunks: 2,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
@@ -78,7 +71,6 @@ const handleBufferFullDemo = base.recordedStream('buffer-full-demo', {
 
 const handlePrimitiveRecorded = base.recordedStream('primitive-recorded', {
   input: v.object({}),
-  chunk: NumberChunk,
   maxChunks: 10,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
@@ -90,7 +82,6 @@ const handlePrimitiveRecorded = base.recordedStream('primitive-recorded', {
 
 const handleCountTokensNudged = base.recordedStream('count-tokens-nudged', {
   input: CountTokensPayload,
-  chunk: TokenChunk,
   nudges: { stop: StopPayload },
   maxChunks: 100,
   maxAgeMs: 60_000,

@@ -15,7 +15,6 @@ const GetRoomMembersPayload = v.object({});
 const ProbeConnPayload = v.object({});
 
 const StartSlowStreamPayload = v.object({});
-const SlowChunk = t<{ index: number }>();
 
 const base = server({
   hibernation: true,
@@ -112,7 +111,6 @@ const handleProbeConn = base.on('probe-conn', {
 
 const handleSlowStream = base.stream('start-slow-stream', {
   input: StartSlowStreamPayload,
-  chunk: SlowChunk,
   async *run() {
     for (let i = 0; i < 10; i++) {
       yield { index: i };

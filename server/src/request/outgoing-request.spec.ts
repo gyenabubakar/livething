@@ -34,9 +34,11 @@ function topDeclarations(
  */
 function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
   let answerHook!: (id: string, frame: any) => boolean;
+  let awaitedHook!: (connectionId: string, correlationId: string) => boolean;
   let disconnectHook!: (ctx: any) => void;
   let extender!: (ctx: any) => Record<string, unknown>;
   let idCounter = 0;
+
   const sent: Array<{ connectionId: string; opts: any }> = [];
 
   const live = new Set<string>(['c1', 'peer']);
@@ -46,6 +48,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     isConnectionInChannel: (id: string) => !notInChannel.has(id),
     generateId: (prefix?: string) => `${prefix}_${(idCounter += 1)}`,
     onAnswerFrame: (h: any) => (answerHook = h),
+    onAnswerAwaited: (h: any) => (awaitedHook = h),
     onDisconnect: (h: any) => (disconnectHook = h),
     extendContext: (factory: any) => (extender = factory),
     sendServerRequest: (connectionId: string, opts: any) => {
@@ -111,7 +114,16 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     return ctx;
   }
 
-  return { answerHook, disconnectHook, buildCtx, sent, live, member, notInChannel };
+  return {
+    answerHook,
+    awaitedHook,
+    disconnectHook,
+    buildCtx,
+    sent,
+    live,
+    member,
+    notInChannel,
+  };
 }
 
 const PERMISSION = new Map<string, ResolvedServerRequest>([
@@ -584,6 +596,81 @@ describe('server→client user request — first answer wins', () => {
   });
 });
 
+describe('server→client request — an answer of the wrong frame kind', () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+
+  it('tells the engine which correlation ids a connection is really waited on for', () => {
+    const env = install(topDeclarations(new Map([['ping', {}]])));
+    const ctx = env.buildCtx('c1');
+    void ctx.request('ping', {}).catch(() => {});
+    const { correlationId } = env.sent[0]!.opts;
+
+    expect(env.awaitedHook('c1', correlationId)).toBe(true);
+    expect(env.awaitedHook('peer', correlationId)).toBe(false);
+    expect(env.awaitedHook('c1', 'made-up')).toBe(false);
+  });
+
+  it('rejects a text request with request-invalid-response when the answer is binary', async () => {
+    const env = install(topDeclarations(new Map([['ping', {}]])));
+    const ctx = env.buildCtx('c1');
+    const promise = ctx.request('ping', {});
+    const { correlationId } = env.sent[0]!.opts;
+
+    const handled = env.answerHook('c1', {
+      event: 'ping',
+      payload: null,
+      livething: { correlationId },
+      bytes,
+    });
+
+    expect(handled).toBe(true);
+    await expect(promise).rejects.toSatisfy((e: unknown) => RequestInvalidResponse.matches(e));
+  });
+
+  it('does not take a binary __error__ as a decline', async () => {
+    const env = install(topDeclarations(PERMISSION));
+    const ctx = env.buildCtx('c1');
+    const promise = ctx.request('ask', {});
+    const { correlationId } = env.sent[0]!.opts;
+
+    env.answerHook('c1', {
+      event: '__error__',
+      payload: { code: 'request-no-response' },
+      livething: { correlationId },
+      bytes,
+    });
+
+    await expect(promise).rejects.toSatisfy((e: unknown) => RequestInvalidResponse.matches(e));
+  });
+
+  it('ignores a binary answer to a user request, and waits for the other sockets', async () => {
+    const env = install(topDeclarations(VOLUNTEER));
+    const ctx = env.buildCtx('c1', undefined, { user: ['a', 'b'] });
+    const promise = ctx.users.get('u').request('volunteer', { turn: 1 });
+    const legA = env.sent.find((s) => s.connectionId === 'a')!;
+    const legB = env.sent.find((s) => s.connectionId === 'b')!;
+
+    expect(
+      env.answerHook('a', {
+        event: 'volunteer',
+        payload: { ready: true },
+        livething: { correlationId: legA.opts.correlationId },
+        bytes,
+      }),
+    ).toBe(true);
+    env.answerHook('b', {
+      event: 'volunteer',
+      payload: { ready: false },
+      livething: { correlationId: legB.opts.correlationId },
+    });
+
+    await expect(promise).resolves.toEqual({
+      response: { ready: false },
+      from: expect.objectContaining({ id: 'b' }),
+    });
+  });
+});
+
 describe('server→client request — per-channel declaration isolation (Major 2)', () => {
   const askAllowed: ResolvedServerRequest = {
     responseValidator: v.object({ allowed: v.boolean() }),
@@ -713,6 +800,7 @@ describe('server→client request — a payload the engine refuses to send', () 
       const engine = {
         generateId: (prefix?: string) => `${prefix}_1`,
         onAnswerFrame() {},
+        onAnswerAwaited() {},
         onDisconnect() {},
         extendContext: (factory: any) => (extender = factory),
         sendServerRequest() {

@@ -47,7 +47,7 @@ it('ctx.user.request reaches both sockets of one user and resolves with the firs
     const frames: unknown[][] = [];
     const before = new Set(engine.core.connections.keys());
     const handle = engine.accept(Symbol('ada'), {
-      send: (data: string) => {
+      send: ({ text: data }: { kind: 'text'; text: string }) => {
         frames.push(JSON.parse(data) as unknown[]);
       },
       close() {},

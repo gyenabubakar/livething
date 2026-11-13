@@ -35,8 +35,14 @@ interface RateLimitBuildInput {
 export interface RateLimitGlobalConfig {
   /** Length of the rolling window, in milliseconds. Defaults to 60000. */
   readonly windowMs?: number;
-  /** Maximum events allowed per window. Defaults to 60. */
-  readonly max?: number;
+  /** Maximum messages allowed per window. Defaults to 60. */
+  readonly maxMessages?: number;
+  /**
+   * Maximum bytes allowed per window, counted on the whole frame (UTF-8 for text). No byte
+   * limit by default. A frame bigger than this passes only when the budget is full, and it
+   * empties it.
+   */
+  readonly maxBytes?: number;
   /**
    * Pick the budget key from the connection. Defaults to one budget per
    * connection; return `ctx.user.id` to share one budget across a user's
@@ -69,7 +75,7 @@ export interface RateLimitCapability extends Capability<
 
 /**
  * Enable rate limiting. Call it with a rule to set a global default that every
- * event shares (`rateLimit({ windowMs, max })`), or with no argument to enable
+ * event shares (`rateLimit({ windowMs, maxMessages, maxBytes })`), or with no argument to enable
  * rate limiting without a global default so only handlers that set their own
  * `rateLimit` override are limited. A handler override can raise, lower, or
  * disable the limit for one event.
@@ -83,7 +89,7 @@ export interface RateLimitCapability extends Capability<
  * import { rateLimit } from '@livething/server/rate-limit';
  *
  * const base = server({
- *   capabilities: [rateLimit({ windowMs: 60_000, max: 100 })],
+ *   capabilities: [rateLimit({ windowMs: 60_000, maxMessages: 100 })],
  * });
  * ```
  */

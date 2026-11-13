@@ -31,6 +31,9 @@ export interface HandleRequestOptions {
   payload: unknown;
 
   livething: Protocol.LiveThingProtocol | undefined;
+
+  /** The bytes of a binary request frame, else `undefined`. */
+  bytes?: Uint8Array;
 }
 
 /**
@@ -90,7 +93,7 @@ export async function handleRequest(
         response = value;
       };
 
-      return request.handler(ctx, payload);
+      return request.handler(ctx, payload, options.bytes);
     },
   );
 

@@ -29,7 +29,7 @@ const base = server({ capabilities: widenedCaps });
 // every gate closes together, so `base.channel` itself is gone, not just its
 // rateLimit field.
 // @ts-expect-error — channels() is not confirmed listed, so base.channel is absent.
-base.channel('room', { rateLimit: { max: 5 } });
+base.channel('room', { rateLimit: { maxMessages: 5 } });
 
 // @ts-expect-error — channels() is not confirmed listed, so base.channel is absent.
 base.channel('room2', {
@@ -57,9 +57,9 @@ base.on('ping', {
 // An inline, literal-brand `capabilities` array grants exactly what it lists.
 
 const rateLimitBase = server({
-  capabilities: [channels(), rateLimit({ max: 5 })],
+  capabilities: [channels(), rateLimit({ maxMessages: 5 })],
 });
-rateLimitBase.channel('room', { rateLimit: { max: 5 } });
+rateLimitBase.channel('room', { rateLimit: { maxMessages: 5 } });
 
 const requestsBase = server({
   capabilities: [channels(), serverRequests()],

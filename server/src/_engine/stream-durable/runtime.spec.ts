@@ -49,6 +49,7 @@ function createRuntime(sqlInstance: ReturnType<typeof createTestSql>) {
   }[] = [];
   const runtime = {
     sql: sqlInstance,
+    messageLimits: { sendBytes: 32 * 1024 * 1024 },
     activeStreams: new Map<string, ActiveStream>(),
     connections: new Map<string, RuntimeConnection>(),
     generateId: () => `gen-${++nextStreamId}`,
@@ -96,8 +97,8 @@ function wireChunks(
   connection: RuntimeConnection,
 ): { event: string; __livething: Record<string, unknown> }[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((connection.descriptor.send as any).mock.calls as [string][]).map(([wire]) => {
-    const [event, , metadata] = JSON.parse(wire) as [
+  return ((connection.descriptor.send as any).mock.calls as [{ text: string }][]).map(([wire]) => {
+    const [event, , metadata] = JSON.parse(wire.text) as [
       string,
       unknown,
       Record<string, unknown> | null,
@@ -226,7 +227,7 @@ describe('durable stream runtime', () => {
   it('recorded stream — yield throws StreamAborted({reason:"buffer-full"}) when cap is hit', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
-    const { runtime, protocolMessages } = createRuntime(sql);
+    const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
     const connection = createConnection();
 
     let caughtReason: string | null = null;
@@ -254,9 +255,17 @@ describe('durable stream runtime', () => {
     });
 
     expect(caughtReason).toBe('buffer-full');
+    // The chunk that went over the limit is neither stored nor sent, and the end frame's seq is
+    // the last chunk the client got, so a client checking for gaps ends cleanly.
     const chunkRows = Storage.readChunksSince(sql, { userId: 'u1', streamId: 'gen-1', since: 0 });
-    expect(chunkRows.length).toBeLessThanOrEqual(2);
-    expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeDefined();
+    expect(chunkRows.map((row) => row.seq)).toEqual([1, 2]);
+    expect(
+      pipelineSends.map((send) => (send.routing as { streamSeq?: number } | undefined)?.streamSeq),
+    ).toEqual([1, 2]);
+    const end = protocolMessages.find((m) => m.event === '__streamEnd__');
+    expect((end?.livething as { streamSeq?: number } | undefined)?.streamSeq).toBe(2);
+
+    expect(Storage.readStream(sql, 'u1', 'gen-1')?.lastSeq).toBe(2);
   });
 
   it('cancelDurableStream — deletes row + chunks immediately', async () => {

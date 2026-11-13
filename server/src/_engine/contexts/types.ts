@@ -176,6 +176,12 @@ export interface ContextCommonDeps {
    * when none are listed, so `buildChannelHandle` stays inbox-agnostic.
    */
   channelHandleAugmenters?: readonly FeatureSlots.ChannelHandleAugmenter[];
+
+  /**
+   * Gives a sender object its `.binary` key. Registered by the `binary()` capability;
+   * absent otherwise, so no sender gets `.binary`.
+   */
+  addBinarySenders?: FeatureSlots.AddBinarySenders;
 }
 
 /**

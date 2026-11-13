@@ -141,7 +141,11 @@ export type StreamHandlerContext<TBaseCtx, TNudges extends readonly NudgeDeclara
  * function in both covariant and contravariant positions.
  */
 export type GeneratorFn<TCtx = any, TPayload = unknown, TChunks = unknown, TNext = any> = {
-  bivarianceHack(ctx: TCtx, payload: TPayload): AsyncGenerator<TChunks, void, TNext>;
+  bivarianceHack(
+    ctx: TCtx,
+    payload: TPayload,
+    bytes?: Uint8Array,
+  ): AsyncGenerator<TChunks, void, TNext>;
 }['bivarianceHack'];
 
 /**
@@ -166,7 +170,7 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
 
 /**
  * The primitive type produced by `stream()`. Describes the trigger event, the
- * chunk type declared by the contract `stream(...)` config, the nudges, and the
+ * chunk type inferred from what the generator yields, the nudges, and the
  * broadcast flag.
  * The engine uses this to set up stream routing and dispatch.
  *

@@ -46,6 +46,15 @@ export function scopedName(scope: ScopeInfo, name: string): string {
   return scope.prefixName ? scope.prefixName(name) : name;
 }
 
+/**
+ * The `.binary` object of a socket or a scoped messaging, made on first use, so `binary()`
+ * adds to the plugin's stub object instead of replacing it.
+ */
+export function binaryOf(target: object): Record<string, unknown> {
+  const holder = target as { binary?: Record<string, unknown> };
+  return (holder.binary ??= {});
+}
+
 /** Adds methods to a freshly built scoped messaging. */
 export type Augmenter = (messaging: MessagingObject, scope: ScopeInfo) => void;
 

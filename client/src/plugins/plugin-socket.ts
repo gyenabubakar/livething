@@ -2,10 +2,15 @@ import type { LiveThingError } from '@livething/core';
 import type { Message } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
+import type { BinaryMessaging, BinaryPrimitive } from '~/primitives/binary/types.ts';
 import type { AugmentedChannelMethod } from '~/primitives/channels/types.ts';
+import type { ClientRequestsPrimitive } from '~/primitives/client-requests/types.ts';
 import type { InboxPrimitive, ReadReceiptsPrimitive } from '~/primitives/inbox/types.ts';
-import type { ServerRequestsTypeFn } from '~/primitives/server-requests/types.ts';
-import type { StreamTypeFn } from '~/primitives/stream/types.ts';
+import type {
+  ServerRequestsPrimitive,
+  ServerRequestsTypeFn,
+} from '~/primitives/server-requests/types.ts';
+import type { StreamPrimitive, StreamTypeFn } from '~/primitives/stream/types.ts';
 import type { Apply } from '~/primitives/types.ts';
 import type {
   ChannelsOf,
@@ -26,8 +31,16 @@ import type {
  * only makes the surface reachable when the channel does. A plugin that
  * declares such a flag is still responsible for listing the matching primitive
  * in its `dependencies`, the same way it lists `channels` for `channel` itself.
+ * The same goes for a channel's `.binary` methods.
  */
-type PluginChannelPrimitives = readonly [InboxPrimitive, ReadReceiptsPrimitive];
+type PluginChannelPrimitives = readonly [
+  InboxPrimitive,
+  ReadReceiptsPrimitive,
+  BinaryPrimitive,
+  ClientRequestsPrimitive,
+  ServerRequestsPrimitive,
+  StreamPrimitive,
+];
 
 /**
  * The plugin's `channel` — the same three forms the top-level socket has,
@@ -132,4 +145,6 @@ export type PluginSocket<P extends SocketContract = {}> = PluginBase &
   PluginChannels<P> &
   PluginErrorHandling<P> &
   Apply<StreamTypeFn, P> &
-  Apply<ServerRequestsTypeFn, P>;
+  Apply<ServerRequestsTypeFn, P> &
+  // A `keyof` check, not `Apply`: it costs plugin authors far fewer types.
+  ('binary' extends keyof P ? { readonly binary: BinaryMessaging<P['binary']> } : {});

@@ -37,6 +37,16 @@ interface ReplayRetention {
    * store and one per channel.
    */
   readonly maxMessages?: number;
+
+  /**
+   * Maximum number of bytes to keep for one replay scope: the UTF-8 bytes of
+   * each row's JSON payload (or a binary event's info), plus a binary event's
+   * bytes.
+   *
+   * It is counted like `maxMessages`. When the scope grows past this size, the
+   * oldest rows are deleted. Defaults to 64 MiB.
+   */
+  readonly maxBytes?: number;
 }
 
 /**
@@ -107,7 +117,7 @@ export interface ReplayOptions {
  */
 export interface ReplaySnapshotValue {
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
 }
 
 /**
@@ -115,7 +125,7 @@ export interface ReplaySnapshotValue {
  * replace each other, so replay sends only the latest per key. Exported so you
  * can type a `snapshotKey` written as a standalone function or arrow.
  */
-export type SnapshotKeyFn = (event: string, payload: Record<string, unknown>) => string;
+export type SnapshotKeyFn = (event: string, payload: Record<string, unknown> | null) => string;
 
 /**
  * Combines snapshot rows over time (snapshot mode): given the stored value for a
@@ -135,7 +145,12 @@ export interface ReplayRow {
   messageId: string;
   seq: number;
   event: string;
+  /** The JSON payload, or the info of a binary event. */
   payload: string;
+  /** The bytes of a binary event, or `null` for a JSON event. */
+  binaryPayload: Uint8Array | null;
+  /** The UTF-8 bytes of `payload` plus the bytes of `binaryPayload`: what `maxBytes` counts. */
+  rowBytes: number;
   channel: string | null;
   channelFamily: string | null;
   /**

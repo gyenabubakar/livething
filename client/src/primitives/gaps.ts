@@ -1,7 +1,7 @@
 import { channelKey } from '~/internal/channel-key.ts';
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
-import type { ChannelTypeFn, Primitive, TypeFn } from '~/primitives/types.ts';
+import type { ChannelTypeFn, Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 import type { GapInfo } from '~/types.ts';
 
 /** The gap listener added to a socket and each channel handle. */
@@ -21,7 +21,8 @@ export interface GapsChannelTypeFn extends ChannelTypeFn {
 }
 
 /** The descriptor `gaps()` returns. */
-export type GapsPrimitive = Primitive<GapsTypeFn, {}, GapsChannelTypeFn>;
+export type GapsPrimitive = Primitive<GapsTypeFn, {}, GapsChannelTypeFn> &
+  PrimitiveIdentity<'gaps'>;
 
 /** Surfaces retention gaps without tying them to the feature that produced them. */
 export function gaps(): GapsPrimitive {
@@ -90,4 +91,4 @@ export function gaps(): GapsPrimitive {
   };
 }
 
-gaps.tag = 'gaps';
+gaps.tag = 'gaps' as const;

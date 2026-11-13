@@ -6,6 +6,9 @@
  */
 export class StreamQueue<T> {
   private chunks: T[] = [];
+  // The byte size of each buffered chunk, at the same index as in `chunks`.
+  private sizes: number[] = [];
+  private bufferedBytes = 0;
   // Read position into `chunks`. Pulling advances `head` instead of shift()ing,
   // so each pull is O(1) and draining a backlog is O(n), not O(n²). The consumed
   // front is compacted away once it passes half the array.
@@ -20,24 +23,40 @@ export class StreamQueue<T> {
   private done = false;
   private error: unknown = null;
 
-  /** A chunk arrived. */
-  push(chunk: T): void {
+  /** `maxBytes` limits the chunks buffered for the loop, as `sizeOf` measures them. */
+  constructor(private readonly maxBytes = Number.POSITIVE_INFINITY) {}
+
+  /**
+   * A chunk arrived. Returns `false`, and keeps nothing, when buffering it would go over
+   * `maxBytes`. `sizeOf` runs only for a chunk that must wait for the loop.
+   */
+  push(chunk: T, sizeOf?: () => number): boolean {
     const waiter = this.waiters.shift();
     if (waiter) {
       waiter.resolve({ value: chunk, done: false });
-    } else {
-      this.chunks.push(chunk);
+      return true;
     }
+
+    const size = sizeOf ? sizeOf() : 0;
+    if (this.bufferedBytes + size > this.maxBytes) return false;
+
+    this.bufferedBytes += size;
+    this.chunks.push(chunk);
+    this.sizes.push(size);
+
+    return true;
   }
 
   /** Pull the next buffered chunk without re-indexing the array. */
   private take(): T {
     const chunk = this.chunks[this.head]!;
+    this.bufferedBytes -= this.sizes[this.head]!;
     this.head++;
     // Once over half the array is consumed, drop the front so a drained queue
     // doesn't hold the whole backing array forever.
     if (this.head > this.chunks.length >> 1) {
       this.chunks = this.chunks.slice(this.head);
+      this.sizes = this.sizes.slice(this.head);
       this.head = 0;
     }
 

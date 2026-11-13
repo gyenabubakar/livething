@@ -17,7 +17,7 @@ test.describe('rate-limit (conformance)', () => {
   }, testInfo) => {
     await open(page, `rl-tick-${testInfo.testId}`);
 
-    // Top-level cap is max=3 in a fresh bucket; the 4th frame breaches it.
+    // Top-level cap is maxMessages=3 in a fresh bucket; the 4th frame breaches it.
     await page.getByTestId('tick').click();
     await page.getByTestId('tick').click();
     await page.getByTestId('tick').click();
@@ -33,7 +33,7 @@ test.describe('rate-limit (conformance)', () => {
   }, testInfo) => {
     await open(page, `rl-expensive-${testInfo.testId}`);
 
-    // 'expensive' has its own bucket with max=1; the second frame is rejected.
+    // 'expensive' has its own bucket with maxMessages=1; the second frame is rejected.
     await page.getByTestId('expensive').click();
     await page.getByTestId('expensive').click();
 
@@ -43,7 +43,7 @@ test.describe('rate-limit (conformance)', () => {
   test('a rate-limited request() rejects with code rate-limited', async ({ page }, testInfo) => {
     await open(page, `rl-echo-${testInfo.testId}`);
 
-    // 'echo-req' has a per-handler override max=1: first resolves, second rejects.
+    // 'echo-req' has a per-handler override maxMessages=1: first resolves, second rejects.
     await page.getByTestId('echo-req').click();
     await expect(page.getByTestId('echo-outcome')).toHaveText('ok');
 

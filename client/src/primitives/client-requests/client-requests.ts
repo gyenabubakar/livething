@@ -1,25 +1,26 @@
-import { Disconnected, Timeout } from '~/errors.ts';
+import { Disconnected, Dropped, Timeout } from '~/errors.ts';
 import { timerDelayError } from '~/internal/config.ts';
 import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
+import { REQUESTS_KEY } from '~/internal/runtime.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
-import type { FrameOwner, Message, SendResult } from '~/internal/runtime.ts';
-import type { ScopeMarkers } from '~/internal/scoped.ts';
+import type {
+  FrameOwner,
+  Message,
+  RequestCallOptions,
+  SendRequest,
+  SendResult,
+} from '~/internal/runtime.ts';
 import type {
   ClientRequestsOptions,
-  ClientRequestsTypeFn,
+  ClientRequestsPrimitive,
 } from '~/primitives/client-requests/types.ts';
-import type { Primitive } from '~/primitives/types.ts';
 
 interface Pending {
+  answer?: RequestCallOptions['answer'];
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
-}
-
-interface RequestCallOptions {
-  markers: ScopeMarkers;
-  timeout?: number;
 }
 
 interface RequestOptions {
@@ -37,9 +38,7 @@ interface RequestOptions {
  * `disconnected` — a lazy socket connects on first use, and `buffering()` holds
  * sends made while offline.
  */
-export function clientRequests(
-  options: ClientRequestsOptions = {},
-): Primitive<ClientRequestsTypeFn> {
+export function clientRequests(options: ClientRequestsOptions = {}): ClientRequestsPrimitive {
   const defaultTimeout = options.timeout ?? 10_000;
   const defaultTimeoutError = timerDelayError(defaultTimeout, 'clientRequests timeout');
   if (defaultTimeoutError) throw defaultTimeoutError;
@@ -72,6 +71,25 @@ export function clientRequests(
         if (timeoutError) return Promise.reject(timeoutError);
 
         const correlationId = idGenerator(helpers)('req');
+        let frame: Message = {
+          event,
+          payload,
+          // The client originates this request, so its reply routes back here.
+          metadata: {
+            exchange: { id: correlationId, source: 'client' },
+            ...(callOptions.markers.name
+              ? {
+                  channel: {
+                    name: callOptions.markers.name,
+                    ...(callOptions.markers.family ? { family: callOptions.markers.family } : {}),
+                  },
+                }
+              : {}),
+          },
+        };
+
+        // Before the socket is touched, so a request that cannot be sent opens nothing.
+        if (callOptions.prepare) frame = callOptions.prepare(frame);
 
         helpers.lazyAcquire();
         helpers.ensureConnected();
@@ -89,6 +107,7 @@ export function clientRequests(
           }, timeout);
 
           pending.set(correlationId, {
+            answer: callOptions.answer,
             resolve: (value) => {
               clearTimeout(timer);
               done();
@@ -104,23 +123,6 @@ export function clientRequests(
               reject(unscopeErrorCode(event, reason));
             },
           });
-
-          const frame: Message = {
-            event,
-            payload,
-            // The client originates this request, so its reply routes back here.
-            metadata: {
-              exchange: { id: correlationId, source: 'client' },
-              ...(callOptions.markers.name
-                ? {
-                    channel: {
-                      name: callOptions.markers.name,
-                      ...(callOptions.markers.family ? { family: callOptions.markers.family } : {}),
-                    },
-                  }
-                : {}),
-            },
-          };
 
           // send through the normal path so buffering can take it — queueing it
           // while offline, or behind a still-draining staggered flush so it can't
@@ -141,6 +143,10 @@ export function clientRequests(
 
           if (result === 'connecting') {
             outbox.set(correlationId, { message: frame, owner });
+          } else if (result === 'dropped') {
+            clearTimeout(timer);
+            done();
+            reject(Dropped());
           } else if (result === 'closed' || result === 'blocked') {
             clearTimeout(timer);
             done();
@@ -165,7 +171,13 @@ export function clientRequests(
 
         onIncoming(message) {
           const correlationId = message.metadata?.exchange?.id;
-          if (typeof correlationId !== 'string') return message;
+          // A binary reply answers only a request with an `answer` hook (`binary.request`).
+          if (
+            typeof correlationId !== 'string' ||
+            (message.bytes && !pending.get(correlationId)?.answer)
+          ) {
+            return message;
+          }
 
           // A server-originated request is not a reply to our own request — let
           // the serverRequests primitive answer it, whatever order they run in. We
@@ -186,6 +198,7 @@ export function clientRequests(
           }
 
           if (message.event === '__error__') waiter.reject(toLiveThingError(message.payload));
+          else if (waiter.answer) waiter.answer(message, waiter);
           else waiter.resolve(message.payload ?? undefined);
 
           return null;
@@ -198,6 +211,7 @@ export function clientRequests(
         },
 
         install(socket) {
+          helpers.shared.set(REQUESTS_KEY, sendRequest satisfies SendRequest);
           // @ts-expect-error — install adds request() to the socket dynamically
           socket.request = (event: string, payload: unknown, callOptions?: RequestOptions) =>
             sendRequest(event, payload, { markers: {}, timeout: callOptions?.timeout });
@@ -217,4 +231,4 @@ export function clientRequests(
   };
 }
 
-clientRequests.tag = 'clientRequests';
+clientRequests.tag = 'clientRequests' as const;

@@ -38,6 +38,9 @@ export interface LiveThingProtocol {
   messageId?: string;
   deliverySeq?: number;
   streamSeq?: number;
+  uploadId?: string;
+  uploadSeq?: number;
+  uploadSize?: number;
 }
 
 export interface ProtocolFrame {
@@ -74,12 +77,25 @@ const StreamMetadata = v.strictObject({
   terminated: v.optional(v.boolean()),
 });
 
+const UploadMetadata = v.pipe(
+  v.strictObject({
+    id: WireId,
+    seq: v.optional(NonNegativeSafeInt),
+    size: v.optional(NonNegativeSafeInt),
+  }),
+  v.check(
+    (value) => value.seq === undefined || value.size === undefined,
+    "The 'upload' metadata carries a 'seq' or a 'size', not both.",
+  ),
+);
+
 /** The metadata shape accepted on the wire. Unknown groups and top-level fields reject. */
 const MetadataObjectSchema = v.strictObject({
   exchange: v.optional(ExchangeMetadata),
   channel: v.optional(ChannelMetadata),
   delivery: v.optional(DeliveryMetadata),
   stream: v.optional(StreamMetadata),
+  upload: v.optional(UploadMetadata),
 });
 export const MetadataSchema = v.pipe(
   MetadataObjectSchema,
@@ -87,7 +103,6 @@ export const MetadataSchema = v.pipe(
 );
 const Metadata = v.nullable(MetadataSchema);
 const NoPayload = v.null();
-const EmptyPayload = v.strictObject({});
 
 function metadataToLiveThing(input: unknown): LiveThingProtocol {
   const out: LiveThingProtocol = { channelFamily: null };
@@ -112,6 +127,7 @@ function metadataToLiveThing(input: unknown): LiveThingProtocol {
       nudgeId?: string;
       terminated?: boolean;
     };
+    upload?: { id: string; seq?: number; size?: number };
   };
   if (metadata.exchange) {
     if (metadata.exchange.id !== undefined) out.correlationId = metadata.exchange.id;
@@ -121,14 +137,18 @@ function metadataToLiveThing(input: unknown): LiveThingProtocol {
   if (metadata.channel) {
     out.channel = metadata.channel.name;
     out.channelFamily = metadata.channel.family ?? null;
-    if (metadata.channel.unsubscribeId !== undefined)
+    if (metadata.channel.unsubscribeId !== undefined) {
       out.unsubscribeId = metadata.channel.unsubscribeId;
-    if (metadata.channel.membership !== undefined)
+    }
+
+    if (metadata.channel.membership !== undefined) {
       out.channelMembership = metadata.channel.membership;
+    }
 
     if (metadata.channel.inbox !== undefined) out.inbox = metadata.channel.inbox;
-    if (metadata.channel.readReceipts !== undefined)
+    if (metadata.channel.readReceipts !== undefined) {
       out.readReceipts = metadata.channel.readReceipts;
+    }
   }
 
   if (metadata.delivery) {
@@ -144,6 +164,12 @@ function metadataToLiveThing(input: unknown): LiveThingProtocol {
 
     if (metadata.stream.nudgeId !== undefined) out.streamNudgeId = metadata.stream.nudgeId;
     if (metadata.stream.terminated !== undefined) out.streamTerminated = metadata.stream.terminated;
+  }
+
+  if (metadata.upload) {
+    out.uploadId = metadata.upload.id;
+    if (metadata.upload.seq !== undefined) out.uploadSeq = metadata.upload.seq;
+    if (metadata.upload.size !== undefined) out.uploadSize = metadata.upload.size;
   }
 
   return out;
@@ -207,6 +233,7 @@ function requiredMetadata<Groups extends keyof MetadataObject>(
 const channelMeta = requiredMetadata('channel');
 const exchangeMeta = requiredMetadata('exchange');
 const streamMeta = requiredMetadata('stream');
+const uploadMeta = requiredMetadata('upload');
 const queryMeta = v.pipe(
   exchangeMeta,
   v.check((value) => value !== null && 'channel' in value, "This frame needs 'channel' metadata."),
@@ -251,6 +278,18 @@ const ReadQueryFrame = frame(
   v.strictObject({ seq: NonNegativeSafeInt }),
   queryMeta,
 );
+export const UploadEndFrame = frame(
+  '__uploadEnd__',
+  v.strictObject({ totalBytes: NonNegativeSafeInt }),
+  uploadMeta,
+);
+export const UploadCancelFrame = frame('__uploadCancel__', NoPayload, uploadMeta);
+
+/** Whether a parsed frame is a well-formed `__uploadCancel__`, the same check its handler runs. */
+export function isUploadCancelFrame(input: unknown): boolean {
+  return v.is(UploadCancelFrame, input);
+}
+
 const INCOMING_FRAMES = {
   __subscribe__: SubscribeFrame,
   __unsubscribe__: UnsubscribeFrame,
@@ -261,6 +300,8 @@ const INCOMING_FRAMES = {
   __read__: ReadFrame,
   __receivedQuery__: ReceivedQueryFrame,
   __readQuery__: ReadQueryFrame,
+  __uploadEnd__: UploadEndFrame,
+  __uploadCancel__: UploadCancelFrame,
 };
 
 export const IncomingProtocolFrame = v.union(Object.values(INCOMING_FRAMES));
@@ -289,13 +330,13 @@ export function parseIncomingProtocolFrame(input: unknown): IncomingProtocolFram
 
 export const SubscribeOkFrame = frame(
   '__subscribeOk__',
-  v.strictObject({ seq: v.optional(NonNegativeSafeInt) }),
+  v.nullable(v.strictObject({ seq: NonNegativeSafeInt })),
   channelMeta,
 );
-const UnsubscribeOkFrame = frame('__unsubscribeOk__', EmptyPayload, channelMeta);
-const StreamOkFrame = frame('__streamOk__', EmptyPayload, streamMeta);
-const NudgeOkFrame = frame('__nudgeOk__', EmptyPayload, streamMeta);
-const StreamEndFrame = frame('__streamEnd__', EmptyPayload, streamMeta);
+const UnsubscribeOkFrame = frame('__unsubscribeOk__', NoPayload, channelMeta);
+const StreamOkFrame = frame('__streamOk__', NoPayload, streamMeta);
+const NudgeOkFrame = frame('__nudgeOk__', NoPayload, streamMeta);
+const StreamEndFrame = frame('__streamEnd__', NoPayload, streamMeta);
 const ErrorFrame = frame(
   '__error__',
   v.strictObject({ code: v.string(), detail: v.optional(v.unknown()) }),
@@ -359,7 +400,20 @@ const ResumeFrame = frame(
   v.strictObject({ token: ResumeToken, seq: v.optional(NonNegativeSafeInt) }),
   Metadata,
 );
+const UploadAckFrame = frame(
+  '__uploadAck__',
+  v.strictObject({
+    receivedThrough: NonNegativeSafeInt,
+    savedThrough: NonNegativeSafeInt,
+    pieceBytes: v.optional(NonNegativeSafeInt),
+    windowBytes: v.optional(NonNegativeSafeInt),
+  }),
+  uploadMeta,
+);
+const UploadDoneFrame = frame('__uploadDone__', v.unknown(), uploadMeta);
 export const OutgoingProtocolFrame = v.union([
+  UploadAckFrame,
+  UploadDoneFrame,
   ResumeFrame,
   SubscribeOkFrame,
   UnsubscribeOkFrame,
@@ -423,18 +477,21 @@ function validChannel(input: unknown): boolean {
   const allowed = ['name', 'family', 'unsubscribeId', 'membership', 'inbox', 'readReceipts'];
   if (Object.keys(input).some((key) => !allowed.includes(key))) return false;
 
-  if (input.family !== undefined && !validString(input.family, WIRE_LIMITS.channelFamily))
+  if (input.family !== undefined && !validString(input.family, WIRE_LIMITS.channelFamily)) {
     return false;
+  }
 
-  if (input.unsubscribeId !== undefined && !validString(input.unsubscribeId, WIRE_LIMITS.wireId))
+  if (input.unsubscribeId !== undefined && !validString(input.unsubscribeId, WIRE_LIMITS.wireId)) {
     return false;
+  }
 
   if (
     input.membership !== undefined &&
     input.membership !== 'persistent' &&
     input.membership !== 'ephemeral'
-  )
+  ) {
     return false;
+  }
 
   if (input.inbox !== undefined && typeof input.inbox !== 'boolean') return false;
 
@@ -463,8 +520,9 @@ function validStream(input: unknown): boolean {
     input.durability !== undefined &&
     input.durability !== 'ephemeral' &&
     input.durability !== 'persistent'
-  )
+  ) {
     return false;
+  }
 
   if (!validOptionalSequence(input.seq)) return false;
 
@@ -473,13 +531,27 @@ function validStream(input: unknown): boolean {
   return input.terminated === undefined || typeof input.terminated === 'boolean';
 }
 
+function validUpload(input: unknown): boolean {
+  if (!isRecord(input) || !validString(input.id, WIRE_LIMITS.wireId)) return false;
+
+  if (Object.keys(input).some((key) => key !== 'id' && key !== 'seq' && key !== 'size')) {
+    return false;
+  }
+
+  if (input.seq !== undefined && input.size !== undefined) return false;
+
+  return validOptionalSequence(input.seq) && validOptionalSequence(input.size);
+}
+
 function fastMetadata(input: unknown): LiveThingProtocol | null | undefined {
   if (input === null) return { channelFamily: null };
 
   if (!isRecord(input) || Object.keys(input).length === 0) return undefined;
 
-  const allowed = ['exchange', 'channel', 'delivery', 'stream'];
+  const allowed = ['exchange', 'channel', 'delivery', 'stream', 'upload'];
   if (Object.keys(input).some((key) => !allowed.includes(key))) return undefined;
+
+  if (input.upload !== undefined && !validUpload(input.upload)) return undefined;
 
   if (input.exchange !== undefined && !validExchange(input.exchange)) return undefined;
 
@@ -492,16 +564,25 @@ function fastMetadata(input: unknown): LiveThingProtocol | null | undefined {
   return metadataToLiveThing(input);
 }
 
+/**
+ * The first check on every received frame, text or a binary frame's envelope: a three-item
+ * array whose first item is a string. A frame of any other shape is dropped.
+ */
+export function isWireTuple(parsed: unknown): parsed is [string, unknown, unknown] {
+  return Array.isArray(parsed) && parsed.length === 3 && typeof parsed[0] === 'string';
+}
+
 /** Fast user-frame parser used by the gateway before Valibot's detailed error path. */
 export function parseUserEventFrame(input: unknown): ProtocolFrame {
   if (Array.isArray(input) && input.length === 3 && validString(input[0], WIRE_LIMITS.event)) {
     const livething = fastMetadata(input[2]);
-    if (livething !== undefined)
+    if (livething !== undefined) {
       return {
         event: input[0],
         payload: input[1],
         __livething: livething ?? { channelFamily: null },
       };
+    }
   }
 
   return v.parse(UserEventFrameSchema, input) as ProtocolFrame;
@@ -516,6 +597,8 @@ export type UnsubscribeFrame = v.InferOutput<typeof UnsubscribeFrame>;
 export type ReplayFrame = v.InferOutput<typeof ReplayFrame>;
 export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ContinueStreamFrame = v.InferOutput<typeof ContinueStreamFrame>;
+export type UploadEndFrame = v.InferOutput<typeof UploadEndFrame>;
+export type UploadCancelFrame = v.InferOutput<typeof UploadCancelFrame>;
 type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
 export type ReadFrame = v.InferOutput<typeof ReadFrame>;
 type ReceivedQueryFrame = v.InferOutput<typeof ReceivedQueryFrame>;
@@ -548,8 +631,12 @@ const INCOMING_NAMES = [
   '__read__',
   '__receivedQuery__',
   '__readQuery__',
+  '__uploadEnd__',
+  '__uploadCancel__',
 ] as const;
 const OUTGOING_NAMES = [
+  '__uploadAck__',
+  '__uploadDone__',
   '__subscribeOk__',
   '__unsubscribeOk__',
   '__streamOk__',

@@ -1,13 +1,15 @@
 import { STATUS_CODES } from 'node:http';
+import { asUint8Array } from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
 import type { UpgradeDecision } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { RawData, WebSocket } from 'ws';
 import { closeWebSocket } from './close.ts';
-import { sendWhenOpen } from './socket.ts';
+import { frameData, sendWhenOpen } from './socket.ts';
 import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
 import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
+import type { ConnectionTransport } from './socket.ts';
 
 function upgradeRejection(decision: UpgradeDecision): { body: string; status: number } {
   const status =
@@ -180,23 +182,28 @@ async function writeHttpResponse(socket: Duplex, response: Response): Promise<vo
   socket.end(Buffer.concat([Buffer.from(lines.join('\r\n')), body]));
 }
 
-function webSocketTransport(socket: WebSocket) {
+function webSocketTransport(socket: WebSocket): ConnectionTransport {
   return {
-    send: (data: string) => sendWhenOpen(socket.readyState, () => socket.send(data)),
-    close: (code?: number, reason?: string) => socket.close(code, reason),
+    send: (frame) => sendWhenOpen(socket.readyState, () => socket.send(frameData(frame))),
+    close: (code, reason) => socket.close(code, reason),
+    terminate: () => socket.terminate(),
     bufferedAmount: () => socket.bufferedAmount,
     backpressureSupported: true,
   };
 }
 
+/**
+ * The bytes of a binary message from `ws`, as a plain `Uint8Array`. A small `Buffer` is a view
+ * into a shared pool, so this keeps its offset and length instead of reading `.buffer` whole.
+ */
+export function rawDataToBytes(data: RawData): Uint8Array {
+  return asUint8Array(Array.isArray(data) ? Buffer.concat(data) : data);
+}
+
 function attachAcceptedWebSocket(socket: WebSocket, connection: NodeConnection): void {
   socket.on('message', (data, isBinary) => {
     if (isBinary) {
-      closeWebSocket(
-        socket,
-        CloseCodes.UNSUPPORTED_DATA,
-        '[livething] binary frames are not supported yet',
-      );
+      void connection.binaryMessage(rawDataToBytes(data));
       return;
     }
 

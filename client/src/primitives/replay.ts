@@ -1,6 +1,6 @@
 import { channelKey } from '~/internal/channel-key.ts';
 import type { LiveThingMetadata, Message } from '~/internal/runtime.ts';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
 
 /** How many past connections' resume tokens are kept; the server accepts at most this many. */
 const MAX_RESUME_TOKENS = 8;
@@ -19,7 +19,7 @@ const MAX_RESUME_TOKENS = 8;
  * It needs `dedup()`, because the server may resend a few messages you already
  * had and dedup is what filters those out.
  */
-export function replay(): Primitive<EmptyTypeFn> {
+export function replay(): Primitive<EmptyTypeFn> & PrimitiveIdentity<'replay', 'dedup'> {
   return {
     _tag: 'replay',
     dependencies: ['dedup'],
@@ -149,4 +149,4 @@ export function replay(): Primitive<EmptyTypeFn> {
   };
 }
 
-replay.tag = 'replay';
+replay.tag = 'replay' as const;

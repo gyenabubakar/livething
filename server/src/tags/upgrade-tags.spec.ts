@@ -75,7 +75,7 @@ async function connect(engine: Engine, user: string) {
   const decision = await engine.handleUpgrade(new Request(`https://huddle.test/?user=${user}`));
   const frames: string[] = [];
   const handle = engine.accept(Symbol(user), {
-    send: (data: string) => void frames.push(data),
+    send: ({ text }: { kind: 'text'; text: string }) => void frames.push(text),
     close: () => {},
     bufferedAmount: () => 0,
     userId: decision.userId ?? '',

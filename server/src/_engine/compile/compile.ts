@@ -19,6 +19,7 @@ type CheckScopeParameter = {
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, unknown>;
   recordedStreams?: ReadonlyMap<string, unknown>;
+  uploads?: ReadonlyMap<string, unknown>;
 };
 type CollectFromScopeScopeParameter = {
   incoming: ReadonlyMap<string, unknown>;
@@ -102,6 +103,15 @@ function visitCompiledPrimitives(
         continue;
       }
 
+      case 'upload': {
+        const p = primitive as EngineCompileTypes.AnyUpload;
+        EngineCompileUtils.setUniqueOrThrow((compiled.uploads ??= new Map()), p.event, {
+          value: p,
+          kind: 'upload',
+        });
+        continue;
+      }
+
       case 'scheduled': {
         const p = primitive as EngineCompileTypes.AnyScheduled;
         EngineCompileUtils.setUniqueOrThrow(compiled.scheduled, p.taskId, {
@@ -166,6 +176,7 @@ export function compileServerDefinition(
     requests: new Map(),
     streams: new Map(),
     recordedStreams: new Map(),
+    uploads: new Map(),
     intercepts: [],
     channels: new Map(),
     channelFamilies: new Map(),
@@ -184,9 +195,43 @@ export function compileServerDefinition(
   const declaredPluginChannels = collectPluginChannelNames(compiled);
   validateNoReservedEventNames(compiled, declaredPluginEvents);
   validateScopeAndEventNameSyntax(compiled, declaredPluginEvents, declaredPluginChannels);
+  validateServerRequestNames(definition.primitives);
   validateChannelsDisjoint?.(compiled);
 
   return compiled;
+}
+
+/**
+ * Refuse a server request name (JSON or binary) that contains `::`, or whose wire name is over
+ * the event limit, as for every other event name. The request table is keyed by `[channelKey, event]`. A name that starts with `__` was
+ * refused when it was declared, so one here is a plugin's `__<id>::<name>`: check its own name.
+ */
+function validateServerRequestNames(primitives: readonly PrimitiveCore.Primitive[]): void {
+  for (const primitive of primitives) {
+    const table = (primitive as { __serverRequests?: ReadonlyMap<string, unknown> })
+      .__serverRequests;
+    if (primitive.__livething !== 'server-requests' || !table) continue;
+
+    for (const key of table.keys()) {
+      const [channelKey, event] = JSON.parse(key) as [string | null, string];
+      const declaredName = parsePluginWireName(event)?.name ?? event;
+      const where = channelKey === null ? 'top-level' : `channel '${channelKey}'`;
+      if (declaredName.includes('::')) {
+        throw new LiveThingConfigError(
+          `Server request name '${declaredName}' in ${where} contains '::', which is reserved as ` +
+            'the separator in plugin names and the contract.matches(...) path key syntax — pick a different name.',
+        );
+      }
+
+      // The wire name, with a plugin's `__<id>::` prefix, must fit like any event name.
+      if (event.length > WIRE_LIMITS.event) {
+        throw new LiveThingConfigError(
+          `Event name in ${where} is ${event.length} characters; the wire protocol limit ` +
+            `is ${WIRE_LIMITS.event}. A longer name can't travel over the wire, so no client could reach it.`,
+        );
+      }
+    }
+  }
 }
 
 function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): boolean {
@@ -352,6 +397,7 @@ function validateScopeAndEventNameSyntax(
   }
 
   checkEventsInScope(compiled, 'top-level');
+  for (const event of compiled.uploads?.keys() ?? []) checkEventName(event, 'top-level');
 
   for (const channel of compiled.channels.values()) {
     checkScopeName(channel.key, 'channel', WIRE_LIMITS.channel);
@@ -379,11 +425,13 @@ function validateNoCrossPrimitiveEventCollisions(
 ): void {
   function check(scope: CheckScopeParameter, label: string): void {
     const recorded = scope.recordedStreams ?? (new Map() as ReadonlyMap<string, unknown>);
+    const uploads = scope.uploads ?? (new Map() as ReadonlyMap<string, unknown>);
     const allNames = new Set<string>([
       ...scope.incoming.keys(),
       ...scope.requests.keys(),
       ...scope.streams.keys(),
       ...recorded.keys(),
+      ...uploads.keys(),
     ]);
 
     for (const event of allNames) {
@@ -393,11 +441,12 @@ function validateNoCrossPrimitiveEventCollisions(
       if (scope.requests.has(event)) where.push('request');
       if (scope.streams.has(event)) where.push('stream');
       if (recorded.has(event)) where.push('recordedStream');
+      if (uploads.has(event)) where.push('upload');
 
       if (where.length > 1) {
         throw new LiveThingConfigError(
           `Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
-            `An event name can only belong to one of incoming/request/stream/recordedStream within a scope — pick a different name.`,
+            `An event name can only belong to one of incoming/request/stream/recordedStream/upload within a scope — pick a different name.`,
         );
       }
     }
@@ -426,6 +475,10 @@ function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): R
   // names here is what lets the reserved-name guards allow the framework-managed
   // `__<id>::name` form while still rejecting any hand-declared reserved name.
   collectFromScope(compiled, names);
+  for (const [event, upload] of compiled.uploads ?? []) {
+    if ((upload as { __plugin?: string }).__plugin) names.add(event);
+  }
+
   // A plugin's channel carries its own provenance marker; its child events are
   // namespaced too. Collect them so the guards allow the prefixed child names.
   for (const channel of [...compiled.channels.values(), ...compiled.channelFamilies.values()]) {

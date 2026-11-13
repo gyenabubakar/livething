@@ -2,14 +2,31 @@
 
 import {
   DurableStreamRequiresUser,
+  encodeBinaryFrame,
   isLiveThingConfigError,
   rethrowIfConfigError,
   StreamAborted,
   StreamIdCollision,
 } from '@livething/core';
+import { closeSlowClient } from '~/_adapters/close.ts';
 import { connectionCall, inConnectionCall, withConnectionCall } from '~/_engine/async-context.ts';
+import {
+  CATCH_UP_PAGE,
+  catchUpBufferIsHigh,
+  catchUpDeadline,
+  waitForCatchUpBuffer,
+} from '~/_engine/runtime/catch-up.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
-import { serializeDurableChunk, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import {
+  serializeDurableChunk,
+  serializeJsonOrThrow,
+  serializePayload,
+} from '~/_engine/runtime/json-guard.ts';
+import {
+  storedRowBytes,
+  storedRowSkip,
+  storedRowStorageBytes,
+} from '~/_engine/runtime/stored-row.ts';
 import { connectionStorageKeyOf, RESERVED_USER_ID_PREFIX } from '~/_engine/runtime/user-key.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
 import {
@@ -23,16 +40,22 @@ import {
   resolveBroadcastTargets,
 } from '~/_engine/stream-common/active-stream.ts';
 import { normalizeRuntimeError } from '~/errors/runtime.ts';
+import { binaryPayload, isBinaryPayload } from '~/outgoing/binary-payload.ts';
+import type { MessageLimits } from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
+import type { StoredRowSkip } from '~/_engine/runtime/stored-row.ts';
 import type {
   ActiveStream,
   ResolvedChannel,
   RoutingTarget,
   RuntimeConnection,
 } from '~/_engine/runtime/types.ts';
-import type { Logger } from '~/context.ts';
+import type { Logger, SqlLimits } from '~/context.ts';
+import type { RuntimeErrorFrame, SendRuntimeErrorOptions } from '~/errors/runtime.ts';
+import type { BinaryPayload } from '~/outgoing/binary-payload.ts';
 import type { SharedSend, SharedSendOptions } from '~/outgoing/runtime.ts';
+import type { StreamGenerator } from '~/stream/shared.ts';
 import * as Storage from './storage.ts';
 
 const USER_PURGED = 'user-purged';
@@ -44,7 +67,7 @@ type OptsParameter = {
 };
 type OptsParameter2 = { routing: RoutingTarget | undefined; event: string; payload: unknown };
 type OptionsParameter = { force?: boolean };
-type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.LiveThingRouting };
+type OptsParameter3 = Pick<SendRuntimeErrorOptions, 'error' | 'event' | 'routing' | 'deliver'>;
 type EnsureUniqueStreamIdOptsParameter = { streamId: string; storageUserId: string };
 type FindContinueRowOptsParameter = { continueScope: ResolvedChannel; streamId: string };
 type SweepDurableStreamsRuntimeParameter = { sql: DurableStreamRuntime['sql'] };
@@ -80,7 +103,7 @@ export interface DurableStreamRuntime {
 
   generateId(prefix?: string): string;
 
-  logger: Pick<Logger, 'warn'>;
+  logger: Pick<Logger, 'warn' | 'error'>;
 
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
 
@@ -105,7 +128,11 @@ export interface DurableStreamRuntime {
   sql: {
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
     transaction<T>(fn: () => T): T;
+    limits: Pick<SqlLimits, 'maxValueBytes'>;
   };
+
+  /** The adapter's message limits. A chunk over `sendBytes` is not stored. */
+  messageLimits: Pick<MessageLimits, 'sendBytes'>;
 
   handleRuntimeError(connection: RuntimeConnection, opts: OptsParameter3): Promise<void>;
 }
@@ -120,7 +147,7 @@ interface DurableNudge {
 export interface DurableStreamRuntimeDef {
   readonly event: string;
 
-  readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
+  readonly generator: StreamGenerator;
 
   readonly allowConcurrent: boolean;
 
@@ -129,6 +156,8 @@ export interface DurableStreamRuntimeDef {
   readonly nudges?: readonly DurableNudge[];
 
   readonly maxChunks?: number;
+
+  readonly maxBufferBytes?: number;
 
   readonly maxAgeMs?: number;
 
@@ -153,43 +182,151 @@ function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.LiveTh
   return livething;
 }
 
-/**
- * Send buffered chunks to a connection using pre-built wire frames.
- *
- * Each chunk's payload is already a valid JSON string in the database (it was
- * `JSON.stringify`-ed on write), so we splice it directly into the frame
- * string rather than parse → spread → re-stringify per chunk. The constant
- * parts of `__livething` (scope markers + streamId) are also serialized once
- * before the loop, then only the per-chunk `streamSeq` (a plain number) and the
- * optional `messageId` are appended.
- */
-interface SendChunkFramesOpts {
+/** The stored chunks one continue sends again: a stream's chunks after `since`. */
+interface StoredChunks {
   eventName: string;
-
-  chunks: Storage.DurableStreamChunkRow[];
-
-  scopeMarkers: Record<string, unknown>;
-
+  /** The row's key: the creator, or the broadcast scope. */
+  storageUserId: string;
   streamId: string;
+  since: number;
+  scopeMarkers: Record<string, unknown>;
 }
 
-function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpts): boolean {
-  const { eventName, chunks, scopeMarkers, streamId } = opts;
-  if (chunks.length === 0) return true;
+/** A catch-up of stored chunks, and what to run once it has sent the last one. */
+interface StoredChunksCatchUp extends StoredChunks {
+  caughtUp(lastSeq: number): void;
+}
 
-  for (const chunk of chunks) {
-    const wire = serializeWireFrame(eventName, JSON.parse(chunk.payload), {
-      ...scopeMarkers,
+/** The stored chunks a continue sent, through the last one. */
+interface SentStoredChunks extends StoredChunks {
+  lastSeq: number;
+}
+
+/** The `__error__` frames a failed generator left for connections still catching up. */
+const deferredStreamErrors = new WeakMap<RuntimeConnection, Map<string, RuntimeErrorFrame>>();
+
+function deferStreamError(
+  connection: RuntimeConnection,
+  streamId: string,
+  frame: RuntimeErrorFrame,
+): void {
+  let frames = deferredStreamErrors.get(connection);
+  if (!frames) deferredStreamErrors.set(connection, (frames = new Map()));
+  frames.set(streamId, frame);
+}
+
+function takeStreamError(
+  connection: RuntimeConnection,
+  streamId: string,
+): RuntimeErrorFrame | undefined {
+  const frame = deferredStreamErrors.get(connection)?.get(streamId);
+  deferredStreamErrors.get(connection)?.delete(streamId);
+  return frame;
+}
+
+/** Whether a continue on this connection is still sending a stream's stored chunks. */
+function isCatchingUp(connection: RuntimeConnection | undefined, streamId: string): boolean {
+  return connection?.catchingUpStreams?.has(streamId) === true;
+}
+
+/**
+ * Send a stream's stored chunks after `since` again, a page at a time, and wait while the
+ * socket's buffer is high, as a replay catch-up does. Until the last one is sent, the live
+ * chunks, the end and the error of the stream skip this connection: each live chunk is stored
+ * before it is sent, so this loop sends it in its place, in seq order and once. It reads the
+ * chunks again until there are none left, then runs `caughtUp` and lets the live ones
+ * through, with no wait between, so none is missed or sent twice. A client that reads nothing
+ * for about 50 seconds is closed with `1013`. `false` when the socket did not take them all.
+ */
+async function sendStoredChunks(
+  runtime: DurableStreamRuntime,
+  connection: RuntimeConnection,
+  opts: StoredChunksCatchUp,
+): Promise<boolean> {
+  const { eventName, storageUserId, streamId, scopeMarkers, caughtUp } = opts;
+  connection.catchingUpStreams ??= new Set();
+  connection.catchingUpStreams.add(streamId);
+  let lastSeq = opts.since;
+  try {
+    const waitUntil = catchUpDeadline();
+    for (;;) {
+      const chunks = Storage.readChunksSince(runtime.sql, {
+        userId: storageUserId,
+        streamId,
+        since: lastSeq,
+        ...CATCH_UP_PAGE,
+      });
+      if (chunks.length === 0) {
+        caughtUp(lastSeq);
+        return true;
+      }
+
+      for (const chunk of chunks) {
+        if (catchUpBufferIsHigh(connection)) {
+          if (!(await waitForCatchUpBuffer(connection, waitUntil))) {
+            // The client continues again from the last chunk it got.
+            if (!connection.closing) closeSlowClient(connection.descriptor);
+            return false;
+          }
+
+          if (connection.closing) return false;
+
+          break;
+        }
+
+        if (!sendStoredChunk(runtime, connection, { chunk, eventName, streamId, scopeMarkers })) {
+          return false;
+        }
+
+        lastSeq = chunk.seq;
+      }
+    }
+  } finally {
+    connection.catchingUpStreams.delete(streamId);
+  }
+}
+
+interface StoredChunkFrame {
+  chunk: Storage.DurableStreamChunkRow;
+  eventName: string;
+  streamId: string;
+  scopeMarkers: Record<string, unknown>;
+}
+
+/** Send one stored chunk. `false` when the socket refused it or is closing. */
+function sendStoredChunk(
+  runtime: DurableStreamRuntime,
+  connection: RuntimeConnection,
+  opts: StoredChunkFrame,
+): boolean {
+  const { chunk, eventName, streamId, scopeMarkers } = opts;
+  const wire = serializeWireFrame(eventName, JSON.parse(chunk.payload), {
+    ...scopeMarkers,
+    streamId,
+    streamDurability: 'persistent',
+    streamSeq: chunk.seq,
+    ...(chunk.messageId === null ? {} : { messageId: chunk.messageId }),
+  });
+
+  let sent: unknown;
+  try {
+    sent = connection.descriptor.send(
+      chunk.binaryPayload
+        ? { kind: 'bytes', bytes: encodeBinaryFrame(wire, chunk.binaryPayload) }
+        : { kind: 'text', text: wire },
+    );
+  } catch (error) {
+    // A stored chunk over the send limit would fail every resend. Skip it: the client sees
+    // the gap and fails the stream with StreamCorrupted, instead of it never ending.
+    runtime.logger.warn('[livething] a recorded stream chunk could not be sent; skipping it', {
       streamId,
-      streamDurability: 'persistent',
-      streamSeq: chunk.seq,
-      ...(chunk.messageId === null ? {} : { messageId: chunk.messageId }),
+      seq: chunk.seq,
+      error: error instanceof Error ? error.message : String(error),
     });
-
-    if (connection.descriptor.send(wire) === false || connection.closing) return false;
+    return !connection.closing;
   }
 
-  return true;
+  return sent !== false && !connection.closing;
 }
 
 function ensureUniqueStreamId(
@@ -210,6 +347,8 @@ export interface RunDurableStreamOptions {
   def: DurableStreamRuntimeDef;
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
+  /** The bytes of the frame that started a binary stream, else `undefined`. */
+  bytes?: Uint8Array;
 }
 
 /** Start a fresh durable stream from a client trigger frame. */
@@ -295,6 +434,7 @@ export async function runDurableStream(
     scope,
     def,
     payload,
+    bytes: opts.bytes,
     streamId,
     userId: storageUserId,
   });
@@ -485,6 +625,7 @@ export async function continueDurableStream(
   // socket dropped, or is half-open and not yet noticed): point it at the new
   // connection and replay buffered chunks.
   const live = runtime.activeStreams.get(streamId);
+  let attachment: ContinueAttachment | undefined;
   if (!isPeerSubscriber && row.status === 'active' && live && !live.closed) {
     const previousConnection = live.connection;
     const previousConnectionId = live.connectionId;
@@ -497,7 +638,7 @@ export async function continueDurableStream(
     if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
 
     connection.activeStreamIds.add(streamId);
-    const attachment: ContinueAttachment = {
+    attachment = {
       runtime,
       connection,
       stream: live,
@@ -529,60 +670,78 @@ export async function continueDurableStream(
       rollbackContinueAttachment(attachment);
       return;
     }
-
-    const chunks = Storage.readChunksSince(runtime.sql, {
-      userId: storageUserId,
-      streamId,
-      since: lastKnownSeq,
-    });
-
-    try {
-      if (!sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })) {
-        rollbackContinueAttachment(attachment);
-        return;
-      }
-    } catch (error) {
-      rollbackContinueAttachment(attachment);
-      throw error;
-    }
-
-    endStreamForPreviousConnection(attachment, { ...scopeMarkers, streamId });
-
-    return;
   }
 
-  const chunks = Storage.readChunksSince(runtime.sql, {
-    userId: storageUserId,
+  const stored: StoredChunks = {
+    eventName: def.event,
+    storageUserId,
     streamId,
     since: lastKnownSeq,
-  });
+    scopeMarkers,
+  };
 
-  if (!sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })) {
+  let sent: boolean;
+  try {
+    sent = await sendStoredChunks(runtime, connection, {
+      ...stored,
+      // Runs right after the last stored chunk, before live chunks reach this connection again.
+      caughtUp(lastSeq) {
+        if (attachment) endStreamForPreviousConnection(attachment, { ...scopeMarkers, streamId });
+
+        if (isPeerSubscriber) {
+          Storage.setCaughtUpSeq(runtime.sql, {
+            storageUserId,
+            streamId,
+            subscriberUserId: realUserId,
+            caughtUpSeq: lastSeq,
+          });
+        }
+
+        finishContinue(runtime, connection, { ...stored, lastSeq });
+      },
+    });
+  } catch (error) {
+    if (attachment) rollbackContinueAttachment(attachment);
+    throw error;
+  }
+
+  if (!sent && attachment) rollbackContinueAttachment(attachment);
+}
+
+/**
+ * After a continue sent the stored chunks: end the stream for this connection when it has
+ * ended, or leave it to the live chunks when it still runs. The stream can end, fail or be
+ * cancelled while the stored chunks are sent. Its end and its error skip a connection that is
+ * catching up, so they are sent here, after the chunks.
+ */
+function finishContinue(
+  runtime: DurableStreamRuntime,
+  connection: RuntimeConnection,
+  opts: SentStoredChunks,
+): void {
+  const { eventName, storageUserId, streamId, scopeMarkers, lastSeq } = opts;
+  // The generator failed while this connection caught up: send its own error, as it was.
+  const deferred = takeStreamError(connection, streamId);
+  if (deferred) {
+    runtime.sendProtocolMessage(connection, deferred);
     return;
   }
 
-  if (isPeerSubscriber) {
-    const caughtUpSeq = chunks.length > 0 ? chunks[chunks.length - 1]!.seq : lastKnownSeq;
-
-    Storage.setCaughtUpSeq(runtime.sql, {
-      storageUserId,
-      streamId,
-      subscriberUserId: realUserId,
-      caughtUpSeq,
-    });
-  }
-
-  if (row.status === 'ended' && !row.interrupted) {
+  const row = Storage.readStream(runtime.sql, storageUserId, streamId);
+  if (!row || (row.status === 'ended' && !row.interrupted)) {
+    // A deleted row ended for everyone, and its subscribers got an end with the last seq.
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
-      livething: { ...scopeMarkers, streamId, streamSeq: row.lastSeq, eventName: def.event },
+      livething: { ...scopeMarkers, streamId, streamSeq: row?.lastSeq ?? lastSeq, eventName },
     });
     return;
   }
 
-  // A subscriber caught up from the buffer; future chunks come via the broadcast.
-  if (row.status !== 'ended' && live && !live.closed) return;
+  // The generator still runs: the creator is attached again, and a subscriber is caught up,
+  // so the next chunks come live.
+  const running = runtime.activeStreams.get(streamId);
+  if (row.status !== 'ended' && running && !running.closed) return;
 
   // The generator stopped before it finished and will never run again, so a
   // plain end would pass a cut-off stream off as complete.
@@ -598,7 +757,7 @@ export async function continueDurableStream(
   runtime.sendProtocolMessage(connection, {
     event: '__error__',
     payload: { code: StreamAborted.code, detail: { reason: 'interrupted' as const } },
-    livething: { ...scopeMarkers, streamId, streamTerminated: true, eventName: def.event },
+    livething: { ...scopeMarkers, streamId, streamTerminated: true, eventName },
   });
 }
 
@@ -623,6 +782,7 @@ interface RunGeneratorOptions {
   scope: ResolvedChannel;
   def: DurableStreamRuntimeDef;
   payload: unknown;
+  bytes: Uint8Array | undefined;
   streamId: string;
   userId: string;
 }
@@ -633,7 +793,8 @@ interface LiveChunkOptions {
   streamId: string;
   userId: string;
   seq: number;
-  payload: Record<string, unknown>;
+  /** The chunk's JSON value, or the info and bytes of a binary chunk. */
+  payload: unknown;
   /** The connection that started the stream; a broadcast never sends it a peer copy. */
   creator: RuntimeConnection;
   /** The socket that gets the creator's copy: the reattached connection, if any. */
@@ -658,9 +819,13 @@ function sendLiveChunk(runtime: DurableStreamRuntime, opts: LiveChunkOptions): b
     streamDurability: 'persistent' as const,
   };
 
+  // A creator that is catching up gets this chunk from storage, after the ones before it.
+  const ownerCatchingUp = isCatchingUp(wireTarget, streamId);
   if (!def.broadcast) {
     return (
-      detached || runtime.sendThroughPipeline(wireTarget, { routing, event: def.event, payload })
+      detached ||
+      ownerCatchingUp ||
+      runtime.sendThroughPipeline(wireTarget, { routing, event: def.event, payload })
     );
   }
 
@@ -676,7 +841,12 @@ function sendLiveChunk(runtime: DurableStreamRuntime, opts: LiveChunkOptions): b
         streamId,
         subscriberUserId: connectionStorageKeyOf(candidate),
       });
-      return sub !== null && sub.unsubscribedAt === null && seq > sub.caughtUpSeq;
+      return (
+        sub !== null &&
+        sub.unsubscribedAt === null &&
+        seq > sub.caughtUpSeq &&
+        !isCatchingUp(candidate, streamId)
+      );
     },
   });
   const chunkSend = runtime.openSharedSend({
@@ -688,11 +858,101 @@ function sendLiveChunk(runtime: DurableStreamRuntime, opts: LiveChunkOptions): b
   try {
     forEachIsolated(targets, (target) => chunkSend.deliver(target), {
       context: `durable stream broadcast fan-out streamId="${streamId}" event="${def.event}"`,
+      logger: runtime.logger,
     });
-    return detached || chunkSend.deliver(wireTarget);
+    return detached || ownerCatchingUp || chunkSend.deliver(wireTarget);
   } finally {
     chunkSend.finish();
   }
+}
+
+/** One chunk a recorded stream yielded, ready to store and to send. */
+interface RecordedChunk {
+  /** What is stored as `payload`: the chunk's JSON, or a binary chunk's info. */
+  json: string;
+  /** The bytes of a binary chunk. */
+  bytes?: Uint8Array;
+  /** What `maxBufferBytes` counts for it. */
+  rowBytes: number;
+  /** What the send path writes: the parsed JSON, or the info and bytes of a binary chunk. */
+  wirePayload: unknown;
+}
+
+/** Serialize one yielded chunk once: it is stored as is, and parsed once for the live frames. */
+function recordedChunkOf(event: string, value: unknown): RecordedChunk {
+  if (!isBinaryPayload(value)) {
+    const json = serializeDurableChunk(event, value);
+    return { json, rowBytes: storedRowBytes(json, undefined), wirePayload: JSON.parse(json) };
+  }
+
+  // A binary chunk's info is a payload like any other: an object or null.
+  const { info, bytes } = value as BinaryPayload;
+  const json = serializePayload(event, info);
+  return {
+    json,
+    bytes,
+    rowBytes: storedRowBytes(json, bytes),
+    wirePayload: binaryPayload(JSON.parse(json), bytes),
+  };
+}
+
+interface BufferTakesOptions {
+  def: DurableStreamRuntimeDef;
+  scope: ResolvedChannel;
+  userId: string;
+  streamId: string;
+  chunk: RecordedChunk;
+  /** What the buffer holds now. */
+  buffer: Storage.BufferedChunks;
+}
+
+/** The warnings already logged for a chunk too big to store, once per event and limit. */
+const chunkWarnings = new WeakMap<DurableStreamRuntime, Set<string>>();
+
+/** How each limit that keeps a chunk out of the buffer is named in the warning. */
+const CHUNK_LIMITS: Record<StoredRowSkip['limit'], string> = {
+  storage: 'the storage row limit',
+  send: 'the send limit',
+  retention: 'maxBufferBytes',
+};
+
+/**
+ * Whether the stream's buffer can take one more chunk: it is under `maxChunks` and
+ * `maxBufferBytes`, and the chunk fits in one storage row and in one message. A chunk too big
+ * to store or send logs a warning, once for each event and limit.
+ */
+function bufferTakes(runtime: DurableStreamRuntime, opts: BufferTakesOptions): boolean {
+  const { def, scope, chunk, buffer } = opts;
+  const columns = [opts.userId, opts.streamId, scope.channelName, scope.channelFamily];
+  const skip = storedRowSkip(
+    { storageBytes: storedRowStorageBytes(chunk.rowBytes, columns), rowBytes: chunk.rowBytes },
+    {
+      maxValueBytes: runtime.sql.limits.maxValueBytes,
+      sendBytes: runtime.messageLimits.sendBytes,
+    },
+  );
+  if (skip) {
+    let warned = chunkWarnings.get(runtime);
+    if (!warned) chunkWarnings.set(runtime, (warned = new Set()));
+
+    const key = JSON.stringify([def.event, skip.limit]);
+    if (!warned.has(key)) {
+      warned.add(key);
+      runtime.logger.warn(
+        `[livething] the recorded stream "${def.event}" stopped: a chunk is over ` +
+          `${CHUNK_LIMITS[skip.limit]} of ${skip.bytes} bytes, so it was not stored or sent, and ` +
+          "the generator got StreamAborted with the reason 'buffer-full'. This warning shows " +
+          'once for each event and limit.',
+        { event: def.event, rowBytes: chunk.rowBytes },
+      );
+    }
+
+    return false;
+  }
+
+  if (def.maxChunks !== undefined && buffer.chunks >= def.maxChunks) return false;
+
+  return def.maxBufferBytes === undefined || buffer.bytes + chunk.rowBytes <= def.maxBufferBytes;
 }
 
 async function runGenerator(
@@ -700,7 +960,7 @@ async function runGenerator(
   connection: RuntimeConnection,
   opts: RunGeneratorOptions,
 ): Promise<void> {
-  const { scope, def, payload, streamId, userId } = opts;
+  const { scope, def, payload, bytes, streamId, userId } = opts;
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
   installCtxNudges(ctx);
   const abortController = new AbortController();
@@ -755,7 +1015,7 @@ async function runGenerator(
       runtime.asyncContext,
       streamCall,
       withConnectionCall(runtime.asyncContext, streamCall, () =>
-        def.generator(ctx, payload),
+        def.generator(ctx, payload, bytes),
       ) as AsyncGenerator<unknown, void, unknown>,
     );
     const built = buildActiveStream({
@@ -797,45 +1057,38 @@ async function runGenerator(
 
       seq += 1;
       const now = Date.now();
+      const chunk = recordedChunkOf(def.event, result.value);
 
-      // One serialization: stored as is, and parsed once for the live frames.
-      const chunkJson = serializeDurableChunk(def.event, result.value);
-      const wirePayload = JSON.parse(chunkJson) as Record<string, unknown>;
+      // Seed from storage once (covers a continued stream's existing rows), then count in
+      // memory instead of a COUNT(*) per chunk.
+      activeStream.recordedBuffer ??= Storage.countChunks(runtime.sql, userId, streamId);
+
+      // A chunk the buffer cannot take is neither stored nor sent, so the client never sees a
+      // gap, and the end frame's seq stays the last chunk the client got.
+      const buffer = activeStream.recordedBuffer;
+      if (!bufferTakes(runtime, { def, scope, userId, streamId, chunk, buffer })) {
+        seq -= 1;
+        try {
+          await iterator.throw(StreamAborted({ reason: 'buffer-full' }));
+        } catch (err) {
+          rethrowIfConfigError(err);
+          throw err;
+        }
+
+        break;
+      }
+
+      buffer.chunks += 1;
+      buffer.bytes += chunk.rowBytes;
+
       Storage.appendChunk(runtime.sql, {
         userId,
         streamId,
         seq,
         messageId: null,
-        payload: chunkJson,
+        payload: chunk.json,
+        bytes: chunk.bytes,
       });
-
-      if (def.maxChunks !== undefined) {
-        // Seed from storage once (covers a continued stream's existing rows),
-        // then count in memory instead of a COUNT(*) per chunk.
-        if (activeStream.recordedChunkCount === undefined) {
-          activeStream.recordedChunkCount = Storage.countChunks(runtime.sql, userId, streamId);
-        } else {
-          activeStream.recordedChunkCount += 1;
-        }
-
-        const count = activeStream.recordedChunkCount;
-        if (count > def.maxChunks) {
-          Storage.trimOldestChunks(runtime.sql, {
-            userId,
-            streamId,
-            keepNewest: def.maxChunks,
-          });
-
-          try {
-            await iterator.throw(StreamAborted({ reason: 'buffer-full' }));
-          } catch (err) {
-            rethrowIfConfigError(err);
-            throw err;
-          }
-
-          break;
-        }
-      }
 
       // No function is declared inside this loop: the Cloudflare bundle hoisted one out of the
       // block, and its minified name hid the imported `buildActiveStream`.
@@ -851,7 +1104,7 @@ async function runGenerator(
         streamId,
         userId,
         seq,
-        payload: wirePayload,
+        payload: chunk.wirePayload,
         creator: connection,
         wireTarget: activeStream.connection ?? connection,
         detached: !!activeStream.detached,
@@ -881,7 +1134,8 @@ async function runGenerator(
 
     Storage.markEnded(runtime.sql, { userId, streamId, now: Date.now() });
     const ownerConnection = attachedConnection();
-    if (ownerConnection && !ownerConnection.closing) {
+    // A creator that is catching up gets the end from its continue, after the stored chunks.
+    if (ownerConnection && !ownerConnection.closing && !isCatchingUp(ownerConnection, streamId)) {
       runtime.sendProtocolMessage(ownerConnection, {
         event: '__streamEnd__',
         payload: {},
@@ -901,7 +1155,8 @@ async function runGenerator(
             streamId,
             subscriberUserId: connectionStorageKeyOf(candidate),
           });
-          return sub !== null && sub.unsubscribedAt === null;
+          // A subscriber that is catching up gets the end after its stored chunks.
+          return sub !== null && sub.unsubscribedAt === null && !isCatchingUp(candidate, streamId);
         },
       });
 
@@ -920,7 +1175,10 @@ async function runGenerator(
             payload: {},
             livething: endLiveThing,
           }),
-        { context: `durable broadcast __streamEnd__ fan-out streamId="${streamId}"` },
+        {
+          context: `durable broadcast __streamEnd__ fan-out streamId="${streamId}"`,
+          logger: runtime.logger,
+        },
       );
     }
   } catch (error) {
@@ -951,6 +1209,11 @@ async function runGenerator(
         error,
         event: def.event,
         routing,
+        // A creator that is catching up gets the error from its continue, after the chunks.
+        deliver(target, frame) {
+          if (isCatchingUp(target, streamId)) deferStreamError(target, streamId, frame);
+          else runtime.sendProtocolMessage(target, frame);
+        },
       });
     }
 
@@ -968,7 +1231,8 @@ async function runGenerator(
             streamId,
             subscriberUserId: connectionStorageKeyOf(candidate),
           });
-          return sub !== null && sub.unsubscribedAt === null;
+          // A subscriber that is catching up gets the end after its stored chunks.
+          return sub !== null && sub.unsubscribedAt === null && !isCatchingUp(candidate, streamId);
         },
       });
       const normalized = normalizeRuntimeError(error, routing, runtime.declaredErrorCodes);
@@ -981,7 +1245,10 @@ async function runGenerator(
             payload: normalized.payload,
             livething: peerLiveThing,
           }),
-        { context: `durable broadcast __error__ on error streamId="${streamId}"` },
+        {
+          context: `durable broadcast __error__ on error streamId="${streamId}"`,
+          logger: runtime.logger,
+        },
       );
     }
 
@@ -1095,7 +1362,8 @@ function tellBroadcastPeersStreamEnded(
         streamId,
         subscriberUserId: connectionStorageKeyOf(candidate),
       });
-      return sub !== null && sub.unsubscribedAt === null;
+      // A subscriber that is catching up gets the end after its stored chunks.
+      return sub !== null && sub.unsubscribedAt === null && !isCatchingUp(candidate, streamId);
     },
   });
   const endLiveThing = {
@@ -1113,13 +1381,16 @@ function tellBroadcastPeersStreamEnded(
         payload: {},
         livething: endLiveThing,
       }),
-    { context: `durable broadcast __streamEnd__ on end streamId="${streamId}"` },
+    {
+      context: `durable broadcast __streamEnd__ on end streamId="${streamId}"`,
+      logger: runtime.logger,
+    },
   );
 }
 
 type BroadcastPeersRuntime = Pick<
   DurableStreamRuntime,
-  'connections' | 'sql' | 'sendProtocolMessage'
+  'connections' | 'sql' | 'sendProtocolMessage' | 'logger'
 >;
 
 type PurgedStreamsRuntime = BroadcastPeersRuntime & Pick<DurableStreamRuntime, 'activeStreams'>;

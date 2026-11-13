@@ -1,8 +1,9 @@
 import type { ServerDefinition } from '@livething/server/adapters';
+import type { RawData } from 'ws';
 import { binding } from '../../../binding.ts';
 import { closeWebSocket } from '../../../close.ts';
-import { sendWhenOpen } from '../../../socket.ts';
-import { invalidUpgradeResponse, isWebSocketUpgrade } from '../../../upgrade.ts';
+import { frameData, sendWhenOpen } from '../../../socket.ts';
+import { invalidUpgradeResponse, isWebSocketUpgrade, rawDataToBytes } from '../../../upgrade.ts';
 import { createWebUpgradeLifecycle } from '../../../web-upgrade-lifecycle.ts';
 import type {
   NodeAdmin,
@@ -30,8 +31,9 @@ interface H3V1WebSocket {
 interface H3V1Peer {
   readonly context: Record<string, unknown>;
   readonly websocket: Partial<H3V1WebSocket>;
-  send(data: unknown): unknown;
+  send(data: unknown, options?: { compress?: boolean }): unknown;
   close(code?: number, reason?: string): void;
+  terminate(): void;
 }
 
 interface H3V1Hooks {
@@ -82,8 +84,9 @@ export function createH3V1Setup<THandler>(
 
       const route = defineWebSocketHandler({
         async upgrade(request) {
-          if (!isWebSocketUpgrade(request.headers.get('upgrade')))
+          if (!isWebSocketUpgrade(request.headers.get('upgrade'))) {
             return toH3V1HttpRejection(invalidUpgradeResponse());
+          }
 
           let webRequest: Request;
           try {
@@ -107,10 +110,11 @@ export function createH3V1Setup<THandler>(
 
           if (!upgrade) return new Response(null, { status: 503 });
 
-          if (!request.context)
+          if (!request.context) {
             return new Response('[livething] H3 did not provide an upgrade context', {
               status: 500,
             });
+          }
 
           request.context.upgrade = upgrade;
 
@@ -142,8 +146,14 @@ export function createH3V1Setup<THandler>(
 
           try {
             const connection = upgrade.accept({
-              send: (data) => sendWhenOpen(websocket.readyState, () => peer.send(data)),
+              // CrossWS passes `compress: undefined` to ws unless told, which turns compression off.
+              // ws still skips it when permessage-deflate is not negotiated or the frame is small.
+              send: (frame) =>
+                sendWhenOpen(websocket.readyState, () =>
+                  peer.send(frameData(frame), { compress: true }),
+                ),
               close: (code, reason) => peer.close(code, reason),
+              terminate: () => peer.terminate(),
               bufferedAmount: () => websocket.bufferedAmount ?? 0,
               backpressureSupported: typeof websocket.bufferedAmount === 'number',
             });
@@ -151,7 +161,9 @@ export function createH3V1Setup<THandler>(
 
             websocket.addEventListener('message', (event) => {
               if (typeof event.data !== 'string') {
-                closeWebSocket(peer, 1003, '[livething] binary frames are not supported yet');
+                // The ws socket under crossws 0.3 hands a binary message over as a Buffer.
+                const bytes = rawDataToBytes(event.data as RawData);
+                void connections.get(peer)?.binaryMessage(bytes);
                 return;
               }
 

@@ -40,8 +40,14 @@ function setup(taggedCount: number, totalConnections: number) {
     isTagGroupDeclared: () => true,
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
     sendThroughPipeline: () => {},
+    sendToConnections: () => {},
     persistAttachment: () => {},
     getStorage: () => ({ sql: { exec: () => ({ toArray: () => [] }) } }),
+    logger: {
+      error: (message: string) => {
+        throw new Error(message);
+      },
+    },
   } as unknown as TagsRuntime;
 
   const owner = connections.values().next().value!;

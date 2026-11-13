@@ -11,7 +11,7 @@ import type { InferClient } from '~/infer-client.ts';
 import type { ContractPayload, DurableWireChunk } from '~/types.ts';
 
 // `t()` itself takes any type. The places that send a payload refuse what LiveThing refuses
-// at runtime: null, a primitive, an array, a function and an object with toJSON.
+// at runtime: a primitive, an array, a function and an object with toJSON. `null` means no payload.
 expectTypeOf(t<null>()).toEqualTypeOf<TypeMarker<null>>();
 
 class Room {
@@ -62,9 +62,9 @@ emits({ roster: t<Roster>() });
 emits({ scores: t<Map<string, number>>() });
 emits({ roster: t<RosterRecord>() });
 
-emits({ message: t<{ text: string }>(), room: t<Room>(), cleared: t<{}>() });
-// @ts-expect-error an event payload must be a plain object
-emits({ ping: t<null>() });
+emits({ message: t<{ text: string }>(), room: t<Room>(), cleared: t<{}>(), ping: t<null>() });
+// @ts-expect-error an event payload must be a plain object or null
+emits({ nothing: t<undefined>() });
 // @ts-expect-error an event payload must be a plain object
 emits({ word: t<string>() });
 // @ts-expect-error an event payload must be a plain object
@@ -74,7 +74,7 @@ emits({ callback: t<() => void>() });
 // @ts-expect-error JSON turns a Date into a string
 emits({ at: t<Date>() });
 
-serverRequests({ confirm: { out: t<{ question: string }>() } });
+serverRequests({ confirm: { out: t<{ question: string }>() }, leave: { out: t<null>() } });
 // @ts-expect-error a server request payload must be a plain object
 serverRequests({ confirm: { out: t<boolean>() } });
 
@@ -83,8 +83,8 @@ const base = server({
     stream(),
     recordedStream(),
     clientRequests(),
-    emits({ cleared: t<{}>() }),
-    serverRequests({ refresh: { out: t<{}>() } }),
+    emits({ cleared: t<{}>(), 'notifications-cleared': t<null>() }),
+    serverRequests({ refresh: { out: t<{}>() }, 'confirm-leave': { out: t<null>() } }),
   ],
 });
 
@@ -102,6 +102,12 @@ base.on('clear', {
     void ctx.request('refresh', {});
     // @ts-expect-error a number is not an empty object
     void ctx.request('refresh', 42);
+    // @ts-expect-error null is not an empty object
+    ctx.send('cleared', null);
+    ctx.send('notifications-cleared', null);
+    // @ts-expect-error an empty object is not null
+    ctx.send('notifications-cleared', {});
+    void ctx.request('confirm-leave', null);
   },
 });
 
@@ -111,23 +117,26 @@ base.stream('typing', {
   },
 });
 base.stream('typing-null', {
-  // @ts-expect-error a plain stream chunk must be a plain object
   async *run() {
     yield null;
   },
 });
+base.stream('typing-word', {
+  // @ts-expect-error a plain stream chunk must be a plain object or null
+  async *run() {
+    yield 'typing';
+  },
+});
 // A recorded stream wraps a primitive chunk as `{ value }`, so it may yield one.
 const progress = base.recordedStream('progress', {
-  chunk: t<number>(),
   maxChunks: 10,
-  async *run() {
+  async *run(): AsyncGenerator<number> {
     yield 1;
   },
 });
 const mixed = base.recordedStream('mixed', {
-  chunk: t<{ text: string } | string[] | null>(),
   maxChunks: 10,
-  async *run() {
+  async *run(): AsyncGenerator<{ text: string } | string[] | null> {
     yield { text: 'hi' };
   },
 });
@@ -215,6 +224,18 @@ expectTypeOf<RecordClient['incoming']['joined']>().toEqualTypeOf<{
   id: string;
   joinedAt: string;
 }>();
+
+// The client receives a `t<null>()` event and server request as null.
+const nullBase = server({
+  capabilities: [
+    emits({ 'notifications-cleared': t<null>() }),
+    serverRequests({ 'confirm-leave': { out: t<null>() } }),
+  ],
+});
+const nullDefinition = nullBase.assemble({ handlers: [nullBase.on('noop', { run() {} })] });
+type NullClient = InferClient<typeof nullDefinition>;
+expectTypeOf<NullClient['incoming']['notifications-cleared']>().toEqualTypeOf<null>();
+expectTypeOf<NullClient['serverRequests']['confirm-leave']['payload']>().toEqualTypeOf<null>();
 
 // A reply of null is a void acknowledgement: the server sends no payload and the client's
 // request() resolves with undefined, so the client's type must not promise null.

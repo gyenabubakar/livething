@@ -17,10 +17,10 @@ function addTotals(
   previous: ReplaySnapshotValue | null,
   next: ReplaySnapshotValue,
 ): ReplaySnapshotValue {
-  const before = previous ? Number(previous.payload.total) : 0;
+  const before = previous ? Number(previous.payload?.total) : 0;
   return {
     event: next.event,
-    payload: { ...next.payload, total: before + Number(next.payload.total) },
+    payload: { ...next.payload, total: before + Number(next.payload?.total) },
   };
 }
 
@@ -31,7 +31,7 @@ async function buildEngine(durability: ReplayDurability): Promise<Engine> {
       dedup(),
       sequence({ persist: true }),
       replay.snapshot({
-        snapshotKey: (_event, payload) => String(payload.key),
+        snapshotKey: (_event, payload) => String(payload?.key),
         reduce: addTotals,
         durability,
       }),

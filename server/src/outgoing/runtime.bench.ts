@@ -37,11 +37,12 @@ function createRuntime(
   for (let i = 0; i < totalConnections; i++) {
     const connection = createConnection(`c${i}`);
     connections.set(connection.id, connection);
-    if (i < memberCount)
+    if (i < memberCount) {
       addChannelMembership(channelMembers, connection, {
         channelName: 'room',
         channelFamily: null,
       });
+    }
   }
 
   let seq = 0;

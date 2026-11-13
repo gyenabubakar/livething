@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type { CatchUpHold } from '~/_engine/runtime/catch-up-hold.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';
 import type { TagRef } from '~/context.ts';
@@ -74,8 +75,10 @@ export interface ChannelHooks {
  */
 export interface WireBroadcastMessage {
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
   livething: Record<string, unknown>;
+  /** The bytes of a binary frame. */
+  bytes?: Uint8Array;
   /** The user this frame was addressed to. */
   userId?: string;
   /** The connections this frame was sent to, when it went to chosen connections. */
@@ -198,6 +201,12 @@ export interface RegisteredEngineHooks {
    * imports the pending-request map.
    */
   answerFrame: ((connectionId: string, frame: FrameParameter) => boolean)[];
+
+  /**
+   * Whether a request the server sent to this connection waits for this correlation id.
+   * Only such an answer skips the connection's pending-bytes budget.
+   */
+  answerAwaited: ((connectionId: string, correlationId: string) => boolean)[];
 
   /**
    * The `onOutgoing` watchers. Each runs once per app send, after the frame
@@ -446,6 +455,9 @@ export interface RuntimeConnection {
   /** How many frames wait behind `pendingSubscribes` right now, capped at the connection work limit. */
   heldFrames?: number;
 
+  /** The bytes of this connection's frames that have arrived and whose handler has not started. */
+  pendingBytes?: number;
+
   /**
    * While set and `active`, the engine is inside the connection-accept window
    * (initial row already inserted, `onConnect` running). Per-state-change row
@@ -463,6 +475,24 @@ export interface RuntimeConnection {
 
   /** `purgeUser` closed this connection, so its close must not write that user's rows again. */
   purged?: boolean;
+
+  /**
+   * Set while replay catches this connection up. A live frame with a delivery seq of a store
+   * being caught up waits here and goes out after that store's last replayed row.
+   */
+  catchUpHold?: CatchUpHold;
+
+  /**
+   * The replay catch-up running now. The next one starts after it, so one catch-up never lets
+   * live frames through while another still has rows to send.
+   */
+  catchUp?: Promise<void>;
+
+  /**
+   * The recorded streams a continue on this connection is still sending stored chunks of.
+   * Their live chunks, end and error skip this connection until it is caught up.
+   */
+  catchingUpStreams?: Set<string>;
 
   /**
    * Fingerprint of the last connection row written to durable storage. The
@@ -529,11 +559,12 @@ export interface ActiveStream {
   scope?: ResolvedChannel;
 
   /**
-   * In-memory chunk count for a recorded stream with a `maxChunks` cap. Seeded
-   * from storage on the first chunk (so a reconnect stays correct) and incremented
-   * per append, so the cap check skips a `COUNT(*)` on every chunk.
+   * In-memory chunk count and byte total of a recorded stream's buffer, for its
+   * `maxChunks` and `maxBufferBytes` caps. Seeded from storage on the first chunk (so a
+   * reconnect stays correct) and added to per append, so the cap check skips a
+   * `COUNT(*)` on every chunk.
    */
-  recordedChunkCount?: number;
+  recordedBuffer?: { chunks: number; bytes: number };
 
   /**
    * Per-stream stop signal. Its `.signal` is exposed as `ctx.stream.signal` so

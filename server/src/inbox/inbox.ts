@@ -44,6 +44,7 @@ export function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions 
   if (config.retention) {
     assertOptionalPositiveInteger(config.retention.maxAgeMs, 'retention.maxAgeMs', 'inbox()');
     assertOptionalPositiveInteger(config.retention.maxMessages, 'retention.maxMessages', 'inbox()');
+    assertOptionalPositiveInteger(config.retention.maxBytes, 'retention.maxBytes', 'inbox()');
   }
 
   const broadcastReceipts = config.broadcastReceipts ?? false;
@@ -54,6 +55,31 @@ export function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions 
     : { broadcastReceipts, maxReceiptAudience };
 }
 
+/** The default `retention.maxBytes` of a channel with binary events, the same as replay's. */
+const DEFAULT_BINARY_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
+ * A channel that lists binary events gets `retention.maxBytes` of 64 MiB per member when it
+ * sets none: a few binary messages can take more room than thousands of JSON ones, so a member
+ * who stays away must not fill the storage. A JSON-only channel keeps no limit by default, as
+ * before, because an inbox promises delivery and a default limit drops owed messages.
+ */
+function withBinaryByteLimit(
+  engine: EngineAccess,
+  channelKey: string,
+  options: ResolvedInboxOptions,
+): ResolvedInboxOptions {
+  if (options.retention?.maxBytes !== undefined) return options;
+
+  const listsBinary = engine.getBinaryEvents().some((event) => event.channelKey === channelKey);
+  if (!listsBinary) return options;
+
+  return {
+    ...options,
+    retention: { ...options.retention, maxBytes: DEFAULT_BINARY_MAX_BYTES },
+  };
+}
+
 /**
  * The channel-scoped inbox primitive. Built by the `inbox()` capability from a
  * channel's `inbox` config; you do not call it directly. Requires `channels`,
@@ -61,7 +87,7 @@ export function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions 
  * them.
  */
 export function inbox(config: InboxOptions): InboxPrimitive {
-  const options = resolveInboxOptions(config);
+  const resolved = resolveInboxOptions(config);
 
   return {
     __livething: 'inbox',
@@ -97,6 +123,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
         );
       }
 
+      const options = withBinaryByteLimit(engine, channelKey, resolved);
       registerInboxRuntime(engine);
       registerInboxHandleAugmenter(engine);
       engine.registerInboxChannel(channelKey, options);

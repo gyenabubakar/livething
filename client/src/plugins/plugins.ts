@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
 import { LiveThingConfigError } from '@livething/core';
-import { runMessageHook } from '~/internal/dispatch.ts';
+import { keepFrameKind, runMessageHook } from '~/internal/dispatch.ts';
 import { toLiveThingError } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { NAMESPACE_DELIMITER, namespacedName } from '~/internal/namespace.ts';
@@ -10,6 +10,7 @@ import type { Message, PrimitiveHelpers, PrimitiveRuntime } from '~/internal/run
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type {
+  LiteralDependencyTags,
   PluginDef,
   PluginFactory,
   PluginInstance,
@@ -86,14 +87,15 @@ interface PluginSendOptions {
 }
 
 /**
- * A plugin only owns plain top-level frames in its namespace. A frame carrying a
+ * A plugin only owns plain top-level text frames in its namespace. A frame carrying a
  * channel, correlationId, or streamId belongs to the channels, clientRequests,
  * or stream primitive — those run before the plugin and handle it — so the plugin
- * leaves it alone even when the name is in the plugin's namespace.
+ * leaves it alone even when the name is in the plugin's namespace. A binary frame goes
+ * on to `binary()`, which gives it to the plugin's `binary.on` listeners.
  */
 function ownsFrame(message: Message): boolean {
   const metadata = message.metadata;
-  return !metadata?.channel && !metadata?.exchange && !metadata?.stream;
+  return !metadata?.channel && !metadata?.exchange && !metadata?.stream && !message.bytes;
 }
 
 /**
@@ -133,6 +135,8 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     helpers.log.report(error);
   }
 
+  const withBinary = helpers.hasPrimitive('binary');
+
   // A verb that comes from a primitive the app didn't register is absent at
   // runtime. Seed a clear thrower so calling it names the primitive to add,
   // instead of a bare "x is not a function"; applyAugmenters overwrites the ones
@@ -159,8 +163,9 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   function installMissingReceiptSurfaces(messaging: MessagingObject, scope: ScopeInfo): void {
     const markers = scope.markers();
     const channelOwner = markers.family ?? markers.name;
-    if (channelOwner === undefined || !scope.prefixName || !channelOwner.startsWith(ownPrefix))
+    if (channelOwner === undefined || !scope.prefixName || !channelOwner.startsWith(ownPrefix)) {
       return;
+    }
 
     if (messaging.receivers === undefined) {
       const missingInbox = missingReceiptMethod('receivers', 'inbox');
@@ -245,8 +250,9 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     ): () => void {
       const code = typeof codeOrHandler === 'string' ? codeOrHandler : undefined;
       const handler = typeof codeOrHandler === 'function' ? codeOrHandler : maybeHandler;
-      if (!handler)
+      if (!handler) {
         throw new TypeError(`[livething] plugin '${id}' onServerError requires a callback.`);
+      }
 
       const registration = { code, handler };
       errorHandlers.add(registration);
@@ -267,6 +273,17 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     continueStream: missing('continueStream', 'stream'),
     onRequest: missing('onRequest', 'serverRequests'),
     channel: missing('channel', 'channels'),
+    // binary() adds `on` and `send`; the others need their own primitive too. Name
+    // binary() when it is the one missing.
+    binary: {
+      on: missing('binary.on', 'binary'),
+      send: missing('binary.send', 'binary'),
+      request: missing('binary.request', withBinary ? 'clientRequests' : 'binary'),
+      onRequest: missing('binary.onRequest', withBinary ? 'serverRequests' : 'binary'),
+      stream: missing('binary.stream', withBinary ? 'stream' : 'binary'),
+      onStream: missing('binary.onStream', withBinary ? 'stream' : 'binary'),
+      continueStream: missing('binary.continueStream', withBinary ? 'stream' : 'binary'),
+    },
   };
 
   function dispatch(name: string, payload: unknown): void {
@@ -355,10 +372,11 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     onIncoming(message) {
       let current = message;
       if (userIncoming) {
+        const bytes = message.bytes;
         const result = runMessageHook(userIncoming, current, report);
         if (result === null) return null;
 
-        current = result;
+        current = keepFrameKind(bytes, result);
       }
 
       if (current.event.startsWith(ownPrefix) && ownsFrame(current)) {
@@ -479,9 +497,19 @@ type PluginApi<TApi, TSetupApi> = [TApi] extends [InferredApi] ? TSetupApi : TAp
  * ```
  */
 export function plugin<P extends SocketContract = {}, TApi = InferredApi>() {
-  return function define<const TId extends string, TSetupApi = void>(
-    def: PluginDef<P, PluginApi<TApi, TSetupApi>> & { id: TId },
-  ): PluginFactory<PluginApi<TApi, TSetupApi>, TId, P> {
+  return function define<
+    const TId extends string,
+    TSetupApi = void,
+    const TDependencies extends readonly PrimitiveFactory[] = [],
+  >(
+    // A list like `[...base, channels]` infers a tuple type its own value doesn't
+    // fit, so the plain array type is accepted too. The tuple has no fixed length,
+    // so it gives no tags and the runtime check covers it.
+    def: PluginDef<P, PluginApi<TApi, TSetupApi>> & {
+      id: TId;
+      dependencies?: TDependencies | readonly PrimitiveFactory[];
+    },
+  ): PluginFactory<PluginApi<TApi, TSetupApi>, TId, P, LiteralDependencyTags<TDependencies>> {
     const dependencies = def.dependencies?.map(resolveTag);
     const id = def.id;
 
@@ -509,7 +537,12 @@ export function plugin<P extends SocketContract = {}, TApi = InferredApi>() {
         id,
         use: (socket: object) => usePlugin(socket, id),
       },
-    ) as unknown as PluginFactory<PluginApi<TApi, TSetupApi>, TId, P>;
+    ) as unknown as PluginFactory<
+      PluginApi<TApi, TSetupApi>,
+      TId,
+      P,
+      LiteralDependencyTags<TDependencies>
+    >;
 
     return factory;
   };

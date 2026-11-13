@@ -6,7 +6,6 @@ import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Token = t<{ token: string }>();
 const overflowGates = new Map<string, () => void>();
 
 // A typed error a nudge intercept can throw. The client must see nudge() reject
@@ -52,7 +51,6 @@ const handleReleaseOverflow = base.on('release-overflow', {
 
 const handleStartNudgeStream = base.stream('start-nudge-stream', {
   input: v.object({ prompt: v.string() }),
-  chunk: Token,
   nudges: {
     pause: v.strictObject({}),
     'speed-up': v.object({ factor: v.number() }),

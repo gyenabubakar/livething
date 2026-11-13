@@ -268,8 +268,8 @@ describe('onStream (broadcast)', () => {
     });
 
     expect(onChunk).toHaveBeenCalledWith({ text: 'a' }, 'bs1');
-    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'bs1', seq: 5 } } });
-    expect(onEnd).toHaveBeenCalledWith('bs1', 5);
+    ws.emit({ event: '__streamEnd__', payload: {}, metadata: { stream: { id: 'bs1', seq: 1 } } });
+    expect(onEnd).toHaveBeenCalledWith('bs1', 1);
   });
 
   it('fires onError with StreamAborted interrupted when a viewed stream is cut off', () => {
@@ -346,7 +346,7 @@ describe('durable continue', () => {
       first.emit({
         event: 'ask-ai',
         payload: { text: 'a' },
-        metadata: { stream: { id: sid, seq: 7 } },
+        metadata: { stream: { id: sid, seq: 1 } },
       });
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
@@ -355,7 +355,7 @@ describe('durable continue', () => {
 
       expect(second.sentFrames()).toContainEqual({
         event: '__continueStream__',
-        payload: { lastKnownSeq: 7 },
+        payload: { lastKnownSeq: 1 },
         metadata: { stream: { id: sid } },
       });
     } finally {

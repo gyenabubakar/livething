@@ -35,7 +35,7 @@ async function startEngine(definition: Parameters<ReturnType<typeof adapter>>[0]
 async function connect(engine: Engine) {
   const sent: unknown[][] = [];
   const handle = engine.accept(Symbol('ama'), {
-    send: (data: string) => sent.push(JSON.parse(data) as unknown[]),
+    send: ({ text }: { kind: 'text'; text: string }) => sent.push(JSON.parse(text) as unknown[]),
     close: () => {},
     bufferedAmount: () => 0,
     userId: 'ama',
@@ -191,12 +191,14 @@ describe('a channel stays the same after it is created', () => {
   });
 
   it('keeps a per-handler rate limit on the handler passed to assemble()', async () => {
-    const base = server({ capabilities: [channels(), rateLimit({ max: 100, windowMs: 60_000 })] });
+    const base = server({
+      capabilities: [channels(), rateLimit({ maxMessages: 100, windowMs: 60_000 })],
+    });
     const room = base.channel('room');
     const calls: string[] = [];
     const handleSay = room.on('say', {
       input: v.object({}),
-      rateLimit: { max: 1 },
+      rateLimit: { maxMessages: 1 },
       run() {
         calls.push('say');
       },

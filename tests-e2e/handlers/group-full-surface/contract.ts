@@ -12,8 +12,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 export const ChatPayload = v.object({ text: v.string() });
 export const LookupReq = v.object({ id: v.string() });
-export const FeedChunk = t<{ idx: number }>();
-export const TokenChunk = t<{ token: string }>();
 
 export const SendMsgPayload = v.object({ text: v.string() });
 export const RoomMsgPayload = v.object({ text: v.string(), from: v.string() });

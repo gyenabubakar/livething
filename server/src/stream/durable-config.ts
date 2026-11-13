@@ -31,7 +31,7 @@ export const DURABLE_STREAM_DEFAULTS = {
 
 /**
  * Run the build-time validation for a recorded stream config. Pass
- * `{ maxChunks: true }` to also check the `maxChunks` bound.
+ * `{ maxChunks: true }` to also check the buffer bounds, `maxChunks` and `maxBufferBytes`.
  */
 export function validateDurableStreamConfig(
   config:
@@ -39,6 +39,7 @@ export function validateDurableStreamConfig(
         maxAgeMs?: number;
         retentionAfterEndMs?: number;
         maxChunks?: number;
+        maxBufferBytes?: number;
       }
     | undefined,
   context: string,
@@ -49,5 +50,6 @@ export function validateDurableStreamConfig(
 
   if (opts?.maxChunks) {
     assertOptionalPositiveInteger(config?.maxChunks, 'maxChunks', context);
+    assertOptionalPositiveInteger(config?.maxBufferBytes, 'maxBufferBytes', context);
   }
 }

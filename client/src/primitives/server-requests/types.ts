@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- request typing needs `any` to stay generic */
-import type { TypeFn } from '~/primitives/types.ts';
+import type { Primitive, PrimitiveIdentity, TypeFn } from '~/primitives/types.ts';
 
 /**
  * Adds `socket.onRequest(...)` typed from the contract's `serverRequests` —
@@ -23,3 +23,7 @@ export interface ServerRequestsTypeFn extends TypeFn {
       }
     : {};
 }
+
+/** The descriptor `serverRequests()` returns. */
+export type ServerRequestsPrimitive = Primitive<ServerRequestsTypeFn> &
+  PrimitiveIdentity<'serverRequests'>;

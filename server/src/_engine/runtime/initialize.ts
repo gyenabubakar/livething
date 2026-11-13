@@ -38,6 +38,7 @@ function validatePrimitives(core: EngineCore): void {
   function visit(primitives: readonly Primitive[], channelKey?: string): void {
     const view: ValidationView = {
       sequencePersistent: core.sequencePersistent,
+      receiveBytes: core.messageLimits.receiveBytes,
       channelKey,
       isChannelDurable(key: string): boolean {
         return core.isChannelDurable(key);

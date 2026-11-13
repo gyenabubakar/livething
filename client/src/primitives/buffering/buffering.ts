@@ -1,10 +1,15 @@
 import { MessageBuffer } from '~/primitives/buffering/buffer.ts';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
 
 /** Options for `buffering()`. */
 export interface BufferingOptions {
   /** Most messages to hold; the oldest is dropped when full. Default: `50`. */
-  maxSize?: number;
+  maxMessages?: number;
+  /**
+   * Most bytes to hold, counted as each message's size on the wire (its UTF-8 text, or its
+   * whole binary frame); the oldest is dropped when full. Default: `1048576` (1 MiB).
+   */
+  maxBytes?: number;
   /** Time-to-live (ms) for every queued message. A per-call `send(..., { ttl })` wins. */
   ttl?: number;
   /** Ms between each message on flush. `0` sends them all at once. Default: `0`. */
@@ -16,12 +21,15 @@ export interface BufferingOptions {
  * when it reconnects. Opt-in, and it owns the buffer, so the queueing code ships
  * only when you add it.
  */
-export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn> {
+export function buffering(
+  options: BufferingOptions = {},
+): Primitive<EmptyTypeFn> & PrimitiveIdentity<'buffering'> {
   return {
     _tag: 'buffering',
     setup(helpers) {
       const buffer = new MessageBuffer({
-        maxSize: options.maxSize,
+        maxMessages: options.maxMessages,
+        maxBytes: options.maxBytes,
         ttl: options.ttl,
         flushInterval: options.flushInterval,
       });
@@ -30,13 +38,18 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
       // while a staggered flush is still draining — a live send during the flush
       // must queue behind the not-yet-flushed messages so order is preserved,
       // not race ahead of them onto the wire. Decline otherwise (open and idle),
-      // so normal sends go straight to the wire.
+      // so normal sends go straight to the wire. A message too big to queue is
+      // dropped: it must not go to the wire ahead of the queue either.
       helpers.registerOutgoingFallback((message, sendOptions) => {
-        if (helpers.getState() === 'open' && !buffer.isFlushing) return false;
+        if (helpers.getState() === 'open' && !buffer.isFlushing) return null;
 
-        const buffered = buffer.enqueue(message, sendOptions?.ttl, sendOptions?.owner);
-        if (buffered) helpers.log.info(`buffered '${message.event}'`);
-        return buffered;
+        if (!buffer.enqueue(message, sendOptions?.ttl, sendOptions?.owner)) {
+          helpers.log.info(`dropped '${message.event}': it is bigger than maxBytes`);
+          return 'dropped';
+        }
+
+        helpers.log.info(`buffered '${message.event}'`);
+        return 'buffered';
       });
 
       return {
@@ -64,4 +77,4 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
   };
 }
 
-buffering.tag = 'buffering';
+buffering.tag = 'buffering' as const;

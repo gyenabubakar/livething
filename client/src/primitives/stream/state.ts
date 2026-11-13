@@ -4,11 +4,16 @@ import type { ScopeMarkers } from '~/internal/scoped.ts';
 /** Everything tracked for one running client-initiated stream. */
 export class StreamState {
   /** Chunks flow through here to the developer's `for await` loop. */
-  readonly queue = new StreamQueue<unknown>();
+  readonly queue: StreamQueue<unknown>;
+  /** Started with `binary.stream`: its chunks are binary, and each item is `{ info, bytes }`. */
+  binary = false;
   /** Still running? Goes false on end, error, cancel, or a terminal disconnect. */
   active = true;
-  /** Highest `seq` delivered so far, so chunks already seen are skipped after a reconnect. */
-  lastSeq = Number.NEGATIVE_INFINITY;
+  /**
+   * Highest `seq` delivered so far: a chunk already seen is skipped after a reconnect, and the
+   * next chunk must be exactly `lastSeq + 1`. It starts at 0, so the first chunk must be 1.
+   */
+  lastSeq = 0;
   /** The per-chunk timeout, reset on every chunk. */
   timer: ReturnType<typeof setTimeout> | null = null;
   /** A bounded deadline armed while a continue request is in flight, cleared on the
@@ -25,9 +30,13 @@ export class StreamState {
    */
   hasLazyHold = false;
 
+  // oxlint-disable-next-line max-params -- the stream's id, event, scope and queue limit
   constructor(
     readonly streamId: string,
     readonly event: string,
     readonly markers: ScopeMarkers,
-  ) {}
+    maxBytes?: number,
+  ) {
+    this.queue = new StreamQueue(maxBytes);
+  }
 }

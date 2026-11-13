@@ -5,6 +5,7 @@ export { PluginsServer } from './plugins.ts';
 export { AdminServer } from './admin.ts';
 export { RejectHttpServer } from './lifecycle-hooks-http-reject.ts';
 export { IncomingServer } from './incoming.ts';
+export { BinaryHibernationServer, BinaryServer } from './binary.ts';
 export { RequestServer } from './request.ts';
 export { ServerRequestServer } from './server-request.ts';
 export { StreamBasicServer } from './stream-basic.ts';
@@ -58,6 +59,7 @@ export { ReceiptsServer } from './receipts.ts';
 export { InboxGapServer } from './inbox-gap.ts';
 export { InboxHandleServer } from './inbox-handle.ts';
 export { LastSeenServer } from './last-seen.ts';
+export { UploadsExpiryServer, UploadsHibernationServer, UploadsServer } from './uploads.ts';
 
 /** Returned when a route names an op that has no case below. */
 const UNKNOWN_OP = Symbol('unknown-op');
@@ -179,6 +181,7 @@ async function runAdminBuiltIn(
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/admin': 'ADMIN_SERVER',
   '/ws/incoming': 'INCOMING_SERVER',
+  '/ws/binary': 'BINARY_SERVER',
   '/ws/request': 'REQUEST_SERVER',
   '/ws/server-request': 'SERVER_REQUEST_SERVER',
   '/ws/stream-basic': 'STREAM_BASIC_SERVER',
@@ -232,6 +235,8 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/inbox-gap': 'INBOX_GAP_SERVER',
   '/ws/inbox-handle': 'INBOX_HANDLE_SERVER',
   '/ws/last-seen': 'LAST_SEEN_SERVER',
+  '/ws/uploads': 'UPLOADS_SERVER',
+  '/ws/uploads-expiry': 'UPLOADS_EXPIRY_SERVER',
 };
 
 export default {

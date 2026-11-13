@@ -24,6 +24,7 @@ interface RespondMethod<TResponse = unknown> {
 export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> = (
   ctx: TCtx & RespondMethod<TResponse>,
   payload: TPayload,
+  bytes?: Uint8Array,
 ) => void | Promise<void>;
 
 /**
@@ -49,6 +50,10 @@ export interface RequestPrimitive<
    * `ValidationFailed` error instead.
    */
   readonly validator?: Validator<TPayload>;
+  /** `true` for a `base.binary.request(...)` handler, which takes only binary frames. */
+  readonly binary?: boolean;
+  /** The most bytes a binary request frame may carry. */
+  readonly maxBytes?: number;
 }
 
 /** Unique symbol. The registration ID is the event name, so each event is its own singleton. */

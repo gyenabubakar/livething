@@ -1,4 +1,4 @@
-// Tree-shaking guard for the published `@livething/*` packages (server spec §24).
+// Tree-shaking guard for the published `@livething/*` packages.
 //
 // Each package ships lightweight subpath entries alongside its main one, and
 // promises that importing a light subpath does NOT drag heavy runtime code in.
@@ -27,6 +27,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -76,6 +77,7 @@ const SERVER_ENGINES = {
   // value import of anything it exports drags the wire-namespacing pass and the
   // plugin-scoped context in with it. This marker is the canary for that edge.
   plugin: { marker: '__livething: "pluginSurface"', label: 'plugin runtime' },
+  binary: { marker: 'binary data without the LiveThing header', label: 'binary engine' },
 };
 
 function serverScenarios(f) {
@@ -164,22 +166,32 @@ function serverScenarios(f) {
       alsoPulls: [],
     },
     { name: 'plugins', source: importStar(f('plugins.js')), owns: 'plugin', alsoPulls: [] },
+    { name: 'binary', source: importStar(f('binary.js')), owns: 'binary', alsoPulls: [] },
   ];
 }
 
 // ---------------------------------------------------------------------------
 // @livething/client — one connection runtime plus light utility subpaths.
 //
-// There is no per-feature split on the client: the socket owns every wire
-// behavior. The single guarantee worth pinning is that the utility subpaths
-// (`errors`, `environment`, `platform`) and the test-helper entry (`testing`)
-// never pull the connection runtime — importing `@livething/client/errors` must not
-// ship a WebSocket engine.
+// There is no per-feature split on the client: the socket owns most wire
+// behavior. Two guarantees are pinned: the utility subpaths (`errors`,
+// `environment`, `platform`) and the test-helper entry (`testing`) never pull the
+// connection runtime — importing `@livething/client/errors` must not ship a
+// WebSocket engine — and a client without `binary()` does not ship the binary code.
 // ---------------------------------------------------------------------------
 const CLIENT_DIST = resolve(repoRoot, 'client/dist');
 
 const CLIENT_ENGINES = {
   socket: { marker: '__subscribeOk__', label: 'socket connection runtime' },
+  // The core socket only has small hooks for binary messages; the frame parser, the
+  // encoder and `socket.binary` ship only with `binary()`.
+  binary: { marker: 'binary() needs TextDecoder', label: 'binary() primitive' },
+  // `binary.request`, `binary.onRequest` and `binary.stream` live in binary(), so the
+  // request and stream primitives carry no binary code for an app without binary().
+  binaryExchanges: { marker: 'The reply must be a', label: 'binary requests and streams' },
+  clientRequests: { marker: 'clientRequests timeout', label: 'clientRequests() primitive' },
+  serverRequests: { marker: 'replaced an existing handler', label: 'serverRequests() primitive' },
+  stream: { marker: 'stream maxBytes must be', label: 'stream() primitive' },
 };
 
 function clientScenarios(f) {
@@ -188,8 +200,27 @@ function clientScenarios(f) {
       name: 'index (full socket)',
       source: importStar(f('index.js')),
       owns: 'socket',
+      alsoPulls: ['binary', 'binaryExchanges', 'clientRequests', 'serverRequests', 'stream'],
+    },
+    {
+      name: 'minimal client (client + connect)',
+      source: importNamed(f('index.js'), 'client', 'connect'),
+      owns: null,
       alsoPulls: [],
     },
+    {
+      name: 'binary',
+      source: importNamed(f('index.js'), 'client', 'connect', 'binary'),
+      owns: 'binary',
+      alsoPulls: ['binaryExchanges'],
+    },
+    ...['clientRequests', 'serverRequests', 'stream'].map((primitive) => ({
+      name: primitive,
+      source: importNamed(f('index.js'), 'client', 'connect', primitive),
+      owns: primitive,
+      // stream() starts its gap check again on `__subscribeOk__`, the socket marker.
+      alsoPulls: primitive === 'stream' ? ['socket'] : [],
+    })),
     { name: 'errors', source: importStar(f('errors.js')), owns: null, alsoPulls: [] },
     { name: 'environment', source: importStar(f('environment.js')), owns: null, alsoPulls: [] },
     { name: 'platform', source: importStar(f('platform.js')), owns: null, alsoPulls: [] },
@@ -373,6 +404,49 @@ function withDir(dir) {
   return (file) => join(dir, file);
 }
 
+// The client docs say `binary()` adds about 2.5 KB after minifying and gzip
+// (website/content/4.client/02.primitives/18.binary.md). This measures what it
+// adds to a real app, @livething/core included, and fails when it grows past
+// the stated size plus 10%. Raise the budget only together with the docs.
+const BINARY_GZIP_BUDGET = 2.5 * 1024 * 1.1;
+
+async function gzipSizeOfClient(primitives) {
+  const names = ['client', ...primitives].join(', ');
+  const source =
+    `import { ${names} } from ${JSON.stringify(join(CLIENT_DIST, 'index.js'))};\n` +
+    `export const socket = client({ url: 'wss://huddle.example', primitives: [${primitives.map((p) => `${p}()`).join(', ')}] });\n`;
+  const dir = await mkdtemp(join(tmpdir(), 'livething-bundle-size-'));
+  const entry = join(dir, 'entry.mjs');
+  await writeFile(entry, source);
+
+  try {
+    const result = await build({
+      entryPoints: [entry],
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'browser',
+      minify: true,
+      logLevel: 'silent',
+    });
+    return gzipSync(result.outputFiles[0].text).length;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function runBinarySizeCheck() {
+  const added = (await gzipSizeOfClient(['binary'])) - (await gzipSizeOfClient([]));
+  console.log(`binary() adds ${(added / 1024).toFixed(2)} KB (gzip)`);
+  if (added > BINARY_GZIP_BUDGET) {
+    return [
+      `  SIZE: binary() adds ${added} bytes after gzip, over the ${Math.round(BINARY_GZIP_BUDGET)}-byte budget. Make it smaller, or raise the budget and the size in the client binary docs.`,
+    ];
+  }
+
+  return [];
+}
+
 async function main() {
   const failures = [
     ...(await runSuite(
@@ -384,6 +458,7 @@ async function main() {
       clientScenarios(withDir(CLIENT_DIST)),
     )),
     ...(await runNodeAdapterSuite()),
+    ...(await runBinarySizeCheck()),
   ];
 
   if (failures.length) {

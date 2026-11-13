@@ -22,14 +22,19 @@ export {
   RequestNoCorrelation,
   RequestNoResponse,
   StreamAborted,
+  StreamCorrupted,
+  StreamOverflow,
   StreamAlreadyActive,
   StreamIdCollision,
   UnsupportedProtocol,
+  UploadAborted,
+  WrongFrameKind,
 } from './errors.ts';
 export type {
   ErrorDef,
   ErrorDefWithFactory,
   StreamAbortedReason,
+  UploadAbortedReason,
   UnsupportedProtocolEvent,
 } from './errors.ts';
 export {
@@ -45,12 +50,22 @@ export {
   exceedsWireLimit,
 } from './identifier.ts';
 export { decodeMessage, encodeMessage } from './wire.ts';
+export { utf8ByteLength } from './utf8.ts';
+export {
+  BINARY_ENVELOPE_LIMIT,
+  BINARY_HEADER_LENGTH,
+  asUint8Array,
+  encodeBinaryFrame,
+  splitBinaryFrame,
+} from './binary.ts';
+export type { BinaryInput, SplitBinaryFrame } from './binary.ts';
 export type {
   LiveThingChannelMetadata,
   LiveThingDeliveryMetadata,
   LiveThingExchangeMetadata,
   LiveThingMetadata,
   LiveThingStreamMetadata,
+  LiveThingUploadMetadata,
   Message,
   WireFrame,
 } from './wire.ts';

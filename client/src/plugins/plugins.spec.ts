@@ -120,6 +120,8 @@ describe('plugin() registration and API', () => {
       dependencies: [clientRequests],
       setup: () => ({}),
     });
+    // The type already rejects this; the runtime check covers plain JavaScript callers.
+    // @ts-expect-error — Chat requires clientRequests()
     expect(() => client<AppContract>()(connect('wss://test'), Chat())).toThrow(
       /requires clientRequests/,
     );
@@ -458,7 +460,7 @@ describe('scoped stream and onRequest', () => {
     ws.emit({
       event: '__streamEnd__',
       payload: {},
-      metadata: { stream: { id: 'bs1', event: '__acme:feed::feed', seq: 5 } },
+      metadata: { stream: { id: 'bs1', event: '__acme:feed::feed', seq: 1 } },
     });
 
     expect(chunks).toEqual([[{ row: 1 }, 'bs1']]);

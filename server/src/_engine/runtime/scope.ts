@@ -62,6 +62,7 @@ export function routingFromLiveThing(
   if (livething.source === 'client') routing.source = 'client';
   if (livething.streamId !== undefined) routing.streamId = livething.streamId;
   if (livething.streamNudgeId !== undefined) routing.streamNudgeId = livething.streamNudgeId;
+  if (livething.uploadId !== undefined) routing.uploadId = livething.uploadId;
   if (livething.channel !== undefined) {
     routing.channel = livething.channel;
     routing.channelFamily = livething.channelFamily ?? null;

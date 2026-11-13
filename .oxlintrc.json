@@ -17,6 +17,7 @@
     "lint-staged.config.js"
   ],
   "rules": {
+    "curly": ["error", "multi-line", "consistent"],
     "unicorn/filename-case": ["error", { "case": "kebabCase" }],
     "func-style": ["error", "declaration"],
     "no-inner-declarations": ["error", "functions", { "blockScopedFunctions": "disallow" }],

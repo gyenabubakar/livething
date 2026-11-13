@@ -4,9 +4,10 @@ import {
   decodeMessage,
   encodeMessage,
   LiveThingConfigError,
+  utf8ByteLength,
 } from '@livething/core';
 import { assertValidTtl } from '~/internal/config.ts';
-import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
+import { dispatchToHandlers, keepFrameKind, runMessageHook } from '~/internal/dispatch.ts';
 import { toLiveThingError } from '~/internal/error-frame.ts';
 import { NAMESPACE_DELIMITER } from '~/internal/namespace.ts';
 import { createStore } from '~/internal/store.ts';
@@ -15,6 +16,7 @@ import { Emitter } from '~/socket/emitter.ts';
 import type { LiveThingError } from '@livething/core';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
+  BinaryHooks,
   FrameOwner,
   InterceptFn,
   InternalSendOptions,
@@ -65,7 +67,7 @@ function isValidCloseCode(code: unknown): code is number {
 }
 
 function isValidCloseReason(reason: unknown): reason is string {
-  return typeof reason === 'string' && new TextEncoder().encode(reason).byteLength <= 123;
+  return typeof reason === 'string' && utf8ByteLength(reason) <= 123;
 }
 
 /** The URL safe for a log line: no userinfo, query string or hash, which can carry credentials such as an auth token. */
@@ -159,12 +161,16 @@ export class LiveThingSocket {
   /** @internal — listeners by event name. */
   _messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
 
+  /** @internal — set by `binary()`; `null` means binary messages are reported and dropped. */
+  _binary: BinaryHooks | null = null;
+
   private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
 
   private _pongHandlers: (() => void)[] = [];
 
-  private _outgoingFallback: ((message: Message, options?: InternalSendOptions) => boolean) | null =
-    null;
+  private _outgoingFallback:
+    | ((message: Message, options?: InternalSendOptions) => 'buffered' | 'dropped' | null)
+    | null = null;
 
   private readonly _shared = new Map<string, unknown>();
 
@@ -323,6 +329,21 @@ export class LiveThingSocket {
 
     const result = this._send({ event, payload, metadata: null }, options);
     return result === 'sent' || result === 'buffered';
+  }
+
+  /**
+   * Wait until the WebSocket's `bufferedAmount` is below 256 KiB, checking every 25 ms. It
+   * resolves at once when the socket is not open, and stops waiting after about 50 seconds.
+   */
+  async drain(): Promise<void> {
+    const OPEN = 1;
+    for (
+      let poll = 0;
+      poll < 2000 && this.ws?.readyState === OPEN && this.ws.bufferedAmount >= 256 * 1024;
+      poll++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
   }
 
   /** Runs on every open — the first connect and every reconnect. */
@@ -516,7 +537,8 @@ export class LiveThingSocket {
       this._log(`connecting to ${redactUrl(url)}`);
 
       const ws = new WebSocket(url, this._config.protocols);
-      if (this._config.binaryType) ws.binaryType = this._config.binaryType;
+      // A Blob can only be read with `await`, and a later message could be handled first.
+      if (this._binary) ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
         if (attemptId !== this._connectAttemptId) {
@@ -658,11 +680,19 @@ export class LiveThingSocket {
       return;
     }
 
-    // TODO: binary support is planned. Until then, surface a binary frame
-    // through the normal error path instead of throwing out of `onmessage`
-    // (an uncaught exception there would crash the WebSocket callback).
+    // Without binary(), report a binary message instead of throwing out of
+    // `onmessage`: an uncaught throw there would break the WebSocket callback.
     if (typeof raw !== 'string') {
-      this._reportError(new Error('[livething] binary frames are not supported yet'));
+      if (this._binary) {
+        this._binary.receive(raw);
+      } else {
+        this._reportError(
+          new Error(
+            '[livething] a binary message arrived and was dropped. Register binary() in client().',
+          ),
+        );
+      }
+
       return;
     }
 
@@ -692,11 +722,13 @@ export class LiveThingSocket {
     if (channelName?.startsWith('__') && channelName.includes(NAMESPACE_DELIMITER)) return parsed;
 
     let message = parsed;
+    const bytes = parsed.bytes;
     for (const intercept of this._intercepts) {
       try {
         const result = intercept(message);
-        if (result) message = result;
+        message = keepFrameKind(bytes, result ? result : message);
       } catch (error) {
+        message = keepFrameKind(bytes, message);
         if (error === Block) {
           if (this._debug) this._log(`intercept dropped '${message.event}'`);
           return null;
@@ -718,6 +750,7 @@ export class LiveThingSocket {
    */
   private _runIncoming(primitives: readonly PrimitiveRuntime[], parsed: Message): Message | null {
     let message = parsed;
+    const bytes = parsed.bytes;
     for (const primitive of primitives) {
       try {
         const result = primitive.onIncoming!(message);
@@ -726,8 +759,9 @@ export class LiveThingSocket {
           return null;
         }
 
-        message = result;
+        message = keepFrameKind(bytes, result);
       } catch (error) {
+        message = keepFrameKind(bytes, message);
         this._reportError(error);
       }
     }
@@ -766,6 +800,11 @@ export class LiveThingSocket {
     // rather than leak to a `.on()` handler. Plugin-namespaced `__id::event` frames pass through.
     if (isProtocolFrameEvent(message.event)) return;
 
+    if (message.bytes) {
+      this._binary?.route(message);
+      return;
+    }
+
     // Top-level handlers only see top-level events. Messages tagged with a
     // channel or stream id are delivered by the matching add-on module, so they
     // don't fire here too.
@@ -782,8 +821,9 @@ export class LiveThingSocket {
   _ensureConnected(): void {
     if (!this._lazy) return;
 
-    if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting')
+    if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting') {
       return;
+    }
 
     this._clearLazyIdleTimer();
 
@@ -837,21 +877,25 @@ export class LiveThingSocket {
     this._ensureConnected();
 
     let outgoing: Message | null = message;
+    const bytes = message.bytes;
     for (const primitive of this._outgoing) {
       // Block cancels the send; any other throw is reported and the message
       // passes through unchanged.
-      outgoing = runMessageHook(primitive.onOutgoing!, outgoing!, this._reportBound);
+      const result = runMessageHook(primitive.onOutgoing!, outgoing!, this._reportBound);
 
-      if (outgoing === null) {
+      if (result === null) {
         this._log('a primitive cancelled the send');
         return 'blocked';
       }
+
+      outgoing = keepFrameKind(bytes, result);
     }
 
     // Offer to the outgoing fallback (buffering) first: it takes the message
     // while offline, or while a staggered flush is still draining so a live send
     // can't jump ahead of not-yet-flushed messages. It declines when open and idle.
-    if (this._outgoingFallback?.(outgoing, options)) return 'buffered';
+    const kept = this._outgoingFallback?.(outgoing, options);
+    if (kept) return kept;
 
     if (this._state !== 'open' || !this.ws) {
       if (this._debug) this._log(`send('${outgoing.event}') not sent — not connected`);
@@ -861,7 +905,7 @@ export class LiveThingSocket {
         : 'closed';
     }
 
-    this.ws.send(encodeMessage(outgoing));
+    this.ws.send(this._encode(outgoing));
     if (this._debug) this._log(`send('${outgoing.event}')`, outgoing.payload);
 
     // A send counts as activity. In lazy mode with no active listeners the idle
@@ -902,9 +946,9 @@ export class LiveThingSocket {
   _rawSend(message: Message, owner?: FrameOwner): SendResult {
     if (this._state === 'open' && this.ws) {
       if (owner) {
-        let serialized: string;
+        let serialized: string | Uint8Array<ArrayBuffer>;
         try {
-          serialized = encodeMessage(message);
+          serialized = this._encode(message);
         } catch (error) {
           owner.reject(error);
           this._reportError(error);
@@ -915,11 +959,15 @@ export class LiveThingSocket {
         return 'sent';
       }
 
-      this.ws.send(encodeMessage(message));
+      this.ws.send(this._encode(message));
       return 'sent';
     }
 
     return this._state === 'connecting' || this._state === 'reconnecting' ? 'connecting' : 'closed';
+  }
+
+  private _encode(message: Message): string | Uint8Array<ArrayBuffer> {
+    return this._binary ? this._binary.encode(message) : encodeMessage(message);
   }
 
   /** @internal — call every handler listening for this event. */

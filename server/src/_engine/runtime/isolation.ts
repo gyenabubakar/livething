@@ -5,23 +5,13 @@ import type { Logger } from '~/context.ts';
 interface IsolationOptions {
   /** Human-readable label for logs, e.g. `"tag fan-out 'role/admin'"`. */
   context: string;
-  /**
-   * Engine logger. Optional because some call sites don't have one handy
-   * (tags runtime, helpers built before logger threading). Falls back to
-   * `console.error` so the failure is never silently swallowed.
-   */
-  logger?: Logger;
+  /** The app's logger, so a failure shows up where the app's other errors do. */
+  logger: Pick<Logger, 'error'>;
 }
 
 function reportIsolated(error: unknown, options: IsolationOptions): void {
   const message = `[livething] ${options.context} threw: ${error instanceof Error ? error.message : String(error)}`;
-  if (options.logger) {
-    options.logger.error(message, { error });
-    return;
-  }
-
-  // eslint-disable-next-line no-console
-  console.error(message, error);
+  options.logger.error(message, { error });
 }
 
 /**

@@ -1,7 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
 import type { LiveThingError } from '@livething/core';
 import type { ReadableStore } from '~/internal/store.ts';
-import type { ApplyChannelPrimitives, Primitive, TypeFn } from '~/primitives/types.ts';
+import type { BinaryScopeSurface } from '~/primitives/binary/types.ts';
+import type {
+  ApplyChannelPrimitives,
+  Primitive,
+  PrimitiveIdentity,
+  TypeFn,
+} from '~/primitives/types.ts';
 import type { IncomingOf, ScopedMessaging } from '~/types.ts';
 
 /**
@@ -183,7 +189,9 @@ export interface StubbedChannelMethod<
  * `clientRequests()` doesn't also erase methods `inbox()` already installed.
  */
 type StubbedMessaging<C, Stubs, TPrimitives extends readonly Primitive<any, any, any>[]> = Omit<
-  ChannelMessaging<C> & ApplyChannelPrimitives<TPrimitives, C>,
+  ChannelMessaging<C> &
+    ApplyChannelPrimitives<TPrimitives, C> &
+    BinaryScopeSurface<C, TPrimitives[number]['_tag']>,
   keyof Stubs
 > &
   Stubs;
@@ -220,11 +228,16 @@ export interface AugmentedChannelMethod<
   family<K extends FamilyKeys<C> & string>(familyKey: K): AugmentedFamilyHandle<C[K], TPrimitives>;
 }
 
-/** One channel handle plus every installed primitive's channel-handle surface. */
+/**
+ * One channel handle plus every installed primitive's channel-handle surface, and the
+ * channel's `.binary` key for the installed primitives.
+ */
 type AugmentedMessaging<
   C,
   TPrimitives extends readonly Primitive<any, any, any>[],
-> = ChannelMessaging<C> & ApplyChannelPrimitives<TPrimitives, C>;
+> = ChannelMessaging<C> &
+  ApplyChannelPrimitives<TPrimitives, C> &
+  BinaryScopeSurface<C, TPrimitives[number]['_tag']>;
 
 /** A `FamilyHandle` whose member handles carry the channel-primitive surface. */
 interface AugmentedFamilyHandle<C, TPrimitives extends readonly Primitive<any, any, any>[]> {
@@ -247,4 +260,5 @@ interface ChannelsTypeFn extends TypeFn {
 }
 
 /** The descriptor `channels()` returns. */
-export type ChannelsPrimitive = Primitive<ChannelsTypeFn, { channels: Record<string, unknown> }>;
+export type ChannelsPrimitive = Primitive<ChannelsTypeFn, { channels: Record<string, unknown> }> &
+  PrimitiveIdentity<'channels'>;

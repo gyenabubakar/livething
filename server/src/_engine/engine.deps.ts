@@ -11,14 +11,17 @@ import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { binaryBytesRoom } from '~/incoming/incoming.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
+import type { InboxService } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { MembershipInsert } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
+import type * as ErrorsRuntime from '~/errors/runtime.ts';
 import type { StopChannelStreamsOptions } from '~/stream/runtime.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
@@ -32,14 +35,8 @@ interface PipelineOptions {
   payload: unknown;
 }
 
-interface InboxFanOutOptions {
-  channelName: string;
-  channelFamily: string | null;
-  event: string;
-  payload: Record<string, unknown>;
-  deliverySeq: number;
-  messageId: string;
-}
+type InboxFanOutOptions = Parameters<InboxService['fanOut']>[1];
+type InboxMessage = Parameters<InboxService['canStore']>[1];
 
 interface PersistAttachmentOptions {
   force?: boolean;
@@ -51,11 +48,10 @@ interface ProtocolMessageOptions {
   livething: Record<string, unknown>;
 }
 
-interface RuntimeErrorOptions {
-  error: unknown;
-  event?: string;
-  routing?: Protocol.LiveThingRouting;
-}
+type RuntimeErrorOptions = Pick<
+  ErrorsRuntime.SendRuntimeErrorOptions,
+  'error' | 'event' | 'routing' | 'deliver'
+>;
 
 interface ReplayWire {
   deliverySeq: number;
@@ -257,6 +253,10 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     isTagGroupDeclared: (kind, group) => core.isTagGroupDeclared(kind, group),
     getTagGroupSchema: (kind, group) => core.getTagGroupSchema(kind, group),
     channelHandleAugmenters: core.channelHandleAugmenters,
+    // Read when used: `Engine` builds the admin surface before the capabilities are set up.
+    get addBinarySenders() {
+      return core.binaryService?.addSenders;
+    },
   };
 }
 
@@ -310,6 +310,9 @@ function buildMemberRuntime(core: EngineCore) {
       OutgoingRuntime.openSharedSend(outgoingRuntime(core), opts),
     inboxFanOut: core.inboxService
       ? (opts: InboxFanOutOptions) => core.inboxService?.fanOut(core, opts)
+      : undefined,
+    inboxCanStore: core.inboxService
+      ? (message: InboxMessage) => core.inboxService?.canStore(core, message) ?? true
       : undefined,
   };
 }
@@ -399,6 +402,12 @@ export function dispatchRuntime(core: EngineCore) {
   return (depsMemoFor(core).dispatch ??= buildDispatchRuntime(core));
 }
 
+/** The default `maxBytes` of a binary handler, or none when the receive limit is too small. */
+function defaultBinaryMaxBytes(receiveBytes: number): number | undefined {
+  const room = binaryBytesRoom(receiveBytes);
+  return room > 0 ? room : undefined;
+}
+
 function buildDispatchRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
@@ -407,9 +416,13 @@ function buildDispatchRuntime(core: EngineCore) {
     logger: core.logger,
     activeStreams: core.activeStreams,
     sql: core.storage.sql,
+    messageLimits: core.messageLimits,
+    maxPendingBytes: 2 * core.messageLimits.receiveBytes,
+    defaultBinaryMaxBytes: defaultBinaryMaxBytes(core.messageLimits.receiveBytes),
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
     answerFrameHooks: core.hooks.answerFrame,
+    answerAwaitedHooks: core.hooks.answerAwaited,
     errorHooks: core.hooks.error,
     declaredErrorCodes: core.declaredErrorCodes,
     incomingDedupCap: core.incomingDedupCap,
@@ -455,6 +468,9 @@ function buildDispatchRuntime(core: EngineCore) {
     get durableStream() {
       return core.durableStream;
     },
+    get uploadService() {
+      return core.uploadService;
+    },
     get requestDispatch() {
       return core.requestDispatch;
     },
@@ -488,6 +504,7 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     hibernationEnabled: core.hibernationEnabled,
+    messageLimits: core.messageLimits,
     connections: core.connections,
     usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,
@@ -525,6 +542,14 @@ function buildConnectionRuntime(core: EngineCore) {
 
     processTextMessage: (connection: RuntimeConnection, data: string) =>
       EngineMessageRuntime.processTextMessage(dispatchRuntime(core), connection, data),
+
+    get processBinaryMessage() {
+      const dispatch = core.binaryService?.dispatch;
+      if (!dispatch) return undefined;
+
+      return (connection: RuntimeConnection, data: Uint8Array) =>
+        dispatch(dispatchRuntime(core), connection, data);
+    },
 
     handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) =>
       handleConnectionClose(core, { connection, code, reason }),
@@ -575,7 +600,21 @@ function buildConnectionRuntime(core: EngineCore) {
       // loop has restored its channel memberships.
       if (!core.inboxService) return rejoined;
 
-      return rejoined.then(() => core.inboxService?.drainOnReconnect(core, connection));
+      // The drain can wait for the socket's buffer, so it does not hold up the connection's
+      // other work: messages, heartbeats and onConnect go on while it waits.
+      return rejoined.then(() => {
+        const drain = core.inboxService?.drainOnReconnect(core, connection);
+        if (!drain) return;
+
+        core.trackBackgroundWork(
+          drain.catch((error: unknown) => {
+            core.logger.error('[livething] inbox drain failed', {
+              connectionId: connection.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }),
+        );
+      });
     },
   };
 }
@@ -584,6 +623,7 @@ function buildConnectionRuntime(core: EngineCore) {
 export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
   const buildCtx = buildConnectionContext(core);
   return {
+    buildConnectionlessContext: () => connectionlessContext(core),
     ensureScheduledRuntime: () =>
       core.scheduledService?.ensureRuntime(core, connectionlessContextFactory(core)),
     scheduleTask: (opts) =>

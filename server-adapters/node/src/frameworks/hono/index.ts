@@ -1,4 +1,5 @@
 import { upgradeWebSocket } from '@hono/node-server';
+import { asUint8Array } from '@livething/server/adapters';
 import { WebSocketServer } from 'ws';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type { MiddlewareHandler } from 'hono';
@@ -6,10 +7,12 @@ import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
-import { sendWhenOpen } from '../../socket.ts';
+import { resolveCompression, resolveMaxMessageBytes } from '../../endpoint.ts';
+import { frameData, sendWhenOpen } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { isNodeWebSocketUpgrade, isWebSocketUpgrade } from '../../upgrade.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions } from '../../binding.ts';
+import type { NodeCompressionOption } from '../../endpoint.ts';
 
 /** One LiveThing definition registered as a Hono WebSocket route. */
 export interface HonoEndpoint<TAdmin = NodeAdmin> {
@@ -32,18 +35,55 @@ export interface HonoSetup {
 /** Options for the shared Hono WebSocket transport. */
 export interface HonoSetupOptions {
   webSocketServer?: WebSocketServer;
+  /**
+   * The `maxPayload` of the `ws` server that all endpoints share, in bytes. Default: 32 MiB.
+   * An endpoint's own `maxMessageBytes` must not be larger.
+   */
+  maxMessageBytes?: number;
+  /**
+   * Turns on permessage-deflate for the `ws` server that all endpoints share, so messages of at
+   * least `threshold` bytes (default 1024) go compressed when the client supports it. Default: off.
+   */
+  compression?: NodeCompressionOption;
 }
 
 /** Creates Hono route bindings without creating or listening on an HTTP server. */
 export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
+  if (setupOptions.webSocketServer && setupOptions.maxMessageBytes !== undefined) {
+    throw new Error(
+      '[livething] setup() got both webSocketServer and maxMessageBytes. Set maxPayload on your own WebSocketServer instead.',
+    );
+  }
+
+  if (setupOptions.webSocketServer && setupOptions.compression !== undefined) {
+    throw new Error(
+      '[livething] setup() got both webSocketServer and compression. Set perMessageDeflate on your own WebSocketServer instead.',
+    );
+  }
+
   const node = binding();
   const lifecycle = createUpgradeLifecycle();
-  const server = setupOptions.webSocketServer ?? new WebSocketServer({ noServer: true });
+  const server =
+    setupOptions.webSocketServer ??
+    new WebSocketServer({
+      noServer: true,
+      maxPayload: resolveMaxMessageBytes(setupOptions.maxMessageBytes, 'setup()'),
+      perMessageDeflate: resolveCompression(setupOptions.compression, 'setup()'),
+    });
 
   return {
     websocket: { server },
 
     bind(definition, endpointOptions) {
+      // The shared server refuses bigger messages first, so a larger endpoint limit can't work.
+      const endpointLimit = resolveMaxMessageBytes(endpointOptions.maxMessageBytes, 'The endpoint');
+      const sharedLimit = server.options.maxPayload;
+      if (sharedLimit !== undefined && endpointLimit > sharedLimit) {
+        throw new Error(
+          `[livething] maxMessageBytes (${endpointLimit}) is larger than the shared WebSocket server limit (${sharedLimit}). Raise maxMessageBytes in setup().`,
+        );
+      }
+
       const endpoint = node.bind(definition, endpointOptions);
       const connections = new WeakMap<object, NodeConnection>();
 
@@ -54,8 +94,9 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
         if (!isWebSocketUpgrade(context.req.header('upgrade'))) return next();
 
         const incoming = getIncomingRequest(context.env);
-        if (!incoming)
+        if (!incoming) {
           return new Response('[livething] Hono did not provide a Node request', { status: 500 });
+        }
 
         if (!isNodeWebSocketUpgrade(incoming)) return next();
 
@@ -81,8 +122,14 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
             try {
               const rawSocket = socket.raw as WebSocket;
               const connection = upgrade.accept({
-                send: (data) => sendWhenOpen(rawSocket.readyState, () => socket.send(data)),
+                // @hono/node-server passes `compress: undefined` to ws unless told, which turns
+                // compression off. ws still skips it when it is not negotiated or the frame is small.
+                send: (frame) =>
+                  sendWhenOpen(rawSocket.readyState, () =>
+                    socket.send(frameData(frame), { compress: true }),
+                  ),
                 close: (code, reason) => socket.close(code, reason),
+                terminate: () => rawSocket.terminate(),
                 bufferedAmount: () => rawSocket.bufferedAmount,
                 backpressureSupported: true,
               });
@@ -93,7 +140,9 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
           },
           onMessage(event, socket) {
             if (typeof event.data !== 'string') {
-              closeWebSocket(socket, 1003, '[livething] binary frames are not supported yet');
+              // @hono/node-server hands a binary message over as an ArrayBuffer, never a Blob.
+              const bytes = asUint8Array(event.data as ArrayBuffer);
+              void connections.get(socket)?.binaryMessage(bytes);
               return;
             }
 

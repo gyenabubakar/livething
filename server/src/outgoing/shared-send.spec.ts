@@ -82,7 +82,7 @@ function buildEngine(seen: OutgoingFrame[]): Engine {
 async function connect(engine: Engine, userId: string) {
   const frames: string[] = [];
   const handle = engine.accept(Symbol(userId), {
-    send: (data: string) => void frames.push(data),
+    send: ({ text }: { kind: 'text'; text: string }) => void frames.push(text),
     close: () => {},
     bufferedAmount: () => 0,
     userId,

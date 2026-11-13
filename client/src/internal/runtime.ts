@@ -1,8 +1,9 @@
 import type { LiveThingError, LiveThingMetadata, Message } from '@livething/core';
 import type { SocketConfig } from '~/internal/config.ts';
+import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { LiveThingSocket } from '~/socket/socket.ts';
-import type { ConnectionState } from '~/types.ts';
+import type { ConnectionState, StreamHandlers } from '~/types.ts';
 
 export type { Message, LiveThingMetadata };
 
@@ -17,11 +18,13 @@ export type { Message, LiveThingMetadata };
  * - `closed` — the socket is closed with no reconnect coming; a Promise-bearing
  *   caller must fail fast with `Disconnected` instead of hanging.
  * - `blocked` — a primitive's `onOutgoing` cancelled the send.
+ * - `dropped` — the buffer refused it (too big to queue); a Promise-bearing
+ *   caller must reject with `Dropped` at once.
  *
  * The public `socket.send()` collapses this back to a boolean (`sent`/`buffered`
  * → true), so only primitives see the full detail.
  */
-export type SendResult = 'sent' | 'buffered' | 'connecting' | 'closed' | 'blocked';
+export type SendResult = 'sent' | 'buffered' | 'connecting' | 'closed' | 'blocked' | 'dropped';
 
 /**
  * The pending operation that owns a buffered or outboxed frame. A request,
@@ -42,6 +45,80 @@ export interface FrameOwner {
 export interface InternalSendOptions {
   ttl?: number;
   owner?: FrameOwner;
+}
+
+/**
+ * The hooks `binary()` gives the socket. Without `binary()` the socket has none, and it
+ * reports each binary message to `onError` and drops it.
+ */
+export interface BinaryHooks {
+  /** Read one binary message from the WebSocket, and pass it on as a `Message` with `bytes`. */
+  receive(data: unknown): void;
+  /** Deliver a binary message that went through the whole incoming pipeline. */
+  route(message: Message): void;
+  /** Encode an outgoing message: a binary frame when it has `bytes`, else JSON text. */
+  encode(message: Message): string | Uint8Array<ArrayBuffer>;
+}
+
+/** How a request is sent: its scope and timeout, and the hooks `binary.request` adds. */
+export interface RequestCallOptions {
+  markers: ScopeMarkers;
+  timeout?: number;
+  /**
+   * Turn the request frame into the one to send. It runs before the socket is touched, and
+   * a throw comes out of the send call itself, so the caller turns it into a rejection.
+   */
+  prepare?(frame: Message): Message;
+  /** Settle the request from a reply that is not a text `__error__`. */
+  answer?(
+    reply: Message,
+    settle: { resolve(value: unknown): void; reject(reason: unknown): void },
+  ): void;
+}
+
+/**
+ * `clientRequests()` shares its send under this key, so `binary()` sends binary requests
+ * with the same pending map, timeout, buffering and close handling.
+ */
+export const REQUESTS_KEY = 'requests';
+export type SendRequest = (
+  event: string,
+  payload: unknown,
+  options: RequestCallOptions,
+) => Promise<unknown>;
+
+/** How a stream is started: its scope, its options, and the hook `binary.stream` adds. */
+export interface StreamStartContext {
+  markers: ScopeMarkers;
+  options?: { streamId?: string };
+  /** A binary stream: its chunks are binary, and each item is `{ info, bytes }`. */
+  binary?: boolean;
+  /**
+   * Turn the start frame into the one to send. It runs before the socket is touched, and a
+   * throw comes out of the start call itself, so the caller turns it into a rejection.
+   */
+  prepare?(frame: Message): Message;
+}
+
+/** How a recorded stream is continued: its scope, its options, and whether it is binary. */
+export interface StreamContinueContext {
+  markers: ScopeMarkers;
+  options?: { lastKnownSeq?: number };
+  /** A binary stream: its chunks are binary, and each item is `{ info, bytes }`. */
+  binary?: boolean;
+}
+
+/** `stream()` shares these under {@link STREAM_KEY}, so `binary()` can add binary streams. */
+export const STREAM_KEY = 'stream';
+export interface StreamHooks {
+  start(event: string, payload: unknown, context: StreamStartContext): Promise<unknown>;
+  continue(event: string, streamId: string, context: StreamContinueContext): unknown;
+  listen(
+    event: string,
+    handlers: StreamHandlers<unknown>,
+    scope: ScopeMarkers | undefined,
+    binary: boolean,
+  ): () => void;
 }
 
 /**
@@ -204,12 +281,12 @@ export interface PrimitiveHelpers {
   onPong(handler: () => void): void;
 
   /**
-   * Register a handler for sends that happen while the socket is closed.
-   * Return `true` if you kept the message (e.g. added it to a buffer), `false` to drop it.
-   * If no fallback is registered, those sends are silently dropped.
+   * Register a handler that is offered every outgoing message. Return `'buffered'` if you
+   * kept it, `'dropped'` if you refused it, or `null` to let the
+   * socket send it as normal.
    */
   registerOutgoingFallback(
-    handler: (message: Message, options?: InternalSendOptions) => boolean,
+    handler: (message: Message, options?: InternalSendOptions) => 'buffered' | 'dropped' | null,
   ): void;
 
   /** Debug logger, already gated on debug mode and prefixed — use freely, no guard needed. */

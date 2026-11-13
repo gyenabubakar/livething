@@ -6,4 +6,7 @@ export {
   Timeout,
   Disconnected,
   Dropped,
+  StreamCorrupted,
+  StreamOverflow,
+  UploadAborted,
 } from '@livething/core';

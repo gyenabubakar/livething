@@ -9,7 +9,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type { AddressInfo } from 'node:net';
+import { capturedBridges, nextRawMessage } from '../../../test-utils.ts';
 import { createH3V1Setup } from './setup.ts';
+
+vi.mock('../../../socket.ts', async (importOriginal) => {
+  const { captureBridges } = await import('../../../test-utils.ts');
+  return captureBridges(await importOriginal());
+});
 
 let lastUserId = '';
 let disconnects = 0;
@@ -69,7 +75,10 @@ interface TestClient {
   outgoing: { echo: { text: string } };
 }
 
-async function createTestApp(serverDefinition: ServerDefinition = definition) {
+async function createTestApp(
+  serverDefinition: ServerDefinition = definition,
+  serverOptions: { perMessageDeflate?: boolean } = {},
+) {
   const app = createApp();
   const router = createRouter();
   const livething = createH3V1Setup(defineWebSocketHandler);
@@ -78,7 +87,7 @@ async function createTestApp(serverDefinition: ServerDefinition = definition) {
   router.get('/ws/:room', endpoint.upgrade);
   app.use(router);
 
-  const websocket = nodeWebSocketAdapter(app.websocket);
+  const websocket = nodeWebSocketAdapter({ ...app.websocket, serverOptions });
   const server = createServer(toNodeListener(app));
   server.on('upgrade', websocket.handleUpgrade);
 
@@ -342,27 +351,75 @@ describe('H3 v1 binding', () => {
     ]);
   });
 
-  it('closes binary frames with code 1003 without rejecting text frames', async () => {
-    const app = await createTestApp();
-    apps.push(app);
-    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`);
+  async function openLobbySocket(port: number): Promise<WebSocket> {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/lobby`);
     rawSockets.push(socket);
     const connected = waitForRawMessage(socket);
-
     await waitForOpen(socket);
     await connected;
+
+    return socket;
+  }
+
+  it('hands a binary frame to the engine as a plain Uint8Array, which closes it with 1003', async () => {
+    const app = await createTestApp();
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+
     const echoed = waitForRawMessage(socket);
     socket.send(JSON.stringify(['echo', { text: 'text' }, null]));
     await expect(echoed).resolves.toEqual(['echoed', { text: 'text' }, null]);
 
     const closed = waitForClose(socket);
-    socket.send(Buffer.from('binary'));
+    socket.send(Buffer.from([1, 2, 3]));
 
     await expect(closed).resolves.toEqual({
       code: 1003,
-      reason: '[livething] binary frames are not supported yet',
+      reason: '[livething] this server does not use binary()',
     });
+    const [received] = capturedBridges.at(-1)!.binaryMessages;
+    expect(Object.getPrototypeOf(received)).toBe(Uint8Array.prototype);
+    expect([...received!]).toEqual([1, 2, 3]);
     await vi.waitFor(() => expect(lastDisconnect?.code).toBe(1003));
+  });
+
+  it('drops the socket with no close handshake on terminate', async () => {
+    const app = await createTestApp();
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+    const closed = waitForClose(socket);
+
+    capturedBridges.at(-1)!.transport.terminate!();
+
+    await expect(closed).resolves.toMatchObject({ code: 1006 });
+  });
+
+  it('compresses outgoing messages when CrossWS turns on perMessageDeflate', async () => {
+    const app = await createTestApp(definition, { perMessageDeflate: true });
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+    const tcp = (socket as WebSocket & { _socket: { bytesRead: number } })._socket;
+
+    expect(socket.extensions).toBe('permessage-deflate');
+    const before = tcp.bytesRead;
+    const message = nextRawMessage(socket);
+    capturedBridges.at(-1)!.transport.send({ kind: 'text', text: 'x'.repeat(2000) });
+    await message;
+
+    expect(tcp.bytesRead - before).toBeLessThan(200);
+  });
+
+  it('sends a bytes frame as a binary message', async () => {
+    const app = await createTestApp();
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+
+    const message = nextRawMessage(socket);
+    capturedBridges.at(-1)!.transport.send({ kind: 'bytes', bytes: new Uint8Array([7, 8, 9]) });
+    const { data, isBinary } = await message;
+
+    expect(isBinary).toBe(true);
+    expect([...(data as Buffer)]).toEqual([7, 8, 9]);
   });
 
   it('returns an HTTP rejection before the WebSocket handshake', async () => {

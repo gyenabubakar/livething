@@ -1,12 +1,13 @@
 import { isValidLiveThingIdentifier, ValidationFailed, WIRE_LIMITS } from '@livething/core';
 import type { LiveThingError } from '@livething/core';
 
-type WireFieldKind = 'event' | 'channel' | 'streamId';
+type WireFieldKind = 'event' | 'channel' | 'streamId' | 'uploadId';
 
 const FIELD_META: Record<WireFieldKind, { label: string; limit: number }> = {
   event: { label: 'event name', limit: WIRE_LIMITS.event },
   channel: { label: 'channel name', limit: WIRE_LIMITS.channel },
   streamId: { label: 'streamId', limit: WIRE_LIMITS.streamId },
+  uploadId: { label: 'uploadId', limit: WIRE_LIMITS.wireId },
 };
 
 /**

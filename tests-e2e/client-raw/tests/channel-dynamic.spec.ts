@@ -663,8 +663,9 @@ test.describe('channel-dynamic', () => {
           got.some(
             (m) => m.event === '__subscribeOk__' && m.metadata?.channel?.name === 'room:auto',
           )
-        )
+        ) {
           break;
+        }
 
         await new Promise((r) => setTimeout(r, 20));
       }

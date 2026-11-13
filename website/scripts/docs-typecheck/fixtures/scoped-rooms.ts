@@ -39,7 +39,7 @@ export const rooms = base.channel(['rooms', 'room:{roomId}'], {
     }),
     serverRequests({
       'ping-member': {
-        out: t<{}>(),
+        out: t<null>(),
         in: v.object({ alive: v.boolean() }),
       },
     }),

@@ -152,7 +152,6 @@ const triggerRoomFullError = h.on('trigger-room-full-error', {
 // Recorded stream with a typed start payload.
 const feed = h.recordedStream('feed', {
   input: v.object({ from: v.number() }),
-  chunk: t<{ row: number }>(),
   maxChunks: 10,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
@@ -169,7 +168,6 @@ const feed = h.recordedStream('feed', {
 // validates if the client namespaced the nudge event like its trigger.
 const nudgeable = h.stream('nudgeable', {
   input: v.object({}),
-  chunk: t<{ n: number }>(),
   nudges: { boost: v.object({ amount: v.number() }) },
   async *run(ctx) {
     for (let i = 1; i <= 20; i += 1) {
@@ -182,7 +180,6 @@ const nudgeable = h.stream('nudgeable', {
 // Plain (ephemeral) stream.
 const feedPlain = h.stream('feed-plain', {
   input: v.object({}),
-  chunk: t<{ n: number }>(),
   async *run() {
     for (let i = 1; i <= 3; i += 1) {
       yield { n: i };
@@ -194,7 +191,6 @@ const feedPlain = h.stream('feed-plain', {
 // Recorded (durable, buffered/replayable) stream.
 const feedRecorded = h.recordedStream('feed-recorded', {
   input: v.object({}),
-  chunk: t<{ n: number }>(),
   maxChunks: 10,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,

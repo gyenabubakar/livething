@@ -50,8 +50,6 @@ export function createPluginsDefinition<
 
   const StreamConnectionIdPayload = v.object({ count: v.number() });
   const StreamThrowOnCancelPayload = v.object({});
-  const StreamConnectionIdChunk = t<{ id: string }>();
-  const StreamThrowOnCancelChunk = t<{ tick: number }>();
 
   const drizzleCapability = drizzle();
 
@@ -181,7 +179,6 @@ export function createPluginsDefinition<
 
   const handleStreamConnectionId = base.stream('stream-connection-id', {
     input: StreamConnectionIdPayload,
-    chunk: StreamConnectionIdChunk,
     async *run(ctx, payload) {
       const db = ctx.plugin('e2e:drizzle');
       for (let i = 0; i < payload.count; i++) {
@@ -193,7 +190,6 @@ export function createPluginsDefinition<
 
   const handleStreamThrowOnCancel = base.stream('stream-throw-on-cancel', {
     input: StreamThrowOnCancelPayload,
-    chunk: StreamThrowOnCancelChunk,
     async *run() {
       try {
         let i = 0;

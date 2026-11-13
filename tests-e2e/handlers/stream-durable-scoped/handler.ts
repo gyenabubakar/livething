@@ -1,4 +1,4 @@
-import { server, t } from '@livething/server';
+import { server } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
@@ -6,9 +6,6 @@ import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Empty = v.object({});
-const RowChunk = t<{ row: number }>();
-const IdxChunk = t<{ idx: number }>();
-const TokenChunk = t<{ token: string }>();
 const StopPayload = v.object({});
 
 const base = server({
@@ -18,7 +15,6 @@ const base = server({
 
 const handleStartConcurrent = base.stream('start-concurrent', {
   input: Empty,
-  chunk: TokenChunk,
   allowConcurrent: true,
   async *run() {
     for (let i = 1; i <= 3; i += 1) {
@@ -30,7 +26,6 @@ const handleStartConcurrent = base.stream('start-concurrent', {
 
 const handleShortRetention = base.recordedStream('short-retention', {
   input: Empty,
-  chunk: IdxChunk,
   maxChunks: 10,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 300,
@@ -44,7 +39,6 @@ const handleShortRetention = base.recordedStream('short-retention', {
 
 const handleBoomMid = base.recordedStream('boom-mid', {
   input: Empty,
-  chunk: IdxChunk,
   maxChunks: 20,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
@@ -57,7 +51,6 @@ const handleBoomMid = base.recordedStream('boom-mid', {
 
 const handleBackgroundFeed = base.recordedStream('background-feed', {
   input: Empty,
-  chunk: IdxChunk,
   maxChunks: 50,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
@@ -73,7 +66,6 @@ const rooms = base.channel('rooms', { membership: 'persistent' });
 
 const handlePaginate = rooms.recordedStream('paginate', {
   input: Empty,
-  chunk: RowChunk,
   maxChunks: 100,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
@@ -87,7 +79,6 @@ const handlePaginate = rooms.recordedStream('paginate', {
 
 const handleHistory = rooms.recordedStream('history', {
   input: Empty,
-  chunk: IdxChunk,
   maxChunks: 100,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
@@ -101,7 +92,6 @@ const handleHistory = rooms.recordedStream('history', {
 
 const handleChannelTokens = rooms.stream('channel-tokens', {
   input: Empty,
-  chunk: TokenChunk,
   nudges: { stop: StopPayload },
   async *run(ctx) {
     for (let i = 1; i <= 20; i += 1) {
@@ -115,7 +105,6 @@ const handleChannelTokens = rooms.stream('channel-tokens', {
 
 const handleHistoryNudged = rooms.recordedStream('history-nudged', {
   input: Empty,
-  chunk: IdxChunk,
   nudges: { stop: StopPayload },
   maxChunks: 100,
   maxAgeMs: 60_000,

@@ -6,7 +6,13 @@ import { RejectUpgrade } from '@livething/server/errors';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
+import { capturedBridges, nextRawMessage } from '../../test-utils.ts';
 import { setup } from './index.ts';
+
+vi.mock('../../socket.ts', async (importOriginal) => {
+  const { captureBridges } = await import('../../test-utils.ts');
+  return captureBridges(await importOriginal());
+});
 
 let lastClientIp: string | null = null;
 let disconnects = 0;
@@ -286,6 +292,114 @@ describe('Hono binding', () => {
 
     socket.send(JSON.stringify(['echo', { text: 'hello' }, null]));
     await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text: 'hello' }, null]);
+  });
+
+  it('sets maxMessageBytes on the shared WebSocket server, so a bigger message closes with 1009', async () => {
+    const app = new Hono();
+    const livething = setup({ maxMessageBytes: 1024 });
+    const endpoint = livething.bind(assembled, { maxMessageBytes: 1024 });
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
+
+    servers.push(server);
+    await livething.ready();
+
+    expect(livething.websocket.server.options.maxPayload).toBe(1024);
+    const socket = await openLobbySocket(server.port);
+    const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+    socket.send('x'.repeat(2000));
+
+    expect(await closed).toBe(1009);
+  });
+
+  it('refuses a maxMessageBytes that ws cannot hold, and both webSocketServer and maxMessageBytes', () => {
+    for (const maxMessageBytes of [0, 1.5, Number.NaN, 2 ** 31]) {
+      expect(() => setup({ maxMessageBytes })).toThrow(/setup\(\) maxMessageBytes must be/);
+    }
+
+    expect(() =>
+      setup({ webSocketServer: new WebSocketServer({ noServer: true }), maxMessageBytes: 1024 }),
+    ).toThrow(/both webSocketServer and maxMessageBytes/);
+  });
+
+  it('leaves compression off by default', async () => {
+    const { livething, server } = await startLobby();
+
+    expect(livething.websocket.server.options.perMessageDeflate).toBe(false);
+    const socket = await openLobbySocket(server.port);
+    expect(socket.extensions).toBe('');
+  });
+
+  it('turns on compression for the shared WebSocket server, and JSON and binary still round-trip', async () => {
+    const app = new Hono();
+    const livething = setup({ compression: { threshold: 64 } });
+    const endpoint = livething.bind(assembled, {});
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, livething.websocket, () => livething.shutdown());
+
+    servers.push(server);
+    await livething.ready();
+
+    expect(livething.websocket.server.options.perMessageDeflate).toMatchObject({
+      threshold: 64,
+      serverNoContextTakeover: true,
+      clientNoContextTakeover: true,
+    });
+    const socket = await openLobbySocket(server.port);
+    expect(socket.extensions).toContain('permessage-deflate');
+
+    const text = 'a new message in #general '.repeat(100);
+    socket.send(JSON.stringify(['echo', { text }, null]));
+    await expect(waitForMessage(socket)).resolves.toEqual(['echoed', { text }, null]);
+
+    const bridge = capturedBridges.at(-1)!;
+    const tcp = (socket as WebSocket & { _socket: { bytesRead: number } })._socket;
+    const before = tcp.bytesRead;
+    const textMessage = nextRawMessage(socket);
+    bridge.transport.send({ kind: 'text', text: 'x'.repeat(2000) });
+
+    await textMessage;
+    expect(tcp.bytesRead - before).toBeLessThan(200);
+
+    const outgoing = nextRawMessage(socket);
+    bridge.transport.send({ kind: 'bytes', bytes: new Uint8Array(4096).fill(7) });
+    const { data, isBinary } = await outgoing;
+    expect(isBinary).toBe(true);
+    expect([...(data as Buffer)]).toEqual(Array.from({ length: 4096 }, () => 7));
+
+    socket.send(new Uint8Array(4096).fill(9));
+    await vi.waitFor(() => expect(bridge.binaryMessages).toHaveLength(1));
+    expect([...bridge.binaryMessages[0]!]).toEqual(Array.from({ length: 4096 }, () => 9));
+  });
+
+  it('uses the ws default threshold of 1024 bytes for compression: true', () => {
+    const livething = setup({ compression: true });
+
+    expect(livething.websocket.server.options.perMessageDeflate).toMatchObject({
+      threshold: 1024,
+    });
+  });
+
+  it('refuses a bad compression, and both webSocketServer and compression', () => {
+    expect(() => setup({ compression: 'yes' as unknown as boolean })).toThrow(
+      /\[livething\] setup\(\) compression must be true, false or \{ threshold \}/,
+    );
+    expect(() => setup({ compression: { threshold: -1 } })).toThrow(
+      /\[livething\] setup\(\) compression\.threshold must be a whole number of bytes from 0/,
+    );
+    expect(() =>
+      setup({ webSocketServer: new WebSocketServer({ noServer: true }), compression: true }),
+    ).toThrow(
+      /\[livething\] setup\(\) got both webSocketServer and compression\. Set perMessageDeflate on your own WebSocketServer instead\./,
+    );
+  });
+
+  it('refuses an endpoint maxMessageBytes larger than the shared server limit', () => {
+    const livething = setup({ maxMessageBytes: 1024 });
+
+    expect(() => livething.bind(assembled, { maxMessageBytes: 2048 })).toThrow(
+      /maxMessageBytes \(2048\) is larger than the shared WebSocket server limit \(1024\)/,
+    );
   });
 
   it('uses a caller-provided WebSocket server', async () => {
@@ -597,7 +711,7 @@ describe('Hono binding', () => {
     }
   });
 
-  it('closes binary frames with code 1003 without rejecting text frames', async () => {
+  it('hands a binary frame to the engine as a plain Uint8Array, which closes it with 1003', async () => {
     const { server } = await startLobby();
     const socket = await openLobbySocket(server.port);
 
@@ -606,13 +720,38 @@ describe('Hono binding', () => {
     await expect(echoed).resolves.toEqual(['echoed', { text: 'text' }, null]);
 
     const closed = waitForClose(socket);
-    socket.send(Buffer.from('binary'));
+    socket.send(Buffer.from([1, 2, 3]));
 
     await expect(closed).resolves.toEqual({
       code: 1003,
-      reason: '[livething] binary frames are not supported yet',
+      reason: '[livething] this server does not use binary()',
     });
+    const [received] = capturedBridges.at(-1)!.binaryMessages;
+    expect(Object.getPrototypeOf(received)).toBe(Uint8Array.prototype);
+    expect([...received!]).toEqual([1, 2, 3]);
     await vi.waitFor(() => expect(lastDisconnect?.code).toBe(1003));
+  });
+
+  it('drops the socket with no close handshake on terminate', async () => {
+    const { server } = await startLobby();
+    const socket = await openLobbySocket(server.port);
+    const closed = waitForClose(socket);
+
+    capturedBridges.at(-1)!.transport.terminate!();
+
+    await expect(closed).resolves.toMatchObject({ code: 1006 });
+  });
+
+  it('sends a bytes frame as a binary message', async () => {
+    const { server } = await startLobby();
+    const socket = await openLobbySocket(server.port);
+
+    const message = nextRawMessage(socket);
+    capturedBridges.at(-1)!.transport.send({ kind: 'bytes', bytes: new Uint8Array([7, 8, 9]) });
+    const { data, isBinary } = await message;
+
+    expect(isBinary).toBe(true);
+    expect([...(data as Buffer)]).toEqual([7, 8, 9]);
   });
 
   it('passes the client close code and reason to onDisconnect', async () => {

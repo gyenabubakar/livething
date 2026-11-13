@@ -10,6 +10,7 @@ import { validateValue } from '~/_engine/compile/utils.ts';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import { assertTimerDelay } from '~/_engine/validation.ts';
+import { isBinaryPayload } from '~/outgoing/binary-payload.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';
@@ -17,19 +18,73 @@ import type { Primitive } from '~/primitive.ts';
 import type { ResolvedServerRequest } from '~/request/server-requests.ts';
 import type { Validator } from '~/types.ts';
 
-type ValueParameter = { response: unknown; from: PublicApi.ConnectionRef };
+/** What a user request resolves to: `{ response, from }`, or `{ info, bytes, from }` for a binary one. */
+type ValueParameter =
+  | { response: unknown; from: PublicApi.ConnectionRef }
+  | { info: unknown; bytes: Uint8Array | undefined; from: PublicApi.ConnectionRef };
 type ChannelDeclarationKeyHandleParameter = { name?: string; family?: unknown };
 type SettleFrameParameter = {
   event: string;
   payload: unknown;
   livething: Protocol.LiveThingProtocol | undefined;
+  /** The bytes of an answer that came as a binary frame. */
+  bytes?: Uint8Array;
 };
 type SettleRaceLegArgsParameter = {
   connectionId: string;
   correlationId: string;
   entry: Extract<PendingServerRequest, { kind: 'race' }>;
-  frame: { event: string; payload: unknown };
+  frame: SettleFrameParameter;
 };
+
+/** The kind of frame an answer must come as: the same kind as the request. */
+type AnswerKind = 'text' | 'binary';
+
+function answerKindOf(frame: SettleFrameParameter): AnswerKind {
+  return frame.bytes === undefined ? 'text' : 'binary';
+}
+
+/** A text `__error__`: the client declines the request. A binary one is not a decline. */
+function isDecline(frame: SettleFrameParameter): boolean {
+  return frame.event === '__error__' && frame.bytes === undefined;
+}
+
+type SentRequestParameter = { event: string; payload: unknown };
+
+/**
+ * The declaration a request sends under, or the `request-not-declared` error. A binary
+ * request's declaration must be binary, and a JSON request's must not be.
+ */
+function declarationFor(
+  serverRequests: ReadonlyMap<string, ResolvedServerRequest>,
+  key: string,
+  request: SentRequestParameter,
+): ResolvedServerRequest | LiveThingError {
+  const { event, payload } = request;
+  const declaration = serverRequests.get(key);
+  if (!declaration) return RequestNotDeclared(event);
+
+  const sentAsBinary = isBinaryPayload(payload);
+  if ((declaration.binary === true) === sentAsBinary) return declaration;
+
+  const error = RequestNotDeclared(event);
+  error.message = sentAsBinary
+    ? `[livething] '${event}' is declared in serverRequests({...}). ` +
+      'Send it with .request(...), not .binary.request(...).'
+    : `[livething] '${event}' is declared in binary({ serverRequests }). ` +
+      'Send it with .binary.request(...), not .request(...).';
+
+  return error;
+}
+
+/** The rejection for an answer of the wrong frame kind. */
+function wrongKindAnswer(event: string, expected: AnswerKind): LiveThingError {
+  return RequestInvalidResponse({
+    event,
+    issues: [{ message: `The answer must be a ${expected} frame.` }],
+  });
+}
+
 type SendRequestArgsParameter = {
   target: {
     connectionId: string;
@@ -76,6 +131,8 @@ type PendingServerRequest =
       event: string;
       /** The schema the client's answer is validated against, when one is declared. */
       responseValidator?: Validator;
+      /** The frame kind the answer must come as. */
+      answerKind: AnswerKind;
     }
   | {
       kind: 'race';
@@ -94,6 +151,8 @@ interface RaceGroup {
   event: string;
   /** Validates each leg's answer; an answer that fails it is ignored, not a win. */
   responseValidator?: Validator;
+  /** The frame kind each answer must come as; an answer of the other kind is ignored. */
+  answerKind: AnswerKind;
   /** The correlationIds of every still-pending leg, cleared once a winner lands. */
   legs: Set<string>;
   /** True once a winner has resolved the group, so late answers are ignored. */
@@ -157,24 +216,33 @@ function createOutgoingRequestRuntime(
     pending.delete(correlationId);
     clearTimeout(entry.timer);
 
-    if (frame.event === '__error__') {
-      // The client could not answer (no handler, handler threw). Reject the
-      // server promise with the typed error frame the client sent back.
+    // A text `__error__` declines a request of either kind: the client could not answer
+    // (no handler, handler threw). Reject with the typed error the client sent back.
+    if (isDecline(frame)) {
       entry.reject(toRejection(frame.payload));
       return true;
     }
 
-    if (entry.responseValidator) {
-      try {
-        entry.resolve(validateValue(entry.responseValidator, frame.payload, entry.event));
-      } catch {
-        entry.reject(RequestInvalidResponse({ event: entry.event, issues: [] }));
-      }
-
+    // The kind comes next, before any check of the answer: with no `in` schema, any answer
+    // would count as success. A binary `__error__` is a wrong-kind answer, not a decline.
+    if (answerKindOf(frame) !== entry.answerKind || frame.event === '__error__') {
+      entry.reject(wrongKindAnswer(entry.event, entry.answerKind));
       return true;
     }
 
-    entry.resolve(undefined);
+    let response: unknown;
+    if (entry.responseValidator) {
+      try {
+        response = validateValue(entry.responseValidator, frame.payload, entry.event);
+      } catch {
+        entry.reject(RequestInvalidResponse({ event: entry.event, issues: [] }));
+        return true;
+      }
+    }
+
+    entry.resolve(
+      entry.answerKind === 'binary' ? { info: response, bytes: frame.bytes } : response,
+    );
 
     return true;
   }
@@ -198,8 +266,9 @@ function createOutgoingRequestRuntime(
 
     if (group.settled) return true;
 
-    // A client that declined to answer sends `__error__`; treat it as silence.
-    if (frame.event !== '__error__') {
+    // A decline (`__error__`) is silence, and an answer of the wrong frame kind is ignored,
+    // like an invalid one.
+    if (frame.event !== '__error__' && answerKindOf(frame) === group.answerKind) {
       let response: unknown;
       let valid = true;
       if (group.responseValidator) {
@@ -208,12 +277,14 @@ function createOutgoingRequestRuntime(
         } catch {
           valid = false;
         }
-      } else {
-        response = undefined;
       }
 
       if (valid) {
-        finishRace(group, () => group.resolve({ response, from: entry.from }));
+        const answer =
+          group.answerKind === 'binary'
+            ? { info: response, bytes: frame.bytes, from: entry.from }
+            : { response, from: entry.from };
+        finishRace(group, () => group.resolve(answer));
         return true;
       }
     }
@@ -257,11 +328,8 @@ function createOutgoingRequestRuntime(
   function sendRequest(args: SendRequestArgsParameter): Promise<unknown> {
     const { target, event, payload, options } = args;
     const declarationKey = serverRequestKey(target.declarationChannelKey ?? null, event);
-    if (!serverRequests.has(declarationKey)) {
-      return Promise.reject(RequestNotDeclared(event));
-    }
-
-    const declaration = serverRequests.get(declarationKey)!;
+    const declaration = declarationFor(serverRequests, declarationKey, { event, payload });
+    if (declaration instanceof LiveThingError) return Promise.reject(declaration);
 
     const correlationId = engine.generateId('sreq');
 
@@ -281,7 +349,8 @@ function createOutgoingRequestRuntime(
         timer,
         connectionId: target.connectionId,
         event,
-        responseValidator: declaration?.responseValidator,
+        responseValidator: declaration.responseValidator,
+        answerKind: declaration.binary ? 'binary' : 'text',
       });
 
       let sent: boolean;
@@ -317,16 +386,13 @@ function createOutgoingRequestRuntime(
    * no valid answer arrives in time — including when the user has no live
    * socket on this instance.
    */
-  function sendUserRequest(
-    args: SendUserRequestArgsParameter,
-  ): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
+  function sendUserRequest(args: SendUserRequestArgsParameter): Promise<ValueParameter> {
     const { user, event, payload, options } = args;
-    const declarationKey = serverRequestKey(null, event);
-    if (!serverRequests.has(declarationKey)) {
-      return Promise.reject(RequestNotDeclared(event));
-    }
-
-    const declaration = serverRequests.get(declarationKey)!;
+    const declaration = declarationFor(serverRequests, serverRequestKey(null, event), {
+      event,
+      payload,
+    });
+    if (declaration instanceof LiveThingError) return Promise.reject(declaration);
 
     return new Promise((resolve, reject) => {
       const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -336,7 +402,8 @@ function createOutgoingRequestRuntime(
         resolve,
         reject,
         event,
-        responseValidator: declaration?.responseValidator,
+        responseValidator: declaration.responseValidator,
+        answerKind: declaration.binary ? 'binary' : 'text',
         legs: new Set<string>(),
         settled: false,
         timer: undefined as unknown as ReturnType<typeof setTimeout>,
@@ -387,7 +454,12 @@ function createOutgoingRequestRuntime(
     });
   }
 
-  return { settle, rejectForConnection, sendRequest, sendUserRequest };
+  /** Whether a request sent to this connection waits for this correlation id. */
+  function awaits(connectionId: string, correlationId: string): boolean {
+    return pending.get(correlationId)?.connectionId === connectionId;
+  }
+
+  return { settle, awaits, rejectForConnection, sendRequest, sendUserRequest };
 }
 
 /** Coerce a client `__error__` payload into a throwable for the server promise. */
@@ -432,6 +504,9 @@ export function makeServerRequestsPrimitive(
       const runtime = createOutgoingRequestRuntime(engine, serverRequests);
 
       engine.onAnswerFrame((connectionId, frame) => runtime.settle(connectionId, frame));
+      engine.onAnswerAwaited((connectionId, correlationId) =>
+        runtime.awaits(connectionId, correlationId),
+      );
 
       engine.onDisconnect((ctx) => {
         const connectionId = (ctx as { connection?: { id?: string } }).connection?.id;
@@ -487,8 +562,14 @@ export function makeServerRequestsPrimitive(
         // ctx.user.request / ctx.users.get(id).request — ask every live socket the
         // user holds and settle on the first valid answer.
         function attachUserRequest(handle: PublicApi.UserHandle & Record<string, unknown>) {
-          handle.request = (event: string, payload: unknown, options?: RequestOptions) =>
-            runtime.sendUserRequest({ user: handle, event, payload, options });
+          // A binary request resolves `{ info, bytes, from }`: `ctx.user.binary.request` types it.
+          handle.request = ((event: string, payload: unknown, options?: RequestOptions) =>
+            runtime.sendUserRequest({
+              user: handle,
+              event,
+              payload,
+              options,
+            })) as PublicApi.UserHandle['request'];
         }
 
         if (ctx.user) attachUserRequest(ctx.user);

@@ -7,8 +7,14 @@ import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerDefinition } from '@livething/server/adapters';
+import { capturedBridges, nextRawMessage } from '../../test-utils.ts';
 import { setup } from './index.ts';
 import type { NodeEndpointOptions } from '../../binding.ts';
+
+vi.mock('../../socket.ts', async (importOriginal) => {
+  const { captureBridges } = await import('../../test-utils.ts');
+  return captureBridges(await importOriginal());
+});
 
 let lastClientIp: string | null = null;
 let disconnects = 0;
@@ -426,7 +432,7 @@ describe('Fastify binding', () => {
     }
   });
 
-  it('closes binary frames with code 1003 without rejecting text frames', async () => {
+  it('hands a binary frame to the engine as a plain Uint8Array, which closes it with 1003', async () => {
     const app = await createApp();
     apps.push(app);
     const socket = await openLobbySocket(app.port);
@@ -436,13 +442,40 @@ describe('Fastify binding', () => {
     await expect(echoed).resolves.toEqual(['echoed', { text: 'text' }, null]);
 
     const closed = waitForClose(socket);
-    socket.send(Buffer.from('binary'));
+    socket.send(Buffer.from([1, 2, 3]));
 
     await expect(closed).resolves.toEqual({
       code: 1003,
-      reason: '[livething] binary frames are not supported yet',
+      reason: '[livething] this server does not use binary()',
     });
+    const [received] = capturedBridges.at(-1)!.binaryMessages;
+    expect(Object.getPrototypeOf(received)).toBe(Uint8Array.prototype);
+    expect([...received!]).toEqual([1, 2, 3]);
     await vi.waitFor(() => expect(lastDisconnect?.code).toBe(1003));
+  });
+
+  it('drops the socket with no close handshake on terminate', async () => {
+    const app = await createApp();
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+    const closed = waitForClose(socket);
+
+    capturedBridges.at(-1)!.transport.terminate!();
+
+    await expect(closed).resolves.toMatchObject({ code: 1006 });
+  });
+
+  it('sends a bytes frame as a binary message', async () => {
+    const app = await createApp();
+    apps.push(app);
+    const socket = await openLobbySocket(app.port);
+
+    const message = nextRawMessage(socket);
+    capturedBridges.at(-1)!.transport.send({ kind: 'bytes', bytes: new Uint8Array([7, 8, 9]) });
+    const { data, isBinary } = await message;
+
+    expect(isBinary).toBe(true);
+    expect([...(data as Buffer)]).toEqual([7, 8, 9]);
   });
 
   it('passes the client close code and reason to onDisconnect', async () => {

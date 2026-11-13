@@ -1,3 +1,4 @@
+import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -43,7 +44,11 @@ type OptionsParameter = {
   channelFamily: string | null;
   event: string;
   payload: unknown;
+  /** The bytes of a stored binary row, sent back as one binary frame. */
+  bytes?: Uint8Array;
   wire: { deliverySeq: number; messageId: string; channel?: string };
+  /** A new message sent now: it waits behind a running catch-up of its store. */
+  live?: boolean;
 };
 type OptionsParameter2 = {
   channelName: string | null;
@@ -55,7 +60,7 @@ type OptsParameter2 = {
   channelName: string;
   channelFamily: string | null;
   event: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown> | null;
 };
 
 /**
@@ -133,6 +138,14 @@ export interface EngineAccess {
    * @internal
    */
   onAnswerFrame(handler: (connectionId: string, frame: FrameParameter) => boolean): void;
+
+  /**
+   * Tell the engine whether a request it sent to a connection waits for a correlation id.
+   * Only a frame that really answers a waiting request skips the pending-bytes budget.
+   *
+   * @internal
+   */
+  onAnswerAwaited(handler: (connectionId: string, correlationId: string) => boolean): void;
 
   /**
    * Send a server→client request frame to one live connection.
@@ -372,6 +385,15 @@ export interface EngineAccess {
    * `replay: true` or `replay: false` — that scope is already claimed.
    */
   getReplayClaimedChannelKeys(): ReadonlySet<string>;
+
+  /**
+   * The events declared in `binary({ emits })`, with the key of the channel that declares each
+   * one, or `undefined` for the top level.
+   */
+  getBinaryEvents(): { channelKey: string | undefined; event: string }[];
+
+  /** The adapter's message limits, in bytes. */
+  getMessageLimits(): EngineAdapterTypes.MessageLimits;
 
   /**
    * Add extra fields or methods to every live connection context.
@@ -714,17 +736,18 @@ export interface EngineAccess {
 
   /**
    * Validate that a `ctx.sendReplay(...)` call satisfies the same contract
-   * as a normal `ctx.send(...)`: the payload is a plain object and the event
+   * as a normal `ctx.send(...)`: the payload is a plain object or `null` and the event
    * is declared in the routing scope. Used by the replay primitive to enforce
    * the public-API contract before forwarding to `sendReplay`. The
    * replay-from-storage path stays trusted because rows were validated when
-   * written.
+   * written. With `bytes` (a `.binary.sendReplay`), the event must be a `binary({ emits })`
+   * event instead.
    */
   assertReplaySendContract(
     event: string,
     payload: unknown,
-    routing: { channel?: string; channelFamily?: string | null } | undefined,
-  ): asserts payload is Record<string, unknown>;
+    send: { channel?: string; channelFamily?: string | null; bytes?: Uint8Array } | undefined,
+  ): asserts payload is Record<string, unknown> | null;
 
   /**
    * Recompute the next scheduled callback from the current scheduled-run table.
@@ -788,12 +811,36 @@ export interface EngineAccess {
   setDurableStreamService(service: FeatureSlots.DurableStreamService): void;
 
   /**
+   * Register the upload dispatch surface (start, piece, end, cancel). Set once when
+   * `uploads()` is listed.
+   *
+   * @internal
+   */
+  setUploadService(service: FeatureSlots.UploadService): void;
+
+  /**
+   * Build the context that scheduled task bodies and `onShutdown` hooks receive: one with
+   * no connection. `uploads()` gives it to `onDiscard`.
+   *
+   * @internal
+   */
+  buildConnectionlessContext(): unknown;
+
+  /**
    * Register the request dispatcher so the hub can run a matched `request(...)`
    * without importing its runtime. Set by the `serverRequests()` capability.
    *
    * @internal
    */
   setRequestDispatch(dispatch: FeatureSlots.RequestDispatch): void;
+
+  /**
+   * Register the binary receive path and the `.binary` senders. Set by the `binary()`
+   * capability; without it a binary message closes the socket with `1003`.
+   *
+   * @internal
+   */
+  setBinaryService(service: FeatureSlots.BinaryService): void;
 
   /**
    * Register the `ctx.tags` builder so the connection context can expose the tag

@@ -91,18 +91,41 @@ const streamBase = server({
 });
 
 const plainStream = streamBase.stream('plain', {
-  chunk: t<{ tick: number }>(),
-  run: async function* () {},
+  run: async function* (): AsyncGenerator<{ tick: number }> {},
 });
 
 const recorded = streamBase.recordedStream('record', {
-  chunk: t<{ tick: number }>(),
   nudges: { faster: v.object({ by: v.number() }) },
-  run: async function* () {},
+  run: async function* (): AsyncGenerator<{ tick: number }> {},
 });
 
-const streamDef = streamBase.assemble({ handlers: [plainStream, recorded] });
+// With no annotation, the chunk type is the union of what `run` yields.
+const searchMessages = streamBase.stream('search-messages', {
+  async *run() {
+    if (Math.random() > 0.5) {
+      yield { done: true as const };
+      return;
+    }
+
+    yield { hit: 'launch plan', score: 0.9 };
+  },
+});
+
+streamBase.stream('plain', {
+  // @ts-expect-error: the chunk type comes from `run`, so there is no `chunk` option
+  chunk: t<{ tick: number }>(),
+  async *run() {
+    yield { tick: 1 };
+  },
+});
+
+const streamDef = streamBase.assemble({ handlers: [plainStream, recorded, searchMessages] });
 type StreamClient = InferClient<typeof streamDef>;
+
+expectTypeOf<StreamClient['streams']['plain']['chunk']>().toEqualTypeOf<{ tick: number }>();
+expectTypeOf<StreamClient['streams']['search-messages']['chunk']>().toEqualTypeOf<
+  { done: true } | { hit: string; score: number }
+>();
 
 // A plain stream is ephemeral, and an empty nudge map is tidied away.
 expectTypeOf<StreamClient['streams']['plain']['kind']>().toEqualTypeOf<'ephemeral'>();

@@ -429,7 +429,7 @@ describe("persistent tags across one user's connections", () => {
       const received: unknown[] = [];
       const before = new Set(engine.core.connections.keys());
       const handle = engine.accept(Symbol(name), {
-        send(data: string) {
+        send({ text: data }: { kind: 'text'; text: string }) {
           const frame = JSON.parse(data) as [string, unknown];
           if (frame[0] === 'designUpdate') received.push(frame[1]);
         },

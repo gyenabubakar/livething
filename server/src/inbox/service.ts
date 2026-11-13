@@ -1,6 +1,11 @@
 import { rescheduleAlarm } from '~/_engine/alarm.ts';
 import { clearCacheEntriesForUser } from '~/inbox/receipts-storage.ts';
-import { clearInboxForChannel, drainInboxOnReconnect, fanOutToInbox } from '~/inbox/runtime.ts';
+import {
+  clearInboxForChannel,
+  drainInboxOnReconnect,
+  fanOutToInbox,
+  inboxCanStore,
+} from '~/inbox/runtime.ts';
 import { deleteInboxRowsOutsideScopes } from '~/inbox/storage.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -16,8 +21,11 @@ const inboxService: InboxService = {
   fanOut(core: EngineCore, opts) {
     fanOutToInbox(core, { ...opts, isUserPurging: (userId) => core.isUserPurging(userId) });
   },
+  canStore(core: EngineCore, message) {
+    return inboxCanStore(core, message);
+  },
   drainOnReconnect(core: EngineCore, connection: RuntimeConnection) {
-    drainInboxOnReconnect(core, connection);
+    return drainInboxOnReconnect(core, connection);
   },
   clearChannel(core: EngineCore, key) {
     clearInboxForChannel(core, key);

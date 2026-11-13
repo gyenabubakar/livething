@@ -8,13 +8,18 @@ import type { ResolvedRateLimitPlan } from './runtime.ts';
 
 /**
  * One rate-limit rule. Same shape at every level so cascade works by partial
- * override: a channel's `{ max: 200 }` keeps the parent's `windowMs` and `per`.
+ * override: a channel's `{ maxMessages: 200 }` keeps the parent's `windowMs` and `per`.
  */
 interface RateLimitRule {
   /** Length of the rolling window, in milliseconds. Default: `60_000` (one minute). */
   readonly windowMs?: number;
-  /** Maximum events per window. Default: `60`. */
-  readonly max?: number;
+  /** Maximum messages per window. Default: `60`. */
+  readonly maxMessages?: number;
+  /**
+   * Maximum bytes per window, counted on the whole frame (UTF-8 for text). Default: no byte
+   * limit. A frame bigger than this passes only when the budget is full, and it empties it.
+   */
+  readonly maxBytes?: number;
   /**
    * Pick the bucket key from the connection context. Default: `ctx.connection.id`
    * (per-connection). Use `(ctx) => ctx.user.id` to share a single budget
@@ -32,7 +37,7 @@ export type RateLimitConfig = false | RateLimitRule;
 
 export const RATE_LIMIT_DEFAULTS = Object.freeze({
   windowMs: 60_000,
-  max: 60,
+  maxMessages: 60,
   per: connectionBudgetKey,
 });
 
@@ -56,7 +61,7 @@ export interface RateLimitPrimitive extends Primitive<'intercept'> {}
 export function rateLimit(plan: ResolvedRateLimitPlan): RateLimitPrimitive {
   const runtime = new RateLimitRuntime(plan);
   const primitive = intercept((ctx, message) => {
-    const verdict = runtime.check(ctx, message.event);
+    const verdict = runtime.check(ctx, message.event, message.size);
     if (verdict) throw RateLimited({ retryAfterMs: verdict.retryAfterMs });
   });
   return {

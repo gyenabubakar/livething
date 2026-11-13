@@ -4,10 +4,11 @@ import { capability, stampKind, withCapabilityKind } from '~/_define/capability.
 import { recordedDurableRegistrar } from '~/_engine/stream-durable/registrar.ts';
 import { sweepDurableStreams } from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
+import { binaryHandlerFields } from '~/incoming/incoming.ts';
 import { scheduled as scheduledFactory } from '~/scheduled/scheduled.ts';
 import { compileRecordedStreamDef } from '~/stream-recorded/compile.ts';
 import { recordedStream as recordedStreamDef } from '~/stream-recorded/definition.ts';
-import { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
+import { binaryChunks, toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -74,11 +75,20 @@ export const recordedStream = withCapabilityKind(
           broadcast: config.broadcast,
           allowConcurrent: config.allowConcurrent,
           maxChunks: config.maxChunks,
+          maxBufferBytes: config.maxBufferBytes,
           maxAgeMs: config.maxAgeMs,
           retentionAfterEndMs: config.retentionAfterEndMs,
         });
-        const handlers = new Map([[event, wrapStreamGenerator(config.run)]]);
-        return compileRecordedStreamDef(def, handlers);
+        const method = `binary.recordedStream('${event}')`;
+        const run = config.binary ? binaryChunks(method, config.run) : config.run;
+        const primitive = compileRecordedStreamDef(
+          def,
+          new Map([[event, wrapStreamGenerator(run)]]),
+        );
+
+        return config.binary
+          ? { ...primitive, ...binaryHandlerFields(method, config.maxBytes) }
+          : primitive;
       },
     };
     (cap as { __durableSweep: RecordedStreamCapability['__durableSweep'] }).__durableSweep =

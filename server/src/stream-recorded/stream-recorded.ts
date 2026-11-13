@@ -1,5 +1,5 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { Primitive } from '~/primitive.ts';
+import type { StreamGenerator } from '~/stream/shared.ts';
 import type { Validator } from '~/types.ts';
 
 const RECORDED_STREAM_GENERATE_KEY = Symbol('recorded-stream-generate');
@@ -18,11 +18,12 @@ interface DurableNudgeDeclaration {
 export interface RecordedStreamGeneratePrimitive extends Primitive<'recorded-stream-generate'> {
   readonly event: string;
   readonly validator?: Validator<unknown>;
-  readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
+  readonly generator: StreamGenerator;
   readonly allowConcurrent: boolean;
   readonly broadcast: boolean;
   readonly nudges: readonly DurableNudgeDeclaration[];
   readonly maxChunks: number;
+  readonly maxBufferBytes: number;
   readonly maxAgeMs: number;
   readonly retentionAfterEndMs: number;
 }
@@ -31,11 +32,12 @@ export interface RecordedStreamGeneratePrimitive extends Primitive<'recorded-str
 export interface BuildRecordedStreamGenerateInput {
   event: string;
   validator?: Validator<unknown>;
-  generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
+  generator: StreamGenerator;
   allowConcurrent?: boolean;
   broadcast?: boolean;
   nudges?: readonly DurableNudgeDeclaration[];
   maxChunks: number;
+  maxBufferBytes: number;
   maxAgeMs: number;
   retentionAfterEndMs: number;
 }
@@ -55,6 +57,7 @@ export function recordedGenerateFactory(
     broadcast: input.broadcast ?? false,
     nudges: input.nudges ?? [],
     maxChunks: input.maxChunks,
+    maxBufferBytes: input.maxBufferBytes,
     maxAgeMs: input.maxAgeMs,
     retentionAfterEndMs: input.retentionAfterEndMs,
   };

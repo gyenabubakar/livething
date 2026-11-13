@@ -1,6 +1,7 @@
 // Huddle's own app code that docs examples call without showing: UI updates and data lookups.
 // Every helper has a real signature, so a wrong call in an example is a type error.
 import type { ConnectionQuality } from '@livething/client';
+import type { UploadPiece } from '@livething/server/uploads';
 import type { Message } from './base';
 
 export declare function render(text: string): void;
@@ -35,6 +36,139 @@ export declare function lookupProfile(
   userId: string,
 ): { id: string; name: string; status: 'active' | 'away' | 'busy' } | undefined;
 export declare function loadMessagePreview(messageId: string): Promise<string>;
+/** Checks that the bytes really are an image of that type, then stores them. */
+export declare function saveAvatar(
+  userId: string,
+  fileType: 'image/png' | 'image/jpeg',
+  bytes: Uint8Array,
+): Promise<void>;
+/** A small copy of the picture, for the preview the user sees right away. */
+export declare function resizeAvatar(bytes: Uint8Array): Promise<Uint8Array>;
+/** Shows the new avatar from its picture bytes. */
+export declare function showAvatar(bytes: Uint8Array): void;
+/** The last picture a member shared in a room, as the app stored it, or `undefined`. */
+export declare function loadLastScreenPicture(
+  roomId: string,
+  from: string,
+): Promise<{ id: string; bytes: Uint8Array } | undefined>;
+/** Draws one picture of a member's shared screen in that member's window. */
+export declare function paintScreen(from: string, bytes: Uint8Array): void;
+/** The avatar picture the user picked, read from the file input. */
+export declare const avatarBytes: Uint8Array;
+/** One picture of this user's shared screen. */
+export declare const pictureBytes: Uint8Array;
+/** The pictures of this user's shared screen, one after another. */
+export declare const screenPictures: readonly Uint8Array[];
+/** A small PNG picture of an attachment's first page. */
+export declare function makeThumbnail(
+  attachmentId: string,
+): Promise<{ fileType: 'image/png'; bytes: Uint8Array }>;
+/** Opens a stored attachment, read from `fromByte` on in pieces of up to 256 KiB. */
+export declare function openAttachment(
+  attachmentId: string,
+  fromByte: number,
+): Promise<{
+  name: string;
+  type: string;
+  pieces(signal: AbortSignal): AsyncIterable<Uint8Array>;
+}>;
+/** An uploaded attachment, as Huddle stores it. `roomId` is `null` until a message posts it. */
+export interface StoredAttachment {
+  attachmentId: string;
+  ownerId: string;
+  roomId: string | null;
+  fileName: string;
+  fileType: string;
+  size: number;
+}
+/** Writes bytes into an attachment's file at `offset`. Writing the same bytes again is safe. */
+export declare function writeAttachmentBytes(
+  attachmentId: string,
+  offset: number,
+  bytes: Uint8Array,
+): Promise<void>;
+/** Saves the record of an attachment whose bytes are all stored. */
+export declare function saveAttachment(attachment: StoredAttachment): Promise<void>;
+/** The record of an attachment, or `undefined` when it does not exist. */
+export declare function loadAttachment(attachmentId: string): Promise<StoredAttachment | undefined>;
+/** Puts uploaded attachments in a room, so its members can download them. */
+export declare function attachToRoom(attachmentIds: string[], roomId: string): Promise<void>;
+/** Deletes an attachment's file and its record. Does nothing when it is already gone. */
+export declare function deleteAttachment(attachmentId: string): Promise<void>;
+/**
+ * Joins an upload's pieces into parts of exactly `partBytes` bytes, and one shorter last part.
+ * It copies the bytes, so each part is a new array that stays valid after the next piece.
+ */
+export declare function partsOf(
+  pieces: AsyncIterable<UploadPiece>,
+  partBytes: number,
+): AsyncIterable<Uint8Array>;
+/**
+ * Puts each of an upload's pieces at its offset in one array of `totalBytes` bytes. Returns
+ * `null` when the pieces have more or fewer bytes than `totalBytes`.
+ */
+export declare function collectBytes(
+  pieces: AsyncIterable<UploadPiece>,
+  totalBytes: number,
+): Promise<Uint8Array | null>;
+/** Returns a signed URL that lets anyone who has it read the attachment's file from the bucket, until it expires. */
+export declare function signAttachmentUrl(
+  attachmentId: string,
+  expiresInSeconds: number,
+): Promise<string>;
+/** Starts a multipart upload of an attachment in Huddle's S3 or R2 bucket, and returns its id. */
+export declare function startAttachmentUpload(attachmentId: string): Promise<string>;
+/** Uploads one part of a multipart upload. Uploading the same part number again replaces it. */
+export declare function uploadAttachmentPart(
+  attachmentId: string,
+  multipartId: string,
+  partNumber: number,
+  bytes: Uint8Array,
+  signal?: AbortSignal,
+): Promise<{ partNumber: number; etag: string }>;
+/** Joins the uploaded parts into the attachment's file in the bucket. */
+export declare function completeAttachmentUpload(
+  attachmentId: string,
+  multipartId: string,
+  parts: { partNumber: number; etag: string }[],
+): Promise<void>;
+/** Aborts a multipart upload, and deletes its parts. Does nothing when it is already gone. */
+export declare function abortAttachmentUpload(
+  attachmentId: string,
+  multipartId: string,
+): Promise<void>;
+/** Writes bytes into a poll's picture at `offset`. Writing the same bytes again is safe. */
+export declare function writePollImageBytes(
+  pollId: string,
+  offset: number,
+  bytes: Uint8Array,
+): Promise<void>;
+/** The file the user picked to attach. */
+export declare const pickedFile: File;
+/** Shows how much of a file the server has read. */
+export declare function showUploadProgress(
+  fileName: string,
+  receivedBytes: number,
+  totalBytes: number,
+): void;
+/** Renders a room's messages as a PDF, in pieces of up to 256 KiB. */
+export declare function renderRoomPdf(roomId: string): AsyncIterable<Uint8Array>;
+/** The voice notes of a direct message in Huddle's older app, oldest first. */
+export declare function loadOldVoiceNotes(
+  dmName: string,
+): Promise<{ id: string; from: string; durationMs: number; bytes: Uint8Array }[]>;
+/** The voice note the user just recorded. */
+export declare const voiceNoteBytes: Uint8Array;
+/** Plays a voice note from a member of a direct message. */
+export declare function playVoiceNote(from: string, bytes: Uint8Array): void;
+/** Shows an attachment's thumbnail from its picture bytes. */
+export declare function showThumbnail(fileType: 'image/png', bytes: Uint8Array): void;
+/** Starts saving a downloaded attachment under its name. */
+export declare function startFile(fileName: string, fileType: string): void;
+/** Adds the next piece of the downloaded attachment to the file. */
+export declare function appendToFile(bytes: Uint8Array): Promise<void>;
+/** Takes a PNG picture of this user's shared screen, at most `maxWidth` pixels wide. */
+export declare function capturePng(maxWidth: number): Promise<Uint8Array>;
 export declare function deleteMessage(messageId: string): Promise<void>;
 export declare function loadOnCallModeratorId(): Promise<string>;
 export declare function runScoutStep(

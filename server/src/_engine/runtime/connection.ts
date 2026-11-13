@@ -1,5 +1,5 @@
 import { assertSynchronousResult, CloseCodes, StreamAborted } from '@livething/core';
-import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
+import { normalizeConnectionDescriptor, textOverLimit } from '~/_adapters/close.ts';
 import { withCallContext, withConnectionLevelCall } from '~/_engine/async-context.ts';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
@@ -220,6 +220,9 @@ interface ConnectionRuntime {
 
   hibernationEnabled?: boolean;
 
+  /** The adapter's message limits. The engine always passes them; a test runtime may not. */
+  messageLimits?: EngineAdapterTypes.MessageLimits;
+
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   /** User-key → members index, maintained on accept, close, and hibernation wake. */
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
@@ -272,6 +275,12 @@ interface ConnectionRuntime {
   ): Promise<void>;
 
   processTextMessage(connection: EngineRuntimeTypes.RuntimeConnection, data: string): Promise<void>;
+
+  /** Set while a capability routes binary messages. Without it, a binary message closes the socket. */
+  processBinaryMessage?(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    data: Uint8Array,
+  ): Promise<void>;
 
   handleConnectionClose(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -333,13 +342,51 @@ function createHandle(
     }
   }
 
+  const receiveBytes = runtime.messageLimits?.receiveBytes;
+
+  // Frames already on the way must not run handlers while the close completes.
+  function closeFor(code: number, reason: string): void {
+    connection.closing = true;
+    connection.descriptor.close(code, reason);
+  }
+
   return {
     handleMessage: async (data) => {
+      if (connection.closing) return;
+
+      // The platform should refuse a bigger message first; this makes the limit hold anyway.
+      if (receiveBytes !== undefined && textOverLimit(data, receiveBytes)) {
+        closeFor(CloseCodes.MESSAGE_TOO_BIG, 'Message is too big');
+        return;
+      }
+
       try {
         await waitForLifecycle();
         if (connection.closing) return;
 
         await runtime.processTextMessage(connection, data);
+      } catch (error) {
+        await reportCallbackError(error);
+      }
+    },
+    handleBinaryMessage: async (data) => {
+      if (connection.closing) return;
+
+      if (receiveBytes !== undefined && data.byteLength > receiveBytes) {
+        closeFor(CloseCodes.MESSAGE_TOO_BIG, 'Message is too big');
+        return;
+      }
+
+      try {
+        await waitForLifecycle();
+        if (connection.closing) return;
+
+        if (!runtime.processBinaryMessage) {
+          closeFor(CloseCodes.UNSUPPORTED_DATA, '[livething] this server does not use binary()');
+          return;
+        }
+
+        await runtime.processBinaryMessage(connection, data);
       } catch (error) {
         await reportCallbackError(error);
       }
@@ -368,6 +415,7 @@ function createHandle(
 function closedHandle(): EngineAdapterTypes.ConnectionHandle {
   return {
     handleMessage: async () => {},
+    handleBinaryMessage: async () => {},
     handleClose: async () => {},
     handleError: async () => {},
   };
@@ -630,6 +678,12 @@ export function acceptConnection(
         code,
       });
     },
+    sendBytes: runtime.messageLimits?.sendBytes,
+    // Only a send can call this, and the engine sends only once `connection` exists.
+    onTooSlow: () => {
+      connection.closing = true;
+    },
+    catchUpHold: () => connection.catchUpHold,
   });
 
   assertUsableUserId(descriptor.userId);
@@ -705,12 +759,13 @@ export function acceptConnection(
       // A fresh seq sits after every frame sent so far and before every later
       // one, so a client that saw no frame yet still has a cursor to catch up from.
       const seq = runtime.allocateDeliverySeq?.();
-      connection.descriptor.send(
-        serializeWireFrame('__resume__', {
+      connection.descriptor.send({
+        kind: 'text',
+        text: serializeWireFrame('__resume__', {
           token: connection.resumeToken,
           ...(seq === undefined ? {} : { seq }),
         }),
-      );
+      });
     }
 
     if (connection.closing) {
@@ -794,13 +849,14 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
     runtime.reloadPersistentTags?.(connection);
 
     for (const streamId of restoredStreamIds) {
-      const sent = connection.descriptor.send(
-        serializeWireFrame(
+      const sent = connection.descriptor.send({
+        kind: 'text',
+        text: serializeWireFrame(
           '__error__',
           { code: StreamAborted.code, detail: { reason: 'hibernation-wake' as const } },
           { streamId },
         ),
-      );
+      });
       if (connection.closing) {
         rollbackConnectionIndexes(runtime, connection);
         runtime.deleteConnectionState?.(connection.id);
@@ -895,10 +951,10 @@ export function wakeHibernatedConnection(
   const descriptor = normalizeConnectionDescriptor(
     {
       // Some platforms (workerd) throw on send() after close; refuse the frame instead.
-      send: (data) => {
+      send: (frame) => {
         if (wsLike.readyState !== undefined && wsLike.readyState !== WEB_SOCKET_OPEN) return false;
 
-        return wsLike.send?.(data) !== false;
+        return wsLike.send?.(frame.kind === 'text' ? frame.text : frame.bytes) !== false;
       },
       close: (code, reason) => wsLike.close?.(code, reason),
       bufferedAmount: () => 0,
@@ -912,6 +968,7 @@ export function wakeHibernatedConnection(
           },
         );
       },
+      sendBytes: runtime.messageLimits?.sendBytes,
     },
   );
   const connection: EngineRuntimeTypes.RuntimeConnection = {

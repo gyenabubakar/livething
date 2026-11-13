@@ -10,11 +10,17 @@ import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapte
  * far tighter than stock SQLite's. `maxBoundParams` in particular is easy to
  * blow past: a batched insert or a `WHERE id IN (...)` that assumes a generous
  * cap fails at a small, unremarkable count on this adapter.
+ *
+ * The row limit is not the 2 MB that page still shows. workerd sets `SQLITE_LIMIT_LENGTH` to
+ * 8 MiB + 34 bytes (`MAX_ROW_LENGTH` in src/workerd/util/sqlite.h, since v1.20260925.1), and
+ * its tests treat 8,000,000 bytes as the documented value. That length covers one value and
+ * one whole row, so this keeps room below it for a row's other columns. Replay, an inbox and a
+ * recorded stream do not store a row over it.
  */
 const CLOUDFLARE_SQL_LIMITS: SqlLimits = {
   maxBoundParams: 100,
   maxStatementBytes: 100 * 1024,
-  maxValueBytes: 2 * 1024 * 1024,
+  maxValueBytes: 8_000_000,
 };
 
 function wrapCursor<TRow = unknown>(

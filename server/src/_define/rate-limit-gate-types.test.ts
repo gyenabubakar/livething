@@ -13,56 +13,56 @@ describe('rateLimit override is gated on the rateLimit() capability', () => {
     base.on('ping', {
       input: v.object({}),
       // @ts-expect-error per-handler rateLimit override needs the rateLimit() capability
-      rateLimit: { max: 1 },
+      rateLimit: { maxMessages: 1 },
       run() {},
     });
 
     base.request('ask', {
       input: v.object({}),
       // @ts-expect-error per-handler rateLimit override needs the rateLimit() capability
-      rateLimit: { max: 1 },
+      rateLimit: { maxMessages: 1 },
       run() {
         return {};
       },
     });
 
     // @ts-expect-error channel-level rateLimit needs the rateLimit() capability
-    base.channel('room', { rateLimit: { max: 1 } });
+    base.channel('room', { rateLimit: { maxMessages: 1 } });
 
     base.channel('room2').on('say', {
       input: v.object({}),
       // @ts-expect-error per-handler channel rateLimit override needs the rateLimit() capability
-      rateLimit: { max: 1 },
+      rateLimit: { maxMessages: 1 },
       run() {},
     });
   });
 
   it('accepts a rateLimit override when rateLimit() is listed', () => {
     const base = server({
-      capabilities: [channels(), clientRequests(), rateLimit({ max: 100 })],
+      capabilities: [channels(), clientRequests(), rateLimit({ maxMessages: 100 })],
     });
 
     base.on('ping', {
       input: v.object({}),
-      rateLimit: { max: 1 },
+      rateLimit: { maxMessages: 1 },
       run() {},
     });
 
     base.request('ask', {
       input: v.object({}),
-      rateLimit: { max: 1 },
+      rateLimit: { maxMessages: 1 },
       run() {
         return {};
       },
     });
 
     base.channel('room', {
-      rateLimit: { max: 1 },
+      rateLimit: { maxMessages: 1 },
     });
 
     base.channel('room2').on('say', {
       input: v.object({}),
-      rateLimit: { max: 1 },
+      rateLimit: { maxMessages: 1 },
       run() {},
     });
   });

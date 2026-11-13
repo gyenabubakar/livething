@@ -1,6 +1,9 @@
-import { InternalError } from '@livething/core';
-import { assertPayloadRecord, serializePayload } from '~/_engine/runtime/json-guard.ts';
+import { encodeBinaryFrame, InternalError } from '@livething/core';
+import { textOverLimit } from '~/_adapters/close.ts';
+import { markSeqScope } from '~/_engine/runtime/catch-up-hold.ts';
+import { assertPayload, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
+import type { TransportFrame } from '~/_adapters/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
@@ -48,7 +51,7 @@ export function sendProtocolMessage(
     }
   }
 
-  connection.descriptor.send(wire);
+  connection.descriptor.send({ kind: 'text', text: wire });
 }
 
 export interface SendGapOptions {
@@ -90,7 +93,16 @@ export interface SendReplayOptions {
 
   payload: unknown;
 
+  /** The bytes of a stored binary row. The entry then goes out as one binary frame. */
+  bytes?: Uint8Array;
+
   wire: { deliverySeq: number; messageId: string; channel?: string };
+
+  /**
+   * A new message sent now, not a stored one sent again (an inbox `backfill` to a member who is
+   * online): it waits behind a running catch-up of its store, like a live frame.
+   */
+  live?: boolean;
 }
 
 /** Send one replay entry with its stored wire metadata reattached. */
@@ -99,8 +111,8 @@ export function sendReplay(
   connection: RuntimeConnection,
   options: SendReplayOptions,
 ): void {
-  const { channelName, channelFamily, event, payload, wire } = options;
-  assertPayloadRecord(event, payload);
+  const { channelName, channelFamily, event, payload, bytes, wire } = options;
+  assertPayload(event, payload);
 
   const resolvedChannel = channelName ?? wire.channel ?? null;
   const livething: Record<string, unknown> = {
@@ -112,11 +124,19 @@ export function sendReplay(
   if (channelFamily !== null) livething.channelFamily = channelFamily;
 
   let frame: string;
+  let binaryFrame: Uint8Array<ArrayBuffer> | undefined;
   try {
     const payloadJson = serializePayload(event, payload);
     frame = serializeWireFrame(event, JSON.parse(payloadJson), livething);
+    if (bytes !== undefined) binaryFrame = encodeBinaryFrame(frame, bytes);
+    // A stored row over the send limit would throw on every replay and hold back the rows
+    // after it, so it is replaced like a row that cannot be serialized.
+    const { sendBytes } = core.messageLimits;
+    if (binaryFrame ? binaryFrame.byteLength > sendBytes : textOverLimit(frame, sendBytes)) {
+      throw new Error(`[livething] The replay frame is over the send limit of ${sendBytes} bytes.`);
+    }
   } catch (error) {
-    core.logger.error('[livething] Failed to serialize replay frame; sending fallback __error__', {
+    core.logger.error('[livething] Could not send a replay frame; sending fallback __error__', {
       event,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -128,7 +148,13 @@ export function sendReplay(
       });
       return;
     }
+
+    binaryFrame = undefined;
   }
 
-  connection.descriptor.send(frame);
+  const transportFrame: TransportFrame = binaryFrame
+    ? { kind: 'bytes', bytes: binaryFrame }
+    : { kind: 'text', text: frame };
+  if (options.live) markSeqScope(transportFrame, livething);
+  connection.descriptor.send(transportFrame);
 }

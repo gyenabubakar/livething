@@ -737,7 +737,7 @@ describe('message runtime', () => {
 
     expect(connection.descriptor.send).toHaveBeenCalledTimes(1);
     expect(
-      JSON.parse((connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0]),
+      JSON.parse((connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0].text),
     ).toEqual(['lookup', { tag: 'top' }, { exchange: { id: 'corr-ctx', source: 'client' } }]);
   });
 

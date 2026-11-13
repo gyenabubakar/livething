@@ -3,7 +3,7 @@ import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
 import { CloseCodes } from '@livething/server/errors';
 import { describe, expect, it, vi } from 'vitest';
-import { createNodeUpgradeHandler, isNodeWebSocketUpgrade } from './upgrade.ts';
+import { createNodeUpgradeHandler, isNodeWebSocketUpgrade, rawDataToBytes } from './upgrade.ts';
 import type {
   NodeAcceptedUpgrade,
   NodeBindingEndpoint,
@@ -78,10 +78,28 @@ describe('isNodeWebSocketUpgrade', () => {
   });
 });
 
+describe('rawDataToBytes', () => {
+  it('keeps only the bytes of a small Buffer from the shared pool', () => {
+    const pooled = Buffer.from([1, 2, 3]);
+    expect(pooled.buffer.byteLength).toBeGreaterThan(3);
+
+    const bytes = rawDataToBytes(pooled);
+
+    expect(Object.getPrototypeOf(bytes)).toBe(Uint8Array.prototype);
+    expect([...bytes]).toEqual([1, 2, 3]);
+  });
+
+  it('joins fragments and reads an ArrayBuffer', () => {
+    expect([...rawDataToBytes([Buffer.from([1]), Buffer.from([2, 3])])]).toEqual([1, 2, 3]);
+    expect([...rawDataToBytes(new Uint8Array([4, 5]).buffer)]).toEqual([4, 5]);
+  });
+});
+
 describe('createNodeUpgradeHandler', () => {
   it('prepares before the handshake, then attaches the accepted transport', async () => {
     const connection: NodeConnection = {
       message: vi.fn(async () => {}),
+      binaryMessage: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
       error: vi.fn(async () => {}),
     };
@@ -105,6 +123,7 @@ describe('createNodeUpgradeHandler', () => {
   it('forwards text, binary, close, and error events from an accepted socket', async () => {
     const connection: NodeConnection = {
       message: vi.fn(async () => {}),
+      binaryMessage: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
       error: vi.fn(async () => {}),
     };
@@ -131,10 +150,8 @@ describe('createNodeUpgradeHandler', () => {
     webSocket.emit('error', error);
 
     expect(connection.message).toHaveBeenCalledWith('hello');
-    expect(webSocket.close).toHaveBeenCalledWith(
-      1003,
-      '[livething] binary frames are not supported yet',
-    );
+    expect(connection.binaryMessage).toHaveBeenCalledWith(new Uint8Array([1]));
+    expect(webSocket.close).not.toHaveBeenCalled();
     expect(connection.close).toHaveBeenCalledWith(1001, 'going away');
     expect(connection.error).toHaveBeenCalledWith(error);
   });

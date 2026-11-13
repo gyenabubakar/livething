@@ -77,7 +77,7 @@ function lookupValidator(
     'incoming' | 'requests' | 'streams' | 'recordedStreams'
   >,
   event: string,
-): { found: boolean; validator: unknown } {
+): { found: boolean; validator: unknown; binary?: boolean } {
   const primitive =
     source.incoming.get(event) ??
     source.requests.get(event) ??
@@ -89,7 +89,7 @@ function lookupValidator(
     'stream' in primitive
       ? primitive.stream.validator
       : (primitive as { validator?: unknown }).validator;
-  return { found: true, validator };
+  return { found: true, validator, binary: (primitive as { binary?: boolean }).binary };
 }
 
 /** Resolve a parsed key against the catalog. Throws when the key names no declared event. */
@@ -97,7 +97,7 @@ function resolveKey(
   compiled: EngineCompileTypes.CompiledServer,
   key: string,
   parsed: ParsedKey,
-): { validator: unknown; channel?: EngineCompileTypes.CompiledChannel } {
+): { validator: unknown; binary?: boolean; channel?: EngineCompileTypes.CompiledChannel } {
   if (parsed.scope === 'top') {
     const lookup = lookupValidator(compiled, parsed.event);
     if (!lookup.found) {
@@ -107,7 +107,7 @@ function resolveKey(
       );
     }
 
-    return { validator: lookup.validator };
+    return { validator: lookup.validator, binary: lookup.binary };
   }
 
   const channel = compiled.channels.get(parsed.name) ?? compiled.channelFamilies.get(parsed.name);
@@ -126,7 +126,7 @@ function resolveKey(
     );
   }
 
-  return { validator: lookup.validator, channel };
+  return { validator: lookup.validator, binary: lookup.binary, channel };
 }
 
 /** Whether a frame's routing matches a parsed key's scope (and the channel pattern, for dynamic). */
@@ -162,8 +162,14 @@ export function frameMatches(
   frame: InterceptFrame,
 ): boolean {
   const parsed = parseKey(key);
-  const { validator, channel } = resolveKey(compiled, key, namespaceParsed(parsed, frame.owner));
+  const { validator, binary, channel } = resolveKey(
+    compiled,
+    key,
+    namespaceParsed(parsed, frame.owner),
+  );
   if (frame.event !== parsed.event) return false;
+
+  if ((binary === true) !== (frame.bytes !== undefined)) return false;
 
   if (!routingMatches(parsed, channel, frame)) return false;
 

@@ -9,9 +9,10 @@ import {
   tagRefIndexKey,
 } from '~/_engine/runtime/tag-index.ts';
 import { deleteTag, insertTag } from '~/tags/storage.ts';
+import type { AddBinarySenders } from '~/_engine/runtime/feature-slots.ts';
 import type { TagKey } from '~/_engine/runtime/tag-index.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
-import type { ConnectionInfo, SQLProvider, TagRef } from '~/context.ts';
+import type { ConnectionInfo, Logger, SQLProvider, TagRef } from '~/context.ts';
 import type { OutgoingTarget } from '~/intercept/intercept.ts';
 import type { TagGroupHandle, TagKind, TagRefHandle, TagsApi } from '~/tags/types.ts';
 import type { Validator } from '~/types.ts';
@@ -43,11 +44,19 @@ export interface TagsRuntime {
 
   persistAttachment(connection: RuntimeConnection): void;
 
+  /** The app's logger, for a broadcast that fails before it reaches anyone. */
+  logger: Pick<Logger, 'error'>;
+
   getStorage(): { sql: Pick<SQLProvider, 'exec'> };
 
   /** Whether `purgeUser` is running for this user. A persistent tag add does nothing then. */
   isUserPurging?(userId: string): boolean;
+
+  /** Gives a tag handle its `.binary` senders. Set only when `binary()` is listed. */
+  addBinarySenders?: AddBinarySenders;
 }
+
+const TAG_SENDERS = { broadcast: 'event-first' } as const;
 
 function assertGroupDeclared(
   runtime: Pick<TagsRuntime, 'isTagGroupDeclared'>,
@@ -78,22 +87,26 @@ interface MemberBroadcast {
  * member gets the same payload and delivery metadata. A payload that cannot be sent is logged.
  */
 function broadcastToMembers(
-  runtime: Pick<TagsRuntime, 'sendToConnections'>,
+  runtime: Pick<TagsRuntime, 'sendToConnections' | 'logger'>,
   members: Iterable<EngineRuntimeTypes.RuntimeConnection>,
   opts: MemberBroadcast,
 ): void {
   const { event, payload, target, context } = opts;
   forEachIsolated([members], (all) => runtime.sendToConnections(all, { event, payload, target }), {
     context,
+    logger: runtime.logger,
   });
 }
 
 function makeRefHandle(
-  runtime: Pick<TagsRuntime, 'tagMembers' | 'toConnectionInfo' | 'sendToConnections'>,
+  runtime: Pick<
+    TagsRuntime,
+    'tagMembers' | 'toConnectionInfo' | 'sendToConnections' | 'addBinarySenders' | 'logger'
+  >,
   tag: TagKey,
 ): TagRefHandle {
   const { kind, group, key } = tag;
-  return {
+  const handle: TagRefHandle = {
     __livething: 'tag-ref',
     kind,
     group,
@@ -127,6 +140,10 @@ function makeRefHandle(
       return false;
     },
   };
+
+  runtime.addBinarySenders?.(handle, TAG_SENDERS);
+
+  return handle;
 }
 
 export interface TagGroupRef {
@@ -154,7 +171,7 @@ export function buildGroupHandle(
     return [...new Set([...(runtime.usersByKey.get(connection.userId) ?? []), connection])];
   }
 
-  return {
+  const handle: TagGroupHandle = {
     __livething: 'group-handle',
     kind,
     group,
@@ -258,8 +275,9 @@ export function buildGroupHandle(
       return [...out];
     },
 
-    ref(key: string): TagRefHandle {
-      return makeRefHandle(runtime, { kind, group, key });
+    ref(key: string) {
+      // Its `.binary` key is added by `addBinarySenders`, and only when `binary()` is listed.
+      return makeRefHandle(runtime, { kind, group, key }) as ReturnType<TagGroupHandle['ref']>;
     },
 
     list(): readonly TagRef[] {
@@ -269,18 +287,24 @@ export function buildGroupHandle(
       return [...keys].map((key) => makeTagRef(kind, group, key));
     },
   };
+
+  runtime.addBinarySenders?.(handle, TAG_SENDERS);
+
+  return handle;
 }
 
 /**
  * Build `ctx.tags` — the typed entry point for the tag API.
  */
 export function buildTagsApi(runtime: TagsRuntime, connection: RuntimeConnection): TagsApi {
+  // A group handle's `.binary` key is added by `addBinarySenders`, only with `binary()`.
+  type Handle = ReturnType<TagsApi['ephemeral']>;
   return {
     ephemeral(group: string) {
-      return buildGroupHandle(runtime, connection, { kind: 'ephemeral', group });
+      return buildGroupHandle(runtime, connection, { kind: 'ephemeral', group }) as Handle;
     },
     persistent(group: string) {
-      return buildGroupHandle(runtime, connection, { kind: 'persistent', group });
+      return buildGroupHandle(runtime, connection, { kind: 'persistent', group }) as Handle;
     },
     list(): readonly TagRef[] {
       return connectionTagRefs(connection);

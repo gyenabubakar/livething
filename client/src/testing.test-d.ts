@@ -16,10 +16,24 @@ interface C {
       incoming: { message: { text: string } };
       outgoing: { send: { text: string } };
     };
+    rooms: {
+      addressing: 'dynamic';
+      incoming: { message: { text: string } };
+    };
   };
 }
 
 declare const socket: Socket<C>;
+
+// A dynamic family is named with { family, name }; the family name alone reaches no handle.
+injectChannel(socket, { family: 'rooms', name: 'room:general' }, 'message', { text: 'hi' });
+// @ts-expect-error a dynamic family needs { family, name }
+injectChannel(socket, 'rooms', 'message', { text: 'hi' });
+// @ts-expect-error a fixed channel is named by its name
+injectChannel(socket, { family: 'general', name: 'general' }, 'message', { text: 'hi' });
+declare const generalOrRooms: 'general' | 'rooms';
+// @ts-expect-error a union that holds a dynamic family still needs { family, name } for it
+injectChannel(socket, generalOrRooms, 'message', { text: 'hi' });
 
 inject(socket, 'ping', { id: 'x' });
 // @ts-expect-error wrong payload shape

@@ -12,7 +12,11 @@
 // Tabs of one ::code-group are one small project: a tab can import another by its title.
 // `<!-- docs-check: skip -->` on the line before a fence leaves that example out.
 //
-// Usage: node website/scripts/docs-typecheck/check.mjs [path prefix inside website/content]
+// It also runs the repo's layout lint rules on each example: blank lines, and braces around an `if` body
+// that wraps. `--fix` fixes them in the pages.
+//
+// Usage: node website/scripts/docs-typecheck/check.mjs [--fix] [path prefix inside website/content]
+import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -39,7 +43,9 @@ const content = join(repo, 'website/content');
 const fixtures = join(repo, 'website/scripts/docs-typecheck/fixtures');
 const HUDDLE_PAGE = '7.reference/11.huddle.md';
 const SHORT_LINES = 8;
-const filter = process.argv[2] ?? '';
+const args = process.argv.slice(2);
+const fixLayout = args.includes('--fix');
+const filter = args.find((arg) => !arg.startsWith('--')) ?? '';
 
 const PACKAGES = {
   '@livething/core': 'core',
@@ -104,7 +110,7 @@ function readExamples() {
       };
     });
   }
-  return examples.filter((e) => !e.skip);
+  return examples;
 }
 
 function tabPath(title, lang, index) {
@@ -131,7 +137,8 @@ function exportedNames(path) {
   return names;
 }
 
-const examples = readExamples();
+const allExamples = readExamples();
+const examples = allExamples.filter((e) => !e.skip);
 const workDir = mkdtempSync(join(tmpdir(), 'livething-docs-check-'));
 const prelude = new Set(exportedNames(join(fixtures, 'prelude.ts')));
 const helpers = new Set(exportedNames(join(fixtures, 'helpers.ts')));
@@ -176,7 +183,14 @@ const pageFileKey = (page, name) => `${page}\0${name}`;
 const withoutExtension = (path) => basename(path).replace(/(\.svelte)?\.\w+$/, '');
 function pageFile(containing, name) {
   const example = fileExamples.get(containing);
-  if (!example?.page.startsWith('6.recipes/01.framework-hooks/')) return undefined;
+  // Each plugins page builds its own `Polls`, so an example there imports the page's
+  // own file. The Quickstart builds its own small server. A name the page uses for more
+  // than one file stays on the shared fixture.
+  const ownsFiles =
+    example?.page.startsWith('6.recipes/01.framework-hooks/') ||
+    example?.page.startsWith('4.client/07.plugins/') ||
+    example?.page.startsWith('1.start/05');
+  if (!ownsFiles) return undefined;
   const path = pageFiles.get(pageFileKey(example.page, name));
   return path && path !== containing ? path : undefined;
 }
@@ -678,6 +692,99 @@ for (const [event, seen] of [...typeShapes].sort()) {
   const parts = [...seen].map(([shape, where]) => `{${shape}} x${where.length} (${where[0]})`);
   report.push(`${event} has ${seen.size} value-type shapes: ${parts.join('; ')}`);
 }
+
+/** The repo's layout lint rules: its blank-line rules (lint-rules/readable-spacing.mjs) and `curly`. */
+const LAYOUT_RULE = /^(livething\/|curly$)/;
+const LAYOUT_CODE = /^(livething\(|eslint\(curly\))/;
+
+/**
+ * Runs the layout rules on every TS, JS and TSX fence, skipped ones too. A fence that does not parse
+ * alone, such as a part of a function, is not checked.
+ */
+function checkLayout() {
+  const dir = join(workDir, 'layout');
+  mkdirSync(dir, { recursive: true });
+  const repoConfig = JSON.parse(readFileSync(join(repo, '.oxlintrc.json'), 'utf8'));
+  const rules = Object.fromEntries(
+    Object.entries(repoConfig.rules).filter(([name]) => LAYOUT_RULE.test(name)),
+  );
+  const config = join(dir, 'oxlintrc.json');
+  writeFileSync(
+    config,
+    JSON.stringify({
+      jsPlugins: [{ name: 'livething', specifier: join(repo, 'lint-rules/index.mjs') }],
+      categories: { correctness: 'off' },
+      rules,
+    }),
+  );
+
+  const byFile = new Map();
+  allExamples.forEach((example, index) => {
+    if (filter && !example.page.startsWith(filter)) return;
+    if (!['ts', 'typescript', 'js', 'tsx'].includes(example.lang)) return;
+    const file = join(dir, `example-${index}.${example.lang === 'tsx' ? 'tsx' : 'ts'}`);
+    writeFileSync(file, example.code);
+    byFile.set(file, example);
+  });
+
+  const lint = (extra) => {
+    const result = spawnSync(
+      join(repo, 'node_modules/.bin/oxlint'),
+      ['-c', config, '--disable-nested-config', '-f', 'json', ...extra, ...byFile.keys()],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    );
+    if (result.error) throw result.error;
+
+    return JSON.parse(result.stdout).diagnostics.filter((d) => LAYOUT_CODE.test(d.code ?? ''));
+  };
+
+  // One fix can uncover the next, such as a guard clause that ends a new group.
+  let diagnostics = lint([]);
+  for (let pass = 0; fixLayout && diagnostics.length > 0 && pass < 5; pass += 1) {
+    lint(['--fix']);
+    diagnostics = lint([]);
+  }
+
+  if (fixLayout) writeFixedFences(byFile);
+
+  for (const d of diagnostics) {
+    const example = byFile.get(resolve(dir, d.filename));
+    if (example) add(example, d.labels[0].span.line - 1, `layout: ${d.message}`);
+  }
+}
+
+/** Put each fixed example back in its fence. Fences are replaced from the bottom of the page up. */
+function writeFixedFences(byFile) {
+  const byPage = new Map();
+  for (const [file, example] of byFile) {
+    const fixed = readFileSync(file, 'utf8');
+    if (fixed === example.code) continue;
+    if (!byPage.has(example.page)) byPage.set(example.page, []);
+    byPage.get(example.page).push({ example, fixed });
+  }
+
+  for (const [page, changes] of byPage) {
+    const path = join(content, page);
+    const lines = readFileSync(path, 'utf8').split('\n');
+    changes.sort((a, b) => b.example.line - a.example.line);
+    for (const { example, fixed } of changes) {
+      const pad = ' '.repeat(example.indent);
+      const body = fixed.split('\n').map((line) => (line ? pad + line : ''));
+      lines.splice(example.line, example.lineCount, ...body);
+    }
+
+    writeFileSync(path, lines.join('\n'));
+    console.log(`fixed layout in ${page}`);
+  }
+
+  // `curly`'s fix writes `{x}` on one line; Prettier lays the braces out.
+  const pages = [...byPage.keys()].map((page) => join(content, page));
+  if (pages.length > 0) {
+    spawnSync(join(repo, 'node_modules/.bin/prettier'), ['--write', ...pages], { stdio: 'ignore' });
+  }
+}
+
+checkLayout();
 
 rmSync(workDir, { recursive: true, force: true });
 const unique = [...new Set(report)];

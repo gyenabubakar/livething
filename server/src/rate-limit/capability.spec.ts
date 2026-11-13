@@ -13,7 +13,7 @@ function interceptCount(definition: ServerDefinition): number {
 describe('rateLimit() capability', () => {
   it('installs a rate-limit intercept from the global rule', () => {
     const base = server({
-      capabilities: [rateLimit({ max: 100 })],
+      capabilities: [rateLimit({ maxMessages: 100 })],
     });
     expect(interceptCount(base.assemble({ handlers: [] }))).toBe(1);
   });
@@ -22,7 +22,7 @@ describe('rateLimit() capability', () => {
     const base = server({ capabilities: [rateLimit()] });
     const handler = base.on('expensive', {
       input: v.object({}),
-      rateLimit: { max: 1, windowMs: 10_000 },
+      rateLimit: { maxMessages: 1, windowMs: 10_000 },
       run() {},
     });
     expect(interceptCount(base.assemble({ handlers: [handler] }))).toBe(1);
@@ -34,7 +34,7 @@ describe('rateLimit() capability', () => {
     });
     const ask = base.request('ask', {
       input: v.object({}),
-      rateLimit: { max: 2 },
+      rateLimit: { maxMessages: 2 },
       run() {
         return {};
       },
@@ -44,7 +44,7 @@ describe('rateLimit() capability', () => {
 
   it('still installs the intercept when a global rule is set and one handler disables its limit', () => {
     const base = server({
-      capabilities: [rateLimit({ max: 100 })],
+      capabilities: [rateLimit({ maxMessages: 100 })],
     });
     const free = base.on('free', {
       input: v.object({}),
@@ -73,7 +73,7 @@ describe('rateLimit() capability', () => {
     const base = server({});
     const handler = base.on('plain', {
       input: v.object({}),
-      ...({ rateLimit: { max: 1 } } as object),
+      ...({ rateLimit: { maxMessages: 1 } } as object),
       run() {},
     });
     expect(() => base.assemble({ handlers: [handler] })).toThrow(
@@ -82,16 +82,19 @@ describe('rateLimit() capability', () => {
   });
 
   it('keeps the rule it was given when the caller edits the config object afterwards', () => {
-    const config = { windowMs: 60_000, max: 100 };
+    const config = { windowMs: 60_000, maxMessages: 100 };
     const capability = rateLimit(config);
 
-    config.max = 1;
+    config.maxMessages = 1;
 
-    expect(capability.__rateLimit).toEqual({ windowMs: 60_000, max: 100 });
+    expect(capability.__rateLimit).toEqual({ windowMs: 60_000, maxMessages: 100 });
   });
 
   it('throws when rateLimit() is listed more than once', () => {
-    const capabilities: AnyCapability[] = [rateLimit({ max: 10 }), rateLimit({ max: 20 })];
+    const capabilities: AnyCapability[] = [
+      rateLimit({ maxMessages: 10 }),
+      rateLimit({ maxMessages: 20 }),
+    ];
     expect(() => server({ capabilities })).toThrow(/rateLimit\(\) is listed more than once/);
   });
 });

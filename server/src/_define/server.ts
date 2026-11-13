@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { LiveThingConfigError } from '@livething/core';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
@@ -18,7 +19,8 @@ import {
   onShutdown,
   onUpgrade,
 } from '~/lifecycle/lifecycle.ts';
-import type { TypeMarker } from '~/_api/definitions.ts';
+import type { BinaryCapability } from '~/binary/capability.ts';
+import type { BinaryMethods, ChannelBinaryMethods } from '~/binary/types.ts';
 import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
 import type { ExtractParams, ValidChannelTemplate } from '~/channel/channel.ts';
 import type {
@@ -40,6 +42,7 @@ import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitCapability } from '~/rate-limit/capability.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
+import type { ClientRequestsCapability, RequestBuildConfig } from '~/request/client-requests.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { ResolvedServerRequest, ServerRequestsCapability } from '~/request/server-requests.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
@@ -48,9 +51,11 @@ import type {
   ClientResponse,
   DurableWireChunk,
   Jsonify,
+  Payload,
   PayloadObject,
   Validator,
 } from '~/types.ts';
+import type { UploadsCapability } from '~/upload/capability.ts';
 import { assertConfigShape, assertUniqueCapabilityKinds } from './capability-checks.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugins.ts` — it is a package entry, so a
@@ -61,7 +66,17 @@ import {
   assertPluginDependencies,
   assertUniquePluginIds,
 } from './plugin-checks.ts';
-import type { AppCtx, ChannelRef, ConnectionlessCtx, ReplayWire } from './app-ctx.ts';
+import type {
+  AppCtx,
+  ChannelBinaryArm,
+  ChannelBinarySendReplayArm,
+  ChannelCtxRootBinary,
+  ChannelOutgoingSlice,
+  ChannelRef,
+  ConnectionlessCtx,
+  ReplayWire,
+  WithBinaryEvents,
+} from './app-ctx.ts';
 import type {
   AnyCapability,
   BrandIsWidened,
@@ -81,14 +96,17 @@ type ServerRequestConfigParameter = {
   input?: Validator;
   allowInterleaving?: boolean;
   rateLimit?: RateLimitConfig;
-  run: (ctx: any, input: any) => unknown;
-};
-type ServerCParameter = {
-  input?: Validator;
-  allowInterleaving?: boolean;
-  run: ServerRequestConfigParameter['run'];
+  maxBytes?: number;
+  run: (ctx: any, input: any, bytes?: Uint8Array) => unknown;
 };
 type ServerConfigParameter = { run: (ctx: any, data?: unknown) => void | Promise<void> };
+type BinaryOnConfigParameter = {
+  input?: Validator;
+  maxBytes?: number;
+  allowInterleaving?: boolean;
+  rateLimit?: RateLimitConfig;
+  run: (ctx: any, input: any, bytes?: Uint8Array) => void | Promise<void>;
+};
 type ServerAssembleConfigParameter = {
   handlers: readonly Contribution[];
   api?: (ctx: unknown) => unknown;
@@ -317,7 +335,7 @@ export type IncomingHandlerValue<TEvent extends string, TPayload> = IncomingPrim
  * override without the capability is a compile-time excess-property error rather
  * than a boot-time throw.
  */
-type RateLimitField<TCaps extends readonly AnyCapability[]> =
+export type RateLimitField<TCaps extends readonly AnyCapability[]> =
   'rateLimit' extends BrandsOf<TCaps>
     ? {
         /** Per-handler rate-limit override — tighten, loosen, or disable the limit for this event. */
@@ -413,7 +431,7 @@ interface ScheduledMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]
 }
 
 /** A stream's nudge map: event name → schema, or `null` for a no-payload nudge. */
-type StreamNudgeMap = Record<string, Validator | null>;
+export type StreamNudgeMap = Record<string, Validator | null>;
 
 /** The payload type one nudge declaration carries, or `undefined` for a no-payload nudge. */
 type NudgePayloadOf<T> = T extends Validator<infer U> ? U : undefined;
@@ -424,7 +442,7 @@ type NudgeMessageUnion<TNudges> = {
 }[keyof TNudges & string];
 
 /** The `nudges()` reader on a stream handle — present only when the stream declares nudges. */
-type NudgesHandle<TNudges> = [keyof TNudges] extends [never]
+export type NudgesHandle<TNudges> = [keyof TNudges] extends [never]
   ? {}
   : { nudges(yielded: unknown): NudgeMessageUnion<TNudges>[] };
 
@@ -432,7 +450,7 @@ type NudgesHandle<TNudges> = [keyof TNudges] extends [never]
  * The base `ctx.stream` handle present on every stream generator, regardless of
  * nudges. Combined with `NudgesHandle` to form the full handle.
  */
-type StreamHandleBase = {
+export type StreamHandleBase = {
   /**
    * Stop signal fired when the stream is cancelled, the owning client
    * disconnects (plain streams only — a recorded stream keeps running), or the
@@ -450,14 +468,14 @@ type StreamHandleBase = {
 };
 
 /** The contract slot shape for a stream's declared nudges. */
-type NudgesContract<TNudges> = { [K in keyof TNudges & string]: NudgePayloadOf<TNudges[K]> };
+export type NudgesContract<TNudges> = { [K in keyof TNudges & string]: NudgePayloadOf<TNudges[K]> };
 
 /** The value the stream builders return — a primitive that declares its stream slot. */
-type StreamHandlerValue<TEvent extends string, TEntry, TSlot extends string> = Primitive &
+export type StreamHandlerValue<TEvent extends string, TEntry, TSlot extends string> = Primitive &
   Contribution<{ [K in TSlot]: Record<TEvent, TEntry> }>;
 
 /** The `ctx` a plain stream generator receives — `ctx.stream` carries nudges. */
-type StreamCtx<TSlots, TMeta, TNudges, TCaps extends readonly AnyCapability[]> = AppCtx<
+export type StreamCtx<TSlots, TMeta, TNudges, TCaps extends readonly AnyCapability[]> = AppCtx<
   TSlots,
   TMeta,
   TCaps
@@ -476,8 +494,6 @@ interface StreamConfig<
 > {
   /** Schema validating the start payload the client sends. */
   readonly input?: TInput;
-  /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
-  readonly chunk?: TypeMarker<TChunk>;
   /** Client→server steering signals delivered into the running generator. */
   readonly nudges?: TNudges;
   /** Fan the stream out to every connection (or channel member) instead of one. */
@@ -496,7 +512,7 @@ interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Create a plain server-pushed stream handler value. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
-    TChunk extends PayloadObject = Record<string, unknown>,
+    TChunk extends Payload = Record<string, unknown>,
     TInput extends Validator | undefined = undefined,
     const TNudges extends StreamNudgeMap = {},
   >(
@@ -510,7 +526,7 @@ interface StreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
 }
 
 /** Retention options of a recorded stream. */
-interface DurableStreamOptions {
+export interface DurableStreamOptions {
   /** How long a stream whose generator stopped mid-stream (e.g. a server restart) is kept. */
   readonly maxAgeMs?: number;
   /** How long an ended stream is kept so a quick reconnect can still continue. */
@@ -525,15 +541,12 @@ interface RecordedStreamConfig<
   TChunk,
   TNudges extends StreamNudgeMap,
   TCaps extends readonly AnyCapability[] = readonly [],
-> extends DurableStreamOptions {
+>
+  extends DurableStreamOptions, RecordedBufferOptions {
   readonly input?: TInput;
-  /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
-  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
-  /** Hard cap on buffered chunks. Default: 500. */
-  readonly maxChunks?: number;
   run(
     ctx: StreamCtx<TSlots, TMeta, TNudges, TCaps>,
     input: InferInput<TInput>,
@@ -565,22 +578,36 @@ interface RecordedStreamMethods<TSlots, TMeta, TCaps extends readonly AnyCapabil
 type ChannelCapability =
   | ChannelOnlyCapability<{}, never, string>
   | EmitsCapability<EmitDefs>
-  | ServerRequestsCapability;
+  | ServerRequestsCapability
+  | BinaryCapability<EmitDefs>;
 
 type ChannelCapabilitySlots<TCaps extends readonly ChannelCapability[]> = MergeSlots<
   SlotsOf<TCaps[number]>
 >;
+/**
+ * The events a channel sends: its `emits(...)` events, with its `binary({ emits })`
+ * events carried under a symbol key that only the `.binary` senders read.
+ */
 type ChannelOutgoing<TCaps extends readonly ChannelCapability[]> =
   SlotOr<ChannelCapabilitySlots<TCaps>, 'outgoing'> extends infer TOutgoing extends Record<
     string,
     unknown
   >
-    ? TOutgoing
+    ? 'binary' extends BrandsOf<TCaps>
+      ? WithBinaryEvents<TOutgoing, SlotOr<ChannelCapabilitySlots<TCaps>, 'binaryOutgoing'>>
+      : TOutgoing
     : {};
-type ChannelServerRequests<TCaps extends readonly ChannelCapability[]> = SlotOr<
-  ChannelCapabilitySlots<TCaps>,
-  'serverRequests'
->;
+/**
+ * The server requests a channel sends: its `serverRequests(...)`, with its
+ * `binary({ serverRequests })` carried under a symbol key that only `.binary.request` reads.
+ */
+type ChannelServerRequests<TCaps extends readonly ChannelCapability[]> =
+  'binary' extends BrandsOf<TCaps>
+    ? WithBinaryEvents<
+        SlotOr<ChannelCapabilitySlots<TCaps>, 'serverRequests'>,
+        SlotOr<ChannelCapabilitySlots<TCaps>, 'binaryServerRequests'>
+      >
+    : SlotOr<ChannelCapabilitySlots<TCaps>, 'serverRequests'>;
 
 /** The subscribe-payload type for a channel's `subscribe` schema, or `never` when absent. */
 type SubscribePayloadOf<TSubscribe> = TSubscribe extends Validator<infer U> ? U : never;
@@ -654,7 +681,8 @@ type ChannelRequestArm<
   TServerRequests,
   TChannelBrand extends string,
 > = 'serverRequests' extends TChannelBrand
-  ? [keyof TServerRequests] extends [never]
+  ? // `& string`: the map carries the channel's binary server requests under a symbol key.
+    [keyof TServerRequests & string] extends [never]
     ? {}
     : {
         /**
@@ -705,10 +733,13 @@ export type ChannelCtx<
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = Omit<AppCtx<TSlots, TMeta, TCaps>, 'sendReplay'> & {
+> = Omit<AppCtx<TSlots, TMeta, TCaps>, 'sendReplay' | 'binary'> & {
+  readonly binary: ChannelCtxRootBinary<TSlots>;
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
     ChannelRequestArm<TServerRequests, TChannelBrand> &
-    ChannelCapabilityArm<TChannelBrand, TOutgoing>;
+    ChannelCapabilityArm<TChannelBrand, TOutgoing> &
+    ChannelBinaryArm<TOutgoing, TServerRequests> &
+    ChannelBinarySendReplayArm<TOutgoing>;
 };
 
 /**
@@ -726,10 +757,13 @@ type ChannelGateCtx<
   /** `true` for check/commit/revalidate, whose ctx omits channel-only handles. */
   TIsSubscribeGate extends boolean = false,
   TServerRequests = {},
-> = Omit<AppCtx<TSlots, TMeta, TCaps, TIsSubscribeGate>, 'sendReplay'> & {
+> = Omit<AppCtx<TSlots, TMeta, TCaps, TIsSubscribeGate>, 'sendReplay' | 'binary'> & {
+  readonly binary: ChannelCtxRootBinary<TSlots>;
   readonly channel: ChannelHandle<Record<string, string>, TOutgoing, TMeta> &
     ChannelRequestArm<TServerRequests, TChannelBrand> &
-    ChannelCapabilityArm<TChannelBrand, TOutgoing>;
+    ChannelCapabilityArm<TChannelBrand, TOutgoing> &
+    ChannelBinaryArm<TOutgoing, TServerRequests> &
+    ChannelBinarySendReplayArm<TOutgoing>;
 };
 
 /**
@@ -869,7 +903,7 @@ export type ChannelConfig<
  * and carries a reference to the channel — so passing a single handler to
  * `assemble()` includes that handler and the channel surface it belongs to.
  */
-type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = ChannelHandlerValue &
+export type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = ChannelHandlerValue &
   Contribution<{ channels: { [K in TKey]: TOwn & TSlice } }>;
 
 /**
@@ -890,15 +924,15 @@ type ChannelCapabilityFlags<TBrand extends string> = ('inbox' extends TBrand
  * It carries the channel's capability flags, so every handler value brings
  * them along with the rest of the channel surface.
  */
-type ChannelOwnSlice<
+export type ChannelOwnSlice<
   TParams,
   TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = {
-  outgoing: TOutgoing;
+> = ('binary' extends TChannelBrand ? ChannelOutgoingSlice<TOutgoing> : { outgoing: TOutgoing }) & {
+  // Binary server requests stay on this map under a symbol key: `InferClient` reads them back.
   serverRequests: TServerRequests;
   params: TParams;
   __addressing: TAddressing;
@@ -919,7 +953,6 @@ type ChannelStreamConfig<
   TChannelBrand extends string = never,
 > = {
   readonly input?: TInput;
-  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
@@ -943,21 +976,19 @@ type ChannelRecordedStreamConfig<
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = DurableStreamOptions & {
-  readonly input?: TInput;
-  readonly chunk?: TypeMarker<TChunk>;
-  readonly nudges?: TNudges;
-  readonly broadcast?: boolean;
-  readonly allowConcurrent?: boolean;
-  /** Hard cap on buffered chunks. Default: 500. */
-  readonly maxChunks?: number;
-  run(
-    ctx: ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand> & {
-      stream: StreamHandleBase & NudgesHandle<TNudges>;
-    },
-    input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
-  ): AsyncGenerator<TChunk, void, unknown>;
-} & RateLimitField<TCaps>;
+> = DurableStreamOptions &
+  RecordedBufferOptions & {
+    readonly input?: TInput;
+    readonly nudges?: TNudges;
+    readonly broadcast?: boolean;
+    readonly allowConcurrent?: boolean;
+    run(
+      ctx: ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand> & {
+        stream: StreamHandleBase & NudgesHandle<TNudges>;
+      },
+      input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
+    ): AsyncGenerator<TChunk, void, unknown>;
+  } & RateLimitField<TCaps>;
 
 /**
  * A channel's `stream` method. It returns a handler value carrying both the
@@ -980,7 +1011,7 @@ export interface ChannelStreamMethod<
   /** Create a plain stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
-    TChunk extends PayloadObject = Record<string, unknown>,
+    TChunk extends Payload = Record<string, unknown>,
     TInput extends Validator | undefined = undefined,
     const TNudges extends StreamNudgeMap = {},
   >(
@@ -1168,7 +1199,7 @@ type ChannelObjectCore<
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = Omit<ChannelBuilder, 'on' | 'request' | 'stream' | 'recordedStream' | 'at'> &
+> = Omit<ChannelBuilder, 'on' | 'request' | 'stream' | 'recordedStream' | 'at' | 'binary'> &
   Contribution<{
     channels: {
       [K in TKey]: ChannelOwnSlice<
@@ -1206,7 +1237,32 @@ type ChannelObjectCore<
         TServerRequests,
         TChannelBrand
       >
+    : {}) &
+  ('binary' extends BrandsOf<TCaps>
+    ? ChannelBinaryMethods<
+        TSlots,
+        TMeta,
+        TKey,
+        TParams,
+        TOutgoing,
+        TAddressing,
+        TSubscribe,
+        TCaps,
+        TServerRequests,
+        TChannelBrand
+      >
     : {});
+
+/** The buffer limits of a recorded stream. */
+export interface RecordedBufferOptions {
+  /** Hard cap on buffered chunks. Default: 500. */
+  readonly maxChunks?: number;
+  /**
+   * Hard cap on buffered bytes: the UTF-8 bytes of each chunk's JSON (or a binary chunk's
+   * info), plus a binary chunk's bytes. Default: 64 MiB.
+   */
+  readonly maxBufferBytes?: number;
+}
 
 /** The `on` method and the type-only `ctx` carriers every channel object has. */
 export interface ChannelCoreMethods<
@@ -1335,8 +1391,26 @@ type ValidChannelServerRequests<
 > =
   'serverRequests' extends BrandsOf<T>
     ? 'serverRequests' extends BrandsOf<THostCaps>
-      ? T
+      ? ValidChannelBinary<T, THostCaps>
       : readonly Exclude<T[number], ServerRequestsCapability>[]
+    : ValidChannelBinary<T, THostCaps>;
+
+/**
+ * A channel's own `binary()` needs `binary()` at the root too, and its `serverRequests` need
+ * `serverRequests()` at the root, as a channel's `serverRequests(...)` do.
+ */
+type ValidChannelBinary<
+  T extends readonly ChannelCapability[],
+  THostCaps extends readonly AnyCapability[],
+> =
+  'binary' extends BrandsOf<T>
+    ? 'binary' extends BrandsOf<THostCaps>
+      ? [keyof SlotOr<ChannelCapabilitySlots<T>, 'binaryServerRequests'>] extends [never]
+        ? T
+        : 'serverRequests' extends BrandsOf<THostCaps>
+          ? T
+          : readonly Exclude<T[number], BinaryCapability<EmitDefs>>[]
+      : readonly Exclude<T[number], BinaryCapability<EmitDefs>>[]
     : T;
 
 /** Builder method granted by the `channels()` capability. */
@@ -1419,7 +1493,8 @@ type CapabilityMethods<
   ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TMeta, TCaps> : {}) &
   ('stream' extends TBrand ? StreamMethods<TSlots, TMeta, TCaps> : {}) &
   ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TMeta, TCaps> : {}) &
-  ('channels' extends TBrand ? ChannelMethods<TSlots, TMeta, TCaps> : {});
+  ('channels' extends TBrand ? ChannelMethods<TSlots, TMeta, TCaps> : {}) &
+  ('binary' extends TBrand ? BinaryMethods<TSlots, TMeta, TCaps, TBrand> : {});
 
 /**
  * The builder returned by `server(...)`. Carries the methods every server has
@@ -1504,6 +1579,11 @@ type AssembleInput = Contribution & { readonly __livethingCapability?: never };
 
 type EventNamesOf<TSlice> =
   | (TSlice extends { incoming: infer R } ? keyof R & string : never)
+  | (TSlice extends { binaryIncoming: infer R } ? keyof R & string : never)
+  | (TSlice extends { binaryClientRequests: infer R } ? keyof R & string : never)
+  | (TSlice extends { binaryStreams: infer R } ? keyof R & string : never)
+  | (TSlice extends { binaryRecordedStreams: infer R } ? keyof R & string : never)
+  | (TSlice extends { binaryUploads: infer R } ? keyof R & string : never)
   | (TSlice extends { clientRequests: infer R } ? keyof R & string : never)
   | (TSlice extends { streams: infer R } ? keyof R & string : never)
   | (TSlice extends { recordedStreams: infer R } ? keyof R & string : never);
@@ -1724,6 +1804,31 @@ function addChannelServerRequests(primitives: Primitive[], channels: readonly ob
   }
 }
 
+/** Put the root `binary({ serverRequests })` declarations into this definition's request table. */
+function addBinaryServerRequests(
+  primitives: Primitive[],
+  capabilities: readonly AnyCapability[],
+): void {
+  const requests = capabilities
+    .map((cap) => (cap as Partial<BinaryCapability>).__binaryServerRequests)
+    .find((declared) => declared && Object.keys(declared).length > 0);
+  if (!requests) return;
+
+  const resolve = capabilities
+    .map((cap) => (cap as Partial<ServerRequestsCapability>).__resolveChannelServerRequests)
+    .find(Boolean);
+  const carrier = primitives.find((primitive) => primitive.__livething === 'server-requests');
+  if (!resolve || !carrier) {
+    throw new LiveThingConfigError(
+      'binary({ serverRequests }) needs serverRequests(). Add serverRequests() to capabilities.',
+    );
+  }
+
+  primitives.push(
+    (carrier as ServerRequestsPrimitive).__withServerRequests(resolve(null, requests, true)),
+  );
+}
+
 /** Refuse a handler or channel made by another `server()`. It would run with the wrong capabilities. */
 function assertFromBase(item: object, baseId: symbol): void {
   const { __baseId: owner } =
@@ -1883,6 +1988,9 @@ export function server(config: any): any {
 
   const scoped = config.scope === 'plugin';
   const hookPrimitives = buildHookPrimitives(config);
+  const listsBinary = ((config.capabilities ?? []) as readonly AnyCapability[]).some(
+    (cap) => cap.__capabilityKind === CAPABILITY_KIND.binary,
+  );
 
   type StreamBuild = (event: string, streamConfig: unknown) => Primitive;
 
@@ -1966,6 +2074,46 @@ export function server(config: any): any {
     return Object.assign(value, { __baseId: baseId });
   }
 
+  function assertListsBinary(method: string): void {
+    if (!listsBinary) {
+      throw new LiveThingConfigError(
+        `base.binary.${method}() needs binary(). Add binary() to capabilities.`,
+      );
+    }
+  }
+
+  function buildRequest(
+    method: 'request' | 'binary.request',
+    event: string,
+    requestConfig: ServerRequestConfigParameter,
+  ): Primitive {
+    const isBinary = method === 'binary.request';
+    let build: ((e: string, c: RequestBuildConfig) => Primitive) | undefined;
+    for (const cap of config.capabilities ?? []) {
+      const candidate = (cap as Partial<ClientRequestsCapability>).__buildClientRequest;
+      if (candidate) build = candidate;
+    }
+
+    if (!build) {
+      throw new LiveThingConfigError(
+        `base.${method}() needs clientRequests(). Add clientRequests() to capabilities.`,
+      );
+    }
+
+    const primitive = build(event, {
+      input: requestConfig.input,
+      allowInterleaving: requestConfig.allowInterleaving,
+      run: requestConfig.run,
+      ...(isBinary ? { binary: true, maxBytes: requestConfig.maxBytes } : {}),
+    });
+
+    if (requestConfig.rateLimit !== undefined) {
+      (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = requestConfig.rateLimit;
+    }
+
+    return fromThisBase(primitive);
+  }
+
   const base = {
     __baseId: baseId,
     on(event: string, onConfig: OnConfig<any, any, any, any> & { rateLimit?: RateLimitConfig }) {
@@ -1979,31 +2127,78 @@ export function server(config: any): any {
 
       return fromThisBase(primitive);
     },
-    request(event: string, requestConfig: ServerRequestConfigParameter) {
-      type Build = (e: string, c: ServerCParameter) => Primitive;
-      let build: Build | undefined;
-      for (const cap of config.capabilities ?? []) {
-        const candidate = (cap as { __buildClientRequest?: Build }).__buildClientRequest;
-        if (candidate) build = candidate;
-      }
+    binary: {
+      on(event: string, onConfig: BinaryOnConfigParameter) {
+        assertListsBinary('on');
+        const primitive = incomingFactory(event, onConfig.run, {
+          validator: onConfig.input,
+          allowInterleaving: onConfig.allowInterleaving,
+          binary: true,
+          maxBytes: onConfig.maxBytes,
+        });
+        if (onConfig.rateLimit !== undefined) {
+          (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = onConfig.rateLimit;
+        }
 
-      if (!build) {
-        throw new LiveThingConfigError(
-          'base.request() needs clientRequests(). Add clientRequests() to capabilities.',
+        return fromThisBase(primitive);
+      },
+      request(event: string, requestConfig: ServerRequestConfigParameter) {
+        assertListsBinary('request');
+        return buildRequest('binary.request', event, requestConfig);
+      },
+      stream(event: string, streamConfig: object) {
+        assertListsBinary('stream');
+        return fromThisBase(
+          streamBuilder(
+            'plain',
+            'binary.stream',
+            'stream()',
+          )(event, {
+            ...streamConfig,
+            binary: true,
+          }),
         );
-      }
+      },
+      recordedStream(event: string, streamConfig: object) {
+        assertListsBinary('recordedStream');
+        return fromThisBase(
+          streamBuilder(
+            'recorded',
+            'binary.recordedStream',
+            'recordedStream()',
+          )(event, { ...streamConfig, binary: true }),
+        );
+      },
+      upload(
+        event: string,
+        uploadConfig: Parameters<UploadsCapability['__uploadBuild']>[1] & {
+          rateLimit?: RateLimitConfig;
+        },
+      ) {
+        assertListsBinary('upload');
 
-      const primitive = build(event, {
-        input: requestConfig.input,
-        allowInterleaving: requestConfig.allowInterleaving,
-        run: requestConfig.run,
-      });
+        let build: UploadsCapability['__uploadBuild'] | undefined;
+        for (const cap of config.capabilities ?? []) {
+          const candidate = (cap as Partial<UploadsCapability>).__uploadBuild;
+          if (candidate) build = candidate;
+        }
 
-      if (requestConfig.rateLimit !== undefined) {
-        (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = requestConfig.rateLimit;
-      }
+        if (!build) {
+          throw new LiveThingConfigError(
+            'base.binary.upload() needs uploads(). Add uploads() to capabilities.',
+          );
+        }
 
-      return fromThisBase(primitive);
+        const primitive = build(event, uploadConfig);
+        if (uploadConfig.rateLimit !== undefined) {
+          (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = uploadConfig.rateLimit;
+        }
+
+        return fromThisBase(primitive);
+      },
+    },
+    request(event: string, requestConfig: ServerRequestConfigParameter) {
+      return buildRequest('request', event, requestConfig);
     },
     scheduled(taskId: string, taskConfig: ServerConfigParameter) {
       return fromThisBase({ __livethingScheduledTask: true, taskId, run: taskConfig.run });
@@ -2054,6 +2249,7 @@ export function server(config: any): any {
         buildReplay,
         buildClientRequest,
         resolveServerRequests,
+        binary: listsBinary,
       });
     },
     assemble(assembleConfig: ServerAssembleConfigParameter) {
@@ -2134,8 +2330,10 @@ export function server(config: any): any {
       for (const cap of config.capabilities ?? []) {
         const declared = (cap as Partial<ScheduledCapability>).__scheduled;
         if (declared) {
-          for (const [taskId, declaration] of declared)
+          for (const [taskId, declaration] of declared) {
             scheduledDeclarations.set(taskId, declaration);
+          }
+
           buildScheduled = (cap as Partial<ScheduledCapability>).__buildScheduled;
         }
       }
@@ -2166,6 +2364,8 @@ export function server(config: any): any {
       primitives.push(...scheduledPrimitives);
       primitives.push(...channelPrimitives);
       addChannelServerRequests(primitives, [...channelObjects.keys()]);
+
+      addBinaryServerRequests(primitives, config.capabilities ?? []);
 
       mergeServerRequestPrimitives(primitives);
 
