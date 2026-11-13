@@ -268,8 +268,6 @@ export function uploads(): UploadsPrimitive {
 
               throw UploadAborted({ reason: 'not-resumable' });
             }
-
-            iterableRead = true;
           }
 
           helpers.lazyAcquire();
@@ -317,6 +315,8 @@ export function uploads(): UploadsPrimitive {
             let receivedThrough = savedThrough;
             let sent = savedThrough;
             let seq = 0;
+            if (isAsyncIterable(source)) iterableRead = true;
+
             for await (const piece of piecesOf(source, savedThrough, pieceBytes)) {
               while (sent + piece.byteLength - receivedThrough > windowBytes) {
                 const answer = await settle(run, 'ack');

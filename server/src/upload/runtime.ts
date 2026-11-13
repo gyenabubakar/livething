@@ -672,7 +672,7 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
       let state: unknown;
       let row = readUpload(sql, connection.userId, uploadId);
       if (row) {
-        if (row.event !== upload.event || row.input !== input) {
+        if (row.event !== upload.event || row.input !== input || row.size !== size) {
           throw UploadAborted({ reason: 'input-mismatch' });
         }
 
@@ -681,10 +681,6 @@ export function createUploads(engine: EngineAccess, times: UploadTimes): Uploads
         if (row.status === 'done') {
           sendTo({ connection, uploadId }, '__uploadDone__', { info: JSON.parse(row.reply!) });
           return;
-        }
-
-        if (size !== null && row.size !== null && size !== row.size) {
-          throw UploadAborted({ reason: 'input-mismatch' });
         }
 
         // Synchronous, like everything from the takeover loop to `sessions.set`.

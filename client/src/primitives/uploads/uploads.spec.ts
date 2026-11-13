@@ -332,6 +332,44 @@ describe('socket.binary.upload', () => {
     await expect(upload.start()).rejects.toMatchObject({ detail: { reason: 'not-resumable' } });
   });
 
+  it('starts an AsyncIterable again when the connection dropped before anything read it', async () => {
+    const { socket, ws } = connected();
+    let reads = 0;
+    async function* chunks() {
+      reads += 1;
+      yield new Uint8Array([1, 2, 3]);
+    }
+
+    const upload = socket.binary.upload('upload-attachment', deck, chunks(), { uploadId: 'up-1' });
+    const first = upload.start();
+    await settle();
+    ws.serverClose(1006);
+    await expect(first).rejects.toMatchObject({ code: 'disconnected' });
+
+    expect(reads).toBe(0);
+
+    socket.connect();
+    const ws2 = MockWebSocket.last();
+    ws2.open();
+    const second = upload.start();
+    await settle();
+
+    ack(ws2, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 16 });
+    await settle();
+    expect(
+      sent(ws2)
+        .slice(1)
+        .map((frame) => frame.bytes ?? frame.payload),
+    ).toEqual([[1, 2, 3], { totalBytes: 3 }]);
+
+    ws2.emit({
+      event: '__uploadDone__',
+      payload: { info: { size: 3 } },
+      metadata: { upload: { id: 'up-1' } },
+    });
+    await expect(second).resolves.toEqual({ info: { size: 3 } });
+  });
+
   it('reads a Blob in slices', async () => {
     const { socket, ws } = connected();
     const blob = new Blob([file]);
@@ -516,6 +554,9 @@ describe('socket.binary.upload', () => {
     const upload = socket.binary.upload('upload-attachment', deck, chunks(), { uploadId: 'up-1' });
     const first = upload.start();
     await settle();
+    ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 16 });
+    await settle();
+
     ws.serverClose(1006);
     await expect(first).rejects.toMatchObject({ code: 'disconnected' });
 

@@ -743,6 +743,73 @@ describe('base.binary.upload', () => {
     ]);
   });
 
+  it('refuses a resume that sends a size when the first start sent none', async () => {
+    const { engine, runs } = build();
+    const first = await connect(engine);
+    await first.start('up-1', deck);
+    first.piece('up-1', 1, piece(8, 1));
+    await settle();
+
+    await first.close();
+    await settle();
+
+    const second = await connect(engine);
+    await second.start('up-1', deck, 12);
+    await settle();
+
+    expect(runs).toHaveLength(1);
+    expect(second.of('up-1')).toEqual([
+      [
+        '__error__',
+        { code: 'upload-aborted', detail: { reason: 'input-mismatch' } },
+        { upload: { id: 'up-1' } },
+      ],
+    ]);
+  });
+
+  it('refuses a resume that sends no size when the first start sent one', async () => {
+    const { engine } = build();
+    const first = await connect(engine);
+    await first.start('up-1', deck, 20);
+    await first.close();
+    await settle();
+
+    const second = await connect(engine);
+    await second.start('up-1', deck);
+    await settle();
+
+    expect(second.of('up-1')).toEqual([
+      [
+        '__error__',
+        { code: 'upload-aborted', detail: { reason: 'input-mismatch' } },
+        { upload: { id: 'up-1' } },
+      ],
+    ]);
+  });
+
+  it('refuses a start of a done upload with a different size, instead of sending the stored reply', async () => {
+    const { engine, runs } = build();
+    const amara = await connect(engine);
+    await amara.start('up-1', deck, 8);
+    amara.piece('up-1', 1, piece(8, 1));
+    await amara.end('up-1', 8);
+
+    await settle();
+
+    const again = await connect(engine);
+    await again.start('up-1', deck, 9);
+    await settle();
+
+    expect(runs).toHaveLength(1);
+    expect(again.of('up-1')).toEqual([
+      [
+        '__error__',
+        { code: 'upload-aborted', detail: { reason: 'input-mismatch' } },
+        { upload: { id: 'up-1' } },
+      ],
+    ]);
+  });
+
   it('refuses a start frame with no upload metadata', async () => {
     const { engine, runs } = build();
     const amara = await connect(engine);
