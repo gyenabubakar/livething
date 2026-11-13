@@ -1,4 +1,3 @@
-/* oxlint-disable max-params -- binary.send takes (event, info, bytes, options) */
 import {
   asUint8Array,
   BINARY_ENVELOPE_LIMIT,
@@ -29,7 +28,20 @@ import type { StreamTriggerOptions } from '~/primitives/stream/types.ts';
 import type { LiveThingSocket } from '~/socket/socket.ts';
 import type { StreamHandlers } from '~/types.ts';
 
+interface BinarySendOptions extends SendOptions {
+  info?: unknown;
+}
+
+interface OutgoingFrame extends BinarySendOptions {
+  bytes?: BinaryInput;
+}
+
+interface BinaryStreamOptions extends StreamTriggerOptions {
+  info?: unknown;
+}
+
 interface RequestOptions {
+  info?: unknown;
   timeout?: number;
 }
 
@@ -161,13 +173,8 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
         };
       }
 
-      function send(
-        markers: ScopeMarkers,
-        event: string,
-        info: unknown,
-        bytes?: BinaryInput,
-        sendOptions?: SendOptions,
-      ): boolean {
+      function send(markers: ScopeMarkers, event: string, frame: OutgoingFrame): boolean {
+        const { bytes, info, ...sendOptions } = frame;
         if (typeof event !== 'string' || event.length === 0 || isReservedEventName(event)) {
           return false;
         }
@@ -334,16 +341,11 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
         const methods: Record<string, unknown> = {};
 
         if (helpers.hasPrimitive('clientRequests')) {
-          methods.request = (
-            event: string,
-            info: unknown,
-            bytes?: unknown,
-            requestOptions?: RequestOptions,
-          ) => {
+          methods.request = (event: string, bytes: unknown, requestOptions?: RequestOptions) => {
             scope?.assertReady?.();
             const name = wireName(event);
             try {
-              return (helpers.shared.get(REQUESTS_KEY) as SendRequest)(name, info, {
+              return (helpers.shared.get(REQUESTS_KEY) as SendRequest)(name, requestOptions?.info, {
                 markers: markers(),
                 timeout: requestOptions?.timeout,
                 prepare: (frame) => frameOf(`binary.request('${name}')`, frame, bytes),
@@ -372,12 +374,8 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
         }
 
         if (helpers.hasPrimitive('stream')) {
-          methods.stream = (
-            event: string,
-            info: unknown,
-            bytes?: unknown,
-            streamOptions?: StreamTriggerOptions,
-          ) => {
+          methods.stream = (event: string, bytes: unknown, given: BinaryStreamOptions = {}) => {
+            const { info, ...streamOptions } = given;
             scope?.assertReady?.();
             const name = wireName(event);
             try {
@@ -392,7 +390,10 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
             }
           };
           methods.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
-            hooks().listen(wireName(event), handlers, scope ? scope.markers() : undefined, true);
+            hooks().listen(wireName(event), handlers, {
+              ...(scope ? { scope: scope.markers() } : {}),
+              binary: true,
+            });
           methods.continueStream = (
             event: string,
             streamId: string,
@@ -456,17 +457,17 @@ export function binary(options: BinaryOptions = {}): BinaryPrimitive {
 
           Object.assign(binaryOf(installedSocket), exchanges(null), {
             on: (event: string, listener: BinaryListener) => on({}, event, listener),
-            send: (event: string, info: unknown, bytes?: BinaryInput, sendOptions?: SendOptions) =>
-              send({}, event, info, bytes, sendOptions),
+            send: (event: string, bytes?: BinaryInput, sendOptions?: BinarySendOptions) =>
+              send({}, event, { ...sendOptions, bytes }),
           });
 
           getAugmenters(installedSocket).push((messaging, scope) => {
             Object.assign(binaryOf(messaging), exchanges(scope), {
               on: (event: string, listener: BinaryListener) =>
                 on(scope.markers(), scopedName(scope, event), listener),
-              send(event: string, info: unknown, bytes?: BinaryInput, sendOptions?: SendOptions) {
+              send(event: string, bytes?: BinaryInput, sendOptions?: BinarySendOptions) {
                 scope.assertReady?.();
-                return send(scope.markers(), scopedName(scope, event), info, bytes, sendOptions);
+                return send(scope.markers(), scopedName(scope, event), { ...sendOptions, bytes });
               },
             });
           });

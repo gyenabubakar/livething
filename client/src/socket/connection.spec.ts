@@ -340,7 +340,11 @@ describe('failed first connection runs primitive close cleanup', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(socket.state.get()).toBe('reconnecting');
-    expect(onClose).toHaveBeenCalledWith(1006, 'connection failed', false, false);
+    expect(onClose).toHaveBeenCalledWith({
+      code: 1006,
+      reason: 'connection failed',
+      intentional: false,
+    });
   });
 });
 

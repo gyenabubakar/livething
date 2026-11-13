@@ -41,7 +41,7 @@ function makePrimitive(
     setup(_helpers: PrimitiveHelpers): PrimitiveRuntime {
       return {
         id,
-        onClose(code, reason, intentional) {
+        onClose({ code, reason, intentional }) {
           if (options.throwOnClose) {
             throw new Error(`${id} onClose threw`);
           }

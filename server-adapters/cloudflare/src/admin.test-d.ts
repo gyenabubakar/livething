@@ -164,21 +164,22 @@ class BinaryServer extends bind(binaryDefinition) {}
 declare const binaryStub: DurableObjectStub<BinaryServer>;
 const binaryAdmin = await binaryStub.admin();
 const avatar = new Uint8Array([137, 80, 78, 71]);
-await binaryAdmin.binary.broadcast('avatar-preview', null, avatar);
+await binaryAdmin.binary.broadcast('avatar-preview', avatar, { info: null });
 // @ts-expect-error — a JSON event, not a binary one
-await binaryAdmin.binary.broadcast('announcement', { text: 'x' }, avatar);
+await binaryAdmin.binary.broadcast('announcement', avatar, { info: { text: 'x' } });
 expectTypeOf(
-  await binaryAdmin.users.get('user_9').binary.broadcast('avatar-preview', null, avatar),
+  await binaryAdmin.users.get('user_9').binary.broadcast('avatar-preview', avatar, { info: null }),
 ).toEqualTypeOf<number>();
-await binaryAdmin.channels.binary.broadcast(
-  { family: 'rooms', name: 'room:42' },
-  'screen-frame',
-  { from: 'admin' },
-  avatar,
-);
+await binaryAdmin.channels.binary.broadcast('screen-frame', avatar, {
+  channel: { family: 'rooms', name: 'room:42' },
+  info: { from: 'admin' },
+});
 const designRoom = { family: 'rooms', name: 'room:design' } as const;
-// @ts-expect-error — the info of screen-frame needs `from`
-await binaryAdmin.channels.binary.broadcast(designRoom, 'screen-frame', {});
+await binaryAdmin.channels.binary.broadcast('screen-frame', undefined, {
+  channel: designRoom,
+  // @ts-expect-error — the info of screen-frame needs `from`
+  info: {},
+});
 // @ts-expect-error — binary() is not listed
 plainAdmin.binary;
 // @ts-expect-error — binary() is not listed
@@ -186,7 +187,7 @@ plainAdmin.users.get('user_9').binary;
 declare const kofiRef: ConnectionRef;
 // @ts-expect-error — binary() is not listed
 plainAdmin.connections.get(kofiRef).binary;
-await binaryAdmin.connections.get(kofiRef).binary.send('avatar-preview', null, avatar);
+await binaryAdmin.connections.get(kofiRef).binary.send('avatar-preview', avatar, { info: null });
 // Root binary events, and a channel with none: the channel part has no `.binary`.
 const rootOnlyBase = server({
   capabilities: [binary({ emits: { 'avatar-preview': t<null>() } }), channels()],
@@ -196,7 +197,7 @@ const rootOnlyRooms = rootOnlyBase.channel(['rooms', 'room:{roomId}'], {
 });
 const rootOnly = rootOnlyBase.assemble({ handlers: [rootOnlyRooms] });
 declare const binaryAdminWithoutChannelEvents: CloudflareAdmin<typeof rootOnly>;
-await binaryAdminWithoutChannelEvents.binary.broadcast('avatar-preview', null, avatar);
+await binaryAdminWithoutChannelEvents.binary.broadcast('avatar-preview', avatar, { info: null });
 // Root binary() with no events of its own, and one channel with binary events: only the
 // channel part keeps `.binary`.
 const channelOnlyBase = server({ capabilities: [binary(), channels()] });
@@ -205,7 +206,10 @@ const channelOnlyRooms = channelOnlyBase.channel(['rooms', 'room:{roomId}'], {
 });
 const channelOnly = channelOnlyBase.assemble({ handlers: [channelOnlyRooms] });
 declare const channelOnlyAdmin: CloudflareAdmin<typeof channelOnly>;
-await channelOnlyAdmin.channels.binary.broadcast(designRoom, 'screen-frame', { from: 'a' }, avatar);
+await channelOnlyAdmin.channels.binary.broadcast('screen-frame', avatar, {
+  channel: designRoom,
+  info: { from: 'a' },
+});
 // @ts-expect-error — the root declares no binary events
 channelOnlyAdmin.binary;
 // @ts-expect-error — the root declares no binary events

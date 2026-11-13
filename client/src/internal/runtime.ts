@@ -116,8 +116,7 @@ export interface StreamHooks {
   listen(
     event: string,
     handlers: StreamHandlers<unknown>,
-    scope: ScopeMarkers | undefined,
-    binary: boolean,
+    options: StreamListenOptions,
   ): () => void;
 }
 
@@ -172,6 +171,22 @@ export interface ConnectedInfo {
   resume: { token: string; seq: number | null } | null;
 }
 
+/** Where a broadcast stream listener listens: its scope, and whether its chunks are binary. */
+export interface StreamListenOptions {
+  scope?: ScopeMarkers;
+  binary?: boolean;
+}
+
+/** What `onClose` gets when the socket closes. */
+interface PrimitiveClose {
+  code: number;
+  reason: string;
+  /** `true` for a public `disconnect()` call. */
+  intentional: boolean;
+  /** `true` for a temporary platform pause that resumes as the same client session. */
+  suspended?: boolean;
+}
+
 export interface PrimitiveRuntime {
   /** A name for debug logs. */
   id: string;
@@ -214,12 +229,8 @@ export interface PrimitiveRuntime {
    */
   onStable?(): void;
 
-  /**
-   * Runs when the socket closes. `intentional` is `true` for a public
-   * `disconnect()` call. `suspended` is `true` for a temporary platform pause
-   * that will resume as the same client session.
-   */
-  onClose?(code: number, reason: string, intentional: boolean, suspended?: boolean): void;
+  /** Runs when the socket closes. */
+  onClose?(close: PrimitiveClose): void;
 
   /**
    * Runs when reconnection is permanently abandoned — out of retries, or the

@@ -58,11 +58,9 @@ function build(options: BuildOptions = {}) {
   const shareScreen = rooms.on('share-screen', {
     input: v.object({ size: v.number(), mark: v.number() }),
     run(ctx, input) {
-      ctx.channel.binary.broadcast(
-        'screen-frame',
-        { from: ctx.user.id },
-        picture(input.size, input.mark),
-      );
+      ctx.channel.binary.broadcast('screen-frame', picture(input.size, input.mark), {
+        info: { from: ctx.user.id },
+      });
     },
   });
 

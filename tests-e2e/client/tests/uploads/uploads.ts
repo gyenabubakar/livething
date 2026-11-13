@@ -163,72 +163,60 @@ export function setup(): void {
   button('connect', () => socket.connect());
   button('upload-blob', () =>
     run(
-      socket.binary.upload(
-        'upload-attachment',
-        { attachmentId: 'att_blob' },
-        new Blob([pattern(300_000, seed)]),
-      ),
+      socket.binary.upload('upload-attachment', new Blob([pattern(300_000, seed)]), {
+        input: { attachmentId: 'att_blob' },
+      }),
     ),
   );
   button('upload-bytes', () =>
     run(
-      socket.binary.upload(
-        'upload-attachment',
-        { attachmentId: 'att_bytes' },
-        pattern(200_000, seed),
-      ),
+      socket.binary.upload('upload-attachment', pattern(200_000, seed), {
+        input: { attachmentId: 'att_bytes' },
+      }),
     ),
   );
   button('upload-iterable', () =>
-    run(socket.binary.upload('upload-attachment', { attachmentId: 'att_iter' }, chunks())),
+    run(
+      socket.binary.upload('upload-attachment', chunks(), { input: { attachmentId: 'att_iter' } }),
+    ),
   );
   // 512 KiB at 300 ms a piece, saved every two pieces: slow enough to drop in the middle.
   button('upload-slow', () =>
     run(
-      socket.binary.upload(
-        'upload-attachment',
-        { attachmentId: 'att_slow', saveEvery: 2, slowMs: 300 },
-        new Blob([pattern(512 * KiB, seed)]),
-        { uploadId },
-      ),
+      socket.binary.upload('upload-attachment', new Blob([pattern(512 * KiB, seed)]), {
+        input: { attachmentId: 'att_slow', saveEvery: 2, slowMs: 300 },
+        uploadId,
+      }),
     ),
   );
   // The same input as upload-slow, but a smaller file: a resume with it is refused.
   button('upload-slow-smaller', () =>
     run(
-      socket.binary.upload(
-        'upload-attachment',
-        { attachmentId: 'att_slow', saveEvery: 2, slowMs: 300 },
-        new Blob([pattern(256 * KiB, seed)]),
-        { uploadId },
-      ),
+      socket.binary.upload('upload-attachment', new Blob([pattern(256 * KiB, seed)]), {
+        input: { attachmentId: 'att_slow', saveEvery: 2, slowMs: 300 },
+        uploadId,
+      }),
     ),
   );
   button('upload-iterable-slow', () =>
     run(
-      socket.binary.upload(
-        'upload-attachment',
-        { attachmentId: 'att_iter_slow', slowMs: 1000 },
-        chunks(300),
-      ),
+      socket.binary.upload('upload-attachment', chunks(300), {
+        input: { attachmentId: 'att_iter_slow', slowMs: 1000 },
+      }),
     ),
   );
   button('upload-failing', () =>
     run(
-      socket.binary.upload(
-        'upload-attachment',
-        { attachmentId: 'att_fail', failAt: 2 },
-        new Blob([pattern(300_000, seed)]),
-      ),
+      socket.binary.upload('upload-attachment', new Blob([pattern(300_000, seed)]), {
+        input: { attachmentId: 'att_fail', failAt: 2 },
+      }),
     ),
   );
   button('upload-too-large', () =>
     run(
-      socket.binary.upload(
-        'upload-attachment',
-        { attachmentId: 'att_huge' },
-        new Blob([new Uint8Array(4 * 1024 * KiB + 1)]),
-      ),
+      socket.binary.upload('upload-attachment', new Blob([new Uint8Array(4 * 1024 * KiB + 1)]), {
+        input: { attachmentId: 'att_huge' },
+      }),
     ),
   );
   // Four photos, one caption: joined into one Blob, with each photo's size in the input.
@@ -236,30 +224,36 @@ export function setup(): void {
     run(
       socket.binary.upload(
         'upload-photos',
-        {
-          caption: 'Just an example',
-          photos: PHOTOS.map(({ photoId, size }) => ({ photoId, size })),
-        },
         new Blob(PHOTOS.map(({ size, seed: photoSeed }) => pattern(size, photoSeed))),
+        {
+          input: {
+            caption: 'Just an example',
+            photos: PHOTOS.map(({ photoId, size }) => ({ photoId, size })),
+          },
+        },
       ),
     ),
   );
   // The plugin's upload, through its scoped socket.
   button('upload-plugin', () =>
-    run(files.binary.upload('store-file', { fileId: 'f1' }, new Blob([pattern(150_000, seed)]))),
+    run(
+      files.binary.upload('store-file', new Blob([pattern(150_000, seed)]), {
+        input: { fileId: 'f1' },
+      }),
+    ),
   );
   button('upload-plugin-full', () =>
     run(
-      files.binary.upload(
-        'store-file',
-        { fileId: 'f2', full: true },
-        new Blob([pattern(150_000, seed)]),
-      ),
+      files.binary.upload('store-file', new Blob([pattern(150_000, seed)]), {
+        input: { fileId: 'f2', full: true },
+      }),
     ),
   );
   // An upload that is made but never started sends nothing.
   button('lazy', async () => {
-    socket.binary.upload('upload-attachment', { attachmentId: 'att_lazy' }, pattern(10, seed));
+    socket.binary.upload('upload-attachment', pattern(10, seed), {
+      input: { attachmentId: 'att_lazy' },
+    });
     await new Promise((resolve) => setTimeout(resolve, 500));
     const { size } = await socket.request('get-attachment', { attachmentId: 'att_lazy' });
     el('lazy-sent').textContent = String(size);

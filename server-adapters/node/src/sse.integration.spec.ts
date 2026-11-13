@@ -66,7 +66,7 @@ const handleLeaveHuddle = base.on('leaveHuddle', {
 
 const handleUploadAvatar = base.binary.on('upload-avatar', {
   run(ctx, _input, bytes) {
-    ctx.binary.send('avatar-preview', { size: bytes.byteLength }, bytes.subarray(0, 8));
+    ctx.binary.send('avatar-preview', bytes.subarray(0, 8), { info: { size: bytes.byteLength } });
   },
 });
 
@@ -168,8 +168,8 @@ describe('server-sent events on Node', () => {
 
     socket.binary.send(
       'upload-avatar',
-      null,
       Uint8Array.from({ length: 1000 }, (_, i) => i % 256),
+      { info: null },
     );
 
     await vi.waitFor(() => expect(previews).toEqual([[0, 1, 2, 3, 4, 5, 6, 7]]));

@@ -201,10 +201,14 @@ type BinaryMessageDispatch = (
 ) => Promise<void>;
 
 /**
- * Where a send method takes its event name: first (`send(event, ...)`) or second
- * (`broadcastTo(to, event, ...)`).
+ * How a binary sender maps to its JSON method. `'event-first'`: `send(event, payload,
+ * options)`. `'replay'`: `sendReplay(event, payload, wire)`, with the wire from `{ wire }`.
+ * `{ targetKey }`: `broadcastTo(to, event, payload)`, with the target from that option.
  */
-export type SenderEventPosition = 'event-first' | 'event-second';
+export type SenderEventPosition =
+  | 'event-first'
+  | 'replay'
+  | { readonly targetKey: 'to' | 'channel' };
 
 /**
  * Give a sender object a `.binary` key with a binary version of each named JSON send

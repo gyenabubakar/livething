@@ -1,5 +1,5 @@
 import { encodeBinaryFrame, encodeMessage, splitBinaryFrame } from '@livething/core';
-import type { LiveThingMetadata, Message } from '@livething/core';
+import type { Message } from '@livething/core';
 
 /** The payload of a `__connected__` frame, as the server sends it. */
 export interface ConnectedFrame {
@@ -180,14 +180,9 @@ export function installMockWebSocket(): () => void {
 }
 
 /** A binary frame from the server, as the client's socket receives it. */
-// oxlint-disable-next-line max-params -- mirrors the frame: event, info, metadata, bytes
-export function binaryFrame(
-  event: string,
-  payload: unknown,
-  metadata: LiveThingMetadata | null,
-  bytes?: Uint8Array,
-): ArrayBuffer {
-  return encodeBinaryFrame(encodeMessage({ event, payload, metadata }), bytes).buffer;
+export function binaryFrame(frame: Message & { bytes?: Uint8Array }): ArrayBuffer {
+  const { bytes, ...message } = frame;
+  return encodeBinaryFrame(encodeMessage(message), bytes).buffer;
 }
 
 /** Reads back a binary frame the client sent. */

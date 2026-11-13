@@ -55,12 +55,11 @@ export async function processBinaryMessage(
 type SendMethod = (...args: unknown[]) => unknown;
 
 /**
- * Give a sender a `.binary` key. Each binary method calls the JSON method of the same name
- * with the info and the bytes in the payload's place, so it has the same audience, options
- * and return value. `request` works the same way: `binary.request(event, info, bytes,
- * options)` calls `request(event, payload, options)`, and the request runtime sees the
- * binary payload. It reads the JSON method off `this` when called, so a plugin's scoped
- * `ctx` (a Proxy) still adds its namespace to the event name.
+ * Give a sender a `.binary` key. Each binary method, `name(event, bytes, { info, ...rest })`,
+ * calls the JSON method of the same name with the info and the bytes in the payload's place,
+ * so it has the same audience, options and return value. `request` works the same way, and
+ * the request runtime sees the binary payload. It reads the JSON method off `this` when
+ * called, so a plugin's scoped `ctx` (a Proxy) still adds its namespace to the event name.
  */
 export function addBinarySenders(
   sender: object,
@@ -74,14 +73,19 @@ export function addBinarySenders(
         // `request` is there only when `serverRequests()` added it to this sender.
         if (typeof this[name] !== 'function') continue;
 
-        // `send(event, info, bytes, ...)` or `broadcastTo(to, event, info, bytes, ...)`.
-        const infoAt = position === 'event-first' ? 1 : 2;
-        senders[name] = (...args) =>
-          this[name]!(
-            ...args.slice(0, infoAt),
-            binaryPayload(args[infoAt], args[infoAt + 1] as BinaryInput | undefined),
-            ...args.slice(infoAt + 2),
-          );
+        senders[name] = (event, bytes, options) => {
+          const { info, ...rest } = (options ?? {}) as Record<string, unknown>;
+          const payload = binaryPayload(info, bytes as BinaryInput | undefined);
+          if (position === 'replay') return this[name]!(event, payload, rest.wire);
+
+          if (position === 'event-first') {
+            return Object.keys(rest).length > 0
+              ? this[name]!(event, payload, rest)
+              : this[name]!(event, payload);
+          }
+
+          return this[name]!(rest[position.targetKey], event, payload);
+        };
       }
 
       return senders;

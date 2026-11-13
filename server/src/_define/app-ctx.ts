@@ -109,26 +109,41 @@ interface ConnectionlessBinaryCtx<TSlots> {
   readonly binary: BinarySendersOf<TSlots, 'broadcast'>;
 }
 
-/** `ctx.binary`: the binary versions of `ctx.send` and `ctx.broadcast`. */
+/**
+ * The last argument of a binary sender: the `info`, then the sender's own options. When the
+ * info can be `undefined`, both the `info` key and the whole argument are optional.
+ */
+type WithInfo<TInfo, TOptions = {}> = undefined extends TInfo
+  ? [options?: { info?: TInfo } & TOptions]
+  : [options: { info: TInfo } & TOptions];
+
+/**
+ * `ctx.binary`: the binary versions of `ctx.send` and `ctx.broadcast`. Every binary sender
+ * takes the event, then the bytes (`undefined` means zero bytes), then `{ info }`.
+ */
 interface CtxBinarySenders<TBinary> {
-  /**
-   * Send a binary event to the current connection: its info, then its bytes. Returns
-   * `false` when the platform adapter refused the frame.
-   */
-  send<E extends keyof TBinary & string>(event: E, info: TBinary[E], bytes?: BinaryInput): boolean;
+  /** Send a binary event to the current connection. `false` when the adapter refused the frame. */
+  send<E extends keyof TBinary & string>(
+    event: E,
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<TBinary[E]>
+  ): boolean;
   /** Send a binary event to every other connection; `includeSelf: true` adds the sender. */
   broadcast<E extends keyof TBinary & string>(
     event: E,
-    info: TBinary[E],
-    bytes?: BinaryInput,
-    options?: { includeSelf?: boolean },
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<TBinary[E], { includeSelf?: boolean }>
   ): void;
 }
 
 /** `ctx.connections.get(ref).binary`. */
 interface ConnectionBinarySenders<TBinary> {
   /** Send a binary event to this connection only. `false` when it is no longer live. */
-  send<E extends keyof TBinary & string>(event: E, info: TBinary[E], bytes?: BinaryInput): boolean;
+  send<E extends keyof TBinary & string>(
+    event: E,
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<TBinary[E]>
+  ): boolean;
 }
 
 /** `ctx.user.binary` / `ctx.users.get(id).binary`. */
@@ -136,28 +151,30 @@ interface UserBinarySenders<TBinary> {
   /** Send a binary event to every live socket the user holds. Returns the socket count. */
   broadcast<E extends keyof TBinary & string>(
     event: E,
-    info: TBinary[E],
-    bytes?: BinaryInput,
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<TBinary[E]>
   ): number;
 }
 
 /** The `.binary` key of a channel handle: the binary versions of its senders. */
 interface ChannelBinarySenders<TBinary> {
   /** Send a binary channel event to the calling connection. Returns `1` when delivered, else `0`. */
-  send<E extends keyof TBinary & string>(event: E, info: TBinary[E], bytes?: BinaryInput): number;
-  /** Send a binary channel event to a selected member audience. Returns the socket count. */
-  broadcastTo<E extends keyof TBinary & string>(
-    to: ChannelRecipient,
+  send<E extends keyof TBinary & string>(
     event: E,
-    info: TBinary[E],
-    bytes?: BinaryInput,
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<TBinary[E]>
+  ): number;
+  /** Send a binary channel event to the members in `to`. Returns the socket count. */
+  broadcastTo<E extends keyof TBinary & string>(
+    event: E,
+    bytes: BinaryInput | undefined,
+    options: { to: ChannelRecipient } & WithInfo<TBinary[E]>[0] & {},
   ): number;
   /** Send a binary channel event to its members, as one frame. The sender is left out by default. */
   broadcast<E extends keyof TBinary & string>(
     event: E,
-    info: TBinary[E],
-    bytes?: BinaryInput,
-    options?: { includeSelf?: boolean },
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<TBinary[E], { includeSelf?: boolean }>
   ): void;
 }
 
@@ -198,16 +215,15 @@ type AnswerInfoOf<TEntry> = TEntry extends { response: infer R } ? R : never;
 /** `ctx.binary.request` and `ctx.connections.get(ref).binary.request`. */
 interface BinaryRequestMethod<TRequests> {
   /**
-   * Send a declared binary server request: its info, then its bytes (optional). It resolves
-   * with the client's binary answer. A text answer, or one whose info fails `in`, rejects
-   * with `request-invalid-response`, and a text `__error__` from the client rejects with
-   * that error.
+   * Send a declared binary server request: its bytes (`undefined` means zero bytes), with
+   * the info in `{ info }`. It resolves with the client's binary answer. A text answer, or
+   * one whose info fails `in`, rejects with `request-invalid-response`, and a text
+   * `__error__` from the client rejects with that error.
    */
   request<E extends keyof TRequests & string>(
     event: E,
-    info: RequestInfoOf<TRequests[E]>,
-    bytes?: BinaryInput,
-    options?: { timeout?: number },
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<RequestInfoOf<TRequests[E]>, { timeout?: number }>
   ): Promise<BinaryAnswer<AnswerInfoOf<TRequests[E]>>>;
 }
 
@@ -220,9 +236,8 @@ interface UserBinaryRequestMethod<TRequests> {
    */
   request<E extends keyof TRequests & string>(
     event: E,
-    info: RequestInfoOf<TRequests[E]>,
-    bytes?: BinaryInput,
-    options?: { timeout?: number },
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<RequestInfoOf<TRequests[E]>, { timeout?: number }>
   ): Promise<BinaryAnswer<AnswerInfoOf<TRequests[E]>> & { readonly from: ConnectionRef }>;
 }
 
@@ -234,9 +249,8 @@ interface ChannelBinaryRequestMethod<TRequests> {
    */
   request<E extends keyof TRequests & string>(
     event: E,
-    info: RequestInfoOf<TRequests[E]>,
-    bytes?: BinaryInput,
-    options?: { timeout?: number; to?: ConnectionRef },
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<RequestInfoOf<TRequests[E]>, { timeout?: number; to?: ConnectionRef }>
   ): Promise<BinaryAnswer<AnswerInfoOf<TRequests[E]>>>;
 }
 
@@ -252,8 +266,8 @@ interface BroadcastBinarySenders<TBinary> {
   /** Send a binary event to every member (or every connection), as one frame. */
   broadcast<E extends keyof TBinary & string>(
     event: E,
-    info: TBinary[E],
-    bytes?: BinaryInput,
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<TBinary[E]>
   ): void;
 }
 
@@ -682,20 +696,18 @@ interface BinarySendReplayCtx<TSlots> {
     ? {
         /**
          * Send one stored binary event again to the current connection, as one binary
-         * frame with the given `wire`: its info, then its bytes.
+         * frame: its bytes, with `{ info, wire }`.
          */
         sendReplay<E extends keyof TBinary & string>(
           event: E,
-          info: TBinary[E],
           bytes: BinaryInput | undefined,
-          wire: ReplayWire,
+          options: { info: TBinary[E]; wire: ReplayWire },
         ): void;
         /** The same for a channel's binary event. Name the channel in `wire.channel`. */
         sendReplay<R extends ChannelRef, E extends keyof ChannelRefBinaryEvents<R> & string>(
           event: E,
-          info: ChannelRefBinaryEvents<R>[E],
           bytes: BinaryInput | undefined,
-          wire: ChannelReplayWire<R>,
+          options: { info: ChannelRefBinaryEvents<R>[E]; wire: ChannelReplayWire<R> },
         ): void;
       }
     : {};
@@ -711,9 +723,8 @@ export interface ChannelBinarySendReplayArm<TOutgoing> {
         /** Send one stored binary event of this channel again to the calling connection. */
         sendReplay?<E extends keyof TBinary & string>(
           event: E,
-          info: TBinary[E],
           bytes: BinaryInput | undefined,
-          wire: ReplayWire,
+          options: { info: TBinary[E]; wire: ReplayWire },
         ): void;
       }
     : {};
@@ -946,9 +957,13 @@ interface ConnectionlessChannelsBinary<TSlots> {
   broadcast(...args: ChannelBinaryBroadcastArgs<Channels<TSlots>>): void;
 }
 
-/** The `(channel, event, info, bytes?)` tuples `channels.binary.broadcast` takes. */
+/** The `(event, bytes, { channel, info })` tuples `channels.binary.broadcast` takes. */
 type ChannelBinaryBroadcastArgs<TChannels> = string extends keyof TChannels
-  ? [channel: string | ChannelInstance, event: string, info: unknown, bytes?: BinaryInput]
+  ? [
+      event: string,
+      bytes: BinaryInput | undefined,
+      options: { channel: string | ChannelInstance; info?: unknown },
+    ]
   : {
       [K in keyof TChannels & string]: TChannels[K] extends {
         binaryOutgoing: infer TBinary;
@@ -956,10 +971,11 @@ type ChannelBinaryBroadcastArgs<TChannels> = string extends keyof TChannels
       }
         ? {
             [E in keyof TBinary & string]: [
-              channel: TAddressing extends 'dynamic' ? ChannelInstance<K> : K,
               event: E,
-              info: TBinary[E],
-              bytes?: BinaryInput,
+              bytes: BinaryInput | undefined,
+              options: {
+                channel: TAddressing extends 'dynamic' ? ChannelInstance<K> : K;
+              } & WithInfo<TBinary[E]>[0] & {},
             ];
           }[keyof TBinary & string]
         : never;

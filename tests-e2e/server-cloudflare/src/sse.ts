@@ -36,7 +36,7 @@ const handleLeaveHuddle = base.on('leave-huddle', {
 
 const handleUploadAvatar = base.binary.on('upload-avatar', {
   run(ctx, _input, bytes) {
-    ctx.binary.send('avatar-preview', { size: bytes.byteLength }, bytes.subarray(0, 8));
+    ctx.binary.send('avatar-preview', bytes.subarray(0, 8), { info: { size: bytes.byteLength } });
   },
 });
 

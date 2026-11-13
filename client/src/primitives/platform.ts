@@ -153,8 +153,8 @@ export function platform(
           socket.online = onlineStore.store;
         },
 
-        onClose(...args) {
-          const [, , intentional, suspended] = args;
+        onClose(close) {
+          const { intentional, suspended } = close;
           if (suspended) return;
 
           if (intentional) {

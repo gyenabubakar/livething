@@ -51,10 +51,9 @@ vi.mock('@livething/server/adapters', async (importOriginal) => ({
 // Import AFTER mocks are in place.
 const { bind } = await import('./server.ts');
 
-type DOInstance = {
+type DOInstance = Required<Pick<DurableObject, 'webSocketClose'>> & {
   fetch(req: Request): Promise<Response>;
   webSocketMessage(ws: WebSocket, data: string | ArrayBuffer | ArrayBufferView): Promise<void>;
-  webSocketClose(ws: WebSocket, code: number, reason: string, wasClean?: boolean): Promise<void>;
   webSocketError(ws: WebSocket, err: unknown): Promise<void>;
   alarm(): Promise<void>;
   shutdown(): Promise<void>;
@@ -835,7 +834,7 @@ describe('engine wiring in the constructor', () => {
     const calls = [
       instance.fetch(upgradeRequest()),
       instance.webSocketMessage({} as WebSocket, 'hello'),
-      instance.webSocketClose({ close: vi.fn() } as unknown as WebSocket, 1000, 'bye'),
+      instance.webSocketClose({ close: vi.fn() } as unknown as WebSocket, 1000, 'bye', true),
       instance.webSocketError({} as WebSocket, failure),
       instance.alarm(),
       instance.shutdown(),
@@ -979,31 +978,28 @@ describe('LiveThingDurableObject admin()', () => {
     };
     const ref = { __livething: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' };
 
-    binaryAdmin.binary.broadcast('avatar-preview', null, bytes);
-    const reached = binaryAdmin.users.get('u1').binary.broadcast('avatar-preview', null, bytes);
-    const sent = binaryAdmin.connections.get(ref).binary.send('avatar-preview', null, bytes);
-    const room = { family: 'rooms', name: 'room:42' };
-    binaryAdmin.channels.binary.broadcast(room, 'screen-frame', { from: 'admin' }, bytes);
+    const options = { info: null };
+    binaryAdmin.binary.broadcast('avatar-preview', bytes, options);
+    const reached = binaryAdmin.users.get('u1').binary.broadcast('avatar-preview', bytes, options);
+    const sent = binaryAdmin.connections.get(ref).binary.send('avatar-preview', bytes, options);
 
-    expect(binary.broadcast).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    const roomOptions = { channel: { family: 'rooms', name: 'room:42' }, info: { from: 'admin' } };
+    binaryAdmin.channels.binary.broadcast('screen-frame', bytes, roomOptions);
+
+    expect(binary.broadcast).toHaveBeenCalledWith('avatar-preview', bytes, options);
     expect(reached).toBe(2);
-    expect(userBinary.broadcast).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    expect(userBinary.broadcast).toHaveBeenCalledWith('avatar-preview', bytes, options);
     expect(sent).toBe(true);
-    expect(connectionBinary.send).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    expect(connectionBinary.send).toHaveBeenCalledWith('avatar-preview', bytes, options);
 
-    expect(channelsBinary.broadcast).toHaveBeenCalledWith(
-      room,
-      'screen-frame',
-      { from: 'admin' },
-      bytes,
-    );
+    expect(channelsBinary.broadcast).toHaveBeenCalledWith('screen-frame', bytes, roomOptions);
   });
 
   it('throws a clear error for a binary send when binary() is not listed', async () => {
     const { admin } = await adminOf();
     const binaryAdmin = admin as unknown as { binary: { broadcast(...args: unknown[]): unknown } };
 
-    expect(() => binaryAdmin.binary.broadcast('avatar-preview', null)).toThrow(
+    expect(() => binaryAdmin.binary.broadcast('avatar-preview', undefined, { info: null })).toThrow(
       /needs binary\(\) in server/,
     );
   });

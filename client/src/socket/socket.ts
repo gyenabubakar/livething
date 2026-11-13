@@ -299,7 +299,7 @@ export class LiveThingSocket {
     // live listeners.
     for (const primitive of this._primitives) {
       try {
-        primitive.onClose?.(code, reason, intentional, suspended);
+        primitive.onClose?.({ code, reason, intentional, suspended });
       } catch (error) {
         this._reportError(error);
       }
@@ -612,7 +612,7 @@ export class LiveThingSocket {
       // first connect doesn't leave channel/request/ack state pending.
       for (const primitive of this._primitives) {
         try {
-          primitive.onClose?.(1006, 'connection failed', false, false);
+          primitive.onClose?.({ code: 1006, reason: 'connection failed', intentional: false });
         } catch (closeError) {
           this._reportError(closeError);
         }
@@ -773,7 +773,7 @@ export class LiveThingSocket {
 
     for (const primitive of this._primitives) {
       try {
-        primitive.onClose?.(event.code, event.reason, false, false);
+        primitive.onClose?.({ code: event.code, reason: event.reason, intentional: false });
       } catch (error) {
         this._reportError(error);
       }

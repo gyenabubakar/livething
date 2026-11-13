@@ -122,7 +122,9 @@ describe('socket.binary.request', () => {
   it('sends one binary frame with a new exchange id, and resolves the binary reply', async () => {
     const { socket, ws } = everything();
 
-    const reply = socket.binary.request('get-thumbnail', { attachmentId: 'att_1' });
+    const reply = socket.binary.request('get-thumbnail', undefined, {
+      info: { attachmentId: 'att_1' },
+    });
     expect(ws.sent).toHaveLength(1);
     const sent = decodeSent(ws.sent[0]);
     expect(sent).toMatchObject({
@@ -134,7 +136,14 @@ describe('socket.binary.request', () => {
 
     const exchange = sent.metadata!.exchange!;
 
-    ws.emitRaw(frame('get-thumbnail', { fileType: 'image/png' }, { exchange }, thumbnail));
+    ws.emitRaw(
+      frame({
+        event: 'get-thumbnail',
+        payload: { fileType: 'image/png' },
+        metadata: { exchange },
+        bytes: thumbnail,
+      }),
+    );
 
     const { info, bytes } = await reply;
     expect(info).toEqual({ fileType: 'image/png' });
@@ -145,7 +154,9 @@ describe('socket.binary.request', () => {
     const { socket, ws } = everything();
 
     void socket.request('get-room', { roomId: 'room:general' });
-    void socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, thumbnail.buffer);
+    void socket.binary.request('get-thumbnail', thumbnail.buffer, {
+      info: { attachmentId: 'att_1' },
+    });
 
     const textId = ws.sentFrames()[0].metadata.exchange.id as string;
     const sent = decodeSent(ws.sent[1]);
@@ -158,7 +169,8 @@ describe('socket.binary.request', () => {
     vi.useFakeTimers();
     const { socket, ws } = everything();
 
-    const reply = socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, undefined, {
+    const reply = socket.binary.request('get-thumbnail', undefined, {
+      info: { attachmentId: 'att_1' },
       timeout: 5_000,
     });
     expect(decodeSent(ws.sent[0]).bytes!.byteLength).toBe(0);
@@ -171,7 +183,9 @@ describe('socket.binary.request', () => {
   it('rejects with the typed error of a text __error__ reply', async () => {
     const { socket, ws } = everything();
 
-    const reply = socket.binary.request('get-thumbnail', { attachmentId: 'att_404' });
+    const reply = socket.binary.request('get-thumbnail', undefined, {
+      info: { attachmentId: 'att_404' },
+    });
     const exchange = decodeSent(ws.sent[0]).metadata!.exchange!;
     ws.emit({
       event: '__error__',
@@ -185,7 +199,9 @@ describe('socket.binary.request', () => {
   it('rejects a text reply with request-invalid-response', async () => {
     const { socket, ws } = everything();
 
-    const reply = socket.binary.request('get-thumbnail', { attachmentId: 'att_1' });
+    const reply = socket.binary.request('get-thumbnail', undefined, {
+      info: { attachmentId: 'att_1' },
+    });
     const exchange = decodeSent(ws.sent[0]).metadata!.exchange!;
     ws.emit({ event: 'get-thumbnail', payload: { fileType: 'image/png' }, metadata: { exchange } });
 
@@ -205,7 +221,14 @@ describe('socket.binary.request', () => {
 
     const reply = socket.request('get-room', { roomId: 'room:general' });
     const exchange = ws.sentFrames()[0].metadata.exchange;
-    ws.emitRaw(frame('get-room', { name: 'Wrong' }, { exchange }, thumbnail));
+    ws.emitRaw(
+      frame({
+        event: 'get-room',
+        payload: { name: 'Wrong' },
+        metadata: { exchange },
+        bytes: thumbnail,
+      }),
+    );
     ws.emit({ event: 'get-room', payload: { name: 'General' }, metadata: { exchange } });
 
     await expect(reply).resolves.toEqual({ name: 'General' });
@@ -219,10 +242,12 @@ describe('socket.binary.request', () => {
     ) as unknown as ReturnType<typeof typedAsEverything>;
 
     await expect(
-      socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, new Uint8Array(100)),
+      socket.binary.request('get-thumbnail', new Uint8Array(100), {
+        info: { attachmentId: 'att_1' },
+      }),
     ).rejects.toThrow(/maxFrameBytes/);
     await expect(
-      socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, 'bytes' as never),
+      socket.binary.request('get-thumbnail', 'bytes' as never, { info: { attachmentId: 'att_1' } }),
     ).rejects.toThrow(TypeError);
     expect(MockWebSocket.instances).toHaveLength(0);
     expect(socket.state.get()).toBe('closed');
@@ -231,7 +256,9 @@ describe('socket.binary.request', () => {
   it('rejects with Disconnected when the socket closes while it waits', async () => {
     const { socket, ws } = everything();
 
-    const reply = socket.binary.request('get-thumbnail', { attachmentId: 'att_1' });
+    const reply = socket.binary.request('get-thumbnail', undefined, {
+      info: { attachmentId: 'att_1' },
+    });
     ws.serverClose(1006);
 
     expect(Disconnected.matches(await reply.catch((error: unknown) => error))).toBe(true);
@@ -243,7 +270,8 @@ describe('socket.binary.request', () => {
     const listener = vi.fn();
     socket.binary.on('get-thumbnail' as 'avatar-preview', listener);
 
-    const reply = socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, undefined, {
+    const reply = socket.binary.request('get-thumbnail', undefined, {
+      info: { attachmentId: 'att_1' },
       timeout: 10,
     });
     const caught = reply.catch(() => 'timed out');
@@ -251,7 +279,14 @@ describe('socket.binary.request', () => {
     await caught;
 
     const exchange = decodeSent(ws.sent[0]).metadata!.exchange!;
-    ws.emitRaw(frame('get-thumbnail', { fileType: 'image/png' }, { exchange }, thumbnail));
+    ws.emitRaw(
+      frame({
+        event: 'get-thumbnail',
+        payload: { fileType: 'image/png' },
+        metadata: { exchange },
+        bytes: thumbnail,
+      }),
+    );
     expect(listener).not.toHaveBeenCalled();
   });
 
@@ -259,10 +294,12 @@ describe('socket.binary.request', () => {
     const { socket, ws } = connected(binary({ maxFrameBytes: 100 }), clientRequests());
 
     await expect(
-      socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, new Uint8Array(100)),
+      socket.binary.request('get-thumbnail', new Uint8Array(100), {
+        info: { attachmentId: 'att_1' },
+      }),
     ).rejects.toThrow(/maxFrameBytes/);
     await expect(
-      socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, 'bytes' as never),
+      socket.binary.request('get-thumbnail', 'bytes' as never, { info: { attachmentId: 'att_1' } }),
     ).rejects.toThrow(TypeError);
     expect(ws.sent).toHaveLength(0);
   });
@@ -275,7 +312,9 @@ describe('socket.binary.request', () => {
       clientRequests(),
     ) as unknown as ReturnType<typeof typedAsEverything>;
 
-    const reply = socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, thumbnail);
+    const reply = socket.binary.request('get-thumbnail', thumbnail, {
+      info: { attachmentId: 'att_1' },
+    });
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -283,7 +322,11 @@ describe('socket.binary.request', () => {
     const sent = decodeSent(ws.sent[0]);
     expect([...sent.bytes!]).toEqual([...thumbnail]);
     ws.emitRaw(
-      frame('get-thumbnail', { fileType: 'image/png' }, { exchange: sent.metadata!.exchange! }),
+      frame({
+        event: 'get-thumbnail',
+        payload: { fileType: 'image/png' },
+        metadata: { exchange: sent.metadata!.exchange! },
+      }),
     );
     await expect(reply).resolves.toMatchObject({ info: { fileType: 'image/png' } });
   });
@@ -291,14 +334,23 @@ describe('socket.binary.request', () => {
   it('on a channel, sends the channel metadata and needs the channel to be subscribed', async () => {
     const { socket, ws } = everything();
     const unjoined = socket.channel('rooms', 'room:design');
-    expect(() => unjoined.binary.request('get-whiteboard', null)).toThrow(/channel-not-subscribed/);
+    expect(() => unjoined.binary.request('get-whiteboard', undefined, { info: null })).toThrow(
+      /channel-not-subscribed/,
+    );
 
     const room = await joinGeneral(socket, ws);
-    const reply = room.binary.request('get-whiteboard', null);
+    const reply = room.binary.request('get-whiteboard', undefined, { info: null });
     const sent = decodeSent(ws.sent.at(-1));
     expect(sent.metadata).toMatchObject({ channel: general, exchange: { source: 'client' } });
 
-    ws.emitRaw(frame('get-whiteboard', { fileType: 'image/png' }, sent.metadata!, thumbnail));
+    ws.emitRaw(
+      frame({
+        event: 'get-whiteboard',
+        payload: { fileType: 'image/png' },
+        metadata: sent.metadata!,
+        bytes: thumbnail,
+      }),
+    );
     await expect(reply).resolves.toMatchObject({ info: { fileType: 'image/png' } });
   });
 
@@ -308,7 +360,13 @@ describe('socket.binary.request', () => {
 
     const listener = vi.fn();
     socket.binary.on('get-thumbnail' as 'avatar-preview', listener);
-    ws.emitRaw(frame('get-thumbnail', null, { exchange: { id: 'req-1', source: 'client' } }));
+    ws.emitRaw(
+      frame({
+        event: 'get-thumbnail',
+        payload: null,
+        metadata: { exchange: { id: 'req-1', source: 'client' } },
+      }),
+    );
     expect(listener).not.toHaveBeenCalled();
   });
 });
@@ -333,7 +391,14 @@ describe('socket.binary.onRequest', () => {
     socket.binary.onRequest('capture-screen', handler);
 
     const exchange = { id: 'x-1', source: 'server' as const };
-    ws.emitRaw(frame('capture-screen', { maxWidth: 1280 }, { exchange }, new Uint8Array(3)));
+    ws.emitRaw(
+      frame({
+        event: 'capture-screen',
+        payload: { maxWidth: 1280 },
+        metadata: { exchange },
+        bytes: new Uint8Array(3),
+      }),
+    );
     await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
 
     expect(handler).toHaveBeenCalledWith({ maxWidth: 1280 }, expect.any(Uint8Array));
@@ -351,7 +416,11 @@ describe('socket.binary.onRequest', () => {
     socket.binary.onRequest('capture-screen', () => ({ info: { fileType: 'image/png' } }));
 
     ws.emitRaw(
-      frame('capture-screen', { maxWidth: 1 }, { exchange: { id: 'x-1', source: 'server' } }),
+      frame({
+        event: 'capture-screen',
+        payload: { maxWidth: 1 },
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
     );
     await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
     expect(decodeSent(ws.sent[0]).bytes!.byteLength).toBe(0);
@@ -372,12 +441,17 @@ describe('socket.binary.onRequest', () => {
     ws.sent.length = 0;
 
     ws.emitRaw(
-      frame('capture-screen', { maxWidth: 1 }, { exchange: { id: 'x-1', source: 'server' } }),
+      frame({
+        event: 'capture-screen',
+        payload: { maxWidth: 1 },
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
     );
     ws.emitRaw(
-      frame('capture-whiteboard', null, {
-        exchange: { id: 'x-2', source: 'server' },
-        channel: general,
+      frame({
+        event: 'capture-whiteboard',
+        payload: null,
+        metadata: { exchange: { id: 'x-2', source: 'server' }, channel: general },
       }),
     );
     await vi.waitFor(() => expect(ws.sent).toHaveLength(2));
@@ -405,7 +479,11 @@ describe('socket.binary.onRequest', () => {
     socket.binary.onRequest('confirm-delete' as 'capture-screen', bytes);
 
     ws.emitRaw(
-      frame('capture-screen', { maxWidth: 1 }, { exchange: { id: 'x-1', source: 'server' } }),
+      frame({
+        event: 'capture-screen',
+        payload: { maxWidth: 1 },
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
     );
     ws.emit({
       event: 'confirm-delete',
@@ -431,11 +509,18 @@ describe('socket.binary.onRequest', () => {
     }));
     ws.sent.length = 0;
 
-    ws.emitRaw(frame('capture-whiteboard', null, { exchange: { id: 'x-1', source: 'server' } }));
     ws.emitRaw(
-      frame('capture-whiteboard', null, {
-        exchange: { id: 'x-2', source: 'server' },
-        channel: general,
+      frame({
+        event: 'capture-whiteboard',
+        payload: null,
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
+    );
+    ws.emitRaw(
+      frame({
+        event: 'capture-whiteboard',
+        payload: null,
+        metadata: { exchange: { id: 'x-2', source: 'server' }, channel: general },
       }),
     );
     await vi.waitFor(() => expect(ws.sent).toHaveLength(2));
@@ -459,7 +544,13 @@ describe('socket.binary.onRequest', () => {
     socket.binary.onRequest('capture-screen', () => answers.shift() as never);
 
     for (const id of ['x-1', 'x-2', 'x-3']) {
-      ws.emitRaw(frame('capture-screen', { maxWidth: 1 }, { exchange: { id, source: 'server' } }));
+      ws.emitRaw(
+        frame({
+          event: 'capture-screen',
+          payload: { maxWidth: 1 },
+          metadata: { exchange: { id, source: 'server' } },
+        }),
+      );
     }
 
     await vi.waitFor(() => expect(ws.sent).toHaveLength(3));
@@ -477,7 +568,11 @@ describe('socket.binary.onRequest', () => {
     socket.binary.onRequest('capture-screen', handler)();
 
     ws.emitRaw(
-      frame('capture-screen', { maxWidth: 1 }, { exchange: { id: 'x-1', source: 'server' } }),
+      frame({
+        event: 'capture-screen',
+        payload: { maxWidth: 1 },
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
     );
     expect(handler).not.toHaveBeenCalled();
     expect(ws.sentFrames()[0].payload).toEqual({ code: 'request-no-response' });
@@ -486,9 +581,8 @@ describe('socket.binary.onRequest', () => {
 
 /** Start a binary download and confirm it, as the server would. */
 async function startDownload(socket: ReturnType<typeof everything>['socket'], ws: MockWebSocket) {
-  const started = socket.binary.stream('download-attachment', {
-    attachmentId: 'att_1',
-    fromByte: 0,
+  const started = socket.binary.stream('download-attachment', undefined, {
+    info: { attachmentId: 'att_1', fromByte: 0 },
   });
   const trigger = decodeSent(ws.sent.at(-1));
   const id = trigger.metadata!.stream!.id;
@@ -501,10 +595,18 @@ async function startDownload(socket: ReturnType<typeof everything>['socket'], ws
   return { download: await started, id, trigger };
 }
 
-// oxlint-disable-next-line max-params -- mirrors the frame: socket, id, seq, info, bytes
-function piece(ws: MockWebSocket, id: string, seq: number, info: Attachment, bytes: Uint8Array) {
+function piece(
+  ws: MockWebSocket,
+  { id, seq, info = null }: { id: string; seq: number; info?: Attachment },
+  bytes: Uint8Array,
+) {
   ws.emitRaw(
-    frame('download-attachment', info, { stream: { id, durability: 'ephemeral', seq } }, bytes),
+    frame({
+      event: 'download-attachment',
+      payload: info,
+      metadata: { stream: { id, durability: 'ephemeral', seq } },
+      bytes,
+    }),
   );
 }
 
@@ -533,8 +635,12 @@ describe('socket.binary.stream', () => {
     });
     expect(trigger.bytes!.byteLength).toBe(0);
 
-    piece(ws, id, 1, { fileName: 'launch-plan.pdf', fileType: 'application/pdf' }, thumbnail);
-    piece(ws, id, 2, null, new Uint8Array([1, 2]));
+    piece(
+      ws,
+      { id, seq: 1, info: { fileName: 'launch-plan.pdf', fileType: 'application/pdf' } },
+      thumbnail,
+    );
+    piece(ws, { id, seq: 2 }, new Uint8Array([1, 2]));
     endOf(ws, id, 2);
 
     const { items, error } = await readAll(download);
@@ -548,12 +654,10 @@ describe('socket.binary.stream', () => {
 
   it('sends the start bytes it is given', () => {
     const { socket, ws } = everything();
-    void socket.binary.stream(
-      'download-attachment',
-      { attachmentId: 'att_1', fromByte: 0 },
-      thumbnail,
-      { streamId: 'download-1' },
-    );
+    void socket.binary.stream('download-attachment', thumbnail, {
+      info: { attachmentId: 'att_1', fromByte: 0 },
+      streamId: 'download-1',
+    });
 
     const trigger = decodeSent(ws.sent[0]);
     expect(trigger.metadata).toEqual({ stream: { id: 'download-1' } });
@@ -563,8 +667,8 @@ describe('socket.binary.stream', () => {
   it('fails with StreamCorrupted and cancels on a missing chunk, or a missing last chunk', async () => {
     const { socket, ws } = everything();
     const first = await startDownload(socket, ws);
-    piece(ws, first.id, 1, null, thumbnail);
-    piece(ws, first.id, 3, null, thumbnail);
+    piece(ws, { id: first.id, seq: 1 }, thumbnail);
+    piece(ws, { id: first.id, seq: 3 }, thumbnail);
 
     const gap = await readAll(first.download);
     expect(gap.items).toHaveLength(1);
@@ -575,7 +679,7 @@ describe('socket.binary.stream', () => {
     ]);
 
     const second = await startDownload(socket, ws);
-    piece(ws, second.id, 1, null, thumbnail);
+    piece(ws, { id: second.id, seq: 1 }, thumbnail);
     endOf(ws, second.id, 2);
     const atEnd = await readAll(second.download);
     expect(atEnd.error).toMatchObject({
@@ -592,7 +696,7 @@ describe('socket.binary.stream', () => {
       payload: null,
       metadata: { stream: { id, seq: 1 } },
     });
-    piece(ws, id, 2, null, thumbnail);
+    piece(ws, { id, seq: 2 }, thumbnail);
 
     const { items, error } = await readAll(download);
     expect(items).toEqual([]);
@@ -602,7 +706,7 @@ describe('socket.binary.stream', () => {
   it('throws the typed error of a text terminal __error__', async () => {
     const { socket, ws } = everything();
     const { download, id } = await startDownload(socket, ws);
-    piece(ws, id, 1, null, thumbnail);
+    piece(ws, { id, seq: 1 }, thumbnail);
     ws.emit({
       event: '__error__',
       payload: { code: 'not-found', detail: { id: 'att_1' } },
@@ -637,7 +741,7 @@ describe('socket.binary.stream', () => {
     expect(typeof nudge).toBe('string');
     expect(ws.sentFrames().at(-1)).toMatchObject({ event: 'pause', metadata: { stream: { id } } });
 
-    piece(ws, id, 1, null, thumbnail);
+    piece(ws, { id, seq: 1 }, thumbnail);
     for await (const _chunk of download) break;
 
     expect(typeof ws.sent.at(-1)).toBe('string');
@@ -669,11 +773,9 @@ describe('socket.binary.stream', () => {
     const { socket, ws } = connected(binary({ maxFrameBytes: 100 }), stream());
 
     await expect(
-      socket.binary.stream(
-        'download-attachment',
-        { attachmentId: 'att_1', fromByte: 0 },
-        new Uint8Array(100),
-      ),
+      socket.binary.stream('download-attachment', new Uint8Array(100), {
+        info: { attachmentId: 'att_1', fromByte: 0 },
+      }),
     ).rejects.toThrow(/maxFrameBytes/);
     expect(ws.sent).toHaveLength(0);
   });
@@ -681,11 +783,13 @@ describe('socket.binary.stream', () => {
   it('on a channel, sends the channel metadata and needs the channel to be subscribed', async () => {
     const { socket, ws } = everything();
     expect(() =>
-      socket.channel('rooms', 'room:design').binary.stream('download-recording', null),
+      socket
+        .channel('rooms', 'room:design')
+        .binary.stream('download-recording', undefined, { info: null }),
     ).toThrow(/channel-not-subscribed/);
 
     const room = await joinGeneral(socket, ws);
-    void room.binary.stream('download-recording', null);
+    void room.binary.stream('download-recording', undefined, { info: null });
     expect(decodeSent(ws.sent.at(-1)).metadata).toMatchObject({
       channel: general,
       stream: { id: expect.any(String) },
@@ -700,15 +804,23 @@ describe('socket.binary.stream', () => {
 
     const listener = vi.fn();
     socket.binary.on('download-attachment' as 'avatar-preview', listener);
-    piece(ws, 'download-1', 1, null, thumbnail);
+    piece(ws, { id: 'download-1', seq: 1 }, thumbnail);
     expect(listener).not.toHaveBeenCalled();
   });
 });
 
-// oxlint-disable-next-line max-params -- mirrors the frame: socket, id, seq, info, bytes
-function pdfPiece(ws: MockWebSocket, id: string, seq: number, info: unknown, bytes: Uint8Array) {
+function pdfPiece(
+  ws: MockWebSocket,
+  { id, seq, info = null }: { id: string; seq: number; info?: unknown },
+  bytes: Uint8Array,
+) {
   ws.emitRaw(
-    frame('export-room-pdf', info, { stream: { id, durability: 'persistent', seq } }, bytes),
+    frame({
+      event: 'export-room-pdf',
+      payload: info,
+      metadata: { stream: { id, durability: 'persistent', seq } },
+      bytes,
+    }),
   );
 }
 
@@ -722,8 +834,8 @@ describe('socket.binary.continueStream', () => {
       payload: { lastKnownSeq: 2 },
       metadata: { stream: { id: 'pdf-1' } },
     });
-    pdfPiece(ws, 'pdf-1', 3, null, new Uint8Array([3, 3]));
-    pdfPiece(ws, 'pdf-1', 4, null, new Uint8Array([4]));
+    pdfPiece(ws, { id: 'pdf-1', seq: 3 }, new Uint8Array([3, 3]));
+    pdfPiece(ws, { id: 'pdf-1', seq: 4 }, new Uint8Array([4]));
     endOf(ws, 'pdf-1', 4);
 
     const { items, error } = await readAll(pdf);
@@ -743,7 +855,7 @@ describe('socket.binary.continueStream', () => {
       payload: null,
       metadata: { stream: { id: 'pdf-1', durability: 'persistent', seq: 3 } },
     });
-    pdfPiece(ws, 'pdf-1', 4, null, new Uint8Array([4]));
+    pdfPiece(ws, { id: 'pdf-1', seq: 4 }, new Uint8Array([4]));
 
     const { items, error } = await readAll(pdf);
     expect(items).toEqual([]);
@@ -753,7 +865,11 @@ describe('socket.binary.continueStream', () => {
   it('continues by itself after a hibernation wake, from the last chunk it got', async () => {
     const { socket, ws } = everything();
     const pdf = socket.binary.continueStream('export-room-pdf', 'pdf-1');
-    pdfPiece(ws, 'pdf-1', 1, { fileName: 'room-design.pdf' }, new Uint8Array([1]));
+    pdfPiece(
+      ws,
+      { id: 'pdf-1', seq: 1, info: { fileName: 'room-design.pdf' } },
+      new Uint8Array([1]),
+    );
     ws.emit({
       event: '__error__',
       payload: { code: 'stream-aborted', detail: { reason: 'hibernation-wake' } },
@@ -764,7 +880,7 @@ describe('socket.binary.continueStream', () => {
       event: '__continueStream__',
       payload: { lastKnownSeq: 1 },
     });
-    pdfPiece(ws, 'pdf-1', 2, null, new Uint8Array([2]));
+    pdfPiece(ws, { id: 'pdf-1', seq: 2 }, new Uint8Array([2]));
     endOf(ws, 'pdf-1', 2);
 
     const { items, error } = await readAll(pdf);
@@ -795,8 +911,12 @@ describe('binary.onStream', () => {
     const onEnd = vi.fn();
     socket.binary.onStream('download-attachment', { onChunk, onEnd });
 
-    piece(ws, 'download-9', 4, { fileName: 'a.pdf', fileType: 'application/pdf' }, thumbnail);
-    piece(ws, 'download-9', 5, null, new Uint8Array([7]));
+    piece(
+      ws,
+      { id: 'download-9', seq: 4, info: { fileName: 'a.pdf', fileType: 'application/pdf' } },
+      thumbnail,
+    );
+    piece(ws, { id: 'download-9', seq: 5 }, new Uint8Array([7]));
     endOf(ws, 'download-9', 5);
 
     expect(onChunk.mock.calls.map(([chunk, id]) => [chunk.info, [...chunk.bytes], id])).toEqual([
@@ -813,7 +933,7 @@ describe('binary.onStream', () => {
     socket.onStream('download-attachment' as never, { onChunk: json });
     socket.binary.onStream('download-attachment', { onChunk: bytes });
 
-    piece(ws, 'download-9', 1, null, thumbnail);
+    piece(ws, { id: 'download-9', seq: 1 }, thumbnail);
     ws.emit({
       event: 'download-attachment',
       payload: { row: 1 },
@@ -833,15 +953,15 @@ describe('binary.onStream', () => {
 
     socket.binary.onStream('download-attachment', bytes);
 
-    piece(ws, 'download-1', 1, null, thumbnail);
+    piece(ws, { id: 'download-1', seq: 1 }, thumbnail);
     endOf(ws, 'download-1', 1);
-    piece(ws, 'download-2', 1, null, thumbnail);
+    piece(ws, { id: 'download-2', seq: 1 }, thumbnail);
     ws.emit({
       event: '__error__',
       payload: { code: 'not-found' },
       metadata: { stream: { id: 'download-2', terminated: true } },
     });
-    piece(ws, 'download-3', 1, null, thumbnail);
+    piece(ws, { id: 'download-3', seq: 1 }, thumbnail);
 
     vi.advanceTimersByTime(1_000);
 
@@ -863,10 +983,17 @@ describe('binary.onStream', () => {
 
     function inRoom(seq: number): ArrayBuffer {
       const metadata = { stream: { id: 'rec-1', seq }, channel: general };
-      return frame('download-recording', null, metadata, thumbnail);
+      return frame({ event: 'download-recording', payload: null, metadata, bytes: thumbnail });
     }
 
-    ws.emitRaw(frame('download-recording', null, { stream: { id: 'rec-2', seq: 1 } }, thumbnail));
+    ws.emitRaw(
+      frame({
+        event: 'download-recording',
+        payload: null,
+        metadata: { stream: { id: 'rec-2', seq: 1 } },
+        bytes: thumbnail,
+      }),
+    );
     ws.emitRaw(inRoom(1));
     ws.emitRaw(inRoom(3));
 
@@ -921,17 +1048,28 @@ describe('plugin scoped sockets', () => {
 
     ws.open();
 
-    const clip = scoped!.binary.request('get-clip', null);
+    const clip = scoped!.binary.request('get-clip', undefined, { info: null });
     const request = decodeSent(ws.sent[0]);
     expect(request.event).toBe('__acme:recorder::get-clip');
-    ws.emitRaw(frame('__acme:recorder::get-clip', null, request.metadata!, thumbnail));
+    ws.emitRaw(
+      frame({
+        event: '__acme:recorder::get-clip',
+        payload: null,
+        metadata: request.metadata!,
+        bytes: thumbnail,
+      }),
+    );
     expect([...(await clip).bytes]).toEqual([...thumbnail]);
 
-    void scoped!.binary.stream('download-clip', null);
+    void scoped!.binary.stream('download-clip', undefined, { info: null });
     expect(decodeSent(ws.sent[1]).event).toBe('__acme:recorder::download-clip');
 
     ws.emitRaw(
-      frame('__acme:recorder::capture-clip', null, { exchange: { id: 'x-1', source: 'server' } }),
+      frame({
+        event: '__acme:recorder::capture-clip',
+        payload: null,
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
     );
     await vi.waitFor(() => expect(ws.sent).toHaveLength(3));
     expect(decodeSent(ws.sent[2]).event).toBe('__acme:recorder::capture-clip');
@@ -949,7 +1087,9 @@ describe('plugin scoped sockets', () => {
     });
     client<Host>()(connect('wss://test'), binary(), Recorder());
 
-    expect(() => scoped!.binary.request('get-clip', null)).toThrow(/clientRequests/);
+    expect(() => scoped!.binary.request('get-clip', undefined, { info: null })).toThrow(
+      /clientRequests/,
+    );
   });
 
   it('names binary() when binary() is the missing one', () => {
@@ -997,7 +1137,7 @@ describe('binary exchange limits and defaults', () => {
     vi.useFakeTimers();
     const { socket } = connected(binary(), clientRequests({ timeout: 2_000 }));
     const caught = socket.binary
-      .request('get-thumbnail', { attachmentId: 'att_1' })
+      .request('get-thumbnail', undefined, { info: { attachmentId: 'att_1' } })
       .catch((error: unknown) => error);
 
     await vi.advanceTimersByTimeAsync(1_999);
@@ -1009,14 +1149,14 @@ describe('binary exchange limits and defaults', () => {
     const { socket } = connected(binary({ maxFrameBytes: 100 }), clientRequests(), stream());
 
     await expect(
-      socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, new Uint8Array(100)),
+      socket.binary.request('get-thumbnail', new Uint8Array(100), {
+        info: { attachmentId: 'att_1' },
+      }),
     ).rejects.toBeInstanceOf(RangeError);
     await expect(
-      socket.binary.stream(
-        'download-attachment',
-        { attachmentId: 'att_1', fromByte: 0 },
-        new Uint8Array(100),
-      ),
+      socket.binary.stream('download-attachment', new Uint8Array(100), {
+        info: { attachmentId: 'att_1', fromByte: 0 },
+      }),
     ).rejects.toBeInstanceOf(RangeError);
   });
 
@@ -1028,7 +1168,11 @@ describe('binary exchange limits and defaults', () => {
     socket.binary.onRequest('capture-screen', second);
 
     ws.emitRaw(
-      frame('capture-screen', { maxWidth: 1 }, { exchange: { id: 'x-1', source: 'server' } }),
+      frame({
+        event: 'capture-screen',
+        payload: { maxWidth: 1 },
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
     );
     await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
 
@@ -1044,7 +1188,11 @@ describe('binary exchange limits and defaults', () => {
     }));
 
     ws.emitRaw(
-      frame('capture-screen', { maxWidth: 1 }, { exchange: { id: 'x-1', source: 'server' } }),
+      frame({
+        event: 'capture-screen',
+        payload: { maxWidth: 1 },
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
     );
     await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
 
@@ -1066,8 +1214,8 @@ describe('binary exchange limits and defaults', () => {
     const { socket, ws } = connected(binary(), stream({ maxBytes: 50 }));
     const { download, id } = await startDownload(socket, ws);
 
-    piece(ws, id, 1, null, new Uint8Array(30));
-    piece(ws, id, 2, null, new Uint8Array(30));
+    piece(ws, { id, seq: 1 }, new Uint8Array(30));
+    piece(ws, { id, seq: 2 }, new Uint8Array(30));
 
     expect(StreamOverflow.matches((await readAll(download)).error)).toBe(true);
   });
@@ -1083,9 +1231,10 @@ describe('binary exchange limits and defaults', () => {
     ws.sent.length = 0;
 
     ws.emitRaw(
-      frame('capture-whiteboard', null, {
-        exchange: { id: 'x-1', source: 'server' },
-        channel: general,
+      frame({
+        event: 'capture-whiteboard',
+        payload: null,
+        metadata: { exchange: { id: 'x-1', source: 'server' }, channel: general },
       }),
     );
 

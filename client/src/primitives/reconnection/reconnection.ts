@@ -184,10 +184,10 @@ export function reconnection(
           attempt = 0;
         },
 
-        onClose(_code, _reason, intentional) {
+        onClose(close) {
           clearTimer();
           // A `disconnect()`, such as the lazy idle close, starts the next connect afresh.
-          if (intentional) attempt = 0;
+          if (close.intentional) attempt = 0;
         },
 
         onReconnectFailed() {

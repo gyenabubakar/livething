@@ -506,7 +506,7 @@ describe('a JSON and binary mix-up when sending', () => {
       run(ctx) {
         for (const send of [
           () => (ctx as any).send('avatar-preview', null),
-          () => (ctx as any).binary.send('notification', { title: 'Hi' }),
+          () => (ctx as any).binary.send('notification', undefined, { info: { title: 'Hi' } }),
         ]) {
           try {
             send();
@@ -677,29 +677,31 @@ describe('ctx.binary.request', () => {
 
     const handleStartScreenShare = base.on('start-screen-share', {
       run(ctx) {
-        settle(ctx.binary.request('capture-screen', { maxWidth: 1280 }));
+        settle(ctx.binary.request('capture-screen', undefined, { info: { maxWidth: 1280 } }));
       },
     });
     const handleShareWithKofi = base.on('ask-kofi-for-screen', {
       run(ctx) {
         const kofi = ctx.users.get('u_kofi');
         settle(
-          kofi.binary.request('capture-screen', { maxWidth: 640 }, undefined, { timeout: 50 }),
+          kofi.binary.request('capture-screen', undefined, {
+            info: { maxWidth: 640 },
+            timeout: 50,
+          }),
         );
       },
     });
     const handleAskConnection = base.on('ask-connection-for-screen', {
       run(ctx) {
-        settle(
-          ctx.connections.get(ctx.connection).binary.request('capture-screen', { maxWidth: 1 }),
-        );
+        const connection = ctx.connections.get(ctx.connection);
+        settle(connection.binary.request('capture-screen', undefined, { info: { maxWidth: 1 } }));
       },
     });
     const handleWrongKind = base.on('mix-up-requests', {
       run(ctx) {
         for (const promise of [
           (ctx as any).request('capture-screen', { maxWidth: 1 }),
-          (ctx as any).binary.request('confirm-leave', null),
+          (ctx as any).binary.request('confirm-leave', undefined, { info: null }),
         ]) {
           (promise as Promise<unknown>).catch((reason: { code: string; message: string }) =>
             results.push(`${reason.code}: ${reason.message}`),
@@ -715,13 +717,15 @@ describe('ctx.binary.request', () => {
 
     const handleStartCamera = base.on('start-camera', {
       run(ctx) {
-        settle(ctx.binary.request('capture-camera', null));
+        settle(ctx.binary.request('capture-camera', undefined, { info: null }));
       },
     });
 
     const handleShareWhiteboard = rooms.on('share-whiteboard', {
       run(ctx) {
-        settle(ctx.channel.binary.request('capture-whiteboard', null, new Uint8Array([7])));
+        settle(
+          ctx.channel.binary.request('capture-whiteboard', new Uint8Array([7]), { info: null }),
+        );
       },
     });
 

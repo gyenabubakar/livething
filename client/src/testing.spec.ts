@@ -71,7 +71,10 @@ describe('injectChannel', () => {
     const handler = vi.fn();
     room.on('message', handler);
 
-    injectChannel(socket as Socket<C>, 'general', 'message', { text: 'in-channel' });
+    injectChannel(socket as Socket<C>, 'message', {
+      channel: 'general',
+      payload: { text: 'in-channel' },
+    });
     expect(handler).toHaveBeenCalledWith({ text: 'in-channel' });
   });
 });

@@ -76,7 +76,7 @@ function huddle(avatars: { info: unknown; bytes: number[] }[]) {
   });
   const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
     run(ctx, _input, bytes) {
-      ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+      ctx.channel.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
     },
   });
 
@@ -125,7 +125,9 @@ function huddleFiles(log: string[]) {
   });
   const handleStartScreenShare = base.on('start-screen-share', {
     async run(ctx) {
-      const { bytes } = await ctx.binary.request('capture-screen', { maxWidth: 1280 });
+      const { bytes } = await ctx.binary.request('capture-screen', undefined, {
+        info: { maxWidth: 1280 },
+      });
       log.push(`captured ${[...bytes].join(',')}`);
     },
   });
@@ -278,7 +280,7 @@ describe('replay of binary messages over a real ws socket', () => {
     });
     const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
       run(ctx, _input, bytes) {
-        ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+        ctx.channel.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
       },
     });
 
@@ -342,7 +344,9 @@ describe('inbox binary messages over a real ws socket', () => {
     const handleSendVoiceNote = dms.binary.on('send-voice-note', {
       run(ctx, input, bytes) {
         const { durationMs } = input as { durationMs: number };
-        ctx.channel.binary.broadcast('voice-note', { from: ctx.user.id, durationMs }, bytes);
+        ctx.channel.binary.broadcast('voice-note', bytes, {
+          info: { from: ctx.user.id, durationMs },
+        });
       },
     });
 

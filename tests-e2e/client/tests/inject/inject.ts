@@ -33,7 +33,7 @@ export function setup(): void {
     inject(typed, 'welcome', { username: 'injected' });
   });
   button('inject-channel', () => {
-    injectChannel(typed, 'rooms', 'room-msg', { text: 'hi', from: 'sys' });
+    injectChannel(typed, 'room-msg', { channel: 'rooms', payload: { text: 'hi', from: 'sys' } });
   });
 
   ready();

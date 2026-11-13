@@ -79,32 +79,27 @@ function build(replayCapability: HostCapability<{}, 'replay'>, options: BuildOpt
   const previewAvatar = base.on('preview-avatar', {
     input: v.object({ size: v.number(), mark: v.number() }),
     run(ctx, input) {
-      ctx.binary.broadcast(
-        'avatar-preview',
-        { userId: ctx.user.id },
-        picture(input.size, input.mark),
-        {
-          includeSelf: true,
-        },
-      );
+      ctx.binary.broadcast('avatar-preview', picture(input.size, input.mark), {
+        info: { userId: ctx.user.id },
+        includeSelf: true,
+      });
     },
   });
 
   const previewAvatarForMe = base.on('preview-avatar-for-me', {
     input: v.object({ size: v.number(), mark: v.number() }),
     run(ctx, input) {
-      ctx.user.binary.broadcast(
-        'avatar-preview',
-        { userId: ctx.user.id },
-        picture(input.size, input.mark),
-      );
+      ctx.user.binary.broadcast('avatar-preview', picture(input.size, input.mark), {
+        info: { userId: ctx.user.id },
+      });
     },
   });
   // Sends the picture, then reuses its buffer for the next one, as a camera loop does.
   const previewThenReuseBuffer = base.on('preview-then-reuse-buffer', {
     run(ctx) {
       const buffer = picture(4, 1);
-      ctx.binary.broadcast('avatar-preview', { userId: ctx.user.id }, buffer, {
+      ctx.binary.broadcast('avatar-preview', buffer, {
+        info: { userId: ctx.user.id },
         includeSelf: true,
       });
       buffer.fill(2);
@@ -125,7 +120,8 @@ function build(replayCapability: HostCapability<{}, 'replay'>, options: BuildOpt
     run(ctx, input) {
       ctx.channel.broadcast('screen-share-started', { from: ctx.user.id });
       for (let mark = 1; mark <= input.frames; mark += 1) {
-        ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, picture(100, mark), {
+        ctx.channel.binary.broadcast('screen-frame', picture(100, mark), {
+          info: { from: ctx.user.id },
           includeSelf: true,
         });
       }
@@ -136,17 +132,23 @@ function build(replayCapability: HostCapability<{}, 'replay'>, options: BuildOpt
   const resendAvatarPreview = base.on('resend-avatar-preview', {
     input: ResendInput,
     run(ctx, wire) {
-      ctx.binary.sendReplay('avatar-preview', { userId: ctx.user.id }, picture(3, 4), wire);
-      ctx.binary.sendReplay('screen-frame', { from: ctx.user.id }, picture(2, 5), {
-        ...wire,
-        channel: rooms.at({ roomId: 'general' }),
+      ctx.binary.sendReplay('avatar-preview', picture(3, 4), {
+        info: { userId: ctx.user.id },
+        wire,
+      });
+      ctx.binary.sendReplay('screen-frame', picture(2, 5), {
+        info: { from: ctx.user.id },
+        wire: { ...wire, channel: rooms.at({ roomId: 'general' }) },
       });
     },
   });
   const resendScreenFrame = rooms.on('resend-screen-frame', {
     input: ResendInput,
     run(ctx, wire) {
-      ctx.channel.binary.sendReplay?.('screen-frame', { from: ctx.user.id }, picture(2, 6), wire);
+      ctx.channel.binary.sendReplay?.('screen-frame', picture(2, 6), {
+        info: { from: ctx.user.id },
+        wire,
+      });
     },
   });
   const resendWrongKind = base.on('resend-wrong-kind', {
@@ -154,7 +156,11 @@ function build(replayCapability: HostCapability<{}, 'replay'>, options: BuildOpt
       const wire = { deliverySeq: 1, messageId: 'm-1' };
       for (const resend of [
         () => ctx.sendReplay('avatar-preview' as never, { userId: 'u' } as never, wire),
-        () => ctx.binary.sendReplay('avatar-saved' as never, null as never, picture(1, 1), wire),
+        () =>
+          ctx.binary.sendReplay('avatar-saved' as never, picture(1, 1), {
+            info: null as never,
+            wire,
+          }),
       ]) {
         try {
           resend();

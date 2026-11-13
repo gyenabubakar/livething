@@ -57,8 +57,8 @@ it('carries binary messages both ways', async () => {
 
   socket.binary.send(
     'upload-avatar',
-    null,
     Uint8Array.from({ length: 600 }, (_, i) => i % 256),
+    { info: null },
   );
 
   await vi.waitFor(() =>

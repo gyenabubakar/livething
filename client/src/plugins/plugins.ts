@@ -417,8 +417,8 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       }
     },
 
-    onClose(...args) {
-      const [code, reason, intentional, suspended] = args;
+    onClose(close) {
+      const { code, reason, intentional, suspended } = close;
       if (userClose) {
         try {
           userClose(code, reason, !!suspended);

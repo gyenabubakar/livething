@@ -31,7 +31,7 @@ function start(logged: unknown[][]) {
       const from = (input as { from: string }).from;
       ctx.channels
         .get(rooms.at({ roomId: 'general' }))
-        .binary.broadcast('screen-frame', { from }, picture);
+        .binary.broadcast('screen-frame', picture, { info: { from } });
     },
   });
   let engine!: Engine;

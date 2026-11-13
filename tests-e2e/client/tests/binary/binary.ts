@@ -126,7 +126,9 @@ export function setup(): void {
   button('connect', () => socket.connect());
 
   button('upload-avatar', () => {
-    socket.binary.send('upload-avatar', { fileType: 'image/png' }, pattern(300_000, seed));
+    socket.binary.send('upload-avatar', pattern(300_000, seed), {
+      info: { fileType: 'image/png' },
+    });
   });
 
   button('join-room', async () => {
@@ -136,7 +138,7 @@ export function setup(): void {
 
   button('share-frames', async () => {
     for (let i = 0; i < 3; i++) {
-      room.binary.send('share-screen-frame', null, pattern(100_000 + i, seed + i));
+      room.binary.send('share-screen-frame', pattern(100_000 + i, seed + i), { info: null });
       await socket.drain();
     }
 
@@ -154,7 +156,9 @@ export function setup(): void {
   button(
     'get-thumbnail',
     recorded(async () => {
-      const { info, bytes } = await socket.binary.request('get-thumbnail', { attachmentId });
+      const { info, bytes } = await socket.binary.request('get-thumbnail', undefined, {
+        info: { attachmentId },
+      });
       el('thumbnail').textContent = `${info.fileType} ${bytes.byteLength} ${hash(bytes)}`;
     }),
   );
@@ -162,9 +166,8 @@ export function setup(): void {
   button(
     'download-attachment',
     recorded(async () => {
-      const download = await socket.binary.stream('download-attachment', {
-        attachmentId,
-        fromByte: 0,
+      const download = await socket.binary.stream('download-attachment', undefined, {
+        info: { attachmentId, fromByte: 0 },
       });
       const pieces: Uint8Array[] = [];
       let fileName = '';
@@ -180,9 +183,8 @@ export function setup(): void {
   button(
     'cancel-download',
     recorded(async () => {
-      const download = await socket.binary.stream('download-attachment', {
-        attachmentId: 'att_0',
-        fromByte: 0,
+      const download = await socket.binary.stream('download-attachment', undefined, {
+        info: { attachmentId: 'att_0', fromByte: 0 },
       });
       for await (const _piece of download) break;
 
@@ -217,7 +219,7 @@ export function setup(): void {
   });
 
   button('send-voice-note', () => {
-    dm.binary.send('send-voice-note', { durationMs: 4200 }, pattern(300_000, seed + 200));
+    dm.binary.send('send-voice-note', pattern(300_000, seed + 200), { info: { durationMs: 4200 } });
   });
 
   // The PDF export of room:300, a recorded binary stream. The page shows how many pieces it
@@ -240,7 +242,8 @@ export function setup(): void {
   button(
     'start-export',
     recorded(async () => {
-      const pdf = await socket.binary.stream('export-room-pdf', { roomId: 'room:300' }, undefined, {
+      const pdf = await socket.binary.stream('export-room-pdf', undefined, {
+        info: { roomId: 'room:300' },
         streamId: exportId,
       });
       await readExport(pdf);

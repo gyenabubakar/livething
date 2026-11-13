@@ -30,13 +30,20 @@ export class StreamState {
    */
   hasLazyHold = false;
 
-  // oxlint-disable-next-line max-params -- the stream's id, event, scope and queue limit
+  readonly markers: ScopeMarkers;
+
   constructor(
     readonly streamId: string,
     readonly event: string,
-    readonly markers: ScopeMarkers,
-    maxBytes?: number,
+    where: StreamStateOptions,
   ) {
-    this.queue = new StreamQueue(maxBytes);
+    this.markers = where.markers;
+    this.queue = new StreamQueue(where.maxBytes);
   }
+}
+
+/** A stream's scope, and how many queued bytes it may hold. */
+export interface StreamStateOptions {
+  markers: ScopeMarkers;
+  maxBytes?: number;
 }

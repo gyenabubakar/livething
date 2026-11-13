@@ -4,7 +4,7 @@ import { CloseCodes } from '@livething/server/errors';
 import type { AuthDecision } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import type { RawData, WebSocket } from 'ws';
+import type { RawData, WebSocket, WebSocketServer } from 'ws';
 import { closeWebSocket } from './close.ts';
 import { frameData, sendWhenOpen } from './socket.ts';
 import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
@@ -58,14 +58,7 @@ export function createHttpRejectionResponse(decision: AuthDecision): Response {
 }
 
 /** The small part of `ws.WebSocketServer` needed by the adapter. */
-export interface NodeWebSocketServer {
-  handleUpgrade(
-    request: IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-    callback: (webSocket: WebSocket, request: IncomingMessage) => void,
-  ): void;
-}
+export type NodeWebSocketServer = Pick<WebSocketServer, 'handleUpgrade'>;
 
 /** Dependencies used to bind a public Node integration endpoint to `upgrade`. */
 export interface NodeUpgradeBindingOptions {

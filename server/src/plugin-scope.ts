@@ -357,13 +357,13 @@ function scopeSendReplay(
   id: string,
   original: (...args: unknown[]) => unknown,
 ): (...args: unknown[]) => unknown {
-  return (event: unknown, payload: unknown, wire: unknown, ...rest: unknown[]) => {
+  return (event: unknown, payload: unknown, wire: unknown) => {
     const channel = (wire as { channel?: unknown } | null | undefined)?.channel;
     const scopedWire =
       channel === undefined
         ? wire
         : { ...(wire as object), channel: scopeChannelDeclaration(id, channel) };
-    return original(pluginWireName(id, event as string), payload, scopedWire, ...rest);
+    return original(pluginWireName(id, event as string), payload, scopedWire);
   };
 }
 
