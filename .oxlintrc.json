@@ -12,6 +12,7 @@
     "**/dist/**",
     "**/coverage/**",
     "**/node_modules/**",
+    ".codex/**",
     "website/**",
     "vite.config.*.timestamp-*.*",
     "lint-staged.config.js"
