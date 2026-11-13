@@ -336,7 +336,12 @@ export class LiveThingSocket {
    * resolves at once when the socket is not open, and stops waiting after about 50 seconds.
    */
   async drain(): Promise<void> {
-    for (let poll = 0; poll < 2000 && (this.ws?.bufferedAmount ?? 0) >= 256 * 1024; poll++) {
+    const OPEN = 1;
+    for (
+      let poll = 0;
+      poll < 2000 && this.ws?.readyState === OPEN && this.ws.bufferedAmount >= 256 * 1024;
+      poll++
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }

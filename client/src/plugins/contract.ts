@@ -8,6 +8,7 @@ import type {
   ServerRequestsOf,
   SocketContract,
   StreamsOf,
+  UploadsOf,
 } from '~/types.ts';
 
 /*
@@ -126,7 +127,8 @@ type RequiredBinary<TId extends string, TBinary> = RequiredSection<
   RequiredSection<TId, 'outgoing', OutgoingOf<TBinary>> &
   RequiredSection<TId, 'clientRequests', ClientRequestsOf<TBinary>> &
   RequiredSection<TId, 'serverRequests', ServerRequestsOf<TBinary>> &
-  RequiredSection<TId, 'streams', StreamsOf<TBinary>> extends infer TSides
+  RequiredSection<TId, 'streams', StreamsOf<TBinary>> &
+  RequiredSection<TId, 'uploads', UploadsOf<TBinary>> extends infer TSides
   ? keyof TSides extends never
     ? {}
     : { binary: TSides }

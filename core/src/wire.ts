@@ -155,6 +155,7 @@ function isUploadMetadata(group: Record<string, unknown>): boolean {
     hasOnlyKeys(group, ['id', 'seq', 'size']) &&
     isBoundedString(group.id, WIRE_LIMITS.wireId) &&
     isOptionalSequence(group) &&
+    !('seq' in group && 'size' in group) &&
     (!('size' in group) ||
       (typeof group.size === 'number' && Number.isSafeInteger(group.size) && group.size >= 0))
   );

@@ -10,7 +10,7 @@ import { stream } from '~/primitives/stream/index.ts';
 import { injectBinary, injectChannelBinary } from '~/testing.ts';
 import { expectTypeOf } from 'vitest';
 import type { Socket } from '~/socket/api.ts';
-import type { SocketContract } from '~/types.ts';
+import type { ScopeContract, SocketContract } from '~/types.ts';
 
 interface HuddleSocket {
   incoming: { 'avatar-saved': { userId: string } };
@@ -137,6 +137,36 @@ interface MixedChannel {
 // @ts-expect-error: a channel's binary entries need binary() too
 client<MixedChannel>()(connect('wss://huddle.example.com/huddle'), channels());
 
+// An empty `binary` has no entries, so it does not ask for binary().
+client<{ incoming: { 'avatar-saved': { userId: string } }; binary: {} }>()(
+  connect('wss://huddle.example.com/huddle'),
+);
+
+// A channel map with an index signature is checked through its value type.
+interface AnyRoomBinary {
+  channels: Record<string, { binary: { incoming: { 'screen-frame': { from: string } } } }>;
+}
+
+// @ts-expect-error: a channel's binary entries need binary() too
+client<AnyRoomBinary>()(connect('wss://huddle.example.com/huddle'), channels());
+client<AnyRoomBinary>()(connect('wss://huddle.example.com/huddle'), channels(), binary());
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- the loose channel map under test
+client<{ channels: Record<string, any> }>()(connect('wss://huddle.example.com/huddle'), channels());
+client<{ channels: Record<string, ScopeContract> }>()(
+  connect('wss://huddle.example.com/huddle'),
+  channels(),
+);
+
+// An upload belongs to no channel, so a channel contract cannot declare uploads.
+interface ChannelUploads {
+  channels: {
+    rooms: { binary: { uploads: { 'share-file': { payload: { name: string }; response: null } } } };
+  };
+}
+
+// @ts-expect-error: uploads are not channel events
+client<ChannelUploads>();
+
 // Without binary entries, binary() adds no `.binary`, and nothing asks for binary().
 interface NoBinary {
   incoming: { 'avatar-saved': { userId: string } };
@@ -226,6 +256,23 @@ interface WrongHost {
 
 // @ts-expect-error: the contract lacks the plugin's binary names
 client<WrongHost>()(connect('wss://huddle.example.com/huddle'), binary(), channels(), Screens());
+
+// A plugin's uploads must be in the contract too, under its prefix.
+const Files = plugin<{
+  binary: {
+    uploads: { 'share-file': { payload: { name: string }; response: { fileId: string } } };
+  };
+}>()({ id: 'acme:files', dependencies: [binary], setup: () => ({}) });
+
+client<{
+  binary: {
+    uploads: {
+      '__acme:files::share-file': { payload: { name: string }; response: { fileId: string } };
+    };
+  };
+}>()(connect('wss://huddle.example.com/huddle'), binary(), Files());
+// @ts-expect-error: the contract lacks the plugin's upload
+client<ReceiveOnly>()(connect('wss://huddle.example.com/huddle'), binary(), Files());
 
 // Testing helpers are typed from the binary entries.
 injectBinary(socket, 'avatar-cropped', { width: 64 }, picture);

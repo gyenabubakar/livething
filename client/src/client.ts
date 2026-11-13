@@ -66,20 +66,28 @@ export type AppSocket<
  * True when the contract has binary entries, at the top level or in any channel. A loose
  * contract (`any`, or an index signature such as `Record<string, any>`) has none it can name,
  * so it never asks for `binary()`. An index signature does not fill a named key, so a contract
- * with an index signature and a real `binary` or `channels` key is still checked.
+ * with an index signature and a real `binary` or `channels` key is still checked. A channel
+ * map with an index signature is checked through its value type. An empty `binary: {}` has
+ * no entries.
  */
 type HasBinary<C> = 0 extends 1 & C
   ? false
-  : C extends { binary: object }
+  : ScopeHasBinary<C> extends true
     ? true
     : HasChannelBinary<C>;
 
+type ScopeHasBinary<S> = 0 extends 1 & S
+  ? false
+  : S extends { binary: infer B extends object }
+    ? keyof B extends never
+      ? false
+      : true
+    : false;
+
 type HasChannelBinary<C> = C extends { channels: infer TChannels }
   ? string extends keyof TChannels
-    ? false
-    : true extends {
-          [K in keyof TChannels]: TChannels[K] extends { binary: object } ? true : never;
-        }[keyof TChannels]
+    ? ScopeHasBinary<TChannels[keyof TChannels]>
+    : true extends { [K in keyof TChannels]: ScopeHasBinary<TChannels[K]> }[keyof TChannels]
       ? true
       : false
   : false;

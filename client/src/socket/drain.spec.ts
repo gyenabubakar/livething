@@ -85,6 +85,26 @@ describe('socket.drain()', () => {
     expect(ws.readyState).toBe(3);
   });
 
+  it('resolves at once when the socket is closing, even with a big buffer', async () => {
+    const { socket, ws } = openSocket();
+    ws.bufferedAmount = 1024 * 1024;
+    ws.readyState = 2;
+
+    expect(await settled(socket.drain())).toBe(true);
+  });
+
+  it('stops waiting at the next check when the socket starts closing', async () => {
+    const { socket, ws } = openSocket();
+    ws.bufferedAmount = 1024 * 1024;
+    const drained = socket.drain();
+    expect(await settled(drained)).toBe(false);
+
+    ws.readyState = 2;
+    await vi.advanceTimersByTimeAsync(25);
+
+    expect(await settled(drained)).toBe(true);
+  });
+
   it('stops waiting after about 50 seconds and resolves', async () => {
     const { socket, ws } = openSocket();
     ws.bufferedAmount = 1024 * 1024;

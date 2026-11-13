@@ -271,6 +271,122 @@ describe('socket.binary.upload', () => {
     await expect(upload.start()).rejects.toMatchObject({ detail: { reason: 'cancelled' } });
   });
 
+  describe('with an AsyncIterable that never gives its next chunk', () => {
+    function stuckSource() {
+      const returned = vi.fn(() => new Promise<IteratorResult<Uint8Array>>(() => {}));
+      const source: AsyncIterable<Uint8Array> = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => new Promise<IteratorResult<Uint8Array>>(() => {}),
+          return: returned,
+        }),
+      };
+
+      return { source, returned };
+    }
+
+    async function outcome(promise: Promise<unknown>): Promise<unknown> {
+      return Promise.race([
+        promise.then(
+          () => 'resolved',
+          (error: unknown) => error,
+        ),
+        settle().then(() => 'still waiting'),
+      ]);
+    }
+
+    it('cancel() rejects the start at once, closes the source, and tells the server once', async () => {
+      const { socket, ws } = connected();
+      const { source, returned } = stuckSource();
+      const upload = socket.binary.upload('upload-attachment', deck, source, { uploadId: 'up-1' });
+      const running = upload.start();
+      await settle();
+
+      ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 8 });
+      await settle();
+      upload.cancel();
+
+      expect(await outcome(running)).toMatchObject({
+        code: 'upload-aborted',
+        detail: { reason: 'cancelled' },
+      });
+      expect(returned).toHaveBeenCalledOnce();
+      expect(sent(ws).filter((frame) => frame.event === '__uploadCancel__')).toHaveLength(1);
+    });
+
+    it('a drop rejects the start with Disconnected and closes the source', async () => {
+      const { socket, ws } = connected();
+      const { source, returned } = stuckSource();
+      const upload = socket.binary.upload('upload-attachment', deck, source, { uploadId: 'up-1' });
+      const running = upload.start();
+      await settle();
+
+      ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 8 });
+      await settle();
+      ws.serverClose(1006);
+
+      expect(await outcome(running)).toMatchObject({ code: Disconnected().code });
+      expect(returned).toHaveBeenCalledOnce();
+    });
+
+    it('cancel() leaves no unhandled rejection when the source fails to close', async () => {
+      const unhandled: unknown[] = [];
+      function onUnhandled(reason: unknown): void {
+        unhandled.push(reason);
+      }
+
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        const { socket, ws } = connected();
+        const source: AsyncIterable<Uint8Array> = {
+          [Symbol.asyncIterator]: () => ({
+            next: () => new Promise<IteratorResult<Uint8Array>>(() => {}),
+            return: () => Promise.reject(new Error('the file was already closed')),
+          }),
+        };
+
+        const upload = socket.binary.upload('upload-attachment', deck, source, {
+          uploadId: 'up-1',
+        });
+        const running = upload.start();
+        await settle();
+
+        ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 8 });
+        await settle();
+
+        upload.cancel();
+
+        expect(await outcome(running)).toMatchObject({ detail: { reason: 'cancelled' } });
+        await settle();
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+    });
+  });
+
+  it('does not close an AsyncIterable whose next() throws, as for await does', async () => {
+    const { socket, ws } = connected();
+    const returned = vi.fn(async () => ({ done: true as const, value: undefined }));
+    const source: AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => {
+          throw new Error('the disk is gone');
+        },
+        return: returned,
+      }),
+    };
+
+    const upload = socket.binary.upload('upload-attachment', deck, source, { uploadId: 'up-1' });
+    const running = upload.start();
+
+    await settle();
+
+    ack(ws, 'up-1', { receivedThrough: 0, savedThrough: 0, pieceBytes: 4, windowBytes: 8 });
+
+    await expect(running).rejects.toThrow('the disk is gone');
+    expect(returned).not.toHaveBeenCalled();
+  });
+
   it("rejects with UploadAborted 'bad-state' when the server could not read back the saved state", async () => {
     const { socket, ws } = connected();
     const upload = socket.binary.upload('upload-attachment', deck, file, { uploadId: 'up-1' });

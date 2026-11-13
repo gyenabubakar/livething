@@ -38,6 +38,8 @@ interface Attempt {
    * start's late pieces, so it is skipped.
    */
   acked?: boolean;
+  /** Ends a wait for the source's next chunk when an error or a close comes. */
+  stop?: () => void;
 }
 
 /** How long a start waits for the server's first answer. */
@@ -60,11 +62,28 @@ function sizeOf(source: UploadSource): number | undefined {
   return isBlob(source) ? source.size : asUint8Array(source).byteLength;
 }
 
-/** The pieces of `source` from `start`, each at most `pieceBytes` long. */
+/** What `stopped` resolves to: the upload ended while it waited for an `AsyncIterable`. */
+const STOPPED = Symbol('stopped');
+
+/** The source may never answer `return()` either, so do not wait for it, and drop its error. */
+function closeWithoutWaiting(iterator: AsyncIterator<Uint8Array>): void {
+  try {
+    Promise.resolve(iterator.return?.()).catch(() => {});
+  } catch {
+    // A source whose `return()` throws has nothing left to close.
+  }
+}
+
+/**
+ * The pieces of `source` from `start`, each at most `pieceBytes` long. A wait for an
+ * `AsyncIterable`'s next chunk throws `STOPPED` once `stopped` resolves.
+ */
+// oxlint-disable-next-line max-params -- the source, where to start, the piece size, and the stop signal
 async function* piecesOf(
   source: UploadSource,
   start: number,
   pieceBytes: number,
+  stopped: Promise<typeof STOPPED>,
 ): AsyncGenerator<Uint8Array> {
   if (isBlob(source)) {
     for (let offset = start; offset < source.size; offset += pieceBytes) {
@@ -87,25 +106,52 @@ async function* piecesOf(
   let skip = start;
   let piece = new Uint8Array(pieceBytes);
   let filled = 0;
-  for await (const chunk of source) {
-    let bytes = chunk;
-    if (skip > 0) {
-      const skipped = Math.min(skip, bytes.byteLength);
-      skip -= skipped;
-      bytes = bytes.subarray(skipped);
-    }
 
-    while (bytes.byteLength > 0) {
-      const take = Math.min(bytes.byteLength, pieceBytes - filled);
-      piece.set(bytes.subarray(0, take), filled);
-      filled += take;
-      bytes = bytes.subarray(take);
-      if (filled === pieceBytes) {
-        yield piece;
-        piece = new Uint8Array(pieceBytes);
-        filled = 0;
+  const iterator = source[Symbol.asyncIterator]();
+  let open = true;
+  try {
+    while (true) {
+      let step: IteratorResult<Uint8Array> | typeof STOPPED;
+      try {
+        step = await Promise.race([iterator.next(), stopped]);
+      } catch (error) {
+        open = false;
+        throw error;
+      }
+
+      if (step === STOPPED) {
+        open = false;
+        closeWithoutWaiting(iterator);
+        throw STOPPED;
+      }
+
+      if (step.done) {
+        open = false;
+        break;
+      }
+
+      let bytes = step.value;
+      if (skip > 0) {
+        const skipped = Math.min(skip, bytes.byteLength);
+        skip -= skipped;
+        bytes = bytes.subarray(skipped);
+      }
+
+      while (bytes.byteLength > 0) {
+        const take = Math.min(bytes.byteLength, pieceBytes - filled);
+        piece.set(bytes.subarray(0, take), filled);
+        filled += take;
+        bytes = bytes.subarray(take);
+        if (filled === pieceBytes) {
+          yield piece;
+          piece = new Uint8Array(pieceBytes);
+          filled = 0;
+        }
       }
     }
+  } finally {
+    // Like `for await`: close the source when the reader stops early.
+    if (open) await iterator.return?.();
   }
 
   if (filled > 0) yield piece.subarray(0, filled);
@@ -132,6 +178,7 @@ export function uploads(): UploadsPrimitive {
 
         attempt.events.push(event);
         attempt.wake?.();
+        if (event.kind === 'error' || event.kind === 'closed') attempt.stop?.();
 
         return true;
       }
@@ -317,19 +364,29 @@ export function uploads(): UploadsPrimitive {
             let seq = 0;
             if (isAsyncIterable(source)) iterableRead = true;
 
-            for await (const piece of piecesOf(source, savedThrough, pieceBytes)) {
-              while (sent + piece.byteLength - receivedThrough > windowBytes) {
-                const answer = await settle(run, 'ack');
-                if (answer.kind === 'done') return { info: answer.info };
+            const stopped = new Promise<typeof STOPPED>((resolve) => {
+              run.stop = () => resolve(STOPPED);
+            });
+            try {
+              for await (const piece of piecesOf(source, savedThrough, pieceBytes, stopped)) {
+                while (sent + piece.byteLength - receivedThrough > windowBytes) {
+                  const answer = await settle(run, 'ack');
+                  if (answer.kind === 'done') return { info: answer.info };
 
-                receivedThrough = (answer as { ack: Ack }).ack.receivedThrough;
+                  receivedThrough = (answer as { ack: Ack }).ack.receivedThrough;
+                }
+
+                if (cancelled) throw UploadAborted({ reason: 'cancelled' });
+
+                seq += 1;
+                send({ event, payload: null, metadata: { upload: { id, seq } }, bytes: piece });
+                sent += piece.byteLength;
               }
+            } catch (error) {
+              if (error !== STOPPED) throw error;
 
-              if (cancelled) throw UploadAborted({ reason: 'cancelled' });
-
-              seq += 1;
-              send({ event, payload: null, metadata: { upload: { id, seq } }, bytes: piece });
-              sent += piece.byteLength;
+              // An error or a close is in the queue: `settle` throws it.
+              await settle(run, 'done');
             }
 
             send({

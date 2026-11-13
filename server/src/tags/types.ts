@@ -58,9 +58,13 @@ export interface TagGroupHandle<Meta = Record<string, unknown>, TSlots = {}> {
 }
 
 /** The `.binary` key of a tag handle: the binary version of its `broadcast`. */
-interface TagBinarySenders {
+interface TagBinarySenders<TBinary> {
   /** Send a binary event (its info, then its bytes) to every connection with this tag. */
-  broadcast(event: string, info: unknown, bytes?: BinaryInput): void;
+  broadcast<E extends keyof TBinary & string>(
+    event: E,
+    info: TBinary[E],
+    bytes?: BinaryInput,
+  ): void;
 }
 
 /**
@@ -68,7 +72,9 @@ interface TagBinarySenders {
  * the `binaryOutgoing` slot), else `never`, so any use of it is a compile error.
  */
 interface TagBinaryArm<TSlots> {
-  readonly binary: TSlots extends { binaryOutgoing: unknown } ? TagBinarySenders : never;
+  readonly binary: TSlots extends { binaryOutgoing: infer TBinary }
+    ? TagBinarySenders<TBinary>
+    : never;
 }
 
 /**

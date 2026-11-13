@@ -34,9 +34,11 @@ type ChannelTarget<TChannels, TChannel extends keyof TChannels & string> = (
   | TChannel
   | { readonly family: TChannel; readonly name: string }
 ) &
-  (TChannels[TChannel] extends { addressing: 'dynamic' }
-    ? { readonly family: TChannel; readonly name: string }
-    : TChannel);
+  (TChannel extends unknown
+    ? TChannels[TChannel] extends { addressing: 'dynamic' }
+      ? { readonly family: TChannel; readonly name: string }
+      : TChannel
+    : never);
 
 function channelMetadata(channel: string | { family: string; name: string }) {
   return {

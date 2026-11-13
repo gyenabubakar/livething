@@ -10,6 +10,7 @@ import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { replay } from '~/replay/capability.ts';
+import * as ReplayRuntime from '~/replay/runtime.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
 import * as v from 'valibot';
@@ -584,6 +585,7 @@ describe('catch-up backpressure', () => {
 describe('what a catch-up holds back', () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   async function waitingKofi(built: Built, previews = 3) {
@@ -671,6 +673,19 @@ describe('what a catch-up holds back', () => {
     const heldAfterClose = hold.bytes;
     await amara.send('preview-avatar', { size: 20_000, mark: 12 });
     expect(hold.bytes).toBe(heldAfterClose);
+  });
+
+  it('stops when the connection closes while the catch-up waits for the buffer', async () => {
+    const built = build(replay.history());
+    const { kofiAgain, catchUp } = await waitingKofi(built);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    const loadPage = vi.spyOn(ReplayRuntime, 'loadReplayPage');
+    [...built.engine.core.connections.values()].find((one) => one.catchUpHold)!.closing = true;
+    await catchUp;
+
+    expect(loadPage).not.toHaveBeenCalled();
+    expect(userFrames(kofiAgain)).toEqual([]);
   });
 
   it('closes with 1013 when the whole catch-up has waited about 50 seconds', async () => {

@@ -66,6 +66,14 @@ const handleUploadAvatar = base.binary.on('upload-avatar', {
     ctx.tags.ephemeral('team').binary.broadcast('avatar-preview', null, bytes);
 
     ctx.tags.ephemeral('team').ref('design').binary.broadcast('avatar-preview', null, bytes);
+    // @ts-expect-error: 'avatar-preveiw' is not a binary event
+    ctx.tags.ephemeral('team').binary.broadcast('avatar-preveiw', null, bytes);
+    // @ts-expect-error: the info of 'avatar-cropped' is { width: number }
+    ctx.tags.ephemeral('team').binary.broadcast('avatar-cropped', null, bytes);
+    // @ts-expect-error: 'avatar-preveiw' is not a binary event
+    ctx.tags.ephemeral('team').ref('design').binary.broadcast('avatar-preveiw', null, bytes);
+    // @ts-expect-error: the info of 'avatar-preview' is null
+    ctx.tags.ephemeral('team').ref('design').binary.broadcast('avatar-preview', { width: 64 });
 
     const design = ctx.channels.get(rooms.at({ roomId: 'design' }));
     design.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);

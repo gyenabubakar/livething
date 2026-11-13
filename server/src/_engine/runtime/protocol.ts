@@ -77,11 +77,17 @@ const StreamMetadata = v.strictObject({
   terminated: v.optional(v.boolean()),
 });
 
-const UploadMetadata = v.strictObject({
-  id: WireId,
-  seq: v.optional(NonNegativeSafeInt),
-  size: v.optional(NonNegativeSafeInt),
-});
+const UploadMetadata = v.pipe(
+  v.strictObject({
+    id: WireId,
+    seq: v.optional(NonNegativeSafeInt),
+    size: v.optional(NonNegativeSafeInt),
+  }),
+  v.check(
+    (value) => value.seq === undefined || value.size === undefined,
+    "The 'upload' metadata carries a 'seq' or a 'size', not both.",
+  ),
+);
 
 /** The metadata shape accepted on the wire. Unknown groups and top-level fields reject. */
 const MetadataObjectSchema = v.strictObject({
@@ -531,6 +537,8 @@ function validUpload(input: unknown): boolean {
   if (Object.keys(input).some((key) => key !== 'id' && key !== 'seq' && key !== 'size')) {
     return false;
   }
+
+  if (input.seq !== undefined && input.size !== undefined) return false;
 
   return validOptionalSequence(input.seq) && validOptionalSequence(input.size);
 }

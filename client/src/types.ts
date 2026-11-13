@@ -65,7 +65,8 @@ export interface ScopeContract {
   clientRequests?: Record<string, RequestContract>;
   serverRequests?: Record<string, RequestContract>;
   streams?: Record<string, StreamContract>;
-  binary?: BinaryContract;
+  /** An upload belongs to no channel, so a channel has no `uploads`. */
+  binary?: Omit<BinaryContract, 'uploads'> & { uploads?: never };
 }
 
 /** A channel uses the same shape as any scope. */
@@ -99,6 +100,7 @@ export type ClientRequestsOf<T> = T extends { clientRequests: infer R } ? R : {}
 export type ServerRequestsOf<T> = T extends { serverRequests: infer R } ? R : {};
 export type ErrorsOf<T> = T extends { errors: infer E } ? E : {};
 export type BinaryOf<T> = T extends { binary: infer B } ? B : {};
+export type UploadsOf<T> = T extends { uploads: infer U } ? U : {};
 
 /**
  * The four connection states:

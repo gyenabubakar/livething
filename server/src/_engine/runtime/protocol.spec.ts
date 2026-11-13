@@ -26,8 +26,13 @@ describe('upload metadata', () => {
     });
   });
 
-  it('refuses upload metadata with an unknown key or a bad seq', () => {
-    for (const upload of [{ id: 'up-1', offset: 0 }, { id: 'up-1', seq: -1 }, { seq: 1 }]) {
+  it('refuses upload metadata with an unknown key, a bad seq, or both a seq and a size', () => {
+    for (const upload of [
+      { id: 'up-1', offset: 0 },
+      { id: 'up-1', seq: -1 },
+      { seq: 1 },
+      { id: 'up-1', seq: 1, size: 5 },
+    ]) {
       expect(() => parseUserEventFrame(['upload-attachment', null, { upload }])).toThrow();
     }
   });

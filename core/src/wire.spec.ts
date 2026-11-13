@@ -32,8 +32,19 @@ describe('LiveThing wire codec', () => {
     ['an unknown key', { id: 'up-1', offset: 0 }],
     ['a negative seq', { id: 'up-1', seq: -1 }],
     ['a size that is not a whole number', { id: 'up-1', size: 1.5 }],
+    ['both a seq and a size', { id: 'up-1', seq: 1, size: 5 }],
   ])('rejects upload metadata with %s', (_name, upload) => {
     expect(decodeMessage(JSON.stringify(['upload-attachment', null, { upload }]))).toBeNull();
+  });
+
+  it('refuses to encode upload metadata with both a seq and a size', () => {
+    expect(() =>
+      encodeMessage({
+        event: 'upload-attachment',
+        payload: null,
+        metadata: { upload: { id: 'up-1', seq: 1, size: 5 } },
+      }),
+    ).toThrow('invalid LiveThing metadata');
   });
 
   it('always encodes the three-item tuple, including null metadata', () => {

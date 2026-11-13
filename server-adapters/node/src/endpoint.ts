@@ -109,17 +109,18 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     createEngine: (options: EngineRuntimeOptions) => Engine<TApi>,
     options: NodeEndpointOptions,
   ) {
+    const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes, 'The endpoint');
+    const resolveClientIp = createClientIpResolver(options.clientIp);
+
     const runtime = createRuntime({
       sql: options.sql,
       kv: options.kv,
       logger: options.logger,
     });
     const logger = runtime.logger;
-    const resolveClientIp = createClientIpResolver(options.clientIp);
     let shuttingDown = false;
     let shutdownPromise: Promise<void> | undefined;
 
-    const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes, 'The endpoint');
     const engine = createEngine({
       logger,
       platform: runtime.platform,

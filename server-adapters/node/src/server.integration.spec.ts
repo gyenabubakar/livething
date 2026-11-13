@@ -1,5 +1,8 @@
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { context, server as createServerDefinition, emits, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { CloseCodes, RejectUpgrade } from '@livething/server/errors';
@@ -750,6 +753,26 @@ describe('Node server integration', () => {
         expect(() => setup().bind(buildServerDefinition(state), { maxMessageBytes })).toThrow(
           /The endpoint maxMessageBytes must be a whole number of bytes from 1 to 2147483647/,
         );
+      }
+    });
+
+    it('refuses a bad option before it opens the database', () => {
+      const state: IntegrationState = { errors: [], shutdowns: 0 };
+      const directory = mkdtempSync(join(tmpdir(), 'livething-limits-'));
+      const sql = join(directory, 'huddle.sqlite');
+      try {
+        expect(() =>
+          binding().bind(buildServerDefinition(state), { sql, maxMessageBytes: 0 }),
+        ).toThrow(/maxMessageBytes/);
+        expect(() =>
+          binding().bind(buildServerDefinition(state), {
+            sql,
+            clientIp: { mode: 'proxy', trustedProxies: [] },
+          }),
+        ).toThrow(/trustedProxies/);
+        expect(existsSync(sql)).toBe(false);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
       }
     });
 

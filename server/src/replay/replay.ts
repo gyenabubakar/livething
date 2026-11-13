@@ -559,6 +559,8 @@ class ReplayInstaller {
           return;
         }
 
+        if (connection.closing) return;
+
         // Retention can delete rows while the catch-up waits, so read again from the cursor.
         // The client gets a gap for deleted rows, as it would have before the catch-up started.
         if (this.sendGapIfBehind(request, cursor, page.throughSeq) && connection.closing) return;

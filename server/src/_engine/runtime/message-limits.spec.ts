@@ -232,11 +232,12 @@ describe('a member whose socket buffer is over twice sendBytes', () => {
 
   let skew = 0;
 
-  // The check reads the monotonic clock, so the tests move `performance.now()` on.
+  // The check reads the monotonic clock. The tests stop it and move it on by hand, so time
+  // spent running the test never counts toward the 10 seconds.
   beforeEach(() => {
     skew = 0;
-    const realNow = performance.now.bind(performance);
-    vi.spyOn(performance, 'now').mockImplementation(() => realNow() + skew);
+    const start = performance.now();
+    vi.spyOn(performance, 'now').mockImplementation(() => start + skew);
   });
 
   afterEach(() => {
