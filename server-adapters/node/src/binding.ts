@@ -53,8 +53,9 @@ export interface NodeBindingEndpoint<TAdmin = NodeAdmin> {
   prepare(request: Request, options?: NodePrepareOptions): Promise<NodeUpgrade>;
   prepareNode(request: IncomingMessage, options?: { signal?: AbortSignal }): Promise<NodeUpgrade>;
   /**
-   * Serve a plain HTTP request to the endpoint's path: the server-sent events stream, its
-   * POSTs and their CORS preflight. Without `sse()` in `transports`, it answers 426.
+   * Serve a plain HTTP request to the endpoint's path: a custom transport's request, or
+   * the server-sent events stream, its POSTs and their CORS preflight. A request that no
+   * transport takes gets 426.
    */
   handleNode(request: NodeHttpRequest, response: NodeHttpResponse): Promise<void>;
   admin(): Promise<TAdmin>;

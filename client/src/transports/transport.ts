@@ -1,8 +1,8 @@
-/** The name of a transport, as `socket.transport` reports it. */
-export type TransportName = 'websocket' | 'sse';
+/** The name of a transport, as `socket.transport` reports it: a built-in one, or a custom one. */
+export type TransportName = 'websocket' | 'sse' | (string & {});
 
 /** How a transport reports what happens on its connection. */
-interface TransportEvents {
+export interface TransportEvents {
   open(): void;
   /** A frame from the server: a string, or an `ArrayBuffer` for binary. */
   message(data: unknown): void;
@@ -20,7 +20,7 @@ interface TransportEvents {
   unusable(): void;
 }
 
-/** What the socket kernel passes when it opens a transport. */
+/** What the socket passes when it opens a transport. */
 export interface TransportOpenOptions {
   url: string;
   protocols: string[] | undefined;
@@ -33,7 +33,7 @@ export interface TransportOpenOptions {
   events: TransportEvents;
 }
 
-/** One open, or opening, connection. The kernel never asks which transport it is. */
+/** One open, or opening, connection. The socket never asks which transport it is. */
 export interface Transport {
   readonly name: TransportName;
   /** The subprotocol the server picked, or `''`. */
@@ -64,7 +64,7 @@ export interface Transport {
  */
 export interface TransportFactory {
   readonly name: TransportName;
-  /** @internal */
+  /** Starts a connection. The socket calls it once for each try. */
   open(options: TransportOpenOptions): Transport;
 }
 

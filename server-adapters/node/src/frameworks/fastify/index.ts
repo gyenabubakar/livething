@@ -57,7 +57,9 @@ export function setup(): FastifySetup {
 
       async function serveHttp(request: FastifyRequest, reply: FastifyReply): Promise<void> {
         reply.hijack();
-        const served = await lifecycle.prepare(request.raw, async () => {
+        const served = await lifecycle.prepare(request.raw, async (signal) => {
+          // A shutdown ends a request a custom transport still holds, such as a poll.
+          signal.addEventListener('abort', () => reply.raw.destroy());
           await endpoint.handleNode(request.raw, reply.raw);
           return true;
         });

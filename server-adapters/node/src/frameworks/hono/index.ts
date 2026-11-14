@@ -172,7 +172,9 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
         const outgoing = (context.env as { outgoing?: ServerResponse }).outgoing;
         if (!incoming || !outgoing) return noNodeRequest();
 
-        const served = await lifecycle.prepare(incoming, async () => {
+        const served = await lifecycle.prepare(incoming, async (signal) => {
+          // A shutdown ends a request a custom transport still holds, such as a poll.
+          signal.addEventListener('abort', () => outgoing.destroy());
           await endpoint.handleNode(incoming, outgoing);
           return true;
         });

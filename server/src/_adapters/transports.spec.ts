@@ -13,17 +13,26 @@ const withKeepalive = server({ capabilities: [keepalive()] }).assemble({
 
 describe('resolveTransports', () => {
   it('offers WebSocket only when the option is left out', () => {
-    expect(resolveTransports(undefined, plain)).toEqual({ websocket: true, sse: null });
+    expect(resolveTransports(undefined, plain)).toEqual({
+      websocket: true,
+      sse: null,
+      custom: [],
+    });
   });
 
   it('offers the one transport a list names', () => {
-    expect(resolveTransports([websocket()], plain)).toEqual({ websocket: true, sse: null });
+    expect(resolveTransports([websocket()], plain)).toEqual({
+      websocket: true,
+      sse: null,
+      custom: [],
+    });
   });
 
   it('offers sse() with its default maxPostBytes of 512 KiB', () => {
     expect(resolveTransports([sse()], withKeepalive)).toEqual({
       websocket: false,
       sse: { maxPostBytes: 512 * 1024 },
+      custom: [],
     });
   });
 
@@ -31,7 +40,48 @@ describe('resolveTransports', () => {
     expect(resolveTransports([sse({ maxPostBytes: 1000 }), websocket()], withKeepalive)).toEqual({
       websocket: true,
       sse: { maxPostBytes: 1000 },
+      custom: [],
     });
+  });
+
+  it('offers a custom transport, and keeps the custom ones in list order', () => {
+    const longPolling = { name: 'long-polling', handle: async () => null };
+    const carrier = { name: 'carrier', handle: async () => null };
+
+    expect(resolveTransports([websocket(), longPolling, carrier], plain)).toEqual({
+      websocket: true,
+      sse: null,
+      custom: [longPolling, carrier],
+    });
+  });
+
+  it("runs a custom transport's check() with the definition at startup", () => {
+    const longPolling: ServerTransport = {
+      name: 'long-polling',
+      handle: async () => null,
+      check(definition) {
+        if (!hasCapability(definition, 'keepalive')) {
+          throw new LiveThingConfigError('long-polling needs keepalive()');
+        }
+      },
+    };
+
+    expect(() => resolveTransports([longPolling], plain)).toThrow(/long-polling needs keepalive/);
+    expect(resolveTransports([longPolling], withKeepalive).custom).toEqual([longPolling]);
+  });
+
+  it('refuses a custom transport with a built-in name', () => {
+    const fake = { name: 'sse', handle: async () => null };
+
+    expect(() => resolveTransports([fake], withKeepalive)).toThrow(
+      /'sse' is the name of a built-in/,
+    );
+  });
+
+  it('refuses a custom transport with an empty name', () => {
+    expect(() => resolveTransports([{ name: '', handle: async () => null }], plain)).toThrow(
+      /not a transport/,
+    );
   });
 
   it('refuses sse() on a definition without keepalive()', () => {

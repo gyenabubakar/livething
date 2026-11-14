@@ -7,6 +7,7 @@ import Fastify from 'fastify';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InferClient } from '@livething/server';
+import type { ServerTransport } from '@livething/server/adapters';
 import { sse } from '../index.ts';
 import { setup as setupFastify } from './fastify/index.ts';
 import { setup as setupHono } from './hono/index.ts';
@@ -109,4 +110,54 @@ describe('server-sent events through the framework helpers', () => {
 
     expect(response.status).toBe(426);
   });
+});
+
+/** A custom transport that holds every request until its signal aborts. */
+function heldTransport(): ServerTransport {
+  return {
+    name: 'held',
+    async handle(request) {
+      await new Promise((resolve) => request.signal.addEventListener('abort', resolve));
+      return new Response(null, { status: 204 });
+    },
+  };
+}
+
+describe('shutdown with a custom transport that holds a request', () => {
+  it('ends the held request on Hono', async () => {
+    const app = new Hono();
+    const livething = setupHono();
+    app.all('/huddle', livething.bind(huddleDefinition, { transports: [heldTransport()] }).handle);
+    const http = createAdaptorServer({ fetch: app.fetch, websocket: livething.websocket });
+    await livething.ready();
+
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+    const { port } = http.address() as { port: number };
+    const held = fetch(`http://127.0.0.1:${port}/huddle`).catch((error: unknown) => error);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await livething.shutdown();
+
+    expect(await held).toBeInstanceOf(Error);
+    await new Promise((resolve) => http.close(resolve));
+  }, 5000);
+
+  it('ends the held request on Fastify', async () => {
+    const app = Fastify();
+    await app.register(websocketPlugin);
+    const livething = setupFastify();
+    const huddleEndpoint = livething.bind(huddleDefinition, { transports: [heldTransport()] });
+    app.get('/huddle', huddleEndpoint.connect);
+
+    await livething.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    const { port } = app.server.address() as { port: number };
+    const held = fetch(`http://127.0.0.1:${port}/huddle`).catch((error: unknown) => error);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await livething.shutdown();
+
+    expect(await held).toBeInstanceOf(Error);
+    await app.close();
+  }, 5000);
 });

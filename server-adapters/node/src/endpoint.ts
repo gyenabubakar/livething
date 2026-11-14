@@ -19,6 +19,7 @@ import type { IncomingMessage } from 'node:http';
 import type { PerMessageDeflateOptions } from 'ws';
 import { createAsyncContext } from './async-context.ts';
 import { createClientIpResolver } from './client-ip.ts';
+import { createNodeCustomTransportHandler } from './custom-transports.ts';
 import { requestToWebRequest } from './request.ts';
 import { createRuntime } from './runtime.ts';
 import { createConnectionBridge } from './socket.ts';
@@ -119,7 +120,10 @@ export interface NodeEndpointInternals<TAdmin = NodeAdmin> extends NodeEndpoint<
   /** Whether the endpoint offers WebSocket. Without it, an upgrade gets a 404. */
   readonly offersWebSocket: boolean;
   decideNodeUpgrade(request: IncomingMessage, signal?: AbortSignal): Promise<AuthDecision>;
-  /** Serve a server-sent events request: the stream, a POST, or a CORS preflight. */
+  /**
+   * Serve a request that is not a WebSocket upgrade: a custom transport's, or a server-sent
+   * events one (the stream, a POST, or a CORS preflight).
+   */
   handle(request: NodeHttpRequest, response: NodeHttpResponse): Promise<void>;
   decideWebUpgrade(request: Request, clientIp?: string): Promise<AuthDecision>;
   attachTransport(
@@ -151,6 +155,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     });
     const logger = runtime.logger;
     let shuttingDown = false;
+    const shutdownAbort = new AbortController();
     let shutdownPromise: Promise<void> | undefined;
 
     const engine = createEngine({
@@ -174,6 +179,37 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       const clientIp = resolveClientIp(request as IncomingMessage);
       return requestToWebRequest(request, { clientIp, signal });
     }
+
+    const clientIps = new WeakMap<Request, string | undefined>();
+    const handleCustom = createNodeCustomTransportHandler({
+      transports: transports.custom,
+      endpoint: {
+        authenticate: (request) => decideWebUpgrade(request, clientIps.get(request)),
+        accept(connection, decision) {
+          if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
+
+          return createConnectionBridge({
+            engine,
+            token: connection,
+            transport: connection,
+            decision,
+          });
+        },
+      },
+      toWebRequest(request, signal) {
+        const clientIp = resolveClientIp(request as IncomingMessage);
+        try {
+          const webRequest = requestToWebRequest(request, { clientIp, signal, withBody: true });
+          clientIps.set(webRequest, clientIp);
+          return webRequest;
+        } catch {
+          return null;
+        }
+      },
+      shutdownSignal: shutdownAbort.signal,
+      logError: (error) =>
+        logger.error('[livething] a custom transport threw in handle()', { error }),
+    });
 
     const handleSse = createNodeSseHandler({
       hub,
@@ -249,6 +285,8 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
           return;
         }
 
+        if (transports.custom.length > 0 && (await handleCustom(request, response))) return;
+
         await handleSse(request, response);
       },
 
@@ -267,6 +305,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         if (shutdownPromise) return shutdownPromise;
 
         shuttingDown = true;
+        shutdownAbort.abort();
         shutdownPromise = (async () => {
           let startupError: unknown;
           try {

@@ -21,13 +21,13 @@ export type NodeHttpRequest = IncomingMessage | Http2ServerRequest;
  */
 export interface NodeHttpResponse {
   readonly headersSent: boolean;
-  writeHead(status: number, headers: Record<string, string>): unknown;
-  write(chunk: string): boolean;
+  writeHead(status: number, headers: Record<string, string | string[]>): unknown;
+  write(chunk: string | Uint8Array): boolean;
   end(): unknown;
   end(chunk: string): unknown;
   destroy(): unknown;
-  once(event: 'close', listener: () => void): unknown;
-  off(event: 'close', listener: () => void): unknown;
+  once(event: 'close' | 'drain', listener: () => void): unknown;
+  off(event: 'close' | 'drain', listener: () => void): unknown;
   /** Only on `node:http`. HTTP/2 sends the headers with `writeHead`. */
   flushHeaders?(): void;
   readonly writableLength?: number;

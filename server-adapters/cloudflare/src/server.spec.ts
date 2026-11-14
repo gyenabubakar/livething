@@ -197,6 +197,87 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     });
   });
 
+  describe('a custom transport', () => {
+    function longPolling(
+      handle: ServerTransport['handle'] = async (request, endpoint) => {
+        const decision = await endpoint.authenticate(request);
+        if (decision.reject) return new Response(null, { status: decision.code });
+
+        endpoint.accept(
+          {
+            send: () => true,
+            close: () => {},
+            bufferedAmount: () => 0,
+            backpressureSupported: false,
+            secret: 'poll-secret',
+          },
+          decision,
+        );
+        return new Response('accepted');
+      },
+    ): ServerTransport {
+      return { name: 'long-polling', handle };
+    }
+
+    it('gets a request that is not an upgrade, and accepts a connection through the engine', async () => {
+      const Cls = buildClass({ hibernation: false, transports: [websocket(), longPolling()] });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      const res = await instance.fetch(new Request('https://huddle.test/'));
+
+      expect(await res.text()).toBe('accepted');
+      expect(fake.calls.authenticate).toHaveLength(1);
+      expect(fake.calls.accept[0]!.descriptor).toMatchObject({
+        secret: 'poll-secret',
+        backpressureSupported: false,
+        survivesHibernation: false,
+      });
+    });
+
+    it('runs the origin check before authenticate', async () => {
+      const Cls = buildClass({ hibernation: false, transports: [longPolling()] });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      const res = await instance.fetch(
+        new Request('https://huddle.test/', { headers: { Origin: 'https://evil.example' } }),
+      );
+
+      expect(res.status).toBe(403);
+      expect(fake.calls.authenticate).toHaveLength(0);
+    });
+
+    it('passes a request it returns null for on to server-sent events, then to a 426', async () => {
+      const Cls = buildClass({
+        hibernation: false,
+        transports: [websocket(), longPolling(async () => null)],
+      });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      const res = await instance.fetch(new Request('https://huddle.test/'));
+
+      expect(res.status).toBe(426);
+    });
+
+    it('answers 500 when handle() throws', async () => {
+      const Cls = buildClass({
+        hibernation: false,
+        transports: [
+          longPolling(async () => {
+            throw new Error('poll store is down');
+          }),
+        ],
+      });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await instance.fetch(new Request('https://huddle.test/'));
+
+      expect(res.status).toBe(500);
+      expect(errors).toHaveBeenCalled();
+      errors.mockRestore();
+    });
+  });
+
   describe('Origin check', () => {
     function originRequest(url: string, origin?: string) {
       const headers: Record<string, string> = { Upgrade: 'websocket' };

@@ -3,6 +3,7 @@ import type {
   ConnectionDescriptor,
   ConnectionHandle,
   Engine,
+  TransportConnection,
   TransportFrame,
 } from '@livething/server/adapters';
 
@@ -27,20 +28,11 @@ export function sendWhenOpen(readyState: number | undefined, send: () => unknown
   return true;
 }
 
-/** Transport functions the engine needs after a WebSocket handshake. */
-export interface ConnectionTransport {
-  /** Return `false` when the frame was not sent, for example because the socket is closing. */
-  send(frame: TransportFrame): boolean | void;
-  close(code?: number, reason?: string): void;
-  /** Optional. Drop the socket with no close handshake, for a client that stopped reading. */
-  terminate?(): void;
-  bufferedAmount(): number;
-  backpressureSupported: boolean;
-  /** The POST secret of a server-sent events stream. Absent on a WebSocket. */
-  secret?: string;
-  /** The largest POST body of a server-sent events stream. Absent on a WebSocket. */
-  maxPostBytes?: number;
-}
+/**
+ * Transport functions the engine needs for an accepted connection. `send()` returns `false`
+ * when the frame was not sent, for example because the socket is closing.
+ */
+export type ConnectionTransport = TransportConnection;
 
 /** Inputs required to connect an accepted WebSocket transport to the engine. */
 export interface ConnectionBridgeOptions {

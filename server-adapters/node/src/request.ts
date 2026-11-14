@@ -5,6 +5,8 @@ import type { Http2ServerRequest } from 'node:http2';
 export interface WebRequestOptions {
   signal?: AbortSignal;
   clientIp?: string;
+  /** Give the request a body that reads the Node request when it is first read. */
+  withBody?: boolean;
 }
 
 /** Converts Node's incoming upgrade request into the standard Web API shape. */
@@ -48,10 +50,43 @@ export function requestToWebRequest(
   headers.delete('LiveThing-Client-IP');
   if (clientIp !== undefined) headers.set('LiveThing-Client-IP', clientIp);
 
-  return new Request(url, {
-    method: request.method ?? 'GET',
+  const method = request.method ?? 'GET';
+  const hasBody = options.withBody === true && method !== 'GET' && method !== 'HEAD';
+  const init: RequestInit & { duplex?: 'half' } = {
+    method,
     headers,
-    body: null,
+    body: hasBody ? lazyBody(request as AsyncIterable<Buffer>) : null,
     signal,
-  });
+  };
+
+  // Node needs `duplex` for a stream body.
+  if (hasBody) init.duplex = 'half';
+
+  return new Request(url, init);
+}
+
+/** A stream that starts reading the Node request only when someone reads it. */
+function lazyBody(request: AsyncIterable<Buffer>): ReadableStream<Uint8Array> {
+  let chunks: AsyncIterator<Buffer> | undefined;
+
+  return new ReadableStream(
+    {
+      async pull(controller) {
+        chunks ??= request[Symbol.asyncIterator]();
+        const next = await chunks.next();
+        if (next.done) {
+          controller.close();
+        } else {
+          controller.enqueue(
+            new Uint8Array(next.value.buffer, next.value.byteOffset, next.value.byteLength),
+          );
+        }
+      },
+      async cancel() {
+        await chunks?.return?.();
+      },
+    },
+    // With the default of 1, the stream pulls a chunk as soon as it is made, before anyone reads.
+    { highWaterMark: 0 },
+  );
 }

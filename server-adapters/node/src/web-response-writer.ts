@@ -41,17 +41,27 @@ export class WebResponseWriter implements NodeHttpResponse {
     return Math.max(0, -(this.controller.desiredSize ?? 0));
   }
 
-  writeHead(status: number, headers: Record<string, string>): this {
+  writeHead(status: number, headers: Record<string, string | string[]>): this {
     this.headersSent = true;
+    const webHeaders = new Headers();
+    for (const [name, value] of Object.entries(headers)) {
+      for (const item of Array.isArray(value) ? value : [value]) webHeaders.append(name, item);
+    }
+
     this.resolveAnswer(
-      new Response(NULL_BODY_STATUSES.has(status) ? null : this.body, { status, headers }),
+      new Response(NULL_BODY_STATUSES.has(status) ? null : this.body, {
+        status,
+        headers: webHeaders,
+      }),
     );
 
     return this;
   }
 
-  write(chunk: string): boolean {
-    if (!this.finished) this.controller.enqueue(encoder.encode(chunk));
+  write(chunk: string | Uint8Array): boolean {
+    if (!this.finished) {
+      this.controller.enqueue(typeof chunk === 'string' ? encoder.encode(chunk) : chunk);
+    }
 
     return true;
   }
@@ -69,6 +79,9 @@ export class WebResponseWriter implements NodeHttpResponse {
   }
 
   destroy(): this {
+    // The framework waits for an answer, so a request ended before its headers still gets one.
+    if (!this.headersSent) this.writeHead(503, {});
+
     if (!this.finished) {
       this.finished = true;
       this.controller.error(new Error('[livething] response destroyed'));

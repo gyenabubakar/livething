@@ -4,10 +4,13 @@ export { normalizeCloseReason } from './close.ts';
 export { createOriginCheck } from './origin.ts';
 export { hasCapability, resolveTransports, sse, websocket } from './transports.ts';
 export type {
+  CustomServerTransport,
   ResolvedTransports,
   ServerTransport,
   ServerTransportName,
   SseOptions,
+  TransportConnection,
+  TransportEndpoint,
 } from './transports.ts';
 export {
   ERROR_HEADER,

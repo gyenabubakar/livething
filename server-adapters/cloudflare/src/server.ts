@@ -12,12 +12,14 @@ import {
 import { CloseCodes } from '@livething/server/errors';
 import { DurableObject } from 'cloudflare:workers';
 import type {
+  AuthDecision,
   ConnectionHandle,
   Engine,
   EngineRuntimeOptions,
   Logger,
   ServerDefinition,
   ServerTransport,
+  TransportEndpoint,
   TransportFrame,
 } from '@livething/server/adapters';
 import { buildAdmin } from './admin.ts';
@@ -34,6 +36,8 @@ const ABNORMAL_CLOSURE = 1006;
 
 /** The largest WebSocket message a Durable Object receives or sends: 32 MiB. */
 const CLOUDFLARE_MESSAGE_BYTES = 32 * 1024 * 1024;
+
+const ORIGIN_REJECTION: AuthDecision = { reject: true, code: 403, reason: 'Origin not allowed' };
 
 /**
  * The instance shape of a `bind()`-produced Durable Object.
@@ -188,6 +192,38 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
         this.ready = ready;
       }
 
+      /** Offers a request to each custom transport in list order, or returns `null`. */
+      private async handleCustom(request: Request): Promise<Response | null> {
+        const endpoint: TransportEndpoint = {
+          authenticate: async (incoming) => {
+            if (!originAllowed(incoming)) return ORIGIN_REJECTION;
+
+            return this.engine.authenticate(requestWithClientIp(incoming));
+          },
+          accept: (connection, decision) =>
+            this.engine.accept(connection, {
+              ...connection,
+              userId: decision.userId ?? '',
+              meta: decision.meta ?? {},
+              tags: decision.tags ?? [],
+              // An open request keeps the object awake, so the engine runs its timers.
+              survivesHibernation: false,
+            }),
+        };
+
+        try {
+          for (const transport of transports.custom) {
+            const answer = await transport.handle(request, endpoint);
+            if (answer !== null) return answer;
+          }
+        } catch (error) {
+          console.error('[livething] a custom transport threw in handle()', error);
+          return new Response(null, { status: 500 });
+        }
+
+        return null;
+      }
+
       private handleRejectedUpgrade(
         request: Request,
         result: Awaited<ReturnType<Engine['authenticate']>>,
@@ -258,7 +294,7 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
         await this.ready;
 
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-          return this.handleSse(request);
+          return (await this.handleCustom(request)) ?? this.handleSse(request);
         }
 
         if (!transports.websocket) {
