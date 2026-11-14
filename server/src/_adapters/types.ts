@@ -39,7 +39,7 @@ export interface SocketDescriptor {
 
   /**
    * Whether this platform exposes real outbound buffer pressure through
-   * `bufferedAmount()`. When `true` (Node/Bun/Deno adapters), `ctx.stream.drain()`
+   * `bufferedAmount()`. When `true` (Node/Bun adapters), `ctx.stream.drain()`
    * paces the generator against the live buffer. When `false` or absent
    * (Cloudflare, which does not expose buffer fullness), `bufferedAmount()` is
    * treated as unsupported and `drain()` resolves immediately as a no-op. This is

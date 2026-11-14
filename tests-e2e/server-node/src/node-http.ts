@@ -11,6 +11,9 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { FEATURE_DEFINITIONS } from './handlers.ts';
 
+const denoStorage =
+  'Deno' in globalThis ? (await import('./deno-storage.ts')).denoStorage : undefined;
+
 type AnyAdminMethod = (...args: unknown[]) => unknown;
 type AnyAdmin = Record<string, AnyAdminMethod>;
 
@@ -47,13 +50,20 @@ function bindNodeFixture(
   options: NodeEndpointOptions,
 ): FixtureService {
   const livething = setup();
-  const endpoint = livething.bind(definition, options);
+  const storage = denoStorage?.(String(options.sql));
+  const endpoint = livething.bind(
+    definition,
+    storage ? { ...options, sql: storage.sql, kv: storage.kv } : options,
+  );
 
   return {
     endpoint,
     ready: endpoint.ready(),
     admin: endpoint.admin,
-    shutdown: livething.shutdown,
+    shutdown: async () => {
+      await livething.shutdown();
+      storage?.close();
+    },
   };
 }
 

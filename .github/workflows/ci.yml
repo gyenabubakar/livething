@@ -201,7 +201,7 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
     strategy:
       fail-fast: false
-      # One job per implemented adapter (cf/node; deno/bun to come), run
+      # One job per implemented adapter (cf/node; bun to come), run
       # concurrently so calendar time is the slowest suite, not their sum.
       # Node framework bindings (Hono, Fastify, H3) share the node:http engine
       # path, so their integration specs cover them instead of a full e2e run.

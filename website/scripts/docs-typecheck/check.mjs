@@ -81,6 +81,7 @@ function readExamples() {
     const lines = readFileSync(file, 'utf8').split('\n');
     let open = null;
     let group = null;
+    let section = '';
     lines.forEach((line, i) => {
       if (open) {
         if (line.trim() === '```') {
@@ -89,6 +90,8 @@ function readExamples() {
         } else open.body.push(line.slice(open.indent));
         return;
       }
+      const heading = line.match(/^#{2,3}\s+(.+)/);
+      if (heading) section = heading[1];
       if (/^\s*::code-group/.test(line)) group = `${page}:${i + 1}`;
       else if (/^\s*::\s*$/.test(line)) group = null;
       const match = line.match(
@@ -102,6 +105,7 @@ function readExamples() {
         indent: match[1].length,
         title: match[3] ?? '',
         group,
+        section,
         // Prettier puts a blank line between the comment and the fence.
         skip:
           /docs-check: skip/.test(lines[i - 1] ?? '') ||
@@ -179,28 +183,30 @@ function exportTarget(specifier) {
  */
 const pageFiles = new Map();
 const fileExamples = new Map();
-const pageFileKey = (page, name) => `${page}\0${name}`;
+// The Node page has one section per framework, and several sections have their own
+// `huddle-endpoint`. There a file belongs to its `##` or `###` section, not to the whole page.
+const NODE_PAGE = '3.server/02.adapters/02.node.md';
+const NITRO_SECTIONS = ['Nuxt', 'SolidStart'];
+const fileScope = (example) =>
+  example.page === NODE_PAGE ? `${example.page}#${example.section}` : example.page;
+const pageFileKey = (example, name) => `${fileScope(example)}\0${name}`;
 const withoutExtension = (path) => basename(path).replace(/(\.svelte)?\.\w+$/, '');
-const NITRO_PAGES = [
-  '3.server/02.adapters/02.node/07.nuxt',
-  '3.server/02.adapters/02.node/08.solidstart',
-  '3.server/02.adapters/02.node/09.tanstack-start',
-];
 
 function pageFile(containing, name) {
   const example = fileExamples.get(containing);
   // Each plugins page builds its own `Polls`, so an example there imports the page's
-  // own file. The Quickstart builds its own small server. The Nitro pages build their
-  // endpoint with H3, not `node:http`. A name the page uses for more than one file stays
-  // on the shared fixture.
+  // own file. The Quickstart builds its own small server. The Nitro sections build their
+  // endpoint with H3, not `node:http`. The Deno page builds its own storage. A name the
+  // page uses for more than one file stays on the shared fixture.
   const ownsFiles =
+    example?.page === '3.server/02.adapters/03.deno.md' ||
     example?.page.startsWith('6.recipes/01.framework-hooks/') ||
     example?.page.startsWith('4.client/07.plugins/') ||
     example?.page.startsWith('1.start/05') ||
     example?.page.startsWith('2.learn/11.identity-and-access') ||
-    NITRO_PAGES.some((page) => example?.page.startsWith(page));
+    (example?.page === NODE_PAGE && NITRO_SECTIONS.includes(example.section));
   if (!ownsFiles) return undefined;
-  const path = pageFiles.get(pageFileKey(example.page, name));
+  const path = pageFiles.get(pageFileKey(example, name));
   return path && path !== containing ? path : undefined;
 }
 
@@ -378,7 +384,7 @@ function writeProjects(withPrelude) {
     writeFileSync(path, projectSource(example, addition, path));
     byPath.set(path, example);
     fileExamples.set(path, example);
-    const key = pageFileKey(example.page, withoutExtension(path));
+    const key = pageFileKey(example, withoutExtension(path));
     pageFiles.set(key, pageFiles.has(key) ? null : path);
   });
   return byPath;

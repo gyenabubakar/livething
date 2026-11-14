@@ -6,7 +6,6 @@ const adapters = [
   { name: 'Cloudflare', src: '/logos/cloudflare.svg' },
   { name: 'Node.js', src: '/logos/nodejs.svg' },
   { name: 'Bun', src: '/logos/bun.svg' },
-  { name: 'Deno', src: '/logos/deno.svg', class: 'logo-white' },
 ]
 const runs = ['contract', 'channels', 'requests', 'streams', 'presence']
 
@@ -31,7 +30,7 @@ const busBottom = adapterRows.at(-1)! + ADAPTER.h / 2
 </script>
 
 <template>
-  <svg viewBox="0 40 680 290" class="size-full" role="img" aria-label="WebSocket or server-sent events reach a Cloudflare, Node.js, Bun or Deno adapter, and every adapter feeds the same LiveThing engine that runs your app">
+  <svg viewBox="0 40 680 290" class="size-full" role="img" aria-label="WebSocket or server-sent events reach a Cloudflare, Node.js or Bun adapter, and every adapter feeds the same LiveThing engine that runs your app">
     <text :x="TRANSPORT.x" :y="transportRows[0]! - 14" class="text-[10px] font-medium uppercase tracking-widest fill-zinc-500">Transport</text>
     <text :x="ADAPTER.x" :y="adapterRows[0]! - 14" class="text-[10px] font-medium uppercase tracking-widest fill-zinc-500">Adapter</text>
 
