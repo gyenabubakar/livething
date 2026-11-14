@@ -412,10 +412,10 @@ function withDir(dir) {
   return (file) => join(dir, file);
 }
 
-// The client docs say `binary()` adds about 2.5 KB after minifying and gzip
-// (website/content/4.client/02.primitives/18.binary.md). This measures what it
-// adds to a real app, @livething/core included, and fails when it grows past
-// the stated size plus 10%. Raise the budget only together with the docs.
+// Measures what `binary()` adds to a real app after minifying and gzip,
+// @livething/core included, and fails when it grows past 2.5 KB plus 10%. The
+// docs show the measured size (scripts/package-sizes.mjs), so this only guards
+// against growth.
 const BINARY_GZIP_BUDGET = 2.5 * 1024 * 1.1;
 
 async function gzipSizeOfClient(primitives) {
@@ -448,7 +448,7 @@ async function runBinarySizeCheck() {
   console.log(`binary() adds ${(added / 1024).toFixed(2)} KB (gzip)`);
   if (added > BINARY_GZIP_BUDGET) {
     return [
-      `  SIZE: binary() adds ${added} bytes after gzip, over the ${Math.round(BINARY_GZIP_BUDGET)}-byte budget. Make it smaller, or raise the budget and the size in the client binary docs.`,
+      `  SIZE: binary() adds ${added} bytes after gzip, over the ${Math.round(BINARY_GZIP_BUDGET)}-byte budget. Make it smaller, or raise the budget.`,
     ];
   }
 
