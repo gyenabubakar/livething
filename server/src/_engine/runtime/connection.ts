@@ -334,6 +334,17 @@ function createHandle(
     await connection.lifecycleReady;
   }
 
+  // Once onConnect has finished, a frame no longer waits for it, so it skips that await. Frames
+  // that came earlier resume in order before any later frame can arrive. A failed lifecycle
+  // keeps the await, so every later frame still reports that failure.
+  let lifecycleSettled = false;
+  void connection.lifecycleReady?.then(
+    () => {
+      lifecycleSettled = true;
+    },
+    () => {},
+  );
+
   async function reportCallbackError(error: unknown): Promise<void> {
     try {
       await runtime.handleRuntimeError(connection, error, undefined);
@@ -369,8 +380,10 @@ function createHandle(
       }
 
       try {
-        await waitForLifecycle();
-        if (connection.closing) return;
+        if (!lifecycleSettled) {
+          await waitForLifecycle();
+          if (connection.closing) return;
+        }
 
         await runtime.processTextMessage(connection, data);
       } catch (error) {
@@ -392,8 +405,10 @@ function createHandle(
       }
 
       try {
-        await waitForLifecycle();
-        if (connection.closing) return;
+        if (!lifecycleSettled) {
+          await waitForLifecycle();
+          if (connection.closing) return;
+        }
 
         if (!runtime.processBinaryMessage) {
           closeFor(CloseCodes.UNSUPPORTED_DATA, '[livething] this server does not use binary()');

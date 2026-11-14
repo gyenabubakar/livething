@@ -86,3 +86,18 @@ export function serializeWireFrame(
 
   return JSON.stringify([event, noPayload ? null : payload, metadataFromLiveThing(livething)]);
 }
+
+/**
+ * {@link serializeWireFrame} for a payload that is already JSON text, such as the output of
+ * `serializePayload`. The text goes into the frame as it is, so the payload is not parsed and
+ * serialized again. The frame is the same string `serializeWireFrame` builds from the parsed value.
+ */
+export function serializeWireFrameJson(
+  event: string,
+  payloadJson: string,
+  livething?: Partial<LiveThingProtocol> | Record<string, unknown>,
+): string {
+  const payload = payloadJson === '{}' && isProtocolEventName(event) ? 'null' : payloadJson;
+
+  return `[${JSON.stringify(event)},${payload},${JSON.stringify(metadataFromLiveThing(livething))}]`;
+}
