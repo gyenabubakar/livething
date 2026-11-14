@@ -331,7 +331,7 @@ export function createSseHub(options: SseHubOptions): SseHub {
 
 const NO_CONTENT: SseAnswer = { status: 204, headers: {}, body: null };
 
-const textDecoder = new TextDecoder('utf-8', { fatal: true });
+const textDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /**
  * Split a POST body into frames: 1 byte for the type (0 text, 1 binary), 4 bytes for the

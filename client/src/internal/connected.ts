@@ -1,7 +1,16 @@
 import type { ConnectedInfo } from '~/internal/runtime.ts';
 
-function isNumberOrNull(value: unknown): value is number | null {
-  return value === null || typeof value === 'number';
+/** The wire protocol's bounds: a whole number from 0 to `Number.MAX_SAFE_INTEGER`. */
+function isCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isCountOrNull(value: unknown): value is number | null {
+  return value === null || isCount(value);
+}
+
+function isResumeToken(value: unknown): value is string {
+  return typeof value === 'string' && value.length >= 1 && value.length <= 64;
 }
 
 /** The values of a `__connected__` frame, or `null` when the payload is not one. */
@@ -13,12 +22,12 @@ export function parseConnectedInfo(payload: unknown): ConnectedInfo | null {
   const resumeIsValid =
     resume === null ||
     (typeof resume === 'object' &&
-      typeof (resume as { token?: unknown }).token === 'string' &&
-      isNumberOrNull((resume as { seq?: unknown }).seq));
+      isResumeToken((resume as { token?: unknown }).token) &&
+      isCountOrNull((resume as { seq?: unknown }).seq));
   const isValid =
-    isNumberOrNull(pingIntervalMs) &&
-    isNumberOrNull(idleTimeoutMs) &&
-    typeof maxResumeTokens === 'number' &&
+    isCountOrNull(pingIntervalMs) &&
+    isCountOrNull(idleTimeoutMs) &&
+    isCount(maxResumeTokens) &&
     typeof connectionId === 'string' &&
     Array.isArray(features) &&
     features.every((feature) => typeof feature === 'string') &&

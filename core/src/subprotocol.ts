@@ -17,7 +17,7 @@ export function decodeBase64Url(encoded: string): string | null {
   if (!bytes) return null;
 
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
     return null;
   }

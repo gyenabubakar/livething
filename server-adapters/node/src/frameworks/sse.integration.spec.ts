@@ -161,3 +161,35 @@ describe('shutdown with a custom transport that holds a request', () => {
     await app.close();
   }, 5000);
 });
+
+describe('shutdown while a stream is still in authenticate', () => {
+  // A hook that ignores the request's signal, such as one waiting on a slow session store.
+  const stuckDefinition = server({
+    authenticate: () => new Promise<never>(() => {}),
+    capabilities: [keepalive()],
+  }).assemble({ handlers: [] });
+
+  it('ends the stream on Hono', async () => {
+    const app = new Hono();
+    const livething = setupHono();
+    app.all('/huddle', livething.bind(stuckDefinition, { transports: [sse()] }).handle);
+    const http = createAdaptorServer({ fetch: app.fetch, websocket: livething.websocket });
+    await livething.ready();
+
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+    const { port } = http.address() as { port: number };
+    // Ended with a 503, or by the closed socket: either way the client is not left waiting.
+    const ended = fetch(`http://127.0.0.1:${port}/huddle`, {
+      headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+    }).then(
+      (response) => response.status,
+      () => 'closed',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await livething.shutdown();
+
+    expect([503, 'closed']).toContain(await ended);
+    await new Promise((resolve) => http.close(resolve));
+  }, 5000);
+});

@@ -118,6 +118,20 @@ describe('the __connected__ frame', () => {
     expect(notHeld.frame[1]).toMatchObject({ pingIntervalMs: 20_000, idleTimeoutMs: 60_000 });
   });
 
+  // No connection table exists without hibernation, so a row write would fail and close it.
+  it('ignores survivesHibernation on a server without hibernation', async () => {
+    const engine = await start(
+      server({
+        capabilities: [keepalive({ pingIntervalMs: 20_000, idleTimeoutMs: 60_000 })],
+      }).assemble({ handlers: [] }),
+    );
+
+    const { frame, connectionId } = await firstFrame(engine, { survivesHibernation: true });
+
+    expect(frame[1]).toMatchObject({ pingIntervalMs: 20_000, idleTimeoutMs: 60_000 });
+    expect(engine.core.connections.get(connectionId)?.survivesHibernation).toBe(false);
+  });
+
   it('carries the POST secret and size limit the transport gave the connection', async () => {
     const engine = await start(server({}).assemble({ handlers: [] }));
 

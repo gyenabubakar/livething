@@ -1,13 +1,21 @@
 import { LiveThingConfigError } from '@livething/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
-import type { AuthDecision, ConnectionHandle, SocketDescriptor } from './types.ts';
+import type { AuthDecision, ConnectionHandle, SocketDescriptor, TransportFrame } from './types.ts';
 
 /** The name of a transport a server endpoint offers: a built-in one, or a custom one. */
 export type ServerTransportName = 'websocket' | 'sse' | (string & {});
 
 /** A connection a custom transport hands to the engine with `endpoint.accept()`. */
-export interface TransportConnection extends Omit<SocketDescriptor, 'backpressureSupported'> {
+export interface TransportConnection extends Omit<
+  SocketDescriptor,
+  'send' | 'backpressureSupported'
+> {
+  /**
+   * Returns `false` when the frame was not sent, for example because the connection is
+   * closing. Only a synchronous `false` counts, so `send` must not return a Promise.
+   */
+  send(frame: TransportFrame): boolean | void;
   /** `true` only when `bufferedAmount()` reports the real bytes waiting to be sent. */
   backpressureSupported: boolean;
   /**

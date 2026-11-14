@@ -230,6 +230,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 
         return createConnectionBridge({ engine, token: transport, transport, decision });
       },
+      shutdownSignal: shutdownAbort.signal,
     });
 
     async function decideNodeUpgrade(

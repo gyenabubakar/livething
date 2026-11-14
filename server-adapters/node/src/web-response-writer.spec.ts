@@ -41,6 +41,21 @@ describe('WebResponseWriter', () => {
     expect(writer.write('second page')).toBe(true);
   });
 
+  // The SSE handler writes nothing for a client that left, and the framework must not wait forever.
+  it('answers when the client leaves before its headers', async () => {
+    const abort = new AbortController();
+    const writer = new WebResponseWriter(abort.signal);
+
+    abort.abort();
+
+    const answer = await Promise.race([
+      writer.answer,
+      new Promise((resolve) => setTimeout(resolve, 50, 'pending')),
+    ]);
+    expect(answer).toBeInstanceOf(Response);
+    expect((answer as Response).body).toBeNull();
+  });
+
   it('answers 503 when it is destroyed before its headers', async () => {
     const writer = new WebResponseWriter(new AbortController().signal);
 

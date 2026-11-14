@@ -65,6 +65,10 @@ export function decodeBase64(encoded: string): Uint8Array<ArrayBuffer> | null {
   if (encoded.charCodeAt(length - 1) === PAD) length--;
   if (length % 4 === 1) return null;
 
+  // Padding only fills the last 4-character group: `AA==` or `AAA=`.
+  const padding = encoded.length - length;
+  if (padding > 0 && (encoded.length % 4 !== 0 || (length % 4) + padding !== 4)) return null;
+
   const bytes = new Uint8Array(Math.floor((length * 6) / 8));
   let buffer = 0;
   let bits = 0;

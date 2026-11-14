@@ -100,8 +100,17 @@ describe('the token subprotocol', () => {
     expect(seen).toBeUndefined();
   });
 
+  it('lets a real Authorization header win over a token entry that does not decode', async () => {
+    await engine.authenticate(
+      handshake('livething-v1, livething-v1.token.a+b', { Authorization: 'Bearer from-header' }),
+    );
+
+    expect(seen).toEqual({ authorization: 'Bearer from-header', protocols: 'livething-v1' });
+  });
+
   // `Headers` holds Latin-1 text with no line breaks or NUL, so such a token can't be a header.
-  it.each(['€uro', '🙂', 'a\nb', 'a\rb', 'a\0b'])(
+  // It also trims a trailing space or tab, which would hand `authenticate` a different token.
+  it.each(['€uro', '🙂', 'a\nb', 'a\rb', 'a\0b', 'session-8f2c ', 'session-8f2c\t'])(
     'rejects a token %j that cannot be an Authorization header with 400',
     async (token) => {
       const decision = await engine.authenticate(
