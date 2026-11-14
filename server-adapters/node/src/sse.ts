@@ -2,7 +2,9 @@ import {
   corsHeaders,
   ERROR_HEADER,
   errorAnswer,
+  isStreamRequest,
   preflightAnswer,
+  PROTOCOL_HEADER,
   SSE_HEADERS,
   sseCloseEvent,
 } from '@livething/server/adapters';
@@ -55,8 +57,11 @@ export function createNodeSseHandler(
     }
 
     const cors = corsHeaders(origin);
-    const accept = header(request, 'accept') ?? '';
-    if (!hub || (request.method === 'GET' && !accept.includes('text/event-stream'))) {
+    const stream = isStreamRequest(
+      header(request, 'accept'),
+      header(request, PROTOCOL_HEADER.toLowerCase()),
+    );
+    if (!hub || (request.method === 'GET' && !stream)) {
       writeAnswer(response, errorAnswer(426, 'not-offered', 'Upgrade Required'), cors);
       return;
     }
@@ -130,7 +135,12 @@ async function openStream(deps: NodeSseDeps, stream: StreamRequest): Promise<voi
     backpressureSupported: true,
   });
   response.once('close', () => opened.ended());
-  opened.attach(deps.attach(opened.socket, decision));
+  try {
+    opened.attach(deps.attach(opened.socket, decision));
+  } catch (error) {
+    response.destroy();
+    throw error;
+  }
 }
 
 async function post(hub: SseHub, request: NodeHttpRequest): Promise<SseAnswer> {

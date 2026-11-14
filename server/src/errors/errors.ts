@@ -60,8 +60,8 @@ export function Disconnect(code: number, reason: string) {
  *
  * server({
  *   async authenticate(req) {
- *     // Browsers cannot set headers on a WebSocket handshake, so the token comes in the URL.
- *     const user = await validateToken(new URL(req.url).searchParams.get('token'));
+ *     // The client's `token` option arrives as `Authorization: Bearer <token>`.
+ *     const user = await validateToken(req.headers.get('authorization')?.slice('Bearer '.length));
  *     if (!user) throw RejectAuth(4002, 'Invalid token');
  *     return { userId: user.id, meta: { role: user.role } };
  *   },

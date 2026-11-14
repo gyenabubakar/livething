@@ -2,6 +2,7 @@ import { CloseCodes, encodeBinaryFrame } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { binary } from '~/primitives/binary/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
@@ -175,6 +176,46 @@ describe('sse(): the stream', () => {
     expect(server.stream.url).toBe('https://huddle.test/huddle?room=design');
     expect(server.stream.headers.get('Accept')).toBe('text/event-stream');
     expect(server.stream.headers.get('Authorization')).toBe('Bearer kofi-token');
+  });
+
+  it('sends the LiveThing-Protocol header on the stream request', async () => {
+    open();
+
+    await vi.waitFor(() => expect(server.streams).toHaveLength(1));
+    expect(server.stream.headers.get('LiveThing-Protocol')).toBe('livething-v1');
+  });
+
+  it('reads an event split across many chunks and a blank line split between two', async () => {
+    const { socket } = await opened();
+    const texts: string[] = [];
+    socket.on('messageCreated', ({ text }) => texts.push(text));
+    const text = 'x'.repeat(200_000);
+    const wire = `data: ${JSON.stringify(['messageCreated', { text }, null])}\n\ndata: ${JSON.stringify(['messageCreated', { text: 'b' }, null])}\n`;
+
+    for (let i = 0; i < wire.length; i += 16_384) server.stream.push(wire.slice(i, i + 16_384));
+    server.stream.push('\n');
+
+    await vi.waitFor(() => expect(texts).toEqual([text, 'b']));
+  });
+
+  it('rejects a queued request over maxPostBytes and still sends the ones after it', async () => {
+    const socket = client<HuddleContract>()(
+      connect('wss://huddle.test/huddle?room=design', { transports: [sse()] }),
+      clientRequests(),
+    );
+    const errors: unknown[] = [];
+    socket.onError((error) => errors.push(error));
+    socket.connect();
+
+    const tooBig = socket.request('sendMessage' as never, { text: 'x'.repeat(2000) } as never);
+    const fine = socket.request('sendMessage' as never, { text: 'ok' } as never);
+    void fine.catch(() => undefined);
+    await vi.waitFor(() => expect(server.streams).toHaveLength(1));
+    server.accept();
+
+    await expect(tooBig).rejects.toThrow(/over the server's POST limit/);
+    await vi.waitFor(() => expect(server.dataTexts().join()).toContain('"ok"'));
+    expect(errors).toHaveLength(1);
   });
 
   it('opens on the __connected__ frame, and reports the transport as sse', async () => {

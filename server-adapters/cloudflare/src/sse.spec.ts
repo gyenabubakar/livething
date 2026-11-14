@@ -9,6 +9,8 @@ interface OpenedStream {
   handleClose: ReturnType<typeof vi.fn>;
 }
 
+const STREAM_HEADERS = { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' };
+
 /** An SSE handler of one object, with caps small enough for a test. */
 function huddleObject(caps = { streamBytes: 1_000, objectBytes: 1_500 }) {
   let pending: Omit<OpenedStream, 'reader'> | null = null;
@@ -27,7 +29,7 @@ function huddleObject(caps = { streamBytes: 1_000, objectBytes: 1_500 }) {
   return {
     async open(): Promise<OpenedStream> {
       const response = await handle(
-        new Request('https://huddle.test/', { headers: { Accept: 'text/event-stream' } }),
+        new Request('https://huddle.test/', { headers: STREAM_HEADERS }),
       );
       return { ...pending!, reader: response.body!.getReader() };
     },
@@ -111,5 +113,49 @@ describe('a client that drops its stream', () => {
 
     await vi.waitFor(() => expect(kofi.handleClose).toHaveBeenCalledWith(1006, 'stream ended'));
     expect(kofi.socket.send(frame(100))).toBe(false);
+  });
+});
+
+describe('the stream request', () => {
+  function huddleHandler(authenticate = vi.fn(async () => ({}))) {
+    return createCloudflareSseHandler({
+      hub: createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
+      originAllowed: () => true,
+      authenticate,
+      attach: () => ({ handleClose: vi.fn(async () => {}) }) as unknown as ConnectionHandle,
+    });
+  }
+
+  // A cross-site `fetch(url, { mode: 'no-cors' })` sends no Origin, so the header that
+  // forces a preflight is what keeps another site from opening a stream with the cookies.
+  it('answers a GET without LiveThing-Protocol with 426, before authenticate', async () => {
+    const authenticate = vi.fn(async () => ({}));
+    const handle = huddleHandler(authenticate);
+
+    const missing = await handle(
+      new Request('https://huddle.test/', { headers: { Accept: 'text/event-stream' } }),
+    );
+    const wrong = await handle(
+      new Request('https://huddle.test/', {
+        headers: { ...STREAM_HEADERS, 'LiveThing-Protocol': 'livething-v0' },
+      }),
+    );
+
+    expect(missing.status).toBe(426);
+    expect(missing.headers.get('LiveThing-Error')).toBe('not-offered');
+    expect(wrong.status).toBe(426);
+    expect(authenticate).not.toHaveBeenCalled();
+  });
+
+  it('allows LiveThing-Protocol in a preflight', async () => {
+    const response = await huddleHandler()(
+      new Request('https://huddle.test/', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://app.huddle.test' },
+      }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Headers')).toContain('LiveThing-Protocol');
   });
 });

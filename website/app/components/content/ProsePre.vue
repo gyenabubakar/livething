@@ -16,7 +16,7 @@ const props = defineProps<{
 
 const route = useRoute()
 const enabled = route.path !== '/'
-const code = (props.code ?? '').replace(/\n+$/, '')
+const code = computed(() => (props.code ?? '').replace(/\n+$/, ''))
 
 // The server highlights the block (server/api/code-block.post.ts), so the highlighter never ships
 // to the browser. A prerendered page carries the result in its payload.
@@ -25,7 +25,7 @@ async function highlight() {
     const { html } = await $fetch('/api/code-block', {
       method: 'POST',
       body: {
-        code,
+        code: code.value,
         language: props.language || 'text',
         filename: props.filename,
         hideHeader: props.hideHeader,
@@ -34,6 +34,8 @@ async function highlight() {
 
     return html
   } catch (error) {
+    if (import.meta.prerender) throw error
+
     console.error('Could not highlight a code block, so it stays plain.', error)
     return null
   }
@@ -42,26 +44,37 @@ async function highlight() {
 // The key must not depend on where the block sits in the component tree: `useId()` changes after a
 // client-side navigation, so the page's prerendered payload would not be found. FNV-1a of the
 // block's content is the same on the server and in the browser.
-function blockKey() {
+const blockKey = computed(() => {
   let hash = 0x811c9dc5
-  for (const char of `${props.language}\0${props.filename}\0${props.hideHeader}\0${code}`) {
+  for (const char of `${props.language}\0${props.filename}\0${props.hideHeader}\0${code.value}`) {
     hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193)
   }
 
-  return `${(hash >>> 0).toString(36)}-${code.length}`
+  return `code-block-${(hash >>> 0).toString(36)}-${code.value.length}`
+})
+
+// The shadow roots link to these two files (server/utils/code-block.ts). The prerender does not find
+// a link inside a shadow root template, so it is told here.
+if (enabled && import.meta.prerender) prerenderRoutes(['/code-block.css', '/code-block-sprite.svg'])
+
+// A stylesheet inside a shadow root does not hold back the first paint, so the page head starts
+// loading it as early as it can. It can't be a page stylesheet: it styles plain `pre` and `code`.
+if (enabled) {
+  useHead({
+    link: [{ key: 'code-block-css', rel: 'preload', as: 'style', href: '/code-block.css' }],
+  })
 }
 
-const [{ data: sharedHTML }, { data: shadowHTML }] = enabled
-  ? await Promise.all([
-      useAsyncData('code-block-shared', () => $fetch('/api/code-block-shared').then(r => r.html)),
-      useAsyncData(`code-block-${blockKey()}`, highlight),
-    ])
-  : [{ data: ref(null) }, { data: ref(null) }]
+const { data: shadowHTML, error } = enabled
+  ? await useAsyncData(blockKey, highlight, { watch: [blockKey] })
+  : { data: ref(null), error: ref(null) }
+
+if (import.meta.prerender && error.value) throw error.value
 
 const markup = computed(() =>
-  sharedHTML.value == null || shadowHTML.value == null
+  shadowHTML.value == null
     ? null
-    : `<diffs-container><template shadowrootmode="open">${sharedHTML.value}${shadowHTML.value}</template></diffs-container>`,
+    : `<diffs-container><template shadowrootmode="open">${shadowHTML.value}</template></diffs-container>`,
 )
 
 // The HTML parser turns the template into a shadow root on the first page load. After a client-side

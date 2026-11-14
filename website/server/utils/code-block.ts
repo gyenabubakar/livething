@@ -16,15 +16,22 @@ const BLOCK_CSS = `
 }
 `
 
-// Every block repeats the same icon sprite and core stylesheet in its shadow root (47 KB). Each block
-// is sent without them, and the page adds them back once per block from this shared copy.
-export const SHARED_CODE_BLOCK_HTML = `${SVGSpriteSheet}<style ${CORE_CSS_ATTRIBUTE}>${wrapCoreCSS('')}</style>`
+// The icon sprite and the core stylesheet are 47 KB and the same for every block. They are served once
+// from two files that the browser caches, and each block's shadow root links to them.
+export const CODE_BLOCK_CSS_PATH = '/code-block.css'
+export const CODE_BLOCK_SPRITE_PATH = '/code-block-sprite.svg'
+export const CODE_BLOCK_CSS = wrapCoreCSS('')
+export const CODE_BLOCK_SPRITE = SVGSpriteSheet.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')
+
 const CORE_STYLE_PATTERN = new RegExp(`^<style ${CORE_CSS_ATTRIBUTE}(?:="")?>[\\s\\S]*?</style>`)
 
-function withoutSharedHTML(html: string) {
+function withSharedAssets(html: string) {
   if (!html.startsWith(SVGSpriteSheet)) throw new Error('The rendered block does not start with the icon sprite.')
 
-  return html.slice(SVGSpriteSheet.length).replace(CORE_STYLE_PATTERN, '')
+  return `<link rel="stylesheet" href="${CODE_BLOCK_CSS_PATH}">${html
+    .slice(SVGSpriteSheet.length)
+    .replace(CORE_STYLE_PATTERN, '')
+    .replaceAll('href="#diffs-icon-', `href="${CODE_BLOCK_SPRITE_PATH}#diffs-icon-`)}`
 }
 
 // A docs diff can be a sketch with no valid hunk headers. It then shows as a plain `diff` file.
@@ -55,11 +62,11 @@ export async function highlightCodeBlock({ code, language, filename, hideHeader 
         options: { ...options, diffStyle: 'unified', lineDiffType: 'none' },
       })
 
-      return withoutSharedHTML(result.prerenderedHTML)
+      return withSharedAssets(result.prerenderedHTML)
     }
   }
 
   const result = await preloadFile({ file: { name, contents: code, lang: language }, options })
 
-  return withoutSharedHTML(result.prerenderedHTML)
+  return withSharedAssets(result.prerenderedHTML)
 }

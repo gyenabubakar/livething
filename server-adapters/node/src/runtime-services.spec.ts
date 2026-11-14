@@ -338,6 +338,24 @@ describe('createSql', () => {
     }
   });
 
+  // `StatementSync.columns()` and `setReturnArrays()` came in Node 22.16.
+  it('names the Node version when node:sqlite is too old', () => {
+    const database = new DatabaseSync(':memory:');
+    const older = new Proxy(database, {
+      get(target, key) {
+        if (key === 'prepare') {
+          return (query: string) => Object.assign(target.prepare(query), { columns: undefined });
+        }
+
+        const value: unknown = Reflect.get(target, key, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+
+    expect(() => createSql(older)).toThrow(/Node\.js 22\.16 or newer/);
+    database.close();
+  });
+
   it('keeps ctx.kv in a node:sqlite database it was given, and never closes it', async () => {
     const database = new DatabaseSync(':memory:');
     const storage = createStorage({ sql: database });

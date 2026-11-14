@@ -1,4 +1,4 @@
-import { CloseCodes, encodeBase64, splitBinaryFrame } from '@livething/core';
+import { CloseCodes, encodeBase64, LIVETHING_SUBPROTOCOL, splitBinaryFrame } from '@livething/core';
 import { isProtocolEventName } from '~/_engine/runtime/protocol.ts';
 import { normalizeCloseReason } from './close.ts';
 import type { ConnectionHandle, SocketDescriptor, TransportFrame } from './types.ts';
@@ -12,6 +12,19 @@ export const SSE_HEADERS: Readonly<Record<string, string>> = {
 
 /** The header that marks an error response as LiveThing's own, not a proxy's. */
 export const ERROR_HEADER = 'LiveThing-Error';
+
+/**
+ * The header the client sends on its stream `GET`. It is not CORS-safelisted, so a page on
+ * another origin must send a preflight first, and a preflight always carries `Origin`.
+ * Without it, a cross-site `fetch(url, { mode: 'no-cors' })` opens a stream with the user's
+ * cookies and no `Origin` header, which the Origin check lets through.
+ */
+export const PROTOCOL_HEADER = 'LiveThing-Protocol';
+
+/** Whether a `GET` asks for a LiveThing event stream, from its `Accept` and protocol headers. */
+export function isStreamRequest(accept: string | null, protocol: string | null): boolean {
+  return (accept ?? '').includes('text/event-stream') && protocol === LIVETHING_SUBPROTOCOL;
+}
 
 /** One answer to an HTTP request of the SSE transport. */
 export interface SseAnswer {
@@ -385,7 +398,11 @@ function waitsInLine(parsed: unknown, binary: boolean): boolean {
   return exchange?.source !== 'server';
 }
 
-/** The code and reason of a client's `__close__` frame, or `null` for any other text. */
+/**
+ * The code and reason of a client's `__close__` frame, or `null` for any other text. Like a
+ * WebSocket client's close frame, the code is `1000` or `3000`-`4999`, and the reason keeps
+ * the 123-byte limit.
+ */
 function readClose(text: string | undefined): { code: number; reason: string } | null {
   if (text === undefined || !text.startsWith('["__close__"')) return null;
 
@@ -396,7 +413,11 @@ function readClose(text: string | undefined): { code: number; reason: string } |
   const code = payload?.code;
   if (typeof code !== 'number' || !Number.isInteger(code)) return null;
 
-  return { code, reason: typeof payload?.reason === 'string' ? payload.reason : '' };
+  if (code !== CloseCodes.NORMAL && (code < 3000 || code > 4999)) return null;
+
+  const reason = typeof payload?.reason === 'string' ? payload.reason : '';
+
+  return { code, reason: normalizeCloseReason(reason)! };
 }
 
 /** The CORS headers of a response to an allowed cross-origin request. */
@@ -418,7 +439,7 @@ export function preflightAnswer(origin: string): SseAnswer {
       ...corsHeaders(origin),
       'Access-Control-Allow-Methods': 'GET, POST',
       'Access-Control-Allow-Headers':
-        'Authorization, LiveThing-Secret, LiveThing-Lane, Content-Type',
+        'Authorization, LiveThing-Protocol, LiveThing-Secret, LiveThing-Lane, Content-Type',
       'Access-Control-Max-Age': '600',
     },
     body: null,

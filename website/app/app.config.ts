@@ -8,7 +8,7 @@ export default defineAppConfig({
   seo: {
     titleTemplate: '%s - LiveThing',
     title: 'LiveThing',
-    description: 'A typed WebSocket framework for TypeScript. Call server() once and the client inherits the exact types — events, requests, channels, and streams, end to end.',
+    description: 'A typed, WebSocket-first realtime framework for TypeScript. Call server() once and the client inherits the exact types — events, requests, channels, and streams, end to end.',
   },
   assistant: {
     icons: {

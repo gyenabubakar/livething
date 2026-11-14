@@ -85,8 +85,9 @@ export function websocket(): ServerTransport {
 }
 
 /**
- * Server-sent events from the server, and POST requests from the client. A fallback for
- * networks that block WebSocket. It needs `keepalive()` in the server definition.
+ * Server-sent events from the server, and POST requests from the client: a full transport
+ * that works over plain HTTP. List it alone, or after `websocket()` so a client on a network
+ * that blocks WebSocket moves to it. It needs `keepalive()` in the server definition.
  */
 export function sse(options: SseOptions = {}): ServerTransport {
   const maxPostBytes = options.maxPostBytes ?? DEFAULT_MAX_POST_BYTES;

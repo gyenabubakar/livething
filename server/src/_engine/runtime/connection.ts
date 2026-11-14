@@ -52,7 +52,7 @@ type CancelActiveStreamsForConnectionRuntimeParameter = {
   >;
   logger?: Pick<PublicApi.Logger, 'error'>;
 };
-type HandleUpgradeRuntimeParameter = {
+type AuthenticateRuntimeParameter = {
   authHooks: readonly ((
     request: Request,
     helpers: LifecycleTypes.AuthHelpers,
@@ -1027,7 +1027,7 @@ export function wakeHibernatedConnection(
  * accept/reject data.
  */
 export async function authenticate(
-  runtime: HandleUpgradeRuntimeParameter,
+  runtime: AuthenticateRuntimeParameter,
   request: Request,
 ): Promise<EngineAdapterTypes.AuthDecision> {
   const pluginAuthHooks = runtime.pluginAuthHooks ?? [];

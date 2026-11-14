@@ -96,7 +96,9 @@ function post({ url, secret, frames, lane = 'data' }: Post): Promise<Response> {
 
 async function openStream(room: string, query = '') {
   const url = huddleUrl(room, query);
-  const response = await worker(url, { headers: { Accept: 'text/event-stream' } });
+  const response = await worker(url, {
+    headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+  });
   const events = new EventReader(response);
   const connected = JSON.parse((await events.next())!) as [
     string,
@@ -263,7 +265,7 @@ it("ends the stream after the client's __close__", async () => {
 
 it('answers a reject by close code with a __close__ frame and no __connected__', async () => {
   const response = await worker(huddleUrl('sse-banned', '&banned'), {
-    headers: { Accept: 'text/event-stream' },
+    headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
   });
   const events = new EventReader(response);
 
@@ -278,7 +280,7 @@ it('answers a reject by close code with a __close__ frame and no __connected__',
 
 it('answers a reject by HTTP status with that status', async () => {
   const response = await worker(huddleUrl('sse-expired', '&expired'), {
-    headers: { Accept: 'text/event-stream' },
+    headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
   });
 
   expect(response.status).toBe(401);
@@ -321,7 +323,11 @@ it('answers a preflight from an allowed origin inside the object', async () => {
 
 it('marks the stream of an allowed origin readable cross-origin', async () => {
   const response = await worker(huddleUrl('sse-cors'), {
-    headers: { Accept: 'text/event-stream', Origin: 'https://huddle.example' },
+    headers: {
+      Accept: 'text/event-stream',
+      'LiveThing-Protocol': 'livething-v1',
+      Origin: 'https://huddle.example',
+    },
   });
 
   expect(response.status).toBe(200);
@@ -343,7 +349,11 @@ it('refuses another origin with 403 and no CORS headers', async () => {
 
 it('accepts a stream whose Origin matches the forwarded Host', async () => {
   const response = await worker(huddleUrl('sse-same-origin'), {
-    headers: { Accept: 'text/event-stream', Origin: 'https://huddle.test' },
+    headers: {
+      Accept: 'text/event-stream',
+      'LiveThing-Protocol': 'livething-v1',
+      Origin: 'https://huddle.test',
+    },
   });
 
   expect(response.status).toBe(200);

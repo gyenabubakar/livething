@@ -53,7 +53,7 @@ export interface ConnectDescriptor extends Primitive<EmptyTypeFn> {
  * failover or load balancing, where the address can change.
  *
  * ```ts
- * connect('wss://example.com/ws');
+ * connect('wss://example.com/huddle');
  * connect(() => getRegionalUrl(), { lazy: true });
  * ```
  */

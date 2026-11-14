@@ -126,7 +126,9 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       const state = makeFakeDOState();
       const instance = new Cls(state as unknown as DurableObjectState, {});
       const res = await instance.fetch(
-        new Request('https://do.example/', { headers: { Accept: 'text/event-stream' } }),
+        new Request('https://do.example/', {
+          headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+        }),
       );
       const descriptor = fake.calls.accept[0]!.descriptor as ConnectionDescriptor;
 

@@ -167,7 +167,7 @@ export class RawSseSocket extends EventTarget {
     let response: Response;
     try {
       response = await fetch(this.httpUrl, {
-        headers: { Accept: 'text/event-stream' },
+        headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
         signal: this.stream.signal,
       });
     } catch {

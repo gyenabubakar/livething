@@ -20,6 +20,13 @@ export function isNodeSqliteDatabase(source: object): source is DatabaseSync {
  * refused, and a BLOB comes back as a `Buffer`.
  */
 export function wrapNodeSqlite(database: DatabaseSync): SqliteDatabase {
+  const probe = database.prepare('SELECT 1');
+  if (typeof probe.columns !== 'function' || typeof probe.setReturnArrays !== 'function') {
+    throw new TypeError(
+      '[livething] A node:sqlite database needs Node.js 22.16 or newer. Update Node.js, or pass a better-sqlite3 database.',
+    );
+  }
+
   let depth = 0;
 
   return {

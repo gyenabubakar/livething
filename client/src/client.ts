@@ -114,7 +114,7 @@ type ConnectArgument<TContract, TPrimitives extends readonly Primitive<any, any>
  *
  * ```ts
  * const socket = client<MySocket>()(
- *   connect('wss://example.com/ws'),
+ *   connect('wss://example.com/huddle'),
  *   reconnection({ maxAttempts: Infinity }),
  *   channels(),
  * );

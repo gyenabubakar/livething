@@ -194,7 +194,7 @@ export function createH3Setup<THandler>(
           };
         },
         (event) =>
-          // An upgrade to anything but WebSocket gets the same 400 as before it reached here.
+          // An upgrade to anything but WebSocket gets 400.
           event.req.headers.has('upgrade')
             ? Promise.resolve(invalidUpgradeResponse())
             : handle(event),

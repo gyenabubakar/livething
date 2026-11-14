@@ -2,7 +2,9 @@ import {
   corsHeaders,
   ERROR_HEADER,
   errorAnswer,
+  isStreamRequest,
   preflightAnswer,
+  PROTOCOL_HEADER,
   SSE_HEADERS,
   sseCloseEvent,
 } from '@livething/server/adapters';
@@ -66,8 +68,11 @@ export function createCloudflareSseHandler(
     }
 
     const cors = corsHeaders(origin);
-    const accept = request.headers.get('Accept') ?? '';
-    if (!hub || (request.method === 'GET' && !accept.includes('text/event-stream'))) {
+    const stream = isStreamRequest(
+      request.headers.get('Accept'),
+      request.headers.get(PROTOCOL_HEADER),
+    );
+    if (!hub || (request.method === 'GET' && !stream)) {
       return toResponse(errorAnswer(426, 'not-offered', 'Upgrade Required'), cors);
     }
 
@@ -218,7 +223,12 @@ async function openStream(
     bufferedAmount: unread,
     backpressureSupported: true,
   });
-  opened.attach(deps.attach(opened.socket, decision));
+  try {
+    opened.attach(deps.attach(opened.socket, decision));
+  } catch (error) {
+    terminate();
+    throw error;
+  }
 
   return new Response(body, { headers });
 }

@@ -63,13 +63,13 @@ const frames = [
         class="flex text-[16px] tracking-[0.24em] font-semibold uppercase"
         :style="{ fontFamily: 'DM Mono', color: '#9598a1' }"
       >
-        Typed WebSocket framework
+        Typed realtime framework
       </div>
       <div
         class="flex max-w-[940px] text-[60px] font-bold leading-[1.05] tracking-[-0.03em]"
         :style="{ fontFamily: 'Geist', color: '#fafafa', textShadow: '0 0 18px rgba(255,255,255,0.08)' }"
       >
-        {{ title || 'The complete WebSocket stack for TypeScript' }}
+        {{ title || 'WebSocket-first realtime for TypeScript' }}
       </div>
     </div>
 

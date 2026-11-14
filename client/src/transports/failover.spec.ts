@@ -88,6 +88,50 @@ function fakeSse(): TransportFactory {
 
 const build = client<SocketContract>();
 
+describe('a custom transport that fires events inside open()', () => {
+  it('opens the socket when the events come before open() returns', async () => {
+    const socket = build(
+      connect(url, {
+        transports: [
+          {
+            name: 'sse',
+            open(options) {
+              const transport = new FakeSse(options).transport();
+              options.events.open();
+              options.events.message(
+                JSON.stringify([
+                  '__connected__',
+                  {
+                    pingIntervalMs: null,
+                    idleTimeoutMs: null,
+                    maxResumeTokens: 8,
+                    connectionId: 'c_sync',
+                    features: [],
+                    resume: null,
+                    secret: 's',
+                    maxPostBytes: 1024,
+                  },
+                  null,
+                ]),
+              );
+              return transport;
+            },
+          },
+        ],
+      }),
+    );
+    const errors: unknown[] = [];
+    socket.onError((error) => errors.push(error));
+
+    socket.connect();
+    await opened(() => FakeSse.opened.length, 1);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(errors).toEqual([]);
+    expect(socket.state.get()).toBe('open');
+  });
+});
+
 interface HuddleContract {
   incoming: { 'message-created': { text: string } };
   outgoing: {};

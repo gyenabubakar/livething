@@ -163,7 +163,11 @@ class SseRawClient extends EventEmitter {
     let response: Response;
     try {
       response = await fetch(this.url, {
-        headers: { ...options.headers, Accept: 'text/event-stream' },
+        headers: {
+          ...options.headers,
+          Accept: 'text/event-stream',
+          'LiveThing-Protocol': 'livething-v1',
+        },
         signal: this.stream.signal,
       });
     } catch (error) {

@@ -14,10 +14,12 @@ export type {
 } from './transports.ts';
 export {
   ERROR_HEADER,
+  PROTOCOL_HEADER,
   SSE_HEADERS,
   corsHeaders,
   createSseHub,
   errorAnswer,
+  isStreamRequest,
   preflightAnswer,
   sseCloseEvent,
 } from './sse.ts';

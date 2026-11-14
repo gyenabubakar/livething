@@ -271,10 +271,32 @@ describe('the transports option on Node', () => {
   it('answers a stream request with 426 when sse() is not listed', async () => {
     const url = await start({ transports: [websocket()] });
 
-    const response = await fetch(url, { headers: { Accept: 'text/event-stream' } });
+    const response = await fetch(url, {
+      headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+    });
 
     expect(response.status).toBe(426);
     expect(response.headers.get('LiveThing-Error')).toBe('not-offered');
+  });
+
+  // A cross-site `fetch(url, { mode: 'no-cors' })` sends no Origin, so the header that
+  // forces a preflight is what keeps another site from opening a stream with the cookies.
+  it('answers a stream request without LiveThing-Protocol with 426, before authenticate', async () => {
+    const authenticate = vi.fn(() => ({ userId: 'kofi' }));
+    const watched = server({ authenticate, capabilities: [keepalive()] }).assemble({
+      handlers: [],
+    });
+    const url = await start({ transports: [sse()] }, {}, watched);
+
+    const missing = await fetch(url, { headers: { accept: 'text/event-stream' } });
+    const wrong = await fetch(url, {
+      headers: { accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v0' },
+    });
+
+    expect(missing.status).toBe(426);
+    expect(missing.headers.get('LiveThing-Error')).toBe('not-offered');
+    expect(wrong.status).toBe(426);
+    expect(authenticate).not.toHaveBeenCalled();
   });
 
   it('refuses sse() at bind() when the definition has no keepalive()', () => {
@@ -329,6 +351,7 @@ describe('CORS on Node', () => {
     expect(response.status).toBe(204);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.huddle.test');
     expect(response.headers.get('Access-Control-Allow-Headers')).toContain('LiveThing-Secret');
+    expect(response.headers.get('Access-Control-Allow-Headers')).toContain('LiveThing-Protocol');
     expect(response.headers.get('Access-Control-Max-Age')).toBe('600');
   });
 
@@ -336,7 +359,11 @@ describe('CORS on Node', () => {
     const url = await start(options);
 
     const response = await fetch(url, {
-      headers: { Origin: 'https://evil.test', Accept: 'text/event-stream' },
+      headers: {
+        Origin: 'https://evil.test',
+        Accept: 'text/event-stream',
+        'LiveThing-Protocol': 'livething-v1',
+      },
     });
 
     expect(response.status).toBe(403);
@@ -349,7 +376,11 @@ describe('CORS on Node', () => {
     const abort = new AbortController();
 
     const response = await fetch(url, {
-      headers: { Origin: 'https://app.huddle.test', Accept: 'text/event-stream' },
+      headers: {
+        Origin: 'https://app.huddle.test',
+        Accept: 'text/event-stream',
+        'LiveThing-Protocol': 'livething-v1',
+      },
       signal: abort.signal,
     });
 
@@ -365,7 +396,7 @@ describe('CORS on Node', () => {
 async function rawStream(url: string) {
   const abort = new AbortController();
   const response = await fetch(url, {
-    headers: { Accept: 'text/event-stream' },
+    headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
     signal: abort.signal,
   });
   const events: string[] = [];
@@ -443,7 +474,7 @@ describe('a client that stops reading its stream', () => {
     });
     const abort = new AbortController();
     const response = await fetch(url, {
-      headers: { Accept: 'text/event-stream' },
+      headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
       signal: abort.signal,
     });
     // Read only the `__connected__` frame, then stop reading.
@@ -595,7 +626,11 @@ describe('HTTP/2 on Node', () => {
     };
 
     const events: string[] = [];
-    const stream = session.request({ ':path': '/huddle', accept: 'text/event-stream' });
+    const stream = session.request({
+      ':path': '/huddle',
+      accept: 'text/event-stream',
+      'livething-protocol': 'livething-v1',
+    });
     stream.setEncoding('utf8');
     stream.on('data', (chunk: string) => events.push(...chunk.split('\n\n').filter(Boolean)));
     await vi.waitFor(() => expect(events[0]).toContain('__connected__'));

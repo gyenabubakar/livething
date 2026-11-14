@@ -18,6 +18,7 @@ export class WebResponseWriter implements NodeHttpResponse {
   private finished = false;
   private closed = false;
   private readonly closeListeners = new Set<() => void>();
+  private readonly drainListeners = new Set<() => void>();
 
   /** `signal` aborts when the client leaves before the answer is sent. */
   constructor(signal: AbortSignal) {
@@ -29,6 +30,8 @@ export class WebResponseWriter implements NodeHttpResponse {
         start: (controller) => {
           this.controller = controller;
         },
+        // The framework asks for more only once it has read everything queued.
+        pull: () => this.emitDrain(),
         cancel: () => this.clientLeft(),
       },
       { highWaterMark: 0, size: (chunk) => chunk?.byteLength ?? 0 },
@@ -58,12 +61,13 @@ export class WebResponseWriter implements NodeHttpResponse {
     return this;
   }
 
+  /** Like Node's `write`: `false` while the framework has not read everything queued yet. */
   write(chunk: string | Uint8Array): boolean {
     if (!this.finished) {
       this.controller.enqueue(typeof chunk === 'string' ? encoder.encode(chunk) : chunk);
     }
 
-    return true;
+    return this.finished || this.writableLength === 0;
   }
 
   end(chunk?: string): this {
@@ -91,14 +95,20 @@ export class WebResponseWriter implements NodeHttpResponse {
     return this;
   }
 
-  once(_event: 'close', listener: () => void): this {
-    this.closeListeners.add(listener);
+  once(event: 'close' | 'drain', listener: () => void): this {
+    (event === 'drain' ? this.drainListeners : this.closeListeners).add(listener);
     return this;
   }
 
-  off(_event: 'close', listener: () => void): this {
-    this.closeListeners.delete(listener);
+  off(event: 'close' | 'drain', listener: () => void): this {
+    (event === 'drain' ? this.drainListeners : this.closeListeners).delete(listener);
     return this;
+  }
+
+  private emitDrain(): void {
+    const listeners = [...this.drainListeners];
+    this.drainListeners.clear();
+    for (const listener of listeners) listener();
   }
 
   /** Answers 500 when the handler failed before it sent an answer. */

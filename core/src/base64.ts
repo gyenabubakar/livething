@@ -1,38 +1,78 @@
-const STANDARD = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const URL_SAFE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-const VALUES = new Map([
-  ...[...STANDARD].map((char, index) => [char, index] as const),
-  ['-', 62],
-  ['_', 63],
-]);
+const STANDARD = codes('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/');
+const URL_SAFE = codes('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_');
+const PAD = 61;
+
+/** The 6-bit value of each ASCII code, or -1. Both alphabets decode. */
+const VALUES = new Int8Array(128).fill(-1);
+STANDARD.forEach((code, value) => (VALUES[code] = value));
+VALUES[45] = 62;
+VALUES[95] = 63;
+
+/** Character codes per `String.fromCharCode` call, well under any engine's argument limit. */
+const CHARS_PER_CALL = 0x8000;
+
+function codes(alphabet: string): Uint8Array {
+  return Uint8Array.from(alphabet, (char) => char.charCodeAt(0));
+}
+
+/** The ASCII text of character codes. `TextDecoder` is not on every platform the client runs on. */
+function asciiText(chars: Uint8Array): string {
+  const parts: string[] = [];
+  for (let i = 0; i < chars.length; i += CHARS_PER_CALL) {
+    parts.push(String.fromCharCode.apply(null, chars.subarray(i, i + CHARS_PER_CALL) as never));
+  }
+
+  return parts.join('');
+}
 
 // `Uint8Array.prototype.toBase64` is too new for Node 22 and 24, so LiveThing encodes by hand.
+// It writes the character codes into bytes and turns them into text in large pieces: building
+// the string one character at a time takes seconds for a 32 MiB message.
 /** Encodes bytes as base64 with padding, or as base64url with no padding when `url` is true. */
 export function encodeBase64(bytes: Uint8Array, url = false): string {
   const alphabet = url ? URL_SAFE : STANDARD;
-  let out = '';
-  for (let i = 0; i < bytes.length; i += 3) {
-    const chunk = (bytes[i]! << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
-    const chars = Math.min(4, Math.ceil(((bytes.length - i) * 8) / 6));
-    for (let c = 0; c < chars; c++) out += alphabet[(chunk >> (18 - c * 6)) & 63];
-    if (!url) out += '='.repeat(4 - chars);
+  const tail = bytes.length % 3;
+  const whole = bytes.length - tail;
+  // base64url drops the padding, so its tail is one character more than its bytes.
+  const paddedTail = url ? tail + 1 : 4;
+
+  const out = new Uint8Array((whole / 3) * 4 + (tail === 0 ? 0 : paddedTail));
+  let o = 0;
+  for (let i = 0; i < whole; i += 3) {
+    const n = (bytes[i]! << 16) | (bytes[i + 1]! << 8) | bytes[i + 2]!;
+    out[o++] = alphabet[n >> 18]!;
+    out[o++] = alphabet[(n >> 12) & 63]!;
+    out[o++] = alphabet[(n >> 6) & 63]!;
+    out[o++] = alphabet[n & 63]!;
   }
 
-  return out;
+  if (tail > 0) {
+    const n = (bytes[whole]! << 16) | (tail === 2 ? bytes[whole + 1]! << 8 : 0);
+    out[o++] = alphabet[n >> 18]!;
+    out[o++] = alphabet[(n >> 12) & 63]!;
+    if (tail === 2) out[o++] = alphabet[(n >> 6) & 63]!;
+    else if (!url) out[o++] = PAD;
+    if (!url) out[o++] = PAD;
+  }
+
+  return asciiText(out);
 }
 
 /** Decodes base64 or base64url, with or without padding, or returns `null` when it is not valid. */
 export function decodeBase64(encoded: string): Uint8Array<ArrayBuffer> | null {
-  const text = encoded.replace(/={1,2}$/, '');
-  if (text.length % 4 === 1) return null;
+  let length = encoded.length;
+  if (encoded.charCodeAt(length - 1) === PAD) length--;
+  if (encoded.charCodeAt(length - 1) === PAD) length--;
+  if (length % 4 === 1) return null;
 
-  const bytes = new Uint8Array(Math.floor((text.length * 6) / 8));
+  const bytes = new Uint8Array(Math.floor((length * 6) / 8));
   let buffer = 0;
   let bits = 0;
   let index = 0;
-  for (const char of text) {
-    const value = VALUES.get(char);
-    if (value === undefined) return null;
+  for (let i = 0; i < length; i++) {
+    const code = encoded.charCodeAt(i);
+    const value = code < 128 ? VALUES[code]! : -1;
+    if (value < 0) return null;
 
     buffer = ((buffer << 6) | value) & 0xffffff;
     bits += 6;

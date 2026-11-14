@@ -45,9 +45,12 @@ export interface SocketConnection {
 
   /** The subprotocol the server picked, or `null`. */
   readonly protocol: string | null;
-  /** The native WebSocket, or `null` when not connected. */
+  /** The native WebSocket, or `null` when not connected or on another transport. */
   readonly ws: WebSocket | null;
-  /** The transport in use, as a reactive store: `'websocket'`, or `null` when not connected. */
+  /**
+   * The transport in use, as a reactive store: `'websocket'`, `'sse'` or a custom transport's
+   * name, or `null` when not connected.
+   */
   readonly transport: ReadableStore<TransportName | null>;
 }
 

@@ -100,6 +100,27 @@ describe('the token subprotocol', () => {
     expect(seen).toBeUndefined();
   });
 
+  // `Headers` holds Latin-1 text with no line breaks or NUL, so such a token can't be a header.
+  it.each(['€uro', '🙂', 'a\nb', 'a\rb', 'a\0b'])(
+    'rejects a token %j that cannot be an Authorization header with 400',
+    async (token) => {
+      const decision = await engine.authenticate(
+        handshake(`livething-v1, livething-v1.token.${encodeBase64Url(token)}`),
+      );
+
+      expect(decision).toEqual({ reject: true, code: 400, reason: 'Invalid token subprotocol' });
+      expect(seen).toBeUndefined();
+    },
+  );
+
+  it('keeps a Latin-1 token', async () => {
+    await engine.authenticate(
+      handshake(`livething-v1, livething-v1.token.${encodeBase64Url('café')}`),
+    );
+
+    expect(seen?.authorization).toBe('Bearer café');
+  });
+
   it('leaves a request with no token entry unchanged', async () => {
     await engine.authenticate(handshake('huddle.v2'));
 

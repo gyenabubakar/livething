@@ -121,7 +121,7 @@ export class LiveThingSocket {
     this._reportError(error),
   );
 
-  /** The transport in use, as a reactive store: `'websocket'`, or `null` when not connected. */
+  /** The transport in use, as a reactive store: its name, or `null` when not connected. */
   readonly transport: ReadableStore<TransportName | null> = this._transportStore.store;
 
   /** The subprotocol the server picked, or `null`. */
@@ -662,6 +662,16 @@ export class LiveThingSocket {
     // Events from a transport that is no longer the current one, such as a late
     // frame after a timeout or a close, are ignored.
     const isCurrent = () => this._transport === transport;
+    // A transport may fire events before `open` returns, when `transport` is not set yet.
+    // They wait until it is, then run in order.
+    let early: (() => void)[] | null = [];
+    function afterOpen<Args extends unknown[]>(handle: (...args: Args) => void) {
+      return (...args: Args): void => {
+        if (early) early.push(() => handle(...args));
+        else handle(...args);
+      };
+    }
+
     const transport: Transport = factory.open({
       url: target.url,
       protocols: tokenSubprotocols(target.token, this._config.protocols),
@@ -669,10 +679,10 @@ export class LiveThingSocket {
       binary: this._binary !== null,
       warn: (message) => this._logger.warn(message),
       events: {
-        open: () => {
+        open: afterOpen(() => {
           if (isCurrent()) this._log('waiting for __connected__');
-        },
-        close: (code, reason, wasClean) => {
+        }),
+        close: afterOpen((code: number, reason: string, wasClean: boolean) => {
           if (!isCurrent()) return;
 
           const close = { code, reason, wasClean };
@@ -683,8 +693,8 @@ export class LiveThingSocket {
           if (error !== undefined) this._reportError(error);
 
           this._handleTransportClose(attemptId, close);
-        },
-        error: (event) => {
+        }),
+        error: afterOpen((event: unknown) => {
           if (!isCurrent()) return;
 
           this._log(`${transport.name} error`);
@@ -692,23 +702,27 @@ export class LiveThingSocket {
           // is not the app's problem, so its error is only reported if it does not.
           if (this._state === 'connecting') heldError = event;
           else this._reportError(event);
-        },
-        message: (data) => {
+        }),
+        message: afterOpen((data: string | ArrayBuffer) => {
           if (isCurrent()) this._handleMessage(data);
-        },
-        stable: () => {
+        }),
+        stable: afterOpen(() => {
           if (isCurrent() && this._state === 'open') this._handleStable();
-        },
-        unusable: () => {
+        }),
+        unusable: afterOpen(() => {
           if (!isCurrent()) return;
 
           this._log(`${transport.name} cannot carry data here; skipping it for 5 minutes`);
           this._failedUntil.set(transport.name, Date.now() + FAILED_TRANSPORT_MS);
-        },
+        }),
       },
     });
     this._transport = transport;
     this._startConnectTimer(attemptId);
+
+    const waiting = early;
+    early = null;
+    for (const run of waiting) run();
   }
 
   /** Whether a failure now would move on to another transport instead of closing. */
@@ -1204,23 +1218,21 @@ export class LiveThingSocket {
    * where it went so a Promise-bearing protocol op can queue or fail fast.
    *
    * When an `owner` is given (a Promise-bearing op flushing a held frame), a
-   * serialization throw rejects that owner and is reported, instead of escaping
-   * to the caller — so a flush of one bad frame can't strand the owner or the
-   * frames queued behind it.
+   * serialization or send throw (a message over the POST limit of server-sent
+   * events) rejects that owner and is reported, instead of escaping to the
+   * caller — so a flush of one bad frame can't strand the owner or the frames
+   * queued behind it.
    */
   _rawSend(message: Message, owner?: FrameOwner): SendResult {
     if (this._state === 'open' && this._transport) {
       if (owner) {
-        let serialized: string | Uint8Array<ArrayBuffer>;
         try {
-          serialized = this._encode(message);
+          this._transport.send(this._encode(message));
         } catch (error) {
           owner.reject(error);
           this._reportError(error);
-          return 'sent';
         }
 
-        this._transport.send(serialized);
         return 'sent';
       }
 

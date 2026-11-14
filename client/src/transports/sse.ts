@@ -1,4 +1,4 @@
-import { CloseCodes, decodeBase64 } from '@livething/core';
+import { CloseCodes, decodeBase64, LIVETHING_SUBPROTOCOL } from '@livething/core';
 import { withScheme } from './transport.ts';
 import type { Transport, TransportFactory, TransportOpenOptions } from './transport.ts';
 
@@ -20,12 +20,19 @@ const ABNORMAL_CLOSE = 1006;
 /** Statuses that mean the server does not offer this transport, so they are not final. */
 const NOT_OFFERED = new Set([404, 405, 426]);
 
-const encoder = new TextEncoder();
+// Created on first use: a platform without TextEncoder must still load the client.
+let encoder: TextEncoder | undefined;
 let warnedHttp1 = false;
 
+function utf8(text: string): Uint8Array<ArrayBuffer> {
+  encoder ??= new TextEncoder();
+  return encoder.encode(text);
+}
+
 /**
- * Server-sent events from the server, and POST requests from the client. A fallback for
- * networks that block WebSocket. It needs a `fetch` that streams the response body.
+ * Server-sent events from the server, and POST requests from the client. A full transport:
+ * use it alone, or list it after `websocket()` to fail over when a network blocks WebSocket.
+ * It needs a `fetch` that streams the response body.
  */
 export function sse(): TransportFactory {
   return { name: 'sse', open: openSse };
@@ -98,6 +105,7 @@ function openSse(options: TransportOpenOptions): Transport {
       response = await fetch(url, {
         headers: {
           Accept: 'text/event-stream',
+          'LiveThing-Protocol': LIVETHING_SUBPROTOCOL,
           ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
         },
         cache: 'no-store',
@@ -127,11 +135,14 @@ function openSse(options: TransportOpenOptions): Transport {
         const { done, value } = await reader.read();
         if (done) break;
 
+        // Only the new text can hold a new blank line, plus the last character of the old.
+        let from = Math.max(0, buffer.length - 1);
         buffer += decoder.decode(value, { stream: true });
         let end: number;
-        while ((end = buffer.indexOf('\n\n')) !== -1) {
+        while ((end = buffer.indexOf('\n\n', from)) !== -1) {
           const block = buffer.slice(0, end);
           buffer = buffer.slice(end + 2);
+          from = 0;
           handleEvent(block);
           if (state === 'closed') return;
         }
@@ -351,7 +362,7 @@ function openSse(options: TransportOpenOptions): Transport {
   }
 
   async function sendControlBatch(frames: string[]): Promise<void> {
-    const batch = frames.map((frame) => ({ binary: false, bytes: encoder.encode(frame) }));
+    const batch = frames.map((frame) => ({ binary: false, bytes: utf8(frame) }));
     let response: Response;
     try {
       response = await post('control', encodeBatch(batch));
@@ -390,9 +401,7 @@ function openSse(options: TransportOpenOptions): Transport {
     await settleWithin(controlInFlight);
     const frame = JSON.stringify(['__close__', { code, reason }, null]);
 
-    await settleWithin(
-      post('control', encodeBatch([{ binary: false, bytes: encoder.encode(frame) }])),
-    );
+    await settleWithin(post('control', encodeBatch([{ binary: false, bytes: utf8(frame) }])));
 
     finish(code, reason, true);
   }
@@ -408,7 +417,7 @@ function openSse(options: TransportOpenOptions): Transport {
     send(data) {
       if (state !== 'open') return;
 
-      const bytes = typeof data === 'string' ? encoder.encode(data) : data;
+      const bytes = typeof data === 'string' ? utf8(data) : data;
       if (bytes.byteLength + FRAME_HEADER_BYTES > maxPostBytes) {
         throw new RangeError(
           `[livething] the message is ${bytes.byteLength} bytes, over the server's POST limit of ${maxPostBytes - FRAME_HEADER_BYTES} bytes on server-sent events. Send large data with uploads().`,

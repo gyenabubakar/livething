@@ -18,15 +18,15 @@ const { data: page } = await useAsyncData('livething-docs-home', () => {
 useSeo({
   title:
     page.value?.title
-    || 'LiveThing — The complete WebSocket stack for TypeScript',
+    || 'LiveThing — WebSocket-first realtime for TypeScript',
   description:
     page.value?.description
-    || 'A typed, batteries-included WebSocket framework for TypeScript. One inferred contract types your client and server: channels, streams, requests, reconnection.',
+    || 'A typed, WebSocket-first realtime framework for TypeScript. One inferred contract types your client and server: channels, streams, requests, reconnection.',
   type: 'website',
 })
 
 defineOgImage('Home', {
-  title: 'The complete WebSocket stack for TypeScript',
+  title: 'WebSocket-first realtime for TypeScript',
 })
 </script>
 

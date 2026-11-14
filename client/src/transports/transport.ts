@@ -64,7 +64,11 @@ export interface Transport {
  */
 export interface TransportFactory {
   readonly name: TransportName;
-  /** Starts a connection. The socket calls it once for each try. */
+  /**
+   * Starts a connection. The socket calls it once for each try. The transport may fire
+   * events before `open` returns; the socket holds them and handles them in order once
+   * it has the returned transport.
+   */
   open(options: TransportOpenOptions): Transport;
 }
 

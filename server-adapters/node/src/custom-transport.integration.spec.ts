@@ -156,7 +156,9 @@ describe('a custom transport built on the public API', () => {
     const withSse = await start({ transports: [audit, sse()] });
     const withoutSse = await start({ transports: [audit, websocket()] });
 
-    const stream = await fetch(withSse.url, { headers: { Accept: 'text/event-stream' } });
+    const stream = await fetch(withSse.url, {
+      headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+    });
     const plain = await fetch(withoutSse.url);
 
     expect(stream.status).toBe(200);

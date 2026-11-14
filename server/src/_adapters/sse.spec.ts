@@ -228,6 +228,31 @@ describe('createSseHub: the control lane', () => {
     expect(hub.beginPost(secret, 'data')).toMatchObject({ status: 404 });
   });
 
+  // The same rule a WebSocket server applies to a client's close frame.
+  it.each([1006, 1001, 999, 0, -1, 5000, 99_999])(
+    "refuses a client's __close__ with code %i with 400 and closes with 1002",
+    (code) => {
+      const hub = createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 });
+      const { handle, written, secret } = open(hub);
+      const close = JSON.stringify(['__close__', { code, reason: 'leaving' }, null]);
+
+      expect(postNow(hub.beginPost(secret, 'control'), batch(close)).status).toBe(400);
+      expect(handle.handleClose).not.toHaveBeenCalledWith(code, 'leaving');
+      expect(written.at(-1)).toContain('"code":1002');
+    },
+  );
+
+  it("cuts a client's close reason to 123 bytes", async () => {
+    const hub = createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 });
+    const { handle, secret } = open(hub);
+    const close = JSON.stringify(['__close__', { code: 1000, reason: 'x'.repeat(500) }, null]);
+
+    expect(postNow(hub.beginPost(secret, 'control'), batch(close)).status).toBe(204);
+    await flush();
+
+    expect(handle.handleClose).toHaveBeenCalledWith(1000, 'x'.repeat(123));
+  });
+
   it('refuses an app frame with 400 and closes with 1002', () => {
     const hub = createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 });
     const { handle, written, secret } = open(hub);

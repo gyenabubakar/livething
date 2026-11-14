@@ -2,7 +2,9 @@ const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443' }
 
 /**
  * Builds the check that adapters run before `authenticate`. A request with no `Origin`
- * header passes, because only browsers send it. Otherwise the Origin's host and port
+ * header passes, because it comes from a client that is not a browser: a browser sends
+ * `Origin` on a WebSocket handshake, and on an SSE stream request too, because the stream's
+ * `LiveThing-Protocol` header makes a cross-origin page send a preflight. Otherwise the Origin's host and port
  * must match the request's `Host` header, or the Origin must be in `allowedOrigins`.
  * The scheme is not compared, because behind a TLS proxy it cannot be trusted, and
  * `X-Forwarded-Host` is ignored, because any client can send it. A request with no

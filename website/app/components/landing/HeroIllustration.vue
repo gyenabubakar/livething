@@ -22,7 +22,6 @@ const ICON = 40
 interface TileLogo { src: string, class?: string }
 const runtimes: TileLogo[] = [
   { src: '/logos/nodejs.svg' },
-  { src: '/logos/deno.svg', class: 'logo-white' },
   { src: '/logos/bun.svg' },
   { src: '/logos/cloudflare.svg' },
 ]

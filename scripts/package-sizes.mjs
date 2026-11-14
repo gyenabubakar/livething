@@ -8,6 +8,7 @@
 // valibot, and leaves out the runtime's own modules, `ws`, `better-sqlite3` and web
 // frameworks, which the app installs itself. All sizes are in bytes.
 
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -85,7 +86,13 @@ const SERVER_EXTERNAL = [
 async function entry(packageDir, subpath = '.') {
   const manifest = JSON.parse(await readFile(join(repo, packageDir, 'package.json'), 'utf8'));
   const target = manifest.exports[subpath];
-  return join(repo, packageDir, typeof target === 'string' ? target : target.import);
+  const file = join(repo, packageDir, typeof target === 'string' ? target : target.import);
+  if (!existsSync(file)) {
+    console.error(`${file} does not exist. Run \`pnpm build\` first, then run this script again.`);
+    process.exit(1);
+  }
+
+  return file;
 }
 
 async function bundleSize(source, options) {

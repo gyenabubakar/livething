@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { decodeBase64, encodeBase64 } from './base64.ts';
 
 const samples = [0, 1, 2, 3, 4, 5, 255, 256, 1000].map((length) =>
@@ -30,5 +30,32 @@ describe('decodeBase64', () => {
   it('returns null for text that is not base64', () => {
     expect(decodeBase64('a')).toBeNull();
     expect(decodeBase64('ab!d')).toBeNull();
+    expect(decodeBase64('abé=')).toBeNull();
+    expect(decodeBase64('ab=d')).toBeNull();
+  });
+
+  it('decodes an empty string to no bytes', () => {
+    expect(decodeBase64('')).toEqual(new Uint8Array(0));
+  });
+
+  // React Native 0.87 and older have no TextDecoder, and the token subprotocol encodes on every connect.
+  it('loads and encodes on a platform with no TextDecoder', async () => {
+    vi.stubGlobal('TextDecoder', undefined);
+    vi.resetModules();
+    try {
+      const fresh = await import('./base64.ts');
+      const bytes = Uint8Array.from({ length: 70_000 }, (_, i) => i & 0xff);
+
+      expect(fresh.encodeBase64(bytes)).toBe(Buffer.from(bytes).toString('base64'));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('round-trips a large message with every byte value', () => {
+    const bytes = Uint8Array.from({ length: 300_001 }, (_, i) => (i * 131) & 0xff);
+
+    expect(encodeBase64(bytes)).toBe(Buffer.from(bytes).toString('base64'));
+    expect(decodeBase64(encodeBase64(bytes, true))).toEqual(bytes);
   });
 });
