@@ -12,6 +12,28 @@ describe('createOriginCheck', () => {
     expect(sameOrigin(request('https://huddle.test/huddle', { host: 'huddle.test' }))).toBe(true);
   });
 
+  it.each(['cross-site', 'same-site'])(
+    'refuses a request with no Origin whose Sec-Fetch-Site is %s',
+    (site) => {
+      expect(
+        sameOrigin(
+          request('https://huddle.test/huddle', { host: 'huddle.test', 'sec-fetch-site': site }),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it.each(['same-origin', 'none'])(
+    'allows a request with no Origin whose Sec-Fetch-Site is %s',
+    (site) => {
+      expect(
+        sameOrigin(
+          request('https://huddle.test/huddle', { host: 'huddle.test', 'sec-fetch-site': site }),
+        ),
+      ).toBe(true);
+    },
+  );
+
   it('allows an Origin whose host and port match Host', () => {
     expect(
       sameOrigin(

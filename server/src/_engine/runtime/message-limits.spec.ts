@@ -122,6 +122,32 @@ describe('the receive limit', () => {
 
     expect(closes.map((close) => close.code)).toEqual([CloseCodes.MESSAGE_TOO_BIG]);
   });
+
+  it.each([null, undefined, 42])(
+    'closes with 1003 instead of rejecting when a custom transport passes %s',
+    async (frame) => {
+      const posts: string[] = [];
+      const { engine } = build(postServer(posts));
+      const { handle, closes } = await connect(engine);
+
+      await expect(handle.handleMessage(frame as never)).resolves.toBeUndefined();
+
+      expect(closes.map((close) => close.code)).toEqual([CloseCodes.UNSUPPORTED_DATA]);
+      expect(posts).toEqual([]);
+    },
+  );
+
+  it.each([null, 'bytes'])(
+    'closes with 1003 instead of rejecting when a custom transport passes %s as bytes',
+    async (frame) => {
+      const { engine } = build(postServer([]));
+      const { handle, closes } = await connect(engine);
+
+      await expect(handle.handleBinaryMessage(frame as never)).resolves.toBeUndefined();
+
+      expect(closes.map((close) => close.code)).toEqual([CloseCodes.UNSUPPORTED_DATA]);
+    },
+  );
 });
 
 describe('a binary message', () => {

@@ -356,6 +356,12 @@ function createHandle(
     handleMessage: async (data) => {
       if (connection.closing) return;
 
+      // Built-in transports always pass a string, but a custom transport may pass anything.
+      if (typeof data !== 'string') {
+        closeFor(CloseCodes.UNSUPPORTED_DATA, 'Message is not text');
+        return;
+      }
+
       // The platform should refuse a bigger message first; this makes the limit hold anyway.
       if (receiveBytes !== undefined && textOverLimit(data, receiveBytes)) {
         closeFor(CloseCodes.MESSAGE_TOO_BIG, 'Message is too big');
@@ -373,6 +379,12 @@ function createHandle(
     },
     handleBinaryMessage: async (data) => {
       if (connection.closing) return;
+
+      // `isView` and not `instanceof`, which fails for bytes made in another realm.
+      if (!ArrayBuffer.isView(data)) {
+        closeFor(CloseCodes.UNSUPPORTED_DATA, 'Message is not bytes');
+        return;
+      }
 
       if (receiveBytes !== undefined && data.byteLength > receiveBytes) {
         closeFor(CloseCodes.MESSAGE_TOO_BIG, 'Message is too big');

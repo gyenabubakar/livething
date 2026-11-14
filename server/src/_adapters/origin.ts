@@ -1,11 +1,15 @@
 const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443' };
+const OTHER_SITE = new Set(['cross-site', 'same-site']);
 
 /**
  * Builds the check that adapters run before `authenticate`. A request with no `Origin`
  * header passes, because it comes from a client that is not a browser: a browser sends
  * `Origin` on a WebSocket handshake, and on an SSE stream request too, because the stream's
- * `LiveThing-Protocol` header makes a cross-origin page send a preflight. Otherwise the Origin's host and port
- * must match the request's `Host` header, or the Origin must be in `allowedOrigins`.
+ * `LiveThing-Protocol` header makes a cross-origin page send a preflight. A browser leaves
+ * `Origin` out of a plain cross-site GET (an `<img>`, a `no-cors` fetch), but marks it with
+ * `Sec-Fetch-Site`, so a request with no `Origin` from another site is refused. Otherwise the
+ * Origin's host and port must match the request's `Host` header, or the Origin must be in
+ * `allowedOrigins`.
  * The scheme is not compared, because behind a TLS proxy it cannot be trusted, and
  * `X-Forwarded-Host` is ignored, because any client can send it. A request with no
  * `Host` header (a Cloudflare Worker that built a new request) uses its URL's host.
@@ -17,7 +21,7 @@ export function createOriginCheck(
 
   return (request) => {
     const header = request.headers.get('origin');
-    if (header === null) return true;
+    if (header === null) return !OTHER_SITE.has(request.headers.get('sec-fetch-site') ?? '');
 
     const origin = parseUrl(header);
     if (!origin || origin.origin === 'null') return false;

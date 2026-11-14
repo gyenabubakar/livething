@@ -143,6 +143,81 @@ describe('a custom transport built on the public API', () => {
     expect(response.status).toBe(403);
   });
 
+  it('refuses to accept a rejected decision', async () => {
+    const errors: unknown[] = [];
+    const careless: ServerTransport = {
+      name: 'careless',
+      async handle(_request, endpoint) {
+        try {
+          endpoint.accept(
+            {
+              send: () => true,
+              close: () => {},
+              bufferedAmount: () => 0,
+              backpressureSupported: false,
+            },
+            { reject: true, code: 401, reason: 'no session' },
+          );
+        } catch (error) {
+          errors.push(error);
+        }
+
+        return new Response(null, { status: 204 });
+      },
+    };
+
+    const huddle = await start({ transports: [careless] });
+
+    await fetch(huddle.url);
+
+    expect(String(errors[0])).toMatch(/rejected decision/);
+  });
+
+  it.each([{ frames: [null] }, { frames: 'ping' }, { close: { code: 1006, reason: '' } }])(
+    'answers 400 to a long-polling POST of %j',
+    async (body) => {
+      const huddle = await start({ transports: [longPollingServer({ pollMs: 50 })] });
+      const first = (await (
+        await fetch(huddle.url, { headers: { 'LiveThing-Transport': 'long-polling' } })
+      ).json()) as { frames: string[] };
+      const { secret } = JSON.parse(first.frames[0]!)[1] as { secret: string };
+
+      const response = await fetch(huddle.url, {
+        method: 'POST',
+        headers: { 'LiveThing-Transport': 'long-polling', 'LiveThing-Secret': secret },
+        body: JSON.stringify(body),
+      });
+
+      expect(response.status).toBe(400);
+    },
+  );
+
+  it('answers 413 to a long-polling POST over 1 MiB', async () => {
+    const huddle = await start({ transports: [longPollingServer({ pollMs: 50 })] });
+    const first = (await (
+      await fetch(huddle.url, { headers: { 'LiveThing-Transport': 'long-polling' } })
+    ).json()) as { frames: string[] };
+    const { secret } = JSON.parse(first.frames[0]!)[1] as { secret: string };
+
+    const response = await fetch(huddle.url, {
+      method: 'POST',
+      headers: { 'LiveThing-Transport': 'long-polling', 'LiveThing-Secret': secret },
+      body: JSON.stringify({ frames: ['x'.repeat(1024 * 1024)] }),
+    });
+
+    expect(response.status).toBe(413);
+  });
+
+  it('refuses a cross-site request with no Origin before authenticate', async () => {
+    const huddle = await start({ transports: [longPollingServer()] });
+
+    const response = await fetch(huddle.url, {
+      headers: { 'LiveThing-Transport': 'long-polling', 'Sec-Fetch-Site': 'cross-site' },
+    });
+
+    expect(response.status).toBe(403);
+  });
+
   it('passes a request it returns null for on to server-sent events, then to a 426', async () => {
     const seen: string[] = [];
     const audit: ServerTransport = {

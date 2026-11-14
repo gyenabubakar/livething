@@ -266,6 +266,32 @@ describe('sse(): the stream', () => {
     );
   });
 
+  it('reports a fetch that cannot stream the body as an error', async () => {
+    server.nextStream = {
+      ok: true,
+      status: 200,
+      body: null,
+      headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+    } as Response;
+    const { closes, errors } = open();
+
+    await vi.waitFor(() => expect(closes).toHaveLength(1));
+    expect(closes[0]).toEqual({ code: 1006, reason: 'stream request has no body' });
+    expect(String(errors[0])).toMatch(/does not stream a response body/);
+  });
+
+  it.each(['TextEncoder', 'TextDecoder'])(
+    'reports a platform with no %s as an error',
+    async (name) => {
+      vi.stubGlobal(name, undefined);
+      const { errors } = open();
+
+      await vi.waitFor(() => expect(errors).toHaveLength(1));
+      expect(String(errors[0])).toMatch(/sse\(\) needs TextEncoder and TextDecoder/);
+      expect(server.streams).toHaveLength(0);
+    },
+  );
+
   it('reports a reject by close code before __connected__ with no open', async () => {
     const { socket, closes } = open();
     const states: string[] = [];
@@ -453,6 +479,62 @@ describe('sse(): closing', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(server.dataTexts()).toEqual([sendMessage('1')]);
+  });
+
+  function openTransport() {
+    const closes: [number, string, boolean][] = [];
+    const errors: unknown[] = [];
+    const transport = sse().open({
+      url: 'wss://huddle.test/huddle',
+      protocols: undefined,
+      token: null,
+      binary: false,
+      warn: () => {},
+      events: {
+        open: () => {},
+        message: () => {},
+        close: (code, reason, wasClean) => closes.push([code, reason, wasClean]),
+        error: (error) => errors.push(error),
+        stable: () => {},
+        unusable: () => {},
+      },
+    });
+
+    return { transport, closes, errors };
+  }
+
+  it('keeps its own close code when the server ends the stream before it answers __close__', async () => {
+    server.autoAnswer = false;
+    const { transport, closes } = openTransport();
+    await vi.waitFor(() => expect(server.streams).toHaveLength(1));
+    server.accept();
+    await vi.waitFor(() => expect(transport.isOpen()).toBe(true));
+
+    transport.close(4004, 'missed pong');
+    await vi.waitFor(() => expect(server.posts).toHaveLength(1));
+    server.stream.end();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    server.posts[0]!.answer(204);
+
+    await vi.waitFor(() => expect(closes).toEqual([[4004, 'missed pong', true]]));
+  });
+
+  it('sends no second control POST while a control POST is still open', async () => {
+    vi.useFakeTimers();
+    server.autoAnswer = false;
+    const { transport, closes } = openTransport();
+    await vi.waitFor(() => expect(server.streams).toHaveLength(1));
+    server.accept();
+
+    await vi.waitFor(() => expect(transport.isOpen()).toBe(true));
+    transport.sendControl('pong');
+    await vi.waitFor(() => expect(server.posts).toHaveLength(1));
+
+    transport.close(4100, 'tab closed');
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    expect(server.posts).toHaveLength(1);
+    expect(closes).toEqual([[4100, 'tab closed', true]]);
   });
 
   it('only aborts the stream when it closes before __connected__', async () => {

@@ -100,6 +100,8 @@ export interface NodeEndpointOptions extends Omit<NodeStorageOptions, 'logger'> 
 }
 
 const ORIGIN_REJECTION: AuthDecision = { reject: true, code: 403, reason: 'Origin not allowed' };
+const REJECTED_ACCEPT =
+  '[livething] endpoint.accept() got a rejected decision. Answer the request with the decision code instead.';
 
 /**
  * The in-process admin surface for one Node endpoint: the definition's
@@ -187,6 +189,8 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         authenticate: (request) => decideWebUpgrade(request, clientIps.get(request)),
         accept(connection, decision) {
           if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
+
+          if (decision.reject) throw new Error(REJECTED_ACCEPT);
 
           return createConnectionBridge({
             engine,

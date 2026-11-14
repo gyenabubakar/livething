@@ -34,7 +34,7 @@ export interface SocketConnection {
   onClose(callback: (event: CloseEvent) => void): () => void;
 
   /**
-   * Wait until the WebSocket's send buffer is below 256 KiB. Call it between large sends,
+   * Wait until the transport's send buffer is below 256 KiB. Call it between large sends,
    * so a loop does not queue more than the network can carry. It resolves at once when the
    * socket is not open, and stops waiting after about 50 seconds.
    */

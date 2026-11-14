@@ -15,9 +15,10 @@ export function isNodeSqliteDatabase(source: object): source is DatabaseSync {
 }
 
 /**
- * Gives a `DatabaseSync` the few better-sqlite3 methods the SQL and KV providers use, with
- * better-sqlite3's rules for values: `undefined` binds NULL, other objects than bytes are
- * refused, and a BLOB comes back as a `Buffer`.
+ * Gives a `DatabaseSync` the few better-sqlite3 methods the SQL and KV providers use. It keeps
+ * these better-sqlite3 rules for values: `undefined` binds NULL, other objects than bytes are
+ * refused, and a BLOB comes back as a `Buffer`. One rule differs: reading an INTEGER above
+ * 2^53 throws a `RangeError`, where better-sqlite3 rounds it.
  */
 export function wrapNodeSqlite(database: DatabaseSync): SqliteDatabase {
   const probe = database.prepare('SELECT 1');

@@ -11,6 +11,13 @@ function assertValidTransports(transports: readonly TransportFactory[]): void {
     );
   }
 
+  const uncalled = transports.find((transport) => typeof transport.open !== 'function');
+  if (uncalled) {
+    throw new LiveThingConfigError(
+      `connect() transports has ${uncalled.name} without its call. Write ${uncalled.name}(), not ${uncalled.name}.`,
+    );
+  }
+
   if (new Set(names).size !== names.length) {
     throw new LiveThingConfigError(
       `connect() transports lists the same transport twice: ${names.join(', ')}.`,

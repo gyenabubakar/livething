@@ -57,12 +57,18 @@ export function setup(): FastifySetup {
 
       async function serveHttp(request: FastifyRequest, reply: FastifyReply): Promise<void> {
         reply.hijack();
-        const served = await lifecycle.prepare(request.raw, async (signal) => {
-          // A shutdown ends a request a custom transport still holds, such as a poll.
-          signal.addEventListener('abort', () => reply.raw.destroy());
-          await endpoint.handleNode(request.raw, reply.raw);
-          return true;
-        });
+        const served = await lifecycle
+          .prepare(request.raw, async (signal) => {
+            // A shutdown ends a request a custom transport still holds, such as a poll.
+            signal.addEventListener('abort', () => reply.raw.destroy());
+            await endpoint.handleNode(request.raw, reply.raw);
+            return true;
+          })
+          // After hijack() Fastify only logs an error, so end the response here.
+          .catch((error: unknown) => {
+            reply.raw.destroy();
+            throw error;
+          });
         if (!served) reply.raw.destroy();
       }
 

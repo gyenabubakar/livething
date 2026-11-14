@@ -236,6 +236,46 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       });
     });
 
+    it('refuses to accept a rejected decision', async () => {
+      const errors: unknown[] = [];
+      const careless = longPolling(async (_request, endpoint) => {
+        try {
+          endpoint.accept(
+            {
+              send: () => true,
+              close: () => {},
+              bufferedAmount: () => 0,
+              backpressureSupported: false,
+            },
+            { reject: true, code: 401, reason: 'no session' },
+          );
+        } catch (error) {
+          errors.push(error);
+        }
+
+        return new Response(null, { status: 204 });
+      });
+      const Cls = buildClass({ hibernation: false, transports: [careless] });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      await instance.fetch(new Request('https://huddle.test/'));
+
+      expect(fake.calls.accept).toHaveLength(0);
+      expect(String(errors[0])).toMatch(/rejected decision/);
+    });
+
+    it('refuses a cross-site request with no Origin before authenticate', async () => {
+      const Cls = buildClass({ hibernation: false, transports: [longPolling()] });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      const res = await instance.fetch(
+        new Request('https://huddle.test/', { headers: { 'Sec-Fetch-Site': 'cross-site' } }),
+      );
+
+      expect(res.status).toBe(403);
+      expect(fake.calls.authenticate).toHaveLength(0);
+    });
+
     it('runs the origin check before authenticate', async () => {
       const Cls = buildClass({ hibernation: false, transports: [longPolling()] });
       const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});

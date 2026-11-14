@@ -44,6 +44,12 @@ interface QueuedFrame {
 }
 
 function openSse(options: TransportOpenOptions): Transport {
+  if (typeof TextEncoder === 'undefined' || typeof TextDecoder === 'undefined') {
+    throw new Error(
+      '[livething] sse() needs TextEncoder and TextDecoder, and this platform has no global for one of them.',
+    );
+  }
+
   const { events } = options;
   const url = withScheme(options.url, 'https', 'http');
   const stream = new AbortController();
@@ -117,6 +123,16 @@ function openSse(options: TransportOpenOptions): Transport {
     }
 
     const contentType = response.headers.get('Content-Type') ?? '';
+    if (response.ok && !response.body && contentType.startsWith('text/event-stream')) {
+      fail(
+        'stream request has no body',
+        new Error(
+          "[livething] this fetch does not stream a response body, and sse() needs one. On React Native, set Expo's expo/fetch as the global fetch.",
+        ),
+      );
+      return;
+    }
+
     if (!response.ok || !response.body || !contentType.startsWith('text/event-stream')) {
       await failForStatus(response);
       return;
@@ -149,11 +165,12 @@ function openSse(options: TransportOpenOptions): Transport {
       }
     } catch (error) {
       // An abort is our own close. Anything else, such as Node's body timeout, is a drop.
-      if (!stream.signal.aborted) fail('stream failed', error);
+      if (!stream.signal.aborted && state !== 'closing') fail('stream failed', error);
       return;
     }
 
-    fail('stream ended without a close');
+    // The server ends the stream when it reads our `__close__`, sometimes before it answers the POST.
+    if (state !== 'closing') fail('stream ended without a close');
   }
 
   /**
@@ -398,10 +415,12 @@ function openSse(options: TransportOpenOptions): Transport {
 
     await settleWithin(dataInFlight);
 
-    await settleWithin(controlInFlight);
-    const frame = JSON.stringify(['__close__', { code, reason }, null]);
+    // A second control POST while one is still open gets a 409, which closes with 1002.
+    if (await settleWithin(controlInFlight)) {
+      const frame = JSON.stringify(['__close__', { code, reason }, null]);
 
-    await settleWithin(post('control', encodeBatch([{ binary: false, bytes: utf8(frame) }])));
+      await settleWithin(post('control', encodeBatch([{ binary: false, bytes: utf8(frame) }])));
+    }
 
     finish(code, reason, true);
   }
@@ -473,20 +492,25 @@ function parsePayload(text: string): unknown {
   }
 }
 
-/** Wait for a promise, but at most one second, and never throw. */
-async function settleWithin(promise: Promise<unknown> | null): Promise<void> {
-  if (!promise) return;
+/** Waits up to `CLOSE_WAIT_MS` for the promise, and says whether it settled in that time. */
+async function settleWithin(promise: Promise<unknown> | null): Promise<boolean> {
+  if (!promise) return true;
 
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  await Promise.race([
-    promise.catch(() => {}),
-    new Promise((resolve) => {
-      timer = setTimeout(resolve, CLOSE_WAIT_MS);
+  const settled = await Promise.race([
+    promise.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), CLOSE_WAIT_MS);
     }),
   ]);
 
   clearTimeout(timer);
+
+  return settled;
 }
 
 /**

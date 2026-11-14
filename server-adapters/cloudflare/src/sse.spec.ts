@@ -147,6 +147,21 @@ describe('the stream request', () => {
     expect(authenticate).not.toHaveBeenCalled();
   });
 
+  it('rejects when attach throws, so the request gets no stream', async () => {
+    const handle = createCloudflareSseHandler({
+      hub: createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
+      originAllowed: () => true,
+      authenticate: async () => ({}),
+      attach() {
+        throw new Error('engine is shutting down');
+      },
+    });
+
+    await expect(
+      handle(new Request('https://huddle.test/', { headers: STREAM_HEADERS })),
+    ).rejects.toThrow('engine is shutting down');
+  });
+
   it('allows LiveThing-Protocol in a preflight', async () => {
     const response = await huddleHandler()(
       new Request('https://huddle.test/', {

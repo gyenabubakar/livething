@@ -1,6 +1,6 @@
 // A long-polling transport built only from the public API, to prove a custom transport works.
 // It carries text frames only, and like WebSocket it delivers at most once.
-import { hasCapability } from '@livething/server/adapters';
+import { hasCapability, normalizeCloseReason } from '@livething/server/adapters';
 import type { Transport, TransportFactory, TransportOpenOptions } from '@livething/client';
 import type {
   AuthDecision,
@@ -11,6 +11,19 @@ import type {
 
 const TRANSPORT_HEADER = 'LiveThing-Transport';
 const SECRET_HEADER = 'LiveThing-Secret';
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/** A client may close with 1000 or an app code, as a browser WebSocket allows. */
+function isClientClose(close: unknown): close is CloseInfo {
+  if (typeof close !== 'object' || close === null) return false;
+
+  const { code, reason } = close as Partial<CloseInfo>;
+  return (
+    Number.isInteger(code) &&
+    (code === 1000 || (code! >= 3000 && code! <= 4999)) &&
+    typeof reason === 'string'
+  );
+}
 
 interface CloseInfo {
   code: number;
@@ -114,10 +127,24 @@ export function longPollingServer(options: LongPollingOptions = {}): ServerTrans
   }
 
   async function receive(secret: string, session: Session, request: Request): Promise<Response> {
-    const message = (await request.json()) as ClientMessage;
-    for (const frame of message.frames ?? []) void session.handle?.handleMessage(frame);
+    if (Number(request.headers.get('content-length') ?? Infinity) > MAX_BODY_BYTES) {
+      return new Response(null, { status: 413 });
+    }
 
-    if (message.close) finish(secret, message.close);
+    const message = (await request.json().catch(() => null)) as ClientMessage | null;
+    const frames = message?.frames ?? [];
+    const close = message?.close;
+    if (
+      !Array.isArray(frames) ||
+      frames.some((frame) => typeof frame !== 'string') ||
+      (close !== undefined && !isClientClose(close))
+    ) {
+      return new Response(null, { status: 400 });
+    }
+
+    for (const frame of frames) void session.handle?.handleMessage(frame);
+
+    if (close) finish(secret, { code: close.code, reason: normalizeCloseReason(close.reason)! });
 
     return new Response(null, { status: 204 });
   }

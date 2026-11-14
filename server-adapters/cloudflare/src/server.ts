@@ -38,6 +38,8 @@ const ABNORMAL_CLOSURE = 1006;
 const CLOUDFLARE_MESSAGE_BYTES = 32 * 1024 * 1024;
 
 const ORIGIN_REJECTION: AuthDecision = { reject: true, code: 403, reason: 'Origin not allowed' };
+const REJECTED_ACCEPT =
+  '[livething] endpoint.accept() got a rejected decision. Answer the request with the decision code instead.';
 
 /**
  * The instance shape of a `bind()`-produced Durable Object.
@@ -200,15 +202,18 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
 
             return this.engine.authenticate(requestWithClientIp(incoming));
           },
-          accept: (connection, decision) =>
-            this.engine.accept(connection, {
+          accept: (connection, decision) => {
+            if (decision.reject) throw new Error(REJECTED_ACCEPT);
+
+            return this.engine.accept(connection, {
               ...connection,
               userId: decision.userId ?? '',
               meta: decision.meta ?? {},
               tags: decision.tags ?? [],
               // An open request keeps the object awake, so the engine runs its timers.
               survivesHibernation: false,
-            }),
+            });
+          },
         };
 
         try {
