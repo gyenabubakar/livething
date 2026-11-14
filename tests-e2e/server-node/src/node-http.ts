@@ -11,8 +11,9 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { FEATURE_DEFINITIONS } from './handlers.ts';
 
-const denoStorage =
-  'Deno' in globalThis ? (await import('./deno-storage.ts')).denoStorage : undefined;
+// Deno cannot load better-sqlite3, so there each fixture gets a node:sqlite database. Node
+// never imports node:sqlite here.
+const DatabaseSync = 'Deno' in globalThis ? (await import('node:sqlite')).DatabaseSync : undefined;
 
 type AnyAdminMethod = (...args: unknown[]) => unknown;
 type AnyAdmin = Record<string, AnyAdminMethod>;
@@ -50,11 +51,8 @@ function bindNodeFixture(
   options: NodeEndpointOptions,
 ): FixtureService {
   const livething = setup();
-  const storage = denoStorage?.(String(options.sql));
-  const endpoint = livething.bind(
-    definition,
-    storage ? { ...options, sql: storage.sql, kv: storage.kv } : options,
-  );
+  const database = DatabaseSync && new DatabaseSync(String(options.sql));
+  const endpoint = livething.bind(definition, database ? { ...options, sql: database } : options);
 
   return {
     endpoint,
@@ -62,7 +60,7 @@ function bindNodeFixture(
     admin: endpoint.admin,
     shutdown: async () => {
       await livething.shutdown();
-      storage?.close();
+      database?.close();
     },
   };
 }

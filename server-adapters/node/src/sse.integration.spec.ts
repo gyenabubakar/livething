@@ -146,6 +146,8 @@ function open(url: string, token?: string) {
 }
 
 describe('server-sent events on Node', () => {
+  // The 15 s limit is longer than the 10 s wait below: 600 messages can take over 5 s on a busy
+  // machine.
   it('connects, and carries messages both ways in order', async () => {
     const url = await start();
     const { socket } = open(url, 'kofi');
@@ -160,7 +162,7 @@ describe('server-sent events on Node', () => {
     await vi.waitFor(() => expect(received).toHaveLength(600), { timeout: 10_000 });
     expect(received).toEqual(Array.from({ length: 600 }, (_, i) => `kofi:${i}`));
     socket.disconnect();
-  });
+  }, 15_000);
 
   it('carries binary frames both ways', async () => {
     const url = await start();
@@ -517,6 +519,7 @@ describe('replay over server-sent events', () => {
 });
 
 describe('failover on Node', () => {
+  // The 15 s limit is longer than the 5 s wait for the fallback below.
   it('moves to server-sent events when a proxy accepts the upgrade and passes nothing', async () => {
     const url = await start({ transports: [websocket(), sse()] });
     // The proxy: it answers the handshake, then never forwards a frame.
@@ -556,7 +559,7 @@ describe('failover on Node', () => {
     socket.disconnect();
     // An upgraded socket has left the HTTP server, so its shutdown would wait for it.
     for (const proxied of stalled) proxied.destroy();
-  });
+  }, 15_000);
 });
 
 describe('shutdown on Node', () => {

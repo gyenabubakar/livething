@@ -4,23 +4,43 @@ import {
 } from '@livething/server/adapters';
 import Database from 'better-sqlite3';
 import type { SqlLimits, SQLProvider, SqlResult } from '@livething/server/adapters';
+import type { DatabaseSync } from 'node:sqlite';
+import { isNodeSqliteDatabase, wrapNodeSqlite } from './node-sqlite.ts';
 
-/** The limits reported to LiveThing by better-sqlite3. */
-const BETTER_SQLITE3_LIMITS: SqlLimits = {
+/** The default SQLite limits, which better-sqlite3 and node:sqlite both keep. */
+const SQLITE_LIMITS: SqlLimits = {
   maxBoundParams: 32_766,
   maxStatementBytes: 1_000_000_000,
   maxValueBytes: 1_000_000_000,
 };
 
-export type NodeSqlDatabase = Database.Database;
+type NodeSqlDatabase = Database.Database;
 
-/** A file path, existing database, or fully configured SQL provider. */
-export type NodeSqlSource = string | NodeSqlDatabase | SQLProvider;
+/** A file path, a better-sqlite3 or `node:sqlite` database, or a fully configured SQL provider. */
+export type NodeSqlSource = string | NodeSqlDatabase | DatabaseSync | SQLProvider;
+
+/** The part of a better-sqlite3 statement that the SQL and KV providers use. */
+export interface SqliteStatement {
+  readonly reader: boolean;
+  columns(): { name: string }[];
+  raw(): { all(...params: unknown[]): unknown[] };
+  run(...params: unknown[]): unknown;
+  get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+}
+
+/** The part of a better-sqlite3 database that the SQL and KV providers use. */
+export interface SqliteDatabase {
+  prepare(query: string): SqliteStatement;
+  exec(query: string): unknown;
+  transaction<T>(fn: () => T): () => T;
+  close(): void;
+}
 
 /** The SQL provider and ownership information used by the Node runtime. */
 export interface NodeSqlRuntime {
   provider: SQLProvider;
-  database?: NodeSqlDatabase;
+  database?: SqliteDatabase;
   close(): void;
 }
 
@@ -30,9 +50,9 @@ export function createSql(source: NodeSqlSource = ':memory:'): NodeSqlRuntime {
     return { provider: source, close() {} };
   }
 
-  const database = typeof source === 'string' ? new Database(source) : source;
   const ownsDatabase = typeof source === 'string';
-  database.pragma('foreign_keys = ON');
+  const database = openDatabase(source);
+  database.exec('PRAGMA foreign_keys = ON');
 
   return {
     provider: createSqlProvider(database),
@@ -41,6 +61,14 @@ export function createSql(source: NodeSqlSource = ':memory:'): NodeSqlRuntime {
       if (ownsDatabase) database.close();
     },
   };
+}
+
+function openDatabase(source: string | NodeSqlDatabase | DatabaseSync): SqliteDatabase {
+  if (typeof source === 'string') return new Database(source) as unknown as SqliteDatabase;
+
+  if (isNodeSqliteDatabase(source)) return wrapNodeSqlite(source);
+
+  return source as unknown as SqliteDatabase;
 }
 
 function isSqlProvider(source: NodeSqlSource): source is SQLProvider {
@@ -52,15 +80,15 @@ function isSqlProvider(source: NodeSqlSource): source is SQLProvider {
   );
 }
 
-function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
+function createSqlProvider(database: SqliteDatabase): SQLProvider {
   function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
     const trimmed = query.trim();
 
     if (trimmed.length === 0) return emptyResult<TRow>();
 
-    let statement: Database.Statement<unknown[], unknown>;
+    let statement: SqliteStatement;
     try {
-      statement = database.prepare(trimmed) as Database.Statement<unknown[], unknown>;
+      statement = database.prepare(trimmed);
     } catch (error) {
       if (params.length > 0) throw error;
 
@@ -73,21 +101,21 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
 
     if (statement.reader) {
       const columns = statement.columns().map((column) => column.name);
-      const rawRows = statement.raw().all(...(params as never[])) as unknown[][];
+      const rawRows = statement.raw().all(...params) as unknown[][];
       const rows = rawRows.map((values) =>
         Object.fromEntries(columns.map((name, index) => [name, values[index]])),
       ) as TRow[];
       return createResult(rows, rawRows);
     }
 
-    statement.run(...(params as never[]));
+    statement.run(...params);
 
     return emptyResult<TRow>();
   }
 
   return {
     exec,
-    limits: BETTER_SQLITE3_LIMITS,
+    limits: SQLITE_LIMITS,
     transaction<T>(fn: () => T): T {
       rejectAsyncTransactionCallback(fn);
 

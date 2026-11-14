@@ -576,6 +576,8 @@ test.describe('uploads (raw wire)', () => {
       payload: { fileId: 'f2', full: true },
       metadata: { upload: { id: 'file-2' } },
     });
+    await waitFor(amara, (frame) => upload('file-2')(frame) && frame.event === '__uploadAck__');
+
     await sendBinary(page, amara.id, {
       event,
       payload: null,

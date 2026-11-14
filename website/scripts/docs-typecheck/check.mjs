@@ -196,10 +196,9 @@ function pageFile(containing, name) {
   const example = fileExamples.get(containing);
   // Each plugins page builds its own `Polls`, so an example there imports the page's
   // own file. The Quickstart builds its own small server. The Nitro sections build their
-  // endpoint with H3, not `node:http`. The Deno page builds its own storage. A name the
-  // page uses for more than one file stays on the shared fixture.
+  // endpoint with H3, not `node:http`. A name the page uses for more than one file stays
+  // on the shared fixture.
   const ownsFiles =
-    example?.page === '3.server/02.adapters/03.deno.md' ||
     example?.page.startsWith('6.recipes/01.framework-hooks/') ||
     example?.page.startsWith('4.client/07.plugins/') ||
     example?.page.startsWith('1.start/05') ||

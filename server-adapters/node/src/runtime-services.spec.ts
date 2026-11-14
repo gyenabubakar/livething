@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import Database from 'better-sqlite3';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -32,9 +33,15 @@ describe('createAsyncContext', () => {
   });
 });
 
-describe('createSql', () => {
+// The SQL and KV tests run on each SQLite driver that the `sql` option accepts.
+const drivers: [string, () => ReturnType<typeof createSql>][] = [
+  ['better-sqlite3', () => createSql()],
+  ['node:sqlite', () => createSql(new DatabaseSync(':memory:'))],
+];
+
+describe.each(drivers)('createSql on %s', (_driver, openSql) => {
   it('runs real SQLite reads, writes, raw results, and schema batches', () => {
-    const runtime = createSql();
+    const runtime = openSql();
     try {
       runtime.provider.exec(
         `PRAGMA foreign_keys = ON;
@@ -59,7 +66,7 @@ describe('createSql', () => {
   });
 
   it('rolls back the complete transaction when its callback throws', () => {
-    const runtime = createSql();
+    const runtime = openSql();
     try {
       runtime.provider.exec('CREATE TABLE values_table (value TEXT)');
 
@@ -77,7 +84,7 @@ describe('createSql', () => {
   });
 
   it('undoes only the inner writes when an outer callback catches an inner failure', () => {
-    const runtime = createSql();
+    const runtime = openSql();
     try {
       const { provider } = runtime;
       provider.exec('CREATE TABLE values_table (value TEXT)');
@@ -103,7 +110,7 @@ describe('createSql', () => {
   });
 
   it('rejects an async callback before it can write outside the transaction', () => {
-    const runtime = createSql();
+    const runtime = openSql();
     let ran = false;
     async function callback() {
       ran = true;
@@ -120,7 +127,7 @@ describe('createSql', () => {
   });
 
   it('rejects a callback that returns a function with a then method, and rolls back', () => {
-    const runtime = createSql();
+    const runtime = openSql();
     const callableThenable = Object.assign(() => {}, { then() {} });
 
     try {
@@ -133,6 +140,174 @@ describe('createSql', () => {
         }),
       ).toThrow(/transaction\(\) callbacks must be synchronous/);
       expect(runtime.provider.exec('SELECT value FROM values_table').toArray()).toEqual([]);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('returns rows from a write statement with RETURNING', () => {
+    const runtime = openSql();
+    try {
+      runtime.provider.exec('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
+
+      expect(
+        runtime.provider
+          .exec<{ id: number }>('INSERT INTO users (name) VALUES (?) RETURNING id', 'Ada')
+          .one(),
+      ).toEqual({ id: 1 });
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('does not split a semicolon inside a SQL string literal', () => {
+    const runtime = openSql();
+    try {
+      runtime.provider.exec('CREATE TABLE messages (body TEXT)');
+      runtime.provider.exec("INSERT INTO messages (body) VALUES ('hello;world')");
+
+      expect(runtime.provider.exec('SELECT body FROM messages').one()).toEqual({
+        body: 'hello;world',
+      });
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('consumes an empty result exactly once', () => {
+    const runtime = openSql();
+    try {
+      runtime.provider.exec('CREATE TABLE values_table (value TEXT)');
+      const result = runtime.provider.exec('INSERT INTO values_table (value) VALUES (?)', 'one');
+
+      expect(result.one()).toBeNull();
+      expect(() => result.toArray()).toThrow(/already consumed by \.one\(\)/);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('returns an empty result for an empty query', () => {
+    const runtime = openSql();
+    try {
+      expect(runtime.provider.exec('  ').toArray()).toEqual([]);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('runs every statement of a parameter-free batch that starts with a read', () => {
+    const runtime = openSql();
+    try {
+      runtime.provider.exec('SELECT 1; CREATE TABLE later (value TEXT)');
+
+      expect(runtime.provider.exec('SELECT value FROM later').toArray()).toEqual([]);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('runs one statement that ends with a comment', () => {
+    const runtime = openSql();
+    try {
+      expect(runtime.provider.exec('SELECT ? AS value; -- the topic', 5).one()).toEqual({
+        value: 5,
+      });
+      expect(runtime.provider.exec('SELECT 1 AS value; /* no params */').one()).toEqual({
+        value: 1,
+      });
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('refuses a value SQLite cannot store, such as a Date', () => {
+    const runtime = openSql();
+    try {
+      runtime.provider.exec('CREATE TABLE events (at TEXT)');
+
+      expect(() => runtime.provider.exec('INSERT INTO events VALUES (?)', new Date(0))).toThrow(
+        TypeError,
+      );
+      expect(runtime.provider.exec('SELECT at FROM events').toArray()).toEqual([]);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('binds undefined as NULL', () => {
+    const runtime = openSql();
+    try {
+      expect(runtime.provider.exec('SELECT ? AS value', undefined).one()).toEqual({ value: null });
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('returns a BLOB as a Buffer', () => {
+    const runtime = openSql();
+    try {
+      const { value } = runtime.provider
+        .exec<{ value: Buffer }>('SELECT ? AS value', Uint8Array.of(1, 2))
+        .one()!;
+
+      expect(Buffer.isBuffer(value)).toBe(true);
+      expect(value.toString('hex')).toBe('0102');
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it("keeps the callback's error after the callback rolled back on its own", () => {
+    const runtime = openSql();
+    try {
+      expect(() =>
+        runtime.provider.transaction(() => {
+          runtime.provider.exec('ROLLBACK');
+          throw new Error('handler failed');
+        }),
+      ).toThrow('handler failed');
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('rolls back and throws when the commit fails, and stays usable', () => {
+    const runtime = openSql();
+    try {
+      const { provider } = runtime;
+      provider.exec(
+        `CREATE TABLE rooms (id INTEGER PRIMARY KEY);
+         CREATE TABLE messages (
+           room_id INTEGER REFERENCES rooms(id) DEFERRABLE INITIALLY DEFERRED
+         )`,
+      );
+
+      expect(() =>
+        provider.transaction(() => {
+          provider.exec('INSERT INTO messages (room_id) VALUES (?)', 7);
+        }),
+      ).toThrow(/FOREIGN KEY/);
+      expect(provider.exec('SELECT room_id FROM messages').toArray()).toEqual([]);
+
+      provider.transaction(() => provider.exec('INSERT INTO rooms (id) VALUES (?)', 1));
+      expect(provider.exec('SELECT id FROM rooms').toArray()).toEqual([{ id: 1 }]);
+    } finally {
+      runtime.close();
+    }
+  });
+});
+
+describe('createSql', () => {
+  // node:sqlite binds a missing value as NULL and cannot tell, so this holds for better-sqlite3 only.
+  it('throws on a missing parameter value with better-sqlite3', () => {
+    const runtime = createSql();
+    try {
+      runtime.provider.exec('CREATE TABLE messages (body TEXT)');
+
+      expect(() => runtime.provider.exec('INSERT INTO messages VALUES (?)')).toThrow(
+        /Too few parameter values/,
+      );
     } finally {
       runtime.close();
     }
@@ -163,54 +338,24 @@ describe('createSql', () => {
     }
   });
 
-  it('returns rows from a write statement with RETURNING', () => {
-    const runtime = createSql();
-    try {
-      runtime.provider.exec('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
+  it('keeps ctx.kv in a node:sqlite database it was given, and never closes it', async () => {
+    const database = new DatabaseSync(':memory:');
+    const storage = createStorage({ sql: database });
 
-      expect(
-        runtime.provider
-          .exec<{ id: number }>('INSERT INTO users (name) VALUES (?) RETURNING id', 'Ada')
-          .one(),
-      ).toEqual({ id: 1 });
-    } finally {
-      runtime.close();
-    }
-  });
+    await storage.storage.kv.set('topic', 'launch');
+    storage.close();
 
-  it('does not split a semicolon inside a SQL string literal', () => {
-    const runtime = createSql();
-    try {
-      runtime.provider.exec('CREATE TABLE messages (body TEXT)');
-      runtime.provider.exec("INSERT INTO messages (body) VALUES ('hello;world')");
-
-      expect(runtime.provider.exec('SELECT body FROM messages').one()).toEqual({
-        body: 'hello;world',
-      });
-    } finally {
-      runtime.close();
-    }
-  });
-
-  it('consumes an empty result exactly once', () => {
-    const runtime = createSql();
-    try {
-      runtime.provider.exec('CREATE TABLE values_table (value TEXT)');
-      const result = runtime.provider.exec('INSERT INTO values_table (value) VALUES (?)', 'one');
-
-      expect(result.one()).toBeNull();
-      expect(() => result.toArray()).toThrow(/already consumed by \.one\(\)/);
-    } finally {
-      runtime.close();
-    }
+    expect(database.isOpen).toBe(true);
+    expect(database.prepare('SELECT key FROM __livething_kv').all()).toEqual([{ key: 'topic' }]);
+    database.close();
   });
 });
 
-describe('createKv', () => {
+describe.each(drivers)('createKv on %s', (_driver, openSql) => {
   it('supports values, prefix listing, deletion, and TTL expiry', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
-    const sql = createSql();
+    const sql = openSql();
     try {
       const kv = createKv(sql.database!);
       await kv.set('room:one', { active: true });
@@ -234,7 +379,7 @@ describe('createKv', () => {
 
   it('treats ttl zero as no expiry and reports the choice', async () => {
     const logger = createMockLogger();
-    const sql = createSql();
+    const sql = openSql();
     const kv = createKv(sql.database!, logger);
 
     try {
@@ -248,7 +393,7 @@ describe('createKv', () => {
   });
 
   it('stores KV values in the same SQLite database as SQL', async () => {
-    const sql = createSql();
+    const sql = openSql();
     try {
       const kv = createKv(sql.database!);
       await kv.set('shared', { value: 1 });
@@ -262,7 +407,7 @@ describe('createKv', () => {
   });
 
   it('round-trips JavaScript number values that JSON would change', async () => {
-    const sql = createSql();
+    const sql = openSql();
     try {
       const kv = createKv(sql.database!);
       await kv.set('special-numbers', { nan: NaN, infinity: Infinity, negativeZero: -0 });
@@ -281,7 +426,7 @@ describe('createKv', () => {
   });
 
   it('matches a prefix case-sensitively', async () => {
-    const sql = createSql();
+    const sql = openSql();
     try {
       const kv = createKv(sql.database!);
       await kv.set('Foo:one', 1);

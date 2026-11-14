@@ -1,5 +1,6 @@
 /* oxlint-disable no-unused-vars */
 
+import { DatabaseSync } from 'node:sqlite';
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { expectTypeOf } from 'vitest';
@@ -20,6 +21,8 @@ const definition = base.assemble({
 
 const livething = Adapter.setup();
 const endpoint = livething.bind(definition, {});
+// `sql` takes a node:sqlite database too, for Node 22.16+ and Deno.
+livething.bind(definition, { sql: new DatabaseSync(':memory:') });
 const admin = await endpoint.admin();
 const upgrade = endpoint.upgrade;
 await livething.ready();

@@ -1,7 +1,7 @@
 import type { KVProvider, Logger, StorageProvider } from '@livething/server/adapters';
 import { createKv } from './kv.ts';
 import { createSql } from './sql.ts';
-import type { NodeSqlDatabase, NodeSqlSource } from './sql.ts';
+import type { NodeSqlSource, SqliteDatabase } from './sql.ts';
 
 /** Storage dependencies accepted by the Node server. */
 export interface NodeStorageOptions {
@@ -34,10 +34,10 @@ export function createStorage(options: NodeStorageOptions = {}): NodeStorageRunt
   };
 }
 
-function createDefaultKv(database: NodeSqlDatabase | undefined, logger?: Logger): KVProvider {
+function createDefaultKv(database: SqliteDatabase | undefined, logger?: Logger): KVProvider {
   if (!database) {
     throw new Error(
-      '[livething] Node storage needs a SQLite database for ctx.kv. Provide a better-sqlite3 database or inject a KVProvider when using a custom SQLProvider.',
+      '[livething] Node storage needs a SQLite database for ctx.kv. Provide a better-sqlite3 or node:sqlite database, or inject a KVProvider when using a custom SQLProvider.',
     );
   }
 
