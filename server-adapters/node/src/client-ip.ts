@@ -1,6 +1,7 @@
 import { isIP } from 'node:net';
 import proxyaddr from '@fastify/proxy-addr';
 import type { IncomingMessage } from 'node:http';
+import type { NodeHttpRequest } from './http.ts';
 
 /** Use the TCP peer address as the client address. */
 interface NodeDirectClientIpConfig {
@@ -17,7 +18,9 @@ interface NodeProxyClientIpConfig {
 export type NodeClientIpConfig = NodeDirectClientIpConfig | NodeProxyClientIpConfig;
 
 /** Resolves a client address for one incoming Node request. */
-export type ClientIpResolver = (request: IncomingMessage) => string | undefined;
+export type ClientIpResolver = (
+  request: Pick<NodeHttpRequest, 'headers' | 'socket'>,
+) => string | undefined;
 
 /**
  * Creates the client-IP resolver used while building the Web API `Request`.
@@ -50,7 +53,8 @@ export function createClientIpResolver(config?: NodeClientIpConfig): ClientIpRes
   const trust = proxyaddr.compile([...config.trustedProxies]);
 
   return (request) => {
-    const addresses = proxyaddr.all(request);
+    // It reads only `headers` and `socket.remoteAddress`.
+    const addresses = proxyaddr.all(request as IncomingMessage);
     const directAddress = addresses[0];
 
     if (!directAddress || isIP(directAddress) === 0 || !trust(directAddress, 0)) {

@@ -16,16 +16,34 @@ import type {
   HttpAnswer,
   HttpHub,
 } from '@livething/server/adapters';
-import type { IncomingMessage } from 'node:http';
-import type { Http2ServerRequest } from 'node:http2';
+import type { IncomingHttpHeaders } from 'node:http';
+import type { IncomingHttpHeaders as Http2IncomingHttpHeaders } from 'node:http2';
 import { isSocketRejection, upgradeRejection } from './upgrade.ts';
 import type { ConnectionTransport } from './socket.ts';
 
 /** How long an HTTP/1.1 upload stopped early may go on sending after its answer. */
 const DRAIN_MS = 2_000;
 
-/** A request `handle` takes: from `node:http`, or from a `node:http2` compatibility server. */
-export type NodeHttpRequest = IncomingMessage | Http2ServerRequest;
+/**
+ * A request `handle` takes: from `node:http`, from a `node:http2` compatibility server, or
+ * the raw HTTP/2 stream that `handleStream` wraps. Only the members they all have.
+ */
+export interface NodeHttpRequest extends AsyncIterable<Buffer> {
+  readonly method?: string | undefined;
+  readonly url?: string | undefined;
+  readonly headers: IncomingHttpHeaders | Http2IncomingHttpHeaders;
+  readonly socket: { readonly remoteAddress?: string | undefined; readonly encrypted?: boolean };
+  /** Whether the body was read to its end, or will not come. */
+  readonly complete: boolean;
+  /** Only on `node:http2`: the stream the request reads from. */
+  readonly stream?: { close(): void };
+  on(event: 'data', listener: (chunk: Buffer) => void): unknown;
+  on(event: 'end' | 'error' | 'close' | 'aborted', listener: () => void): unknown;
+  off(event: 'data', listener: (chunk: Buffer) => void): unknown;
+  pause(): unknown;
+  resume(): unknown;
+  destroy(): unknown;
+}
 
 /**
  * A response `handle` writes: a `node:http` `ServerResponse`, or a `node:http2` compatibility
@@ -342,8 +360,8 @@ function upload(hub: HttpHub, request: NodeHttpRequest): Promise<HttpAnswer> {
  * closes the connection only when the body has not ended `DRAIN_MS` after the answer.
  */
 function endBody(request: NodeHttpRequest, response: NodeHttpResponse): void {
-  if ('stream' in request) {
-    request.stream.close();
+  if (request.stream) {
+    setImmediate(resetUnended, request);
     return;
   }
 
@@ -353,6 +371,14 @@ function endBody(request: NodeHttpRequest, response: NodeHttpResponse): void {
       if (!request.complete) request.destroy();
     }, DRAIN_MS).unref();
   });
+}
+
+/**
+ * Resets an HTTP/2 stream whose body has not ended, one turn after the answer. A client that
+ * stops with a close frame ends its body right after it, and that stream then closes with no reset.
+ */
+function resetUnended(request: NodeHttpRequest): void {
+  if (!request.complete) request.stream?.close();
 }
 
 /** The body, `null` when it is over the limit, or `undefined` when it did not arrive whole. */

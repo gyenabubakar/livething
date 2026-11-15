@@ -1,5 +1,4 @@
-import type { IncomingMessage } from 'node:http';
-import type { Http2ServerRequest } from 'node:http2';
+import type { NodeHttpRequest } from './http.ts';
 
 /** Optional request metadata supplied while adapting a Node upgrade. */
 export interface WebRequestOptions {
@@ -11,7 +10,7 @@ export interface WebRequestOptions {
 
 /** Converts Node's incoming upgrade request into the standard Web API shape. */
 export function requestToWebRequest(
-  request: IncomingMessage | Http2ServerRequest,
+  request: NodeHttpRequest,
   options: WebRequestOptions = {},
 ): Request {
   const { signal, clientIp } = options;
@@ -59,7 +58,7 @@ export function requestToWebRequest(
   const init: RequestInit & { duplex?: 'half' } = {
     method,
     headers,
-    body: hasBody ? lazyBody(request as AsyncIterable<Buffer>) : null,
+    body: hasBody ? lazyBody(request) : null,
     signal,
   };
 

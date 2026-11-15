@@ -22,6 +22,8 @@
 //   LOAD_PROFILE          an existing folder to write one server CPU profile for each step to
 //   LOAD_BASELINE         a copy of the repo to run the server from, to compare two versions
 //   LOAD_SERVER_FLAGS     extra Node.js flags for the server process
+//   LOAD_H2_ENTRY=stream  on the HTTP/2 modes, serve the raw streams with `handleStream`
+//                         instead of a compatibility server with `handle`
 import { fork } from 'node:child_process';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import http from 'node:http';
@@ -293,6 +295,7 @@ const H2 = mode === 'livething-http-h2' || mode === 'livething-http-stream';
 const STREAM = mode === 'livething-http-stream';
 const PROBE_FRAME = 2;
 const START_FRAME = 3;
+const CLOSE_FRAME = 4;
 
 function frameHeader(type, length) {
   const header = Buffer.allocUnsafe(FRAME_HEADER_BYTES);
@@ -463,12 +466,19 @@ function openHttpClient(index) {
         frameActions(
           (data) => send('data', data),
           async () => {
+            const close = Buffer.from(
+              JSON.stringify(['__close__', { code: 1000, reason: '' }, null]),
+            );
             if (upload) {
-              upload.end();
-              await new Promise((done) => upload.once('close', done));
+              // The close goes after the frames in the upload, and the server ends the stream.
+              if (flushQueued) flushUpload();
+              upload.end(Buffer.concat([frameHeader(CLOSE_FRAME, close.length), close]));
+              await streamEnded;
+              session.close();
+              return;
             }
 
-            send('control', JSON.stringify(['__close__', { code: 1000, reason: '' }, null]));
+            send('control', close.toString());
             await streamEnded;
             session?.close();
           },

@@ -17,8 +17,8 @@ const frames = [
 </script>
 
 <template>
-  <SplitStreamFigure caption="A POST body is frames back to back. Each frame is one byte for its type, four bytes for its length, then the message. The bytes are shown in hex. The long POST of stream mode uses the same frames, plus two of its own.">
-    <svg viewBox="0 0 680 318" class="w-full" role="img" :aria-label="`Two frames in one POST body. The first has type 0, text, a length of ${text.length} bytes, and the JSON message. The second has type 1, binary, a length of ${pictureBytes} bytes, and the bytes of a binary message.`">
+  <SplitStreamFigure caption="A POST body is frames back to back. Each frame is one byte for its type, four bytes for its length, then the message. The bytes are shown in hex. The long POST of stream mode uses the same frames, plus three of its own.">
+    <svg viewBox="0 0 680 340" class="w-full" role="img" :aria-label="`Two frames in one POST body. The first has type 0, text, a length of ${text.length} bytes, and the JSON message. The second has type 1, binary, a length of ${pictureBytes} bytes, and the bytes of a binary message.`">
       <text :x="X" y="34" class="text-[12.5px] font-medium uppercase tracking-wider fill-(--ui-text-muted)">One POST body, two frames · bytes in hex</text>
 
       <g v-for="(frame, row) in frames" :key="frame.type">
@@ -51,6 +51,7 @@ const frames = [
         <text y="0" class="text-[12.5px] font-medium uppercase tracking-wider fill-(--ui-text-muted)">Types</text>
         <text x="66" y="0" class="text-[13px] fill-(--ui-text-toned)"><tspan class="font-mono">0</tspan> text · <tspan class="font-mono">1</tspan> binary</text>
         <text x="66" y="22" class="text-[13px] fill-(--ui-text-toned)">Long POST only: <tspan class="font-mono">2</tspan> probe · <tspan class="font-mono">3</tspan> start, the number of its first message</text>
+        <text x="66" y="44" class="text-[13px] fill-(--ui-text-toned)">Long POST only: <tspan class="font-mono">4</tspan> close, after the last message</text>
       </g>
     </svg>
   </SplitStreamFigure>

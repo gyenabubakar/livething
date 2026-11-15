@@ -41,7 +41,13 @@ async function startLiveThing(transport) {
   }
 
   if (transport === 'http-h2') {
-    const h2Server = createH2cServer({ settings: { maxConcurrentStreams: 1000 } }, handler);
+    // LOAD_H2_ENTRY=stream serves the raw streams, so Node makes no compatibility objects.
+    const raw = process.env.LOAD_H2_ENTRY === 'stream';
+    const h2Server = createH2cServer(
+      { settings: { maxConcurrentStreams: 1000 } },
+      raw ? undefined : handler,
+    );
+    if (raw) h2Server.on('stream', huddleEndpoint.handleStream);
     await huddleEndpoint.ready();
     return new Promise((resolve) => {
       h2Server.listen(0, '127.0.0.1', () => resolve(h2Server.address().port));

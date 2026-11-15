@@ -5,6 +5,7 @@ import type { Transport, TransportEvents } from '~/transports/transport.ts';
 const TEXT = 0;
 const PROBE = 2;
 const START = 3;
+const CLOSE = 4;
 
 interface Frame {
   type: number;
@@ -131,6 +132,11 @@ class FakeServer {
 
   drop(): void {
     this.controller.error(new TypeError('network error'));
+  }
+
+  /** Ends the stream, as the server does once it reads the client's `__close__`. */
+  end(): void {
+    this.controller.close();
   }
 
   event(text: string): void {
@@ -422,19 +428,44 @@ describe('http(): stream mode', () => {
     expect(transport.bufferedAmount()).toBeGreaterThan(0);
   });
 
-  it('closes in order: ends the upload, waits for its last ack, then sends __close__', async () => {
-    const transport = await openInStreamMode();
+  it('closes in order: writes __close__ after the frames in the upload, and ends it', async () => {
+    const { transport, events: transportEvents } = open();
+    await flush();
+    server.accept();
+    await flush();
+    transport.send(sendMessage('hello'));
+
+    await flush();
+    server.ack(1, true);
+    await flush();
     transport.send(sendMessage('two'));
     await flush();
 
     transport.close(1000, 'bye');
     await flush();
 
+    const frames = server.upload.frames();
+    expect(frames.at(-1)).toMatchObject({
+      type: CLOSE,
+      text: JSON.stringify(['__close__', { code: 1000, reason: 'bye' }, null]),
+    });
+    expect(frames.at(-2)).toMatchObject({ type: TEXT, text: sendMessage('two') });
     expect(server.upload.ended).toBe(true);
-    expect(server.controlTexts()).toEqual([]);
+    expect(transportEvents.close).not.toHaveBeenCalled();
 
-    server.ack(2);
+    server.end();
     await flush();
+
+    expect(transportEvents.close).toHaveBeenCalledWith(1000, 'bye', true);
+    expect(server.controlTexts()).toEqual([]);
+  });
+
+  it('sends __close__ on the control lane when the server does not end the stream in a second', async () => {
+    const transport = await openInStreamMode();
+
+    transport.close(1000, 'bye');
+    await flush();
+    await vi.advanceTimersByTimeAsync(1_000);
     await flush();
 
     expect(server.controlTexts()).toEqual([
@@ -498,7 +529,7 @@ describe('http(): stream mode', () => {
     expect(server.uploads).toHaveLength(2);
   });
 
-  it('does not renew while it closes, and waits for the last frames', async () => {
+  it('does not renew while it closes, and writes __close__ after the last frame', async () => {
     const { transport } = open();
     await flush();
     server.accept(512 * 1024);
@@ -521,12 +552,10 @@ describe('http(): stream mode', () => {
     await flush();
 
     expect(server.uploads).toHaveLength(1);
+    const [last, close] = server.upload.frames().slice(-2);
+    expect(last!.text).toBe(sendMessage(`last:${'x'.repeat(400 * 1024)}`));
+    expect(close).toMatchObject({ type: CLOSE });
     expect(server.controlTexts()).toEqual([]);
-    server.ack(22);
-    await flush();
-    await flush();
-
-    expect(server.controlTexts()).toHaveLength(1);
   });
 
   it('delivers a send made just before close', async () => {

@@ -177,8 +177,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         : createHttpHub({ maxPostBytes, receiveBytes: maxMessageBytes });
 
     function nodeRequest(request: NodeHttpRequest, signal?: AbortSignal): Request {
-      // An HTTP/2 compatibility request has the same `socket` and `headers` fields.
-      const clientIp = resolveClientIp(request as IncomingMessage);
+      const clientIp = resolveClientIp(request);
       return requestToWebRequest(request, { clientIp, signal });
     }
 
@@ -201,7 +200,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         },
       },
       toWebRequest(request, signal) {
-        const clientIp = resolveClientIp(request as IncomingMessage);
+        const clientIp = resolveClientIp(request);
         try {
           const webRequest = requestToWebRequest(request, { clientIp, signal, withBody: true });
           clientIps.set(webRequest, clientIp);

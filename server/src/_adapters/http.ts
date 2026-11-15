@@ -45,6 +45,11 @@ const BINARY_FRAME = 1;
 const PROBE_FRAME = 2;
 /** Upload only: the 4-byte sequence number of the next data frame. Data frames follow it. */
 const START_FRAME = 3;
+/**
+ * Upload only: the client's `__close__` frame. It comes after the data frames, so they run
+ * first, and it saves a control POST.
+ */
+const CLOSE_FRAME = 4;
 const FRAME_HEADER_BYTES = 5;
 
 /**
@@ -485,6 +490,7 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
     /** Wakes the adapter's read loop when this upload waits for room. */
     private waiting: (() => void) | null = null;
     private stoppedWith!: (answer: HttpAnswer) => void;
+    private stopAnswer: HttpAnswer | null = null;
 
     constructor(session: Session) {
       this.session = session;
@@ -526,6 +532,7 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
       if (this.isStopped) return;
 
       this.release();
+      this.stopAnswer = answer;
       this.stoppedWith(answer);
     }
 
@@ -615,6 +622,16 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
           }
 
           if (!this.takeLane(view.getUint32(offset + FRAME_HEADER_BYTES, false))) return null;
+        } else if (type === CLOSE_FRAME) {
+          const close = readClose(decodeText(data.subarray(offset + FRAME_HEADER_BYTES, end)));
+          if (!close) {
+            this.breakRules('bad upload close frame');
+            return null;
+          }
+
+          this.stop(NO_CONTENT);
+          session.closeFromClient(close.code, close.reason);
+          return null;
         } else {
           if (!this.started) {
             this.breakRules('upload data before its start frame');
@@ -692,7 +709,8 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
     }
 
     finish(): HttpAnswer {
-      if (this.isStopped) return errorAnswer(410, 'closed');
+      // The body can end before the adapter hears of the stop, as after a close frame.
+      if (this.isStopped) return this.stopAnswer ?? errorAnswer(410, 'closed');
 
       const broken = this.carry.length > 0;
       if (this.session.lastSeq > this.ackedSeq) this.ack(false);
@@ -756,12 +774,8 @@ function parseBatch(body: Uint8Array): Frame[] | null {
 /** One text or binary frame, or `null` for another type or text that is not UTF-8. */
 function parseFrame(type: number, data: Uint8Array): Frame | null {
   if (type === TEXT_FRAME) {
-    let text: string;
-    try {
-      text = textDecoder.decode(data);
-    } catch {
-      return null;
-    }
+    const text = decodeText(data);
+    if (text === undefined) return null;
 
     return { type, data, text, counted: waitsInLine(parseJson(text), false) };
   }
@@ -772,6 +786,15 @@ function parseFrame(type: number, data: Uint8Array): Frame | null {
   const envelope = split.kind === 'frame' ? parseJson(split.envelope) : undefined;
 
   return { type, data, counted: waitsInLine(envelope, true) };
+}
+
+/** The UTF-8 text, or `undefined` when the bytes are not UTF-8. */
+function decodeText(data: Uint8Array): string | undefined {
+  try {
+    return textDecoder.decode(data);
+  } catch {
+    return undefined;
+  }
 }
 
 function parseJson(text: string): unknown {

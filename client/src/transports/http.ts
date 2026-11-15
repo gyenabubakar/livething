@@ -23,6 +23,8 @@ const NOT_OFFERED = new Set([404, 405, 426]);
 const PROBE_FRAME = 2;
 /** Upload only: the 4-byte sequence number of the next data frame. */
 const START_FRAME = 3;
+/** Upload only: the `__close__` frame, after the data frames it must not overtake. */
+const CLOSE_FRAME = 4;
 /** How long the upload's probe may wait for its ack before the client gives up on it. */
 const PROBE_TIMEOUT_MS = 2_000;
 /** An upload that wrote nothing for this long sends a probe, so a dead path shows up. */
@@ -105,8 +107,8 @@ function openHttp(options: TransportOpenOptions): Transport {
   let wroteSinceIdleCheck = false;
   let flushQueued = false;
   let startPending = false;
-  /** Runs once every written frame is acked or the upload ended, for the ordered close. */
-  let onUploadSettled: (() => void) | null = null;
+  /** Runs when the server ends the stream during our close. */
+  let onStreamEnded: (() => void) | null = null;
   const controlQueue: string[] = [];
   let dataInFlight: Promise<void> | null = null;
   let controlInFlight: Promise<void> | null = null;
@@ -214,11 +216,13 @@ function openHttp(options: TransportOpenOptions): Transport {
     } catch (error) {
       // An abort is our own close. Anything else, such as Node's body timeout, is a drop.
       if (!stream.signal.aborted && state !== 'closing') fail('stream failed', error);
+      onStreamEnded?.();
       return;
     }
 
     // The server ends the stream when it reads our `__close__`, sometimes before it answers the POST.
     if (state !== 'closing') fail('stream ended without a close');
+    onStreamEnded?.();
   }
 
   /**
@@ -418,8 +422,6 @@ function openHttp(options: TransportOpenOptions): Transport {
     } else if (mode === 'stream') {
       scheduleFlush();
     }
-
-    if (written === 0) settleUpload();
   }
 
   /** After the probe ack, once no data POST is in flight, every send goes in the upload. */
@@ -499,7 +501,6 @@ function openHttp(options: TransportOpenOptions): Transport {
     if (!silent && state === 'open') options.warn(`http() stays in batch mode: ${reason}.`);
 
     endUpload();
-    settleUpload();
     if (state === 'open') pumpData();
   }
 
@@ -520,12 +521,6 @@ function openHttp(options: TransportOpenOptions): Transport {
 
     uploadAbort = null;
     uploadWriter = null;
-  }
-
-  function settleUpload(): void {
-    const settled = onUploadSettled;
-    onUploadSettled = null;
-    settled?.();
   }
 
   async function post(
@@ -684,9 +679,10 @@ function openHttp(options: TransportOpenOptions): Transport {
   }
 
   /**
-   * Close in order: let the data POST in flight land, so the close does not overtake
-   * earlier messages, then send `__close__` on the control lane, then stop the stream.
-   * Each wait is at most one second. Messages still queued are dropped.
+   * Close in order, so the close does not overtake earlier messages. In stream mode the
+   * `__close__` frame goes in the upload after them, and the server ends the stream once it
+   * reads it. In batch mode, the data POST in flight lands first, then `__close__` goes on the
+   * control lane. Each wait is at most one second. Messages still queued are dropped.
    */
   async function closeInOrder(code: number, reason: string): Promise<void> {
     if (state === 'closing' || state === 'closed') return;
@@ -704,25 +700,29 @@ function openHttp(options: TransportOpenOptions): Transport {
     for (const frame of dataQueue.splice(written)) queuedBytes -= frame.bytes.byteLength;
 
     controlQueue.length = 0;
+    const frame = utf8(JSON.stringify(['__close__', { code, reason }, null]));
 
-    await settleWithin(dataInFlight);
-
-    if (mode === 'stream') {
-      // The server acks the last frame at once when the body ends.
-      const settled = new Promise<void>((resolve) => (onUploadSettled = resolve));
-      void uploadWriter?.close().catch(() => {});
-      if (written > 0) await settleWithin(settled);
+    const writer = uploadWriter;
+    if (mode === 'stream' && writer) {
+      const ended = new Promise<void>((resolve) => (onStreamEnded = resolve));
+      writeUpload(encodeFrame(CLOSE_FRAME, frame));
+      void writer.close().catch(() => {});
+      // The upload's answer now only means the server read the close: it is no failure.
+      uploadWriter = null;
+      if (await settleWithin(ended)) {
+        finish(code, reason, true);
+        return;
+      }
     }
 
+    await settleWithin(dataInFlight);
     endUpload();
     dataQueue.length = 0;
     queuedBytes = 0;
 
     // A second control POST while one is still open gets a 409, which closes with 1002.
     if (await settleWithin(controlInFlight)) {
-      const frame = JSON.stringify(['__close__', { code, reason }, null]);
-
-      await settleWithin(post('control', encodeBatch([{ binary: false, bytes: utf8(frame) }])));
+      await settleWithin(post('control', encodeBatch([{ binary: false, bytes: frame }])));
     }
 
     finish(code, reason, true);

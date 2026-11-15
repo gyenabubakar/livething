@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
-import { createServer as createHttp2Server, connect as http2Connect } from 'node:http2';
+import { constants, createServer as createHttp2Server, connect as http2Connect } from 'node:http2';
 import { connect as tcpConnect } from 'node:net';
 import {
   client,
@@ -730,12 +730,18 @@ describe('shutdown on Node', () => {
   });
 });
 
-describe('HTTP/2 on Node', () => {
+describe.each(['handle', 'handleStream'] as const)('HTTP/2 on Node, through %s', (entry) => {
   /** A node:http2 server with the endpoint, and one client stream on one HTTP/2 connection. */
   async function openOverH2() {
     const livething = setup();
     const huddleEndpoint = livething.bind(huddleDefinition, { transports: [http()] });
-    const h2 = createHttp2Server((request, response) => huddleEndpoint.handle(request, response));
+    const h2 = createHttp2Server();
+    if (entry === 'handle') {
+      h2.on('request', (request, response) => huddleEndpoint.handle(request, response));
+    } else {
+      h2.on('stream', huddleEndpoint.handleStream);
+    }
+
     await huddleEndpoint.ready();
     await new Promise<void>((resolve) => h2.listen(0, '127.0.0.1', resolve));
 
@@ -819,12 +825,42 @@ describe('HTTP/2 on Node', () => {
     return textBatch(JSON.stringify(['sendMessage', { text }, null]));
   }
 
-  it('serves the stream and its POSTs to a node:http2 compatibility server', async () => {
+  it('serves the stream and its POSTs', async () => {
     const { stream, post, sent } = await openOverH2();
 
     expect(await post(1, message('over h2'))).toBe(204);
     await vi.waitFor(() => expect(sent('over h2')).toBe(1));
     stream.close();
+  });
+
+  it('closes on a close frame in the upload, answers it 204, and ends the stream', async () => {
+    const { stream, upload } = await openOverH2();
+    const uploading = upload();
+    const answered = new Promise((resolve) =>
+      uploading.on('response', (headers) => resolve(headers[':status'])),
+    );
+    const ended = new Promise((resolve) => stream.on('end', resolve));
+    const close = new TextEncoder().encode(
+      JSON.stringify(['__close__', { code: 1000, reason: 'bye' }, null]),
+    );
+
+    uploading.end(Buffer.concat([startFrame(1), message('last'), uploadFrame(4, close)]));
+
+    expect(await answered).toBe(204);
+    await ended;
+  });
+
+  it('lives through a client that resets its stream and its upload', async () => {
+    const { stream, upload, post } = await openOverH2();
+    const uploading = upload();
+    uploading.write(startFrame(1));
+    uploading.close(constants.NGHTTP2_CANCEL);
+    stream.on('error', () => {});
+
+    stream.close(constants.NGHTTP2_INTERNAL_ERROR);
+
+    // The connection is gone, and the server still answers.
+    await vi.waitFor(async () => expect(await post(1, message('after reset'))).toBe(404));
   });
 
   it('reads an upload as it streams: the probe is acked and frames arrive before the body ends', async () => {

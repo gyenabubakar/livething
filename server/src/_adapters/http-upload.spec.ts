@@ -6,6 +6,7 @@ import type { ConnectionHandle } from '~/_adapters/types.ts';
 const TEXT = 0;
 const PROBE = 2;
 const START = 3;
+const CLOSE = 4;
 
 interface Ack {
   seq: number;
@@ -200,6 +201,38 @@ describe('createHttpHub: the upload', () => {
     stream.socket.close(1000, 'bye');
 
     await expect(uploading.stopped).resolves.toMatchObject({ status: 410 });
+  });
+
+  it('closes the connection on a close frame, after the frames before it, and answers 204', async () => {
+    const { secret, handle, received, stream } = open(hub);
+    const uploading = upload(hub, secret);
+
+    uploading.push(
+      join(
+        start(1),
+        texts('one'),
+        frame(CLOSE, JSON.stringify(['__close__', { code: 1000, reason: 'bye' }, null])),
+      ),
+    );
+    await flush();
+
+    expect(received()).toEqual(['one']);
+    // The body's end can reach the adapter before the stop does.
+    expect(uploading.finish().status).toBe(204);
+    await expect(uploading.stopped).resolves.toMatchObject({ status: 204 });
+    expect(handle.handleClose).toHaveBeenCalledWith(1000, 'bye');
+    expect(stream.socket.send({ kind: 'text', text: 'late' })).toBe(false);
+  });
+
+  it('refuses a close frame with a code a client may not send, and closes the connection with 1002', async () => {
+    const { secret, handle } = open(hub);
+    const uploading = upload(hub, secret);
+
+    uploading.push(frame(CLOSE, JSON.stringify(['__close__', { code: 1011, reason: '' }, null])));
+    await flush();
+
+    await expect(uploading.stopped).resolves.toMatchObject({ status: 400 });
+    expect(handle.handleClose).toHaveBeenCalledWith(1002, expect.any(String));
   });
 });
 
