@@ -509,6 +509,14 @@ export interface EngineAccess {
   setChannelDurable(channelKey: string, durable: boolean): void;
 
   /**
+   * Record a per-channel `presence` choice: the batch window in milliseconds, or `false` when
+   * the channel sends no presence.
+   *
+   * @internal
+   */
+  setChannelPresence(channelKey: string, window: number | false): void;
+
+  /**
    * Record a channel's resolved inbox settings. The inbox fan-out, ack, and
    * clear paths read these back by channel key at runtime. Set by `inbox()`.
    *

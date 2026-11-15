@@ -143,6 +143,8 @@ describe('kick(userRef)', () => {
       persistAttachment() {},
       sendProtocolMessage() {},
       broadcastToChannel() {},
+      hasPresence: () => true,
+      recordPresence() {},
       isChannelDurable: () => true,
       persistMembership() {},
       deleteDurableMembership,

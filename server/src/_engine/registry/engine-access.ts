@@ -267,6 +267,9 @@ export function createEngineAccess(
     setChannelDurable: (channelKey, durable) => {
       core.channelDurabilityOverrides.set(channelKey, durable);
     },
+    setChannelPresence: (channelKey, window) => {
+      core.channelPresence.set(channelKey, window);
+    },
     registerInboxChannel: (channelKey, options) => {
       core.inboxChannels.set(channelKey, options);
     },

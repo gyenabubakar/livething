@@ -60,14 +60,14 @@ export interface RejoinRuntime {
  * connection already in its old channels. For each durable membership the
  * engine re-runs the `revalidate` hook. On pass the connection is committed
  * via the server-subscribe primitive (`source: 'server'`), which sends
- * `__subscribeOk__` to the rejoining socket. Peers see `__memberOnline__`. On
- * reject the durable row is dropped, peers see `__memberLeave__`, and a
+ * `__subscribeOk__` to the rejoining socket. Peers see an `online` change. On
+ * reject the durable row is dropped, peers see a `leave` change, and a
  * `rejoin-rejected` `__error__` scoped to the channel is sent to the new socket
  * so the client knows that one channel did not restore.
  *
  * A row for a channel that no longer exists (renamed or removed between
  * deploys) is deleted, and the new socket gets the same `rejoin-rejected`
- * `__error__` scoped to that channel. Peers get no `__memberLeave__`, since
+ * `__error__` scoped to that channel. Peers get no `leave` change, since
  * nobody can be in a channel that does not exist.
  *
  * No-ops:

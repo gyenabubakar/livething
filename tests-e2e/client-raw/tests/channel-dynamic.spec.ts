@@ -416,12 +416,14 @@ test.describe('channel-dynamic', () => {
           const msgs = handles[name]!.messages;
 
           const joinIds = msgs
-            .filter((m) => m.event === '__memberJoin__')
-            .map((m) => String(m.payload.memberId));
+            .filter((m) => m.event === '__memberChanges__')
+            .flatMap((m) => m.payload.changes as { kind: string; memberId: string }[])
+            .filter((change) => change.kind === 'join')
+            .map((change) => String(change.memberId));
 
-          // Since 5d05a08, initial state arrives as __memberSync__ (one frame
-          // with all current members), not per-member __memberJoin__ frames.
-          // Include those connection ids so concurrent-subscribe assertions work.
+          // Initial state arrives as __memberSync__ (one frame with all current
+          // members), not as join changes. Include those connection ids so
+          // concurrent-subscribe assertions work.
           const syncIds = msgs
             .filter((m) => m.event === '__memberSync__')
             .flatMap((m) => {
@@ -491,7 +493,7 @@ test.describe('channel-dynamic', () => {
     const seenByB = await memberJoinSenders('b');
 
     // The connection IDs are server-issued, so assert that each side received
-    // a __memberJoin__ frame whose connection ID is not its own.
+    // a join change whose connection ID is not its own.
     const aOwnId = await page.evaluate(
       ({ h }) => {
         const msgs = (
@@ -755,7 +757,12 @@ test.describe('channel-dynamic', () => {
               for (const mb of members) ids.add(mb.memberId);
             }
 
-            if (m.event === '__memberJoin__') ids.add(String(m.payload.memberId));
+            if (m.event === '__memberChanges__') {
+              const changes = m.payload.changes as { kind: string; memberId: string }[];
+              for (const change of changes) {
+                if (change.kind === 'join') ids.add(String(change.memberId));
+              }
+            }
           }
 
           return ids;

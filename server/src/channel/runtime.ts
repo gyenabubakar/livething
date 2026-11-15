@@ -22,6 +22,7 @@ import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { SubscribeAttempt } from '~/_engine/runtime/subscribe-order.ts';
 import type { ChannelHooks, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { PresenceChange } from '~/channel/presence-batch.ts';
 import type { MembershipInsert, StoredMembership } from '~/channel/storage.ts';
 import type { ConnectionInfo, Logger } from '~/context.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
@@ -212,6 +213,15 @@ interface ChannelRuntime extends ChannelHooks {
   allocateDeliverySeq?(): number | undefined;
 
   broadcastToChannel(opts: BroadcastToChannelOptions): void;
+
+  /**
+   * Hand presence changes to the batcher. `joiner` just got its member sync, so it gets only
+   * the changes after this call.
+   */
+  recordPresence(scope: ChannelTarget, changes: PresenceChange[], joiner?: RuntimeConnection): void;
+
+  /** Whether the channel sends presence: a member sync on subscribe, then member changes. */
+  hasPresence(channelKey: string): boolean;
 
   handleRuntimeError(connection: RuntimeConnection, opts: SendRuntimeErrorOptions): Promise<void>;
 
@@ -513,26 +523,13 @@ export async function leaveChannel(
     });
   }
 
-  // Order: __memberLeave__ before __memberOffline__ — peers update the member
-  // list before reacting to the presence change.
-  if (memberGone()) {
-    if (isTrueLeave) {
-      runtime.broadcastToChannel({
-        channelName: scope.channelName,
-        event: '__memberLeave__',
-        payload: { memberId, meta: connection.meta },
-        excludeConnectionId: connection.id,
-        channelFamily: scope.channelFamily,
-      });
-    }
-
-    runtime.broadcastToChannel({
-      channelName: scope.channelName,
-      event: '__memberOffline__',
-      payload: { memberId },
-      excludeConnectionId: connection.id,
-      channelFamily: scope.channelFamily,
-    });
+  // Order: leave before offline — peers update the member list before reacting to the
+  // presence change.
+  if (memberGone() && runtime.hasPresence(scope.channelFamily ?? scope.channelName)) {
+    const changes: PresenceChange[] = [];
+    if (isTrueLeave) changes.push({ kind: 'leave', memberId, meta: connection.meta });
+    changes.push({ kind: 'offline', memberId });
+    runtime.recordPresence(scope, changes);
   }
 
   for (const hook of runtime.sessionEndHooks.get(channelKey) ?? []) {
@@ -569,8 +566,8 @@ interface RunSubscribeFlowOptions {
 
   /**
    * Restores a fresh socket from a stored membership. Runs `revalidate` instead
-   * of `check`/`commit` and skips `onSubscribe`. Peers get `__memberOnline__`,
-   * plus `__memberJoin__` first when a kick had ended the membership.
+   * of `check`/`commit` and skips `onSubscribe`. Peers get an `online` change,
+   * plus a `join` change first when a kick had ended the membership.
    */
   rejoining?: boolean;
 
@@ -721,7 +718,8 @@ async function runSubscribeFlow(
 
   runtime.persistAttachment(connection);
 
-  const members = snapshotMembers(runtime, scope, connection);
+  const presence = runtime.hasPresence(scope.channel.key);
+  const members = presence ? snapshotMembers(runtime, scope, connection) : [];
 
   const livething = buildChannelRouting(scope);
 
@@ -764,43 +762,30 @@ async function runSubscribeFlow(
     return;
   }
 
-  try {
-    runtime.sendProtocolMessage(connection, {
-      event: '__memberSync__',
-      payload: { members },
-      livething: { ...livething, source },
-    });
-  } catch (error) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, stored });
-    throw error;
-  }
+  if (presence) {
+    try {
+      runtime.sendProtocolMessage(connection, {
+        event: '__memberSync__',
+        payload: { members },
+        livething: { ...livething, source },
+      });
+    } catch (error) {
+      rollbackFailedSubscribe(runtime, connection, { scope, isDurable, stored });
+      throw error;
+    }
 
-  if (connection.closing) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, stored });
-    return;
-  }
+    if (connection.closing) {
+      rollbackFailedSubscribe(runtime, connection, { scope, isDurable, stored });
+      return;
+    }
 
-  // Order: __memberJoin__ (group changed) before __memberOnline__ (presence).
-  // A stored member coming back, or a new tab of a user already in the
-  // channel, skips __memberJoin__. A user whose other tab is live skips both.
-  if (!memberAlreadyJoined) {
-    runtime.broadcastToChannel({
-      channelName: scope.channelName,
-      event: '__memberJoin__',
-      payload: { memberId, meta: connection.meta },
-      excludeConnectionId: connection.id,
-      channelFamily: scope.channelFamily,
-    });
-  }
-
-  if (!memberWasPresent) {
-    runtime.broadcastToChannel({
-      channelName: scope.channelName,
-      event: '__memberOnline__',
-      payload: { memberId, meta: connection.meta },
-      excludeConnectionId: connection.id,
-      channelFamily: scope.channelFamily,
-    });
+    // Order: join (group changed) before online (presence). A stored member coming back, or
+    // a new tab of a user already in the channel, skips the join. A user whose other tab is
+    // live skips both, but still marks where its own changes start.
+    const changes: PresenceChange[] = [];
+    if (!memberAlreadyJoined) changes.push({ kind: 'join', memberId, meta: connection.meta });
+    if (!memberWasPresent) changes.push({ kind: 'online', memberId, meta: connection.meta });
+    runtime.recordPresence(scope, changes, connection);
   }
 
   // Auto-rejoin does not fire onSubscribe — the user already joined once, and
@@ -952,7 +937,7 @@ export interface SubscribeConnectionAsServerOptions {
  * Resolves to a no-op when the connection is already a member of the target
  * channel — calling subscribe on an existing membership is treated as
  * "make sure they are in", not as a re-subscribe. The wire-level no-op means
- * no extra `__subscribeOk__` and no extra `__memberJoin__` reach the client.
+ * no extra `__subscribeOk__` and no extra `join` change reach the client.
  *
  * That connection's later frames for the channel wait for this subscribe, as they
  * do for its own. Its `__unsubscribe__` during `check` cancels this subscribe,
@@ -1147,7 +1132,7 @@ export interface RemoveStoredMemberOptions {
 /**
  * End the membership of a user who is a stored member of a persistent channel
  * but has no live connection in it. There is no socket, so no `__kicked__` and
- * no leave hooks. Peers get `__memberLeave__`. A no-op while the user has a
+ * no leave hooks. Peers get a `leave` change. A no-op while the user has a
  * live connection in the channel, since that connection keeps the membership.
  */
 export function removeStoredMember(
@@ -1157,7 +1142,8 @@ export function removeStoredMember(
     | 'getDurableMembership'
     | 'deleteDurableMembership'
     | 'clearInbox'
-    | 'broadcastToChannel'
+    | 'recordPresence'
+    | 'hasPresence'
   >,
   opts: RemoveStoredMemberOptions,
 ): void {
@@ -1177,13 +1163,11 @@ export function removeStoredMember(
   runtime.deleteDurableMembership(userId, channelName, channelFamily);
   runtime.clearInbox?.(userId, channelName, channelFamily);
 
-  runtime.broadcastToChannel({
-    channelName,
-    event: '__memberLeave__',
-    payload: { memberId: userId, meta: stored.meta },
-    excludeConnectionId: undefined,
-    channelFamily,
-  });
+  if (runtime.hasPresence(channelFamily ?? channelName)) {
+    runtime.recordPresence({ channelName, channelFamily }, [
+      { kind: 'leave', memberId: userId, meta: stored.meta },
+    ]);
+  }
 }
 
 /** A `UserRef` kick also reaches the user's stored membership when no tab is live. */

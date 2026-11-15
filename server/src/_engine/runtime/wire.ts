@@ -120,7 +120,12 @@ export function sendReplay(
     messageId: wire.messageId,
   };
 
-  if (resolvedChannel !== null) livething.channel = resolvedChannel;
+  if (resolvedChannel !== null) {
+    livething.channel = resolvedChannel;
+    // A replayed channel message must not reach a member before a waiting presence change.
+    core.presenceBatcher?.flush(resolvedChannel, channelFamily);
+  }
+
   if (channelFamily !== null) livething.channelFamily = channelFamily;
 
   let frame: string;

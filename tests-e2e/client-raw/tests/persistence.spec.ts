@@ -81,6 +81,18 @@ async function frames(page: Page, id: string): Promise<WireFrame[]> {
   return page.evaluate((sid) => window.__wsFrames!(sid), id);
 }
 
+type MemberChange = { kind: string; memberId: string };
+
+function changesOf(frame: WireFrame, channel: string): MemberChange[] {
+  if (frame.event !== '__memberChanges__' || frame.metadata?.channel?.name !== channel) return [];
+
+  return frame.payload.changes as MemberChange[];
+}
+
+function hasChange(frame: WireFrame, channel: string, kind: string): boolean {
+  return changesOf(frame, channel).some((change) => change.kind === kind);
+}
+
 async function waitForFrame(
   page: Page,
   id: string,
@@ -105,7 +117,7 @@ test.describe('persistence', () => {
     await installRig(page);
   });
 
-  test('persistent channel auto-rejoins on reconnect with _memberOnline (no _memberJoin to existing peers)', async ({
+  test('persistent channel auto-rejoins on reconnect with an online change (no join change to existing peers)', async ({
     page,
   }, testInfo) => {
     const room = `persist-rejoin-${testInfo.testId}-${Date.now()}`;
@@ -133,27 +145,23 @@ test.describe('persistence', () => {
     // Alice reconnects — engine auto-rejoins her into archive-room.
     const alice2 = await connect(page, 'alice', room);
 
-    // Bob must see __memberOnline__ (Alice's new socket) but NOT __memberJoin__ —
+    // Bob must see an online change (Alice's new socket) but NO join change —
     // Alice was already a member of the group, only her presence changed.
-    const onlineFrame = await waitForFrame(
-      page,
-      bob,
-      (f) => f.event === '__memberOnline__' && f.metadata?.channel?.name === 'archive-room',
+    const onlineFrame = await waitForFrame(page, bob, (f) =>
+      hasChange(f, 'archive-room', 'online'),
     );
-    expect(onlineFrame.metadata?.channel?.name).toBe('archive-room');
+    const onlineChange = changesOf(onlineFrame, 'archive-room').find((c) => c.kind === 'online');
 
     const bobFrames = await frames(page, bob);
-    // Bob's own initial sync arrives as __memberSync__, not __memberJoin__.
-    // What matters: there is NOT a __memberJoin__ frame for Alice's member
-    // id. The __memberOnline__ frame for Alice should not be preceded by a
-    // matching __memberJoin__.
-    const memberJoinIdx = bobFrames.findIndex(
-      (f) =>
-        f.event === '__memberJoin__' &&
-        f.metadata?.channel?.name === 'archive-room' &&
-        f.payload.memberId === onlineFrame.payload.memberId,
+    // Bob's own initial sync arrives as __memberSync__, not as a join change.
+    // What matters: there is NO join change for Alice's member id.
+    const joinForAlice = bobFrames.some((f) =>
+      changesOf(f, 'archive-room').some(
+        (c) => c.kind === 'join' && c.memberId === onlineChange?.memberId,
+      ),
     );
-    expect(memberJoinIdx).toBe(-1);
+    expect(onlineChange?.memberId).toBeTruthy();
+    expect(joinForAlice).toBe(false);
 
     // Alice's new socket should NOT need to send __subscribe__ — broadcasts
     // to archive-room still reach her.
@@ -235,7 +243,7 @@ test.describe('persistence', () => {
     expect(rejoinedSubscribeOk).toBeUndefined();
   });
 
-  test('plain disconnect on persistent channel broadcasts _memberOffline but NOT _memberLeave', async ({
+  test('plain disconnect on persistent channel broadcasts an offline change but NOT a leave change', async ({
     page,
   }, testInfo) => {
     const room = `persist-disconnect-${testInfo.testId}-${Date.now()}`;
@@ -262,21 +270,13 @@ test.describe('persistence', () => {
     await close(page, alice1);
     // Wait for the offline broadcast to actually arrive instead of a fixed
     // delay, then check the same snapshot for the leave that must be absent.
-    await waitForFrame(
-      page,
-      bob,
-      (f) => f.event === '__memberOffline__' && f.metadata?.channel?.name === 'archive-room',
-    );
+    await waitForFrame(page, bob, (f) => hasChange(f, 'archive-room', 'offline'));
 
     const after = (await frames(page, bob)).slice(beforeLen);
-    const offline = after.find(
-      (f) => f.event === '__memberOffline__' && f.metadata?.channel?.name === 'archive-room',
-    );
+    const offline = after.find((f) => hasChange(f, 'archive-room', 'offline'));
     expect(offline).toBeTruthy();
 
-    const leave = after.find(
-      (f) => f.event === '__memberLeave__' && f.metadata?.channel?.name === 'archive-room',
-    );
+    const leave = after.find((f) => hasChange(f, 'archive-room', 'leave'));
     expect(leave).toBeUndefined();
   });
 

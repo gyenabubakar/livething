@@ -776,6 +776,12 @@ export interface ChannelHandle<
   members(): ConnectionInfo<Meta>[];
 
   /**
+   * How many connections are subscribed to this channel: the length of `members()`, without
+   * building the list. A user with two tabs in the channel counts twice.
+   */
+  memberCount(): number;
+
+  /**
    * Subscribe a connection to this channel from server code.
    *
    * Runs the same flow as a client-initiated subscribe: `check`, `commit`,
@@ -801,14 +807,14 @@ export interface ChannelHandle<
    * connections, use `ctx.connections.get(ref).close()` instead.
    *
    * Sends `__kicked__` to each removed socket, fires `onUnsubscribe`, and
-   * broadcasts `__memberLeave__` / `__memberOffline__` to remaining members
+   * sends `leave` and `offline` member changes to remaining members
    * once the member has no live connection left in the channel.
    * Every targeted connection is kicked even when a leave hook throws. After
    * all of them finished, the returned promise rejects with an
    * `AggregateError` whose `errors` hold every hook failure.
    *
    * On a persistent channel, a `UserRef` also reaches a user who is a member
-   * but has no live connection in the channel: peers get `__memberLeave__`,
+   * but has no live connection in the channel: peers get a `leave` change,
    * and no hooks run because there is no socket.
    *
    * A kick is permanent: on a persistent channel it drops the durable
@@ -1102,6 +1108,8 @@ export interface ConnectionlessChannelHandle<Meta = Record<string, unknown>> {
   broadcast(event: string, payload: unknown): void;
   /** Snapshot of the channel's members. */
   members(): ConnectionInfo<Meta>[];
+  /** How many connections are in the channel, without building the list. */
+  memberCount(): number;
   /**
    * Remove a user (or everyone holding a tag) from this channel for good. The
    * durable membership row is dropped, so the user does not auto-rejoin on

@@ -61,6 +61,13 @@ function countFrame(data) {
   const text = typeof data === 'string' ? data : data.toString();
   const event = text.slice(2, text.indexOf('"', 2));
   counts.set(event, (counts.get(event) ?? 0) + 1);
+  if (event === '__memberChanges__') {
+    for (const change of JSON.parse(text)[1].changes) {
+      const key = `member ${change.kind}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
   wake();
 }
 
@@ -207,7 +214,7 @@ await step(
     await waitFor(() => count('__subscribeOk__') >= connectionCount, 'small join');
     if (mode === 'livething') {
       const pairs = roomCount * ((roomSize * (roomSize - 1)) / 2);
-      await waitFor(() => count('__memberOnline__') >= pairs, 'small join presence');
+      await waitFor(() => count('member online') >= pairs, 'small join presence');
     }
   },
 );
@@ -247,10 +254,7 @@ for (const size of bigRooms) {
 
     await waitFor(() => count('__subscribeOk__') >= size, 'big join');
     if (mode === 'livething') {
-      await waitFor(
-        () => count('__memberOnline__') >= (size * (size - 1)) / 2,
-        'big join presence',
-      );
+      await waitFor(() => count('member online') >= (size * (size - 1)) / 2, 'big join presence');
     }
   });
 }

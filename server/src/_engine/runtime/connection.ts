@@ -607,7 +607,7 @@ const runningCloses = new WeakMap<EngineRuntimeTypes.RuntimeConnection, Promise<
  * handleShutdown drives this directly so the cleanup completes before shutdown
  * returns, and the adapter's own close event may call it again for the same
  * connection, even while the first cleanup is still running. Every call after
- * the first waits for that one cleanup, so onDisconnect and `__memberLeave__`
+ * the first waits for that one cleanup, so onDisconnect and the member leave
  * run once.
  */
 export function handleConnectionClose(
@@ -653,7 +653,7 @@ async function closeConnection(
   try {
     // A user-supplied onDisconnect hook (or a plugin's onDisconnect) may
     // throw. Contain the throw so the rest of the close cleanup —
-    // channel leaves (which broadcast `__memberLeave__` to peers), keepalive
+    // channel leaves (which tell peers the member left), keepalive
     // timer teardown — still runs. Otherwise channel members never see
     // the leave and timers leak.
     await runtime.runConnectionLifecycle('disconnect', ctx);
@@ -1283,7 +1283,7 @@ export async function handleShutdown(
 
   // Send the wire-level close frame first so clients see GOING_AWAY
   // promptly, then drive the per-connection cleanup chain ourselves
-  // (onDisconnect hooks, __memberLeave__ broadcasts, channel leaves,
+  // (onDisconnect hooks, member leave changes, channel leaves,
   // keepalive timer teardown). The cleanup must be awaited so the adapter
   // instance is not evicted before it lands and leaves channel peers with
   // ghost members.

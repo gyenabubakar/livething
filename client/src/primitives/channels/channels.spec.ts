@@ -341,14 +341,14 @@ describe('membership and presence', () => {
     });
     await p;
     ws.emit({
-      event: '__memberJoin__',
-      payload: { memberId: 'c2' },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'join', memberId: 'c2' }] },
       metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().has('c2')).toBe(true);
     ws.emit({
-      event: '__memberLeave__',
-      payload: { memberId: 'c2' },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'leave', memberId: 'c2' }] },
       metadata: { channel: { name: 'general' } },
     });
 

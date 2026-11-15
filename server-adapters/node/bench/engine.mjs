@@ -55,6 +55,12 @@ function heapUsed() {
   return process.memoryUsage().heapUsed;
 }
 
+// Presence changes wait up to one batch window, so a step that joins or leaves waits for the
+// window to end, and the batch counts in that step.
+function presenceWindowEnds() {
+  return new Promise((resolve) => setTimeout(resolve, 1100));
+}
+
 // Let the engine's background work (onConnect, frames still in line) finish.
 function settle() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -63,6 +69,8 @@ function settle() {
 const results = [];
 async function step(name, measure, run) {
   await settle();
+  // Collect first, so the garbage of the step before is not counted in this one.
+  globalThis.gc?.();
   const cpuBefore = process.cpuUsage();
   const started = performance.now();
   await run();
@@ -143,6 +151,8 @@ await step(`join rooms of ${roomSize}`, { units: connectionCount, unit: 'join' }
   for (let index = 0; index < connectionCount; index++) {
     await connections[index].message(joinFrames[index]);
   }
+
+  await presenceWindowEnds();
 });
 
 counts.clear();
@@ -165,6 +175,7 @@ if (bigRoomSize > 0) {
   const bigJoin = JSON.stringify(['__subscribe__', null, channel('room:big')]);
   await step(`join one room of ${bigRoomSize}`, { units: bigRoomSize, unit: 'join' }, async () => {
     for (let i = 0; i < bigRoomSize; i++) await connections[i].message(bigJoin);
+    await presenceWindowEnds();
   });
 
   counts.clear();
@@ -179,6 +190,7 @@ if (bigRoomSize > 0) {
 
 await step('disconnect', { units: connectionCount, unit: 'connection' }, async () => {
   for (const connection of connections) await connection.close(1000, '');
+  await presenceWindowEnds();
 });
 connections = [];
 

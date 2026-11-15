@@ -107,6 +107,9 @@ export interface ContextCommonDeps {
     channelFamily: string | null,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>[];
 
+  /** How many connections the channel has, without building a list of them. */
+  countChannelMembers(channelName: string, channelFamily: string | null): number;
+
   kickChannelMembers(opts: ChannelRuntime.KickChannelMembersOptions): Promise<void>;
 
   /**

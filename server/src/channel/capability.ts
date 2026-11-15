@@ -3,6 +3,7 @@ import { LiveThingConfigError } from '@livething/core';
 import { assertConfigShape, assertUniqueCapabilityKinds } from '~/_define/capability-checks.ts';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { assertTimerDelay } from '~/_engine/validation.ts';
 import { channel as channelFactory, scope as scopeFactory } from '~/channel/channel.ts';
 import {
   check as checkFactory,
@@ -12,7 +13,7 @@ import {
   onUnsubscribe as onUnsubscribeFactory,
   revalidate as revalidateFactory,
 } from '~/channel/lifecycle.ts';
-import { membershipMarker } from '~/channel/marker.ts';
+import { membershipMarker, presenceMarker } from '~/channel/marker.ts';
 import { channelRuntimePrimitive } from '~/channel/service.ts';
 import { fillChannelTemplate } from '~/channel/template.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
@@ -34,8 +35,25 @@ const CHANNEL_HOOK_PRIMITIVES = {
 
 const CHANNEL_CONFIG = {
   hooks: ['check', ...Object.keys(CHANNEL_HOOK_PRIMITIVES)],
-  options: ['subscribe', 'capabilities', 'rateLimit', 'membership', 'replay'],
+  options: ['subscribe', 'capabilities', 'rateLimit', 'membership', 'presence', 'replay'],
 };
+
+/** The `presence` option as a batch window in milliseconds, or `false` for no presence. */
+function presenceWindow(presence: unknown, context: string): number | false | undefined {
+  if (presence === undefined || presence === true) return undefined;
+
+  if (presence === false) return false;
+
+  const windowMs = (presence as { windowMs?: unknown } | null)?.windowMs;
+  const keys = typeof presence === 'object' && presence !== null ? Object.keys(presence) : [];
+  if (keys.length !== 1 || keys[0] !== 'windowMs') {
+    throw new LiveThingConfigError(`${context}: 'presence' must be true, false, or { windowMs }.`);
+  }
+
+  assertTimerDelay(windowMs, 'presence.windowMs', context);
+
+  return windowMs as number;
+}
 
 const MEMBERSHIP_VALUES = ['persistent', 'ephemeral'];
 
@@ -197,6 +215,9 @@ export class ChannelBuilder {
     if (cfg.membership !== undefined) {
       this.children.push(membershipMarker(cfg.membership === 'persistent'));
     }
+
+    const presence = presenceWindow(cfg.presence, context);
+    if (presence !== undefined) this.children.push(presenceMarker(presence));
 
     if (cfg.replay !== undefined) {
       const build = deps.buildReplay;

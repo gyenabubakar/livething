@@ -906,6 +906,8 @@ interface ConnectionlessChannelHandleBase<TOutgoing, TMeta> {
   broadcast<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): void;
   /** Snapshot of the channel's members. */
   members(): ConnectionInfo<TMeta>[];
+  /** How many connections are in the channel, without building the list. */
+  memberCount(): number;
   /**
    * Remove a user (or everyone holding a tag) from this channel for good. The
    * durable membership row is dropped, so the user does not auto-rejoin on

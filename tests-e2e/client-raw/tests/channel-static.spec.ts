@@ -228,9 +228,7 @@ test.describe('channel-static', () => {
     await expect(page.getByTestId('channel-stream-end')).toHaveText('yes');
   });
 
-  test('framework _memberJoin frame delivers when a peer subscribes', async ({
-    browser,
-  }, testInfo) => {
+  test('a join change is delivered when a peer subscribes', async ({ browser }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();
@@ -244,7 +242,7 @@ test.describe('channel-static', () => {
     await openPage(b, room, 'bob');
     await b.getByTestId('subscribe-room').click();
 
-    // Alice (existing member) should see the framework _memberJoin frame
+    // Alice (existing member) should see the join change
     // referencing bob's connection on the 'room' channel.
     await expect(a.getByTestId('member-joins')).toContainText('room:');
 
@@ -252,7 +250,7 @@ test.describe('channel-static', () => {
     await ctxB.close();
   });
 
-  test('joining client receives _subscribeOk before existing member observes _memberJoin', async ({
+  test('joining client receives _subscribeOk before existing member observes the join change', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -271,16 +269,14 @@ test.describe('channel-static', () => {
     // Bob (the joining client) must receive _subscribeOk before we check Alice's side.
     // This assertion waits for Bob's ack to arrive, confirming the server sent it first.
     await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
-    // Only now verify that Alice (existing member) observed the _memberJoin.
+    // Only now verify that Alice (existing member) observed the join change.
     await expect(a.getByTestId('member-joins')).toContainText('room:');
 
     await ctxA.close();
     await ctxB.close();
   });
 
-  test('framework _memberLeave frame delivers on manual _unsubscribe', async ({
-    browser,
-  }, testInfo) => {
+  test('a leave change is delivered on manual _unsubscribe', async ({ browser }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();
@@ -303,7 +299,7 @@ test.describe('channel-static', () => {
   });
 
   test(
-    'framework _memberLeave frame delivers on connection drop',
+    'a leave change is delivered on connection drop',
     { tag: '@drop' },
     async ({ browser }, testInfo) => {
       const room = `test-${testInfo.testId}`;
@@ -356,7 +352,7 @@ test.describe('channel-static', () => {
   );
 
   test(
-    'peer still receives _memberLeave on a second channel when the first channel onUnsubscribe throws',
+    'peer still receives a leave change on a second channel when the first channel onUnsubscribe throws',
     { tag: '@drop' },
     async ({ browser }, testInfo) => {
       // A throwing onUnsubscribe is contained to its membership so cleanup and
@@ -383,7 +379,7 @@ test.describe('channel-static', () => {
 
       await ctxThrower.close();
 
-      // Observer must receive _memberLeave for `room2` even though the
+      // Observer must receive a leave change for `room2` even though the
       // first channel's onUnsubscribe threw.
       await expect(observer.getByTestId('member-leaves')).toContainText('room2:', {
         timeout: 15_000,
@@ -394,7 +390,7 @@ test.describe('channel-static', () => {
   );
 
   test(
-    'peer still receives _memberLeave when the leaver onDisconnect hook throws',
+    'peer still receives a leave change when the leaver onDisconnect hook throws',
     { tag: '@drop' },
     async ({ browser }, testInfo) => {
       // A throwing onDisconnect is contained so channel memberships are released
@@ -583,6 +579,21 @@ test.describe('channel-static', () => {
       );
     }
 
+    async function countLeaveChanges(name: 'observer') {
+      return page.evaluate(
+        ({ h, name }) => {
+          const handles = h as unknown as Record<
+            string,
+            { messages: { event: string; payload: Record<string, unknown> }[] }
+          >;
+          return handles[name]!.messages.filter((m) => m.event === '__memberChanges__')
+            .flatMap((m) => m.payload.changes as { kind: string }[])
+            .filter((change) => change.kind === 'leave').length;
+        },
+        { h: handle, name },
+      );
+    }
+
     await expect
       .poll(
         async () =>
@@ -623,7 +634,7 @@ test.describe('channel-static', () => {
     );
 
     await expect.poll(async () => countEvents('observer', 'kick-failed')).toBe(1);
-    await expect.poll(async () => countEvents('observer', '__memberLeave__')).toBe(2);
+    await expect.poll(async () => countLeaveChanges('observer')).toBe(2);
     expect(await countEvents('observer', 'kick-ack')).toBe(0);
     expect(await countEvents('thrower_a', '__kicked__')).toBe(1);
     expect(await countEvents('thrower_b', '__kicked__')).toBe(1);
@@ -725,7 +736,7 @@ test.describe('channel-static', () => {
   }, testInfo) => {
     // Server-side subscribe semantics — calling subscribe on a connection
     // that is already a member of the channel resolves immediately and
-    // does NOT emit a second _subscribeOk or another _memberJoin.
+    // does NOT emit a second _subscribeOk or another join change.
     await openPage(page, `test-${testInfo.testId}`);
 
     const counts = await page.evaluate(async () => {
@@ -761,15 +772,16 @@ test.describe('channel-static', () => {
         subscribeOks: got.filter(
           (m) => m.event === '__subscribeOk__' && m.metadata?.channel?.name === 'room2',
         ).length,
-        memberJoins: got.filter(
-          (m) => m.event === '__memberJoin__' && m.metadata?.channel?.name === 'room2',
-        ).length,
+        memberJoins: got
+          .filter((m) => m.event === '__memberChanges__' && m.metadata?.channel?.name === 'room2')
+          .flatMap((m) => m.payload.changes as { kind: string }[])
+          .filter((change) => change.kind === 'join').length,
       };
     });
 
     expect(counts.subscribeOks).toBe(1);
     // No prior member in room2 to sync, and the second trigger no-ops, so
-    // zero _memberJoin frames reach this connection for room2.
+    // zero join changes reach this connection for room2.
     expect(counts.memberJoins).toBe(0);
   });
 

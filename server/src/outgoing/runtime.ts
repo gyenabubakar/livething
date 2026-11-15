@@ -67,6 +67,25 @@ export interface OutgoingRuntime {
   logger: Pick<PublicApi.Logger, 'warn' | 'error'>;
 
   generateId(prefix?: string): string;
+
+  /**
+   * Runs before an app message goes to a channel's members, so the presence changes still
+   * waiting for that channel reach them first.
+   */
+  beforeChannelMessage?: (channelName: string, channelFamily: string | null) => void;
+}
+
+/** Send the channel's waiting presence changes before an app message to that channel. */
+function flushPresenceFor(
+  runtime: Pick<OutgoingRuntime, 'beforeChannelMessage'>,
+  routing: EngineRuntimeTypes.RoutingTarget | undefined,
+  event: string,
+): void {
+  if (!runtime.beforeChannelMessage || routing?.channel === undefined) return;
+
+  if (Protocol.isProtocolEventName(event)) return;
+
+  runtime.beforeChannelMessage(routing.channel, routing.channelFamily ?? null);
 }
 
 /** A send's JSON payload and, for a binary send, its bytes. */
@@ -115,7 +134,7 @@ function undeclaredOutgoing(
  * sent as: an `emits()` event (or a stream) for a text frame, a `binary({ emits })` event
  * for a binary frame.
  *
- * Real protocol events — the fixed set the engine sends, like `__memberJoin__`
+ * Real protocol events — the fixed set the engine sends, like `__memberChanges__`
  * — are allowed, as text only. An unknown `__x__` name is not, so it cannot slip past the
  * scope check by looking protocol-shaped. A plugin's namespaced
  * `emits()` lives in the normal outgoing/channel maps, so it is found by the
@@ -410,6 +429,7 @@ export function sendThroughPipeline(
     }
   }
 
+  flushPresenceFor(runtime, routing, event);
   const frame = transportFrame(serializeWireFrameJson(event, payloadJson, livething), bytes);
   markSeqScope(frame, livething);
   const sent = connection.descriptor.send(frame) !== false;
@@ -485,6 +505,7 @@ type BroadcastRuntime = Pick<
   | 'logger'
   | 'outgoingHooks'
   | 'livethingStampHooks'
+  | 'beforeChannelMessage'
 >;
 
 function hasBroadcastHooks(runtime: BroadcastRuntime): boolean {
@@ -562,6 +583,7 @@ interface PrepareBroadcastOptions {
   routing: EngineRuntimeTypes.RoutingTarget | undefined;
   event: string;
   payload: unknown;
+  payloadJson?: string;
 }
 
 function prepareBroadcast(
@@ -580,12 +602,13 @@ function prepareBroadcast(
 
   // From here every frame, recipient and hook uses this text or its plain copy, so a toJSON()
   // runs once for the whole broadcast and every peer gets the same payload.
-  const payloadJson = serializePayload(event, payload);
+  const payloadJson = opts.payloadJson ?? serializePayload(event, payload);
 
   // Stamp once for the whole broadcast: all recipients share one deliverySeq/messageId, so replay stores one row, not one per member.
   const baseLiveThing = buildLiveThing(routing) as Record<string, unknown>;
   applyLiveThingStampers(runtime.livethingStampHooks, event, baseLiveThing);
 
+  flushPresenceFor(runtime, routing, event);
   if (bytes === undefined) return { event, payloadJson, baseLiveThing };
 
   // Check the envelope now, so a send over 64 KiB fails once for the whole send. The frame
@@ -941,6 +964,15 @@ export interface BroadcastToChannelOptions {
 
   /** Whether to also deliver to `excludeConnectionId`. Defaults to `false`. */
   includeSelf?: boolean;
+
+  /** Only these members get it, not the whole channel. Presence batches use this. */
+  recipients?: Iterable<EngineRuntimeTypes.RuntimeConnection>;
+
+  /**
+   * `payload` as JSON text that the caller already built. Presence batches use this, so each
+   * change is turned into JSON once, not once for every member that gets it.
+   */
+  payloadJson?: string;
 }
 
 export function broadcastToChannel(
@@ -970,6 +1002,7 @@ export function broadcastToChannel(
       routing: { channel: channelName, channelFamily },
       event,
       payload,
+      payloadJson: opts.payloadJson,
     });
   } catch (error) {
     rethrowIfConfigError(error);
@@ -1039,7 +1072,7 @@ export function broadcastToChannel(
   }
 
   let recipients = 0;
-  for (const connection of members ?? []) {
+  for (const connection of opts.recipients ?? members ?? []) {
     if (excludeConnectionId && !(includeSelf ?? false) && connection.id === excludeConnectionId) {
       continue;
     }

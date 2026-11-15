@@ -348,16 +348,18 @@ const KickedFrame = frame('__kicked__', v.strictObject({ reason: v.string() }), 
  * and tabs) and the connection id on an ephemeral channel or for an anonymous
  * connection.
  */
-const MemberPayload = v.strictObject({
-  memberId: v.string(),
-  meta: v.optional(v.record(v.string(), v.unknown())),
-});
-const MemberJoinFrame = frame('__memberJoin__', MemberPayload, channelMeta);
-const MemberLeaveFrame = frame('__memberLeave__', MemberPayload, channelMeta);
-const MemberOnlineFrame = frame('__memberOnline__', MemberPayload, channelMeta);
-const MemberOfflineFrame = frame(
-  '__memberOffline__',
-  v.strictObject({ memberId: v.string() }),
+const MemberChange = v.variant('kind', [
+  v.strictObject({
+    kind: v.picklist(['join', 'leave', 'online']),
+    memberId: v.string(),
+    meta: v.optional(v.record(v.string(), v.unknown())),
+  }),
+  v.strictObject({ kind: v.literal('offline'), memberId: v.string() }),
+]);
+/** The changes since the member's last presence frame, oldest first. */
+const MemberChangesFrame = frame(
+  '__memberChanges__',
+  v.strictObject({ changes: v.array(MemberChange) }),
   channelMeta,
 );
 /**
@@ -432,10 +434,7 @@ export const OutgoingProtocolFrame = v.union([
   StreamEndFrame,
   ErrorFrame,
   KickedFrame,
-  MemberJoinFrame,
-  MemberLeaveFrame,
-  MemberOnlineFrame,
-  MemberOfflineFrame,
+  MemberChangesFrame,
   MemberSyncFrame,
   ReceivedFanoutFrame,
   ReadFanoutFrame,
@@ -620,10 +619,7 @@ type NudgeOkFrame = v.InferOutput<typeof NudgeOkFrame>;
 type StreamEndFrame = v.InferOutput<typeof StreamEndFrame>;
 type ErrorFrame = v.InferOutput<typeof ErrorFrame>;
 type KickedFrame = v.InferOutput<typeof KickedFrame>;
-type MemberJoinFrame = v.InferOutput<typeof MemberJoinFrame>;
-type MemberLeaveFrame = v.InferOutput<typeof MemberLeaveFrame>;
-type MemberOnlineFrame = v.InferOutput<typeof MemberOnlineFrame>;
-type MemberOfflineFrame = v.InferOutput<typeof MemberOfflineFrame>;
+type MemberChangesFrame = v.InferOutput<typeof MemberChangesFrame>;
 type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
 type ReceivedFanoutFrame = v.InferOutput<typeof ReceivedFanoutFrame>;
 type ReadFanoutFrame = v.InferOutput<typeof ReadFanoutFrame>;
@@ -654,10 +650,7 @@ const OUTGOING_NAMES = [
   '__streamEnd__',
   '__error__',
   '__kicked__',
-  '__memberJoin__',
-  '__memberLeave__',
-  '__memberOnline__',
-  '__memberOffline__',
+  '__memberChanges__',
   '__memberSync__',
   '__received__',
   '__read__',
