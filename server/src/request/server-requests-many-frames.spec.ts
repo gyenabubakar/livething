@@ -62,7 +62,8 @@ describe('serverRequests() on a long-lived connection', () => {
     const frames = 15_000;
     for (let i = 0; i < frames; i++) await handle.handleMessage(frame);
 
-    expect(lookups).toHaveLength(frames);
-    expect(lookups.at(-1)).toBe('ok');
-  });
+    expect(lookups).toEqual(Array.from({ length: frames }, () => 'ok'));
+    // About 0.2 s on a laptop, but about 8 s on the Node 22 CI runner. The test checks
+    // behaviour after many frames, not speed.
+  }, 30_000);
 });

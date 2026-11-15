@@ -205,6 +205,20 @@ describe('presence batching', () => {
     ]);
   });
 
+  it('opens no window for a first change that cannot become JSON', () => {
+    const t = setup();
+    t.members.add(member('alice'));
+
+    t.batcher.record(room, [{ kind: 'join', memberId: 'carol', meta: { n: 1n } }]);
+    t.joins('dave');
+
+    expect(t.logger.error).toHaveBeenCalledOnce();
+    expect(t.take().find((frame) => frame.to.includes('alice'))?.changes).toEqual([
+      'join dave',
+      'online dave',
+    ]);
+  });
+
   it('stops its timers on close', () => {
     const t = setup();
     t.members.add(member('alice'));

@@ -1,39 +1,58 @@
 // The server half of the load benchmark. `load.mjs` forks it, so its CPU time and memory are
 // the server's alone. Run with `--expose-gc`.
+//
+// Modes: `livething` (WebSocket), `livething-sse` (server-sent events), `ws` (the same app on
+// plain `ws`), `socket.io` (WebSocket) and `socket.io-polling` (HTTP long-polling).
 import { writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { Session } from 'node:inspector/promises';
 import { setup } from '@livething/server-node';
-import { sse, websocket } from '@livething/server/adapters';
+import { sse } from '@livething/server/adapters';
 import { WebSocketServer } from 'ws';
 import { buildHuddleDefinition } from './huddle-definition.mjs';
 
 const mode = process.argv[2] ?? 'livething';
-// sse() needs keepalive(), which a WebSocket-only run leaves out.
-const overSse = process.env.LOAD_TRANSPORT === 'sse';
+const presence = process.env.LOAD_PRESENCE !== 'off';
 
 function listen(httpServer) {
+  // Node closes an idle keep-alive connection after 5 seconds. The pauses between steps are
+  // longer, so every POST and poll would then open a new connection at once, more than the
+  // operating system queues. Production servers behind a load balancer keep idle connections
+  // for about a minute too.
+  httpServer.keepAliveTimeout = 65_000;
   return new Promise((resolve) => {
     httpServer.listen(0, '127.0.0.1', () => resolve(httpServer.address().port));
   });
 }
 
-async function startLiveThing() {
+async function startLiveThing(overSse) {
   const livething = setup();
 
-  const presence = process.env.LOAD_PRESENCE !== 'off';
-  const huddleEndpoint = livething.bind(
-    buildHuddleDefinition({ keepalivePings: overSse, presence }),
-    {
-      transports: overSse ? [websocket(), sse()] : [websocket()],
-      logger: { debug() {}, info() {}, warn() {}, error: console.error },
-    },
-  );
+  const huddleEndpoint = livething.bind(buildHuddleDefinition({ presence, keepalive: overSse }), {
+    ...(overSse ? { transports: [sse()] } : {}),
+    logger: { debug() {}, info() {}, warn() {}, error: console.error },
+  });
   const httpServer = createServer((request, response) => huddleEndpoint.handle(request, response));
   httpServer.on('upgrade', huddleEndpoint.upgrade);
   await huddleEndpoint.ready();
 
   return listen(httpServer);
+}
+
+// A binary message: "ltbf", version 1, the envelope's length, the JSON envelope, the bytes.
+function readBinaryFrame(data) {
+  const length = data.readUInt32BE(5);
+  return {
+    envelope: JSON.parse(data.toString('utf8', 9, 9 + length)),
+    bytes: data.subarray(9 + length),
+  };
+}
+
+function binaryFrame(envelope, bytes) {
+  const json = Buffer.from(JSON.stringify(envelope));
+  const header = Buffer.from([0x6c, 0x74, 0x62, 0x66, 1, 0, 0, 0, 0]);
+  header.writeUInt32BE(json.length, 5);
+  return Buffer.concat([header, json, bytes]);
 }
 
 // The same app on plain `ws`, with no framework: the floor LiveThing is measured against.
@@ -42,12 +61,32 @@ async function startPlainWs() {
   const webSocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false });
   const rooms = new Map();
 
+  function broadcast(name, sender, frame) {
+    for (const member of rooms.get(name) ?? []) {
+      if (member !== sender) member.send(frame);
+    }
+  }
+
   httpServer.on('upgrade', (request, socket, head) => {
     webSocketServer.handleUpgrade(request, socket, head, (ws) => {
       const userId = new URL(request.url, 'http://x').searchParams.get('user');
       const joined = new Set();
       ws.send(JSON.stringify(['__connected__', {}, null]));
-      ws.on('message', (data) => {
+      ws.on('message', (data, isBinary) => {
+        if (isBinary) {
+          const { envelope, bytes } = readBinaryFrame(data);
+          const [event, , metadata] = envelope;
+          if (event === 'upload-avatar') {
+            ws.send(binaryFrame(['avatar-preview', null, null], bytes));
+          } else if (event === 'share-screen-frame') {
+            const routing = { channel: metadata.channel };
+            const frame = binaryFrame(['screen-frame', { from: userId }, routing], bytes);
+            broadcast(metadata.channel.name, ws, frame);
+          }
+
+          return;
+        }
+
         const [event, payload, metadata] = JSON.parse(data.toString());
         if (event === 'echo') {
           ws.send(JSON.stringify(['echoed', payload, null]));
@@ -57,7 +96,7 @@ async function startPlainWs() {
           if (!members) rooms.set(name, (members = new Set()));
 
           members.add(ws);
-          joined.add(members);
+          joined.add(name);
           ws.send(JSON.stringify(['__subscribeOk__', {}, metadata]));
         } else if (event === 'send-message') {
           const frame = JSON.stringify([
@@ -65,15 +104,17 @@ async function startPlainWs() {
             { text: payload.text, from: userId },
             { channel: metadata.channel },
           ]);
-          for (const member of rooms.get(metadata.channel.name) ?? []) {
-            if (member !== ws) member.send(frame);
-          }
+          broadcast(metadata.channel.name, ws, frame);
         } else if (event === 'get-profile') {
           ws.send(JSON.stringify(['get-profile', { userId }, metadata]));
         }
       });
       ws.on('close', () => {
-        for (const members of joined) members.delete(ws);
+        for (const name of joined) {
+          const members = rooms.get(name);
+          members.delete(ws);
+          if (members.size === 0) rooms.delete(name);
+        }
       });
     });
   });
@@ -81,7 +122,54 @@ async function startPlainWs() {
   return listen(httpServer);
 }
 
-const port = mode === 'ws' ? await startPlainWs() : await startLiveThing();
+// The same app on Socket.IO. Socket.IO has no server-sent events: when WebSocket is blocked, it
+// falls back to HTTP long-polling, so that is the transport its fallback run uses.
+async function startSocketIo(transport) {
+  const { Server } = await import('socket.io');
+  const httpServer = createServer();
+  const io = new Server(httpServer, {
+    transports: [transport],
+    perMessageDeflate: false,
+    httpCompression: false,
+    serveClient: false,
+  });
+
+  io.on('connection', (socket) => {
+    const userId = socket.handshake.query.user;
+    socket.emit('connected', {});
+
+    socket.on('echo', (payload) => socket.emit('echoed', payload));
+    socket.on('get-profile', (_payload, reply) => reply({ userId }));
+    socket.on('join', (room, reply) => {
+      socket.join(room);
+      reply({});
+    });
+    socket.on('send-message', (room, payload) => {
+      socket.to(room).emit('message', { text: payload.text, from: userId });
+    });
+    socket.on('upload-avatar', (bytes) => socket.emit('avatar-preview', bytes));
+
+    socket.on('share-screen-frame', (room, bytes) => {
+      socket.to(room).emit('screen-frame', { from: userId }, bytes);
+    });
+  });
+
+  return listen(httpServer);
+}
+
+const starters = {
+  livething: () => startLiveThing(false),
+  'livething-sse': () => startLiveThing(true),
+  ws: startPlainWs,
+  'socket.io': () => startSocketIo('websocket'),
+  'socket.io-polling': () => startSocketIo('polling'),
+};
+
+if (!starters[mode]) {
+  throw new Error(`Unknown mode ${mode}. Use ${Object.keys(starters).join(', ')}.`);
+}
+
+const port = await starters[mode]();
 
 const inspector = new Session();
 inspector.connect();
@@ -90,9 +178,12 @@ process.on('message', async (message) => {
   if (message === 'exit') process.exit(0);
 
   if (message === 'stats') {
+    // The forced GC makes the memory numbers stable. A step starts after it (`cpuAfterGc`) and
+    // ends before the next one (`cpu`), so its CPU time does not include it.
+    const cpu = process.cpuUsage();
     globalThis.gc?.();
     globalThis.gc?.();
-    process.send({ cpu: process.cpuUsage(), memory: process.memoryUsage() });
+    process.send({ cpu, cpuAfterGc: process.cpuUsage(), memory: process.memoryUsage() });
   } else if (message === 'profile-start') {
     await inspector.post('Profiler.enable');
     await inspector.post('Profiler.setSamplingInterval', { interval: 100 });

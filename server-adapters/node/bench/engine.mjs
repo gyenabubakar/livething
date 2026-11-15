@@ -183,7 +183,9 @@ if (bigRoomSize > 0) {
   const deliveries = sends * (bigRoomSize - 1);
   const bigFrame = JSON.stringify(['send-message', { text: 'hello room' }, channel('room:big')]);
   await step(`fan-out to ${bigRoomSize}`, { units: deliveries, unit: 'delivery' }, async () => {
-    for (let i = 0; i < sends; i++) await connections[i % 20].message(bigFrame);
+    // Only members of the room can send to it, so a room smaller than 20 has fewer senders.
+    const senders = Math.min(20, bigRoomSize);
+    for (let i = 0; i < sends; i++) await connections[i % senders].message(bigFrame);
     if (count('message') !== deliveries) throw new Error('fan-out lost frames');
   });
 }

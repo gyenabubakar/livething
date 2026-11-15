@@ -48,6 +48,7 @@
     "test:watch": "vitest --passWithNoTests",
     "test:h3-packages": "node check-h3-packages.mjs",
     "typecheck": "tsc --noEmit",
+    "bench": "vitest bench --run --project websocket",
     "clean": "rm -rf dist node_modules"
   },
   "peerDependencies": {
@@ -86,17 +87,19 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0",
-    "@livething/client": "workspace:*",
     "@fastify/websocket": "^11.3.0",
     "@hono/node-server": "^2.1.1",
+    "@livething/client": "workspace:*",
     "@livething/server": "workspace:*",
+    "@types/better-sqlite3": "^9.6.0",
     "crossws": "^0.4.12",
     "crossws-v1": "npm:crossws@0.3.5",
     "fastify": "^5.12.3",
     "h3": "^2.0.1-rc.31",
     "h3-v1": "npm:h3@1.15.11",
     "hono": "^4.13.7",
+    "socket.io": "4.8.4",
+    "socket.io-client": "4.8.4",
     "vite": "8.0.5",
     "vite-plugin-dts": "^4.5.4"
   }

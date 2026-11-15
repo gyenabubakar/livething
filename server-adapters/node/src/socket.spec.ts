@@ -92,7 +92,12 @@ describe('sendToWs', () => {
     }
 
     async function until(check: () => boolean): Promise<void> {
-      while (!check()) await new Promise((resolve) => setTimeout(resolve, 5));
+      const deadline = Date.now() + 2_000;
+      while (!check()) {
+        if (Date.now() > deadline) throw new Error('timed out waiting for the frames');
+
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
     }
 
     it('delivers a shared frame of every header size as the same text to every socket', async () => {

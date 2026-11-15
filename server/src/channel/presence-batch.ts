@@ -141,16 +141,11 @@ export function createPresenceBatcher(deps: PresenceBatcherDeps): PresenceBatche
 
   return {
     record(scope, changes, joiner) {
-      const open = waiting(scope);
-      // With no window open, a joiner that adds no change has nothing to skip, and opening a
-      // window here would hold back the next change on a quiet channel.
-      if (!open && changes.length === 0) return;
-
-      const batch = open ?? openWindow(scope);
+      // Built now, so a bad `meta` fails here, for this change only, and not in the timer.
+      const serialized: string[] = [];
       for (const change of changes) {
-        // Built now, so a bad `meta` fails here, for this change only, and not in the timer.
         try {
-          batch.changes.push(JSON.stringify(change));
+          serialized.push(JSON.stringify(change));
         } catch (error) {
           deps.logger.error('[livething] a presence change could not become JSON; skipping it', {
             channel: scope.channelName,
@@ -161,6 +156,13 @@ export function createPresenceBatcher(deps: PresenceBatcherDeps): PresenceBatche
         }
       }
 
+      const open = waiting(scope);
+      // With no window open, a call that adds no change has nothing to send or skip, and
+      // opening a window here would hold back the next change on a quiet channel.
+      if (!open && serialized.length === 0) return;
+
+      const batch = open ?? openWindow(scope);
+      batch.changes.push(...serialized);
       if (joiner) batch.starts.set(joiner, batch.changes.length);
 
       if (!open) send(batch);

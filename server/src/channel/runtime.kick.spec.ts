@@ -145,6 +145,7 @@ describe('channels.kick end-to-end', () => {
     expect(kicked.every((p) => p.livething.channel === 'room:general')).toBe(true);
     expect(new Set(kicked.map((p) => p.connectionId))).toEqual(new Set(['banned', 'also_banned']));
 
+    expect(leaves).toHaveLength(2);
     expect(new Set(leaves.map((change) => change.memberId))).toEqual(
       new Set(['banned', 'also_banned']),
     );

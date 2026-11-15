@@ -493,7 +493,7 @@ function sharedFrame(prepared: PreparedBroadcast): TransportFrame {
   prepared.frame =
     prepared.bytes === undefined
       ? { kind: 'text', text, shared: true }
-      : transportFrame(text, prepared.bytes);
+      : { kind: 'bytes', bytes: encodeBinaryFrame(text, prepared.bytes), shared: true };
   markSeqScope(prepared.frame, prepared.baseLiveThing);
 
   return prepared.frame;
