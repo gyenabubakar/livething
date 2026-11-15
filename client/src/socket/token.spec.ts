@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { encodeBase64Url } from '@livething/core';
+import { encodeBase64Url, LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
@@ -44,6 +44,13 @@ describe('connect() with a token', () => {
       'huddle.v2',
       `livething-v1.token.${encodeBase64Url('session-8f2c')}`,
     ]);
+  });
+
+  // The server reads the first name with the token prefix, so an app name there would be the token.
+  it('refuses an app protocol that starts with the token prefix', () => {
+    expect(() =>
+      build(connect('wss://huddle.test/huddle', { protocols: ['livething-v1.token.huddle'] })),
+    ).toThrow(LiveThingConfigError);
   });
 
   it("offers only the app's protocols when the token function returns nothing", async () => {
