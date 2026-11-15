@@ -61,7 +61,8 @@ export interface RejoinRuntime {
  * engine re-runs the `revalidate` hook. On pass the connection is committed
  * via the server-subscribe primitive (`source: 'server'`), which sends
  * `__subscribeOk__` to the rejoining socket. In a channel with presence, peers
- * see an `online` change. On reject a `rejoin-rejected` `__error__` scoped to
+ * see an `online` change when the user had no other live connection in the
+ * channel. On reject a `rejoin-rejected` `__error__` scoped to
  * the channel is sent to the new socket so the client knows that one channel
  * did not restore. When no other connection of the user is in the channel, the
  * durable row is also dropped, and in a channel with presence peers see a

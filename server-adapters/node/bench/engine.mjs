@@ -1,5 +1,6 @@
-// LiveThing's own CPU time and memory, with no sockets. Each connection is a transport that only
-// counts the frames the engine hands it, so the numbers leave out the kernel and `ws`.
+// The process CPU time and memory of the LiveThing engine, with no sockets. Each connection is a
+// transport that only counts the frames the engine hands it, so the numbers leave out the kernel
+// and `ws`. They include this script's own small loop that sends the frames and waits.
 //
 //   node --expose-gc bench/engine.mjs [connections]
 //

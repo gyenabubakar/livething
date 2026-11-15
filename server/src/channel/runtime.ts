@@ -574,8 +574,10 @@ interface RunSubscribeFlowOptions {
 
   /**
    * Restores a fresh socket from a stored membership. Runs `revalidate` instead
-   * of `check`/`commit` and skips `onSubscribe`. Peers get an `online` change,
-   * plus a `join` change first when a kick had ended the membership.
+   * of `check`/`commit` and skips `onSubscribe`. In a channel with presence,
+   * peers get an `online` change when the user had no other live connection in
+   * the channel. A rejoin of a persistent channel never sends `join`: it starts
+   * only from a stored row.
    */
   rejoining?: boolean;
 
