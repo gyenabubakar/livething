@@ -430,6 +430,8 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
         persistAttachment() {},
         sendProtocolMessage() {},
         broadcastToChannel() {},
+        hasPresence: () => true,
+        recordPresence() {},
         async handleRuntimeError() {},
         isChannelDurable: () => false,
         persistMembership: () => {},

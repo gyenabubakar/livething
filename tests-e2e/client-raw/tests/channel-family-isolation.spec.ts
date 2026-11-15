@@ -46,7 +46,7 @@ test.describe('channel-family-isolation', () => {
     await ctxAsk.close();
   });
 
-  test('kick(tag, reason) is scope-bound — only the targeted family sees __kicked__ / __memberLeave__', async ({
+  test('kick(tag, reason) is scope-bound — only the targeted family sees __kicked__ and a leave change', async ({
     browser,
   }, testInfo) => {
     const room = `iso-kick-${testInfo.testId}`;
@@ -86,7 +86,7 @@ test.describe('channel-family-isolation', () => {
     // Target receives __kicked__ only for publicRooms — private membership is intact.
     await expect(target.getByTestId('kicked')).toHaveText('publicRooms:room:1:cleanup');
 
-    // The private-family witness must NOT see a __memberLeave__ for the target —
+    // The private-family witness must NOT see a leave change for the target —
     // the kick targeted publicRooms only, so private members are unaffected.
     await expect(otherFamily.getByTestId('member-leaves')).toHaveText('');
 
@@ -187,7 +187,7 @@ test.describe('channel-family-isolation', () => {
     await admin.getByTestId('kick-public-target').click();
     // The handler sends 'kick-acknowledged' AFTER the kick promise resolves.
     // If kick were not awaited, the ack could arrive before the target's
-    // __kicked__ + __memberLeave__ processing completes. We pin the ordering by
+    // __kicked__ + leave change processing completes. We pin the ordering by
     // asserting the ack lands AND the target shows __kicked__ once we look.
     await expect(admin.getByTestId('kick-ack')).toHaveText('publicRooms');
     await expect(target.getByTestId('kicked')).toHaveText('publicRooms:room:1:cleanup');

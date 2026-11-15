@@ -51,11 +51,15 @@
 				];
 			}
 
-			if (data.event === '__memberLeave__') {
-				memberLeaves = [
-					...memberLeaves,
-					`${data.metadata?.channel?.family ?? 'static'}:${data.metadata?.channel?.name ?? ''}:${data.payload.memberId ?? ''}`,
-				];
+			if (data.event === '__memberChanges__') {
+				for (const change of data.payload.changes) {
+					if (change.kind !== 'leave') continue;
+
+					memberLeaves = [
+						...memberLeaves,
+						`${data.metadata?.channel?.family ?? 'static'}:${data.metadata?.channel?.name ?? ''}:${change.memberId ?? ''}`,
+					];
+				}
 			}
 
 			if (data.event === 'room-message') {

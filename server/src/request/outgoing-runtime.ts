@@ -513,6 +513,7 @@ export function makeServerRequestsPrimitive(
         if (connectionId) runtime.rejectForConnection(connectionId);
       });
 
+      const wrapped = new WeakSet<object>();
       engine.extendContext((baseCtx) => {
         const ctx = baseCtx as Record<PropertyKey, unknown> & {
           connection?: PublicApi.ConnectionRef;
@@ -541,8 +542,11 @@ export function makeServerRequestsPrimitive(
         }
 
         // ctx.connections.get(ref).request — ask one specific connection by ref.
+        // A connection's contexts share one `connections` and one `users` manager, so each one
+        // is wrapped once: wrapping it on every context build would stack one more layer per frame.
         const connections = ctx.connections;
-        if (connections && typeof connections.get === 'function') {
+        if (connections && typeof connections.get === 'function' && !wrapped.has(connections)) {
+          wrapped.add(connections);
           const coreGet = connections.get.bind(connections);
           connections.get = (ref: PublicApi.ConnectionRef) => {
             const handle = coreGet(ref) as PublicApi.ConnectionHandle & Record<string, unknown>;
@@ -574,7 +578,8 @@ export function makeServerRequestsPrimitive(
 
         if (ctx.user) attachUserRequest(ctx.user);
         const users = ctx.users;
-        if (users && typeof users.get === 'function') {
+        if (users && typeof users.get === 'function' && !wrapped.has(users)) {
+          wrapped.add(users);
           const coreUsersGet = users.get.bind(users);
           users.get = (id: string) => {
             const handle = coreUsersGet(id);

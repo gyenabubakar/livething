@@ -33,6 +33,7 @@ import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import type { PresenceBatcher } from '~/channel/presence-batch.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
@@ -48,6 +49,9 @@ const MAX_PURGE_RECORDS = 10_000;
 
 /** The message limit when the adapter gives none: Cloudflare's, so Node behaves the same. */
 const DEFAULT_MESSAGE_BYTES = 32 * 1024 * 1024;
+
+/** How long a channel collects presence changes before it sends them together. */
+const DEFAULT_PRESENCE_WINDOW_MS = 500;
 
 function resolveMessageLimits(
   options: EngineAdapterTypes.EngineOptions,
@@ -174,6 +178,15 @@ export class EngineCore {
 
   /** Per-channel `membership` overrides. Explicit `'persistent'` opts in. */
   readonly channelDurabilityOverrides = new Map<string, boolean>();
+
+  /**
+   * Per-channel `presence` settings: the batch window in milliseconds, or `false` when the
+   * channel sends no presence. A channel not listed sends presence with the default window.
+   */
+  readonly channelPresence = new Map<string, number | false>();
+
+  /** Batches presence changes per channel. Made on the first change. */
+  presenceBatcher?: PresenceBatcher;
 
   /**
    * Resolved inbox settings per channel key, populated by the `inbox()`
@@ -431,6 +444,14 @@ export class EngineCore {
 
   isChannelDurable(channelKey: string): boolean {
     return this.channelDurabilityOverrides.get(channelKey) === true;
+  }
+
+  hasPresence(channelKey: string): boolean {
+    return this.channelPresence.get(channelKey) !== false;
+  }
+
+  presenceWindowMs(channelKey: string): number {
+    return this.channelPresence.get(channelKey) || DEFAULT_PRESENCE_WINDOW_MS;
   }
 
   isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean {

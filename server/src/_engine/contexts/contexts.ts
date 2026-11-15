@@ -155,6 +155,64 @@ function buildUserHandle(
   return handle;
 }
 
+/** The top-level send/broadcast/close/user/connection members of a connection ctx. */
+interface MessagingApi {
+  /** The dep bag the members were built from. */
+  deps: MessagingDeps;
+  send: (event: string, payload: unknown) => boolean;
+  broadcast: (event: string, payload: unknown, options?: PublicApi.BroadcastOptions) => void;
+  connection: PublicApi.ConnectionRef;
+  connections: PublicApi.ConnectionsManager<Record<string, unknown>>;
+  user: PublicApi.UserHandle<Record<string, unknown>>;
+  users: PublicApi.UsersManager<Record<string, unknown>>;
+  setMeta: (patch: Record<string, unknown>) => void;
+  close: (code?: number, reason?: string) => void;
+}
+
+/**
+ * The messaging members of one connection's contexts. None of them depends on the frame, so
+ * they are built on the first context of the connection and shared by the later ones: a
+ * frame's context then costs a few property writes instead of a dozen closures.
+ */
+function messagingApiOf(
+  connection: EngineRuntimeTypes.RuntimeConnection,
+  deps: MessagingDeps,
+): MessagingApi {
+  const cached = connection.messagingApi as MessagingApi | undefined;
+  if (cached?.deps === deps) return cached;
+
+  const api: MessagingApi = {
+    deps,
+    send: (event, payload) =>
+      deps.sendThroughPipeline(connection, { routing: undefined, event, payload }),
+    broadcast: (event, payload, options) => {
+      deps.broadcastToConnections(deps.connections.values(), {
+        event,
+        payload,
+        options,
+        excludeConnectionId: connection.id,
+        excludeResumeToken: connection.resumeToken,
+      });
+    },
+    connection: buildConnectionRef(connection.id, connection.userId, deps.instanceId),
+    connections: buildConnectionsManager(deps),
+    // Anonymous connections have no user identity — `ctx.user` still exists so
+    // handler code never has to null-check it, but it addresses no live
+    // connection (usersByKey never indexes an anonymous connection under '').
+    user: buildUserHandle(userKeyOf(connection) ?? '', deps),
+    users: { get: (id: string) => buildUserHandle(id, deps) },
+    setMeta: (patch) => {
+      Object.assign(connection.meta, patch);
+      deps.persistAttachment(connection);
+    },
+    close: (code, reason) => connection.descriptor.close(code, reason),
+  };
+
+  connection.messagingApi = api;
+
+  return api;
+}
+
 /**
  * Attach the top-level send/broadcast/close/user/connection messaging surface
  * to a connection ctx. Written onto the target rather than returned so the
@@ -165,36 +223,16 @@ function assignMessagingApi(
   connection: EngineRuntimeTypes.RuntimeConnection,
   deps: MessagingDeps,
 ): void {
-  target.send = (event: string, payload: unknown) =>
-    deps.sendThroughPipeline(connection, { routing: undefined, event, payload });
+  const api = messagingApiOf(connection, deps);
+  target.send = api.send;
+  target.broadcast = api.broadcast;
+  target.connection = api.connection;
+  target.connections = api.connections;
 
-  target.broadcast = (event: string, payload: unknown, options?: PublicApi.BroadcastOptions) => {
-    deps.broadcastToConnections(deps.connections.values(), {
-      event,
-      payload,
-      options,
-      excludeConnectionId: connection.id,
-      excludeResumeToken: connection.resumeToken,
-    });
-  };
-
-  target.connection = buildConnectionRef(connection.id, connection.userId, deps.instanceId);
-
-  target.connections = buildConnectionsManager(deps);
-
-  // Anonymous connections have no user identity — `ctx.user` still exists so
-  // handler code never has to null-check it, but it addresses no live
-  // connection (usersByKey never indexes an anonymous connection under '').
-  target.user = buildUserHandle(userKeyOf(connection) ?? '', deps);
-
-  target.users = { get: (id: string) => buildUserHandle(id, deps) };
-
-  target.setMeta = (patch: Record<string, unknown>) => {
-    Object.assign(connection.meta, patch);
-    deps.persistAttachment(connection);
-  };
-
-  target.close = (code?: number, reason?: string) => connection.descriptor.close(code, reason);
+  target.user = api.user;
+  target.users = api.users;
+  target.setMeta = api.setMeta;
+  target.close = api.close;
 }
 
 /**

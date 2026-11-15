@@ -6,7 +6,6 @@ import { runIntercepts } from './runtime.ts';
 import type { FrameOwner, InterceptFrame, InterceptHandler } from './intercept.ts';
 
 type AsyncContextStore = {
-  connectionId?: string;
   [key: PropertyKey]: unknown;
 };
 

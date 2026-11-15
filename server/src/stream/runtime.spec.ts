@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { currentConnectionId, registerCallContext } from '~/_engine/call-context.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -14,7 +15,6 @@ import { wrapStreamGenerator } from './shared.ts';
 import type { RunStreamOptions } from './runtime.ts';
 
 type AsyncContextStore = {
-  connectionId?: string;
   [key: PropertyKey]: unknown;
 };
 
@@ -1154,6 +1154,7 @@ describe('stream/runtime', () => {
     // plugin APIs the generator body calls (e.g. hooks.getState()) resolve to
     // the stream owner instead of `undefined`.
     const { runtime } = createStreamRuntime();
+    registerCallContext(() => new AsyncLocalStorage());
     const connection = createConnection();
 
     const idsObservedFromBody: (string | undefined)[] = [];
@@ -1161,9 +1162,9 @@ describe('stream/runtime', () => {
     const stream = {
       stream: { nudges: [], broadcast: false },
       generator: async function* () {
-        idsObservedFromBody.push(runtime.asyncContext.getStore()?.connectionId);
+        idsObservedFromBody.push(currentConnectionId());
         yield { token: 'a' };
-        idsObservedFromBody.push(runtime.asyncContext.getStore()?.connectionId);
+        idsObservedFromBody.push(currentConnectionId());
         yield { token: 'b' };
       },
     };
@@ -1176,6 +1177,7 @@ describe('stream/runtime', () => {
     });
 
     expect(idsObservedFromBody).toEqual(['c1', 'c1']);
+    expect(currentConnectionId()).toBeUndefined();
     expect(runtime.asyncContext.getStore()).toBeUndefined();
   });
 

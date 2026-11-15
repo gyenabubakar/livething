@@ -776,6 +776,12 @@ export interface ChannelHandle<
   members(): ConnectionInfo<Meta>[];
 
   /**
+   * How many connections are subscribed to this channel: the length of `members()`, without
+   * building the list. A user with two tabs in the channel counts twice.
+   */
+  memberCount(): number;
+
+  /**
    * Subscribe a connection to this channel from server code.
    *
    * Runs the same flow as a client-initiated subscribe: `check`, `commit`,
@@ -800,20 +806,25 @@ export interface ChannelHandle<
    * To drop one specific socket without kicking the rest of its user's
    * connections, use `ctx.connections.get(ref).close()` instead.
    *
-   * Sends `__kicked__` to each removed socket, fires `onUnsubscribe`, and
-   * broadcasts `__memberLeave__` / `__memberOffline__` to remaining members
-   * once the member has no live connection left in the channel.
+   * Sends `__kicked__` to each removed socket and fires `onUnsubscribe`. When
+   * the channel has presence, the remaining members get `leave`, and
+   * `offline` if the member was online, once the member is gone: on an
+   * ephemeral channel each connection is its own member, and on a persistent
+   * channel the member is the user, gone when no connection of theirs is left.
    * Every targeted connection is kicked even when a leave hook throws. After
    * all of them finished, the returned promise rejects with an
    * `AggregateError` whose `errors` hold every hook failure.
    *
    * On a persistent channel, a `UserRef` also reaches a user who is a member
-   * but has no live connection in the channel: peers get `__memberLeave__`,
-   * and no hooks run because there is no socket.
+   * but has no live connection in the channel: its row is dropped, peers get
+   * a `leave` change when the channel has presence, and no hooks run because
+   * there is no socket.
    *
-   * A kick is permanent: on a persistent channel it drops the durable
-   * membership row, so the user is NOT auto-rejoined on their next reconnect.
-   * To boot a socket but keep its membership, close the connection instead.
+   * When a kick removes a user's last connection in a persistent channel, it
+   * drops the durable membership row, so the user is NOT auto-rejoined on their
+   * next reconnect. A `TagRef` kick that leaves the user another connection in
+   * the channel keeps the row. To disconnect a socket but keep its membership, close
+   * the connection instead.
    */
   kick(
     target:
@@ -1102,10 +1113,13 @@ export interface ConnectionlessChannelHandle<Meta = Record<string, unknown>> {
   broadcast(event: string, payload: unknown): void;
   /** Snapshot of the channel's members. */
   members(): ConnectionInfo<Meta>[];
+  /** How many connections are in the channel, without building the list. */
+  memberCount(): number;
   /**
-   * Remove a user (or everyone holding a tag) from this channel for good. The
-   * durable membership row is dropped, so the user does not auto-rejoin on
-   * reconnect.
+   * Remove a user (or every connection holding a tag) from this channel. On a
+   * persistent channel, when the kick removes a user's last connection there,
+   * or a `UserRef` names a member with no live connection, the durable
+   * membership row is dropped, so the user does not auto-rejoin on reconnect.
    */
   kick(target: UserRef | TagRef, opts: OptsParameter2): Promise<void>;
 }

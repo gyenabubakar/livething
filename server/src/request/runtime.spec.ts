@@ -1,11 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { currentConnectionId, registerCallContext } from '~/_engine/call-context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { handleRequest } from './runtime.ts';
 import type { RequestPrimitive } from './request.ts';
 
 type AsyncContextStore = {
-  connectionId?: string;
   [key: PropertyKey]: unknown;
 };
 
@@ -267,6 +267,7 @@ describe('request/runtime', () => {
 
   it('runs the request handler inside the connection async context, auto-scoped on throw', async () => {
     const asyncContext = makeAsyncContext();
+    registerCallContext(() => new AsyncLocalStorage());
     const runtime = {
       asyncContext,
       logger: { error: vi.fn() },
@@ -279,7 +280,7 @@ describe('request/runtime', () => {
       __livething: 'request',
       event: 'status',
       handler: vi.fn(async () => {
-        seen = asyncContext.getStore()?.connectionId;
+        seen = currentConnectionId();
         throw new Error('boom');
       }),
     } as unknown as RequestPrimitive;
@@ -297,6 +298,7 @@ describe('request/runtime', () => {
     ).rejects.toThrow('boom');
 
     expect(seen).toBe('c1');
+    expect(currentConnectionId()).toBeUndefined();
     expect(asyncContext.getStore()).toBeUndefined();
   });
 

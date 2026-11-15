@@ -20,6 +20,8 @@ export interface CallDescriptor {
   readonly channelKey?: string;
   /** The `base` this code belongs to, when it is not the app's own (a plugin's `authenticate` hook). */
   readonly baseId?: symbol;
+  /** The connection this code runs for. Code with no connection of its own keeps its caller's. */
+  readonly connectionId?: string;
 }
 
 export interface CallContext extends CallDescriptor {
@@ -35,23 +37,35 @@ export interface CallContext extends CallDescriptor {
  */
 let callAsyncContext: AsyncContext<CallContext | undefined> | undefined;
 
-/** Set for the whole run of an `onOutgoing` hook, across its awaits. */
-let outgoingHookAsyncContext: AsyncContext<true | undefined> | undefined;
+/**
+ * Set for the whole run of an `onOutgoing` hook, across its awaits. It keeps the sender's
+ * connection, which the hook's `ctx` is built for although the hook runs outside any call.
+ */
+let outgoingHookAsyncContext: AsyncContext<{ connectionId?: string } | undefined> | undefined;
 
 export function registerCallContext(factory: AsyncContextFactory): void {
   callAsyncContext ??= factory<CallContext | undefined>();
-  outgoingHookAsyncContext ??= factory<true | undefined>();
+  outgoingHookAsyncContext ??= factory<{ connectionId?: string } | undefined>();
 }
 
 /** Run an `onOutgoing` hook: no call context, and sends inside it are not shown to the hooks. */
 export function runOutgoingHook<T>(fn: () => T): T {
   return outgoingHookAsyncContext
-    ? outgoingHookAsyncContext.run(true, () => runOutsideCall(fn))
+    ? outgoingHookAsyncContext.run({ connectionId: currentConnectionId() }, () =>
+        runOutsideCall(fn),
+      )
     : runOutsideCall(fn);
 }
 
 export function isInsideOutgoingHook(): boolean {
-  return outgoingHookAsyncContext?.getStore() === true;
+  return outgoingHookAsyncContext?.getStore() != null;
+}
+
+/** The connection the running code is for, if any. */
+export function currentConnectionId(): string | undefined {
+  return (
+    callAsyncContext?.getStore()?.connectionId ?? outgoingHookAsyncContext?.getStore()?.connectionId
+  );
 }
 
 export function runInCall<T>(call: CallContext, fn: () => T): T {

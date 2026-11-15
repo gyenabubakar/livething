@@ -28,7 +28,7 @@ import {
   storedRowStorageBytes,
 } from '~/_engine/runtime/stored-row.ts';
 import { connectionStorageKeyOf, RESERVED_USER_ID_PREFIX } from '~/_engine/runtime/user-key.ts';
-import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
+import { serializeWireFrameJson } from '~/_engine/runtime/wire-serialize.ts';
 import {
   abortActiveStream,
   assertNoConcurrentStream,
@@ -300,7 +300,8 @@ function sendStoredChunk(
   opts: StoredChunkFrame,
 ): boolean {
   const { chunk, eventName, streamId, scopeMarkers } = opts;
-  const wire = serializeWireFrame(eventName, JSON.parse(chunk.payload), {
+  // The row holds the JSON this engine wrote, so it goes into the frame as it is.
+  const wire = serializeWireFrameJson(eventName, chunk.payload, {
     ...scopeMarkers,
     streamId,
     streamDurability: 'persistent',

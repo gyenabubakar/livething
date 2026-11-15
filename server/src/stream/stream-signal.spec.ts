@@ -17,7 +17,7 @@ import { cancelStream, runStream } from './runtime.ts';
  * `allowConcurrent`.
  */
 
-type AsyncContextStore = { connectionId?: string; [key: PropertyKey]: unknown };
+type AsyncContextStore = { [key: PropertyKey]: unknown };
 
 function createConnection(id = 'c1'): RuntimeConnection {
   return {

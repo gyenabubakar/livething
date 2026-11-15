@@ -3,6 +3,7 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
+import type { PresenceChange, PresenceScope } from '~/channel/presence-batch.ts';
 import type { MembershipInsert, StoredMembership } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
 import { assertLocalRef } from './refs.ts';
@@ -45,6 +46,14 @@ interface ChannelRuntime
   ): void;
 
   broadcastToChannel(opts: ChannelPrimitive.BroadcastToChannelOptions): void;
+
+  recordPresence(
+    scope: PresenceScope,
+    changes: PresenceChange[],
+    joiner?: EngineRuntimeTypes.RuntimeConnection,
+  ): void;
+
+  hasPresence(channelKey: string): boolean;
 
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,

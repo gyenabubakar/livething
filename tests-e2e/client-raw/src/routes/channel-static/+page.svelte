@@ -47,21 +47,18 @@
 				}
 			}
 
-			if (data.event === '__memberJoin__' && data.metadata?.channel?.name) {
-				memberJoins = [...memberJoins, `${data.metadata.channel?.name}:${data.payload.memberId}`];
+			if (data.event === '__memberChanges__' && data.metadata?.channel?.name) {
+				for (const change of data.payload.changes) {
+					const entry = `${data.metadata.channel?.name}:${change.memberId}`;
+					if (change.kind === 'join') memberJoins = [...memberJoins, entry];
+					if (change.kind === 'leave') memberLeaves = [...memberLeaves, entry];
+				}
 			}
 
 			if (data.event === '__memberSync__' && data.metadata?.channel?.name) {
 				for (const m of data.payload.members) {
 					memberJoins = [...memberJoins, `${data.metadata.channel?.name}:${m.memberId}`];
 				}
-			}
-
-			if (data.event === '__memberLeave__' && data.metadata?.channel?.name) {
-				memberLeaves = [
-					...memberLeaves,
-					`${data.metadata.channel?.name}:${data.payload.memberId}`,
-				];
 			}
 
 			if (data.event === 'start-channel-stream' && typeof data.payload?.index === 'number') {

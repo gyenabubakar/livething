@@ -40,6 +40,23 @@ const drivers: [string, () => ReturnType<typeof createSql>][] = [
 ];
 
 describe.each(drivers)('createSql on %s', (_driver, openSql) => {
+  it('keeps a column named __proto__ as a plain column', () => {
+    const runtime = openSql();
+    try {
+      const row = runtime.provider
+        .exec<Record<string, unknown>>("SELECT 1 AS __proto__, x'00' AS bytes")
+        .one();
+
+      if (!row) throw new Error('expected one row');
+
+      expect(Object.keys(row)).toEqual(['__proto__', 'bytes']);
+      expect(Object.getPrototypeOf(row)).toBe(Object.prototype);
+      expect(Object.getOwnPropertyDescriptor(row, '__proto__')?.value).toBe(1);
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('runs real SQLite reads, writes, raw results, and schema batches', () => {
     const runtime = openSql();
     try {
@@ -366,6 +383,115 @@ describe('createSql', () => {
     expect(database.isOpen).toBe(true);
     expect(database.prepare('SELECT key FROM __livething_kv').all()).toEqual([{ key: 'topic' }]);
     database.close();
+  });
+});
+
+// The provider keeps prepared statements, so these run the same SQL text again after the schema changed.
+describe.each(drivers)('createSql statement reuse on %s', (_driver, openSql) => {
+  it('gives a SELECT * the columns added since it last ran', () => {
+    const sql = openSql();
+    try {
+      sql.provider.exec('CREATE TABLE rooms (id TEXT)');
+      sql.provider.exec("INSERT INTO rooms VALUES ('general')");
+      expect(sql.provider.exec('SELECT * FROM rooms').toArray()).toEqual([{ id: 'general' }]);
+
+      sql.provider.exec("ALTER TABLE rooms ADD COLUMN topic TEXT DEFAULT 'launch'");
+
+      expect(sql.provider.exec('SELECT * FROM rooms').toArray()).toEqual([
+        { id: 'general', topic: 'launch' },
+      ]);
+    } finally {
+      sql.close();
+    }
+  });
+
+  it.each([
+    ['a temp table', 'CREATE TEMP TABLE rooms (id TEXT)', 'rooms'],
+    ['an attached database', "ATTACH ':memory:' AS archive", 'archive.rooms'],
+  ])('gives a SELECT * the columns added to %s', (_place, setup, table) => {
+    const sql = openSql();
+    try {
+      sql.provider.exec(setup);
+      if (table === 'archive.rooms') sql.provider.exec('CREATE TABLE archive.rooms (id TEXT)');
+      sql.provider.exec(`INSERT INTO ${table} VALUES ('general')`);
+      expect(sql.provider.exec(`SELECT * FROM ${table}`).toArray()).toEqual([{ id: 'general' }]);
+
+      sql.provider.exec(
+        `-- rooms get a topic\n/* default */ ALTER TABLE ${table} ADD COLUMN topic TEXT DEFAULT 'launch'`,
+      );
+
+      expect(sql.provider.exec(`SELECT * FROM ${table}`).toArray()).toEqual([
+        { id: 'general', topic: 'launch' },
+      ]);
+    } finally {
+      sql.close();
+    }
+  });
+
+  it('runs a write that starts with many comments in linear time', () => {
+    const sql = openSql();
+    try {
+      sql.provider.exec('CREATE TABLE rooms (id TEXT)');
+      const started = performance.now();
+      sql.provider.exec(`${'/* c */ '.repeat(10_000)}INSERT INTO rooms VALUES ('general')`);
+
+      expect(performance.now() - started).toBeLessThan(1000);
+    } finally {
+      sql.close();
+    }
+  });
+
+  it('gives a SELECT * the new columns after a batch that failed halfway', () => {
+    const sql = openSql();
+    try {
+      sql.provider.exec('CREATE TEMP TABLE rooms (id TEXT)');
+      expect(sql.provider.exec('SELECT * FROM rooms').toArray()).toEqual([]);
+
+      expect(() =>
+        sql.provider.exec(
+          "DROP TABLE temp.rooms; CREATE TEMP TABLE rooms (id TEXT, topic TEXT); INSERT INTO temp.rooms VALUES ('general', 'launch'); INSERT INTO missing VALUES (1)",
+        ),
+      ).toThrow();
+
+      expect(sql.provider.exec('SELECT * FROM rooms').toArray()).toEqual([
+        { id: 'general', topic: 'launch' },
+      ]);
+    } finally {
+      sql.close();
+    }
+  });
+
+  it('reads a table that was dropped and made again with other columns', () => {
+    const sql = openSql();
+    try {
+      sql.provider.exec('CREATE TABLE rooms (id TEXT)');
+      expect(sql.provider.exec('SELECT * FROM rooms').toArray()).toEqual([]);
+
+      sql.provider.exec('DROP TABLE rooms');
+      sql.provider.exec('CREATE TABLE rooms (name TEXT, size INTEGER)');
+      sql.provider.exec("INSERT INTO rooms VALUES ('general', 3)");
+
+      expect(sql.provider.exec('SELECT * FROM rooms').toArray()).toEqual([
+        { name: 'general', size: 3 },
+      ]);
+    } finally {
+      sql.close();
+    }
+  });
+
+  it('still runs a query after many other queries', () => {
+    const sql = openSql();
+    try {
+      sql.provider.exec('CREATE TABLE rooms (id TEXT)');
+      sql.provider.exec("INSERT INTO rooms VALUES ('general')");
+      expect(sql.provider.exec('SELECT id FROM rooms').one()).toEqual({ id: 'general' });
+
+      for (let i = 0; i < 300; i++) sql.provider.exec(`SELECT ${i} AS n FROM rooms`).one();
+
+      expect(sql.provider.exec('SELECT id FROM rooms').one()).toEqual({ id: 'general' });
+    } finally {
+      sql.close();
+    }
   });
 });
 

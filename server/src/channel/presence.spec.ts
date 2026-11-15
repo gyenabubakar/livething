@@ -10,7 +10,8 @@ import {
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
-import type { BroadcastToChannelOptions, LeaveChannelOptions } from '~/channel/runtime.ts';
+import type { PresenceChange } from '~/channel/presence-batch.ts';
+import type { LeaveChannelOptions } from '~/channel/runtime.ts';
 import type { MembershipInsert, StoredMembership } from '~/channel/storage.ts';
 
 const room = { channelName: 'room:general', channelFamily: 'rooms' } as const;
@@ -34,7 +35,7 @@ function createConnection(id: string, userId: string): RuntimeConnection {
   } as unknown as RuntimeConnection;
 }
 
-function createRuntime(durable: boolean) {
+function createRuntime(durable: boolean, presenceOn = true) {
   const rows = new Map<string, StoredMembership>();
   const presence: { event: string; payload: Record<string, unknown> }[] = [];
   const protocol: {
@@ -81,8 +82,15 @@ function createRuntime(durable: boolean) {
         livething: livething as Record<string, unknown>,
       });
     },
-    broadcastToChannel({ event, payload }: BroadcastToChannelOptions) {
-      presence.push({ event, payload: payload as Record<string, unknown> });
+    broadcastToChannel() {},
+    hasPresence: () => presenceOn,
+    recordPresence(_scope: unknown, changes: PresenceChange[]) {
+      for (const change of changes) {
+        presence.push({
+          event: change.kind,
+          payload: change as unknown as Record<string, unknown>,
+        });
+      }
     },
     async handleRuntimeError() {},
     isChannelDurable: () => durable,
@@ -175,18 +183,18 @@ describe('presence on a persistent channel is keyed by user id', () => {
     const first = createConnection('conn_1', 'alice');
 
     await t.join(first);
-    expect(t.takePresence()).toEqual(['__memberJoin__ alice', '__memberOnline__ alice']);
+    expect(t.takePresence()).toEqual(['join alice', 'online alice']);
 
     await t.disconnect(first);
-    expect(t.takePresence()).toEqual(['__memberOffline__ alice']);
+    expect(t.takePresence()).toEqual(['offline alice']);
     expect(t.rows.has('alice')).toBe(true);
 
     const second = createConnection('conn_2', 'alice');
     await t.rejoin(second);
-    expect(t.takePresence()).toEqual(['__memberOnline__ alice']);
+    expect(t.takePresence()).toEqual(['online alice']);
 
     await t.unsubscribe(second);
-    expect(t.takePresence()).toEqual(['__memberLeave__ alice', '__memberOffline__ alice']);
+    expect(t.takePresence()).toEqual(['leave alice', 'offline alice']);
     expect(t.rows.has('alice')).toBe(false);
   });
 
@@ -198,7 +206,7 @@ describe('presence on a persistent channel is keyed by user id', () => {
     t.takePresence();
 
     await t.join(createConnection('conn_2', 'alice'));
-    expect(t.takePresence()).toEqual(['__memberOnline__ alice']);
+    expect(t.takePresence()).toEqual(['online alice']);
   });
 
   it('treats several tabs of one user as one member', async () => {
@@ -208,7 +216,7 @@ describe('presence on a persistent channel is keyed by user id', () => {
 
     await t.join(tabA);
     await t.join(tabB);
-    expect(t.takePresence()).toEqual(['__memberJoin__ alice', '__memberOnline__ alice']);
+    expect(t.takePresence()).toEqual(['join alice', 'online alice']);
 
     const peer = createConnection('conn_p', 'bob');
     await t.join(peer);
@@ -222,20 +230,20 @@ describe('presence on a persistent channel is keyed by user id', () => {
     expect(t.takePresence()).toEqual([]);
 
     await t.disconnect(tabB);
-    expect(t.takePresence()).toEqual(['__memberOffline__ alice']);
+    expect(t.takePresence()).toEqual(['offline alice']);
 
     const tabA2 = createConnection('conn_a2', 'alice');
     const tabB2 = createConnection('conn_b2', 'alice');
     await t.rejoin(tabA2);
     await t.rejoin(tabB2);
-    expect(t.takePresence()).toEqual(['__memberOnline__ alice']);
+    expect(t.takePresence()).toEqual(['online alice']);
 
     await t.unsubscribe(tabA2);
     expect(t.takePresence()).toEqual([]);
     expect(t.rows.has('alice')).toBe(true);
 
     await t.unsubscribe(tabB2);
-    expect(t.takePresence()).toEqual(['__memberLeave__ alice', '__memberOffline__ alice']);
+    expect(t.takePresence()).toEqual(['leave alice', 'offline alice']);
     expect(t.rows.has('alice')).toBe(false);
   });
 
@@ -252,7 +260,7 @@ describe('presence on a persistent channel is keyed by user id', () => {
       reason: 'removed',
     });
 
-    expect(t.takePresence()).toEqual(['__memberLeave__ alice', '__memberOffline__ alice']);
+    expect(t.takePresence()).toEqual(['leave alice', 'offline alice']);
     expect(t.rows.has('alice')).toBe(false);
   });
 
@@ -295,10 +303,10 @@ describe('presence on a persistent channel is keyed by user id', () => {
     expect(t.subscribeOkFor(anonymous)).toMatchObject({
       livething: { channelMembership: 'ephemeral' },
     });
-    expect(t.takePresence()).toEqual(['__memberJoin__ conn_anon', '__memberOnline__ conn_anon']);
+    expect(t.takePresence()).toEqual(['join conn_anon', 'online conn_anon']);
 
     await t.disconnect(anonymous);
-    expect(t.takePresence()).toEqual(['__memberLeave__ conn_anon', '__memberOffline__ conn_anon']);
+    expect(t.takePresence()).toEqual(['leave conn_anon', 'offline conn_anon']);
   });
 });
 
@@ -392,7 +400,7 @@ describe('a kick ends the membership for good', () => {
     t.takePresence();
 
     await t.kick('alice');
-    expect(t.takePresence()).toEqual(['__memberLeave__ alice', '__memberOffline__ alice']);
+    expect(t.takePresence()).toEqual(['leave alice', 'offline alice']);
     expect(t.rows.has('alice')).toBe(false);
 
     const again = createConnection('conn_a2', 'alice');
@@ -418,7 +426,7 @@ describe('a kick ends the membership for good', () => {
     t.takePresence();
 
     await t.join(alice);
-    expect(t.takePresence()).toEqual(['__memberJoin__ alice', '__memberOnline__ alice']);
+    expect(t.takePresence()).toEqual(['join alice', 'online alice']);
   });
 
   it('drops the row once when the kick removes every tab of the user', async () => {
@@ -428,7 +436,7 @@ describe('a kick ends the membership for good', () => {
     t.takePresence();
 
     await t.kick('alice');
-    expect(t.takePresence()).toEqual(['__memberLeave__ alice', '__memberOffline__ alice']);
+    expect(t.takePresence()).toEqual(['leave alice', 'offline alice']);
     expect(t.deletedRows).toEqual(['alice']);
   });
 });
@@ -443,7 +451,7 @@ describe('a kick reaches a stored member with no live connection', () => {
 
     await t.kick('alice');
     await t.kick('alice');
-    expect(t.takePresence()).toEqual(['__memberLeave__ alice']);
+    expect(t.takePresence()).toEqual(['leave alice']);
     expect(t.rows.has('alice')).toBe(false);
   });
 });
@@ -457,7 +465,7 @@ describe('removing a stored member after its rejoin is rejected', () => {
     t.takePresence();
 
     removeStoredMember(t.runtime as never, { userId: 'alice', ...room });
-    expect(t.takePresence()).toEqual(['__memberLeave__ alice']);
+    expect(t.takePresence()).toEqual(['leave alice']);
     expect(t.rows.has('alice')).toBe(false);
   });
 
@@ -525,13 +533,41 @@ describe('presence on an ephemeral channel is keyed by connection id', () => {
       { memberId: 'conn_a', meta: { name: 'conn_a' }, online: true },
     ]);
     expect(t.takePresence()).toEqual([
-      '__memberJoin__ conn_a',
-      '__memberOnline__ conn_a',
-      '__memberJoin__ conn_b',
-      '__memberOnline__ conn_b',
+      'join conn_a',
+      'online conn_a',
+      'join conn_b',
+      'online conn_b',
     ]);
 
     await t.disconnect(tabA);
-    expect(t.takePresence()).toEqual(['__memberLeave__ conn_a', '__memberOffline__ conn_a']);
+    expect(t.takePresence()).toEqual(['leave conn_a', 'offline conn_a']);
+  });
+});
+
+describe('a channel with presence: false', () => {
+  it('records no change on a disconnect or a kick of an ephemeral member', async () => {
+    const t = createRuntime(false, false);
+    const alice = createConnection('conn_a', 'alice');
+    const bob = createConnection('conn_b', 'bob');
+    await t.join(alice);
+    await t.join(bob);
+
+    await t.disconnect(alice);
+    await t.kick('bob');
+
+    expect(t.takePresence()).toEqual([]);
+  });
+
+  it('records no change when a kick ends a stored member with no live connection', async () => {
+    const t = createRuntime(true, false);
+    const alice = createConnection('conn_a', 'alice');
+    await t.join(alice);
+    await t.disconnect(alice);
+    expect(t.rows.has('alice')).toBe(true);
+
+    await t.kick('alice');
+
+    expect(t.rows.has('alice')).toBe(false);
+    expect(t.takePresence()).toEqual([]);
   });
 });

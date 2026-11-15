@@ -10,6 +10,13 @@ type Handler = (data: unknown) => void;
 type MemberCallback = (memberId: string, member: ChannelMember) => void;
 type LeaveCallback = (memberId: string) => void;
 
+/** One entry of a `__memberChanges__` frame. */
+export interface MemberChange {
+  kind: 'join' | 'leave' | 'online' | 'offline';
+  memberId: string;
+  meta?: Record<string, unknown>;
+}
+
 /**
  * Manages a set of callbacks. `add` registers one and returns an unsubscribe
  * function. `each` calls all of them: if one throws, the error is logged and the
@@ -411,45 +418,63 @@ export class ChannelState {
     }
   }
 
-  /** A member joined. It counts as offline until its `__memberOnline__` arrives. */
-  addMember(memberId: string, meta?: Record<string, unknown>): void {
-    const member: ChannelMember = {
-      meta: meta ?? {},
-      online: this.roster.get(memberId)?.online ?? false,
-    };
+  /**
+   * Apply a `__memberChanges__` batch in order. The roster is published once, after every
+   * change is in, and then the callbacks fire in order, so a callback reads the roster as it
+   * is after the whole batch.
+   */
+  applyMemberChanges(changes: readonly MemberChange[]): void {
+    const callbacks: (() => void)[] = [];
+    let changed = false;
+    for (const change of changes) {
+      const { memberId } = change;
+      const known = this.roster.get(memberId);
+      switch (change.kind) {
+        case 'join': {
+          // A new member counts as offline until its `online` change.
+          const member: ChannelMember = { meta: change.meta ?? {}, online: known?.online ?? false };
+          this.roster.set(memberId, member);
+          changed = true;
+          callbacks.push(() => this.memberJoin.each((callback) => callback(memberId, member)));
+          break;
+        }
 
-    this.roster.set(memberId, member);
-    this.publishMembers();
-    this.memberJoin.each((callback) => callback(memberId, member));
-  }
+        case 'leave':
+          changed = this.roster.delete(memberId) || changed;
+          callbacks.push(() => this.memberLeave.each((callback) => callback(memberId)));
+          break;
 
-  removeMember(memberId: string): void {
-    this.roster.delete(memberId);
-    this.publishMembers();
-    this.memberLeave.each((callback) => callback(memberId));
-  }
+        case 'online': {
+          // A member id missing from the roster is not added.
+          const member: ChannelMember = { meta: change.meta ?? known?.meta ?? {}, online: true };
+          if (known) {
+            this.roster.set(memberId, member);
+            changed = true;
+          }
 
-  /** Mark a roster member online. A member id missing from the roster is not added. */
-  memberWentOnline(memberId: string, meta?: Record<string, unknown>): void {
-    const known = this.roster.get(memberId);
-    const member: ChannelMember = { meta: meta ?? known?.meta ?? {}, online: true };
-    if (known) {
-      this.roster.set(memberId, member);
-      this.publishMembers();
+          callbacks.push(() => this.memberOnline.each((callback) => callback(memberId, member)));
+          break;
+        }
+
+        case 'offline':
+          // It stays in the roster until it leaves.
+          if (known?.online) {
+            this.roster.set(memberId, { ...known, online: false });
+            changed = true;
+          }
+
+          callbacks.push(() => this.memberOffline.each((callback) => callback(memberId)));
+          break;
+      }
     }
 
-    this.memberOnline.each((callback) => callback(memberId, member));
-  }
+    if (changed) this.publishMembers();
+    for (const callback of callbacks) {
+      // A callback can unsubscribe. The rest of the batch then belongs to a channel we left.
+      if (!this.active || this.pendingLeave) return;
 
-  /** Mark a roster member offline. It stays in the roster until it leaves. */
-  memberWentOffline(memberId: string): void {
-    const known = this.roster.get(memberId);
-    if (known?.online) {
-      this.roster.set(memberId, { ...known, online: false });
-      this.publishMembers();
+      callback();
     }
-
-    this.memberOffline.each((callback) => callback(memberId));
   }
 
   /** Clear members but keep the subscription (used on a network drop). The prior

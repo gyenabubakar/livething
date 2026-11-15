@@ -66,11 +66,27 @@ const UPLOAD_IDLE_MS = 45_000;
 /** A close with no close frame, as a WebSocket reports a dropped connection. */
 const ABNORMAL_CLOSE = 1006;
 
+const encoder = new TextEncoder();
+const sharedEvents = new WeakMap<TransportFrame, Uint8Array>();
+
 /** One `data:` event for a frame. A binary frame is `b` and the whole frame in base64. */
-function sseEvent(frame: TransportFrame): string {
-  return frame.kind === 'text'
-    ? `data: ${frame.text}\n\n`
-    : `data: b${encodeBase64(frame.bytes)}\n\n`;
+function sseEvent(frame: TransportFrame): Uint8Array {
+  return encoder.encode(
+    frame.kind === 'text' ? `data: ${frame.text}\n\n` : `data: b${encodeBase64(frame.bytes)}\n\n`,
+  );
+}
+
+/** A broadcast hands every stream the same frame, so its event is built once for all of them. */
+function sseEventOnce(frame: TransportFrame): Uint8Array {
+  if (!frame.shared) return sseEvent(frame);
+
+  let event = sharedEvents.get(frame);
+  if (event === undefined) {
+    event = sseEvent(frame);
+    sharedEvents.set(frame, event);
+  }
+
+  return event;
 }
 
 /**
@@ -100,7 +116,8 @@ function createSecret(): string {
 
 /** Where a stream writes. The adapter makes one for each open response. */
 export interface SseSink {
-  write(chunk: string): void;
+  /** The chunk can be shared by many streams, so the sink must not change or transfer it. */
+  write(chunk: Uint8Array): void;
   end(): void;
   /** Drop the response at once, for a client that stopped reading. */
   terminate?(): void;
@@ -232,7 +249,7 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
     function close(code: number = CloseCodes.NORMAL, reason = ''): void {
       if (closed) return;
 
-      sink.write(sseCloseEvent(code, reason));
+      sink.write(encoder.encode(sseCloseEvent(code, reason)));
       sink.end();
       finish(code, reason);
     }
@@ -243,7 +260,7 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
         send(frame) {
           if (closed) return false;
 
-          sink.write(sseEvent(frame));
+          sink.write(sseEventOnce(frame));
           return true;
         },
         close,
@@ -267,7 +284,7 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
           uploads: new Set(),
           roomWaiter: null,
           event(text) {
-            if (!closed) sink.write(`data: ${text}\n\n`);
+            if (!closed) sink.write(encoder.encode(`data: ${text}\n\n`));
           },
           close,
           closeFromClient(code, reason) {

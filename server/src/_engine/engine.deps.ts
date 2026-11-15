@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
+import { currentConnectionId } from '~/_engine/call-context.ts';
 import { createConnectionlessContext } from '~/_engine/contexts/connectionless.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
@@ -10,6 +11,7 @@ import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
+import { createPresenceBatcher } from '~/channel/presence-batch.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { binaryBytesRoom } from '~/incoming/incoming.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
@@ -19,6 +21,7 @@ import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type { InboxService } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import type { PresenceBatcher, PresenceChange, PresenceScope } from '~/channel/presence-batch.ts';
 import type { MembershipInsert } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as ErrorsRuntime from '~/errors/runtime.ts';
@@ -205,6 +208,10 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     },
     getChannelMembers: (channelName, channelFamily) =>
       core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
+    countChannelMembers: (channelName, channelFamily) =>
+      core.channelMembers.get(
+        ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
+      )?.size ?? 0,
     kickChannelMembers: (opts) => {
       if (opts.target.__livething === 'user-ref') {
         assertLocalRef(opts.target, core.engineInstanceId, 'channelHandle.kick(target)');
@@ -274,6 +281,8 @@ function buildOutgoingRuntime(core: EngineCore) {
     trackBackgroundWork: (work: Promise<void>) => core.trackBackgroundWork(work),
     logger: core.logger,
     generateId: (prefix?: string) => core.generateId(prefix),
+    beforeChannelMessage: (channelName: string, channelFamily: string | null) =>
+      core.presenceBatcher?.flush(channelName, channelFamily),
     activityHooks: core.hooks.activity,
     messageActivityHooks: core.hooks.messageActivity,
     pingHooks: core.hooks.ping,
@@ -320,6 +329,24 @@ export function channelRuntime(core: EngineCore) {
   return (depsMemoFor(core).channel ??= buildChannelRuntime(core));
 }
 
+function presenceBatcherOf(core: EngineCore): PresenceBatcher {
+  return (core.presenceBatcher ??= createPresenceBatcher({
+    channelMembers: core.channelMembers,
+    logger: core.logger,
+    windowMsOf: (scope) => core.presenceWindowMs(scope.channelFamily ?? scope.channelName),
+    send: (batch) =>
+      OutgoingRuntime.broadcastToChannel(dispatchRuntime(core), {
+        channelName: batch.scope.channelName,
+        channelFamily: batch.scope.channelFamily,
+        event: '__memberChanges__',
+        payload: null,
+        payloadJson: batch.payloadJson,
+        excludeConnectionId: undefined,
+        recipients: batch.recipients,
+      }),
+  }));
+}
+
 function buildChannelRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
@@ -355,6 +382,11 @@ function buildChannelRuntime(core: EngineCore) {
       ),
 
     isChannelDurable: (channelKey: string) => core.isChannelDurable(channelKey),
+
+    hasPresence: (channelKey: string) => core.hasPresence(channelKey),
+
+    recordPresence: (scope: PresenceScope, changes: PresenceChange[], joiner?: RuntimeConnection) =>
+      presenceBatcherOf(core).record(scope, changes, joiner),
 
     persistMembership: (row: MembershipInsert) => {
       if (!core.isUserPurging(row.userId)) {
@@ -644,7 +676,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
       core.scheduledService?.cancelScheduled(core, connectionlessContextFactory(core), opts),
     rescheduleAlarm: () => rescheduleEngineAlarm(core),
     buildCurrentContext: () => {
-      const activeId = core.asyncContext.getStore()?.connectionId;
+      const activeId = currentConnectionId();
       const connection = activeId ? core.connections.get(activeId) : undefined;
       return connection ? buildCtx(connection) : undefined;
     },

@@ -50,8 +50,8 @@ afterEach(() => {
   restore();
 });
 
-describe('__memberOnline__ and __memberOffline__ frames', () => {
-  it('fires onMemberOnline when the server sends __memberOnline__', async () => {
+describe('online and offline changes', () => {
+  it('an online change fires onMemberOnline', async () => {
     const { socket, ws } = build();
     const room = await subscribeChannel(socket, ws, 'general');
 
@@ -59,8 +59,8 @@ describe('__memberOnline__ and __memberOffline__ frames', () => {
     room.onMemberOnline(onOnline);
 
     ws.emit({
-      event: '__memberOnline__',
-      payload: { memberId: 'c1', meta: { name: 'Ada' } },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'online', memberId: 'c1', meta: { name: 'Ada' } }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -68,7 +68,7 @@ describe('__memberOnline__ and __memberOffline__ frames', () => {
     expect(onOnline).toHaveBeenCalledWith('c1', { meta: { name: 'Ada' }, online: true });
   });
 
-  it('fires onMemberOffline when the server sends __memberOffline__', async () => {
+  it('an offline change fires onMemberOffline', async () => {
     const { socket, ws } = build();
     const room = await subscribeChannel(socket, ws, 'general');
 
@@ -76,8 +76,8 @@ describe('__memberOnline__ and __memberOffline__ frames', () => {
     room.onMemberOffline(onOffline);
 
     ws.emit({
-      event: '__memberOffline__',
-      payload: { memberId: 'c1' },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'offline', memberId: 'c1' }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -86,8 +86,8 @@ describe('__memberOnline__ and __memberOffline__ frames', () => {
   });
 });
 
-describe('__memberOnline__/__memberOffline__ do not mutate the members map', () => {
-  it('__memberOnline__ fires the callback but does not add the member to the map', async () => {
+describe('online and offline changes do not add or remove members', () => {
+  it('an online change fires the callback but does not add the member to the map', async () => {
     const { socket, ws } = build();
     const room = await subscribeChannel(socket, ws, 'general');
 
@@ -95,8 +95,8 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     room.onMemberOnline(onOnline);
 
     ws.emit({
-      event: '__memberOnline__',
-      payload: { memberId: 'c42', meta: { name: 'Bob' } },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'online', memberId: 'c42', meta: { name: 'Bob' } }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -105,13 +105,13 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     expect(room.members.get().size).toBe(0);
   });
 
-  it('__memberOffline__ fires the callback but does not remove a member that is in the map', async () => {
+  it('an offline change fires the callback but does not remove a member that is in the map', async () => {
     const { socket, ws } = build();
     const room = await subscribeChannel(socket, ws, 'general');
 
     ws.emit({
-      event: '__memberJoin__',
-      payload: { memberId: 'c1', meta: {} },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'join', memberId: 'c1', meta: {} }] },
       metadata: { channel: { name: 'general' } },
     });
     expect(room.members.get().has('c1')).toBe(true);
@@ -120,8 +120,8 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     room.onMemberOffline(onOffline);
 
     ws.emit({
-      event: '__memberOffline__',
-      payload: { memberId: 'c1' },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'offline', memberId: 'c1' }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -136,20 +136,20 @@ describe('channel.members store — snapshot identity', () => {
     const room = await subscribeChannel(socket, ws, 'general');
 
     ws.emit({
-      event: '__memberJoin__',
-      payload: { memberId: 'c1', meta: {} },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'join', memberId: 'c1', meta: {} }] },
       metadata: { channel: { name: 'general' } },
     });
     const snapshot = room.members.get();
 
     ws.emit({
-      event: '__memberOnline__',
-      payload: { memberId: 'c42', meta: { name: 'Bob' } },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'online', memberId: 'c42', meta: { name: 'Bob' } }] },
       metadata: { channel: { name: 'general' } },
     });
     ws.emit({
-      event: '__memberOffline__',
-      payload: { memberId: 'c1' },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'offline', memberId: 'c1' }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -164,13 +164,13 @@ describe('channel.members store — snapshot identity', () => {
     room.members.subscribe((members) => snapshots.push(members));
 
     ws.emit({
-      event: '__memberJoin__',
-      payload: { memberId: 'c1', meta: {} },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'join', memberId: 'c1', meta: {} }] },
       metadata: { channel: { name: 'general' } },
     });
     ws.emit({
-      event: '__memberLeave__',
-      payload: { memberId: 'c1' },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'leave', memberId: 'c1' }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -257,8 +257,8 @@ describe('top-level channel and scoped channel with same name are independent', 
     await scopedPromise;
 
     ws.emit({
-      event: '__memberJoin__',
-      payload: { memberId: 'c1' },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'join', memberId: 'c1' }] },
       metadata: { channel: { name: 'general', family: 'rooms' } },
     });
 
@@ -335,7 +335,7 @@ describe('presence frames are ignored while a leave is pending', () => {
     expect(room.members.get().size).toBe(0);
   });
 
-  it('ignores __memberJoin__/__memberOnline__ while a leave is pending', async () => {
+  it('ignores join and online changes while a leave is pending', async () => {
     const { ws, room } = await subscribedWithPendingLeave();
     const onJoin = vi.fn();
     const onOnline = vi.fn();
@@ -343,13 +343,13 @@ describe('presence frames are ignored while a leave is pending', () => {
     room.onMemberOnline(onOnline);
 
     ws.emit({
-      event: '__memberJoin__',
-      payload: { memberId: 'c3', meta: {} },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'join', memberId: 'c3', meta: {} }] },
       metadata: { channel: { name: 'general' } },
     });
     ws.emit({
-      event: '__memberOnline__',
-      payload: { memberId: 'c3', meta: {} },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'online', memberId: 'c3', meta: {} }] },
       metadata: { channel: { name: 'general' } },
     });
     expect(onJoin).not.toHaveBeenCalled();
@@ -390,14 +390,14 @@ describe('presence frames after the channel has been left', () => {
     expect(room.members.get().size).toBe(0);
   });
 
-  it('ignores a __memberJoin__ that lands after __unsubscribeOk__', async () => {
+  it('ignores a join change that lands after __unsubscribeOk__', async () => {
     const { room, ws } = await leftChannel();
     const onJoin = vi.fn();
     room.onMemberJoin(onJoin);
 
     ws.emit({
-      event: '__memberJoin__',
-      payload: { memberId: 'c1', meta: { name: 'Ada' } },
+      event: '__memberChanges__',
+      payload: { changes: [{ kind: 'join', memberId: 'c1', meta: { name: 'Ada' } }] },
       metadata: { channel: { name: 'general' } },
     });
 
@@ -422,17 +422,25 @@ describe('a member keeps one roster entry by its member id', () => {
     room.onMemberOffline(onOffline);
     room.onMemberLeave(onLeave);
 
-    emit(ws, '__memberJoin__', { memberId: 'alice', meta: { name: 'Alice' } });
-    emit(ws, '__memberOnline__', { memberId: 'alice', meta: { name: 'Alice' } });
-    emit(ws, '__memberOffline__', { memberId: 'alice' });
-    emit(ws, '__memberOnline__', { memberId: 'alice', meta: { name: 'Alice' } });
+    emit(ws, '__memberChanges__', {
+      changes: [{ kind: 'join', memberId: 'alice', meta: { name: 'Alice' } }],
+    });
+    emit(ws, '__memberChanges__', {
+      changes: [{ kind: 'online', memberId: 'alice', meta: { name: 'Alice' } }],
+    });
+    emit(ws, '__memberChanges__', { changes: [{ kind: 'offline', memberId: 'alice' }] });
+    emit(ws, '__memberChanges__', {
+      changes: [{ kind: 'online', memberId: 'alice', meta: { name: 'Alice' } }],
+    });
 
     expect([...room.members.get().keys()]).toEqual(['alice']);
     expect(onOffline).toHaveBeenCalledWith('alice');
     expect(onOnline.mock.calls.map(([memberId]) => memberId)).toEqual(['alice', 'alice']);
 
-    emit(ws, '__memberLeave__', { memberId: 'alice', meta: { name: 'Alice' } });
-    emit(ws, '__memberOffline__', { memberId: 'alice' });
+    emit(ws, '__memberChanges__', {
+      changes: [{ kind: 'leave', memberId: 'alice', meta: { name: 'Alice' } }],
+    });
+    emit(ws, '__memberChanges__', { changes: [{ kind: 'offline', memberId: 'alice' }] });
 
     expect(room.members.get().size).toBe(0);
     expect(onLeave).toHaveBeenCalledWith('alice');
@@ -489,14 +497,18 @@ describe('a member keeps its roster entry while it is offline', () => {
   it('flips online without adding or removing entries, with a fresh snapshot each time', async () => {
     const { socket, ws } = build();
     const room = await subscribeChannel(socket, ws, 'general');
-    emit(ws, '__memberJoin__', { memberId: 'alice', meta: { name: 'Alice' } });
+    emit(ws, '__memberChanges__', {
+      changes: [{ kind: 'join', memberId: 'alice', meta: { name: 'Alice' } }],
+    });
     expect(room.members.get().get('alice')).toEqual({ meta: { name: 'Alice' }, online: false });
 
-    emit(ws, '__memberOnline__', { memberId: 'alice', meta: { name: 'Alice' } });
+    emit(ws, '__memberChanges__', {
+      changes: [{ kind: 'online', memberId: 'alice', meta: { name: 'Alice' } }],
+    });
     const online = room.members.get();
     expect(online.get('alice')).toEqual({ meta: { name: 'Alice' }, online: true });
 
-    emit(ws, '__memberOffline__', { memberId: 'alice' });
+    emit(ws, '__memberChanges__', { changes: [{ kind: 'offline', memberId: 'alice' }] });
     const offline = room.members.get();
     expect(offline).not.toBe(online);
     expect(offline.get('alice')).toEqual({ meta: { name: 'Alice' }, online: false });
@@ -553,12 +565,18 @@ describe('a member keeps its roster entry while it is offline', () => {
     room.onMemberOnline((memberId) => calls.push(`online ${memberId}`));
     room.onMemberOffline((memberId) => calls.push(`offline ${memberId}`));
 
-    emit(ws, '__memberLeave__', { memberId: 'alice', meta: { name: 'Alice' } });
-    emit(ws, '__memberOffline__', { memberId: 'alice' });
+    emit(ws, '__memberChanges__', {
+      changes: [{ kind: 'leave', memberId: 'alice', meta: { name: 'Alice' } }],
+    });
+    emit(ws, '__memberChanges__', { changes: [{ kind: 'offline', memberId: 'alice' }] });
     expect(room.members.get().has('alice')).toBe(false);
 
-    emit(ws, '__memberJoin__', { memberId: 'alice', meta: { name: 'Alice' } });
-    emit(ws, '__memberOnline__', { memberId: 'alice', meta: { name: 'Alice' } });
+    emit(ws, '__memberChanges__', {
+      changes: [{ kind: 'join', memberId: 'alice', meta: { name: 'Alice' } }],
+    });
+    emit(ws, '__memberChanges__', {
+      changes: [{ kind: 'online', memberId: 'alice', meta: { name: 'Alice' } }],
+    });
 
     expect(calls).toEqual(['leave alice', 'offline alice', 'join alice', 'online alice']);
     expect(room.members.get().get('alice')).toEqual({ meta: { name: 'Alice' }, online: true });
@@ -575,5 +593,137 @@ describe('a member keeps its roster entry while it is offline', () => {
     });
 
     expect([...room.members.get().keys()]).toEqual(['bob']);
+  });
+});
+
+describe('a __memberChanges__ batch', () => {
+  function emitChanges(ws: MockWebSocket, changes: unknown) {
+    ws.emit({
+      event: '__memberChanges__',
+      payload: { changes },
+      metadata: { channel: { name: 'general' } },
+    });
+  }
+
+  it('publishes the members store once for a batch and ends with both members online', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    const publish = vi.fn();
+    room.members.subscribe(publish);
+
+    emitChanges(ws, [
+      { kind: 'join', memberId: 'alice', meta: { name: 'Alice' } },
+      { kind: 'online', memberId: 'alice', meta: { name: 'Alice' } },
+      { kind: 'join', memberId: 'bob', meta: { name: 'Bob' } },
+      { kind: 'online', memberId: 'bob', meta: { name: 'Bob' } },
+    ]);
+
+    expect(publish).toHaveBeenCalledOnce();
+    expect(room.members.get().get('alice')).toEqual({ meta: { name: 'Alice' }, online: true });
+    expect(room.members.get().get('bob')).toEqual({ meta: { name: 'Bob' }, online: true });
+  });
+
+  it('stops firing the rest of a batch once a callback unsubscribes', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    const calls: string[] = [];
+    room.onMemberJoin((memberId) => {
+      calls.push(`join ${memberId}`);
+      void room.unsubscribe();
+    });
+    room.onMemberOnline((memberId) => calls.push(`online ${memberId}`));
+
+    emitChanges(ws, [
+      { kind: 'join', memberId: 'alice' },
+      { kind: 'online', memberId: 'alice' },
+      { kind: 'join', memberId: 'bob' },
+    ]);
+
+    expect(calls).toEqual(['join alice']);
+  });
+
+  it('fires the callbacks in the order of the changes and each one reads the final roster', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    const calls: string[] = [];
+    const rosterSeen: string[][] = [];
+    function record(label: string) {
+      return (memberId: string) => {
+        calls.push(`${label} ${memberId}`);
+        rosterSeen.push([...room.members.get().keys()]);
+      };
+    }
+
+    room.onMemberJoin(record('join'));
+    room.onMemberOnline(record('online'));
+    room.onMemberOffline(record('offline'));
+    room.onMemberLeave(record('leave'));
+
+    emitChanges(ws, [
+      { kind: 'join', memberId: 'alice', meta: {} },
+      { kind: 'online', memberId: 'alice', meta: {} },
+      { kind: 'join', memberId: 'bob', meta: {} },
+      { kind: 'offline', memberId: 'alice' },
+    ]);
+
+    expect(calls).toEqual(['join alice', 'online alice', 'join bob', 'offline alice']);
+    expect(rosterSeen).toHaveLength(4);
+    for (const roster of rosterSeen) expect(roster).toEqual(['alice', 'bob']);
+  });
+
+  it('drops an entry with an unknown kind or a missing member id and applies the rest', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    const onJoin = vi.fn();
+    room.onMemberJoin(onJoin);
+
+    emitChanges(ws, [
+      { kind: 'explode', memberId: 'ghost' },
+      { kind: 'join', meta: {} },
+      { kind: 'join', memberId: 42 },
+      { kind: 'join', memberId: 'alice', meta: {} },
+    ]);
+
+    expect([...room.members.get().keys()]).toEqual(['alice']);
+    expect(onJoin).toHaveBeenCalledOnce();
+    expect(onJoin).toHaveBeenCalledWith('alice', { meta: {}, online: false });
+  });
+
+  it('ignores a frame whose changes is not an array', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    const publish = vi.fn();
+    const onJoin = vi.fn();
+    room.members.subscribe(publish);
+
+    room.onMemberJoin(onJoin);
+
+    emitChanges(ws, { kind: 'join', memberId: 'alice' });
+    emitChanges(ws, 'join');
+    ws.emit({
+      event: '__memberChanges__',
+      payload: {},
+      metadata: { channel: { name: 'general' } },
+    });
+
+    expect(publish).not.toHaveBeenCalled();
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(room.members.get().size).toBe(0);
+  });
+
+  it('leaves a member out of the roster when it joins and leaves in one batch', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    const calls: string[] = [];
+    room.onMemberJoin((memberId) => calls.push(`join ${memberId}`));
+    room.onMemberLeave((memberId) => calls.push(`leave ${memberId}`));
+
+    emitChanges(ws, [
+      { kind: 'join', memberId: 'alice', meta: {} },
+      { kind: 'leave', memberId: 'alice' },
+    ]);
+
+    expect(room.members.get().has('alice')).toBe(false);
+    expect(calls).toEqual(['join alice', 'leave alice']);
   });
 });

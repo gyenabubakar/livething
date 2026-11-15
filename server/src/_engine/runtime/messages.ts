@@ -1345,6 +1345,21 @@ function noteUploadStart(
   return runtime.uploadService.starting(connection, upload.id);
 }
 
+interface NudgeCandidate {
+  event: string;
+  livething: Protocol.LiveThingProtocol | undefined;
+  triggerScope: EngineRuntimeTypes.ResolvedChannel;
+}
+
+/** Only a frame with a stream id can be a nudge, and a stream trigger frame never is one. */
+function mayBeNudge(runtime: FrameRuntime, frame: NudgeCandidate): boolean {
+  if (!frame.livething?.streamId) return false;
+
+  const streams = frame.triggerScope.channel ?? runtime.compiled;
+
+  return !streams.streams.has(frame.event) && !streams.recordedStreams.has(frame.event);
+}
+
 async function processParsedMessage(
   runtime: FrameRuntime,
   connection: RuntimeConnection,
@@ -1481,8 +1496,13 @@ async function processParsedMessage(
       }
     }
 
-    const piece = { event, livething: frame.__livething, bytes };
-    if (await takeUploadPiece(runtime, connection, piece)) return;
+    // Only an upload piece has an upload seq, so other frames skip the await.
+    if (
+      livething?.uploadSeq !== undefined &&
+      (await takeUploadPiece(runtime, connection, { event, livething, bytes }))
+    ) {
+      return;
+    }
 
     // Dedup here so every frame with a `messageId` shares one idempotency budget.
     if (
@@ -1518,8 +1538,11 @@ async function processParsedMessage(
       return;
     }
 
-    const turn = { gate: place.gate, event, routing: refusalRouting(livething) };
-    if (!(await waitForTurn(runtime, connection, turn))) return;
+    // A frame waits only behind a subscribe that is still running.
+    if (isHeld(place.gate)) {
+      const turn = { gate: place.gate, event, routing: refusalRouting(livething) };
+      if (!(await waitForTurn(runtime, connection, turn))) return;
+    }
 
     // A scoped frame whose channel doesn't match the declared scope must not
     // silently fall through to top-level nudge buffering — that lets a wrong
@@ -1541,12 +1564,8 @@ async function processParsedMessage(
       return;
     }
 
-    const triggerScoped = triggerScope.channel;
-    const isStreamTrigger = triggerScoped
-      ? triggerScoped.streams.has(event) || triggerScoped.recordedStreams.has(event)
-      : runtime.compiled.streams.has(event) || runtime.compiled.recordedStreams.has(event);
     if (
-      !isStreamTrigger &&
+      mayBeNudge(runtime, { event, livething, triggerScope }) &&
       (await bufferNudgeIfNeeded({
         runtime,
         connection,

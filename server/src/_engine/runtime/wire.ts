@@ -2,7 +2,7 @@ import { encodeBinaryFrame, InternalError } from '@livething/core';
 import { textOverLimit } from '~/_adapters/close.ts';
 import { markSeqScope } from '~/_engine/runtime/catch-up-hold.ts';
 import { assertPayload, serializePayload } from '~/_engine/runtime/json-guard.ts';
-import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
+import { serializeWireFrame, serializeWireFrameJson } from '~/_engine/runtime/wire-serialize.ts';
 import type { TransportFrame } from '~/_adapters/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -120,14 +120,19 @@ export function sendReplay(
     messageId: wire.messageId,
   };
 
-  if (resolvedChannel !== null) livething.channel = resolvedChannel;
+  if (resolvedChannel !== null) {
+    livething.channel = resolvedChannel;
+    // A replayed channel message must not reach a member before a waiting presence change.
+    core.presenceBatcher?.flush(resolvedChannel, channelFamily);
+  }
+
   if (channelFamily !== null) livething.channelFamily = channelFamily;
 
   let frame: string;
   let binaryFrame: Uint8Array<ArrayBuffer> | undefined;
   try {
     const payloadJson = serializePayload(event, payload);
-    frame = serializeWireFrame(event, JSON.parse(payloadJson), livething);
+    frame = serializeWireFrameJson(event, payloadJson, livething);
     if (bytes !== undefined) binaryFrame = encodeBinaryFrame(frame, bytes);
     // A stored row over the send limit would throw on every replay and hold back the rows
     // after it, so it is replaced like a row that cannot be serialized.

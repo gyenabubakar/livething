@@ -29,8 +29,13 @@ export function wrapNodeSqlite(database: DatabaseSync): SqliteDatabase {
   }
 
   let depth = 0;
+  // node:sqlite reads a statement's columns before running it, so for one run after the schema
+  // changed, a statement prepared earlier returns the old columns.
+  const schemaVersion = database.prepare('PRAGMA schema_version');
+  schemaVersion.setReturnArrays(true);
 
   return {
+    schemaVersion: () => (schemaVersion.get() as unknown as unknown[])[0],
     prepare(query) {
       const statement = database.prepare(query);
       // prepare() compiles only the first statement. Throw for the rest, as better-sqlite3

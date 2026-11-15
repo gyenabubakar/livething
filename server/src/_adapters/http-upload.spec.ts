@@ -50,7 +50,7 @@ function texts(...names: string[]): Uint8Array {
 function open(hub: HttpHub, { settle = true } = {}) {
   const written: string[] = [];
   const stream = hub.openStream({
-    write: (chunk) => void written.push(chunk),
+    write: (chunk) => void written.push(new TextDecoder().decode(chunk)),
     end: vi.fn(),
     bufferedAmount: () => 0,
     backpressureSupported: true,
