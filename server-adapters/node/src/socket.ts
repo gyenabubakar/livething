@@ -1,7 +1,7 @@
+import { transportDescriptor } from '@livething/server/adapters';
 import * as ws from 'ws';
 import type {
   AuthDecision,
-  ConnectionDescriptor,
   ConnectionHandle,
   Engine,
   TransportConnection,
@@ -181,18 +181,5 @@ export interface ConnectionBridgeOptions {
 /** Creates the engine connection handle for an accepted transport. */
 export function createConnectionBridge(options: ConnectionBridgeOptions): ConnectionHandle {
   const { engine, token, transport, decision } = options;
-  const descriptor: ConnectionDescriptor = {
-    send: (frame) => transport.send(frame),
-    close: (code, reason) => transport.close(code, reason),
-    ...(transport.terminate ? { terminate: () => transport.terminate?.() } : {}),
-    bufferedAmount: () => transport.bufferedAmount(),
-    backpressureSupported: transport.backpressureSupported,
-    secret: transport.secret ?? null,
-    maxPostBytes: transport.maxPostBytes ?? null,
-    userId: decision.userId ?? '',
-    meta: decision.meta ?? {},
-    tags: decision.tags ?? [],
-  };
-
-  return engine.accept(token, descriptor);
+  return engine.accept(token, transportDescriptor(transport, decision));
 }

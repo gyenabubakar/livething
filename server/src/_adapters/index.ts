@@ -1,6 +1,7 @@
 export { asUint8Array } from '@livething/core';
 export { adapter } from './adapter.ts';
 export { normalizeCloseReason } from './close.ts';
+export { transportDescriptor } from './descriptor.ts';
 export { createOriginCheck } from './origin.ts';
 export { hasCapability, http, resolveTransports, websocket } from './transports.ts';
 export type {

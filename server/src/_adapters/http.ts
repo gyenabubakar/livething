@@ -125,7 +125,7 @@ export interface SseSink {
   write(chunk: Uint8Array): void;
   end(): void;
   /** Drop the response at once, for a client that stopped reading. */
-  terminate?(): void;
+  terminate(): void;
   /** The bytes written and not yet sent. */
   bufferedAmount(): number;
   backpressureSupported: boolean;
@@ -134,12 +134,13 @@ export interface SseSink {
 /** One open stream, before and after the engine accepts its connection. */
 export interface SseStream {
   /** The socket descriptor fields for `engine.accept`. */
-  readonly socket: Omit<SocketDescriptor, 'send' | 'backpressureSupported'> & {
+  readonly socket: Omit<SocketDescriptor, 'send' | 'backpressureSupported' | 'terminate'> & {
     /** `false` once the stream is closed. */
     send(frame: TransportFrame): boolean;
-    backpressureSupported: boolean;
-    secret: string;
-    maxPostBytes: number;
+    terminate(): void;
+    readonly backpressureSupported: boolean;
+    readonly secret: string;
+    readonly maxPostBytes: number;
   };
   /** Give the stream its engine connection, once accepted. POSTs reach it from now on. */
   attach(handle: ConnectionHandle): void;
@@ -233,78 +234,99 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
   const { maxPostBytes, receiveBytes } = options;
   const sessions = new Map<string, Session>();
 
-  function openStream(sink: SseSink): SseStream {
-    const secret = createSecret();
-    let handle: ConnectionHandle | null = null;
-    let session: Session | null = null;
-    let closed = false;
+  /**
+   * One open stream: the adapter's `SseStream`, the engine's socket, and, once attached, the
+   * session its POSTs reach. A class, not closures: a connection holds it for its whole life.
+   */
+  class HttpStream implements SseStream, Session {
+    readonly secret = createSecret();
+    readonly backpressureSupported: boolean;
+    lanes = { data: false, control: false };
+    inFlightFrames = 0;
+    inFlightBytes = 0;
+    lastSeq = 0;
+    laneUpload: UploadControl | null = null;
+    uploads = new Set<UploadControl>();
+    roomWaiter: (() => void) | null = null;
+    private readonly sink: SseSink;
+    private connection: ConnectionHandle | null = null;
+    private closed = false;
 
-    function finish(code: number, reason: string): void {
-      closed = true;
-      sessions.delete(secret);
-      if (session) {
-        for (const upload of session.uploads) upload.stop(errorAnswer(410, 'closed'));
-      }
+    constructor(sink: SseSink) {
+      this.sink = sink;
+      this.backpressureSupported = sink.backpressureSupported;
+    }
+
+    get socket(): this {
+      return this;
+    }
+
+    get maxPostBytes(): number {
+      return maxPostBytes;
+    }
+
+    /** Set only once attached: POSTs reach a stream only from then on. */
+    get handle(): ConnectionHandle {
+      return this.connection!;
+    }
+
+    // `false` only for a closed stream: a full buffer still delivers, and replay counts it.
+    send(frame: TransportFrame): boolean {
+      if (this.closed) return false;
+
+      this.sink.write(sseEventOnce(frame));
+      return true;
+    }
+
+    close(code: number = CloseCodes.NORMAL, reason = ''): void {
+      if (this.closed) return;
+
+      this.sink.write(encoder.encode(sseCloseEvent(code, reason)));
+      this.sink.end();
+      this.finish(code, reason);
+    }
+
+    terminate(): void {
+      this.sink.terminate();
+    }
+
+    bufferedAmount(): number {
+      return this.sink.bufferedAmount();
+    }
+
+    attach(connection: ConnectionHandle): void {
+      this.connection = connection;
+      if (!this.closed) sessions.set(this.secret, this);
+    }
+
+    ended(): void {
+      if (!this.closed) this.finish(ABNORMAL_CLOSE, 'stream ended');
+    }
+
+    event(text: string): void {
+      if (!this.closed) this.sink.write(encoder.encode(`data: ${text}\n\n`));
+    }
+
+    closeFromClient(code: number, reason: string): void {
+      if (this.closed) return;
+
+      this.sink.end();
+      this.finish(code, reason);
+    }
+
+    private finish(code: number, reason: string): void {
+      this.closed = true;
+      sessions.delete(this.secret);
+      for (const upload of this.uploads) upload.stop(errorAnswer(410, 'closed'));
 
       // The engine is the caller of `close`, so it hears about the close a moment later.
-      const current = handle;
+      const current = this.connection;
       if (current) queueMicrotask(() => void current.handleClose(code, reason));
     }
+  }
 
-    function close(code: number = CloseCodes.NORMAL, reason = ''): void {
-      if (closed) return;
-
-      sink.write(encoder.encode(sseCloseEvent(code, reason)));
-      sink.end();
-      finish(code, reason);
-    }
-
-    return {
-      socket: {
-        // `false` only for a closed stream: a full buffer still delivers, and replay counts it.
-        send(frame) {
-          if (closed) return false;
-
-          sink.write(sseEventOnce(frame));
-          return true;
-        },
-        close,
-        ...(sink.terminate ? { terminate: () => sink.terminate?.() } : {}),
-        bufferedAmount: () => sink.bufferedAmount(),
-        backpressureSupported: sink.backpressureSupported,
-        secret,
-        maxPostBytes,
-      },
-      attach(connection) {
-        handle = connection;
-        if (closed) return;
-
-        session = {
-          handle: connection,
-          lanes: { data: false, control: false },
-          inFlightFrames: 0,
-          inFlightBytes: 0,
-          lastSeq: 0,
-          laneUpload: null,
-          uploads: new Set(),
-          roomWaiter: null,
-          event(text) {
-            if (!closed) sink.write(encoder.encode(`data: ${text}\n\n`));
-          },
-          close,
-          closeFromClient(code, reason) {
-            if (closed) return;
-
-            sink.end();
-            finish(code, reason);
-          },
-        };
-        sessions.set(secret, session);
-      },
-      ended() {
-        if (!closed) finish(ABNORMAL_CLOSE, 'stream ended');
-      },
-    };
+  function openStream(sink: SseSink): SseStream {
+    return new HttpStream(sink);
   }
 
   function beginPost(

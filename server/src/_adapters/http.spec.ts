@@ -37,6 +37,7 @@ function open(hub: HttpHub, { settle = true } = {}) {
       written.push(new TextDecoder().decode(chunk));
     }),
     end: vi.fn(),
+    terminate: vi.fn(),
   };
 
   const stream = hub.openStream({ ...sink, bufferedAmount: () => 0, backpressureSupported: true });

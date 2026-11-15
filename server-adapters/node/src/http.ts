@@ -15,6 +15,7 @@ import type {
   ConnectionHandle,
   HttpAnswer,
   HttpHub,
+  SseSink,
 } from '@livething/server/adapters';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { IncomingHttpHeaders as Http2IncomingHttpHeaders } from 'node:http2';
@@ -72,11 +73,40 @@ interface Corkable {
   uncork(): void;
 }
 
-/** The events an event stream holds until the end of this event loop turn. */
-interface HeldEvents {
-  response: NodeHttpResponse;
-  chunks: Uint8Array[];
-  bytes: number;
+/**
+ * Where one event stream writes, with the events it holds until the end of this event loop
+ * turn. A class, not closures: a connection holds it for its whole life.
+ */
+class HeldEvents implements SseSink {
+  readonly response: NodeHttpResponse;
+  chunks: Uint8Array[] = [];
+  bytes = 0;
+
+  constructor(response: NodeHttpResponse) {
+    this.response = response;
+  }
+
+  get backpressureSupported(): boolean {
+    return true;
+  }
+
+  write(chunk: Uint8Array): void {
+    holdEvent(this, chunk);
+  }
+
+  end(): void {
+    flush(this);
+    this.response.end();
+  }
+
+  terminate(): void {
+    flush(this);
+    this.response.destroy();
+  }
+
+  bufferedAmount(): number {
+    return (this.response.writableLength ?? 0) + this.bytes;
+  }
 }
 
 /**
@@ -254,20 +284,7 @@ async function openStream(deps: NodeHttpDeps, stream: StreamRequest): Promise<vo
 
   // Send the headers now: the client waits for them before it reads any event.
   response.flushHeaders?.();
-  const held: HeldEvents = { response, chunks: [], bytes: 0 };
-  const opened = hub.openStream({
-    write: (chunk) => holdEvent(held, chunk),
-    end() {
-      flush(held);
-      response.end();
-    },
-    terminate() {
-      flush(held);
-      response.destroy();
-    },
-    bufferedAmount: () => (response.writableLength ?? 0) + held.bytes,
-    backpressureSupported: true,
-  });
+  const opened = hub.openStream(new HeldEvents(response));
   response.once('close', () => opened.ended());
   try {
     opened.attach(deps.attach(opened.socket, decision));

@@ -155,11 +155,9 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
 
       expect(res.status).toBe(200);
       expect(state.acceptWebSocket).not.toHaveBeenCalled();
-      expect(descriptor).toMatchObject({
-        survivesHibernation: false,
-        backpressureSupported: true,
-        maxPostBytes: 512 * 1024,
-      });
+      // The engine reads a missing `survivesHibernation` as `false`.
+      expect(descriptor.survivesHibernation ?? false).toBe(false);
+      expect(descriptor).toMatchObject({ backpressureSupported: true, maxPostBytes: 512 * 1024 });
       expect(descriptor.secret).toEqual(expect.any(String));
     });
 
@@ -229,11 +227,46 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
 
       expect(await res.text()).toBe('accepted');
       expect(fake.calls.authenticate).toHaveLength(1);
-      expect(fake.calls.accept[0]!.descriptor).toMatchObject({
-        secret: 'poll-secret',
-        backpressureSupported: false,
-        survivesHibernation: false,
+      const descriptor = fake.calls.accept[0]!.descriptor as ConnectionDescriptor;
+      expect(descriptor).toMatchObject({ secret: 'poll-secret', backpressureSupported: false });
+      expect(descriptor.survivesHibernation ?? false).toBe(false);
+    });
+
+    it('keeps the methods of a transport that is a class instance', async () => {
+      class PollConnection {
+        sent: unknown[] = [];
+        readonly backpressureSupported = false;
+        send(frame: unknown): boolean {
+          this.sent.push(frame);
+          return true;
+        }
+
+        close(): void {}
+
+        bufferedAmount(): number {
+          return this.sent.length;
+        }
+      }
+
+      const connection = new PollConnection();
+      const Cls = buildClass({
+        hibernation: false,
+        transports: [
+          longPolling(async (request, endpoint) => {
+            const decision = await endpoint.authenticate(request);
+            endpoint.accept(connection, decision);
+            return new Response('accepted');
+          }),
+        ],
       });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      await instance.fetch(new Request('https://huddle.test/'));
+      const descriptor = fake.calls.accept[0]!.descriptor as ConnectionDescriptor;
+      descriptor.send({ kind: 'text', text: 'hello' });
+
+      expect(connection.sent).toEqual([{ kind: 'text', text: 'hello' }]);
+      expect(descriptor.bufferedAmount()).toBe(1);
     });
 
     it('refuses to accept a rejected decision', async () => {
