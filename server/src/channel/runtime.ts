@@ -454,10 +454,16 @@ export async function leaveChannel(
   const scope: ChannelTarget = opts;
   if (!hasChannelMembership(connection, scope.channelName, scope.channelFamily)) return;
 
-  const ctx = runtime.buildConnectionContext(connection, scope);
+  // Built on first use: most channels have no leave hooks.
+  let sharedCtx: ReturnType<ChannelRuntime['buildConnectionContext']> | undefined;
+  function hookCtx() {
+    return (sharedCtx ??= runtime.buildConnectionContext(connection, scope));
+  }
+
   const channelKey = scope.channel?.key ?? '';
   const isDurable = runtime.isChannelDurable(scope.channelFamily ?? scope.channelName);
   const userSeat = holdsUserSeat(connection, isDurable);
+
   const memberId = memberIdOf(connection, userSeat);
 
   // A disconnect only ends the session when the user keeps a seat to come
@@ -502,6 +508,7 @@ export async function leaveChannel(
   if (isTrueLeave) {
     for (const hook of runtime.unsubscribeHooks.get(channelKey) ?? []) {
       try {
+        const ctx = hookCtx();
         await runGateHook(runtime, { channelKey, ctx, kind: 'channelLifecycle' }, () => hook(ctx));
       } catch (error) {
         runtime.logger?.error('[livething] onUnsubscribe hook threw', {
@@ -534,6 +541,7 @@ export async function leaveChannel(
 
   for (const hook of runtime.sessionEndHooks.get(channelKey) ?? []) {
     try {
+      const ctx = hookCtx();
       await runGateHook(runtime, { channelKey, ctx, kind: 'channelLifecycle' }, () => hook(ctx));
     } catch (error) {
       runtime.logger?.error('[livething] onSessionEnd hook threw', {
@@ -661,8 +669,6 @@ async function runSubscribeFlow(
   if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily)) {
     return;
   }
-
-  const ctx = runtime.buildConnectionContext(connection, scope);
 
   let runCommitGate: () => void;
   try {
@@ -792,7 +798,10 @@ async function runSubscribeFlow(
   // the rejoin only restores a fresh socket. Re-running join side-effects (a
   // welcome push, a "X joined" broadcast) on every reconnect would be wrong.
   if (!rejoining) {
+    // Built only for a channel with onSubscribe hooks, and shared by all of them.
+    let sharedCtx: ReturnType<ChannelRuntime['buildConnectionContext']> | undefined;
     for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
+      const ctx = (sharedCtx ??= runtime.buildConnectionContext(connection, scope));
       try {
         await runGateHook(
           runtime,
