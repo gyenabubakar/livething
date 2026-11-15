@@ -20,10 +20,15 @@ function listen(httpServer) {
 
 async function startLiveThing() {
   const livething = setup();
-  const huddleEndpoint = livething.bind(buildHuddleDefinition({ keepalivePings: overSse }), {
-    transports: overSse ? [websocket(), sse()] : [websocket()],
-    logger: { debug() {}, info() {}, warn() {}, error: console.error },
-  });
+
+  const presence = process.env.LOAD_PRESENCE !== 'off';
+  const huddleEndpoint = livething.bind(
+    buildHuddleDefinition({ keepalivePings: overSse, presence }),
+    {
+      transports: overSse ? [websocket(), sse()] : [websocket()],
+      logger: { debug() {}, info() {}, warn() {}, error: console.error },
+    },
+  );
   const httpServer = createServer((request, response) => huddleEndpoint.handle(request, response));
   httpServer.on('upgrade', huddleEndpoint.upgrade);
   await huddleEndpoint.ready();

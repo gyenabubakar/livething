@@ -15,6 +15,8 @@ const connectionCount = Number(process.argv[3] ?? 5000);
 // The small-room steps put every connection in a room of 10.
 if (connectionCount % 10 !== 0) throw new Error('Use a connection count that is a multiple of 10.');
 const transport = process.env.LOAD_TRANSPORT ?? 'websocket';
+// LOAD_PRESENCE=off turns presence off on the rooms, so a LiveThing join tells nobody.
+const waitForPresence = mode === 'livething' && process.env.LOAD_PRESENCE !== 'off';
 
 // LOAD_BASELINE=<dir> runs the server from another copy of the packages (a `node_modules` in
 // that folder), to compare a change with the build before it.
@@ -212,7 +214,7 @@ await step(
       );
     });
     await waitFor(() => count('__subscribeOk__') >= connectionCount, 'small join');
-    if (mode === 'livething') {
+    if (waitForPresence) {
       const pairs = roomCount * ((roomSize * (roomSize - 1)) / 2);
       await waitFor(() => count('member online') >= pairs, 'small join presence');
     }
@@ -253,7 +255,7 @@ for (const size of bigRooms) {
     }
 
     await waitFor(() => count('__subscribeOk__') >= size, 'big join');
-    if (mode === 'livething') {
+    if (waitForPresence) {
       await waitFor(() => count('member online') >= (size * (size - 1)) / 2, 'big join presence');
     }
   });

@@ -20,6 +20,7 @@ export function buildHuddleDefinition(options = {}) {
   });
 
   const rooms = base.channel(['rooms', 'room:{roomId}'], {
+    presence: options.presence ?? true,
     capabilities: [emits({ message: t() })],
   });
 
