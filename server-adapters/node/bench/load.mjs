@@ -512,11 +512,12 @@ async function step(name, measure, run) {
   await run();
 
   const wallMs = performance.now() - started;
+  // Read the stats first, so the CPU of writing the profile is not counted in the step.
+  const after = await serverStats();
   if (measured && profileDir) {
     await callServer({ profileTo: `${profileDir}/${name.replaceAll(' ', '-')}.cpuprofile` });
   }
 
-  const after = await serverStats();
   if (!measured) return { before, after };
 
   const cpuUs =

@@ -823,7 +823,7 @@ export interface ChannelHandle<
    * When a kick removes a user's last connection in a persistent channel, it
    * drops the durable membership row, so the user is NOT auto-rejoined on their
    * next reconnect. A `TagRef` kick that leaves the user another connection in
-   * the channel keeps the row. To boot a socket but keep its membership, close
+   * the channel keeps the row. To disconnect a socket but keep its membership, close
    * the connection instead.
    */
   kick(
