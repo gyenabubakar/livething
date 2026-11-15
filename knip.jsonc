@@ -37,8 +37,14 @@
       "ignoreDependencies": ["cloudflare"],
     },
     "server-adapters/node": {
-      "entry": ["src/**/*.test-d.ts"],
-      "project": ["src/**/*.ts"],
+      // The benchmarks run these with `node`. The load benchmark uses socket.io and socket.io-client.
+      "entry": [
+        "src/**/*.test-d.ts",
+        "bench/engine.mjs",
+        "bench/load.mjs",
+        "bench/load-server.mjs",
+      ],
+      "project": ["src/**/*.ts", "bench/**/*.mjs"],
     },
     "tests-e2e/handlers": {
       // tsconfig.declaration.json compiles this file; nothing imports it.

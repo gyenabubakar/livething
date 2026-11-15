@@ -649,8 +649,9 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   /**
    * Remove a user, everyone holding a tag, or everyone with any key under a
    * tag group (`ctx.tags.ephemeral(...)` / `.persistent(...)`) from this
-   * channel for good. The durable membership row is dropped, so the user does
-   * not auto-rejoin on reconnect. Every targeted connection is
+   * channel. When the kick removes a user's last connection in the channel,
+   * the durable membership row is dropped, so the user does not auto-rejoin on
+   * reconnect. Every targeted connection is
    * kicked even when a leave hook throws; then the promise rejects with an
    * `AggregateError` holding every hook failure.
    */

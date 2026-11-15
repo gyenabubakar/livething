@@ -196,12 +196,11 @@ await step('disconnect', { units: connectionCount, unit: 'connection' }, async (
 });
 connections = [];
 
-console.log(
-  JSON.stringify({
-    connections: connectionCount,
-    heapBytesPerConnection,
-    heapLeftAfterCloseBytes: heapUsed() - heapBefore,
-    results,
-  }),
-);
-process.exit(0);
+const report = JSON.stringify({
+  connections: connectionCount,
+  heapBytesPerConnection,
+  heapLeftAfterCloseBytes: heapUsed() - heapBefore,
+  results,
+});
+// A pipe to stdout can write after this line returns, so exit once the report is out.
+process.stdout.write(`${report}\n`, () => process.exit(0));

@@ -313,7 +313,11 @@ function openSseClient(index) {
       let size = 0;
       while (taken < lane.queue.length && taken < (lane.room ?? MAX_BATCH_FRAMES)) {
         const next = lane.queue[taken].bytes.length + FRAME_HEADER_BYTES;
-        if (size + next > maxPostBytes) break;
+        if (size + next > maxPostBytes) {
+          if (taken === 0) throw new Error(`A frame of ${next} bytes is over maxPostBytes.`);
+
+          break;
+        }
 
         size += next;
         taken++;
@@ -672,4 +676,5 @@ console.log(
 );
 serverProcess.send('exit');
 await new Promise((resolve) => serverProcess.once('exit', resolve));
-process.exit(0);
+// A pipe to stdout can still be writing the report, so exit once it is out.
+process.stdout.write('', () => process.exit(0));

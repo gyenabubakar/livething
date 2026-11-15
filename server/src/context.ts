@@ -817,9 +817,11 @@ export interface ChannelHandle<
    * but has no live connection in the channel: peers get a `leave` change,
    * and no hooks run because there is no socket.
    *
-   * A kick is permanent: on a persistent channel it drops the durable
-   * membership row, so the user is NOT auto-rejoined on their next reconnect.
-   * To boot a socket but keep its membership, close the connection instead.
+   * When a kick removes a user's last connection in a persistent channel, it
+   * drops the durable membership row, so the user is NOT auto-rejoined on their
+   * next reconnect. A `TagRef` kick that leaves the user another connection in
+   * the channel keeps the row. To boot a socket but keep its membership, close
+   * the connection instead.
    */
   kick(
     target:
@@ -1111,9 +1113,9 @@ export interface ConnectionlessChannelHandle<Meta = Record<string, unknown>> {
   /** How many connections are in the channel, without building the list. */
   memberCount(): number;
   /**
-   * Remove a user (or everyone holding a tag) from this channel for good. The
-   * durable membership row is dropped, so the user does not auto-rejoin on
-   * reconnect.
+   * Remove a user (or every connection holding a tag) from this channel. When
+   * the kick removes a user's last connection in the channel, the durable
+   * membership row is dropped, so the user does not auto-rejoin on reconnect.
    */
   kick(target: UserRef | TagRef, opts: OptsParameter2): Promise<void>;
 }
