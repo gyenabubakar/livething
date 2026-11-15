@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { createServer as createHttp2Server, connect as http2Connect } from 'node:http2';
+import { connect as tcpConnect } from 'node:net';
 import {
   client,
   binary as clientBinary,
@@ -319,6 +320,73 @@ describe('POSTs on Node', () => {
     expect(response.status).toBe(404);
     expect(response.headers.get('LiveThing-Error')).toBe('unknown-connection');
   });
+
+  /**
+   * An HTTP/1.1 upload over raw TCP that the hub stops with 413: a start frame, then the header
+   * of a frame over maxPostBytes. Its chunked body never ends.
+   */
+  async function stoppedUploadOverHttp1() {
+    const url = await start();
+    const stream = await fetch(url, {
+      headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+    });
+    const reader = stream.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    const { secret } = (
+      JSON.parse(first.slice('data: '.length)) as [string, { secret: string }]
+    )[1];
+
+    const { hostname, port, pathname } = new URL(url);
+    const socket = tcpConnect(Number(port), hostname);
+    const state = { reply: '', closed: false };
+    socket.on('data', (chunk) => (state.reply += chunk.toString()));
+    socket.on('error', () => {});
+
+    socket.on('close', () => (state.closed = true));
+    const body = Buffer.from([3, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0x10, 0, 0]);
+    socket.write(
+      `POST ${pathname} HTTP/1.1\r\nHost: ${hostname}\r\nLiveThing-Secret: ${secret}\r\n` +
+        'LiveThing-Lane: data\r\nLiveThing-Upload: stream\r\nTransfer-Encoding: chunked\r\n\r\n' +
+        `${body.byteLength.toString(16)}\r\n`,
+    );
+    socket.write(Buffer.concat([body, Buffer.from('\r\n')]));
+
+    return { socket, state, stop: () => reader.cancel() };
+  }
+
+  it('closes the connection of a stopped upload whose client leaves its body open', async () => {
+    const { state, stop } = await stoppedUploadOverHttp1();
+
+    try {
+      await vi.waitFor(() => expect(state.reply).toContain('413'));
+      await vi.waitFor(() => expect(state.closed).toBe(true), { timeout: 4_000 });
+    } finally {
+      await stop();
+    }
+  });
+
+  // Closing the socket at once would make the OS reset it, and the client would lose the answer.
+  it('still answers a stopped upload whose client keeps writing', async () => {
+    const { socket, state, stop } = await stoppedUploadOverHttp1();
+    const filler = Buffer.concat([
+      Buffer.from(`${(64 * 1024).toString(16)}\r\n`),
+      Buffer.alloc(64 * 1024),
+      Buffer.from('\r\n'),
+    ]);
+    function writeMore(): void {
+      while (!state.closed && socket.write(filler));
+    }
+
+    socket.on('drain', writeMore);
+    writeMore();
+
+    try {
+      await vi.waitFor(() => expect(state.closed).toBe(true), { timeout: 8_000 });
+      expect(state.reply).toContain('413');
+    } finally {
+      await stop();
+    }
+  }, 10_000);
 
   it('answers 413 to a body over maxPostBytes', async () => {
     const url = await start({ transports: [http({ maxPostBytes: 1024 })] });
@@ -761,6 +829,25 @@ describe('HTTP/2 on Node', () => {
     expect(await answered).toBe(409);
     await vi.waitFor(() => expect(sent('two')).toBe(1));
     expect(events.some((event) => event.includes('__close__'))).toBe(false);
+    stream.close();
+  });
+
+  it('ends a stopped upload whose client keeps its body open', async () => {
+    const { stream, upload } = await openOverH2();
+    const uploading = upload();
+    const answered = new Promise((resolve) =>
+      uploading.on('response', (headers) => resolve(headers[':status'])),
+    );
+    let closed = false;
+    uploading.on('close', () => (closed = true));
+
+    const tooLarge = Buffer.alloc(5);
+    tooLarge.writeUInt32BE(1 << 20, 1);
+
+    uploading.write(Buffer.concat([startFrame(1), tooLarge]));
+
+    expect(await answered).toBe(413);
+    await vi.waitFor(() => expect(closed).toBe(true));
     stream.close();
   });
 });

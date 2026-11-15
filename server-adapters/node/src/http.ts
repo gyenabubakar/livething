@@ -21,6 +21,9 @@ import type { Http2ServerRequest } from 'node:http2';
 import { isSocketRejection, upgradeRejection } from './upgrade.ts';
 import type { ConnectionTransport } from './socket.ts';
 
+/** How long an HTTP/1.1 upload stopped early may go on sending after its answer. */
+const DRAIN_MS = 2_000;
+
 /** A request `handle` takes: from `node:http`, or from a `node:http2` compatibility server. */
 export type NodeHttpRequest = IncomingMessage | Http2ServerRequest;
 
@@ -88,6 +91,7 @@ export function createNodeHttpHandler(
     if (request.method === 'POST') {
       const uploading = header(request, UPLOAD_HEADER.toLowerCase()) === 'stream';
       writeAnswer(response, await (uploading ? upload(hub, request) : post(hub, request)), cors);
+      if (uploading && !request.complete) endBody(request, response);
       return;
     }
 
@@ -238,6 +242,26 @@ function upload(hub: HttpHub, request: NodeHttpRequest): Promise<HttpAnswer> {
       request.pause();
       settle(answer);
     });
+  });
+}
+
+/**
+ * Ends the body of an upload that was stopped while the client still sends. HTTP/2 resets the
+ * stream with NO_ERROR after the answer. HTTP/1.1 has no such reset: closing the socket at once
+ * makes the OS send RST, and the client loses the answer. So it reads and drops the rest, and
+ * closes the connection only when the body has not ended `DRAIN_MS` after the answer.
+ */
+function endBody(request: NodeHttpRequest, response: NodeHttpResponse): void {
+  if ('stream' in request) {
+    request.stream.close();
+    return;
+  }
+
+  request.resume();
+  response.once('close', () => {
+    setTimeout(() => {
+      if (!request.complete) request.destroy();
+    }, DRAIN_MS).unref();
   });
 }
 

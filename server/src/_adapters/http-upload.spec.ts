@@ -246,6 +246,18 @@ describe('createHttpHub: the data lane and the sequence numbers', () => {
     expect(handle.handleClose).toHaveBeenCalledWith(1002, expect.any(String));
   });
 
+  it('refuses a start frame with sequence number 0, and closes the connection with 1002', async () => {
+    const { secret, handle } = open(hub);
+    const uploading = upload(hub, secret);
+
+    uploading.push(join(start(0), texts('one', 'two')));
+    await flush();
+
+    expect(handle.handleMessage).not.toHaveBeenCalled();
+    await expect(uploading.stopped).resolves.toMatchObject({ status: 400 });
+    expect(handle.handleClose).toHaveBeenCalledWith(1002, expect.any(String));
+  });
+
   it('refuses a data POST with no sequence number', async () => {
     const { secret } = open(hub);
     const started = hub.beginPost(secret, 'data', null);
@@ -277,5 +289,60 @@ describe('createHttpHub: upload backpressure', () => {
     const { secret } = open(hub);
 
     expect(upload(hub, secret).push(join(start(1), texts('one')))).toBeNull();
+  });
+
+  it('does not stop an upload as idle while it waits for room on the server', async () => {
+    const { secret, handle, pending } = open(hub, { settle: false });
+    const uploading = upload(hub, secret);
+    const names = Array.from({ length: 256 }, (_, i) => `m${i}`);
+    let stopped = false;
+    void uploading.stopped.then(() => (stopped = true));
+
+    const wait = uploading.push(join(start(1), texts(...names)));
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(stopped).toBe(false);
+    for (const resolve of pending.splice(0)) resolve();
+    await wait;
+    expect(handle.handleMessage).toHaveBeenCalledTimes(256);
+
+    await vi.advanceTimersByTimeAsync(44_000);
+    expect(stopped).toBe(false);
+  });
+});
+
+describe('createHttpHub: upload chunks', () => {
+  it('keeps the bytes of a frame that is not whole when the adapter reuses its chunk buffer', () => {
+    const { secret, received } = open(hub);
+    const uploading = upload(hub, secret);
+    const body = join(start(1), texts('reused'));
+    const reused = Buffer.alloc(7);
+
+    for (let at = 0; at < body.byteLength; at += reused.byteLength) {
+      const part = body.subarray(at, at + reused.byteLength);
+      reused.set(part);
+      uploading.push(reused.subarray(0, part.byteLength));
+      reused.fill(0);
+    }
+
+    expect(received()).toEqual(['reused']);
+  });
+
+  it('reads a big frame sent in small chunks in linear time', () => {
+    vi.useRealTimers();
+    const big = createHttpHub({ maxPostBytes: 8 << 20, receiveBytes: 32 << 20 });
+    const { secret, received } = open(big);
+    const uploading = upload(big, secret);
+    const body = join(start(1), frame(TEXT, sendMessage('x'.repeat((8 << 20) - 64))));
+
+    const began = performance.now();
+    for (let at = 0; at < body.byteLength; at += 4096) {
+      uploading.push(body.subarray(at, at + 4096));
+    }
+
+    const took = performance.now() - began;
+
+    expect(received()).toHaveLength(1);
+    expect(took).toBeLessThan(1_000);
   });
 });

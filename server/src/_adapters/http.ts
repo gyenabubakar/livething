@@ -161,7 +161,11 @@ export interface HttpPost {
  * with no room slows its client through the network's own flow control.
  */
 export interface HttpUpload {
-  /** Hand over one chunk of the body. A promise means: wait for it before reading more. */
+  /**
+   * Hand over one chunk of the body. A promise means: wait for it before reading more. The hub
+   * owns the chunk from here: binary frames go to the engine as views of it, so the adapter must
+   * not reuse or change its buffer.
+   */
   push(chunk: Uint8Array): Promise<void> | null;
   /** The body ended. Sends the last ack and returns the answer. */
   finish(): HttpAnswer;
@@ -449,8 +453,10 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
     let seq = 0;
     let ackedSeq = session.lastSeq;
     let ackTimer: ReturnType<typeof setTimeout> | null = null;
-    /** The start of a frame that the next chunk finishes. */
-    let carry: Uint8Array | null = null;
+    /** The chunks of a frame that is not whole yet. They are joined once `carryNeeds` bytes are in. */
+    let carry: Uint8Array[] = [];
+    let carryBytes = 0;
+    let carryNeeds = 0;
     let lastActivity = Date.now();
     let idleTimer: ReturnType<typeof setTimeout> | null = setTimeout(checkIdle, UPLOAD_IDLE_MS);
     /** Wakes the adapter's read loop when this upload waits for room. */
@@ -468,7 +474,8 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
       idleTimer = null;
       ackTimer = null;
 
-      carry = null;
+      carry = [];
+      carryBytes = 0;
       session.uploads.delete(control);
       if (session.laneUpload === control) {
         session.laneUpload = null;
@@ -498,7 +505,8 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
       idleTimer = null;
       if (stopped) return;
 
-      const idle = Date.now() - lastActivity;
+      // A wait for room is the server's doing, not the client's.
+      const idle = waiting ? 0 : Date.now() - lastActivity;
       if (idle >= UPLOAD_IDLE_MS) {
         stop(errorAnswer(408, 'idle'));
         return;
@@ -522,7 +530,7 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
     }
 
     function takeLane(first: number): boolean {
-      if (first > session.lastSeq + 1) {
+      if (first < 1 || first > session.lastSeq + 1) {
         breakRules('data frames are missing');
         return false;
       }
@@ -594,7 +602,16 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
         offset = end;
       }
 
-      if (!stopped && offset < data.byteLength) carry = data.slice(offset);
+      if (!stopped && offset < data.byteLength) {
+        // A copy, also for a Node Buffer, whose `slice` is a view.
+        const rest = new Uint8Array(data.subarray(offset));
+        carry = [rest];
+        carryBytes = rest.byteLength;
+        carryNeeds =
+          rest.byteLength < FRAME_HEADER_BYTES
+            ? FRAME_HEADER_BYTES
+            : FRAME_HEADER_BYTES + view.getUint32(offset + 1, false);
+      }
 
       return null;
     }
@@ -605,6 +622,7 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
         session.roomWaiter = resolve;
       }).then(() => {
         waiting = null;
+        lastActivity = Date.now();
         return stopped ? undefined : (consume(data, offset) ?? undefined);
       });
     }
@@ -615,20 +633,29 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
         if (stopped) return null;
 
         lastActivity = Date.now();
-        let data = chunk;
-        if (carry) {
-          data = new Uint8Array(carry.byteLength + chunk.byteLength);
-          data.set(carry);
-          data.set(chunk, carry.byteLength);
-          carry = null;
+        if (carry.length === 0) return consume(chunk, 0);
+
+        // A copy: an adapter may reuse its chunk buffer after `push` returns.
+        carry.push(new Uint8Array(chunk));
+        carryBytes += chunk.byteLength;
+        if (carryBytes < carryNeeds) return null;
+
+        const data = new Uint8Array(carryBytes);
+        let at = 0;
+        for (const part of carry) {
+          data.set(part, at);
+          at += part.byteLength;
         }
+
+        carry = [];
+        carryBytes = 0;
 
         return consume(data, 0);
       },
       finish() {
         if (stopped) return errorAnswer(410, 'closed');
 
-        const broken = carry !== null;
+        const broken = carry.length > 0;
         if (session.lastSeq > ackedSeq) ack(false);
         release();
 

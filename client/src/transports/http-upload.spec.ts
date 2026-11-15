@@ -92,6 +92,8 @@ class FakeServer {
   private controller!: ReadableStreamDefaultController<Uint8Array>;
   posts: Post[] = [];
   uploads: Upload[] = [];
+  /** When set, control POSTs wait for `answer` instead of getting 204 at once. */
+  holdControl = false;
 
   fetch = vi.fn(async (_url: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
@@ -111,7 +113,7 @@ class FakeServer {
         };
 
         this.posts.push(post);
-        post.answer(204);
+        if (!(this.holdControl && post.lane === 'control')) post.answer(204);
       });
     }
 
@@ -126,6 +128,10 @@ class FakeServer {
 
     return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } });
   });
+
+  drop(): void {
+    this.controller.error(new TypeError('network error'));
+  }
 
   event(text: string): void {
     this.controller.enqueue(new TextEncoder().encode(`data: ${text}\n\n`));
@@ -264,6 +270,28 @@ describe('http(): batched POSTs', () => {
 });
 
 describe('http(): stream mode', () => {
+  it('does not open an upload when a POST lands after the connection dropped', async () => {
+    const url = 'https://huddle-late-answer.example/huddle';
+    server.holdControl = true;
+    const { transport } = open(url);
+    await flush();
+    server.accept();
+
+    await flush();
+    transport.sendControl('pong');
+    await flush();
+
+    server.drop();
+    await flush();
+    server.posts.at(-1)!.answer(204);
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    expect(server.uploads).toHaveLength(0);
+    server.holdControl = false;
+    await openAndTry(url);
+    expect(server.uploads).toHaveLength(1);
+  });
+
   it('opens one long POST after the first POST lands, with a probe frame first', async () => {
     await openAndTry();
 

@@ -293,6 +293,8 @@ function openHttp(options: TransportOpenOptions): Transport {
   }
 
   function postAccepted(): void {
+    if (state !== 'open') return;
+
     if (!confirmed) warnIfHttp1(url, options.warn);
 
     confirmed = true;
