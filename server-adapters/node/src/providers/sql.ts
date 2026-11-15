@@ -217,7 +217,20 @@ function rowObject(
   values: readonly unknown[],
 ): Record<string, unknown> {
   const row: Record<string, unknown> = {};
-  for (let index = 0; index < columns.length; index++) row[columns[index]!] = values[index];
+  for (let index = 0; index < columns.length; index++) {
+    const name = columns[index]!;
+    // A plain write to `__proto__` sets the prototype instead of adding the column.
+    if (name === '__proto__') {
+      Object.defineProperty(row, name, {
+        value: values[index],
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    } else {
+      row[name] = values[index];
+    }
+  }
 
   return row;
 }

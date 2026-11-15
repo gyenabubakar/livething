@@ -40,6 +40,23 @@ const drivers: [string, () => ReturnType<typeof createSql>][] = [
 ];
 
 describe.each(drivers)('createSql on %s', (_driver, openSql) => {
+  it('keeps a column named __proto__ as a plain column', () => {
+    const runtime = openSql();
+    try {
+      const row = runtime.provider
+        .exec<Record<string, unknown>>("SELECT 1 AS __proto__, x'00' AS bytes")
+        .one();
+
+      if (!row) throw new Error('expected one row');
+
+      expect(Object.keys(row)).toEqual(['__proto__', 'bytes']);
+      expect(Object.getPrototypeOf(row)).toBe(Object.prototype);
+      expect(Object.getOwnPropertyDescriptor(row, '__proto__')?.value).toBe(1);
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('runs real SQLite reads, writes, raw results, and schema batches', () => {
     const runtime = openSql();
     try {

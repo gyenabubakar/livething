@@ -801,8 +801,8 @@ async function runSubscribeFlow(
     // Built only for a channel with onSubscribe hooks, and shared by all of them.
     let sharedCtx: ReturnType<ChannelRuntime['buildConnectionContext']> | undefined;
     for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
-      const ctx = (sharedCtx ??= runtime.buildConnectionContext(connection, scope));
       try {
+        const ctx = (sharedCtx ??= runtime.buildConnectionContext(connection, scope));
         await runGateHook(
           runtime,
           { channelKey: scope.channel.key, ctx, kind: 'channelLifecycle' },

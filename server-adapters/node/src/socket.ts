@@ -143,8 +143,9 @@ function writeFrame(socket: Pick<WebSocket, 'send'>, frame: TransportFrame): voi
 
   const sender = frameSender(socket);
   if (sender) sender.sendFrame(wire);
-  // The payload is the frame's last buffer: an unmasked frame keeps it apart from the header.
-  else socket.send(wire.at(-1)!, { binary: false });
+  // An unmasked frame keeps the payload apart from the header, as its last buffer. Newer ws
+  // returns only the header for an empty payload.
+  else socket.send(wire.length > 1 ? wire.at(-1)! : frame.text, { binary: false });
 }
 
 /** The WebSocket `readyState` of an open socket. */
