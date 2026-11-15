@@ -2,11 +2,12 @@ import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { dedup } from '@livething/server/dedup';
 import { inbox } from '@livething/server/inbox';
+import { keepalive } from '@livething/server/keepalive';
 import { scheduled } from '@livething/server/scheduled';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { SendRoomMsg } from '../inbox/events.ts';
 import type { RoomMsg } from '../inbox/events.ts';
 
@@ -16,8 +17,9 @@ import type { RoomMsg } from '../inbox/events.ts';
 const RETENTION_MS = 1_000;
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     channels(),
     sequence({ persist: true }),
     dedup(),

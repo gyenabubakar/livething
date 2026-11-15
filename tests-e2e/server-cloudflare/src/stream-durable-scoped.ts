@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { streamDurableScopedDefinition } from '@livething/tests-e2e-handlers/stream-durable-scoped';
+import { bindFixture } from './bind-fixture.ts';
 
-export class StreamDurableScopedServer extends bind(streamDurableScopedDefinition) {}
+export class StreamDurableScopedServer extends bindFixture(streamDurableScopedDefinition) {}

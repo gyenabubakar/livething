@@ -1,8 +1,9 @@
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { serverRequests } from '@livething/server/server-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 /**
  * Phase 2 (server→client targeted requests) e2e handler. On an incoming
@@ -12,8 +13,9 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * wire.
  */
 export const serverRequestContract = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     serverRequests({
       'ask-permission': { out: t<{ action: string }>(), in: v.object({ allowed: v.boolean() }) },
       'ping-ack': { out: t<{ note: string }>() },

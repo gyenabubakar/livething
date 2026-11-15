@@ -2,10 +2,11 @@ import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { Disconnect } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { allowAnonymous, requireUsername } from '../_shared/upgrade.ts';
+import { allowAnonymous, requireUsername } from '../_shared/authenticate.ts';
 
 const RoomMessagePayload = v.object({ text: v.string(), from: v.string() });
 const SendMessagePayload = v.object({ text: v.string() });
@@ -17,11 +18,12 @@ const base = server({
   // Default path requires a username (existing tests). Connecting with `?anon`
   // takes the anonymous path (empty identity) so anonymous-skips-membership and
   // anonymous-replay-gate behavior can be exercised.
-  upgrade: (request) =>
+  authenticate: (request) =>
     new URL(request.url).searchParams.has('anon')
       ? allowAnonymous(request)
       : requireUsername(request),
   capabilities: [
+    keepalive(),
     channels(),
     clientRequests(),
     recordedStream(),
@@ -81,7 +83,7 @@ const handleReadExecCount = base.request('read-exec-count', {
   },
 });
 
-// Anonymous connections (`upgrade` returned no `userId`) cannot continue a
+// Anonymous connections (`authenticate` returned no `userId`) cannot continue a
 // stream on reconnect — they have no stable id to key the reconnect against. The
 // engine rejects the start with `DurableStreamRequiresUser` before this runs.
 const handleAnonStream = base.recordedStream('anon-stream', {

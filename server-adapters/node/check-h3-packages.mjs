@@ -114,7 +114,7 @@ import { createApp, createRouter, toNodeListener } from 'h3';
 import WebSocket from 'ws';
 
 const base = defineServer({
-  upgrade() { return { userId: 'packed-v1' }; },
+  authenticate() { return { userId: 'packed-v1' }; },
   capabilities: [emits({ ready: t<{ version: string }>() })],
   onConnect(ctx) { ctx.send('ready', { version: 'v1' }); },
 });
@@ -127,7 +127,7 @@ if (false) {
 }
 const app = createApp();
 const router = createRouter();
-router.get('/ws', endpoint.upgrade);
+router.get('/ws', endpoint.connect);
 app.use(router);
 const websocket = nodeWebSocketAdapter(app.websocket);
 const http = createServer(toNodeListener(app));
@@ -137,11 +137,17 @@ await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
 const address = http.address();
 if (!address || typeof address === 'string') throw new Error('Expected a TCP address');
 const socket = new WebSocket(\`ws://127.0.0.1:\${address.port}/ws\`);
-const message = await new Promise<string>((resolve, reject) => {
-  socket.once('message', (data) => resolve(data.toString()));
+// The first frame is always __connected__; the app's own frame comes after it.
+const messages = await new Promise<string[]>((resolve, reject) => {
+  const received: string[] = [];
+  socket.on('message', (data) => {
+    received.push(data.toString());
+    if (received.length === 2) resolve(received);
+  });
   socket.once('error', reject);
 });
-if (message !== '["ready",{"version":"v1"},null]') throw new Error(message);
+if (!messages[0].startsWith('["__connected__",')) throw new Error(messages[0]);
+if (messages[1] !== '["ready",{"version":"v1"},null]') throw new Error(messages[1]);
 const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
 await livething.shutdown();
 await closed;
@@ -156,14 +162,14 @@ import { H3 } from 'h3/node';
 import WebSocket from 'ws';
 
 const base = defineServer({
-  upgrade() { return { userId: 'packed-v2' }; },
+  authenticate() { return { userId: 'packed-v2' }; },
   capabilities: [emits({ ready: t<{ version: string }>() })],
   onConnect(ctx) { ctx.send('ready', { version: 'v2' }); },
 });
 const livething = setup();
 const endpoint = livething.bind(base.assemble({ handlers: [] }), { sql: ':memory:' });
 const app = new H3();
-app.get('/ws', endpoint.upgrade);
+app.get('/ws', endpoint.connect);
 await livething.ready();
 const served = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0, websocket: {} });
 const http = served.node?.server;
@@ -175,11 +181,17 @@ await new Promise<void>((resolve, reject) => {
 const address = http.address();
 if (!address || typeof address === 'string') throw new Error('Expected a TCP address');
 const socket = new WebSocket(\`ws://127.0.0.1:\${address.port}/ws\`);
-const message = await new Promise<string>((resolve, reject) => {
-  socket.once('message', (data) => resolve(data.toString()));
+// The first frame is always __connected__; the app's own frame comes after it.
+const messages = await new Promise<string[]>((resolve, reject) => {
+  const received: string[] = [];
+  socket.on('message', (data) => {
+    received.push(data.toString());
+    if (received.length === 2) resolve(received);
+  });
   socket.once('error', reject);
 });
-if (message !== '["ready",{"version":"v2"},null]') throw new Error(message);
+if (!messages[0].startsWith('["__connected__",')) throw new Error(messages[0]);
+if (messages[1] !== '["ready",{"version":"v2"},null]') throw new Error(messages[1]);
 const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
 await livething.shutdown();
 await closed;

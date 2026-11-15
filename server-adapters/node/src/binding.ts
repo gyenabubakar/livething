@@ -1,13 +1,11 @@
-import type {
-  ConnectionHandle,
-  ServerDefinition,
-  UpgradeDecision,
-} from '@livething/server/adapters';
+import { ERROR_HEADER } from '@livething/server/adapters';
+import type { AuthDecision, ConnectionHandle, ServerDefinition } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import { createNodeEndpoint } from './endpoint.ts';
 import { createHttpRejectionResponse, isSocketRejection } from './upgrade.ts';
 import type { NodeAdmin, NodeEndpointInternals, NodeEndpointOptions } from './endpoint.ts';
 import type { ConnectionTransport } from './socket.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
 
 export { closeWebSocket } from './close.ts';
 export type { ClosableWebSocket } from './close.ts';
@@ -16,6 +14,7 @@ export type { UpgradeLifecycle } from './upgrade-lifecycle.ts';
 
 export type { NodeAdmin, NodeEndpointOptions } from './endpoint.ts';
 export type { ConnectionTransport } from './socket.ts';
+export type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
 
 /** Forwards lifecycle events from an accepted transport to LiveThing. */
 export interface NodeConnection {
@@ -53,6 +52,12 @@ export interface NodeBindingEndpoint<TAdmin = NodeAdmin> {
   ready(): Promise<void>;
   prepare(request: Request, options?: NodePrepareOptions): Promise<NodeUpgrade>;
   prepareNode(request: IncomingMessage, options?: { signal?: AbortSignal }): Promise<NodeUpgrade>;
+  /**
+   * Serve a plain HTTP request to the endpoint's path: a custom transport's request, or
+   * the server-sent events stream, its POSTs and their CORS preflight. A request that no
+   * transport takes gets 426.
+   */
+  handleNode(request: NodeHttpRequest, response: NodeHttpResponse): Promise<void>;
   admin(): Promise<TAdmin>;
 }
 
@@ -82,7 +87,7 @@ export interface NodeBinding {
  * This does not create, listen on, or close an HTTP server. A host integration
  * calls `prepare()` or `prepareNode()`, performs its own handshake, then passes
  * accepted transport events through the returned connection. Both run the
- * definition's `upgrade` hook, so call them only for a WebSocket upgrade request.
+ * definition's `authenticate` hook, so call them only for a WebSocket upgrade request.
  */
 export function binding(): NodeBinding {
   const endpoints = new Set<NodeEndpointInternals>();
@@ -113,23 +118,39 @@ export function binding(): NodeBinding {
   };
 }
 
+/** The answer to an upgrade when the endpoint does not list `websocket()`. */
+const NOT_OFFERED: NodeHttpRejection = {
+  type: 'http',
+  get response() {
+    return new Response('Not Found', {
+      status: 404,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', [ERROR_HEADER]: 'not-offered' },
+    });
+  },
+};
+
 function createBindingEndpoint<TAdmin>(
   endpoint: NodeEndpointInternals<TAdmin>,
 ): NodeBindingEndpoint<TAdmin> {
   return {
     ready: () => endpoint.ready,
     async prepare(request, options) {
+      if (!endpoint.offersWebSocket) return NOT_OFFERED;
+
       return toNodeUpgrade(await endpoint.decideWebUpgrade(request, options?.clientIp), endpoint);
     },
     async prepareNode(request, options) {
+      if (!endpoint.offersWebSocket) return NOT_OFFERED;
+
       return toNodeUpgrade(await endpoint.decideNodeUpgrade(request, options?.signal), endpoint);
     },
+    handleNode: endpoint.handle,
     admin: endpoint.admin,
   };
 }
 
 function toNodeUpgrade<TAdmin>(
-  decision: UpgradeDecision,
+  decision: AuthDecision,
   endpoint: NodeEndpointInternals<TAdmin>,
 ): NodeUpgrade {
   if (!decision.reject) {
@@ -153,7 +174,7 @@ function toNodeUpgrade<TAdmin>(
     return {
       type: 'socket',
       code: decision.code!,
-      reason: decision.reason ?? 'Upgrade rejected',
+      reason: decision.reason ?? 'Authentication rejected',
     };
   }
 

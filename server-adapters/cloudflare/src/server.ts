@@ -2,22 +2,30 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   adapter,
   asUint8Array,
+  createOriginCheck,
+  createSseHub,
+  errorAnswer,
   isValidCloseCode,
   normalizeCloseReason,
+  resolveTransports,
 } from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
 import { DurableObject } from 'cloudflare:workers';
 import type {
+  AuthDecision,
   ConnectionHandle,
   Engine,
   EngineRuntimeOptions,
   Logger,
   ServerDefinition,
+  ServerTransport,
+  TransportEndpoint,
   TransportFrame,
 } from '@livething/server/adapters';
 import { buildAdmin } from './admin.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
+import { createCloudflareSseHandler } from './sse.ts';
 import type { CloudflareAdmin } from './admin.ts';
 
 /** `WebSocket.READY_STATE_OPEN` on Workers. */
@@ -28,6 +36,10 @@ const ABNORMAL_CLOSURE = 1006;
 
 /** The largest WebSocket message a Durable Object receives or sends: 32 MiB. */
 const CLOUDFLARE_MESSAGE_BYTES = 32 * 1024 * 1024;
+
+const ORIGIN_REJECTION: AuthDecision = { reject: true, code: 403, reason: 'Origin not allowed' };
+const REJECTED_ACCEPT =
+  '[livething] endpoint.accept() got a rejected decision. Answer the request with the decision code instead.';
 
 /**
  * The instance shape of a `bind()`-produced Durable Object.
@@ -69,22 +81,51 @@ function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
 }
 
-const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unknown>>({
+/** Options for `bind()`. */
+export interface CloudflareBindOptions {
+  /**
+   * Browser origins, besides the Worker's own, that may connect, such as
+   * `['http://localhost:5173']`. A request whose `Origin` header is neither the same
+   * host and port as its `Host` header nor in this list gets a 403. A request with no
+   * `Origin` header, such as one from a Node or mobile client, is not checked. The
+   * Durable Object sees the browser's `Host` only when the Worker passes the request
+   * on as it is. If the Worker builds a new request, the object compares the Origin
+   * with that request's URL, so list your site here.
+   */
+  allowedOrigins?: readonly string[];
+  /**
+   * The transports this Durable Object offers, such as `[websocket()]`. Default:
+   * WebSocket only. The order does not matter. An empty list, a transport listed
+   * twice, or something that is not a transport makes `bind()` throw.
+   */
+  transports?: readonly ServerTransport[];
+}
+
+const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<unknown, unknown>>({
   id: 'cloudflare',
   hibernation: {
-    persist(wsKey, snapshot) {
-      (wsKey as WebSocket).serializeAttachment(snapshot);
+    persist(socketKey, snapshot) {
+      (socketKey as WebSocket).serializeAttachment(snapshot);
     },
-    restore(wsKey) {
-      return (wsKey as WebSocket).deserializeAttachment();
+    restore(socketKey) {
+      return (socketKey as WebSocket).deserializeAttachment();
     },
   },
   asyncContextFactory: createAsyncContext,
 
-  setup<TApi>(createEngine: (options: EngineRuntimeOptions) => Engine<TApi>) {
+  setup<TApi>(
+    createEngine: (options: EngineRuntimeOptions) => Engine<TApi>,
+    options: CloudflareBindOptions,
+    definition: ServerDefinition,
+  ) {
+    const originAllowed = createOriginCheck(options.allowedOrigins);
+    const transports = resolveTransports(options.transports, definition);
+    const maxPostBytes = transports.sse?.maxPostBytes;
+
     return class LiveThingDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine<TApi>;
       private readonly ready: Promise<void>;
+      private readonly handleSse: (request: Request) => Promise<Response>;
 
       constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
@@ -110,7 +151,26 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           messageLimits: {
             receiveBytes: CLOUDFLARE_MESSAGE_BYTES,
             sendBytes: CLOUDFLARE_MESSAGE_BYTES,
+            ...(maxPostBytes === undefined ? {} : { postBytes: maxPostBytes }),
           },
+        });
+        this.handleSse = createCloudflareSseHandler({
+          hub:
+            maxPostBytes === undefined
+              ? null
+              : createSseHub({ maxPostBytes, receiveBytes: CLOUDFLARE_MESSAGE_BYTES }),
+          originAllowed,
+          authenticate: (request) => this.engine.authenticate(requestWithClientIp(request)),
+          attach: (socket, decision) =>
+            this.engine.accept(socket, {
+              ...socket,
+              userId: decision.userId ?? '',
+              meta: decision.meta ?? {},
+              tags: decision.tags ?? [],
+              // An open stream keeps the object awake, so the engine runs its timers.
+              // `socket` reports the unread bytes, so the engine's slow-client rules apply.
+              survivesHibernation: false,
+            }),
         });
         // Durable Object refs can be passed through application code and must
         // carry the stable DO id so a ref from another DO cannot match a local
@@ -134,28 +194,65 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
         this.ready = ready;
       }
 
+      /** Offers a request to each custom transport in list order, or returns `null`. */
+      private async handleCustom(request: Request): Promise<Response | null> {
+        const endpoint: TransportEndpoint = {
+          authenticate: async (incoming) => {
+            if (!originAllowed(incoming)) return ORIGIN_REJECTION;
+
+            return this.engine.authenticate(requestWithClientIp(incoming));
+          },
+          accept: (connection, decision) => {
+            if (decision.reject) throw new Error(REJECTED_ACCEPT);
+
+            return this.engine.accept(connection, {
+              ...connection,
+              userId: decision.userId ?? '',
+              meta: decision.meta ?? {},
+              tags: decision.tags ?? [],
+              // An open request keeps the object awake, so the engine runs its timers.
+              survivesHibernation: false,
+            });
+          },
+        };
+
+        try {
+          for (const transport of transports.custom) {
+            const answer = await transport.handle(request, endpoint);
+            if (answer !== null) return answer;
+          }
+        } catch (error) {
+          console.error('[livething] a custom transport threw in handle()', error);
+          return new Response(null, { status: 500 });
+        }
+
+        return null;
+      }
+
       private handleRejectedUpgrade(
-        result: Awaited<ReturnType<Engine['handleUpgrade']>>,
+        request: Request,
+        result: Awaited<ReturnType<Engine['authenticate']>>,
       ): Response {
         // >= 1000 is a WS close code (HTTP statuses cap at 599); below that, an HTTP status.
         if (result.code !== undefined && result.code >= 1000) {
           const pair = new WebSocketPair();
           pair[1].accept();
-          pair[1].close(result.code, normalizeCloseReason(result.reason ?? 'Upgrade rejected'));
+          pair[1].close(
+            result.code,
+            normalizeCloseReason(result.reason ?? 'Authentication rejected'),
+          );
 
-          return new Response(null, {
-            status: 101,
-            webSocket: pair[0],
-          } as ResponseInit & { webSocket: WebSocket });
+          return switchingProtocols(request, pair[0]);
         }
 
         const status = result.code && result.code >= 400 && result.code <= 599 ? result.code : 403;
-        return new Response(result.reason ?? 'Upgrade rejected', { status });
+        return new Response(result.reason ?? 'Authentication rejected', { status });
       }
 
       private createConnectionDescriptor(
         socket: WebSocket,
-        result: Awaited<ReturnType<Engine['handleUpgrade']>>,
+        result: Awaited<ReturnType<Engine['authenticate']>>,
+        survivesHibernation: boolean,
       ) {
         let closed = false;
         return {
@@ -178,6 +275,7 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           userId: result.userId ?? '',
           meta: result.meta ?? {},
           tags: result.tags ?? [],
+          survivesHibernation,
         };
       }
 
@@ -201,24 +299,33 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
         await this.ready;
 
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-          return new Response('Expected Upgrade: websocket', { status: 426 });
+          return (await this.handleCustom(request)) ?? this.handleSse(request);
         }
 
-        const result = await this.engine.handleUpgrade(requestWithClientIp(request));
+        if (!transports.websocket) {
+          const answer = errorAnswer(426, 'not-offered', 'WebSocket is not offered');
+          return new Response(answer.body, { status: answer.status, headers: answer.headers });
+        }
+
+        if (!originAllowed(request)) {
+          return new Response('Origin not allowed', { status: 403 });
+        }
+
+        const result = await this.engine.authenticate(requestWithClientIp(request));
         if (result.reject) {
-          return this.handleRejectedUpgrade(result);
+          return this.handleRejectedUpgrade(request, result);
         }
 
         const pair = new WebSocketPair();
         const client = pair[0];
         const server = pair[1];
 
-        const descriptor = this.createConnectionDescriptor(server, result);
-
         // Tags are NOT forwarded into Cloudflare's per-socket tag store: LiveThing
         // persists them in its hibernation attachment, and the store's caps (10
         // tags, 256 chars each) would crash the upgrade for larger LiveThing tags.
         const hibernating = this.engine.usesHibernation();
+        // A socket accepted through the hibernation API stays open while the object sleeps.
+        const descriptor = this.createConnectionDescriptor(server, result, hibernating);
         if (hibernating) {
           this.ctx.acceptWebSocket(server);
         } else {
@@ -240,10 +347,7 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
           this.wireStandardSocket(server, connection);
         }
 
-        return new Response(null, {
-          status: 101,
-          webSocket: client,
-        } as ResponseInit & { webSocket: WebSocket });
+        return switchingProtocols(request, client);
       }
 
       // Cloudflare calls these three methods only for sockets accepted with
@@ -337,6 +441,21 @@ const buildBind = adapter<undefined, CloudflareDurableObjectClass<unknown, unkno
   },
 });
 
+/**
+ * The `101` for a socket, answering with the first subprotocol the client offered. A
+ * browser fails a connection whose offer gets no answer, and the first name is never the
+ * token, so the token is not sent back.
+ */
+function switchingProtocols(request: Request, webSocket: WebSocket): Response {
+  const first = request.headers.get('Sec-WebSocket-Protocol')?.split(',')[0]?.trim();
+
+  return new Response(null, {
+    status: 101,
+    webSocket,
+    headers: first ? { 'Sec-WebSocket-Protocol': first } : undefined,
+  } as ResponseInit & { webSocket: WebSocket });
+}
+
 function requestWithClientIp(request: Request): Request {
   const headers = new Headers(request.headers);
   headers.delete('LiveThing-Client-IP');
@@ -410,8 +529,9 @@ function answerClientClose(ws: WebSocket, code: number, reason: string): void {
  */
 export function bind<TDefinition extends ServerDefinition>(
   definition: TDefinition,
+  options: CloudflareBindOptions = {},
 ): CloudflareDurableObjectClass<unknown, CloudflareAdmin<TDefinition>> {
-  return buildBind(definition, undefined) as unknown as CloudflareDurableObjectClass<
+  return buildBind(definition, options) as unknown as CloudflareDurableObjectClass<
     unknown,
     CloudflareAdmin<TDefinition>
   >;

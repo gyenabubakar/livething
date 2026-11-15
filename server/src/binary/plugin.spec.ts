@@ -31,12 +31,12 @@ function screensPlugin(seen: number[][]) {
   const handleShareScreenFrame = screens.binary.on('share-screen-frame', {
     run(ctx, _input, bytes) {
       seen.push([...bytes]);
-      ctx.binary.send('screen-frame', { from: ctx.user.id }, bytes);
+      ctx.binary.send('screen-frame', bytes, { info: { from: ctx.user.id } });
     },
   });
   const handleShareStageFrame = stageChannel.binary.on('share-stage-frame', {
     run(ctx, _input, bytes) {
-      ctx.channel.binary.broadcast('stage-frame', null, bytes, { includeSelf: true });
+      ctx.channel.binary.broadcast('stage-frame', bytes, { info: null, includeSelf: true });
     },
   });
 
@@ -158,7 +158,7 @@ describe('a plugin that lists binary()', () => {
     });
     const handleShareScreen = files.on('share-screen', {
       async run(ctx) {
-        answers.push(await ctx.binary.request('capture-screen', null));
+        answers.push(await ctx.binary.request('capture-screen', undefined, { info: null }));
       },
     });
 

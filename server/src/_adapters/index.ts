@@ -1,6 +1,29 @@
 export { asUint8Array } from '@livething/core';
 export { adapter } from './adapter.ts';
 export { normalizeCloseReason } from './close.ts';
+export { createOriginCheck } from './origin.ts';
+export { hasCapability, resolveTransports, sse, websocket } from './transports.ts';
+export type {
+  CustomServerTransport,
+  ResolvedTransports,
+  ServerTransport,
+  ServerTransportName,
+  SseOptions,
+  TransportConnection,
+  TransportEndpoint,
+} from './transports.ts';
+export {
+  ERROR_HEADER,
+  PROTOCOL_HEADER,
+  SSE_HEADERS,
+  corsHeaders,
+  createSseHub,
+  errorAnswer,
+  isStreamRequest,
+  preflightAnswer,
+  sseCloseEvent,
+} from './sse.ts';
+export type { SseAnswer, SseHub, SsePost, SseSink, SseStream } from './sse.ts';
 export { isValidCloseCode } from '~/_engine/close-code.ts';
 export {
   rejectAsyncTransactionCallback,
@@ -14,7 +37,7 @@ export type {
   EngineRuntimeOptions,
   MessageLimits,
   TransportFrame,
-  UpgradeDecision,
+  AuthDecision,
 } from './types.ts';
 export { ADMIN_CONTEXT_MEMBERS } from '~/admin/context.ts';
 export type {

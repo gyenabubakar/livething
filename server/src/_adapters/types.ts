@@ -6,6 +6,7 @@ import type {
   TagRef,
   TimerProvider,
 } from '~/context.ts';
+import type { ServerDefinition } from '~/server-definition.ts';
 
 /**
  * One frame the engine hands a transport. A WebSocket sends a `text` frame as a text
@@ -37,28 +38,27 @@ export interface SocketDescriptor {
   bufferedAmount(): number;
 
   /**
-   * Whether this platform exposes real outbound buffer pressure through
-   * `bufferedAmount()`. When `true` (Node/Bun/Deno adapters), `ctx.stream.drain()`
-   * paces the generator against the live buffer. When `false` or absent
-   * (Cloudflare, which does not expose buffer fullness), `bufferedAmount()` is
-   * treated as unsupported and `drain()` resolves immediately as a no-op. This is
-   * a documented Cloudflare limitation, not a hidden difference.
+   * Whether this connection exposes real outbound buffer pressure through
+   * `bufferedAmount()`. When `true` (Node, and SSE on Cloudflare), `ctx.stream.drain()`
+   * paces the generator against the live buffer. When `false` or absent (a WebSocket on
+   * Cloudflare, which does not expose buffer fullness), `bufferedAmount()` is treated as
+   * unsupported and `drain()` resolves immediately as a no-op.
    */
   backpressureSupported?: boolean;
 }
 
 /**
  * The low-level send/close callbacks an adapter provides for each WebSocket,
- * plus the identity its upgrade gave the connection.
+ * plus the identity its authenticate gave the connection.
  *
  * When you build a custom platform adapter, you create one of these for every
  * accepted connection so the engine can push data to the client.
  */
 export interface ConnectionDescriptor extends SocketDescriptor {
   /**
-   * The user this socket belongs to, forwarded from the `onUpgrade` result.
-   * Required because the descriptor is only built for an accepted upgrade — by
-   * then the answer is known. An empty string means the upgrade returned no
+   * The user this socket belongs to, forwarded from the `onAuthenticate` result.
+   * Required because the descriptor is only built for an accepted connection — by
+   * then the answer is known. An empty string means the authenticate returned no
    * user id, so the connection is anonymous.
    */
   userId: string;
@@ -66,6 +66,27 @@ export interface ConnectionDescriptor extends SocketDescriptor {
   meta?: Record<string, unknown>;
 
   tags?: readonly TagRef[];
+
+  /**
+   * Whether the platform holds this connection while the server sleeps, as a Cloudflare
+   * socket accepted through the hibernation API does. Default: `false`. When `true`, the
+   * engine runs no keepalive timers for the connection, sends `null` ping timings in its
+   * `__connected__` frame, and saves its state through `hibernation.persist` so a wake can
+   * rebuild it. When `false`, the engine runs the timers and saves nothing for a wake.
+   */
+  survivesHibernation?: boolean;
+
+  /**
+   * The secret a client sends with each POST to this connection, or `null` (the default)
+   * when the transport has none. The engine puts it in the `__connected__` frame.
+   */
+  secret?: string | null;
+
+  /**
+   * The largest POST body this connection accepts, in bytes, or `null` (the default) when
+   * it receives no POSTs. The engine puts it in the `__connected__` frame.
+   */
+  maxPostBytes?: number | null;
 }
 
 /**
@@ -86,10 +107,10 @@ export interface ConnectionHandle {
 }
 
 /**
- * The result of the `onUpgrade` hook — tells the adapter whether to accept or
- * reject the WebSocket upgrade request, along with any initial metadata and tags.
+ * The result of the `onAuthenticate` hook — tells the adapter whether to accept or
+ * reject the connection, along with any initial metadata and tags.
  */
-export interface UpgradeDecision {
+export interface AuthDecision {
   reject?: boolean;
 
   code?: number;
@@ -98,7 +119,7 @@ export interface UpgradeDecision {
 
   /**
    * The user this socket belongs to. Set when `reject` is falsy — every
-   * accepted upgrade carries it. Omitted on reject decisions, where there is no
+   * accepted authenticate carries it. Omitted on reject decisions, where there is no
    * connection to attach it to.
    */
   userId?: string;
@@ -111,8 +132,8 @@ export interface UpgradeDecision {
 /**
  * The pluggable mechanism an adapter provides for persisting and restoring
  * per-socket state across hibernation cycles. The engine writes a snapshot to
- * `persist(wsKey, snapshot)` whenever connection state changes; on wake,
- * `restore(wsKey)` returns the most recent snapshot the platform held onto.
+ * `persist(socketKey, snapshot)` whenever connection state changes; on wake,
+ * `restore(socketKey)` returns the most recent snapshot the platform held onto.
  * Both callbacks must finish synchronously. The engine rejects a Promise or
  * thenable from either callback because a hibernation wake cannot safely defer
  * its attachment or index updates.
@@ -130,9 +151,9 @@ export interface UpgradeDecision {
  * ```
  */
 interface HibernationApi {
-  persist(wsKey: unknown, snapshot: unknown): void;
+  persist(socketKey: unknown, snapshot: unknown): void;
 
-  restore(wsKey: unknown): unknown;
+  restore(socketKey: unknown): unknown;
 }
 
 /** Runtime surfaces a platform adapter must provide for each engine instance. */
@@ -161,6 +182,11 @@ export interface EngineRuntimeOptions {
 export interface MessageLimits {
   receiveBytes: number;
   sendBytes: number;
+  /**
+   * The largest POST body, when the adapter takes messages over POST (server-sent events).
+   * At most half of `receiveBytes`, so one POST of frames fits the connection's budget.
+   */
+  postBytes?: number;
 }
 
 /** Complete configuration passed to the engine constructor by the adapter factory. */
@@ -233,5 +259,7 @@ export interface AdapterConfig<TOptions, TService> {
   setup<TApi>(
     createEngine: (runtimeOptions: EngineRuntimeOptions) => Engine<TApi>,
     options: TOptions,
+    /** The definition being bound, for startup checks such as `resolveTransports`. */
+    definition: ServerDefinition,
   ): TService;
 }

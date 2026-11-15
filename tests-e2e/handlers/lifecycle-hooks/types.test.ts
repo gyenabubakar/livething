@@ -46,8 +46,8 @@ describe('LifecycleHooksClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('has upgrade-meta', () => {
-    expectTypeOf<LifecycleHooksClient['incoming']['upgrade-meta']>().toEqualTypeOf<{
+  it('has auth-meta', () => {
+    expectTypeOf<LifecycleHooksClient['incoming']['auth-meta']>().toEqualTypeOf<{
       username: string;
     }>();
   });
@@ -71,7 +71,7 @@ describe('LifecycleHooksClient — incoming (server outgoing)', () => {
       | 'disconnect-close'
       | 'validation-error-fired'
       | 'error-fired'
-      | 'upgrade-meta'
+      | 'auth-meta'
       | 'connect-count'
       | 'async-hook-complete'
     >();

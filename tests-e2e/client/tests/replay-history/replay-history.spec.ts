@@ -65,29 +65,31 @@ test.describe('replay-history (conformance)', () => {
     await bob.close();
   });
 
-  test('replay brings back a private send that was lost on the old connection', async ({
-    browser,
-  }, testInfo) => {
-    const room = `replay-private-${testInfo.testId}`;
-    const alice = await openClient(browser, room, 'alice');
-    const witness = await openWitness(browser, room);
+  test(
+    'replay brings back a private send that was lost on the old connection',
+    { tag: '@websocket' },
+    async ({ browser }, testInfo) => {
+      const room = `replay-private-${testInfo.testId}`;
+      const alice = await openClient(browser, room, 'alice');
+      const witness = await openWitness(browser, room);
 
-    await alice.page.getByTestId('send-m1').click();
-    await expect(alice.page.getByTestId('messages')).toHaveText('m1');
+      await alice.page.getByTestId('send-m1').click();
+      await expect(alice.page.getByTestId('messages')).toHaveText('m1');
 
-    // The server sends `private-lost` to this connection only, and the page drops it.
-    await alice.page.getByTestId('send-private-lost').click();
-    await alice.page.waitForTimeout(200);
-    await expect(alice.page.getByTestId('messages')).toHaveText('m1');
+      // The server sends `private-lost` to this connection only, and the page drops it.
+      await alice.page.getByTestId('send-private-lost').click();
+      await alice.page.waitForTimeout(200);
+      await expect(alice.page.getByTestId('messages')).toHaveText('m1');
 
-    await alice.page.getByTestId('drop').click();
-    await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
+      await alice.page.getByTestId('drop').click();
+      await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
 
-    await expect(alice.page.getByTestId('messages')).toHaveText('m1,private-lost');
+      await expect(alice.page.getByTestId('messages')).toHaveText('m1,private-lost');
 
-    await alice.close();
-    await witness.close();
-  });
+      await alice.close();
+      await witness.close();
+    },
+  );
 
   test('replay catches up a client that saw no message before it dropped', async ({
     browser,
@@ -107,25 +109,27 @@ test.describe('replay-history (conformance)', () => {
     await bob.close();
   });
 
-  test('replay brings back a lost private send that was the first message', async ({
-    browser,
-  }, testInfo) => {
-    const room = `replay-private-first-${testInfo.testId}`;
-    const alice = await openClient(browser, room, 'alice');
-    const witness = await openWitness(browser, room);
+  test(
+    'replay brings back a lost private send that was the first message',
+    { tag: '@websocket' },
+    async ({ browser }, testInfo) => {
+      const room = `replay-private-first-${testInfo.testId}`;
+      const alice = await openClient(browser, room, 'alice');
+      const witness = await openWitness(browser, room);
 
-    await alice.page.getByTestId('send-private-lost').click();
-    await alice.page.waitForTimeout(200);
-    await expect(alice.page.getByTestId('messages')).toHaveText('');
+      await alice.page.getByTestId('send-private-lost').click();
+      await alice.page.waitForTimeout(200);
+      await expect(alice.page.getByTestId('messages')).toHaveText('');
 
-    await alice.page.getByTestId('drop').click();
-    await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
+      await alice.page.getByTestId('drop').click();
+      await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
 
-    await expect(alice.page.getByTestId('messages')).toHaveText('private-lost');
+      await expect(alice.page.getByTestId('messages')).toHaveText('private-lost');
 
-    await alice.close();
-    await witness.close();
-  });
+      await alice.close();
+      await witness.close();
+    },
+  );
 
   test('channel-scoped replay catches up a channel message missed while offline', async ({
     browser,

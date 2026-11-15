@@ -85,7 +85,7 @@ describe('connection close dependencies', () => {
       connections: new Map([['conn_1', connection]]),
       usersByKey: new Map(),
       tagMembers: new Map(),
-      wsToConnectionId: new Map(),
+      socketToConnectionId: new Map(),
       activeStreams: new Map(),
       hooks: { connectionCleanup: [] },
       logger: { error: vi.fn() },

@@ -1,5 +1,29 @@
 import { encodeBinaryFrame, encodeMessage, splitBinaryFrame } from '@livething/core';
-import type { LiveThingMetadata, Message } from '@livething/core';
+import type { Message } from '@livething/core';
+
+/** The payload of a `__connected__` frame, as the server sends it. */
+export interface ConnectedFrame {
+  pingIntervalMs: number | null;
+  idleTimeoutMs: number | null;
+  maxResumeTokens: number;
+  connectionId: string;
+  features: string[];
+  resume: { token: string; seq: number | null } | null;
+  secret: string | null;
+  maxPostBytes: number | null;
+}
+
+/** A server with every feature on, no keepalive and no replay token. */
+const DEFAULT_CONNECTED: ConnectedFrame = {
+  pingIntervalMs: null,
+  idleTimeoutMs: null,
+  maxResumeTokens: 8,
+  connectionId: 'c_test',
+  features: ['replay', 'binary', 'uploads'],
+  resume: null,
+  secret: null,
+  maxPostBytes: null,
+};
 
 type EvParameter = { code: number; reason: string; wasClean: boolean };
 type EvParameter2 = { data: unknown };
@@ -62,11 +86,20 @@ export class MockWebSocket {
     this.onclose?.({ code, reason, wasClean: true });
   }
 
-  /** Pretend the server accepted the connection. */
-  open(protocol = ''): void {
+  /**
+   * Pretend the server accepted the connection: the handshake, then the `__connected__`
+   * frame with `connected` over the defaults. Pass `null` to send only the handshake.
+   */
+  open(protocol = '', connected: Partial<ConnectedFrame> | null = {}): void {
     this.readyState = 1;
     this.protocol = protocol;
     this.onopen?.({});
+    if (connected) this.connected(connected);
+  }
+
+  /** Pretend the `__connected__` frame arrived, with `fields` over the defaults. */
+  connected(fields: Partial<ConnectedFrame> = {}): void {
+    this.emit(['__connected__', { ...DEFAULT_CONNECTED, ...fields }, null]);
   }
 
   /** Pretend a message arrived. Pass an object (auto-JSON) or a raw string. */
@@ -147,14 +180,9 @@ export function installMockWebSocket(): () => void {
 }
 
 /** A binary frame from the server, as the client's socket receives it. */
-// oxlint-disable-next-line max-params -- mirrors the frame: event, info, metadata, bytes
-export function binaryFrame(
-  event: string,
-  payload: unknown,
-  metadata: LiveThingMetadata | null,
-  bytes?: Uint8Array,
-): ArrayBuffer {
-  return encodeBinaryFrame(encodeMessage({ event, payload, metadata }), bytes).buffer;
+export function binaryFrame(frame: Message & { bytes?: Uint8Array }): ArrayBuffer {
+  const { bytes, ...message } = frame;
+  return encodeBinaryFrame(encodeMessage(message), bytes).buffer;
 }
 
 /** Reads back a binary frame the client sent. */

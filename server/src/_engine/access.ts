@@ -257,20 +257,20 @@ export interface EngineAccess {
   onError(handler: (ctx: unknown, error: unknown, event?: string) => void | Promise<void>): void;
 
   /**
-   * Register an internal-primitive upgrade hook. Each primitive's
+   * Register an internal-primitive authenticate hook. Each primitive's
    * `__setup` may call this at most once — calling it twice from the
    * same `__setup` throws (programming error in the primitive).
    * Different primitives may each register their own hook; the engine
    * runs them all and merges the results.
    *
-   * The user-facing `upgrade` hook registered via
-   * `setBuilderUpgradeHook` always runs last and its meta keys
+   * The user-facing `authenticate` hook registered via
+   * `setBuilderAuthHook` always runs last and its meta keys
    * override any internal hook on conflict.
    */
-  onUpgrade(
+  onAuthenticate(
     handler: (
       request: Request,
-      helpers: LifecycleTypes.UpgradeHelpers,
+      helpers: LifecycleTypes.AuthHelpers,
     ) =>
       | { meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
       | Promise<{
@@ -280,15 +280,15 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Register the user-facing upgrade hook. Throws if called more than once.
-   * The lifecycle primitive routes the `upgrade` option of `server({ ... })`
+   * Register the user-facing authenticate hook. Throws if called more than once.
+   * The lifecycle primitive routes the `authenticate` option of `server({ ... })`
    * through this slot so the user's hook always wins on key conflict against
-   * any internal-primitive hooks registered via `onUpgrade(...)`.
+   * any internal-primitive hooks registered via `onAuthenticate(...)`.
    */
-  setBuilderUpgradeHook(
+  setBuilderAuthHook(
     handler: (
       request: Request,
-      helpers: LifecycleTypes.UpgradeHelpers,
+      helpers: LifecycleTypes.AuthHelpers,
     ) =>
       | { userId?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
       | Promise<{
@@ -434,12 +434,21 @@ export interface EngineAccess {
   enableHibernation(): void;
 
   /**
-   * Read whether connection hibernation is enabled. `keepalive()` reads this in
-   * its `ctx.quality` getter, which returns `null` while hibernating (no pings).
+   * Whether the platform holds this connection while the server sleeps. `keepalive()`
+   * neither pings nor arms an idle timer for such a connection: the platform watches it,
+   * and a timer would keep a sleeping server awake. `false` for an unknown id.
    *
    * @internal
    */
-  getHibernationEnabled(): boolean;
+  connectionSurvivesHibernation(connectionId: string): boolean;
+
+  /**
+   * Give the engine the keepalive timings, so the `__connected__` frame can tell the
+   * client how often to ping and how long the server waits before an idle close.
+   *
+   * @internal
+   */
+  setKeepaliveTimings(timings: { pingIntervalMs: number; idleTimeoutMs: number }): void;
 
   /**
    * Tell the engine that automatic replay is enabled for this handler.
@@ -579,18 +588,18 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Register one plugin `upgrade` hook. Runs before the app's upgrade
+   * Register one plugin `authenticate` hook. Runs before the app's authenticate
    * (inbound onion); it may own `userId`, but the single-owner rule is
    * enforced at runtime. `baseId` is the id of the plugin's own `base`, so
-   * `context.upgrade(pluginBase)` works inside the hook.
+   * `context.authenticate(pluginBase)` works inside the hook.
    *
    * @internal
    */
-  registerPluginUpgrade(
+  registerPluginAuth(
     pluginId: string,
     handler: (
       request: Request,
-      helpers: LifecycleTypes.UpgradeHelpers,
+      helpers: LifecycleTypes.AuthHelpers,
     ) =>
       | { userId?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
       | Promise<{

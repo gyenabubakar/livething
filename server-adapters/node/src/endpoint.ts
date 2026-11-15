@@ -1,23 +1,33 @@
-import { adapter } from '@livething/server/adapters';
+import {
+  adapter,
+  createOriginCheck,
+  createSseHub,
+  ERROR_HEADER,
+  resolveTransports,
+} from '@livething/server/adapters';
 import type {
   AdminOf,
+  AuthDecision,
   ConnectionHandle,
   Engine,
   EngineRuntimeOptions,
   Logger,
   ServerDefinition,
-  UpgradeDecision,
+  ServerTransport,
 } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { PerMessageDeflateOptions } from 'ws';
 import { createAsyncContext } from './async-context.ts';
 import { createClientIpResolver } from './client-ip.ts';
+import { createNodeCustomTransportHandler } from './custom-transports.ts';
 import { requestToWebRequest } from './request.ts';
 import { createRuntime } from './runtime.ts';
 import { createConnectionBridge } from './socket.ts';
+import { createNodeSseHandler } from './sse.ts';
 import type { NodeClientIpConfig } from './client-ip.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
 import type { ConnectionTransport } from './socket.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
 
 /** The default `maxMessageBytes`: 32 MiB, Cloudflare's limit, so an app behaves the same on both. */
 const DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
@@ -74,7 +84,24 @@ export interface NodeEndpointOptions extends Omit<NodeStorageOptions, 'logger'> 
    * Fastify or h3 creates the `ws` server, set its `maxPayload` to the same value.
    */
   maxMessageBytes?: number;
+  /**
+   * Browser origins, besides the server's own, that may connect, such as
+   * `['http://localhost:5173']`. A request whose `Origin` header is neither the same
+   * host and port as its `Host` header nor in this list gets a 403. A request with no
+   * `Origin` header, such as one from a Node or mobile client, is not checked.
+   */
+  allowedOrigins?: readonly string[];
+  /**
+   * The transports this endpoint offers, such as `[websocket()]`. Default: WebSocket only.
+   * The order does not matter. An empty list, a transport listed twice, or something
+   * that is not a transport fails at startup.
+   */
+  transports?: readonly ServerTransport[];
 }
+
+const ORIGIN_REJECTION: AuthDecision = { reject: true, code: 403, reason: 'Origin not allowed' };
+const REJECTED_ACCEPT =
+  '[livething] endpoint.accept() got a rejected decision. Answer the request with the decision code instead.';
 
 /**
  * The in-process admin surface for one Node endpoint: the definition's
@@ -92,12 +119,19 @@ interface NodeEndpoint<TAdmin = NodeAdmin> {
 
 /** Internal endpoint operations used by framework route bindings. */
 export interface NodeEndpointInternals<TAdmin = NodeAdmin> extends NodeEndpoint<TAdmin> {
-  decideNodeUpgrade(request: IncomingMessage, signal?: AbortSignal): Promise<UpgradeDecision>;
-  decideWebUpgrade(request: Request, clientIp?: string): Promise<UpgradeDecision>;
+  /** Whether the endpoint offers WebSocket. Without it, an upgrade gets a 404. */
+  readonly offersWebSocket: boolean;
+  decideNodeUpgrade(request: IncomingMessage, signal?: AbortSignal): Promise<AuthDecision>;
+  /**
+   * Serve a request that is not a WebSocket upgrade: a custom transport's, or a server-sent
+   * events one (the stream, a POST, or a CORS preflight).
+   */
+  handle(request: NodeHttpRequest, response: NodeHttpResponse): Promise<void>;
+  decideWebUpgrade(request: Request, clientIp?: string): Promise<AuthDecision>;
   attachTransport(
     token: unknown,
     transport: ConnectionTransport,
-    decision: UpgradeDecision,
+    decision: AuthDecision,
   ): ConnectionHandle;
 }
 
@@ -108,9 +142,13 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
   setup<TApi>(
     createEngine: (options: EngineRuntimeOptions) => Engine<TApi>,
     options: NodeEndpointOptions,
+    definition: ServerDefinition,
   ) {
     const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes, 'The endpoint');
     const resolveClientIp = createClientIpResolver(options.clientIp);
+    const originAllowed = createOriginCheck(options.allowedOrigins);
+    const transports = resolveTransports(options.transports, definition);
+    const maxPostBytes = transports.sse?.maxPostBytes;
 
     const runtime = createRuntime({
       sql: options.sql,
@@ -119,6 +157,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     });
     const logger = runtime.logger;
     let shuttingDown = false;
+    const shutdownAbort = new AbortController();
     let shutdownPromise: Promise<void> | undefined;
 
     const engine = createEngine({
@@ -126,38 +165,104 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       platform: runtime.platform,
       storage: runtime.storage,
       timers: runtime.timers,
-      messageLimits: { receiveBytes: maxMessageBytes, sendBytes: maxMessageBytes },
+      messageLimits: {
+        receiveBytes: maxMessageBytes,
+        sendBytes: maxMessageBytes,
+        ...(maxPostBytes === undefined ? {} : { postBytes: maxPostBytes }),
+      },
+    });
+    const hub =
+      maxPostBytes === undefined
+        ? null
+        : createSseHub({ maxPostBytes, receiveBytes: maxMessageBytes });
+
+    function nodeRequest(request: NodeHttpRequest, signal?: AbortSignal): Request {
+      // An HTTP/2 compatibility request has the same `socket` and `headers` fields.
+      const clientIp = resolveClientIp(request as IncomingMessage);
+      return requestToWebRequest(request, { clientIp, signal });
+    }
+
+    const clientIps = new WeakMap<Request, string | undefined>();
+    const handleCustom = createNodeCustomTransportHandler({
+      transports: transports.custom,
+      endpoint: {
+        authenticate: (request) => decideWebUpgrade(request, clientIps.get(request)),
+        accept(connection, decision) {
+          if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
+
+          if (decision.reject) throw new Error(REJECTED_ACCEPT);
+
+          return createConnectionBridge({
+            engine,
+            token: connection,
+            transport: connection,
+            decision,
+          });
+        },
+      },
+      toWebRequest(request, signal) {
+        const clientIp = resolveClientIp(request as IncomingMessage);
+        try {
+          const webRequest = requestToWebRequest(request, { clientIp, signal, withBody: true });
+          clientIps.set(webRequest, clientIp);
+          return webRequest;
+        } catch {
+          return null;
+        }
+      },
+      shutdownSignal: shutdownAbort.signal,
+      logError: (error) =>
+        logger.error('[livething] a custom transport threw in handle()', { error }),
+    });
+
+    const handleSse = createNodeSseHandler({
+      hub,
+      originAllowed(request) {
+        try {
+          return originAllowed(nodeRequest(request));
+        } catch {
+          return false;
+        }
+      },
+      authenticate: (request, signal) => decideNodeUpgrade(request, signal),
+      attach(transport, decision) {
+        if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
+
+        return createConnectionBridge({ engine, token: transport, transport, decision });
+      },
+      shutdownSignal: shutdownAbort.signal,
     });
 
     async function decideNodeUpgrade(
-      request: IncomingMessage,
+      request: NodeHttpRequest,
       signal?: AbortSignal,
-    ): Promise<UpgradeDecision> {
+    ): Promise<AuthDecision> {
       await ready;
       if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
       let webRequest: Request;
       try {
-        webRequest = requestToWebRequest(request, {
-          clientIp: resolveClientIp(request),
-          signal,
-        });
+        webRequest = nodeRequest(request, signal);
       } catch {
         return { reject: true, code: 400, reason: 'Invalid upgrade request' };
       }
 
-      return engine.handleUpgrade(webRequest);
+      if (!originAllowed(webRequest)) return ORIGIN_REJECTION;
+
+      return engine.authenticate(webRequest);
     }
 
-    async function decideWebUpgrade(request: Request, clientIp?: string): Promise<UpgradeDecision> {
+    async function decideWebUpgrade(request: Request, clientIp?: string): Promise<AuthDecision> {
       await ready;
       if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
+
+      if (!originAllowed(request)) return ORIGIN_REJECTION;
 
       const headers = new Headers(request.headers);
       headers.delete('LiveThing-Client-IP');
       if (clientIp !== undefined) headers.set('LiveThing-Client-IP', clientIp);
 
-      return engine.handleUpgrade(
+      return engine.authenticate(
         new Request(request.url, {
           method: request.method,
           headers,
@@ -175,8 +280,20 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 
     return {
       ready,
+      offersWebSocket: transports.websocket,
       decideNodeUpgrade,
       decideWebUpgrade,
+      async handle(request, response) {
+        if (shuttingDown) {
+          response.writeHead(503, { [ERROR_HEADER]: 'shutting-down' });
+          response.end();
+          return;
+        }
+
+        if (transports.custom.length > 0 && (await handleCustom(request, response))) return;
+
+        await handleSse(request, response);
+      },
 
       attachTransport(token, transport, decision) {
         if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
@@ -193,6 +310,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         if (shutdownPromise) return shutdownPromise;
 
         shuttingDown = true;
+        shutdownAbort.abort();
         shutdownPromise = (async () => {
           let startupError: unknown;
           try {

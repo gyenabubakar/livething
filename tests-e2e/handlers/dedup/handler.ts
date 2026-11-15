@@ -1,13 +1,14 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { dedup } from '@livething/server/dedup';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
-  capabilities: [dedup(), channels(), emits({ echoed: t<{ text: string }>() })],
+  authenticate: (request) => requireUsername(request),
+  capabilities: [keepalive(), dedup(), channels(), emits({ echoed: t<{ text: string }>() })],
 });
 
 const handleDoEcho = base.on('do-echo', {

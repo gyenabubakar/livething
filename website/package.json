@@ -3,15 +3,15 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "nuxt dev",
+    "dev": "node ../scripts/package-sizes.mjs && nuxt dev",
     "dev:prepare": "nuxt prepare",
-    "build": "nuxt build",
-    "generate": "NODE_OPTIONS=--max-old-space-size=6144 NITRO_PRESET=static nuxt generate",
+    "build": "node ../scripts/package-sizes.mjs && nuxt build",
+    "generate": "node ../scripts/package-sizes.mjs && NODE_OPTIONS=--max-old-space-size=6144 NITRO_PRESET=static nuxt generate",
     "audit:docs": "node ./scripts/run-lighthouse.mjs",
     "preview": "pnpm run generate && wrangler dev",
     "deploy": "pnpm run generate && wrangler deploy",
     "deploy:preview": "pnpm run generate && wrangler versions upload",
-    "typecheck": "vue-tsc --noEmit",
+    "typecheck": "node ../scripts/package-sizes.mjs && vue-tsc --noEmit",
     "clean": "rm -rf .nuxt .data .output node_modules .wrangler .lighthouseci .lighthouse-results"
   },
   "dependencies": {

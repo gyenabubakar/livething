@@ -1,7 +1,7 @@
-import { bind } from '@livething/server-cloudflare';
 import { persistenceDefinition } from '@livething/tests-e2e-handlers/persistence';
+import { bindFixture } from './bind-fixture.ts';
 
-const Base = bind(persistenceDefinition);
+const Base = bindFixture(persistenceDefinition);
 
 /**
  * Test-only `restart()`: `ctx.abort()` discards the in-memory instance while

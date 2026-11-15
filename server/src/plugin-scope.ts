@@ -357,13 +357,13 @@ function scopeSendReplay(
   id: string,
   original: (...args: unknown[]) => unknown,
 ): (...args: unknown[]) => unknown {
-  return (event: unknown, payload: unknown, wire: unknown, ...rest: unknown[]) => {
+  return (event: unknown, payload: unknown, wire: unknown) => {
     const channel = (wire as { channel?: unknown } | null | undefined)?.channel;
     const scopedWire =
       channel === undefined
         ? wire
         : { ...(wire as object), channel: scopeChannelDeclaration(id, channel) };
-    return original(pluginWireName(id, event as string), payload, scopedWire, ...rest);
+    return original(pluginWireName(id, event as string), payload, scopedWire);
   };
 }
 
@@ -435,13 +435,13 @@ function scopeKvApi(id: string, kv: Record<PropertyKey, unknown>): unknown {
 }
 
 /**
- * Scope the `helpers` a plugin `upgrade` hook receives so its tag-ref builders
+ * Scope the `helpers` a plugin `authenticate` hook receives so its tag-ref builders
  * namespace the group. A plugin's `helpers.tags.ephemeral('room').ref(key)` then
  * lands in `__<id>::room` — the group it actually declared — instead of the
  * host's bare `room` (which would be rejected or leak across the boundary). A
  * helpers bag without `tags` (no tag groups declared) passes through untouched.
  */
-export function scopeUpgradeHelpers(id: string, helpers: any): any {
+export function scopeAuthHelpers(id: string, helpers: any): any {
   const tags = helpers?.tags;
   if (!tags || typeof tags !== 'object') return helpers;
 

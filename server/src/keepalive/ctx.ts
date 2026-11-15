@@ -9,6 +9,6 @@
 export interface KeepaliveCtx {
   /** Last measured round-trip latency in ms, or `null` if not known yet. */
   readonly latency: number | null;
-  /** Coarse health bucket from latency. `null` when hibernation is on (no server ping). */
+  /** Coarse health bucket from latency. `null` for a connection the platform holds while the server sleeps (no server ping). */
   readonly quality: 'excellent' | 'good' | 'degraded' | 'poor' | null;
 }

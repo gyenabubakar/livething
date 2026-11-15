@@ -1,12 +1,13 @@
 import { server } from '@livething/server';
 import { clientRequests } from '@livething/server/client-requests';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
-  capabilities: [clientRequests()],
+  authenticate: (request) => requireUsername(request),
+  capabilities: [keepalive(), clientRequests()],
   // Hook intentionally throws — the engine must still send `__error__` to the
   // client so the request Promise rejects instead of hanging.
   onError() {

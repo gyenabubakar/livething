@@ -5,7 +5,7 @@ import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error, t } from '~/index.ts';
-import { scopeUpgradeHelpers } from '~/plugin-scope.ts';
+import { scopeAuthHelpers } from '~/plugin-scope.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -508,45 +508,45 @@ describe('plugin namespacing — ctx.channels.get is scoped', () => {
   });
 });
 
-describe('plugin namespacing — upgrade seeds tags into the plugin namespace', () => {
-  it('namespaces the ephemeral group a plugin upgrade seeds via the sugar form', async () => {
+describe('plugin namespacing — authenticate seeds tags into the plugin namespace', () => {
+  it('namespaces the ephemeral group a plugin authenticate seeds via the sugar form', async () => {
     const h = server({
       scope: 'plugin',
       capabilities: [tags((ephemeral) => [ephemeral('room', t<string>())])],
-      upgrade: () => ({ userId: 'u1', tags: { ephemeral: { room: 'general' } } }),
+      authenticate: () => ({ userId: 'u1', tags: { ephemeral: { room: 'general' } } }),
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:rooms', { definition: h.assemble({ handlers: [go] }) })();
-    const upgradePrim = __primitives.find((p: any) => p.__livething === 'onUpgrade') as any;
+    const authPrim = __primitives.find((p: any) => p.__livething === 'onAuthenticate') as any;
 
-    const result = await upgradePrim.handler(new Request('https://x'), {});
+    const result = await authPrim.handler(new Request('https://x'), {});
     expect(result.tags).toEqual([
       { __livething: 'tag-ref', kind: 'ephemeral', group: '__acme:rooms::room', key: 'general' },
     ]);
   });
 
-  it('namespaces every key when a plugin upgrade seeds several keys in one group', async () => {
+  it('namespaces every key when a plugin authenticate seeds several keys in one group', async () => {
     const h = server({
       scope: 'plugin',
       capabilities: [tags((ephemeral) => [ephemeral('room', t<string>())])],
-      upgrade: () => ({ userId: 'u1', tags: { ephemeral: { room: ['general', 'design'] } } }),
+      authenticate: () => ({ userId: 'u1', tags: { ephemeral: { room: ['general', 'design'] } } }),
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:rooms', { definition: h.assemble({ handlers: [go] }) })();
-    const upgradePrim = __primitives.find((p: any) => p.__livething === 'onUpgrade') as any;
+    const authPrim = __primitives.find((p: any) => p.__livething === 'onAuthenticate') as any;
 
-    const result = await upgradePrim.handler(new Request('https://x'), {});
+    const result = await authPrim.handler(new Request('https://x'), {});
     expect(result.tags).toEqual([
       { __livething: 'tag-ref', kind: 'ephemeral', group: '__acme:rooms::room', key: 'general' },
       { __livething: 'tag-ref', kind: 'ephemeral', group: '__acme:rooms::room', key: 'design' },
     ]);
   });
 
-  it('scopeUpgradeHelpers namespaces the group asked of helpers.tags', () => {
+  it('scopeAuthHelpers namespaces the group asked of helpers.tags', () => {
     const ref = vi.fn((key: string) => ({ kind: 'ephemeral', group: '<unused>', key }));
     const ephemeral = vi.fn(() => ({ ref }));
     const persistent = vi.fn(() => ({ ref }));
-    const scoped = scopeUpgradeHelpers('acme:rooms', { tags: { ephemeral, persistent } });
+    const scoped = scopeAuthHelpers('acme:rooms', { tags: { ephemeral, persistent } });
     scoped.tags.ephemeral('room');
 
     scoped.tags.persistent('seat');

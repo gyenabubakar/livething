@@ -74,17 +74,25 @@ function closeWithoutWaiting(iterator: AsyncIterator<Uint8Array>): void {
   }
 }
 
+interface PieceOptions {
+  pieceBytes: number;
+  stopped: Promise<typeof STOPPED>;
+}
+
+interface CreateUploadOptions extends UploadOptions {
+  input?: unknown;
+}
+
 /**
  * The pieces of `source` from `start`, each at most `pieceBytes` long. A wait for an
  * `AsyncIterable`'s next chunk throws `STOPPED` once `stopped` resolves.
  */
-// oxlint-disable-next-line max-params -- the source, where to start, the piece size, and the stop signal
 async function* piecesOf(
   source: UploadSource,
   start: number,
-  pieceBytes: number,
-  stopped: Promise<typeof STOPPED>,
+  pace: PieceOptions,
 ): AsyncGenerator<Uint8Array> {
+  const { pieceBytes, stopped } = pace;
   if (isBlob(source)) {
     for (let offset = start; offset < source.size; offset += pieceBytes) {
       yield new Uint8Array(await source.slice(offset, offset + pieceBytes).arrayBuffer());
@@ -159,7 +167,7 @@ async function* piecesOf(
 
 /**
  * Uploads: send one large file to a server's `base.binary.upload(...)` handler in pieces,
- * with speed control, cancel and resume. Adds `socket.binary.upload(event, input, source)`,
+ * with speed control, cancel and resume. Adds `socket.binary.upload(event, source, { input })`,
  * which returns an upload that starts only when you call `start()`. Needs `binary()`.
  *
  * The pieces go straight to the socket, never to `buffering()`'s queue: a piece sent after a
@@ -239,13 +247,12 @@ export function uploads(): UploadsPrimitive {
         return frames;
       }
 
-      // oxlint-disable-next-line max-params -- binary.upload takes (event, input, source, options), like binary.send
       function create(
         event: string,
-        input: unknown,
         source: UploadSource,
-        options: UploadOptions = {},
+        given: CreateUploadOptions = {},
       ): Upload<unknown> {
+        const { input, ...options } = given;
         const eventError = wireIdError(event, event, 'event');
         if (eventError) throw eventError;
 
@@ -368,7 +375,7 @@ export function uploads(): UploadsPrimitive {
               run.stop = () => resolve(STOPPED);
             });
             try {
-              for await (const piece of piecesOf(source, savedThrough, pieceBytes, stopped)) {
+              for await (const piece of piecesOf(source, savedThrough, { pieceBytes, stopped })) {
                 while (sent + piece.byteLength - receivedThrough > windowBytes) {
                   const answer = await settle(run, 'ack');
                   if (answer.kind === 'done') return { info: answer.info };
@@ -518,13 +525,11 @@ export function uploads(): UploadsPrimitive {
           getAugmenters(socket).push((messaging, scope) => {
             if (!scope.prefixName || scope.markers().name !== undefined) return;
 
-            // oxlint-disable-next-line max-params -- the same arguments as binary.upload
             binaryOf(messaging).upload = (
               event: string,
-              input: unknown,
               source: UploadSource,
-              options?: UploadOptions,
-            ) => create(scopedName(scope, event), input, source, options);
+              options?: CreateUploadOptions,
+            ) => create(scopedName(scope, event), source, options);
           });
         },
       };

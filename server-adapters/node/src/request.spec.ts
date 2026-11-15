@@ -88,4 +88,35 @@ describe('requestToWebRequest', () => {
 
     expect(withoutClientIp.headers.get('LiveThing-Client-IP')).toBeNull();
   });
+
+  it('reads an HTTP/2 request: :authority as the host, and no pseudo-headers', () => {
+    const http2 = incomingRequest({
+      url: '/huddle?room=design',
+      headers: {
+        ':authority': 'huddle.test',
+        ':method': 'GET',
+        ':path': '/huddle?room=design',
+        ':scheme': 'https',
+        accept: 'text/event-stream',
+      },
+    });
+    delete http2.headers.host;
+
+    const request = requestToWebRequest(http2);
+
+    expect(request.url).toBe('http://huddle.test/huddle?room=design');
+    expect([...request.headers.keys()]).not.toContain(':path');
+    expect(request.headers.get('accept')).toBe('text/event-stream');
+  });
+
+  // RFC 9113 §8.3.1: with `:authority` present, `Host` must not pick the target URI.
+  it('takes :authority over a different Host on HTTP/2', () => {
+    const request = requestToWebRequest(
+      incomingRequest({ headers: { ':authority': 'huddle.test', host: 'evil.example' } }),
+    );
+
+    expect(request.url).toBe('http://huddle.test/socket?room=one');
+    // The origin check reads `Host`, so it must see the same target.
+    expect(request.headers.get('host')).toBe('huddle.test');
+  });
 });

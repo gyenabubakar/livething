@@ -206,10 +206,10 @@ describe('keepalive (opt-in)', () => {
   it('sends pings on its interval and measures pong latency', () => {
     vi.useFakeTimers();
     try {
-      const socket = client<TestContract>()(connect('wss://test'), keepalive({ interval: 1000 }));
+      const socket = client<TestContract>()(connect('wss://test'), keepalive());
       socket.connect();
       const ws = MockWebSocket.last();
-      ws.open();
+      ws.open('', { pingIntervalMs: 1000 });
       vi.advanceTimersByTime(1000);
 
       expect(ws.sent).toContain('ping');

@@ -9,7 +9,7 @@ import { emits } from '~/emits/emits.ts';
 const capabilities = [emits({ notification: t<{ title: string }>() })] as const;
 
 export const app = server({
-  upgrade: (request) => ({ userId: request.url, meta: { name: 'Ama' } }),
+  authenticate: (request) => ({ userId: request.url, meta: { name: 'Ama' } }),
   capabilities,
   onInit(ctx) {
     // @ts-expect-error: onInit has no connection, so no ctx.send
@@ -51,7 +51,7 @@ export const app = server({
 
 export const plugin = server({
   scope: 'plugin',
-  upgrade: () => ({ meta: { plan: 'free' } }),
+  authenticate: () => ({ meta: { plan: 'free' } }),
   capabilities: [emits({ notification: t<{ title: string }>() })],
   onConnect(ctx) {
     ctx.send('notification', { title: ctx.meta.plan });

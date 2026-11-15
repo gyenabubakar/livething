@@ -302,125 +302,133 @@ test.describe('channel-static', () => {
     await ctxB.close();
   });
 
-  test('framework _memberLeave frame delivers on connection drop', async ({
-    browser,
-  }, testInfo) => {
-    const room = `test-${testInfo.testId}`;
-    const ctxA = await browser.newContext();
-    const ctxB = await browser.newContext();
-    const a = await ctxA.newPage();
-    const b = await ctxB.newPage();
+  test(
+    'framework _memberLeave frame delivers on connection drop',
+    { tag: '@drop' },
+    async ({ browser }, testInfo) => {
+      const room = `test-${testInfo.testId}`;
+      const ctxA = await browser.newContext();
+      const ctxB = await browser.newContext();
+      const a = await ctxA.newPage();
+      const b = await ctxB.newPage();
 
-    await openPage(a, room, 'alice');
-    await openPage(b, room, 'bob');
-    await a.getByTestId('subscribe-room').click();
-    await b.getByTestId('subscribe-room').click();
-    await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+      await openPage(a, room, 'alice');
+      await openPage(b, room, 'bob');
+      await a.getByTestId('subscribe-room').click();
+      await b.getByTestId('subscribe-room').click();
+      await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
 
-    await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
+      await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
 
-    await ctxB.close();
-    await expect(a.getByTestId('member-leaves')).toContainText('room:', { timeout: 15_000 });
+      await ctxB.close();
+      await expect(a.getByTestId('member-leaves')).toContainText('room:', { timeout: 15_000 });
 
-    await ctxA.close();
-  });
+      await ctxA.close();
+    },
+  );
 
-  test('connection drop (not manual unsubscribe) still fires onUnsubscribe', async ({
-    browser,
-  }, testInfo) => {
-    const room = `test-${testInfo.testId}`;
-    const ctxA = await browser.newContext();
-    const ctxB = await browser.newContext();
-    const a = await ctxA.newPage();
-    const b = await ctxB.newPage();
+  test(
+    'connection drop (not manual unsubscribe) still fires onUnsubscribe',
+    { tag: '@drop' },
+    async ({ browser }, testInfo) => {
+      const room = `test-${testInfo.testId}`;
+      const ctxA = await browser.newContext();
+      const ctxB = await browser.newContext();
+      const a = await ctxA.newPage();
+      const b = await ctxB.newPage();
 
-    await openPage(a, room, 'alice');
-    await openPage(b, room, 'bob');
-    await a.getByTestId('subscribe-room').click();
-    await b.getByTestId('subscribe-room').click();
-    await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+      await openPage(a, room, 'alice');
+      await openPage(b, room, 'bob');
+      await a.getByTestId('subscribe-room').click();
+      await b.getByTestId('subscribe-room').click();
+      await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
 
-    await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
+      await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
 
-    // Close bob's connection without explicit unsubscribe
-    await ctxB.close();
+      // Close bob's connection without explicit unsubscribe
+      await ctxB.close();
 
-    // Alice should still see bob's "left" system message
-    await expect(a.getByTestId('system-messages')).toContainText('bob left', { timeout: 15_000 });
+      // Alice should still see bob's "left" system message
+      await expect(a.getByTestId('system-messages')).toContainText('bob left', { timeout: 15_000 });
 
-    await ctxA.close();
-  });
+      await ctxA.close();
+    },
+  );
 
-  test('peer still receives _memberLeave on a second channel when the first channel onUnsubscribe throws', async ({
-    browser,
-  }, testInfo) => {
-    // A throwing onUnsubscribe is contained to its membership so cleanup and
-    // leave notifications continue for the connection's other channels.
-    const room = `test-${testInfo.testId}-throwing-unsubscribe`;
-    const ctxThrower = await browser.newContext();
-    const ctxObserver = await browser.newContext();
-    const thrower = await ctxThrower.newPage();
-    const observer = await ctxObserver.newPage();
+  test(
+    'peer still receives _memberLeave on a second channel when the first channel onUnsubscribe throws',
+    { tag: '@drop' },
+    async ({ browser }, testInfo) => {
+      // A throwing onUnsubscribe is contained to its membership so cleanup and
+      // leave notifications continue for the connection's other channels.
+      const room = `test-${testInfo.testId}-throwing-unsubscribe`;
+      const ctxThrower = await browser.newContext();
+      const ctxObserver = await browser.newContext();
+      const thrower = await ctxThrower.newPage();
+      const observer = await ctxObserver.newPage();
 
-    // 'leave-thrower' triggers the throwing onUnsubscribe hook on `room`.
-    await openPage(thrower, room, 'leave-thrower');
-    await openPage(observer, room, 'observer');
+      // 'leave-thrower' triggers the throwing onUnsubscribe hook on `room`.
+      await openPage(thrower, room, 'leave-thrower');
+      await openPage(observer, room, 'observer');
 
-    // Thrower joins both `room` (throwing onUnsubscribe) and `room2`.
-    await thrower.getByTestId('subscribe-room').click();
-    await thrower.getByTestId('subscribe-room2').click();
-    await expect(thrower.getByTestId('subscribe-ok-count')).toHaveText('2');
+      // Thrower joins both `room` (throwing onUnsubscribe) and `room2`.
+      await thrower.getByTestId('subscribe-room').click();
+      await thrower.getByTestId('subscribe-room2').click();
+      await expect(thrower.getByTestId('subscribe-ok-count')).toHaveText('2');
 
-    // Observer joins ONLY `room2` so the test pins that the second
-    // channel's leave fan-out fired despite the first channel throwing.
-    await observer.getByTestId('subscribe-room2').click();
-    await expect(observer.getByTestId('subscribe-ok-count')).toHaveText('1');
+      // Observer joins ONLY `room2` so the test pins that the second
+      // channel's leave fan-out fired despite the first channel throwing.
+      await observer.getByTestId('subscribe-room2').click();
+      await expect(observer.getByTestId('subscribe-ok-count')).toHaveText('1');
 
-    await ctxThrower.close();
+      await ctxThrower.close();
 
-    // Observer must receive _memberLeave for `room2` even though the
-    // first channel's onUnsubscribe threw.
-    await expect(observer.getByTestId('member-leaves')).toContainText('room2:', {
-      timeout: 15_000,
-    });
+      // Observer must receive _memberLeave for `room2` even though the
+      // first channel's onUnsubscribe threw.
+      await expect(observer.getByTestId('member-leaves')).toContainText('room2:', {
+        timeout: 15_000,
+      });
 
-    await ctxObserver.close();
-  });
+      await ctxObserver.close();
+    },
+  );
 
-  test('peer still receives _memberLeave when the leaver onDisconnect hook throws', async ({
-    browser,
-  }, testInfo) => {
-    // A throwing onDisconnect is contained so channel memberships are released
-    // and peers still receive the leave notification.
-    const room = `test-${testInfo.testId}-throwing-disconnect`;
-    const ctxThrower = await browser.newContext();
-    const ctxObserver = await browser.newContext();
-    const thrower = await ctxThrower.newPage();
-    const observer = await ctxObserver.newPage();
+  test(
+    'peer still receives _memberLeave when the leaver onDisconnect hook throws',
+    { tag: '@drop' },
+    async ({ browser }, testInfo) => {
+      // A throwing onDisconnect is contained so channel memberships are released
+      // and peers still receive the leave notification.
+      const room = `test-${testInfo.testId}-throwing-disconnect`;
+      const ctxThrower = await browser.newContext();
+      const ctxObserver = await browser.newContext();
+      const thrower = await ctxThrower.newPage();
+      const observer = await ctxObserver.newPage();
 
-    // The 'throwing-user' username triggers the throwing onDisconnect hook
-    // wired in the channel-static fixture.
-    await openPage(thrower, room, 'throwing-user');
-    await openPage(observer, room, 'observer');
-    await thrower.getByTestId('subscribe-room').click();
-    await observer.getByTestId('subscribe-room').click();
-    await expect(thrower.getByTestId('subscribe-ok-count')).toHaveText('1');
+      // The 'throwing-user' username triggers the throwing onDisconnect hook
+      // wired in the channel-static fixture.
+      await openPage(thrower, room, 'throwing-user');
+      await openPage(observer, room, 'observer');
+      await thrower.getByTestId('subscribe-room').click();
+      await observer.getByTestId('subscribe-room').click();
+      await expect(thrower.getByTestId('subscribe-ok-count')).toHaveText('1');
 
-    await expect(observer.getByTestId('subscribe-ok-count')).toHaveText('1');
+      await expect(observer.getByTestId('subscribe-ok-count')).toHaveText('1');
 
-    await ctxThrower.close();
+      await ctxThrower.close();
 
-    // The observer must receive the leave broadcast from the channel
-    // onUnsubscribe hook even though the top-level onDisconnect threw.
-    await expect(observer.getByTestId('system-messages')).toContainText('throwing-user left', {
-      timeout: 15_000,
-    });
-    await expect(observer.getByTestId('member-leaves')).toContainText('room:', {
-      timeout: 15_000,
-    });
+      // The observer must receive the leave broadcast from the channel
+      // onUnsubscribe hook even though the top-level onDisconnect threw.
+      await expect(observer.getByTestId('system-messages')).toContainText('throwing-user left', {
+        timeout: 15_000,
+      });
+      await expect(observer.getByTestId('member-leaves')).toContainText('room:', {
+        timeout: 15_000,
+      });
 
-    await ctxObserver.close();
-  });
+      await ctxObserver.close();
+    },
+  );
 
   test('throwing onSubscribe still confirms the subscribe; the throw becomes an observational _error scoped to the channel', async ({
     browser,

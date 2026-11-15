@@ -163,12 +163,10 @@ describe('stream({ maxBytes })', () => {
   it('counts the info and the bytes of a binary chunk, 16 MiB by default', async () => {
     const setup = build();
     const id = 'download-1';
-    const started = setup.socket.binary.stream(
-      'download-attachment',
-      { attachmentId: 'att_1', fromByte: 0 },
-      undefined,
-      { streamId: id },
-    );
+    const started = setup.socket.binary.stream('download-attachment', undefined, {
+      info: { attachmentId: 'att_1', fromByte: 0 },
+      streamId: id,
+    });
     confirm(setup.ws, id, 'ephemeral');
     const download = await started;
 

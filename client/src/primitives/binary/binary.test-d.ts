@@ -61,19 +61,23 @@ socket.binary.on('avatar-saved', () => {});
 // @ts-expect-error: 'avatar-preview' is a binary event, not a JSON one
 socket.on('avatar-preview', () => {});
 
-// Top-level sends: the info type, optional bytes, optional options; returns boolean.
+// Top-level sends: the bytes, then `{ info }` with optional options; returns boolean.
 expectTypeOf(
-  socket.binary.send('upload-avatar', { fileType: 'image/png' }, picture),
+  socket.binary.send('upload-avatar', picture, { info: { fileType: 'image/png' } }),
 ).toEqualTypeOf<boolean>();
-socket.binary.send('upload-avatar', { fileType: 'image/jpeg' }, picture.buffer as ArrayBuffer);
-socket.binary.send('upload-avatar', { fileType: 'image/png' });
-socket.binary.send('upload-avatar', { fileType: 'image/png' }, undefined, { ttl: 5_000 });
+socket.binary.send('upload-avatar', picture.buffer as ArrayBuffer, {
+  info: { fileType: 'image/jpeg' },
+});
+socket.binary.send('upload-avatar', undefined, { info: { fileType: 'image/png' } });
+socket.binary.send('upload-avatar', undefined, { info: { fileType: 'image/png' }, ttl: 5_000 });
 // @ts-expect-error: wrong info type
-socket.binary.send('upload-avatar', { fileType: 'image/gif' }, picture);
+socket.binary.send('upload-avatar', picture, { info: { fileType: 'image/gif' } });
 // @ts-expect-error: the bytes must be a Uint8Array or an ArrayBuffer
-socket.binary.send('upload-avatar', { fileType: 'image/png' }, 'bytes');
+socket.binary.send('upload-avatar', 'bytes', { info: { fileType: 'image/png' } });
+// @ts-expect-error: the info is required when its type does not allow undefined
+socket.binary.send('upload-avatar', picture);
 // @ts-expect-error: a received event cannot be sent
-socket.binary.send('avatar-preview', null);
+socket.binary.send('avatar-preview', undefined, { info: null });
 
 // Channel handles get `.binary` from the channel's own binary entries.
 const general = socket.channel('rooms', 'room:general');
@@ -81,7 +85,7 @@ general.binary.on('screen-frame', (info, bytes) => {
   expectTypeOf(info).toEqualTypeOf<{ from: string }>();
   expectTypeOf(bytes).toEqualTypeOf<Uint8Array>();
 });
-general.binary.send('share-screen-frame', null, picture);
+general.binary.send('share-screen-frame', picture, { info: null });
 // @ts-expect-error: 'avatar-preview' belongs to the top level
 general.binary.on('avatar-preview', () => {});
 // A channel with no binary entries has no `.binary`.
@@ -238,13 +242,13 @@ const Screens = plugin<ScreensWire>()({
       expectTypeOf(info).toEqualTypeOf<{ from: string }>();
       expectTypeOf(bytes).toEqualTypeOf<Uint8Array>();
     });
-    scoped.binary.send('share-screen-frame', null, new Uint8Array(4));
+    scoped.binary.send('share-screen-frame', new Uint8Array(4), { info: null });
     // @ts-expect-error: the plugin uses plain names
     scoped.binary.on('__acme:screens::screen-frame', () => {});
     scoped.channel('stage').binary.on('stage-frame', (info) => {
       expectTypeOf(info).toEqualTypeOf<null>();
     });
-    scoped.channel('stage').binary.send('share-stage-frame', null);
+    scoped.channel('stage').binary.send('share-stage-frame', undefined, { info: null });
 
     return {};
   },
@@ -291,30 +295,39 @@ client<{
 client<ReceiveOnly>()(connect('wss://huddle.example.com/huddle'), binary(), Files());
 
 // Testing helpers are typed from the binary entries.
-injectBinary(socket, 'avatar-cropped', { width: 64 }, picture);
-injectBinary(socket, 'avatar-preview', null);
+injectBinary(socket, 'avatar-cropped', { info: { width: 64 }, bytes: picture });
+injectBinary(socket, 'avatar-preview', { info: null });
 // @ts-expect-error: wrong info type
-injectBinary(socket, 'avatar-cropped', { width: '64' });
+injectBinary(socket, 'avatar-cropped', { info: { width: '64' } });
 // @ts-expect-error: a JSON event is not a binary event
-injectBinary(socket, 'avatar-saved', { userId: 'u_amara' });
+injectBinary(socket, 'avatar-saved', { info: { userId: 'u_amara' } });
 const generalRoom = { family: 'rooms', name: 'room:general' } as const;
-injectChannelBinary(socket, generalRoom, 'screen-frame', { from: 'u_amara' }, picture);
+injectChannelBinary(socket, 'screen-frame', {
+  channel: generalRoom,
+  info: { from: 'u_amara' },
+  bytes: picture,
+});
 // @ts-expect-error: wrong info type on a channel
-injectChannelBinary(socket, generalRoom, 'screen-frame', null);
-// @ts-expect-error: a dynamic family needs { family, name }; the family name alone reaches no handle
-injectChannelBinary(socket, 'rooms', 'screen-frame', { from: 'u_amara' }, picture);
+injectChannelBinary(socket, 'screen-frame', { channel: generalRoom, info: null });
+injectChannelBinary(socket, 'screen-frame', {
+  // @ts-expect-error: a dynamic family needs { family, name }; the family name alone reaches no handle
+  channel: 'rooms',
+  info: { from: 'u_amara' },
+  bytes: picture,
+});
 // @ts-expect-error: 'avatar-preview' is not a binary event of the rooms channel
-injectChannelBinary(socket, generalRoom, 'avatar-preview', null);
+injectChannelBinary(socket, 'avatar-preview', { channel: generalRoom, info: null });
 
 interface WithLobby {
   channels: { lobby: { binary: { incoming: { 'screen-frame': { from: string } } } } };
 }
 
 declare const lobbySocket: Socket<WithLobby>;
-injectChannelBinary(lobbySocket, 'lobby', 'screen-frame', { from: 'u_amara' });
-// @ts-expect-error: a fixed channel is named by its name, not by { family, name }
-injectChannelBinary(lobbySocket, { family: 'lobby', name: 'lobby' }, 'screen-frame', {
-  from: 'u_amara',
+injectChannelBinary(lobbySocket, 'screen-frame', { channel: 'lobby', info: { from: 'u_amara' } });
+injectChannelBinary(lobbySocket, 'screen-frame', {
+  // @ts-expect-error: a fixed channel is named by its name, not by { family, name }
+  channel: { family: 'lobby', name: 'lobby' },
+  info: { from: 'u_amara' },
 });
 
 // `UploadsOf` is public, like `BinaryOf`.

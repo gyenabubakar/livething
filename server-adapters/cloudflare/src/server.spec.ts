@@ -1,6 +1,9 @@
+import { server } from '@livething/server';
+import { sse, websocket } from '@livething/server/adapters';
+import { keepalive } from '@livething/server/keepalive';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as ServerAdapters from '@livething/server/adapters';
-import type { ConnectionDescriptor } from '@livething/server/adapters';
+import type { ConnectionDescriptor, ServerTransport } from '@livething/server/adapters';
 import {
   FakeDurableObjectBase,
   installPermissiveResponse,
@@ -24,6 +27,7 @@ vi.mock('cloudflare:workers', () => ({
 type AdapterSetup = (
   createEngine: (runtimeOptions: unknown) => unknown,
   options: unknown,
+  definition: unknown,
 ) => unknown;
 
 let fake: FakeEngine;
@@ -32,21 +36,24 @@ vi.mock('@livething/server/adapters', async (importOriginal) => ({
   ...(await importOriginal<typeof ServerAdapters>()),
   adapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
-    (_handler: unknown, options: TOpts): TSvc => {
-      return config.setup((runtimeOptions: unknown) => {
-        fake.calls.create.push(runtimeOptions);
-        return fake.engine;
-      }, options) as TSvc;
+    (definition: unknown, options: TOpts): TSvc => {
+      return config.setup(
+        (runtimeOptions: unknown) => {
+          fake.calls.create.push(runtimeOptions);
+          return fake.engine;
+        },
+        options,
+        definition,
+      ) as TSvc;
     },
 }));
 
 // Import AFTER mocks are in place.
 const { bind } = await import('./server.ts');
 
-type DOInstance = {
+type DOInstance = Required<Pick<DurableObject, 'webSocketClose'>> & {
   fetch(req: Request): Promise<Response>;
   webSocketMessage(ws: WebSocket, data: string | ArrayBuffer | ArrayBufferView): Promise<void>;
-  webSocketClose(ws: WebSocket, code: number, reason: string, wasClean?: boolean): Promise<void>;
   webSocketError(ws: WebSocket, err: unknown): Promise<void>;
   alarm(): Promise<void>;
   shutdown(): Promise<void>;
@@ -56,10 +63,26 @@ type DOInstance = {
 /** The real built-in surface, plus whatever dev api methods a test stages on it. */
 type AdminSurface = CloudflareAdmin & Record<string, unknown>;
 
-function buildClass(opts?: { hibernation?: boolean }) {
+interface BuildClassOptions {
+  hibernation?: boolean;
+  allowedOrigins?: string[];
+  transports?: ServerTransport[];
+}
+
+const huddleDefinition = server({ capabilities: [keepalive()] }).assemble({ handlers: [] });
+
+function buildClass(opts?: BuildClassOptions) {
   fake = makeFakeEngine();
   if (opts?.hibernation !== false) fake.setHibernation(true);
-  return bind({} as never) as unknown as new (ctx: DurableObjectState, env: unknown) => DOInstance;
+  const bindOptions = {
+    ...(opts?.allowedOrigins ? { allowedOrigins: opts.allowedOrigins } : {}),
+    ...(opts?.transports ? { transports: opts.transports } : {}),
+  };
+
+  return bind(huddleDefinition, bindOptions) as unknown as new (
+    ctx: DurableObjectState,
+    env: unknown,
+  ) => DOInstance;
 }
 
 function upgradeRequest() {
@@ -82,7 +105,277 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
 
     const res = await instance.fetch(new Request('https://do.example/'));
     expect(res.status).toBe(426);
-    expect(fake.calls.handleUpgrade).toHaveLength(0);
+    expect(res.headers.get('LiveThing-Error')).toBe('not-offered');
+    expect(fake.calls.authenticate).toHaveLength(0);
+  });
+
+  it('returns 426 to an upgrade when websocket() is not listed', async () => {
+    const Cls = buildClass({ transports: [sse()] });
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+    const res = await instance.fetch(upgradeRequest());
+
+    expect(res.status).toBe(426);
+    expect(res.headers.get('LiveThing-Error')).toBe('not-offered');
+    expect(fake.calls.authenticate).toHaveLength(0);
+  });
+
+  describe('a server-sent events stream', () => {
+    async function openStream() {
+      const Cls = buildClass({ transports: [websocket(), sse()] });
+      const state = makeFakeDOState();
+      const instance = new Cls(state as unknown as DurableObjectState, {});
+      const res = await instance.fetch(
+        new Request('https://do.example/', {
+          headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+        }),
+      );
+      const descriptor = fake.calls.accept[0]!.descriptor as ConnectionDescriptor;
+
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+
+      return { state, res, descriptor, reader };
+    }
+
+    async function readAll(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
+      const decoder = new TextDecoder();
+      let text = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return text;
+
+        text += decoder.decode(value, { stream: true });
+      }
+    }
+
+    const history = { kind: 'text', text: 'x'.repeat(100_000) } as const;
+
+    it('does not survive hibernation, and has a POST secret', async () => {
+      const { state, res, descriptor } = await openStream();
+
+      expect(res.status).toBe(200);
+      expect(state.acceptWebSocket).not.toHaveBeenCalled();
+      expect(descriptor).toMatchObject({
+        survivesHibernation: false,
+        backpressureSupported: true,
+        maxPostBytes: 512 * 1024,
+      });
+      expect(descriptor.secret).toEqual(expect.any(String));
+    });
+
+    it('reports the bytes the client has not read yet', async () => {
+      const { descriptor, reader } = await openStream();
+
+      expect(descriptor.bufferedAmount()).toBe(0);
+      descriptor.send(history);
+      expect(descriptor.bufferedAmount()).toBe(100_008);
+
+      await reader.read();
+      expect(descriptor.bufferedAmount()).toBe(0);
+    });
+
+    it('ends the stream only after the client read the frames before the close', async () => {
+      const { descriptor, reader } = await openStream();
+
+      descriptor.send(history);
+      descriptor.close(4000, 'left the huddle');
+      const text = await readAll(reader);
+
+      expect(text).toContain(history.text);
+      expect(
+        text.endsWith('data: ["__close__",{"code":4000,"reason":"left the huddle"},null]\n\n'),
+      ).toBe(true);
+    });
+
+    it('drops the stream of a client that stopped reading when terminated', async () => {
+      const { descriptor, reader } = await openStream();
+
+      descriptor.send(history);
+      descriptor.close(1013, 'slow client');
+      descriptor.terminate!();
+
+      await expect(reader.read()).rejects.toThrow(/stopped reading/);
+      expect(descriptor.bufferedAmount()).toBe(0);
+    });
+  });
+
+  describe('a custom transport', () => {
+    function longPolling(
+      handle: ServerTransport['handle'] = async (request, endpoint) => {
+        const decision = await endpoint.authenticate(request);
+        if (decision.reject) return new Response(null, { status: decision.code });
+
+        endpoint.accept(
+          {
+            send: () => true,
+            close: () => {},
+            bufferedAmount: () => 0,
+            backpressureSupported: false,
+            secret: 'poll-secret',
+          },
+          decision,
+        );
+        return new Response('accepted');
+      },
+    ): ServerTransport {
+      return { name: 'long-polling', handle };
+    }
+
+    it('gets a request that is not an upgrade, and accepts a connection through the engine', async () => {
+      const Cls = buildClass({ hibernation: false, transports: [websocket(), longPolling()] });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      const res = await instance.fetch(new Request('https://huddle.test/'));
+
+      expect(await res.text()).toBe('accepted');
+      expect(fake.calls.authenticate).toHaveLength(1);
+      expect(fake.calls.accept[0]!.descriptor).toMatchObject({
+        secret: 'poll-secret',
+        backpressureSupported: false,
+        survivesHibernation: false,
+      });
+    });
+
+    it('refuses to accept a rejected decision', async () => {
+      const errors: unknown[] = [];
+      const careless = longPolling(async (_request, endpoint) => {
+        try {
+          endpoint.accept(
+            {
+              send: () => true,
+              close: () => {},
+              bufferedAmount: () => 0,
+              backpressureSupported: false,
+            },
+            { reject: true, code: 401, reason: 'no session' },
+          );
+        } catch (error) {
+          errors.push(error);
+        }
+
+        return new Response(null, { status: 204 });
+      });
+      const Cls = buildClass({ hibernation: false, transports: [careless] });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      await instance.fetch(new Request('https://huddle.test/'));
+
+      expect(fake.calls.accept).toHaveLength(0);
+      expect(String(errors[0])).toMatch(/rejected decision/);
+    });
+
+    it('refuses a cross-site request with no Origin before authenticate', async () => {
+      const Cls = buildClass({ hibernation: false, transports: [longPolling()] });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      const res = await instance.fetch(
+        new Request('https://huddle.test/', { headers: { 'Sec-Fetch-Site': 'cross-site' } }),
+      );
+
+      expect(res.status).toBe(403);
+      expect(fake.calls.authenticate).toHaveLength(0);
+    });
+
+    it('runs the origin check before authenticate', async () => {
+      const Cls = buildClass({ hibernation: false, transports: [longPolling()] });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      const res = await instance.fetch(
+        new Request('https://huddle.test/', { headers: { Origin: 'https://evil.example' } }),
+      );
+
+      expect(res.status).toBe(403);
+      expect(fake.calls.authenticate).toHaveLength(0);
+    });
+
+    it('passes a request it returns null for on to server-sent events, then to a 426', async () => {
+      const Cls = buildClass({
+        hibernation: false,
+        transports: [websocket(), longPolling(async () => null)],
+      });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+
+      const res = await instance.fetch(new Request('https://huddle.test/'));
+
+      expect(res.status).toBe(426);
+    });
+
+    it('answers 500 when handle() throws', async () => {
+      const Cls = buildClass({
+        hibernation: false,
+        transports: [
+          longPolling(async () => {
+            throw new Error('poll store is down');
+          }),
+        ],
+      });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await instance.fetch(new Request('https://huddle.test/'));
+
+      expect(res.status).toBe(500);
+      expect(errors).toHaveBeenCalled();
+      errors.mockRestore();
+    });
+  });
+
+  describe('Origin check', () => {
+    function originRequest(url: string, origin?: string) {
+      const headers: Record<string, string> = { Upgrade: 'websocket' };
+      if (origin) headers.Origin = origin;
+      return new Request(url, { headers });
+    }
+
+    async function fetchWith(request: Request, allowedOrigins?: string[]) {
+      const Cls = buildClass({ hibernation: false, allowedOrigins });
+      const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+      return instance.fetch(request);
+    }
+
+    it('accepts a request from the same origin', async () => {
+      const res = await fetchWith(originRequest('https://huddle.test/', 'https://huddle.test'));
+
+      expect(res.status).toBe(101);
+      expect(fake.calls.authenticate).toHaveLength(1);
+    });
+
+    it('answers 403 to another origin without running authenticate', async () => {
+      const res = await fetchWith(originRequest('https://huddle.test/', 'https://evil.test'));
+
+      expect(res.status).toBe(403);
+      expect(fake.calls.authenticate).toHaveLength(0);
+    });
+
+    it('accepts a request with no Origin header', async () => {
+      const res = await fetchWith(originRequest('https://huddle.test/'));
+
+      expect(res.status).toBe(101);
+    });
+
+    it('accepts an origin listed in allowedOrigins', async () => {
+      const res = await fetchWith(originRequest('https://huddle.test/', 'http://localhost:5173'), [
+        'http://localhost:5173',
+      ]);
+
+      expect(res.status).toBe(101);
+    });
+
+    it('checks a request that the Worker rebuilt against its own URL', async () => {
+      const res = await fetchWith(originRequest('https://do.internal/', 'https://huddle.test'));
+
+      expect(res.status).toBe(403);
+    });
+
+    it('throws at bind() for an allowedOrigins entry that is not an origin', () => {
+      expect(() => bind({} as never, { allowedOrigins: ['huddle.test'] })).toThrow(
+        /allowedOrigins/,
+      );
+    });
+  });
+
+  it('throws at bind() for a transports list with nothing in it', () => {
+    expect(() => bind({} as never, { transports: [] })).toThrow(/at least one transport/);
   });
 
   it('passes Cloudflare client IP metadata to the engine request', async () => {
@@ -100,7 +393,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       }),
     );
 
-    expect(fake.calls.handleUpgrade[0]?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
+    expect(fake.calls.authenticate[0]?.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
   });
 
   it('does not pass through a client-supplied IP metadata header', async () => {
@@ -117,7 +410,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       }),
     );
 
-    expect(fake.calls.handleUpgrade[0]?.headers.get('LiveThing-Client-IP')).toBeNull();
+    expect(fake.calls.authenticate[0]?.headers.get('LiveThing-Client-IP')).toBeNull();
   });
 
   it('upgrades and returns 101 with client socket when accepted (standard mode)', async () => {
@@ -127,7 +420,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
       return { __livething: 'tag-ref' as const, kind, group, key };
     }
 
-    fake.stageUpgrade({ meta: { user: 'a' }, tags: [ref('ephemeral', 'role', 't1')] });
+    fake.stageAuth({ meta: { user: 'a' }, tags: [ref('ephemeral', 'role', 't1')] });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
@@ -160,10 +453,25 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
     });
   });
 
+  it.each([
+    [true, 'accepted through the hibernation API'],
+    [false, 'accepted as a standard socket'],
+  ])('marks survivesHibernation %s for a socket %s', async (hibernation) => {
+    const Cls = buildClass({ hibernation });
+    const state = makeFakeDOState();
+    fake.stageAuth({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const desc = fake.calls.accept[0]!.descriptor as ConnectionDescriptor;
+    expect(desc.survivesHibernation).toBe(hibernation);
+  });
+
   it('returns false for a send to a closed socket', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -183,7 +491,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('sends a text frame as text and a bytes frame as the bytes themselves', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -202,7 +510,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('closes an accepted socket when engine connection setup throws', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
     const setupError = new Error('connection setup failed');
     (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw setupError;
@@ -220,7 +528,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('does not close an accepted socket again when the engine already closed it', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
     const setupError = new Error('connection state could not be persisted');
     (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (_ws: unknown, descriptor: { close(code: number, reason: string): void }) => {
@@ -244,7 +552,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -263,7 +571,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('asks a standard socket for binary as an ArrayBuffer before it accepts it', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -275,7 +583,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('forwards a binary frame in standard mode to the engine as a Uint8Array', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -293,7 +601,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('calls state.acceptWebSocket(ws) without forwarding handler tags into the cf tag store', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
-    fake.stageUpgrade({
+    fake.stageAuth({
       tags: [
         {
           __livething: 'tag-ref' as const,
@@ -321,7 +629,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('registers a ping/pong auto-response under hibernation so keepalives do not wake the DO', async () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -338,12 +646,55 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   it('does not register an auto-response in standard (non-hibernation) mode', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({});
+    fake.stageAuth({});
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
 
     expect(state.setWebSocketAutoResponse).not.toHaveBeenCalled();
+  });
+});
+
+describe('the subprotocol answer', () => {
+  beforeEach(() => {
+    installWebSocketPair();
+  });
+
+  function offering(protocols: string) {
+    return new Request('https://huddle.test/', {
+      headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': protocols },
+    });
+  }
+
+  async function fetchWith(request: Request) {
+    const Cls = buildClass({ hibernation: false });
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+    return instance.fetch(request);
+  }
+
+  it('answers an accepted socket with the first offered name', async () => {
+    const res = await fetchWith(offering('livething-v1, livething-v1.token.dG9rZW4'));
+
+    expect(res.status).toBe(101);
+    expect(res.headers.get('Sec-WebSocket-Protocol')).toBe('livething-v1');
+  });
+
+  it('answers a socket rejected by close code with the first offered name', async () => {
+    const Cls = buildClass({ hibernation: false });
+    fake.stageAuth({ reject: true, code: 4001, reason: 'No token' });
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+    const res = await instance.fetch(offering('huddle.v2, livething-v1.token.dG9rZW4'));
+
+    expect(res.status).toBe(101);
+    expect(res.headers.get('Sec-WebSocket-Protocol')).toBe('huddle.v2');
+  });
+
+  it('sends no subprotocol when the client offered none', async () => {
+    const res = await fetchWith(
+      new Request('https://huddle.test/', { headers: { Upgrade: 'websocket' } }),
+    );
+
+    expect(res.headers.get('Sec-WebSocket-Protocol')).toBeNull();
   });
 });
 
@@ -357,7 +708,7 @@ describe('handleRejectedUpgrade', () => {
   it('returns a 101 response that immediately closes with a WS close code (code >= 1000)', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, code: 4002, reason: 'bad' });
+    fake.stageAuth({ reject: true, code: 4002, reason: 'bad' });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
@@ -375,7 +726,7 @@ describe('handleRejectedUpgrade', () => {
   it('limits an oversized WebSocket close reason before closing the pair', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, code: 4002, reason: '🙂'.repeat(100) });
+    fake.stageAuth({ reject: true, code: 4002, reason: '🙂'.repeat(100) });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     await instance.fetch(upgradeRequest());
@@ -387,7 +738,7 @@ describe('handleRejectedUpgrade', () => {
   it('returns an HTTP response of the given status when 400 <= code <= 599', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, code: 401, reason: 'nope' });
+    fake.stageAuth({ reject: true, code: 401, reason: 'nope' });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
@@ -399,7 +750,7 @@ describe('handleRejectedUpgrade', () => {
   it('defaults to HTTP 403 when reject code is outside WS (>=1000) and HTTP (400-599) ranges', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, code: 42 });
+    fake.stageAuth({ reject: true, code: 42 });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
@@ -410,13 +761,13 @@ describe('handleRejectedUpgrade', () => {
   it('defaults to HTTP 403 when no code is provided on reject', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ reject: true, reason: 'Upgrade rejected' });
+    fake.stageAuth({ reject: true, reason: 'Authentication rejected' });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
 
     expect(res.status).toBe(403);
-    expect(await res.text()).toBe('Upgrade rejected');
+    expect(await res.text()).toBe('Authentication rejected');
   });
 });
 
@@ -606,7 +957,7 @@ describe('engine wiring in the constructor', () => {
     const calls = [
       instance.fetch(upgradeRequest()),
       instance.webSocketMessage({} as WebSocket, 'hello'),
-      instance.webSocketClose({ close: vi.fn() } as unknown as WebSocket, 1000, 'bye'),
+      instance.webSocketClose({ close: vi.fn() } as unknown as WebSocket, 1000, 'bye', true),
       instance.webSocketError({} as WebSocket, failure),
       instance.alarm(),
       instance.shutdown(),
@@ -616,7 +967,7 @@ describe('engine wiring in the constructor', () => {
       await expect(call).rejects.toBe(failure);
     }
 
-    expect(fake.calls.handleUpgrade).toHaveLength(0);
+    expect(fake.calls.authenticate).toHaveLength(0);
     expect(fake.calls.handleHibernationWake).toHaveLength(0);
     expect(fake.calls.handleAlarm).toBe(0);
     expect(fake.calls.handleShutdown).toBe(0);
@@ -750,31 +1101,28 @@ describe('LiveThingDurableObject admin()', () => {
     };
     const ref = { __livething: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' };
 
-    binaryAdmin.binary.broadcast('avatar-preview', null, bytes);
-    const reached = binaryAdmin.users.get('u1').binary.broadcast('avatar-preview', null, bytes);
-    const sent = binaryAdmin.connections.get(ref).binary.send('avatar-preview', null, bytes);
-    const room = { family: 'rooms', name: 'room:42' };
-    binaryAdmin.channels.binary.broadcast(room, 'screen-frame', { from: 'admin' }, bytes);
+    const options = { info: null };
+    binaryAdmin.binary.broadcast('avatar-preview', bytes, options);
+    const reached = binaryAdmin.users.get('u1').binary.broadcast('avatar-preview', bytes, options);
+    const sent = binaryAdmin.connections.get(ref).binary.send('avatar-preview', bytes, options);
 
-    expect(binary.broadcast).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    const roomOptions = { channel: { family: 'rooms', name: 'room:42' }, info: { from: 'admin' } };
+    binaryAdmin.channels.binary.broadcast('screen-frame', bytes, roomOptions);
+
+    expect(binary.broadcast).toHaveBeenCalledWith('avatar-preview', bytes, options);
     expect(reached).toBe(2);
-    expect(userBinary.broadcast).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    expect(userBinary.broadcast).toHaveBeenCalledWith('avatar-preview', bytes, options);
     expect(sent).toBe(true);
-    expect(connectionBinary.send).toHaveBeenCalledWith('avatar-preview', null, bytes);
+    expect(connectionBinary.send).toHaveBeenCalledWith('avatar-preview', bytes, options);
 
-    expect(channelsBinary.broadcast).toHaveBeenCalledWith(
-      room,
-      'screen-frame',
-      { from: 'admin' },
-      bytes,
-    );
+    expect(channelsBinary.broadcast).toHaveBeenCalledWith('screen-frame', bytes, roomOptions);
   });
 
   it('throws a clear error for a binary send when binary() is not listed', async () => {
     const { admin } = await adminOf();
     const binaryAdmin = admin as unknown as { binary: { broadcast(...args: unknown[]): unknown } };
 
-    expect(() => binaryAdmin.binary.broadcast('avatar-preview', null)).toThrow(
+    expect(() => binaryAdmin.binary.broadcast('avatar-preview', undefined, { info: null })).toThrow(
       /needs binary\(\) in server/,
     );
   });

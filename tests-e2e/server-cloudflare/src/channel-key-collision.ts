@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { channelKeyCollisionDefinition } from '@livething/tests-e2e-handlers/channel-key-collision';
+import { bindFixture } from './bind-fixture.ts';
 
-export class ChannelKeyCollisionServer extends bind(channelKeyCollisionDefinition) {}
+export class ChannelKeyCollisionServer extends bindFixture(channelKeyCollisionDefinition) {}

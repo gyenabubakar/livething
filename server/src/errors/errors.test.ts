@@ -8,7 +8,7 @@ import {
   Disconnect,
   error,
   NotAMember,
-  RejectUpgrade,
+  RejectAuth,
   ValidationFailed,
 } from './errors.ts';
 import type { ErrorDef, ErrorDefWithFactory } from './errors.ts';
@@ -34,8 +34,8 @@ const _dcCode: number = dc.code;
 const _dcReason: string = dc.reason;
 void [_dcLiveThing, _dcCode, _dcReason];
 
-const ru = RejectUpgrade(4002, 'Invalid token');
-const _ruLiveThing: 'reject-upgrade' = ru.__livething;
+const ru = RejectAuth(4002, 'Invalid token');
+const _ruLiveThing: 'reject-auth' = ru.__livething;
 const _ruCode: number = ru.code;
 const _ruReason: string = ru.reason;
 void [_ruLiveThing, _ruCode, _ruReason];

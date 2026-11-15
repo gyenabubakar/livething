@@ -17,6 +17,7 @@ import type {
   SendResult,
   StreamContinueContext,
   StreamHooks,
+  StreamListenOptions,
   StreamStartContext,
 } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
@@ -457,14 +458,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         if (idError) {
           // Can't continue an unroutable id — settle the handle instead of sending
           // a frame the server rejects before it can route the error back.
-          const errored = new StreamState(streamId, event, context.markers);
+          const errored = new StreamState(streamId, event, { markers: context.markers });
           finishStream(errored, idError);
           return buildStreamHandle(errored, handleDependencies);
         }
 
         let state = streams.get(streamId);
         if (!state) {
-          state = new StreamState(streamId, event, context.markers, maxBytes);
+          state = new StreamState(streamId, event, { markers: context.markers, maxBytes });
           state.durable = true;
           state.binary = context.binary === true;
           streams.set(streamId, state);
@@ -500,13 +501,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         return buildStreamHandle(state, handleDependencies);
       }
 
-      // oxlint-disable-next-line max-params -- the event, the handlers, the scope and the kind
       function subscribeBroadcast(
         event: string,
         handlers: StreamHandlers<unknown>,
-        scope: ScopeMarkers | undefined,
-        binary = false,
+        listen: StreamListenOptions = {},
       ): () => void {
+        const { scope, binary = false } = listen;
         helpers.lazyAcquire();
         let subscribers = broadcastSubs.get(event);
         if (!subscribers) {
@@ -654,7 +654,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         triggers.delete(streamId);
         triggerOutbox.delete(streamId);
 
-        const state = new StreamState(streamId, trigger.event, trigger.markers, maxBytes);
+        const state = new StreamState(streamId, trigger.event, {
+          markers: trigger.markers,
+          maxBytes,
+        });
         state.binary = trigger.binary;
         state.hasLazyHold = true;
         state.durable = envelope?.stream?.durability === 'persistent';
@@ -882,8 +885,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           return frames.length ? frames : null;
         },
 
-        onClose(...args) {
-          const [, , intentional, suspended] = args;
+        onClose(close) {
+          const { intentional, suspended } = close;
           for (const trigger of triggers.values()) {
             if (trigger.timer) clearTimeout(trigger.timer);
             helpers.lazyRelease();
@@ -969,7 +972,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           ) => triggerStream(event, payload, { markers: {}, options: triggerOptions });
           // @ts-expect-error — install adds onStream() to the socket dynamically
           socket.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
-            subscribeBroadcast(event, handlers, undefined);
+            subscribeBroadcast(event, handlers);
           // @ts-expect-error — install adds continueStream() to the socket dynamically
           socket.continueStream = (
             event: string,
@@ -990,7 +993,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               });
             };
             messaging.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
-              subscribeBroadcast(scopedName(scope, event), handlers, scope.markers());
+              subscribeBroadcast(scopedName(scope, event), handlers, { scope: scope.markers() });
             messaging.continueStream = (
               event: string,
               streamId: string,

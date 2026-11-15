@@ -16,9 +16,21 @@ export interface FastifyWebSocketRoute {
   wsHandler(socket: WebSocket, request: FastifyRequest): void;
 }
 
+/**
+ * Route options for the POSTs of server-sent events and their CORS preflight. It answers
+ * in `onRequest`, before Fastify reads the body.
+ */
+export interface FastifyHttpRoute {
+  onRequest(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+  handler(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+}
+
 /** One LiveThing definition registered as a Fastify WebSocket route. */
 export interface FastifyEndpoint<TAdmin = NodeAdmin> {
-  upgrade: FastifyWebSocketRoute;
+  /** The `GET` route a client connects on: a WebSocket upgrade, or the server-sent events stream. */
+  connect: FastifyWebSocketRoute;
+  /** The `POST` and `OPTIONS` route on the same path, for server-sent events. */
+  handle: FastifyHttpRoute;
   ready(): Promise<void>;
   admin(): Promise<TAdmin>;
 }
@@ -43,6 +55,23 @@ export function setup(): FastifySetup {
       const endpoint = node.bind(definition, options);
       const upgrades = new WeakMap<IncomingMessage, NodeUpgrade>();
 
+      async function serveHttp(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+        reply.hijack();
+        const served = await lifecycle
+          .prepare(request.raw, async (signal) => {
+            // A shutdown ends a request a custom transport still holds, such as a poll.
+            signal.addEventListener('abort', () => reply.raw.destroy());
+            await endpoint.handleNode(request.raw, reply.raw);
+            return true;
+          })
+          // After hijack() Fastify only logs an error, so end the response here.
+          .catch((error: unknown) => {
+            reply.raw.destroy();
+            throw error;
+          });
+        if (!served) reply.raw.destroy();
+      }
+
       const route: FastifyWebSocketRoute = {
         async preHandler(request, reply) {
           if (!isNodeWebSocketUpgrade(request.raw)) return;
@@ -66,9 +95,9 @@ export function setup(): FastifySetup {
           upgrades.set(request.raw, upgrade);
         },
 
-        async handler(_request, reply) {
-          await reply.code(426).type('text/plain; charset=utf-8').send('Upgrade Required');
-        },
+        // A plain GET goes to the custom transports, then to the server-sent events stream,
+        // or gets a 426 when none takes it.
+        handler: serveHttp,
 
         wsHandler(socket, request) {
           const upgrade = upgrades.get(request.raw);
@@ -116,7 +145,12 @@ export function setup(): FastifySetup {
       };
 
       return {
-        upgrade: route,
+        connect: route,
+        handle: {
+          onRequest: serveHttp,
+          // `onRequest` already answered, so Fastify never calls this.
+          async handler() {},
+        },
         ready: endpoint.ready,
         admin: endpoint.admin,
       };

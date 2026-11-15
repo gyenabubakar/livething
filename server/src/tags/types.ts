@@ -8,7 +8,7 @@ export type TagKind = 'ephemeral' | 'persistent';
  * A `TagRef` returned from a `TagGroupHandle.ref(key)` call. Same data as a
  * plain `TagRef` plus the methods that act on the group of connections
  * matching that exact `(kind, group, key)`. Anywhere a plain `TagRef` is
- * accepted (`onUpgrade` return, `ConnectionInfo.tags`, `channelHandle.kick`),
+ * accepted (`onAuthenticate` return, `ConnectionInfo.tags`, `channelHandle.kick`),
  * a `TagRefHandle` works too — the methods are stripped at serialization.
  */
 export interface TagRefHandle<Meta = Record<string, unknown>> extends TagRef {
@@ -59,11 +59,13 @@ export interface TagGroupHandle<Meta = Record<string, unknown>, TSlots = {}> {
 
 /** The `.binary` key of a tag handle: the binary version of its `broadcast`. */
 interface TagBinarySenders<TBinary> {
-  /** Send a binary event (its info, then its bytes) to every connection with this tag. */
+  /** Send a binary event (its bytes, with `{ info }`) to every connection with this tag. */
   broadcast<E extends keyof TBinary & string>(
     event: E,
-    info: TBinary[E],
-    bytes?: BinaryInput,
+    bytes: BinaryInput | undefined,
+    ...options: undefined extends TBinary[E]
+      ? [options?: { info?: TBinary[E] }]
+      : [options: { info: TBinary[E] }]
   ): void;
 }
 

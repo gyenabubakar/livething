@@ -1,7 +1,7 @@
-import { bind } from '@livething/server-cloudflare';
 import { scheduledDefinition } from '@livething/tests-e2e-handlers/scheduled';
+import { bindFixture } from './bind-fixture.ts';
 
-const Base = bind(scheduledDefinition);
+const Base = bindFixture(scheduledDefinition);
 
 /**
  * Test-only `restart()`: `ctx.abort()` discards the in-memory instance while

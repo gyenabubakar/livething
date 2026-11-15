@@ -1,15 +1,16 @@
 import { server } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { keepalive } from '@livething/server/keepalive';
 import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const Empty = v.object({});
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
-  capabilities: [channels(), recordedStream()],
+  authenticate: (request) => requireUsername(request),
+  capabilities: [keepalive(), channels(), recordedStream()],
 });
 
 const rooms = base.channel('rooms', { membership: 'persistent' });

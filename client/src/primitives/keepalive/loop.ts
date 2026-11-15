@@ -9,7 +9,6 @@ export interface QualityThresholds {
 
 /** Settings for the ping loop. */
 export interface KeepaliveLoopOptions {
-  interval?: number;
   maxMissedPongs?: number;
   thresholds?: QualityThresholds;
 }
@@ -47,20 +46,18 @@ export class KeepaliveLoop {
   private samples: number[] = [];
   private quality: ConnectionQuality = 'disconnected';
 
-  private readonly interval: number;
   private readonly maxMissedPongs: number;
   private readonly thresholds: QualityThresholds;
   private readonly callbacks: KeepaliveCallbacks;
 
   constructor(options: KeepaliveLoopOptions, callbacks: KeepaliveCallbacks) {
-    this.interval = options.interval ?? 30_000;
     this.maxMissedPongs = options.maxMissedPongs ?? 2;
     this.thresholds = options.thresholds ?? DEFAULT_THRESHOLDS;
     this.callbacks = callbacks;
   }
 
-  /** Begin pinging. Call once the socket is open. */
-  start(): void {
+  /** Begin pinging every `intervalMs`. Call once the server accepts the connection. */
+  start(intervalMs: number): void {
     this.stop();
 
     // No initial quality guess — the socket stays at the default until the first
@@ -68,7 +65,7 @@ export class KeepaliveLoop {
 
     this.pingTimer = setInterval(() => {
       this.tick();
-    }, this.interval);
+    }, intervalMs);
   }
 
   /** Stop pinging and reset. Call on close. */

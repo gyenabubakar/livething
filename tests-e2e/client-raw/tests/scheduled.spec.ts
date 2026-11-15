@@ -288,12 +288,14 @@ test.describe('scheduled', () => {
     expect(res.status()).toBe(204);
 
     // Re-connect a fresh socket to the same room; the DO re-initializes from
-    // storage and the queued cleanup eventually fires its broadcast.
+    // storage and the queued cleanup still runs. It writes a row when it runs,
+    // so read that row: its broadcast can fire before this socket joins.
     const b = await connect(page, { path: '/ws/scheduled', username: 'bob', room });
-    await waitForFrame(page, b, {
-      match: (f) => f.event === 'cleanup-done',
-      timeoutMs: 8000,
-    });
+    await expect(async () => {
+      await send(page, b, { event: 'query-cleanup-history', payload: {} });
+      const results = (await frames(page, b)).filter((f) => f.event === 'cleanup-history-result');
+      expect(results.at(-1)?.payload.ranAt).toEqual(expect.any(Number));
+    }).toPass({ timeout: 8000 });
   });
 
   test('socketless fixture stays alive while a scheduled task is pending', async ({

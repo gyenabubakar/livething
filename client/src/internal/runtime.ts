@@ -116,8 +116,7 @@ export interface StreamHooks {
   listen(
     event: string,
     handlers: StreamHandlers<unknown>,
-    scope: ScopeMarkers | undefined,
-    binary: boolean,
+    options: StreamListenOptions,
   ): () => void;
 }
 
@@ -157,6 +156,37 @@ export interface PrimitiveLogger {
  * The runtime hooks a primitive exposes. A primitive's `setup` returns one of
  * these, and the socket calls each hook at the right moment.
  */
+/** The values the server sends in its first frame, `__connected__`. The client follows them. */
+export interface ConnectedInfo {
+  /** How often the server pings, or `null` when it sends no pings. */
+  pingIntervalMs: number | null;
+  /** How long the server waits for any frame before it closes the connection, or `null`. */
+  idleTimeoutMs: number | null;
+  /** The most resume tokens one `__replay__` may list. */
+  maxResumeTokens: number;
+  connectionId: string;
+  /** The server features a client primitive needs: `replay`, `binary` and `uploads`. */
+  features: readonly string[];
+  /** This connection's resume token and starting seq, or `null` when replay is off. */
+  resume: { token: string; seq: number | null } | null;
+}
+
+/** Where a broadcast stream listener listens: its scope, and whether its chunks are binary. */
+export interface StreamListenOptions {
+  scope?: ScopeMarkers;
+  binary?: boolean;
+}
+
+/** What `onClose` gets when the socket closes. */
+interface PrimitiveClose {
+  code: number;
+  reason: string;
+  /** `true` for a public `disconnect()` call. */
+  intentional: boolean;
+  /** `true` for a temporary platform pause that resumes as the same client session. */
+  suspended?: boolean;
+}
+
 export interface PrimitiveRuntime {
   /** A name for debug logs. */
   id: string;
@@ -181,6 +211,12 @@ export interface PrimitiveRuntime {
    */
   onBeforeReopen?(): void | Promise<void>;
 
+  /**
+   * Runs when the server's `__connected__` frame arrives, with the values it sent,
+   * before `onOpen` and `onReconnect`. The socket is still `connecting` here.
+   */
+  onConnected?(info: ConnectedInfo): void;
+
   /** Runs every time the socket opens. Return messages to send right away. */
   onOpen?(): Message[] | null;
 
@@ -188,11 +224,13 @@ export interface PrimitiveRuntime {
   onReconnect?(): Message[] | null;
 
   /**
-   * Runs when the socket closes. `intentional` is `true` for a public
-   * `disconnect()` call. `suspended` is `true` for a temporary platform pause
-   * that will resume as the same client session.
+   * Runs once the open connection has proved it carries data both ways: at once on a
+   * WebSocket, and on server-sent events after 30 seconds open with one POST accepted.
    */
-  onClose?(code: number, reason: string, intentional: boolean, suspended?: boolean): void;
+  onStable?(): void;
+
+  /** Runs when the socket closes. */
+  onClose?(close: PrimitiveClose): void;
 
   /**
    * Runs when reconnection is permanently abandoned — out of retries, or the

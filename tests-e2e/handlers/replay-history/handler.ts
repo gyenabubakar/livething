@@ -3,13 +3,14 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
 import { Disconnect } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { plugin } from '@livething/server/plugins';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import {
   GetToken,
   InjectFamilyReplay,
@@ -51,8 +52,9 @@ export const ReplayPlugin = plugin('e2e:replay', {
 });
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     emits({
       'chat-msg': t<v.InferOutput<typeof ChatMsg>>(),
       cursor: t<v.InferOutput<typeof Cursor>>(),

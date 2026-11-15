@@ -7,7 +7,7 @@
 	let disconnectedUsers = $state<string[]>([]);
 	let validationErrorFired = $state('');
 	let errorMessage = $state('');
-	let upgradeMeta = $state('');
+	let authMeta = $state('');
 	let connectCount = $state('');
 	let asyncHookComplete = $state('');
 	let disconnectCloseEntries = $state<string[]>([]);
@@ -49,8 +49,8 @@
 				errorMessage = data.payload?.message ?? '';
 			}
 
-			if (data.event === 'upgrade-meta') {
-				upgradeMeta = data.payload?.username ?? '';
+			if (data.event === 'auth-meta') {
+				authMeta = data.payload?.username ?? '';
 			}
 
 			if (data.event === 'connect-count') {
@@ -96,7 +96,7 @@
 <span data-testid="disconnected-users">{disconnectedUsers.join(',')}</span>
 <span data-testid="validation-error">{validationErrorFired}</span>
 <span data-testid="error-message">{errorMessage}</span>
-<span data-testid="upgrade-meta">{upgradeMeta}</span>
+<span data-testid="auth-meta">{authMeta}</span>
 <span data-testid="connect-count">{connectCount}</span>
 <span data-testid="async-hook-complete">{asyncHookComplete}</span>
 <span data-testid="disconnect-close-entries">{disconnectCloseEntries.join(' | ')}</span>

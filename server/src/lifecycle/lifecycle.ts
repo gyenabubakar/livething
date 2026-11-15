@@ -6,10 +6,10 @@ import type * as PublicApiTypes from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /**
- * The result that `onUpgrade` handlers can return to attach data to a
+ * The result that `onAuthenticate` handlers can return to attach data to a
  * connection before it is accepted.
  */
-export interface UpgradeResult {
+export interface AuthResult {
   /**
    * Stable string identifying the user-equivalent entity behind this socket —
    * user id, session id, device id, whatever your app treats as "the same
@@ -20,12 +20,12 @@ export interface UpgradeResult {
   readonly userId: string;
   /**
    * Arbitrary key/value data attached to every connection established from this
-   * upgrade. Accessible as `ctx.meta` in all handler contexts.
+   * authenticate. Accessible as `ctx.meta` in all handler contexts.
    */
   readonly meta?: Record<string, unknown>;
   /**
    * Tag refs to attach to this connection. Build them with `helpers.tags`, the
-   * second argument to `onUpgrade`:
+   * second argument to `onAuthenticate`:
    * `tags: [helpers.tags.ephemeral('role').ref('admin')]`. Refs in the ephemeral kind
    * are accepted; refs in the persistent kind must be set at runtime via
    * `ctx.tags.persistent(group).add(key)` and are rejected here.
@@ -62,20 +62,20 @@ export type ErrorHandler<TCtx = any> = (
 ) => void | Promise<void>;
 
 /**
- * Second argument to `onUpgrade`. When tag groups are declared on the
+ * Second argument to `onAuthenticate`. When tag groups are declared on the
  * contract, `helpers.tags` lets you attach initial tag refs to the connection
  * before it opens. `helpers.ctx` is always there.
  */
-export interface UpgradeHelpers {
+export interface AuthHelpers {
   /**
-   * Storage, logger and platform for the upgrade phase. The same shape as the
+   * Storage, logger and platform for the authenticate phase. The same shape as the
    * `onInit` context: no connection exists yet, so there is no user, `meta` or
-   * `send`. The app's `upgrade(request, ctx)` receives this as `ctx`. A plugin's `upgrade`
+   * `send`. The app's `authenticate(request, ctx)` receives this as `ctx`. A plugin's `authenticate`
    * receives a copy scoped to the plugin, with its `kv` keys namespaced.
    */
   readonly ctx: PublicApiTypes.InitContext;
   /**
-   * Tag-ref builders available during the upgrade phase. Returns a partial
+   * Tag-ref builders available during the authenticate phase. Returns a partial
    * group handle whose only method is `.ref(key)` — `add` / `remove` /
    * `has` and fan-out reads need a live connection and are not available here.
    */
@@ -85,10 +85,10 @@ export interface UpgradeHelpers {
   };
 }
 
-export type UpgradeHandler = (
+export type AuthHandler = (
   request: Request,
-  helpers: UpgradeHelpers,
-) => UpgradeResult | Promise<UpgradeResult>;
+  helpers: AuthHelpers,
+) => AuthResult | Promise<AuthResult>;
 
 /** The TypeScript type returned by `onInit()`. */
 export interface InitPrimitive<TCtx = any> extends Primitive<'onInit'> {
@@ -125,9 +125,9 @@ export interface ErrorPrimitive<TCtx = any> extends Primitive<'onError'> {
   readonly handler: ErrorHandler<TCtx>;
 }
 
-/** The TypeScript type returned by `onUpgrade()`. */
-export interface UpgradePrimitive extends Primitive<'onUpgrade'> {
-  readonly handler: UpgradeHandler;
+/** The TypeScript type returned by `onAuthenticate()`. */
+export interface AuthPrimitive extends Primitive<'onAuthenticate'> {
+  readonly handler: AuthHandler;
 }
 
 const ON_INIT_KEY = Symbol('onInit');
@@ -137,7 +137,7 @@ const ON_PING_KEY = Symbol('onPing');
 const ON_PONG_KEY = Symbol('onPong');
 const ON_SHUTDOWN_KEY = Symbol('onShutdown');
 const ON_ERROR_KEY = Symbol('onError');
-const ON_UPGRADE_KEY = Symbol('onUpgrade');
+const ON_AUTHENTICATE_KEY = Symbol('onAuthenticate');
 
 /** @internal */
 function makeLifecycle<TTag extends string>(
@@ -257,12 +257,12 @@ export const onError = Object.assign(
 );
 
 /**
- * Creates an `onUpgrade` lifecycle primitive. Prefer the `upgrade` option on
+ * Creates an `onAuthenticate` lifecycle primitive. Prefer the `authenticate` option on
  * `server(...)` — this factory is used internally by `assemble(...)`.
  */
-export const onUpgrade = Object.assign(
-  makeLifecycle('onUpgrade', ON_UPGRADE_KEY, (e, h) => e.setBuilderUpgradeHook(h)) as (
-    handler: UpgradeHandler,
-  ) => UpgradePrimitive,
-  { __key: ON_UPGRADE_KEY },
+export const onAuthenticate = Object.assign(
+  makeLifecycle('onAuthenticate', ON_AUTHENTICATE_KEY, (e, h) => e.setBuilderAuthHook(h)) as (
+    handler: AuthHandler,
+  ) => AuthPrimitive,
+  { __key: ON_AUTHENTICATE_KEY },
 );

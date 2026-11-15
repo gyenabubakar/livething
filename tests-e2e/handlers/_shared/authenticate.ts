@@ -1,0 +1,56 @@
+import { RejectAuth } from '@livething/server/errors';
+
+/**
+ * The plain authenticate result: a stable `userId` and inferred `meta`, with no
+ * tags. Use this in handlers that do not declare a `user` ephemeral tag group —
+ * the authenticate runtime rejects a tag for a group the handler never declared.
+ */
+interface UsernameAuth {
+  userId: string;
+  meta: { username: string };
+}
+
+/**
+ * The authenticate result plus the initial `user` ephemeral tag. Use this only in
+ * handlers that declare a `user` ephemeral tag group under `tags(...)`.
+ */
+interface UsernameAuthWithUserTag extends UsernameAuth {
+  tags: { ephemeral: { user: string } };
+}
+
+/**
+ * Pull `username` from the query string and surface it as userId and meta.
+ * Feeds `server()`'s `authenticate(request)`. For handlers that declare a `user`
+ * ephemeral tag group and want the tag attached on connect, use
+ * {@link requireUsernameWithUserTag} instead.
+ */
+export function requireUsername(request: Request): UsernameAuth {
+  const url = new URL(request.url);
+  // A client that uses the `token` option sends the username as its bearer token.
+  const bearer = request.headers.get('authorization')?.match(/^Bearer (.+)$/)?.[1];
+  const username = bearer ?? url.searchParams.get('username');
+  if (!username) throw RejectAuth(4001, 'Missing username');
+
+  return { userId: username, meta: { username } };
+}
+
+/**
+ * Like {@link requireUsername}, but also attaches a `user:<username>` ephemeral
+ * tag. Only valid in handlers that declare a `user` ephemeral tag group.
+ */
+export function requireUsernameWithUserTag(request: Request): UsernameAuthWithUserTag {
+  const { userId, meta } = requireUsername(request);
+  return { userId, meta, tags: { ephemeral: { user: userId } } };
+}
+
+/**
+ * Like `requireUsername`, but never rejects: a missing `username` yields an
+ * empty userId — an anonymous connection. Used to exercise anonymous-path
+ * behavior such as persistence skipping durable membership writes when the
+ * userId is empty (`!key.userId`).
+ */
+export function allowAnonymous(request: Request): UsernameAuth {
+  const url = new URL(request.url);
+  const username = url.searchParams.get('username') ?? '';
+  return { userId: username, meta: { username } };
+}

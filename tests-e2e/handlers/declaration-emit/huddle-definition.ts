@@ -30,7 +30,7 @@ export const pollsDefinition = polls.assemble({ handlers: [handlePing, handleClo
 export const Polls = plugin('acme:polls', { definition: pollsDefinition });
 
 export const base = server({
-  async upgrade(request) {
+  async authenticate(request) {
     return { userId: request.url, meta: { name: 'a', role: 'admin' as string } };
   },
   capabilities: [
@@ -115,12 +115,12 @@ export const handleDigest = base.scheduled('send-digest', { run() {} });
 export const handleUploadAvatar = base.binary.on('upload-avatar', {
   input: v.object({ fileType: v.string() }),
   run(ctx, _input, bytes) {
-    ctx.binary.send('avatar-preview', null, bytes);
+    ctx.binary.send('avatar-preview', bytes, { info: null });
   },
 });
 export const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
   run(ctx, _input, bytes) {
-    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+    ctx.channel.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
   },
 });
 
@@ -136,9 +136,11 @@ export const handleDownloadAttachment = base.binary.stream('download-attachment'
 });
 export const handleStartScreenShare = rooms.on('start-screen-share', {
   async run(ctx) {
-    const { bytes } = await ctx.binary.request('capture-screen', { maxWidth: 1280 });
-    await ctx.channel.binary.request('capture-whiteboard', null);
-    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+    const { bytes } = await ctx.binary.request('capture-screen', undefined, {
+      info: { maxWidth: 1280 },
+    });
+    await ctx.channel.binary.request('capture-whiteboard', undefined, { info: null });
+    ctx.channel.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
   },
 });
 export const handleGetPinnedFile = rooms.binary.request('get-pinned-file', {
@@ -172,7 +174,7 @@ export const handleGetStageFile = stage.binary.request('get-stage-file', {
 });
 export const handleCaptureCamera = files.on('capture-camera-now', {
   async run(ctx) {
-    await ctx.binary.request('capture-camera', null);
+    await ctx.binary.request('capture-camera', undefined, { info: null });
   },
 });
 export const filesDefinition = files.assemble({

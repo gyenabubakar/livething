@@ -1,9 +1,10 @@
 import type {
+  AuthDecision,
   ConnectionDescriptor,
   ConnectionHandle,
   Engine,
+  TransportConnection,
   TransportFrame,
-  UpgradeDecision,
 } from '@livething/server/adapters';
 
 /** What a WebSocket `send()` takes for a frame: a string goes as text, bytes go as binary. */
@@ -27,23 +28,18 @@ export function sendWhenOpen(readyState: number | undefined, send: () => unknown
   return true;
 }
 
-/** Transport functions the engine needs after a WebSocket handshake. */
-export interface ConnectionTransport {
-  /** Return `false` when the frame was not sent, for example because the socket is closing. */
-  send(frame: TransportFrame): boolean | void;
-  close(code?: number, reason?: string): void;
-  /** Optional. Drop the socket with no close handshake, for a client that stopped reading. */
-  terminate?(): void;
-  bufferedAmount(): number;
-  backpressureSupported: boolean;
-}
+/**
+ * Transport functions the engine needs for an accepted connection. `send()` returns `false`
+ * when the frame was not sent, for example because the socket is closing.
+ */
+export type ConnectionTransport = TransportConnection;
 
 /** Inputs required to connect an accepted WebSocket transport to the engine. */
 export interface ConnectionBridgeOptions {
   engine: Pick<Engine, 'accept'>;
   token: unknown;
   transport: ConnectionTransport;
-  decision: UpgradeDecision;
+  decision: AuthDecision;
 }
 
 /** Creates the engine connection handle for an accepted transport. */
@@ -55,6 +51,8 @@ export function createConnectionBridge(options: ConnectionBridgeOptions): Connec
     ...(transport.terminate ? { terminate: () => transport.terminate?.() } : {}),
     bufferedAmount: () => transport.bufferedAmount(),
     backpressureSupported: transport.backpressureSupported,
+    secret: transport.secret ?? null,
+    maxPostBytes: transport.maxPostBytes ?? null,
     userId: decision.userId ?? '',
     meta: decision.meta ?? {},
     tags: decision.tags ?? [],

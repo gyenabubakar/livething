@@ -64,7 +64,8 @@ export function buffering(
           return null;
         },
 
-        onClose(_code, _reason, intentional) {
+        onClose(close) {
+          const { intentional } = close;
           // A deliberate disconnect throws the queue away. An accidental drop
           // keeps the queue so the messages go out on reconnect, but still stops
           // any in-progress staggered flush — otherwise its timer would keep

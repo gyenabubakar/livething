@@ -87,7 +87,7 @@ const BINARY_CONFIG = { hooks: [], options: ['emits', 'serverRequests'] };
  * export const handleUploadAvatar = base.binary.on('upload-avatar', {
  *   maxBytes: 2 * 1024 * 1024,
  *   run(ctx, _input, bytes) {
- *     ctx.binary.send('avatar-preview', null, bytes);
+ *     ctx.binary.send('avatar-preview', bytes, { info: null });
  *   },
  * });
  * ```

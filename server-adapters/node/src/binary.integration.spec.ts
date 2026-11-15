@@ -5,6 +5,7 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
 import { inbox } from '@livething/server/inbox';
+import { keepalive } from '@livething/server/keepalive';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { serverRequests } from '@livething/server/server-requests';
@@ -15,6 +16,12 @@ import type { ServerDefinition } from '@livething/server';
 import type { AddressInfo } from 'node:net';
 import type { RawData } from 'ws';
 import { setup } from './setup.ts';
+import {
+  isConnectedFrame,
+  openRawClient,
+  rawRequestListener,
+  rawTransportOptions,
+} from './test-utils.ts';
 
 const general = { channel: { name: 'room:general', family: 'rooms' } };
 const picture = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -54,10 +61,10 @@ interface Received {
 
 function huddle(avatars: { info: unknown; bytes: number[] }[]) {
   const base = server({
-    upgrade(request) {
+    authenticate(request) {
       return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
     },
-    capabilities: [binary(), channels()],
+    capabilities: [keepalive(), binary(), channels()],
   });
   const rooms = base.channel(['rooms', 'room:{roomId}'], {
     capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
@@ -69,7 +76,7 @@ function huddle(avatars: { info: unknown; bytes: number[] }[]) {
   });
   const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
     run(ctx, _input, bytes) {
-      ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+      ctx.channel.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
     },
   });
 
@@ -79,10 +86,11 @@ function huddle(avatars: { info: unknown; bytes: number[] }[]) {
 /** Huddle's binary requests and streams: thumbnails, attachment downloads and screen capture. */
 function huddleFiles(log: string[]) {
   const base = server({
-    upgrade(request) {
+    authenticate(request) {
       return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
     },
     capabilities: [
+      keepalive(),
       binary({ serverRequests: { 'capture-screen': { out: t<{ maxWidth: number }>() } } }),
       clientRequests(),
       serverRequests(),
@@ -117,7 +125,9 @@ function huddleFiles(log: string[]) {
   });
   const handleStartScreenShare = base.on('start-screen-share', {
     async run(ctx) {
-      const { bytes } = await ctx.binary.request('capture-screen', { maxWidth: 1280 });
+      const { bytes } = await ctx.binary.request('capture-screen', undefined, {
+        info: { maxWidth: 1280 },
+      });
       log.push(`captured ${[...bytes].join(',')}`);
     },
   });
@@ -128,9 +138,9 @@ function huddleFiles(log: string[]) {
 }
 
 async function start(definition: ServerDefinition): Promise<number> {
-  const httpServer = createServer();
   const livething = setup();
-  const endpoint = livething.bind(definition, {});
+  const endpoint = livething.bind(definition, rawTransportOptions);
+  const httpServer = createServer(rawRequestListener(endpoint));
   httpServer.on('upgrade', endpoint.upgrade);
   await endpoint.ready();
 
@@ -144,10 +154,10 @@ async function start(definition: ServerDefinition): Promise<number> {
 }
 
 async function connect(port: number, user: string) {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/huddle?user=${user}`);
+  const socket = openRawClient(`ws://127.0.0.1:${port}/huddle?user=${user}`);
   const received: Received[] = [];
   socket.on('message', (data: RawData, isBinary) => {
-    received.push({ data: data as Buffer, isBinary });
+    if (!isConnectedFrame(data, isBinary)) received.push({ data: data as Buffer, isBinary });
   });
   await new Promise<void>((resolve, reject) => {
     socket.once('open', () => resolve());
@@ -253,17 +263,24 @@ describe('binary messages over a real ws socket', () => {
 describe('replay of binary messages over a real ws socket', () => {
   function huddleWithReplay() {
     const base = server({
-      upgrade(request) {
+      authenticate(request) {
         return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
       },
-      capabilities: [binary(), channels(), dedup(), sequence({ persist: true }), replay.history()],
+      capabilities: [
+        keepalive(),
+        binary(),
+        channels(),
+        dedup(),
+        sequence({ persist: true }),
+        replay.history(),
+      ],
     });
     const rooms = base.channel(['rooms', 'room:{roomId}'], {
       capabilities: [binary({ emits: { 'screen-frame': t<{ from: string }>() } })],
     });
     const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
       run(ctx, _input, bytes) {
-        ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+        ctx.channel.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
       },
     });
 
@@ -274,8 +291,11 @@ describe('replay of binary messages over a real ws socket', () => {
     const port = await start(huddleWithReplay());
     const amara = await connect(port, 'u_amara');
     const kofi = await connect(port, 'u_kofi');
+    const esi = await connect(port, 'u_esi');
     await amara.subscribe();
+
     await kofi.subscribe();
+    await esi.subscribe();
 
     const subscribed = kofi.texts().find((frame) => frame[0] === '__subscribeOk__');
     const lastKnownSeq = (subscribed[1] as { seq: number }).seq;
@@ -283,6 +303,8 @@ describe('replay of binary messages over a real ws socket', () => {
 
     const frames = [new Uint8Array([1, 2, 3]), new Uint8Array(200_000).fill(9)];
     for (const bytes of frames) amara.sendBinary(['share-screen-frame', null, general], bytes);
+    // Esi got both, so the server has stored them before Kofi comes back.
+    await esi.until(() => esi.received.filter((m) => m.isBinary).length === 2);
     const kofiAgain = await connect(port, 'u_kofi');
     await kofiAgain.subscribe();
     kofiAgain.socket.send(JSON.stringify(['__replay__', { lastKnownSeq }, general]));
@@ -307,10 +329,10 @@ describe('replay of binary messages over a real ws socket', () => {
 describe('inbox binary messages over a real ws socket', () => {
   function huddleWithDms() {
     const base = server({
-      upgrade(request) {
+      authenticate(request) {
         return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
       },
-      capabilities: [binary(), channels(), dedup(), sequence({ persist: true })],
+      capabilities: [keepalive(), binary(), channels(), dedup(), sequence({ persist: true })],
     });
     const dms = base.channel(['dms', 'dm:{pair}'], {
       membership: 'persistent',
@@ -322,7 +344,9 @@ describe('inbox binary messages over a real ws socket', () => {
     const handleSendVoiceNote = dms.binary.on('send-voice-note', {
       run(ctx, input, bytes) {
         const { durationMs } = input as { durationMs: number };
-        ctx.channel.binary.broadcast('voice-note', { from: ctx.user.id, durationMs }, bytes);
+        ctx.channel.binary.broadcast('voice-note', bytes, {
+          info: { from: ctx.user.id, durationMs },
+        });
       },
     });
 
@@ -363,10 +387,10 @@ describe('inbox binary messages over a real ws socket', () => {
 describe('recorded binary streams over a real ws socket', () => {
   function huddleWithPdfExport(release: Promise<void>) {
     const base = server({
-      upgrade(request) {
+      authenticate(request) {
         return { userId: new URL(request.url).searchParams.get('user') ?? 'anonymous' };
       },
-      capabilities: [binary(), recordedStream()],
+      capabilities: [keepalive(), binary(), recordedStream()],
     });
     const handleExportRoomPdf = base.binary.recordedStream('export-room-pdf', {
       async *run() {

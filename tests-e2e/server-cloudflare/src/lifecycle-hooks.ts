@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { lifecycleHooksDefinition } from '@livething/tests-e2e-handlers/lifecycle-hooks';
+import { bindFixture } from './bind-fixture.ts';
 
-export class LifecycleHooksServer extends bind(lifecycleHooksDefinition) {}
+export class LifecycleHooksServer extends bindFixture(lifecycleHooksDefinition) {}

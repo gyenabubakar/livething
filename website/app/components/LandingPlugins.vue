@@ -24,7 +24,7 @@ const plugins = [
     name: 'Collaboration',
     icon: 'i-ph-pencil-line-duotone',
     title: 'Shared documents that many people edit at once',
-    features: ['Conflict-free edits', 'Undo and redo per user', 'Comment threads pinned to the text', 'Offline edits merge on reconnect'],
+    features: ['Conflict-free edits', 'Undo and redo per user', 'Comments stay on the right spot as people edit', 'Offline edits merge on reconnect'],
   },
   {
     key: 'cursors',

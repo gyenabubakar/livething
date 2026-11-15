@@ -10,7 +10,7 @@ function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
     userId: id,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
       close: vi.fn(),
@@ -77,7 +77,6 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
     usesTags: false,
     isTagGroupDeclared: vi.fn(() => false),
     instanceId: undefined,
-    hibernationEnabled: false,
     ...overrides,
   };
 }

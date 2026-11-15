@@ -17,7 +17,6 @@ type BuildConnectionContextScopeParameter = {
   isSubscribeGate?: boolean;
 };
 type ToConnectionInfoOptsParameter = {
-  hibernationEnabled?: boolean;
   lastSeenAt?: (userId: string) => number | null;
 };
 
@@ -244,7 +243,7 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
     broadcast: 'event-first',
     request: 'event-first',
     // There only when a replay capability added `ctx.sendReplay`.
-    sendReplay: 'event-first',
+    sendReplay: 'replay',
   });
 
   // `ctx.channels` exists only when the `channels()` capability is listed, and
@@ -365,7 +364,6 @@ export function toConnectionInfo(
   instanceId: string | undefined,
   opts?: ToConnectionInfoOptsParameter,
 ): PublicApi.ConnectionInfo<Record<string, unknown>> {
-  const hibernationEnabled = opts?.hibernationEnabled;
   const info: PublicApi.ConnectionInfo<Record<string, unknown>> = {
     id: connection.id,
     userId: connection.userId,
@@ -373,7 +371,8 @@ export function toConnectionInfo(
     tags: connectionTagRefs(connection),
     channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
-    quality: hibernationEnabled || connection.latency === null ? null : connection.quality,
+    quality:
+      connection.survivesHibernation || connection.latency === null ? null : connection.quality,
     bufferedAmount: connection.descriptor.bufferedAmount(),
     ref: () => buildConnectionRef(connection.id, connection.userId, instanceId),
   };

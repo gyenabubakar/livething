@@ -7,7 +7,7 @@ test.describe('ctx-send', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
 
-    // onUpgrade tags this connection with its username, so sendTo(username, ...)
+    // onAuthenticate tags this connection with its username, so sendTo(username, ...)
     // should deliver the message back to self.
     await page.getByTestId('send-to-self').click();
     await expect(page.getByTestId('messages')).toContainText('testuser:tagged');

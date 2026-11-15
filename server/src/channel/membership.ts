@@ -26,7 +26,7 @@ type SubscribeFromServerFn = (ref: PublicApi.ConnectionRef, opts: OptsParameter)
  *
  * Skips the write for an empty user id. A durable membership row exists only
  * to auto-rejoin the same user on a future reconnect, which needs a stable
- * user id to match against. An anonymous connection (no `onUpgrade` user id)
+ * user id to match against. An anonymous connection (no `onAuthenticate` user id)
  * has none, so the row could never be rejoined — and rejoin (`rejoin.ts`)
  * already bails on an empty user id. Writing it anyway would leak a row that
  * is never read and never cleaned. This mirrors the persistent-tag rule, which

@@ -28,6 +28,6 @@ export function adapter<TOptions, TService>(config: AdapterConfig<TOptions, TSer
       });
     }
 
-    return config.setup(createEngine, options);
+    return config.setup(createEngine, options, definition);
   };
 }

@@ -233,7 +233,7 @@ describe('a broadcast stream heard with onStream', () => {
 
       roomChunk(ws, 'b1', 4);
       ws.serverClose(1006);
-      vi.advanceTimersByTime(60_000);
+      vi.advanceTimersByTime(5_000);
       const next = MockWebSocket.last();
       next.open();
 

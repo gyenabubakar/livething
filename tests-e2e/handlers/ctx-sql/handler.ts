@@ -1,8 +1,9 @@
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { scheduled } from '@livething/server/scheduled';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 function selectNotes(ctx: {
   sql: { exec: <TRow = unknown>(sql: string, ...params: unknown[]) => { toArray: () => TRow[] } };
@@ -17,8 +18,9 @@ function selectNotes(ctx: {
 }
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     emits({
       'notes-list': t<{ notes: Array<{ id: number; title: string; body: string }> }>(),
       'sql-one-result': t<{ row: { c: number } | null }>(),

@@ -2,6 +2,7 @@ import type { LiveThingError } from '@livething/core';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { CloseEvent } from '~/socket/socket.ts';
+import type { TransportName } from '~/transports/transport.ts';
 import type { ConnectionState, ErrorsOf, IncomingOf, OutgoingOf, SocketContract } from '~/types.ts';
 
 /**
@@ -33,7 +34,7 @@ export interface SocketConnection {
   onClose(callback: (event: CloseEvent) => void): () => void;
 
   /**
-   * Wait until the WebSocket's send buffer is below 256 KiB. Call it between large sends,
+   * Wait until the transport's send buffer is below 256 KiB. Call it between large sends,
    * so a loop does not queue more than the network can carry. It resolves at once when the
    * socket is not open, and stops waiting after about 50 seconds.
    */
@@ -44,8 +45,13 @@ export interface SocketConnection {
 
   /** The subprotocol the server picked, or `null`. */
   readonly protocol: string | null;
-  /** The native WebSocket, or `null` when not connected. */
+  /** The native WebSocket, or `null` when not connected or on another transport. */
   readonly ws: WebSocket | null;
+  /**
+   * The transport in use, as a reactive store: `'websocket'`, `'sse'` or a custom transport's
+   * name, or `null` when not connected.
+   */
+  readonly transport: ReadableStore<TransportName | null>;
 }
 
 /**

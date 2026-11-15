@@ -6,6 +6,7 @@ import { binding } from './binding.ts';
 import { resolveCompression, resolveMaxMessageBytes } from './endpoint.ts';
 import { createNodeUpgradeHandler } from './upgrade.ts';
 import type { NodeAdmin, NodeCompressionOption, NodeEndpointOptions } from './endpoint.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
 
 /** Options for one definition bound directly to a Node HTTP upgrade listener. */
@@ -22,6 +23,13 @@ export interface NodeServerEndpointOptions extends NodeEndpointOptions {
 /** One definition bound to a Node HTTP or HTTPS upgrade listener. */
 export interface NodeEndpointBinding<TAdmin = NodeAdmin> {
   upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void;
+  /**
+   * Serve a plain HTTP request to the endpoint's path, from `node:http` or a `node:http2`
+   * compatibility server. The custom transports in `transports` get it first, in list order,
+   * then server-sent events: the stream, its POSTs and their CORS preflight. When no custom
+   * transport takes the request and `sse()` is not in `transports`, it answers 426.
+   */
+  handle(request: NodeHttpRequest, response: NodeHttpResponse): void;
   ready(): Promise<void>;
   admin(): Promise<TAdmin>;
 }
@@ -41,7 +49,9 @@ export function setup(): NodeSetup {
   const node = binding();
   const pendingUpgrades = new Set<Promise<void>>();
   const pendingSockets = new Set<Duplex>();
+  const pendingResponses = new Set<NodeHttpResponse>();
   let shutdownPromise: Promise<void> | undefined;
+
   let shuttingDown = false;
 
   return {
@@ -80,6 +90,24 @@ export function setup(): NodeSetup {
             pendingSockets.delete(socket);
           });
         },
+        handle(request, response) {
+          if (shuttingDown) {
+            response.destroy();
+            return;
+          }
+
+          // An open stream is closed by the engine's shutdown; one still in `authenticate`
+          // is destroyed here, like a pending upgrade.
+          const task = endpoint.handleNode(request, response).catch(() => {
+            response.destroy();
+          });
+          pendingUpgrades.add(task);
+          pendingResponses.add(response);
+          void task.finally(() => {
+            pendingUpgrades.delete(task);
+            pendingResponses.delete(response);
+          });
+        },
         ready: endpoint.ready,
         admin: endpoint.admin,
       };
@@ -89,6 +117,7 @@ export function setup(): NodeSetup {
       if (!shutdownPromise) {
         shuttingDown = true;
         for (const socket of pendingSockets) socket.destroy();
+        for (const response of pendingResponses) response.destroy();
         shutdownPromise = Promise.all([...pendingUpgrades]).then(() => node.shutdown());
       }
 

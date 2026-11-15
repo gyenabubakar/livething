@@ -417,7 +417,7 @@ type PluginsFragmentOf<TContract> =
  * // client.ts
  * import { client, connect } from '@livething/client';
  * import type { MyClient } from './server';
- * const socket = client<MyClient>()(connect('wss://example.com/ws'));
+ * const socket = client<MyClient>()(connect('wss://example.com/huddle'));
  * socket.connect();
  * socket.send('send-message', { text: 'hello' }); // fully typed
  * ```

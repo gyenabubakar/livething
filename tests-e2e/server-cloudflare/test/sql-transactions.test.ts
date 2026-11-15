@@ -2,10 +2,15 @@ import { runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { expect, it } from 'vitest';
 
+/** The next frame after the `__connected__` frame, which these tests do not check. */
 function nextMessage(socket: WebSocket): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    socket.addEventListener('message', (event) => resolve(JSON.parse(String(event.data))), {
-      once: true,
+    socket.addEventListener('message', function onMessage(event) {
+      const frame = JSON.parse(String(event.data));
+      if (Array.isArray(frame) && frame[0] === '__connected__') return;
+
+      socket.removeEventListener('message', onMessage);
+      resolve(frame);
     });
     socket.addEventListener(
       'close',

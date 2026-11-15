@@ -10,7 +10,7 @@ import type { InitContext } from '~/context.ts';
 import { context } from './ambient-context.ts';
 
 const base = server({
-  upgrade: () => ({ userId: 'u1', meta: { role: 'admin' as const } }),
+  authenticate: () => ({ userId: 'u1', meta: { role: 'admin' as const } }),
   capabilities: [emits({ ping: t<{ n: number }>() }), scheduled({ tick: null }), channels()],
 });
 const rooms = base.channel(['rooms', 'room:{roomId}'], {
@@ -38,7 +38,7 @@ plainCtx.send('pong', { ok: true });
 // @ts-expect-error plain does not list scheduled()
 plainCtx.schedule;
 
-// task, init, shutdown, upgrade.
+// task, init, shutdown, authenticate.
 expectTypeOf(context.task(base)).toEqualTypeOf(context.shutdown(base));
 expectTypeOf(context.task(base).connections.all()[0]!.meta.role).toEqualTypeOf<'admin'>();
 context.task(base).broadcast('ping', { n: 1 });
@@ -47,7 +47,7 @@ context.task(base).broadcast('pong', { ok: true });
 // @ts-expect-error a task ctx has no connection, so no `user`
 context.task(base).user;
 expectTypeOf(context.init(base)).toEqualTypeOf<InitContext>();
-expectTypeOf(context.upgrade(base)).toEqualTypeOf<InitContext>();
+expectTypeOf(context.authenticate(base)).toEqualTypeOf<InitContext>();
 context.shutdown(base).closeConnections();
 
 // channel: params and events come from the channel itself.
@@ -94,4 +94,4 @@ const pluginBase = server({ scope: 'plugin' });
 // A plugin's own base works in every accessor, inside that plugin's code.
 context.connection(pluginBase);
 context.task(pluginBase);
-expectTypeOf(context.upgrade(pluginBase)).toEqualTypeOf<InitContext>();
+expectTypeOf(context.authenticate(pluginBase)).toEqualTypeOf<InitContext>();

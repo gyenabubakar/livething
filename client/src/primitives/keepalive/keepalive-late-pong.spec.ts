@@ -18,10 +18,10 @@ afterEach(() => {
 });
 
 function build() {
-  const socket = client<SocketContract>()(connect('wss://test'), keepalive({ interval: INTERVAL }));
+  const socket = client<SocketContract>()(connect('wss://test'), keepalive());
   socket.connect();
   const ws = MockWebSocket.last();
-  ws.open();
+  ws.open('', { pingIntervalMs: INTERVAL });
 
   return { socket, ws };
 }
@@ -140,11 +140,11 @@ describe('keepalive — one ping in flight', () => {
   it('closes after a lost ping, and never reads an interval too high', () => {
     const socket = client<SocketContract>()(
       connect('wss://test'),
-      keepalive({ interval: INTERVAL, maxMissedPongs: 3 }),
+      keepalive({ maxMissedPongs: 3 }),
     );
     socket.connect();
     const ws = MockWebSocket.last();
-    ws.open();
+    ws.open('', { pingIntervalMs: INTERVAL });
     const latencies: number[] = [];
 
     socket.latency.subscribe((latency) => {

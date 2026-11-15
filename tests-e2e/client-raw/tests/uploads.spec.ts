@@ -66,6 +66,20 @@ function start(socket: Socket, input: object, size?: number) {
   });
 }
 
+/**
+ * Send a start and wait for its first ack. A client sends no piece before that ack: a piece
+ * skips the frame queue, so it can reach the server before the start is handled.
+ */
+async function begin(socket: Socket, input: object, size?: number) {
+  const after = await frameCount(socket);
+  await start(socket, input, size);
+  return waitForNew(
+    socket,
+    after,
+    (frame) => upload(UPLOAD_ID)(frame) && frame.event === '__uploadAck__',
+  );
+}
+
 function piece(socket: Socket, seq: number, bytes: { size: number; seed: number }) {
   return sendBinary(socket.page, socket.id, {
     event: 'upload-attachment',
@@ -221,7 +235,7 @@ test.describe('uploads (raw wire)', () => {
       const input = { attachmentId: 'att_video', saveEvery: 2, slowMs: 300 };
       const file = fileOf(fourPieces);
       const first = await open(page, room);
-      await start(first, input, file.size);
+      await begin(first, input, file.size);
 
       await sendPieces(first, 'up-1', { pieces: fourPieces });
       // Three pieces read, two saved: the third is lost with the drop.
@@ -266,7 +280,7 @@ test.describe('uploads (raw wire)', () => {
     const room = `upl-done-${testInfo.testId}`;
     const file = fileOf([{ size: PIECE, seed: 7 }]);
     const first = await open(page, room);
-    await start(first, { attachmentId: 'att_logo' });
+    await begin(first, { attachmentId: 'att_logo' });
     await piece(first, 1, { size: PIECE, seed: 7 });
 
     await end(first, 'up-1', PIECE);
@@ -297,7 +311,7 @@ test.describe('uploads (raw wire)', () => {
     const room = `upl-cancel-${testInfo.testId}`;
     const input = { attachmentId: 'att_draft', slowMs: 200 };
     const amara = await open(page, room);
-    await start(amara, input);
+    await begin(amara, input);
     await sendPieces(amara, 'up-1', { pieces: fourPieces });
 
     await waitForRead(amara, 'up-1', PIECE);
@@ -328,7 +342,7 @@ test.describe('uploads (raw wire)', () => {
   }, testInfo) => {
     const room = `upl-throw-${testInfo.testId}`;
     const amara = await open(page, room);
-    await start(amara, { attachmentId: 'att_full', failAt: 2 });
+    await begin(amara, { attachmentId: 'att_full', failAt: 2 });
     await sendPieces(amara, 'up-1', { pieces: fourPieces.slice(0, 2) });
 
     const error = await waitForError(amara, 'up-1');
@@ -399,7 +413,7 @@ test.describe('uploads (raw wire)', () => {
 
   test('refuses an end total that differs from the start size', async ({ page }, testInfo) => {
     const amara = await open(page, `upl-size-${testInfo.testId}`);
-    await start(amara, { attachmentId: 'att_size' }, PIECE);
+    await begin(amara, { attachmentId: 'att_size' }, PIECE);
     await piece(amara, 1, { size: PIECE, seed: 1 });
     await end(amara, 'up-1', PIECE - 1);
     const error = await waitForError(amara, 'up-1');
@@ -434,7 +448,7 @@ test.describe('uploads (raw wire)', () => {
     const input = { attachmentId: 'att_tabs', slowMs: 200 };
     const file = fileOf(fourPieces);
     const first = await open(page, room);
-    await start(first, input, file.size);
+    await begin(first, input, file.size);
 
     await sendPieces(first, 'up-1', { pieces: fourPieces.slice(0, 2) });
     await waitForRead(first, 'up-1', 2 * PIECE);
@@ -533,11 +547,13 @@ test.describe('uploads (raw wire)', () => {
       { size: 10 * KiB, seed: 2 },
     ];
     const file = fileOf(pieces);
+
     await sendBinary(page, amara.id, {
       event,
       payload: { fileId: 'f1' },
       metadata: { upload: { id: 'file-1', size: file.size } },
     });
+    await waitFor(amara, (frame) => upload('file-1')(frame) && frame.event === '__uploadAck__');
 
     for (const [index, bytes] of pieces.entries()) {
       await sendBinary(page, amara.id, {
@@ -560,6 +576,8 @@ test.describe('uploads (raw wire)', () => {
       payload: { fileId: 'f2', full: true },
       metadata: { upload: { id: 'file-2' } },
     });
+    await waitFor(amara, (frame) => upload('file-2')(frame) && frame.event === '__uploadAck__');
+
     await sendBinary(page, amara.id, {
       event,
       payload: null,
@@ -597,7 +615,7 @@ test.describe('uploads (raw wire)', () => {
     const room = `upl-expire-${testInfo.testId}`;
     const path = '/ws/uploads-expiry';
     const first = await open(page, room, { path });
-    await start(first, { attachmentId: 'att_old' });
+    await begin(first, { attachmentId: 'att_old' });
     await piece(first, 1, { size: PIECE, seed: 1 });
 
     await waitForRead(first, 'up-1', PIECE);
@@ -623,7 +641,7 @@ test.describe('uploads (raw wire)', () => {
     const amara = await open(page, room, { path: '/ws/uploads-expiry' });
     const file = fileOf(fourPieces);
     // Four pieces at 600 ms each run for longer than the 1.5 s expiry.
-    await start(amara, { attachmentId: 'att_long', slowMs: 600 }, file.size);
+    await begin(amara, { attachmentId: 'att_long', slowMs: 600 }, file.size);
     await sendPieces(amara, 'up-1', { pieces: fourPieces });
     await end(amara, 'up-1', file.size);
     const done = await waitFor(
@@ -639,7 +657,7 @@ test.describe('uploads (raw wire)', () => {
   test('keeps a done reply only for retentionAfterDoneMs', async ({ page }, testInfo) => {
     const room = `upl-retention-${testInfo.testId}`;
     const amara = await open(page, room, { path: '/ws/uploads-expiry' });
-    await start(amara, { attachmentId: 'att_once' });
+    await begin(amara, { attachmentId: 'att_once' });
     await piece(amara, 1, { size: PIECE, seed: 1 });
     await end(amara, 'up-1', PIECE);
 

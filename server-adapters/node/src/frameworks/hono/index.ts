@@ -1,9 +1,10 @@
 import { upgradeWebSocket } from '@hono/node-server';
-import { asUint8Array } from '@livething/server/adapters';
+import { RESPONSE_ALREADY_SENT } from '@hono/node-server/utils/response';
+import { asUint8Array, ERROR_HEADER } from '@livething/server/adapters';
 import { WebSocketServer } from 'ws';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type { MiddlewareHandler } from 'hono';
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
@@ -17,6 +18,12 @@ import type { NodeCompressionOption } from '../../endpoint.ts';
 /** One LiveThing definition registered as a Hono WebSocket route. */
 export interface HonoEndpoint<TAdmin = NodeAdmin> {
   upgrade: MiddlewareHandler;
+  /**
+   * The route for custom transports and for the server-sent events stream, its POSTs and
+   * their CORS preflight. Mount it on the same path as `upgrade`, for every method. When no
+   * custom transport takes a request and `sse()` is not listed, it answers 426.
+   */
+  handle: MiddlewareHandler;
   ready(): Promise<void>;
   admin(): Promise<TAdmin>;
 }
@@ -94,9 +101,7 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
         if (!isWebSocketUpgrade(context.req.header('upgrade'))) return next();
 
         const incoming = getIncomingRequest(context.env);
-        if (!incoming) {
-          return new Response('[livething] Hono did not provide a Node request', { status: 500 });
-        }
+        if (!incoming) return noNodeRequest();
 
         if (!isNodeWebSocketUpgrade(incoming)) return next();
 
@@ -158,8 +163,30 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
         }))(context, next);
       }
 
+      async function handle(
+        context: Parameters<MiddlewareHandler>[0],
+        next: Parameters<MiddlewareHandler>[1],
+      ) {
+        if (isWebSocketUpgrade(context.req.header('upgrade'))) return next();
+
+        const incoming = getIncomingRequest(context.env);
+        const outgoing = (context.env as { outgoing?: ServerResponse }).outgoing;
+        if (!incoming || !outgoing) return noNodeRequest();
+
+        const served = await lifecycle.prepare(incoming, async (signal) => {
+          // A shutdown ends a request a custom transport still holds, such as a poll.
+          signal.addEventListener('abort', () => outgoing.destroy());
+          await endpoint.handleNode(incoming, outgoing);
+          return true;
+        });
+        if (!served) outgoing.destroy();
+
+        return RESPONSE_ALREADY_SENT;
+      }
+
       return {
         upgrade: route,
+        handle,
         ready: endpoint.ready,
         admin: endpoint.admin,
       };
@@ -171,6 +198,13 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
       return lifecycle.shutdown(node.shutdown);
     },
   };
+}
+
+function noNodeRequest(): Response {
+  return new Response('[livething] Hono did not provide a Node request', {
+    status: 500,
+    headers: { [ERROR_HEADER]: 'no-node-request' },
+  });
 }
 
 function getIncomingRequest(environment: unknown): IncomingMessage | undefined {

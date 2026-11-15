@@ -9,7 +9,7 @@ type FakeEngine = {
   reconcileConnections: ReturnType<typeof vi.fn>;
   handleAlarm: ReturnType<typeof vi.fn>;
   handleShutdown: ReturnType<typeof vi.fn>;
-  handleUpgrade: ReturnType<typeof vi.fn>;
+  authenticate: ReturnType<typeof vi.fn>;
   accept: ReturnType<typeof vi.fn>;
   admin: ReturnType<typeof vi.fn>;
 };
@@ -42,7 +42,7 @@ function createTestEndpoint(definition: never, options: NodeEndpointOptions) {
   return createNodeEndpoint(definition, options);
 }
 
-function incomingRequest(): IncomingMessage {
+function incomingRequest(origin?: string): IncomingMessage {
   return Object.assign(new IncomingMessage(new Socket()), {
     url: '/socket',
     method: 'GET',
@@ -50,6 +50,7 @@ function incomingRequest(): IncomingMessage {
       host: 'example.test',
       connection: 'Upgrade',
       upgrade: 'websocket',
+      ...(origin ? { origin } : {}),
     },
   });
 }
@@ -61,7 +62,7 @@ function makeEngine(): FakeEngine {
     reconcileConnections: vi.fn(),
     handleAlarm: vi.fn(async () => {}),
     handleShutdown: vi.fn(async () => {}),
-    handleUpgrade: vi.fn(async () => ({ userId: 'user-1' })),
+    authenticate: vi.fn(async () => ({ userId: 'user-1' })),
     accept: vi.fn(() => ({
       handleMessage: vi.fn(async () => {}),
       handleClose: vi.fn(async () => {}),
@@ -109,14 +110,83 @@ describe('createNodeEndpoint()', () => {
 
     const prepared = service.decideNodeUpgrade(incomingRequest());
     await Promise.resolve();
-    expect(fake.handleUpgrade).not.toHaveBeenCalled();
+    expect(fake.authenticate).not.toHaveBeenCalled();
 
     finishInitialization();
     await service.ready;
-    await vi.waitFor(() => expect(fake.handleUpgrade).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(fake.authenticate).toHaveBeenCalledOnce());
     await prepared;
 
     await service.shutdown();
+  });
+
+  describe('Origin check', () => {
+    it('accepts a Node request from the same origin', async () => {
+      const service = createTestEndpoint({} as never, {});
+
+      await expect(
+        service.decideNodeUpgrade(incomingRequest('http://example.test')),
+      ).resolves.toEqual({ userId: 'user-1' });
+      await service.shutdown();
+    });
+
+    it('answers 403 to another origin without running authenticate', async () => {
+      const service = createTestEndpoint({} as never, {});
+
+      await expect(
+        service.decideNodeUpgrade(incomingRequest('https://evil.test')),
+      ).resolves.toEqual({
+        reject: true,
+        code: 403,
+        reason: 'Origin not allowed',
+      });
+      await expect(
+        service.decideWebUpgrade(
+          new Request('https://example.test/socket', { headers: { origin: 'https://evil.test' } }),
+        ),
+      ).resolves.toMatchObject({ reject: true, code: 403 });
+      expect(fake.authenticate).not.toHaveBeenCalled();
+      await service.shutdown();
+    });
+
+    it('accepts a request with no Origin header', async () => {
+      const service = createTestEndpoint({} as never, {});
+
+      await expect(service.decideNodeUpgrade(incomingRequest())).resolves.toEqual({
+        userId: 'user-1',
+      });
+      await service.shutdown();
+    });
+
+    it('accepts an origin listed in allowedOrigins', async () => {
+      const service = createTestEndpoint({} as never, {
+        allowedOrigins: ['http://localhost:5173'],
+      });
+
+      await expect(
+        service.decideNodeUpgrade(incomingRequest('http://localhost:5173')),
+      ).resolves.toEqual({ userId: 'user-1' });
+      await expect(
+        service.decideWebUpgrade(
+          new Request('https://example.test/socket', {
+            headers: { origin: 'http://localhost:5173' },
+          }),
+        ),
+      ).resolves.toEqual({ userId: 'user-1' });
+      await service.shutdown();
+    });
+
+    it('throws at setup for an allowedOrigins entry that is not an origin', () => {
+      expect(() => createTestEndpoint({} as never, { allowedOrigins: ['localhost:5173'] })).toThrow(
+        /allowedOrigins/,
+      );
+    });
+  });
+
+  it('throws at setup for a transports list with nothing in it', () => {
+    expect(() => createTestEndpoint({} as never, { transports: [] })).toThrow(
+      /at least one transport/,
+    );
   });
 
   it('waits for initialization before exposing the admin surface', async () => {
@@ -241,7 +311,7 @@ describe('binding()', () => {
     const endpoint = node.bind({} as never, {});
     await endpoint.ready();
 
-    fake.handleUpgrade.mockResolvedValueOnce({ reject: true, code: 401, reason: 'No token' });
+    fake.authenticate.mockResolvedValueOnce({ reject: true, code: 401, reason: 'No token' });
     const http = await endpoint.prepare(
       new Request('https://example.test/socket', { headers: { 'LiveThing-Client-IP': 'spoofed' } }),
       { clientIp: '203.0.113.7' },
@@ -252,11 +322,11 @@ describe('binding()', () => {
       await expect(http.response.text()).resolves.toBe('No token');
     }
 
-    const request = fake.handleUpgrade.mock.calls[0]?.[0] as Request;
+    const request = fake.authenticate.mock.calls[0]?.[0] as Request;
 
     expect(request.headers.get('LiveThing-Client-IP')).toBe('203.0.113.7');
 
-    fake.handleUpgrade.mockResolvedValueOnce({ reject: true, code: 4001, reason: 'No token' });
+    fake.authenticate.mockResolvedValueOnce({ reject: true, code: 4001, reason: 'No token' });
     await expect(endpoint.prepareNode(incomingRequest())).resolves.toEqual({
       type: 'socket',
       code: 4001,

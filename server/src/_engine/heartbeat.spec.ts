@@ -1,5 +1,6 @@
 import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
+import { isConnectedFrame } from '~/_test/connected.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { keepalive } from '~/keepalive/capability.ts';
@@ -31,7 +32,9 @@ function testSocket() {
   return {
     frames,
     descriptor: {
-      send: ({ text }: { kind: 'text'; text: string }) => void frames.push(text),
+      send: ({ text }: { kind: 'text'; text: string }) => {
+        if (!isConnectedFrame(text)) frames.push(text);
+      },
       close: () => {},
       bufferedAmount: () => 0,
       userId: 'tester',
@@ -83,10 +86,13 @@ function buildEngine(options: ServerOptions = {}): Engine {
   return engine;
 }
 
-async function connect(engine: Engine) {
+async function connect(
+  engine: Engine,
+  options: { survivesHibernation?: boolean; close?: (code?: number, reason?: string) => void } = {},
+) {
   await engine.initialize();
   const socket = testSocket();
-  const handle = engine.accept(Symbol('ws'), socket.descriptor);
+  const handle = engine.accept(Symbol('ws'), { ...socket.descriptor, ...options });
   // `accept` starts the connect lifecycle without awaiting it.
   await Promise.resolve();
 
@@ -300,16 +306,31 @@ describe('the heartbeat hooks', () => {
       expect(socket.frames).toEqual(['pong']);
     });
 
-    it('does not ping under hibernation', async () => {
+    it('does not ping a connection that survives hibernation', async () => {
       const engine = buildEngine({
         withKeepalive: { pingIntervalMs: 5_000, idleTimeoutMs: 20_000 },
         hibernation: true,
       });
-      const { socket } = await connect(engine);
+      const { socket } = await connect(engine, { survivesHibernation: true });
 
       vi.advanceTimersByTime(60_000);
 
       expect(socket.frames).not.toContain('ping');
+    });
+
+    it('pings, and closes when idle, a connection on a hibernating server that does not survive hibernation', async () => {
+      const engine = buildEngine({
+        withKeepalive: { pingIntervalMs: 5_000, idleTimeoutMs: 20_000 },
+        hibernation: true,
+      });
+      const close = vi.fn();
+      const { socket } = await connect(engine, { close });
+
+      vi.advanceTimersByTime(5_000);
+      expect(socket.frames).toContain('ping');
+
+      vi.advanceTimersByTime(20_000);
+      expect(close).toHaveBeenCalledWith(4004, expect.any(String));
     });
 
     it('stops pinging once the connection closes', async () => {

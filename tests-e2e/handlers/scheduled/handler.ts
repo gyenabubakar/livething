@@ -1,16 +1,18 @@
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { scheduled } from '@livething/server/scheduled';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/authenticate.ts';
 
 let flakyAttempts = 0;
 let defaultRetryAttempts = 0;
 
 const base = server({
-  upgrade: (request) => requireUsernameWithUserTag(request),
+  authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
+    keepalive(),
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('role', t<string>())]),
     scheduled({
       cleanup: null,

@@ -3,12 +3,13 @@ import { channels } from '@livething/server/channels';
 import { dedup } from '@livething/server/dedup';
 import { Disconnect } from '@livething/server/errors';
 import { inbox, readReceipts } from '@livething/server/inbox';
+import { keepalive } from '@livething/server/keepalive';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { AddFavorite, SendRoomMsg, SendTopMsg } from './events.ts';
 import type { RoomMsg, TopMsg } from './events.ts';
 
@@ -20,8 +21,9 @@ import type { RoomMsg, TopMsg } from './events.ts';
 // host's top-level `replay.history()` events keep their own sequence
 // numbers, independent of a room's per-member inbox seq.
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     channels(),
     sequence({ persist: true }),
     dedup(),

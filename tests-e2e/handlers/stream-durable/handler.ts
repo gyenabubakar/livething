@@ -1,9 +1,10 @@
 import { server } from '@livething/server';
 import { Disconnect, StreamAborted } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const CountTokensPayload = v.object({ hold: v.optional(v.boolean()) });
 const PaginatePayload = v.object({});
@@ -12,8 +13,8 @@ const StopPayload = v.object({});
 const overflowGates = new Map<string, () => void>();
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
-  capabilities: [recordedStream()],
+  authenticate: (request) => requireUsername(request),
+  capabilities: [keepalive(), recordedStream()],
 });
 
 const handleReleaseOverflow = base.on('release-overflow', {

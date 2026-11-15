@@ -68,19 +68,24 @@ const socket = client<HuddleSocket>()(
 );
 const picture = new Uint8Array([137, 80, 78, 71]);
 
-// binary.request: the info, optional bytes, optional options; resolves { info, bytes }.
-expectTypeOf(socket.binary.request('get-thumbnail', { attachmentId: 'att_1' })).toEqualTypeOf<
-  Promise<BinaryItem<{ fileType: 'image/png' }>>
->();
-socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, picture);
-socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, picture.buffer as ArrayBuffer);
-socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, undefined, { timeout: 5_000 });
+// binary.request: the bytes, then `{ info }` with optional options; resolves { info, bytes }.
+expectTypeOf(
+  socket.binary.request('get-thumbnail', undefined, { info: { attachmentId: 'att_1' } }),
+).toEqualTypeOf<Promise<BinaryItem<{ fileType: 'image/png' }>>>();
+socket.binary.request('get-thumbnail', picture, { info: { attachmentId: 'att_1' } });
+socket.binary.request('get-thumbnail', picture.buffer as ArrayBuffer, {
+  info: { attachmentId: 'att_1' },
+});
+socket.binary.request('get-thumbnail', undefined, {
+  info: { attachmentId: 'att_1' },
+  timeout: 5_000,
+});
 // @ts-expect-error: wrong info type
-socket.binary.request('get-thumbnail', { attachmentId: 1 });
+socket.binary.request('get-thumbnail', undefined, { info: { attachmentId: 1 } });
 // @ts-expect-error: the bytes must be a Uint8Array or an ArrayBuffer
-socket.binary.request('get-thumbnail', { attachmentId: 'att_1' }, 'bytes');
+socket.binary.request('get-thumbnail', 'bytes', { info: { attachmentId: 'att_1' } });
 // @ts-expect-error: a binary server request is not a client request
-socket.binary.request('capture-screen', { maxWidth: 1280 });
+socket.binary.request('capture-screen', undefined, { info: { maxWidth: 1280 } });
 // @ts-expect-error: a binary request is not a JSON request
 socket.request('get-thumbnail', { attachmentId: 'att_1' });
 
@@ -100,9 +105,8 @@ socket.binary.onRequest('capture-screen', () => ({ fileType: 'image/png' }));
 
 // binary.stream: each item is { info, bytes }; the handle is a JSON stream's handle.
 async function download(): Promise<void> {
-  const handle = await socket.binary.stream('download-attachment', {
-    attachmentId: 'att_1',
-    fromByte: 0,
+  const handle = await socket.binary.stream('download-attachment', undefined, {
+    info: { attachmentId: 'att_1', fromByte: 0 },
   });
   expectTypeOf(handle).toEqualTypeOf<StreamHandle<BinaryItem<Attachment>, {}>>();
   for await (const { info, bytes } of handle) {
@@ -111,11 +115,12 @@ async function download(): Promise<void> {
   }
 }
 
-socket.binary.stream('download-attachment', { attachmentId: 'att_1', fromByte: 0 }, undefined, {
+socket.binary.stream('download-attachment', undefined, {
+  info: { attachmentId: 'att_1', fromByte: 0 },
   streamId: 'download-1',
 });
 // @ts-expect-error: wrong info type
-socket.binary.stream('download-attachment', { attachmentId: 'att_1' });
+socket.binary.stream('download-attachment', undefined, { info: { attachmentId: 'att_1' } });
 socket.binary.onStream('download-attachment', {
   onChunk(chunk, streamId) {
     expectTypeOf(chunk).toEqualTypeOf<BinaryItem<Attachment>>();
@@ -136,16 +141,16 @@ socket.continueStream('export-room-pdf', 'pdf-1');
 
 // Channel handles: the channel's own binary requests and streams, and events.
 const general = socket.channel('rooms', 'room:general');
-expectTypeOf(general.binary.request('get-whiteboard', null)).toEqualTypeOf<
+expectTypeOf(general.binary.request('get-whiteboard', undefined, { info: null })).toEqualTypeOf<
   Promise<BinaryItem<{ fileType: 'image/png' }>>
 >();
 general.binary.on('screen-frame', () => {});
-general.binary.stream('download-recording', null);
+general.binary.stream('download-recording', undefined, { info: null });
 general.binary.onStream('download-recording', { onChunk: () => {} });
 // @ts-expect-error: the channel has no binary server requests
 general.binary.onRequest;
 // @ts-expect-error: 'get-thumbnail' belongs to the top level
-general.binary.request('get-thumbnail', { attachmentId: 'att_1' });
+general.binary.request('get-thumbnail', undefined, { info: { attachmentId: 'att_1' } });
 
 // Each method needs its primitive. Without it, the method is a stub that names it.
 const eventsOnly = client<HuddleSocket>()(connect(url), binary(), channels());
@@ -166,11 +171,15 @@ expectTypeOf(eventsOnly.binary.continueStream).toEqualTypeOf<{
   error: '[livething] binary.continueStream needs the stream() primitive — add stream() to client()';
 }>();
 // @ts-expect-error: binary.request needs clientRequests()
-eventsOnly.binary.request('get-thumbnail', { attachmentId: 'att_1' });
-// @ts-expect-error: a channel's binary.request needs clientRequests() too
-eventsOnly.channel('rooms', 'room:general').binary.request('get-whiteboard', null);
-// @ts-expect-error: a channel's binary.stream needs stream() too
-eventsOnly.channel('rooms', 'room:general').binary.stream('download-recording', null);
+eventsOnly.binary.request('get-thumbnail', undefined, { info: { attachmentId: 'att_1' } });
+eventsOnly
+  .channel('rooms', 'room:general')
+  // @ts-expect-error: a channel's binary.request needs clientRequests() too
+  .binary.request('get-whiteboard', undefined, { info: null });
+eventsOnly
+  .channel('rooms', 'room:general')
+  // @ts-expect-error: a channel's binary.stream needs stream() too
+  .binary.stream('download-recording', undefined, { info: null });
 // A scope with no binary requests gets no stub.
 // @ts-expect-error: the rooms channel has no binary server requests
 eventsOnly.channel('rooms', 'room:general').binary.onRequest;
@@ -199,7 +208,7 @@ interface RequestsOnly {
 }
 
 const requester = client<RequestsOnly>()(connect(url), binary(), clientRequests());
-requester.binary.request('get-thumbnail', { attachmentId: 'att_1' });
+requester.binary.request('get-thumbnail', undefined, { info: { attachmentId: 'att_1' } });
 // @ts-expect-error: nothing to listen for
 requester.binary.on;
 
@@ -208,7 +217,9 @@ interface StreamsOnly {
 }
 
 const streamer = client<StreamsOnly>()(connect(url), binary(), stream());
-streamer.binary.stream('download-attachment', { attachmentId: 'att_1', fromByte: 0 });
+streamer.binary.stream('download-attachment', undefined, {
+  info: { attachmentId: 'att_1', fromByte: 0 },
+});
 // @ts-expect-error: no binary requests
 streamer.binary.request;
 
@@ -241,19 +252,19 @@ plugin<RecorderWire>()({
   id: 'acme:recorder',
   dependencies: [binary, channels, clientRequests, serverRequests, stream],
   setup(scoped) {
-    expectTypeOf(scoped.binary.request('get-clip', { clipId: 'c1' })).toEqualTypeOf<
-      Promise<BinaryItem<null>>
-    >();
+    expectTypeOf(
+      scoped.binary.request('get-clip', undefined, { info: { clipId: 'c1' } }),
+    ).toEqualTypeOf<Promise<BinaryItem<null>>>();
     scoped.binary.onRequest('capture-clip', (info, bytes) => {
       expectTypeOf(info).toEqualTypeOf<null>();
       expectTypeOf(bytes).toEqualTypeOf<Uint8Array>();
       return { info: { length: bytes.byteLength } };
     });
-    scoped.binary.stream('download-clip', null);
+    scoped.binary.stream('download-clip', undefined, { info: null });
     scoped.binary.onStream('download-clip', { onChunk: () => {} });
     // @ts-expect-error: the plugin uses plain names
-    scoped.binary.request('__acme:recorder::get-clip', { clipId: 'c1' });
-    scoped.channel('stage').binary.request('get-stage', null);
+    scoped.binary.request('__acme:recorder::get-clip', undefined, { info: { clipId: 'c1' } });
+    scoped.channel('stage').binary.request('get-stage', undefined, { info: null });
 
     return {};
   },
@@ -262,9 +273,11 @@ plugin<RecorderWire>()({
 // `BinaryMessaging` is the whole `.binary` key of one scope, for typing a variable.
 declare const huddleBinary: BinaryMessaging<HuddleSocket['binary']>;
 huddleBinary.on('avatar-preview', () => {});
-huddleBinary.request('get-thumbnail', { attachmentId: 'att_1' });
+huddleBinary.request('get-thumbnail', undefined, { info: { attachmentId: 'att_1' } });
 huddleBinary.onRequest('capture-screen', () => ({ info: { fileType: 'image/png' } }));
-huddleBinary.stream('download-attachment', { attachmentId: 'att_1', fromByte: 0 });
+huddleBinary.stream('download-attachment', undefined, {
+  info: { attachmentId: 'att_1', fromByte: 0 },
+});
 // @ts-expect-error: the top level sends no binary events
 huddleBinary.send;
 

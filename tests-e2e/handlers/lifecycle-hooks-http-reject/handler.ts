@@ -1,12 +1,13 @@
 import { server } from '@livething/server';
-import { RejectUpgrade } from '@livething/server/errors';
+import { RejectAuth } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import type { InferClient } from '@livething/server';
 
 const base = server({
-  upgrade: () => {
-    throw RejectUpgrade(403, 'Forbidden HTTP upgrade');
+  authenticate: () => {
+    throw RejectAuth(403, 'Forbidden HTTP upgrade');
   },
-  capabilities: [],
+  capabilities: [keepalive()],
 });
 
 export const rejectHttpDefinition = base.assemble({ handlers: [] });

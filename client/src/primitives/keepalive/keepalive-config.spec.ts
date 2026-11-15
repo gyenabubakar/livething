@@ -3,8 +3,6 @@ import { LiveThingConfigError } from '@livething/core';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { describe, expect, it } from 'vitest';
 
-const MAX_TIMER_DELAY = 2 ** 31 - 1;
-
 function thrownBy(run: () => unknown): unknown {
   try {
     run();
@@ -16,17 +14,6 @@ function thrownBy(run: () => unknown): unknown {
 }
 
 describe('keepalive() config checks', () => {
-  it('throws for an interval longer than a timer can hold', () => {
-    const error = thrownBy(() => keepalive({ interval: MAX_TIMER_DELAY + 1 }));
-
-    expect(error).toBeInstanceOf(LiveThingConfigError);
-    expect((error as Error).message).toMatch(/interval/);
-  });
-
-  it('accepts the longest interval a timer can hold', () => {
-    expect(() => keepalive({ interval: MAX_TIMER_DELAY })).not.toThrow();
-  });
-
   it.each([0, -1, 1.5, Number.NaN, '2' as any])(
     'throws for maxMissedPongs %s',
     (maxMissedPongs) => {

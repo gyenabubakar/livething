@@ -173,15 +173,21 @@ export function reconnection(
         },
 
         onOpen() {
-          // A good connection resets the wait back to the start.
-          attempt = 0;
+          // The count of failed tries stays until the connection proves itself, so a
+          // transport that opens and then fails every send still backs off.
           clearTimer();
           set(idle);
           return null;
         },
 
-        onClose() {
+        onStable() {
+          attempt = 0;
+        },
+
+        onClose(close) {
           clearTimer();
+          // A `disconnect()`, such as the lazy idle close, starts the next connect afresh.
+          if (close.intentional) attempt = 0;
         },
 
         onReconnectFailed() {

@@ -1,9 +1,10 @@
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { Disconnect } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 // Stand-in for a real token store (database, auth service, etc.).
 const TOKEN_ROLES: Record<string, 'member' | 'vip' | 'banned'> = {
@@ -15,8 +16,8 @@ const TOKEN_ROLES: Record<string, 'member' | 'vip' | 'banned'> = {
 const SendPayload = v.object({ text: v.string() });
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
-  capabilities: [channels()],
+  authenticate: (request) => requireUsername(request),
+  capabilities: [keepalive(), channels()],
 });
 
 // Uses both check and commit: check validates the token, commit enforces the capacity.

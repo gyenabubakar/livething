@@ -51,6 +51,15 @@ export {
 } from './identifier.ts';
 export { decodeMessage, encodeMessage } from './wire.ts';
 export { utf8ByteLength } from './utf8.ts';
+export { decodeBase64, encodeBase64 } from './base64.ts';
+export {
+  LIVETHING_SUBPROTOCOL,
+  TOKEN_SUBPROTOCOL_PREFIX,
+  decodeBase64Url,
+  encodeBase64Url,
+  isLiveThingSubprotocol,
+  tokenSubprotocols,
+} from './subprotocol.ts';
 export {
   BINARY_ENVELOPE_LIMIT,
   BINARY_HEADER_LENGTH,

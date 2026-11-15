@@ -117,17 +117,17 @@ interface PluginLifecycleHooks {
 }
 
 /**
- * One plugin `upgrade` hook. Runs before the app's upgrade in the
- * inbound onion. It may own `userId` — but only one upgrade hook (a
+ * One plugin `authenticate` hook. Runs before the app's authenticate in the
+ * inbound onion. It may own `userId` — but only one authenticate hook (a
  * plugin's or the app's) may, enforced at runtime.
  */
-interface PluginUpgradeEntry {
+interface PluginAuthEntry {
   readonly pluginId: string;
-  /** The id of the plugin's own `base`, so `context.upgrade(pluginBase)` finds its hook. */
+  /** The id of the plugin's own `base`, so `context.authenticate(pluginBase)` finds its hook. */
   readonly baseId?: symbol;
   readonly handler: (
     request: Request,
-    helpers: LifecycleTypes.UpgradeHelpers,
+    helpers: LifecycleTypes.AuthHelpers,
   ) =>
     | { userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
     | Promise<{ userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
@@ -276,13 +276,13 @@ export interface RegisteredEngineHooks {
   error: ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
 
   /**
-   * Internal-primitive upgrade hooks. Run before the user-facing builder
+   * Internal-primitive authenticate hooks. Run before the user-facing builder
    * hook so the user's hook always wins on meta key conflict. Tag results
    * union across all hooks (no conflict possible).
    */
-  upgrade: ((
+  authenticate: ((
     request: Request,
-    helpers: LifecycleTypes.UpgradeHelpers,
+    helpers: LifecycleTypes.AuthHelpers,
   ) =>
     | { meta?: Record<string, unknown>; tags?: readonly TagRef[] }
     | Promise<{
@@ -291,15 +291,15 @@ export interface RegisteredEngineHooks {
       }>)[];
 
   /**
-   * The single user-facing `upgrade` hook from `server({ ... })`.
-   * Runs last in the upgrade phase; its meta keys override any internal
+   * The single user-facing `authenticate` hook from `server({ ... })`.
+   * Runs last in the authenticate phase; its meta keys override any internal
    * hook on conflict. The lifecycle primitive registers through
-   * `setBuilderUpgradeHook`, which throws if called twice.
+   * `setBuilderAuthHook`, which throws if called twice.
    */
-  builderUpgrade:
+  builderAuth:
     | ((
         request: Request,
-        helpers: LifecycleTypes.UpgradeHelpers,
+        helpers: LifecycleTypes.AuthHelpers,
       ) =>
         | { userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
         | Promise<{
@@ -319,12 +319,12 @@ export interface RegisteredEngineHooks {
   pluginLifecycle: PluginLifecycleHooks;
 
   /**
-   * Plugin `upgrade` hooks, in registration order. Run before the
-   * app's builder upgrade hook; meta is shallow-merged (the app wins on key
+   * Plugin `authenticate` hooks, in registration order. Run before the
+   * app's builder authenticate hook; meta is shallow-merged (the app wins on key
    * conflict), tags concatenated, and at most one hook (these or the app's) may
    * return `userId`.
    */
-  pluginUpgrade: PluginUpgradeEntry[];
+  pluginAuth: PluginAuthEntry[];
 
   /** Runs when the adapter fires a scheduled callback. */
   alarm: (() => void | Promise<void>)[];
@@ -361,7 +361,7 @@ export interface RuntimeConnection {
 
   /**
    * Stable string identifying the user-equivalent entity behind this socket.
-   * Returned from `onUpgrade` and reused as the row key for any per-user
+   * Returned from `onAuthenticate` and reused as the row key for any per-user
    * durable state. Empty string means "no user id supplied" — an anonymous
    * connection has no user identity at all. Runtime code that needs a storage
    * key for such a connection must use `connectionStorageKeyOf(connection)`,
@@ -371,16 +371,24 @@ export interface RuntimeConnection {
   userId: string;
 
   /** Opaque key the adapter uses to identify the underlying WebSocket. */
-  wsKey: unknown;
+  socketKey: unknown;
 
   /** Low-level send/close callbacks provided by the adapter. */
   descriptor: EngineAdapterTypes.SocketDescriptor;
 
-  /** Arbitrary metadata attached during onUpgrade (e.g. username, role). */
+  /** Arbitrary metadata attached during onAuthenticate (e.g. username, role). */
   meta: Record<string, unknown>;
 
   /**
-   * A secret, random token the client gets in `__resume__` when replay is on.
+   * Whether the platform holds this connection while the server sleeps. When `true`, the
+   * engine runs no keepalive timers for it, and saves its state so a wake can rebuild it.
+   * From the adapter's descriptor; always `true` for a connection rebuilt on wake.
+   * Absent means `false`.
+   */
+  survivesHibernation?: boolean;
+
+  /**
+   * A secret, random token the client gets in `__connected__` when replay is on.
    * Frames sent to this connection are recorded under it, and the client shows
    * it in a later `__replay__` to get them back on a new connection.
    */

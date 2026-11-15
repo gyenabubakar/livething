@@ -1,7 +1,7 @@
 import { emits, server, t } from '@livething/server';
 import { keepalive } from '@livething/server/keepalive';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 /**
  * A server that lists `keepalive()`. It pings fast so a pong round-trip lands
@@ -10,7 +10,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * round-trip first.
  */
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 10_000 }),
     emits({

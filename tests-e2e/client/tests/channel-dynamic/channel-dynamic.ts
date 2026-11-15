@@ -32,7 +32,7 @@ export function setup(): void {
   const lazy = page.get('lazy') === 'true';
   const probe = page.get('probe');
   const socket = client<ChannelDynamicClient>()(
-    connect(wsUrl('channel-dynamic'), lazy ? { lazy: true, idleTimeout: 500 } : undefined),
+    connect(wsUrl('channel-dynamic'), lazy ? { lazy: true, lazyIdleTimeoutMs: 500 } : undefined),
     channels(),
   );
 

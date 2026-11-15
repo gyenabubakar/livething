@@ -13,6 +13,19 @@ import type {
   StreamHandlers,
 } from '~/types.ts';
 
+/**
+ * The last argument of a binary method: the `info`, then the method's own options. When the
+ * info can be `undefined`, both the `info` key and the whole argument are optional.
+ */
+type WithInfo<TInfo, TOptions = {}> = undefined extends TInfo
+  ? [options?: { info?: TInfo } & TOptions]
+  : [options: { info: TInfo } & TOptions];
+
+/** The last argument of `binary.upload`: the handler's `input`, then the upload options. */
+type WithInput<TInput, TOptions> = undefined extends TInput
+  ? [options?: { input?: TInput } & TOptions]
+  : [options: { input: TInput } & TOptions];
+
 /** One binary message as the client gets it: the info, and the bytes. */
 export interface BinaryItem<TInfo> {
   info: TInfo;
@@ -57,32 +70,29 @@ type BinaryEvents<TBinary> = (keyof IncomingOf<TBinary> extends never
     ? {}
     : {
         /**
-         * Send a binary event: the info, then the bytes (none means zero bytes). Returns
-         * `true` when the socket sent or buffered it, and `false` when it was dropped,
-         * also when the whole frame is over `binary({ maxFrameBytes })`.
+         * Send a binary event: the bytes (`undefined` means zero bytes), with the info in
+         * `{ info }`. Returns `true` when the socket sent or buffered it, and `false` when it
+         * was dropped, also when the whole frame is over `binary({ maxFrameBytes })`.
          */
         send<K extends keyof OutgoingOf<TBinary> & string>(
           event: K,
-          info: OutgoingOf<TBinary>[K],
-          bytes?: BinaryInput,
-          options?: SendOptions,
+          bytes: BinaryInput | undefined,
+          ...options: WithInfo<OutgoingOf<TBinary>[K], SendOptions>
         ): boolean;
       });
 
 /** `binary.request`, for one scope's binary `clientRequests`. */
 interface BinaryRequestMethod<R extends Requests> {
   /**
-   * Send a binary request: the info, then the bytes (none means zero bytes). Resolves with
-   * the info and the bytes of the binary reply. Rejects with `Timeout`, `Disconnected`, a
-   * typed error from the server, or `request-invalid-response` for a text reply. Rejects
-   * at once when the frame is over `binary({ maxFrameBytes })`. To pass options with no
-   * bytes, pass `undefined` for the bytes.
+   * Send a binary request: the bytes (`undefined` means zero bytes), with the info in
+   * `{ info }`. Resolves with the info and the bytes of the binary reply. Rejects with
+   * `Timeout`, `Disconnected`, a typed error from the server, or `request-invalid-response`
+   * for a text reply. Rejects at once when the frame is over `binary({ maxFrameBytes })`.
    */
   request<K extends keyof R & string>(
     event: K,
-    info: R[K]['payload'],
-    bytes?: BinaryInput,
-    options?: { timeout?: number },
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<R[K]['payload'], { timeout?: number }>
   ): Promise<BinaryItem<R[K]['response']>>;
 }
 
@@ -107,15 +117,14 @@ interface BinaryOnRequestMethod<R extends Requests> {
 /** `binary.stream`, `binary.onStream` and `binary.continueStream`, for one scope's binary `streams`. */
 interface BinaryStreamMethods<S extends Streams> {
   /**
-   * Start a binary stream: the info, then the bytes (none means zero bytes). The handle is
-   * the same as a JSON stream's, and each item is `{ info, bytes }`. Rejects at once when
-   * the frame is over `binary({ maxFrameBytes })`.
+   * Start a binary stream: the bytes (`undefined` means zero bytes), with the info in
+   * `{ info }`. The handle is the same as a JSON stream's, and each item is
+   * `{ info, bytes }`. Rejects at once when the frame is over `binary({ maxFrameBytes })`.
    */
   stream<K extends keyof S & string>(
     event: K,
-    info: S[K]['payload'],
-    bytes?: BinaryInput,
-    options?: StreamTriggerOptions,
+    bytes: BinaryInput | undefined,
+    ...options: WithInfo<S[K]['payload'], StreamTriggerOptions>
   ): Promise<StreamHandle<BinaryItem<S[K]['chunk']>, NudgesOf<S[K]>>>;
   /** Listen to a broadcast binary stream. Each chunk is `{ info, bytes }`. */
   onStream<K extends keyof S & string>(
@@ -198,13 +207,13 @@ interface BinaryUploadMethod<U extends Requests> {
   /**
    * Make an upload of one large file to the server's `binary.upload(...)` handler. Nothing is
    * sent until `start()`. The source is a `Blob`, a `Uint8Array`, an `ArrayBuffer`, or an
-   * `AsyncIterable<Uint8Array>`. Give `{ uploadId }` to resume an earlier upload.
+   * `AsyncIterable<Uint8Array>`. The handler's input goes in `{ input }`. Give
+   * `{ uploadId }` to resume an earlier upload.
    */
   upload<K extends keyof U & string>(
     event: K,
-    input: U[K]['payload'],
     source: UploadSource,
-    options?: UploadOptions,
+    ...options: WithInput<U[K]['payload'], UploadOptions>
   ): Upload<U[K]['response']>;
 }
 

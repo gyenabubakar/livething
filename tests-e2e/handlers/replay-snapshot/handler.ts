@@ -2,12 +2,13 @@ import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { dedup } from '@livething/server/dedup';
 import { Disconnect } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import type { ReplaySnapshotValue } from '@livething/server/replay';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { BurstCounter, DeleteDoc, IncrementCounter, RoomUpdateDoc, UpdateDoc } from './events.ts';
 import type {
   BurstDone,
@@ -37,8 +38,9 @@ function reduceSnapshot(
 }
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     emits({
       'doc-snapshot': t<v.InferOutput<typeof DocSnapshot>>(),
       'doc-deleted': t<v.InferOutput<typeof DocDeleted>>(),

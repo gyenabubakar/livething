@@ -26,14 +26,20 @@ interface C {
 declare const socket: Socket<C>;
 
 // A dynamic family is named with { family, name }; the family name alone reaches no handle.
-injectChannel(socket, { family: 'rooms', name: 'room:general' }, 'message', { text: 'hi' });
+injectChannel(socket, 'message', {
+  channel: { family: 'rooms', name: 'room:general' },
+  payload: { text: 'hi' },
+});
 // @ts-expect-error a dynamic family needs { family, name }
-injectChannel(socket, 'rooms', 'message', { text: 'hi' });
-// @ts-expect-error a fixed channel is named by its name
-injectChannel(socket, { family: 'general', name: 'general' }, 'message', { text: 'hi' });
+injectChannel(socket, 'message', { channel: 'rooms', payload: { text: 'hi' } });
+injectChannel(socket, 'message', {
+  // @ts-expect-error a fixed channel is named by its name
+  channel: { family: 'general', name: 'general' },
+  payload: { text: 'hi' },
+});
 declare const generalOrRooms: 'general' | 'rooms';
 // @ts-expect-error a union that holds a dynamic family still needs { family, name } for it
-injectChannel(socket, generalOrRooms, 'message', { text: 'hi' });
+injectChannel(socket, 'message', { channel: generalOrRooms, payload: { text: 'hi' } });
 
 inject(socket, 'ping', { id: 'x' });
 // @ts-expect-error wrong payload shape
@@ -41,13 +47,13 @@ inject(socket, 'ping', { id: 123 });
 // @ts-expect-error unknown event name
 inject(socket, 'nope', { id: 'x' });
 
-injectChannel(socket, 'general', 'message', { text: 'hi' });
+injectChannel(socket, 'message', { channel: 'general', payload: { text: 'hi' } });
 // @ts-expect-error wrong payload shape
-injectChannel(socket, 'general', 'message', { text: 123 });
+injectChannel(socket, 'message', { channel: 'general', payload: { text: 123 } });
 // @ts-expect-error unknown event on a known channel
-injectChannel(socket, 'general', 'nope', { text: 'hi' });
+injectChannel(socket, 'nope', { channel: 'general', payload: { text: 'hi' } });
 // @ts-expect-error unknown channel
-injectChannel(socket, 'nope', 'message', { text: 'hi' });
+injectChannel(socket, 'message', { channel: 'nope', payload: { text: 'hi' } });
 
 const realSocket = client<C>()(connect('wss://test'), channels());
 
@@ -57,10 +63,10 @@ inject(realSocket, 'ping', { id: 123 });
 // @ts-expect-error unknown event on the real socket
 inject(realSocket, 'nope', { id: 'x' });
 
-injectChannel(realSocket, 'general', 'message', { text: 'hi' });
+injectChannel(realSocket, 'message', { channel: 'general', payload: { text: 'hi' } });
 // @ts-expect-error wrong payload shape on the real socket
-injectChannel(realSocket, 'general', 'message', { text: 123 });
+injectChannel(realSocket, 'message', { channel: 'general', payload: { text: 123 } });
 // @ts-expect-error unknown event on a known channel of the real socket
-injectChannel(realSocket, 'general', 'nope', { text: 'hi' });
+injectChannel(realSocket, 'nope', { channel: 'general', payload: { text: 'hi' } });
 // @ts-expect-error unknown channel on the real socket
-injectChannel(realSocket, 'nope', 'message', { text: 'hi' });
+injectChannel(realSocket, 'message', { channel: 'nope', payload: { text: 'hi' } });

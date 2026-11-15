@@ -1,3 +1,4 @@
+import { maxParams } from './max-params.mjs';
 import {
   maxConsecutiveStatements,
   paddingAfterBlock,
@@ -11,6 +12,7 @@ export default {
   meta: { name: 'livething' },
   rules: {
     'max-consecutive-statements': maxConsecutiveStatements,
+    'max-params': maxParams,
     'padding-after-block': paddingAfterBlock,
     'padding-after-guard-clause': paddingAfterGuardClause,
     'padding-after-object-literal-declaration': paddingAfterObjectLiteralDeclaration,

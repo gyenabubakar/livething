@@ -54,7 +54,7 @@ describe('keepalive/runtime', () => {
 
   it('stops the ping loop when the connection goes away with a ping unanswered', () => {
     const port = createPort({ sendPing: () => true });
-    const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+    const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
     monitor.watch('c1');
     passOnePingInterval();
 
@@ -69,7 +69,7 @@ describe('keepalive/runtime', () => {
   describe('watch', () => {
     it('opens the idle window and starts pinging', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
 
@@ -82,7 +82,7 @@ describe('keepalive/runtime', () => {
 
     it('does nothing when supervision is off: no ping, no idle timer', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, false);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => false);
 
       monitor.watch('c1');
       vi.advanceTimersByTime(TIMINGS.pingIntervalMs * 10);
@@ -94,9 +94,26 @@ describe('keepalive/runtime', () => {
       expect(port.sendPing).not.toHaveBeenCalled();
     });
 
+    it('supervises each connection on its own, so one that survives hibernation gets no timers', () => {
+      const port = createPort();
+      const monitor = createKeepaliveMonitor(
+        port,
+        TIMINGS,
+        (connectionId) => connectionId === 'sse',
+      );
+
+      monitor.watch('sse');
+      monitor.watch('hibernating');
+      monitor.touch('hibernating');
+      passOnePingInterval();
+
+      expect(port.refreshConnectionIdleTimeout.mock.calls).toEqual([['sse', 60_000]]);
+      expect(port.sendPing.mock.calls).toEqual([['sse']]);
+    });
+
     it('is a no-op for a connection already being watched', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       monitor.watch('c1');
@@ -107,7 +124,7 @@ describe('keepalive/runtime', () => {
 
     it('keeps pinging on every interval', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       passOnePingInterval();
@@ -119,7 +136,7 @@ describe('keepalive/runtime', () => {
 
     it('pings each watched connection on its own timer', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       monitor.watch('c2');
@@ -133,7 +150,7 @@ describe('keepalive/runtime', () => {
   describe('touch', () => {
     it('reopens the idle window', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       port.refreshConnectionIdleTimeout.mockClear();
@@ -144,7 +161,7 @@ describe('keepalive/runtime', () => {
 
     it('reopens the window even for a connection it never watched', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.touch('stranger');
 
@@ -153,7 +170,7 @@ describe('keepalive/runtime', () => {
 
     it('never arms the idle timer when supervision is off', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, false);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => false);
 
       monitor.touch('c1');
 
@@ -164,7 +181,7 @@ describe('keepalive/runtime', () => {
   describe('recordPong', () => {
     it('reports the round-trip time and derives quality from it', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       passOnePingInterval();
@@ -180,7 +197,7 @@ describe('keepalive/runtime', () => {
       [1_500, 'poor'],
     ])('maps a %dms round-trip to quality "%s"', (rtt, quality) => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       passOnePingInterval();
@@ -192,7 +209,7 @@ describe('keepalive/runtime', () => {
 
     it('averages the round-trip over recent samples', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       passOnePingInterval();
@@ -205,7 +222,7 @@ describe('keepalive/runtime', () => {
 
     it('keeps only the five most recent samples', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       for (const rtt of [10, 20, 30, 40, 50]) {
@@ -223,7 +240,7 @@ describe('keepalive/runtime', () => {
 
     it('ignores a pong when no ping is outstanding', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       monitor.recordPong('c1');
@@ -233,7 +250,7 @@ describe('keepalive/runtime', () => {
 
     it('ignores a second pong answering the same ping', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       passOnePingInterval();
@@ -247,7 +264,7 @@ describe('keepalive/runtime', () => {
 
     it('ignores a pong from a connection it never watched', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.recordPong('stranger');
 
@@ -258,7 +275,7 @@ describe('keepalive/runtime', () => {
   describe('an unanswered ping', () => {
     it('downgrades quality to poor while keeping the last measured latency', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       passOnePingInterval();
@@ -275,7 +292,7 @@ describe('keepalive/runtime', () => {
 
     it('does not report a quality before any ping has gone unanswered', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       passOnePingInterval();
@@ -287,7 +304,7 @@ describe('keepalive/runtime', () => {
   describe('forget', () => {
     it('cancels the ping timer', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       monitor.forget('c1');
@@ -298,7 +315,7 @@ describe('keepalive/runtime', () => {
 
     it('drops the latency samples, so a re-watch starts fresh', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       monitor.watch('c1');
       passOnePingInterval();
@@ -315,7 +332,7 @@ describe('keepalive/runtime', () => {
 
     it('is a no-op for a connection it never watched', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
       expect(() => monitor.forget('stranger')).not.toThrow();
     });
@@ -324,7 +341,7 @@ describe('keepalive/runtime', () => {
   describe('a late pong', () => {
     it('is timed against the ping it answers, not a newer one', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
       monitor.watch('c1');
 
       passOnePingInterval();
@@ -337,7 +354,7 @@ describe('keepalive/runtime', () => {
 
     it('still times a healthy pong against its own ping', () => {
       const port = createPort();
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
       monitor.watch('c1');
 
       passOnePingInterval();
@@ -350,7 +367,7 @@ describe('keepalive/runtime', () => {
   describe('one ping at a time', () => {
     it('sends no new ping while one is unanswered', () => {
       const port = createPort({ sendPing: () => true });
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
       monitor.watch('c1');
 
       for (let i = 0; i < 4; i += 1) passOnePingInterval();
@@ -360,7 +377,7 @@ describe('keepalive/runtime', () => {
 
     it('counts every interval with no pong as missed', () => {
       const port = createPort({ sendPing: () => true });
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
       monitor.watch('c1');
 
       passOnePingInterval();
@@ -375,7 +392,7 @@ describe('keepalive/runtime', () => {
 
     it('pings again on the next interval after a late pong', () => {
       const port = createPort({ sendPing: () => true });
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
       monitor.watch('c1');
 
       passOnePingInterval();
@@ -388,7 +405,7 @@ describe('keepalive/runtime', () => {
 
     it('times the pong after a late one against its own ping, not an interval off', () => {
       const port = createPort({ sendPing: () => true });
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
       monitor.watch('c1');
 
       passOnePingInterval();
@@ -403,7 +420,7 @@ describe('keepalive/runtime', () => {
 
     it('treats a ping that was not sent as not outstanding', () => {
       const port = createPort({ sendPing: () => false });
-      const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+      const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
       monitor.watch('c1');
 
       passOnePingInterval();
@@ -419,7 +436,7 @@ describe('keepalive/runtime', () => {
         throw new Error("Can't call WebSocket send() after close().");
       },
     });
-    const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+    const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
     monitor.watch('c1');
     expect(() => passOnePingInterval()).not.toThrow();
@@ -436,7 +453,7 @@ describe('keepalive/runtime', () => {
     // once teardown has removed it.
     let registered = true;
     const port = createPort({ sendPing: () => registered });
-    const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+    const monitor = createKeepaliveMonitor(port, TIMINGS, () => true);
 
     monitor.watch('c1');
     for (let i = 0; i < 3; i += 1) {

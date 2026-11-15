@@ -17,7 +17,7 @@ function createConnection(): RuntimeConnection {
   return {
     id: 'c1',
     userId: 'c1',
-    wsKey: 'ws1',
+    socketKey: 'ws1',
     descriptor: {
       send() {},
       close() {},

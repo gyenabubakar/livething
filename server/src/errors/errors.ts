@@ -51,23 +51,23 @@ export function Disconnect(code: number, reason: string) {
 }
 
 /**
- * Reject a WebSocket upgrade request. Only valid inside the `upgrade` hook —
+ * Reject a connection. Only valid inside the `authenticate` hook —
  * throwing it anywhere else is treated as an unrecognized error.
  *
  * ```ts
  * import { server } from '@livething/server';
- * import { RejectUpgrade } from '@livething/server/errors';
+ * import { RejectAuth } from '@livething/server/errors';
  *
  * server({
- *   async upgrade(req) {
- *     // Browsers cannot set headers on a WebSocket handshake, so the token comes in the URL.
- *     const user = await validateToken(new URL(req.url).searchParams.get('token'));
- *     if (!user) throw RejectUpgrade(4002, 'Invalid token');
+ *   async authenticate(req) {
+ *     // The client's `token` option arrives as `Authorization: Bearer <token>`.
+ *     const user = await validateToken(req.headers.get('authorization')?.slice('Bearer '.length));
+ *     if (!user) throw RejectAuth(4002, 'Invalid token');
  *     return { userId: user.id, meta: { role: user.role } };
  *   },
  * });
  * ```
  */
-export function RejectUpgrade(code: number, reason: string) {
-  return Object.freeze({ __livething: 'reject-upgrade' as const, code, reason });
+export function RejectAuth(code: number, reason: string) {
+  return Object.freeze({ __livething: 'reject-auth' as const, code, reason });
 }

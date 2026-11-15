@@ -91,11 +91,11 @@ export function buildChannelHandle(
 
   deps.addBinarySenders?.(handle, {
     send: 'event-first',
-    broadcastTo: 'event-second',
+    broadcastTo: { targetKey: 'to' },
     broadcast: 'event-first',
     request: 'event-first',
     // There only on `ctx.channel`, when replay added `sendReplay` to it.
-    sendReplay: 'event-first',
+    sendReplay: 'replay',
   });
 
   if (!scope.isSubscribeGate) {

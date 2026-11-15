@@ -52,6 +52,21 @@ wss.on('connection', (ws, req) => {
   const nth = (counts.get(room) ?? 0) + 1;
   counts.set(room, nth);
 
+  // The client counts a connection as open only after this frame. A fast ping interval
+  // makes the client's keepalive() ping fast; this server never pings by itself.
+  ws.send(
+    encodeFrame('__connected__', {
+      pingIntervalMs: 100,
+      idleTimeoutMs: null,
+      maxResumeTokens: 8,
+      connectionId: `${room}-${nth}`,
+      features: [],
+      resume: null,
+      secret: null,
+      maxPostBytes: null,
+    }),
+  );
+
   // Drop only the first socket of the room; the reconnect stays open.
   if (behavior === 'drop-once') {
     if (nth === 1) setTimeout(() => ws.terminate(), 150);

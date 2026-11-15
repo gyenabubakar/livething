@@ -6,7 +6,7 @@ function createConnection(id: string, onSend: (id: string) => void): RuntimeConn
   return {
     id,
     userId: id,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send() {
         onSend(id);

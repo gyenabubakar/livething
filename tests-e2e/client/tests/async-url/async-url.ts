@@ -4,7 +4,7 @@ import { button, el, mount, ready } from '../_shared.ts';
 
 // Drives connect() with an async URL function against the real `ctx-meta` server definition.
 // The function adds `username` to the query string after an await, so the
-// server's upgrade reads it from the URL and echoes it back through who-am-i.
+// server's authenticate reads it from the URL and echoes it back through who-am-i.
 // Proves a param built by an async URL function reaches the server on connect.
 export function setup(): void {
   mount(`

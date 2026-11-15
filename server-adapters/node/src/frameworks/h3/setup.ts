@@ -11,15 +11,19 @@ import { closeWebSocket } from '../../close.ts';
 import { frameData, sendWhenOpen } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { invalidUpgradeResponse, isWebSocketUpgrade } from '../../upgrade.ts';
+import { WebResponseWriter } from '../../web-response-writer.ts';
 import { createWebUpgradeLifecycle } from '../../web-upgrade-lifecycle.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
 
+/** The part of an H3 v2 event LiveThing reads. */
 interface H3Event {
   readonly req: Request;
 }
 
 interface H3Hooks {
-  upgrade(): Promise<Response | { context: { upgrade: NodeUpgrade } } | void>;
+  upgrade(): Promise<
+    Response | { context: { upgrade: NodeUpgrade }; headers?: Record<string, string> } | void
+  >;
   open(peer: WebSocketPeer): void;
   message(peer: WebSocketPeer, message: WebSocketMessage): void;
   close(peer: WebSocketPeer, details: { code?: number; reason?: string }): void;
@@ -28,6 +32,7 @@ interface H3Hooks {
 
 type DefineWebSocketHandler<THandler> = (
   factory: (event: H3Event) => Promise<H3Hooks> | H3Hooks,
+  http: (event: H3Event) => Promise<Response>,
 ) => THandler;
 
 /** One LiveThing definition registered as an H3 and CrossWS WebSocket route. */
@@ -35,7 +40,13 @@ export interface H3Endpoint<
   TAdmin = NodeAdmin,
   THandler = ReturnType<typeof H3DefineWebSocketHandler>,
 > {
-  upgrade: THandler;
+  /** The `GET` route a client connects on: a WebSocket upgrade, or the server-sent events stream. */
+  connect: THandler;
+  /**
+   * The route handler for the endpoint's server-sent events: the stream, its POSTs and
+   * their CORS preflight. Mount it on the same path, for every method.
+   */
+  handle(event: H3Event): Promise<Response>;
   ready(): Promise<void>;
   admin(): Promise<TAdmin>;
 }
@@ -63,106 +74,135 @@ export function createH3Setup<THandler>(
       const endpoint = node.bind(definition, options);
       const connections = new WeakMap<WebSocketPeer, NodeConnection>();
 
-      const route = defineWebSocketHandler(async (event) => {
+      function handle(event: H3Event): Promise<Response> {
         const incoming = getIncomingRequest(event.req);
+        if (!incoming) {
+          return Promise.resolve(
+            new Response('[livething] H3 did not provide a Node request', { status: 500 }),
+          );
+        }
 
-        return {
-          async upgrade() {
-            if (!isWebSocketUpgrade(event.req.headers.get('upgrade'))) {
-              return invalidUpgradeResponse();
-            }
+        const response = new WebResponseWriter(event.req.signal);
+        endpoint.handleNode(incoming, response).catch(() => response.fail());
 
-            let upgrade: NodeUpgrade | undefined;
-            if (incoming) {
-              upgrade = await nodeLifecycle.prepare(incoming, (signal) =>
-                endpoint.prepareNode(incoming, { signal }),
-              );
-            } else {
-              if (options.clientIp !== undefined) {
-                throw new Error(
-                  '[livething] H3 did not provide a Node request required by clientIp',
+        return response.answer;
+      }
+
+      // A plain request to the upgrade route, such as the SSE stream's GET, goes to `handle`.
+      const route = defineWebSocketHandler(
+        async (event) => {
+          const incoming = getIncomingRequest(event.req);
+
+          return {
+            async upgrade() {
+              if (!isWebSocketUpgrade(event.req.headers.get('upgrade'))) {
+                return invalidUpgradeResponse();
+              }
+
+              let upgrade: NodeUpgrade | undefined;
+              if (incoming) {
+                upgrade = await nodeLifecycle.prepare(incoming, (signal) =>
+                  endpoint.prepareNode(incoming, { signal }),
+                );
+              } else {
+                if (options.clientIp !== undefined) {
+                  throw new Error(
+                    '[livething] H3 did not provide a Node request required by clientIp',
+                  );
+                }
+
+                upgrade = await webLifecycle.prepare(
+                  (signal) => endpoint.prepare(createWebRequest(event.req, signal)),
+                  event.req.signal,
                 );
               }
 
-              upgrade = await webLifecycle.prepare(
-                (signal) => endpoint.prepare(createWebRequest(event.req, signal)),
-                event.req.signal,
-              );
-            }
+              if (!upgrade) {
+                if (!incoming) return new Response(null, { status: 503 });
 
-            if (!upgrade) {
-              if (!incoming) return new Response(null, { status: 503 });
-
-              incoming.socket.once('error', () => {});
-              incoming.socket.destroy();
-              return;
-            }
-
-            if (upgrade.type === 'http') return upgrade.response;
-
-            return { context: { upgrade } };
-          },
-
-          open(peer) {
-            const upgrade = peer.context.upgrade as NodeUpgrade | undefined;
-            if (!upgrade) {
-              closeWebSocket(peer, 1011, '[livething] upgrade decision was not available');
-              return;
-            }
-
-            if (upgrade.type !== 'accept') {
-              if (upgrade.type === 'http') {
-                closeWebSocket(peer, 1011, '[livething] upgrade response was not available');
+                incoming.socket.once('error', () => {});
+                incoming.socket.destroy();
                 return;
               }
 
-              closeWebSocket(peer, upgrade.code, upgrade.reason);
-              return;
-            }
+              if (upgrade.type === 'http') return upgrade.response;
 
-            try {
-              const connection = upgrade.accept({
-                // CrossWS passes `compress: undefined` to ws unless told, which turns compression off.
-                // ws still skips it when permessage-deflate is not negotiated or the frame is small.
-                send: (frame) =>
-                  sendWhenOpen(peer.websocket.readyState, () =>
-                    peer.send(frameData(frame), { compress: true }),
-                  ),
-                close: (code, reason) => peer.close(code, reason),
-                terminate: () => peer.terminate(),
-                bufferedAmount: () => peer.bufferedAmount,
-                backpressureSupported: true,
-              });
-              connections.set(peer, connection);
-            } catch {
-              closeWebSocket(peer, 1011, '[livething] connection setup failed');
-            }
-          },
+              // CrossWS answers no subprotocol by itself, and a browser fails a connection whose
+              // offer gets no answer. The first name is never the token, so it is not sent back.
+              const first = event.req.headers.get('sec-websocket-protocol')?.split(',')[0]?.trim();
 
-          message(peer, message) {
-            if (typeof message.rawData !== 'string') {
-              // crossws hands a binary message over as a ws Buffer, or an ArrayBuffer.
-              const bytes = asUint8Array(message.rawData as Buffer | ArrayBuffer);
-              void connections.get(peer)?.binaryMessage(bytes);
-              return;
-            }
+              return first
+                ? { context: { upgrade }, headers: { 'sec-websocket-protocol': first } }
+                : { context: { upgrade } };
+            },
 
-            void connections.get(peer)?.message(message.rawData);
-          },
+            open(peer) {
+              const upgrade = peer.context.upgrade as NodeUpgrade | undefined;
+              if (!upgrade) {
+                closeWebSocket(peer, 1011, '[livething] upgrade decision was not available');
+                return;
+              }
 
-          close(peer, details) {
-            void connections.get(peer)?.close(details.code ?? 1000, details.reason ?? '');
-            connections.delete(peer);
-          },
+              if (upgrade.type !== 'accept') {
+                if (upgrade.type === 'http') {
+                  closeWebSocket(peer, 1011, '[livething] upgrade response was not available');
+                  return;
+                }
 
-          error(peer, error) {
-            void connections.get(peer)?.error(error);
-          },
-        };
-      });
+                closeWebSocket(peer, upgrade.code, upgrade.reason);
+                return;
+              }
+
+              try {
+                const connection = upgrade.accept({
+                  // CrossWS passes `compress: undefined` to ws unless told, which turns compression off.
+                  // ws still skips it when permessage-deflate is not negotiated or the frame is small.
+                  send: (frame) =>
+                    sendWhenOpen(peer.websocket.readyState, () =>
+                      peer.send(frameData(frame), { compress: true }),
+                    ),
+                  close: (code, reason) => peer.close(code, reason),
+                  terminate: () => peer.terminate(),
+                  bufferedAmount: () => peer.bufferedAmount,
+                  backpressureSupported: true,
+                });
+                connections.set(peer, connection);
+              } catch {
+                closeWebSocket(peer, 1011, '[livething] connection setup failed');
+              }
+            },
+
+            message(peer, message) {
+              if (typeof message.rawData !== 'string') {
+                // crossws hands a binary message over as a ws Buffer, or an ArrayBuffer.
+                const bytes = asUint8Array(message.rawData as Buffer | ArrayBuffer);
+                void connections.get(peer)?.binaryMessage(bytes);
+                return;
+              }
+
+              void connections.get(peer)?.message(message.rawData);
+            },
+
+            close(peer, details) {
+              void connections.get(peer)?.close(details.code ?? 1000, details.reason ?? '');
+              connections.delete(peer);
+            },
+
+            error(peer, error) {
+              void connections.get(peer)?.error(error);
+            },
+          };
+        },
+        (event) =>
+          // An upgrade to anything but WebSocket gets 400.
+          event.req.headers.has('upgrade')
+            ? Promise.resolve(invalidUpgradeResponse())
+            : handle(event),
+      );
 
       return {
-        upgrade: route,
+        connect: route,
+        handle,
         ready: endpoint.ready,
         admin: endpoint.admin,
       };

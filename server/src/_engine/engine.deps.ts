@@ -242,7 +242,6 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
-        hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
           ? (identity) => core.lastSeenService!.at(identity)
           : undefined,
@@ -299,7 +298,6 @@ function buildMemberRuntime(core: EngineCore) {
     channelMembers: core.channelMembers,
     toConnectionInfo: (connection: RuntimeConnection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
-        hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
           ? (identity) => core.lastSeenService!.at(identity)
           : undefined,
@@ -503,18 +501,32 @@ function buildConnectionRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     compiled: core.compiled,
-    hibernationEnabled: core.hibernationEnabled,
     messageLimits: core.messageLimits,
     connections: core.connections,
     usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,
     tagMembers: core.tagMembers,
-    wsToConnectionId: core.wsToConnectionId,
+    socketToConnectionId: core.socketToConnectionId,
 
     generateId: (prefix?: string) => core.generateId(prefix),
 
     replayEnabled: () => core.replayEnabled,
+    hibernationAllowed: () => core.hibernationAllowed,
     allocateDeliverySeq: () => core.allocateDeliverySeq?.(),
+    connectedSettings: (connection: RuntimeConnection) => {
+      // The platform watches a connection that survives a sleep, so the engine pings it never.
+      const timings = connection.survivesHibernation ? null : core.keepaliveTimings;
+      const features: EngineConnectionRuntime.ConnectedFeature[] = [];
+      if (core.replayEnabled) features.push('replay');
+      if (core.binaryService) features.push('binary');
+      if (core.uploadService) features.push('uploads');
+
+      return {
+        pingIntervalMs: timings?.pingIntervalMs ?? null,
+        idleTimeoutMs: timings?.idleTimeoutMs ?? null,
+        features,
+      };
+    },
 
     persistAttachment: (connection: RuntimeConnection, options?: PersistAttachmentOptions) =>
       EngineHibernation.persistAttachment(core, connection, options),
@@ -522,7 +534,7 @@ function buildConnectionRuntime(core: EngineCore) {
     flushAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.flushDirtyAttachment(core, connection),
 
-    restoreAttachment: (wsKey: unknown) => core.options.hibernation?.restore(wsKey),
+    restoreAttachment: (socketKey: unknown) => core.options.hibernation?.restore(socketKey),
 
     readConnectionState: (connectionId: string) =>
       EngineHibernation.readConnectionState(core, connectionId),
@@ -720,7 +732,7 @@ export function handleConnectionClose(
       connections: core.connections,
       usersByKey: core.usersByKey,
       tagMembers: core.tagMembers,
-      wsToConnectionId: core.wsToConnectionId,
+      socketToConnectionId: core.socketToConnectionId,
       deleteConnectionState: (connectionId) =>
         EngineHibernation.deleteConnectionState(core, connectionId),
       cancelActiveStreamsForConnection: (connectionId) =>

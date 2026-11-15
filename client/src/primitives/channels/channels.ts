@@ -454,7 +454,8 @@ export function channels(): ChannelsPrimitive {
           return resubscribes.length ? resubscribes : null;
         },
 
-        onClose(_code, _reason, intentional) {
+        onClose(close) {
+          const { intentional } = close;
           for (const state of states.values()) {
             state.clearRejoinTimer();
 

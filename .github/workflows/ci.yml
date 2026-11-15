@@ -201,7 +201,7 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
     strategy:
       fail-fast: false
-      # One job per implemented adapter (cf/node; deno/bun to come), run
+      # One job per implemented adapter (cf/node; bun to come), run
       # concurrently so calendar time is the slowest suite, not their sum.
       # Node framework bindings (Hono, Fastify, H3) share the node:http engine
       # path, so their integration specs cover them instead of a full e2e run.
@@ -229,6 +229,27 @@ jobs:
               tests-e2e/client-raw/test-results/
           - name: node-http-packaged
             command: pnpm --filter @livething/tests-e2e-client run test:e2e:node:http
+            report-path: |
+              tests-e2e/client/playwright-report/
+              tests-e2e/client/test-results/
+          # The same suites again, with every client connecting over SSE.
+          - name: cf-raw-sse
+            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-server-cloudflare run test:e2e:cloudflare
+            report-path: |
+              tests-e2e/client-raw/playwright-report/
+              tests-e2e/client-raw/test-results/
+          - name: cf-packaged-sse
+            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-client run test:e2e:cloudflare
+            report-path: |
+              tests-e2e/client/playwright-report/
+              tests-e2e/client/test-results/
+          - name: node-http-raw-sse
+            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-server-node run test:e2e:node:http
+            report-path: |
+              tests-e2e/client-raw/playwright-report/
+              tests-e2e/client-raw/test-results/
+          - name: node-http-packaged-sse
+            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-client run test:e2e:node:http
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/

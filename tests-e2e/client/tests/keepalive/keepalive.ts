@@ -15,10 +15,7 @@ export function setup(): void {
     <span data-testid="quality-changed"></span>
   `);
 
-  const socket = client<KeepaliveClient>()(
-    connect(wsUrl('keepalive')),
-    keepalive({ interval: 500 }),
-  );
+  const socket = client<KeepaliveClient>()(connect(wsUrl('keepalive')), keepalive());
 
   socket.state.subscribe(() => {
     el('status').textContent = socket.state.get();

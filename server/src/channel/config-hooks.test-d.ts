@@ -16,7 +16,7 @@ import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 
 const base = server({
-  upgrade: () => ({ userId: 'ama', meta: { role: 'admin' as string } }),
+  authenticate: () => ({ userId: 'ama', meta: { role: 'admin' as string } }),
   capabilities: [
     channels(),
     clientRequests(),

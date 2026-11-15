@@ -38,28 +38,38 @@ type AnyArgs = [event: string, payload: unknown];
 
 type Bytes = Uint8Array | ArrayBuffer;
 
-/** Every `[event, info, bytes?]` a `binary({ emits })` map allows, as a union of tuples. */
+/** The `{ info }` argument of a binary send. Optional when the info can be `undefined`. */
+type InfoOptions<TInfo> = undefined extends TInfo
+  ? [options?: { info?: TInfo }]
+  : [options: { info: TInfo }];
+
+/** Every `[event, bytes, { info }]` a `binary({ emits })` map allows, as a union of tuples. */
 type BinaryEventArgs<TBinary> = {
-  [E in keyof TBinary & string]: [event: E, info: TBinary[E], bytes?: Bytes];
+  [E in keyof TBinary & string]: [
+    event: E,
+    bytes: Bytes | undefined,
+    ...options: InfoOptions<TBinary[E]>,
+  ];
 }[keyof TBinary & string];
 
-/** Every `[channel, event, info, bytes?]` `channels.binary.broadcast` allows. */
+/** Every `[event, bytes, { channel, info }]` `channels.binary.broadcast` allows. */
 type ChannelBinaryBroadcastArgs<TChannels> = {
   [K in keyof TChannels & string]: TChannels[K] extends { binaryOutgoing: infer TBinary }
     ? {
         [E in keyof TBinary & string]: [
-          channel: TChannels[K] extends { __addressing: 'dynamic' }
-            ? { family: K; name: string }
-            : K,
           event: E,
-          info: TBinary[E],
-          bytes?: Bytes,
+          bytes: Bytes | undefined,
+          options: {
+            channel: TChannels[K] extends { __addressing: 'dynamic' }
+              ? { family: K; name: string }
+              : K;
+          } & InfoOptions<TBinary[E]>[0] & {},
         ];
       }[keyof TBinary & string]
     : never;
 }[keyof TChannels & string];
 
-type AnyBinaryArgs = [event: string, info: unknown, bytes?: Bytes];
+type AnyBinaryArgs = [event: string, bytes: Bytes | undefined, ...options: unknown[]];
 
 type SendMethod = (...args: unknown[]) => unknown;
 
@@ -82,7 +92,7 @@ class AdminBinarySend<TBinaryArgs extends AnyBinaryArgs> extends RpcTarget {
     this.#sender = sender;
   }
 
-  /** Send a binary event: its info, then its bytes. `false` when the connection is gone. */
+  /** Send a binary event: its bytes, with `{ info }`. `false` when the connection is gone. */
   send(...args: TBinaryArgs): boolean {
     return binaryOf(this.#sender()).send!(...args) as boolean;
   }
@@ -97,7 +107,7 @@ class AdminBinaryBroadcast<TArgs extends unknown[], TResult> extends RpcTarget {
     this.#sender = sender;
   }
 
-  /** Send a binary event (its info, then its bytes) to everyone this part reaches. */
+  /** Send a binary event (its bytes, with `{ info }`) to everyone this part reaches. */
   broadcast(...args: TArgs): TResult {
     return binaryOf(this.#sender()).broadcast!(...args) as TResult;
   }
@@ -328,7 +338,7 @@ class AdminChannels<TChannels, TMeta> extends RpcTarget {
     this.#ctx.channels.broadcast(channel, event, payload);
   }
 
-  /** The binary version of `broadcast`: the channel, the event, its info, then its bytes. */
+  /** The binary version of `broadcast`: the event, its bytes, then `{ channel, info }`. */
   get binary(): AdminBinaryBroadcast<ChannelBinaryBroadcastArgs<TChannels>, void> {
     return new AdminBinaryBroadcast(() => this.#ctx.channels);
   }

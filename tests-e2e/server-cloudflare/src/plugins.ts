@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
+import { bindFixture } from './bind-fixture.ts';
 import { pluginsDefinition } from './plugins/handler.ts';
 
-export class PluginsServer extends bind(pluginsDefinition) {}
+export class PluginsServer extends bindFixture(pluginsDefinition) {}

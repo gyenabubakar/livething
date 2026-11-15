@@ -120,7 +120,7 @@ export async function sendRuntimeError(
 
   // The client only sees `internal-error`, so with no hook to see it the real error would be
   // lost. An `onError` hook replaces this log, as it owns the error from then on. A signal here,
-  // such as `RejectUpgrade` outside `upgrade`, is a mistake and is logged.
+  // such as `RejectAuth` outside `authenticate`, is a mistake and is logged.
   if (options.fromSocket) {
     if (deps.errorHooks.length === 0) {
       deps.logger.warn('[livething] A connection reported a socket error.', { error });

@@ -24,8 +24,6 @@ export function inject<
   deliver(socket, { event, payload, metadata: null });
 }
 
-// oxlint-disable max-params -- the scoped injectors need (socket, scope, event, payload)
-
 /**
  * How a test names a channel: a fixed channel by its name, one channel of a dynamic family by
  * `{ family, name }`. The family name alone would reach no handle, so it is a type error.
@@ -52,7 +50,10 @@ function channelMetadata(channel: string | { family: string; name: string }) {
  * channel by its name, and one channel of a dynamic family with `{ family, name }`.
  *
  * ```ts
- * injectChannel(socket, 'general', 'message', { text: 'hello', from: 'test-user' });
+ * injectChannel(socket, 'message-created', {
+ *   channel: 'general',
+ *   payload: { text: 'hello', from: 'test-user' },
+ * });
  * ```
  */
 export function injectChannel<
@@ -61,11 +62,36 @@ export function injectChannel<
   K extends keyof IncomingOf<ChannelsOf<TContract>[TChannel]> & string,
 >(
   socket: Socket<TContract>,
-  channel: ChannelTarget<ChannelsOf<TContract>, TChannel>,
   event: K,
-  payload: IncomingOf<ChannelsOf<TContract>[TChannel]>[K],
+  message: ChannelMessage<
+    ChannelsOf<TContract>,
+    TChannel,
+    IncomingOf<ChannelsOf<TContract>[TChannel]>[K]
+  >,
 ): void {
+  const { channel, payload } = message;
   deliver(socket, { event, payload, metadata: channelMetadata(channel) });
+}
+
+/** The channel and the payload of an injected channel message. */
+interface ChannelMessage<TChannels, TChannel extends keyof TChannels & string, TPayload> {
+  channel: ChannelTarget<TChannels, TChannel>;
+  payload: TPayload;
+}
+
+/** The info and the bytes of an injected binary message. The bytes default to none. */
+interface BinaryMessage<TInfo> {
+  info: TInfo;
+  bytes?: Uint8Array;
+}
+
+/** The channel, the info and the bytes of an injected binary channel message. */
+interface ChannelBinaryMessage<
+  TChannels,
+  TChannel extends keyof TChannels & string,
+  TInfo,
+> extends BinaryMessage<TInfo> {
+  channel: ChannelTarget<TChannels, TChannel>;
 }
 
 /**
@@ -74,7 +100,10 @@ export function injectChannel<
  * empty array. Needs `binary()` on the socket.
  *
  * ```ts
- * injectBinary(socket, 'avatar-preview', null, new Uint8Array([137, 80, 78, 71]));
+ * injectBinary(socket, 'avatar-preview', {
+ *   info: null,
+ *   bytes: new Uint8Array([137, 80, 78, 71]),
+ * });
  * ```
  */
 export function injectBinary<
@@ -83,9 +112,9 @@ export function injectBinary<
 >(
   socket: Socket<TContract>,
   event: K,
-  info: IncomingOf<BinaryOf<TContract>>[K],
-  bytes: Uint8Array = new Uint8Array(0),
+  message: BinaryMessage<IncomingOf<BinaryOf<TContract>>[K]>,
 ): void {
+  const { info, bytes = new Uint8Array(0) } = message;
   deliver(socket, { event, payload: info, metadata: null, bytes });
 }
 
@@ -95,13 +124,11 @@ export function injectBinary<
  * dynamic family with `{ family, name }`.
  *
  * ```ts
- * injectChannelBinary(
- *   socket,
- *   { family: 'rooms', name: 'room:general' },
- *   'screen-frame',
- *   { from: 'u_amara' },
- *   pictureBytes,
- * );
+ * injectChannelBinary(socket, 'screen-frame', {
+ *   channel: { family: 'rooms', name: 'room:general' },
+ *   info: { from: 'u_amara' },
+ *   bytes: pictureBytes,
+ * });
  * ```
  */
 export function injectChannelBinary<
@@ -110,12 +137,13 @@ export function injectChannelBinary<
   K extends keyof IncomingOf<BinaryOf<ChannelsOf<TContract>[TChannel]>> & string,
 >(
   socket: Socket<TContract>,
-  channel: ChannelTarget<ChannelsOf<TContract>, TChannel>,
   event: K,
-  info: IncomingOf<BinaryOf<ChannelsOf<TContract>[TChannel]>>[K],
-  bytes: Uint8Array = new Uint8Array(0),
+  message: ChannelBinaryMessage<
+    ChannelsOf<TContract>,
+    TChannel,
+    IncomingOf<BinaryOf<ChannelsOf<TContract>[TChannel]>>[K]
+  >,
 ): void {
+  const { channel, info, bytes = new Uint8Array(0) } = message;
   deliver(socket, { event, payload: info, metadata: channelMetadata(channel), bytes });
 }
-
-// oxlint-enable max-params

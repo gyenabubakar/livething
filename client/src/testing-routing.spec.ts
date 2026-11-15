@@ -39,7 +39,10 @@ describe('injectChannel — channels primitive routing while disconnected', () =
     socket.channel('general').on('message', handler);
 
     expect(socket.state.get()).toBe('closed');
-    injectChannel(socket as Socket<C>, 'general', 'message', { text: 'hello' });
+    injectChannel(socket as Socket<C>, 'message', {
+      channel: 'general',
+      payload: { text: 'hello' },
+    });
     expect(handler).toHaveBeenCalledWith({ text: 'hello' });
   });
 
@@ -59,7 +62,10 @@ describe('injectChannel — channels primitive routing while disconnected', () =
     socket.channel('general').on('message', generalHandler);
     socket.channel('news').on('headline', newsHandler);
 
-    injectChannel(socket as Socket<C>, 'general', 'message', { text: 'only-general' });
+    injectChannel(socket as Socket<C>, 'message', {
+      channel: 'general',
+      payload: { text: 'only-general' },
+    });
     expect(generalHandler).toHaveBeenCalledWith({ text: 'only-general' });
     expect(newsHandler).not.toHaveBeenCalled();
   });
@@ -71,7 +77,10 @@ describe('injectChannel — channels primitive routing while disconnected', () =
     socket.channel('general').on('message', handlerA);
     socket.channel('general').on('message', handlerB);
 
-    injectChannel(socket as Socket<C>, 'general', 'message', { text: 'both' });
+    injectChannel(socket as Socket<C>, 'message', {
+      channel: 'general',
+      payload: { text: 'both' },
+    });
     expect(handlerA).toHaveBeenCalledWith({ text: 'both' });
     expect(handlerB).toHaveBeenCalledWith({ text: 'both' });
   });

@@ -2,17 +2,14 @@ import { channelKey } from '~/internal/channel-key.ts';
 import type { LiveThingMetadata, Message } from '~/internal/runtime.ts';
 import type { EmptyTypeFn, Primitive, PrimitiveIdentity } from '~/primitives/types.ts';
 
-/** How many past connections' resume tokens are kept; the server accepts at most this many. */
-const MAX_RESUME_TOKENS = 8;
-
 /**
  * Catches you up after a reconnect. As messages arrive it remembers the highest
  * sequence number (`metadata.stream.seq` or `metadata.delivery.seq`) it has seen, per scope. When the socket
  * reconnects it asks the server for everything after that, so you don't miss
  * what happened while you were away.
  *
- * Each connection also gets a secret resume token from the server
- * (`__resume__`). The request shows the tokens of the last few connections, so
+ * Each connection also gets a secret resume token from the server, in its
+ * `__connected__` frame. The request shows the tokens of the last few connections, so
  * the server also resends what it sent to those connections only (`ctx.send`,
  * a tag, a connection ref).
  *
@@ -26,7 +23,7 @@ export function replay(): Primitive<EmptyTypeFn> & PrimitiveIdentity<'replay', '
     // The re-subscribe message must arrive before __replay__, or the server
     // rejects it (not yet a member). Order after channels when it's present.
     optionalAfter: ['channels', 'inbox'],
-    setup(helpers) {
+    setup() {
       // Highest seq seen per scope. The '' key is the top level; channel names
       // are their own keys so each channel catches up on its own.
       const lastSeq = new Map<string, { seq: number; channel?: string; channelFamily?: string }>();
@@ -55,38 +52,8 @@ export function replay(): Primitive<EmptyTypeFn> & PrimitiveIdentity<'replay', '
         return message;
       }
 
-      function handleError(message: Message): Message {
-        const payload = message.payload as
-          | { code?: string; detail?: { event?: string } }
-          | null
-          | undefined;
-        if (payload?.code === 'unsupported-protocol' && payload.detail?.event === '__replay__') {
-          helpers.log.warn(
-            "replay() is on the client, but the server doesn't support replay — reconnect catch-up won't work. Enable replay on the server, or remove replay() from the client.",
-          );
-        }
-
-        return message;
-      }
-
       function handleIncoming(message: Message): Message | null {
-        if (message.event === '__resume__') {
-          const payload = message.payload as { token?: unknown; seq?: unknown } | null;
-          if (typeof payload?.token === 'string') {
-            resumeTokens.push(payload.token);
-            if (resumeTokens.length > MAX_RESUME_TOKENS) resumeTokens.shift();
-          }
-
-          // The seq is where this connection started: a cursor for a client that
-          // has seen no frame yet. A cursor it already has is never moved forward.
-          if (typeof payload?.seq === 'number' && !lastSeq.has('')) {
-            remember(payload.seq, undefined, undefined);
-          }
-
-          return null;
-        }
-
-        // Same for a channel: a cursor for a member that hears nothing before a drop.
+        // A cursor for a channel member that hears nothing before a drop.
         if (message.event === '__subscribeOk__') {
           const seq = (message.payload as { seq?: unknown } | null)?.seq;
           const channel = message.metadata?.channel;
@@ -103,8 +70,6 @@ export function replay(): Primitive<EmptyTypeFn> & PrimitiveIdentity<'replay', '
 
         if (message.event === '__gap__') return handleGap(message);
 
-        if (message.event === '__error__') return handleError(message);
-
         if (message.metadata?.stream?.id !== undefined) return message;
 
         const seq = message.metadata?.stream?.seq ?? message.metadata?.delivery?.seq;
@@ -118,6 +83,18 @@ export function replay(): Primitive<EmptyTypeFn> & PrimitiveIdentity<'replay', '
       return {
         id: 'replay',
         onIncoming: handleIncoming,
+        // Runs before onReconnect, so the first __replay__ after a reconnect also lists
+        // this new connection's own token.
+        onConnected(info) {
+          const { resume } = info;
+          if (resume === null) return;
+
+          resumeTokens.push(resume.token);
+          resumeTokens.splice(0, resumeTokens.length - info.maxResumeTokens);
+          // The seq is where this connection started: a cursor for a client that
+          // has seen no frame yet. A cursor it already has is never moved forward.
+          if (resume.seq !== null && !lastSeq.has('')) remember(resume.seq, undefined, undefined);
+        },
         onReconnect() {
           if (lastSeq.size === 0) return null;
 

@@ -386,7 +386,7 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
     return {
       id,
       userId: id,
-      wsKey: Symbol(id),
+      socketKey: Symbol(id),
       descriptor: {
         send() {},
         close() {},

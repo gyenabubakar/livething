@@ -32,7 +32,7 @@ function passthroughAsyncContext(): AsyncContextFactory {
 
 function buildEngine(seen: OutgoingFrame[]): Engine {
   const base = server({
-    upgrade: () => ({ userId: 'unused' }),
+    authenticate: () => ({ userId: 'unused' }),
     capabilities: [
       sequence(),
       dedup(),

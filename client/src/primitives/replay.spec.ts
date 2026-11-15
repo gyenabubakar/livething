@@ -7,6 +7,7 @@ import { replay } from '~/primitives/replay.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
+import type { ConnectedFrame } from '~/test-helpers.ts';
 
 interface C {
   incoming: { msg: { text: string } };
@@ -25,13 +26,27 @@ function build<const P extends readonly Primitive<any, any>[]>(
   return { socket, ws };
 }
 
-function reconnectAfterDrop(ws: MockWebSocket): MockWebSocket {
+function reconnectAfterDrop(ws: MockWebSocket, connected: Partial<ConnectedFrame> = {}) {
   ws.serverClose(1006, 'dropped');
   vi.advanceTimersByTime(1500);
   const next = MockWebSocket.last();
-  next.open();
+  next.open('', connected);
 
   return next;
+}
+
+/** A client with replay, connected with the given `__connected__` values. */
+function connectWithReplay(connected: Partial<ConnectedFrame>) {
+  const socket = client<C>()(connect('wss://test'), dedup(), gaps(), replay(), reconnection());
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open('', connected);
+
+  return { socket, ws };
+}
+
+function resumeOf(token: string, seq: number | null = null): Partial<ConnectedFrame> {
+  return { resume: { token, seq } };
 }
 
 let restore: () => void;
@@ -45,74 +60,70 @@ afterEach(() => {
 });
 
 describe('replay — resume tokens', () => {
-  it('shows the tokens of earlier connections in the catch-up request', () => {
-    const { ws } = build(dedup(), gaps(), replay(), reconnection());
-    ws.emit({ event: '__resume__', payload: { token: 'first' }, metadata: null });
+  it('shows the tokens of earlier connections and of the new one in the catch-up request', () => {
+    const { ws } = connectWithReplay(resumeOf('first'));
     ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { delivery: { seq: 3 } } });
 
-    const second = reconnectAfterDrop(ws);
+    const second = reconnectAfterDrop(ws, resumeOf('second'));
     expect(second.sentFrames()).toContainEqual({
-      event: '__replay__',
-      payload: { lastKnownSeq: 3, resume: ['first'] },
-      metadata: null,
-    });
-
-    second.emit({ event: '__resume__', payload: { token: 'second' }, metadata: null });
-    const third = reconnectAfterDrop(second);
-    expect(third.sentFrames()).toContainEqual({
       event: '__replay__',
       payload: { lastKnownSeq: 3, resume: ['first', 'second'] },
       metadata: null,
     });
-  });
 
-  it('starts the top-level cursor at the resume frame seq when no message came before the drop', () => {
-    const { ws } = build(dedup(), gaps(), replay(), reconnection());
-    ws.emit({ event: '__resume__', payload: { token: 'first', seq: 5 }, metadata: null });
-
-    const second = reconnectAfterDrop(ws);
-    expect(second.sentFrames()).toContainEqual({
-      event: '__replay__',
-      payload: { lastKnownSeq: 5, resume: ['first'] },
-      metadata: null,
-    });
-  });
-
-  it('never moves the cursor forward to a later resume frame seq', () => {
-    const { ws } = build(dedup(), gaps(), replay(), reconnection());
-    ws.emit({ event: '__resume__', payload: { token: 'first', seq: 2 }, metadata: null });
-    ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { delivery: { seq: 3 } } });
-
-    const second = reconnectAfterDrop(ws);
-    second.emit({ event: '__resume__', payload: { token: 'second', seq: 9 }, metadata: null });
-    const third = reconnectAfterDrop(second);
+    const third = reconnectAfterDrop(second, resumeOf('third'));
     expect(third.sentFrames()).toContainEqual({
       event: '__replay__',
-      payload: { lastKnownSeq: 3, resume: ['first', 'second'] },
+      payload: { lastKnownSeq: 3, resume: ['first', 'second', 'third'] },
       metadata: null,
     });
   });
 
-  it('keeps only the last eight tokens', () => {
-    const { ws } = build(dedup(), gaps(), replay(), reconnection());
-    for (let i = 1; i <= 10; i += 1) {
-      ws.emit({ event: '__resume__', payload: { token: `t${i}` }, metadata: null });
+  it('starts the top-level cursor at the connected frame seq when no message came before the drop', () => {
+    const { ws } = connectWithReplay(resumeOf('first', 5));
+
+    const second = reconnectAfterDrop(ws, resumeOf('second', 7));
+    expect(second.sentFrames()).toContainEqual({
+      event: '__replay__',
+      payload: { lastKnownSeq: 5, resume: ['first', 'second'] },
+      metadata: null,
+    });
+  });
+
+  it('never moves the cursor forward to a later connected frame seq', () => {
+    const { ws } = connectWithReplay(resumeOf('first', 2));
+    ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { delivery: { seq: 3 } } });
+
+    const second = reconnectAfterDrop(ws, resumeOf('second', 9));
+    const third = reconnectAfterDrop(second, resumeOf('third', 12));
+    expect(third.sentFrames()).toContainEqual({
+      event: '__replay__',
+      payload: { lastKnownSeq: 3, resume: ['first', 'second', 'third'] },
+      metadata: null,
+    });
+  });
+
+  it("keeps only as many tokens as the server's maxResumeTokens", () => {
+    let ws = connectWithReplay({ ...resumeOf('t1'), maxResumeTokens: 3 }).ws;
+    ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { delivery: { seq: 3 } } });
+    for (let i = 2; i <= 5; i += 1) {
+      ws = reconnectAfterDrop(ws, { ...resumeOf(`t${i}`), maxResumeTokens: 3 });
     }
 
+    const request = ws.sentFrames().find((frame) => frame.event === '__replay__');
+    expect(request?.payload).toEqual({ lastKnownSeq: 3, resume: ['t3', 't4', 't5'] });
+  });
+
+  it('sends no token when the server has replay off', () => {
+    const { ws } = connectWithReplay({ resume: null });
     ws.emit({ event: 'msg', payload: { text: 'hi' }, metadata: { delivery: { seq: 3 } } });
 
-    const second = reconnectAfterDrop(ws);
-    const request = second.sentFrames().find((frame) => frame.event === '__replay__');
-    expect((request?.payload as { resume?: string[] } | undefined)?.resume).toEqual([
-      't3',
-      't4',
-      't5',
-      't6',
-      't7',
-      't8',
-      't9',
-      't10',
-    ]);
+    const second = reconnectAfterDrop(ws, { resume: null });
+    expect(second.sentFrames()).toContainEqual({
+      event: '__replay__',
+      payload: { lastKnownSeq: 3 },
+      metadata: null,
+    });
   });
 });
 
@@ -336,51 +347,28 @@ describe('replay — per-channel scope catch-up', () => {
     });
   });
 
-  describe('unsupported-protocol warning', () => {
-    it('warns every time the server reports replay is unsupported, and still passes the error to onServerError', () => {
-      const { socket, ws } = build(dedup(), replay(), reconnection());
-      socket.setDebug(true);
+  describe('a server with replay off', () => {
+    function replayWarnings(features: string[]): number {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const onError = vi.fn();
-      socket.onServerError(onError);
+      const socket = client<C>()(connect('wss://test'), dedup(), replay(), reconnection());
+      socket.setDebug(true);
+      socket.connect();
+      const ws = MockWebSocket.last();
 
-      const errorFrame = {
-        event: '__error__',
-        payload: { code: 'unsupported-protocol', detail: { event: '__replay__' } },
-        metadata: null,
-      };
-
-      ws.emit(errorFrame);
-      ws.emit(errorFrame);
-
-      const replayWarns = warn.mock.calls.filter((args) =>
-        String(args[1] ?? '').includes('replay()'),
-      );
-      expect(replayWarns).toHaveLength(2);
-      expect(onError).toHaveBeenCalledTimes(2);
-      expect((onError.mock.calls[0]![0] as { code?: string }).code).toBe('unsupported-protocol');
-
+      ws.open('', { features });
+      reconnectAfterDrop(ws, { features });
+      const count = warn.mock.calls.filter((args) => String(args[1]).includes('replay()')).length;
       warn.mockRestore();
+
+      return count;
+    }
+
+    it('gets one warning at connect time, not one per reconnect', () => {
+      expect(replayWarnings(['binary'])).toBe(1);
     });
 
-    it('does not warn for an unsupported-protocol error scoped to a different protocol event', () => {
-      const { socket, ws } = build(dedup(), replay(), reconnection());
-      socket.setDebug(true);
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-      socket.onServerError(() => {});
-      ws.emit({
-        event: '__error__',
-        payload: { code: 'unsupported-protocol', detail: { event: '__continueStream__' } },
-        metadata: { stream: { id: 's-1' } },
-      });
-
-      const replayWarns = warn.mock.calls.filter((args) =>
-        String(args[1] ?? '').includes('replay()'),
-      );
-      expect(replayWarns).toHaveLength(0);
-
-      warn.mockRestore();
+    it('gets no warning when the server lists replay', () => {
+      expect(replayWarnings(['replay'])).toBe(0);
     });
   });
 

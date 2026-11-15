@@ -15,7 +15,7 @@ function createConnection(id: string, userId: string): RuntimeConnection {
   return {
     id,
     userId,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
       close: vi.fn(),
@@ -235,7 +235,6 @@ describe('UserHandle.info — last-seen storage reads', () => {
     const deps = baseDeps(tabs, {
       toConnectionInfo: (c: RuntimeConnection) =>
         toConnectionInfo(c, undefined, {
-          hibernationEnabled: false,
           lastSeenAt: (userId: string) => readLastSeen(sql, userId),
         }),
     });

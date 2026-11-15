@@ -1,4 +1,4 @@
-import { bind } from '@livething/server-cloudflare';
 import { replaySnapshotDefinition } from '@livething/tests-e2e-handlers/replay-snapshot';
+import { bindFixture } from './bind-fixture.ts';
 
-export class ReplaySnapshotServer extends bind(replaySnapshotDefinition) {}
+export class ReplaySnapshotServer extends bindFixture(replaySnapshotDefinition) {}

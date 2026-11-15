@@ -1,7 +1,11 @@
 import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
-import { buildConnectionRow, writeConnectionRow } from '~/_engine/runtime/connection-store.ts';
+import {
+  buildConnectionRow,
+  readConnectionRow,
+  writeConnectionRow,
+} from '~/_engine/runtime/connection-store.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
@@ -51,8 +55,8 @@ function hibernatedSocket(id: string) {
 
 function buildEngine(
   storage: { sql: SQLProvider; kv: KVProvider },
-  restore: (wsKey: unknown) => unknown = (wsKey) =>
-    (wsKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
+  restore: (socketKey: unknown) => unknown = (socketKey) =>
+    (socketKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
   withReplay = false,
 ): Engine {
   const base = server({
@@ -141,6 +145,53 @@ describe('hibernation restore — live delivery to a passive member', () => {
 
     expect(received(kofi)?.[1]).toEqual({ text: 'akwaaba' });
     expect(received(ama)?.[1]).toEqual({ text: 'akwaaba' });
+  });
+
+  it('still saves a channel join made after a wake, so the next wake restores it', async () => {
+    const storage = { sql: createTestSql(), kv: createTestKV() };
+    const engine = buildEngine(storage);
+    await engine.initialize();
+
+    const kofi = hibernatedSocket('kofi');
+    writeConnectionRow(storage.sql, {
+      connection_id: kofi.id,
+      user_id: kofi.id,
+      meta: {},
+      ephemeral_tags: [],
+      ephemeral_memberships: [],
+      active_stream_ids: [],
+    });
+    await engine.restoreHibernatedConnections([kofi.ws]);
+
+    await engine
+      .handleHibernationWake(kofi.ws)
+      .handleMessage(JSON.stringify(['__subscribe__', null, { channel: { name: 'room' } }]));
+
+    expect(engine.core.connections.get('kofi')?.survivesHibernation).toBe(true);
+    expect(readConnectionRow(storage.sql, 'kofi')?.ephemeral_memberships).toEqual([
+      { channelName: 'room', channelFamily: null },
+    ]);
+  });
+
+  it('saves nothing for a connection the platform does not hold while the server sleeps', async () => {
+    const storage = { sql: createTestSql(), kv: createTestKV() };
+    const engine = buildEngine(storage);
+    await engine.initialize();
+
+    const handle = engine.accept(Symbol('ama'), {
+      send: () => true,
+      close: () => {},
+      bufferedAmount: () => 0,
+      userId: 'ama',
+    });
+    const ama = [...engine.core.connections.values()].at(-1)!;
+    await ama.lifecycleReady;
+    await handle.handleMessage(
+      JSON.stringify(['__subscribe__', null, { channel: { name: 'room' } }]),
+    );
+
+    expect(ama.channelMemberships.size).toBe(1);
+    expect(readConnectionRow(storage.sql, ama.id)).toBeNull();
   });
 
   it('keeps the resume token a connection had before it hibernated', async () => {

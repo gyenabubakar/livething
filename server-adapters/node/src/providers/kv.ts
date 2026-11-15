@@ -1,6 +1,6 @@
 import { deserialize, serialize } from 'node:v8';
 import type { KVProvider, Logger } from '@livething/server/adapters';
-import type { NodeSqlDatabase } from './sql.ts';
+import type { SqliteDatabase } from './sql.ts';
 
 const KV_TABLE = '__livething_kv';
 
@@ -11,7 +11,7 @@ interface KvRow {
 }
 
 /** Creates the SQLite-backed KV provider used by the Node runtime by default. */
-export function createKv(database: NodeSqlDatabase, logger?: Logger): KVProvider {
+export function createKv(database: SqliteDatabase, logger?: Logger): KVProvider {
   database.exec(`
     CREATE TABLE IF NOT EXISTS ${KV_TABLE} (
       key TEXT PRIMARY KEY NOT NULL,

@@ -12,10 +12,10 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 function createFakeCore(): {
   core: EngineCore;
   writes: string[];
-  attachments: { wsKey: unknown; snapshot: unknown }[];
+  attachments: { socketKey: unknown; snapshot: unknown }[];
 } {
   const writes: string[] = [];
-  const attachments: { wsKey: unknown; snapshot: unknown }[] = [];
+  const attachments: { socketKey: unknown; snapshot: unknown }[] = [];
 
   const sql = {
     exec: vi.fn((query: string) => {
@@ -26,12 +26,12 @@ function createFakeCore(): {
   };
 
   const core = {
-    hibernationEnabled: true,
+    hibernationAllowed: true,
     asyncContext: new AsyncLocalStorage<EngineAsyncContextStore>(),
     options: {
       hibernation: {
-        persist(wsKey: unknown, snapshot: unknown) {
-          attachments.push({ wsKey, snapshot });
+        persist(socketKey: unknown, snapshot: unknown) {
+          attachments.push({ socketKey, snapshot });
         },
       },
     },
@@ -46,9 +46,10 @@ function createFakeConnection(id: string): RuntimeConnection {
   return {
     id,
     userId: id,
-    wsKey: { key: id },
+    socketKey: { key: id },
     descriptor: { close() {} } as never,
     meta: {},
+    survivesHibernation: true,
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships: new Map(),
     latency: null,
@@ -269,10 +270,9 @@ describe('withInvocationScope', () => {
     expect(writes.filter((q) => q.startsWith('INSERT'))).toHaveLength(1);
   });
 
-  it('no-ops when hibernation is disabled, with or without an active scope', async () => {
+  it('no-ops for a connection that does not survive hibernation, with or without an active scope', async () => {
     const { core, writes } = createFakeCore();
-    (core as unknown as { hibernationEnabled: boolean }).hibernationEnabled = false;
-    const connection = createFakeConnection('c1');
+    const connection = { ...createFakeConnection('c1'), survivesHibernation: false };
 
     persistAttachment(core, connection);
     await withInvocationScope(core, async () => {

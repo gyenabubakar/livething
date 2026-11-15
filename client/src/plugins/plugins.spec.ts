@@ -1173,7 +1173,7 @@ describe('dispose', () => {
     const Chat = plugin()({ id: 'acme:chat', setup: () => ({ dispose }) });
 
     const socket = client<AppContract>()(
-      connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+      connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }),
       Chat(),
     );
     socket.connect();
@@ -1198,7 +1198,7 @@ describe('dispose', () => {
     });
 
     const socket = client<AppContract>()(
-      connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+      connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }),
       Chat(),
     );
     socket.connect();

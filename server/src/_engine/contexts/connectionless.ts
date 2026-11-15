@@ -73,7 +73,7 @@ export function createConnectionlessContext(
     },
   };
 
-  deps.addBinarySenders?.(channels, { broadcast: 'event-second' });
+  deps.addBinarySenders?.(channels, { broadcast: { targetKey: 'channel' } });
 
   const ctx: PublicApi.ConnectionlessContext<Record<string, unknown>, unknown> = {
     broadcast: (event, payload) => {

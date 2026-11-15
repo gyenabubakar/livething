@@ -448,7 +448,7 @@ describe('per-chunk timeout must not start at reconnect for a continued stream',
       });
       first.serverClose(1006, 'drop');
 
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
 
@@ -576,7 +576,7 @@ describe('stream teardown, pre-open triggers, and continue deadline', () => {
       const { handle } = await start(socket, first, { streamDurability: 'persistent' });
 
       first.serverClose(1006, 'drop');
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
 
@@ -602,7 +602,7 @@ describe('stream teardown, pre-open triggers, and continue deadline', () => {
       const { handle, sid } = await start(socket, first, { streamDurability: 'persistent' });
 
       first.serverClose(1006, 'drop');
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
 

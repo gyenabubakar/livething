@@ -18,10 +18,17 @@ import type { ConnectionRef } from '~/context.ts';
 
 type Frame = [event: string, payload: Record<string, unknown>, livething: Record<string, unknown>];
 
+/** The resume point of a connection's `__connected__` frame. */
+function resumeOf(frames: Frame[]) {
+  const connected = frames.find(([event]) => event === '__connected__');
+
+  return connected?.[1].resume as { token: string; seq: number | null } | null | undefined;
+}
+
 interface Client {
   userId: string;
   frames: Frame[];
-  /** The resume token this connection got in `__resume__`. */
+  /** The resume token this connection got in `__connected__`. */
   token: string;
   send(frame: unknown[]): Promise<void>;
   close(): Promise<void>;
@@ -238,7 +245,7 @@ async function connect(engine: Engine, userId: string): Promise<Client & { id: s
     id: connection.id,
     userId,
     frames,
-    token: String(frames.find(([event]) => event === '__resume__')?.[1].token),
+    token: String(resumeOf(frames)?.token),
     send: (frame) =>
       handle.handleMessage(JSON.stringify(frame.length === 2 ? [...frame, null] : frame)),
     close: () => handle.handleClose(1000, 'bye'),
@@ -417,12 +424,12 @@ describe('replay of frames sent to chosen connections', () => {
     const first = await connect(engine, 'alice');
     const second = await connect(engine, 'alice');
 
-    expect(first.frames[0]?.[0]).toBe('__resume__');
+    expect(first.frames[0]?.[0]).toBe('__connected__');
     expect(first.token).toMatch(/^[0-9a-f-]{36}$/);
     expect(second.token).not.toBe(first.token);
   });
 
-  it('puts a sequence number in the resume frame, after every frame sent before it', async () => {
+  it('puts a sequence number in the connected frame, after every frame sent before it', async () => {
     const { engine } = await buildEngine();
     const alice = await connect(engine, 'alice');
     const carol = await connect(engine, 'carol');
@@ -430,7 +437,7 @@ describe('replay of frames sent to chosen connections', () => {
     const before = seqOf(carol, 'top-news');
 
     const bob = await connect(engine, 'bob');
-    const resumeSeq = bob.frames.find(([event]) => event === '__resume__')?.[1].seq;
+    const resumeSeq = resumeOf(bob.frames)?.seq;
     await alice.send(['say-secret', { text: 'after' }]);
 
     expect(resumeSeq).toEqual(expect.any(Number));
@@ -444,7 +451,11 @@ describe('replay of frames sent to chosen connections', () => {
     );
     const alice = await connect(engine, 'alice');
 
-    expect(alice.frames.map(([event]) => event)).not.toContain('__resume__');
+    expect(alice.frames[0]).toEqual([
+      '__connected__',
+      expect.objectContaining({ resume: null }),
+      null,
+    ]);
   });
 
   it('replays a ctx.send frame to the same user showing the old connection token', async () => {

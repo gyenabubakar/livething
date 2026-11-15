@@ -23,7 +23,6 @@ const platforms: Platform[] = [
   { name: 'h3', src: '/logos/h3.svg', mono: true },
   { name: 'Node.js', src: '/logos/nodejs.svg' },
   { name: 'Bun', src: '/logos/bun.svg' },
-  { name: 'Deno', src: '/logos/deno.svg', white: true },
   { name: 'Cloudflare', src: '/logos/cloudflare.svg' },
 ]
 </script>

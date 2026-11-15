@@ -4,19 +4,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { server as createServerDefinition, emits, t } from '@livething/server';
 import { dedup } from '@livething/server/dedup';
+import { keepalive } from '@livething/server/keepalive';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { afterEach, describe, expect, it } from 'vitest';
-import WebSocket from 'ws';
 import type { Server } from 'node:http';
 import { setup } from './setup.ts';
+import { openRawClient, rawRequestListener, rawTransportOptions } from './test-utils.ts';
 
 type Frame = [event: string, payload: Record<string, unknown>, livething: unknown];
 
 function buildDefinition() {
   const base = createServerDefinition({
-    upgrade: () => ({ userId: 'kofi' }),
+    authenticate: () => ({ userId: 'kofi' }),
     capabilities: [
+      keepalive(),
       dedup(),
       sequence({ persist: true }),
       replay.history(),
@@ -38,12 +40,12 @@ interface Running {
 }
 
 async function start(sqlFile: string): Promise<Running> {
-  const httpServer: Server = createServer((_request, response) => {
-    response.statusCode = 404;
-    response.end();
-  });
   const livething = setup();
-  const endpoint = livething.bind(buildDefinition(), { sql: sqlFile } as never);
+  const endpoint = livething.bind(buildDefinition(), {
+    ...rawTransportOptions,
+    sql: sqlFile,
+  } as never);
+  const httpServer: Server = createServer(rawRequestListener(endpoint));
   httpServer.on('upgrade', endpoint.upgrade);
   await endpoint.ready();
 
@@ -65,7 +67,7 @@ async function exchange(
   outgoing: (token: string) => unknown[],
   done: (frames: Frame[]) => boolean,
 ): Promise<Frame[]> {
-  const socket = new WebSocket(url);
+  const socket = openRawClient(url);
   const frames: Frame[] = [];
   try {
     return await new Promise<Frame[]>((resolve, reject) => {
@@ -77,8 +79,9 @@ async function exchange(
       socket.on('message', (data) => {
         const frame = JSON.parse(data.toString()) as Frame;
         frames.push(frame);
-        if (frame[0] === '__resume__') {
-          socket.send(JSON.stringify(outgoing(String(frame[1].token))));
+        if (frame[0] === '__connected__') {
+          const resume = frame[1].resume as { token: string };
+          socket.send(JSON.stringify(outgoing(resume.token)));
         }
 
         if (done(frames)) {

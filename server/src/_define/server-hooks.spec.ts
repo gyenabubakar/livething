@@ -185,7 +185,7 @@ describe('hooks written in server({ ... })', () => {
 
   it('gives a hook the same ctx a handler gets', async () => {
     const base = server({
-      upgrade: () => ({ userId: 'ama', meta: { name: 'Ama' } }),
+      authenticate: () => ({ userId: 'ama', meta: { name: 'Ama' } }),
       capabilities: [emits({ welcome: t<{ name: string }>() })],
       onConnect(ctx) {
         ctx.send('welcome', { name: ctx.meta.name });

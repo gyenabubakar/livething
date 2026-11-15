@@ -133,12 +133,12 @@ export const context = {
   },
 
   /**
-   * The `ctx` of an `upgrade` function.
+   * The `ctx` of an `authenticate` function.
    */
-  upgrade<TBase extends BaseRef>(base: TBase): InitContext {
+  authenticate<TBase extends BaseRef>(base: TBase): InitContext {
     return currentCtx({
-      accessor: 'upgrade',
-      kind: 'upgrade',
+      accessor: 'authenticate',
+      kind: 'authenticate',
       baseId: base.__baseId,
     }) as InitContext;
   },

@@ -16,27 +16,29 @@ test.describe('lifecycle-hooks', () => {
     await expect(page.getByTestId('connected-user')).toHaveText('alice');
   });
 
-  test('onDisconnect broadcasts to remaining peers when a client leaves', async ({
-    browser,
-  }, testInfo) => {
-    const room = `test-${testInfo.testId}`;
-    const ctxA = await browser.newContext();
-    const ctxB = await browser.newContext();
-    const a = await ctxA.newPage();
-    const b = await ctxB.newPage();
+  test(
+    'onDisconnect broadcasts to remaining peers when a client leaves',
+    { tag: '@drop' },
+    async ({ browser }, testInfo) => {
+      const room = `test-${testInfo.testId}`;
+      const ctxA = await browser.newContext();
+      const ctxB = await browser.newContext();
+      const a = await ctxA.newPage();
+      const b = await ctxB.newPage();
 
-    await openPage(a, room, 'alice');
-    await openPage(b, room, 'bob');
+      await openPage(a, room, 'alice');
+      await openPage(b, room, 'bob');
 
-    // Close bob's context entirely — equivalent to the client going away.
-    // Alice's DO observes the ws close and fires onDisconnect.
-    await ctxB.close();
+      // Close bob's context entirely — equivalent to the client going away.
+      // Alice's DO observes the ws close and fires onDisconnect.
+      await ctxB.close();
 
-    // Alice (peer) should observe bob leaving.
-    await expect(a.getByTestId('disconnected-users')).toContainText('bob');
+      // Alice (peer) should observe bob leaving.
+      await expect(a.getByTestId('disconnected-users')).toContainText('bob');
 
-    await ctxA.close();
-  });
+      await ctxA.close();
+    },
+  );
 
   test('onShutdown broadcasts to all clients before closing the DO', async ({ page }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -74,7 +76,7 @@ test.describe('lifecycle-hooks', () => {
     await ctxB.close();
   });
 
-  test('onUpgrade rejection (missing username) closes the socket with code 4001', async ({
+  test('onAuthenticate rejection (missing username) closes the socket with code 4001', async ({
     page,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -200,10 +202,10 @@ test.describe('lifecycle-hooks', () => {
     expect(shutdownResponse.status()).toBe(204);
   });
 
-  test('onUpgrade can attach meta and tags to connection', async ({ page }, testInfo) => {
+  test('onAuthenticate can attach meta and tags to connection', async ({ page }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     await openPage(page, room, 'alice');
-    await expect(page.getByTestId('upgrade-meta')).toHaveText('alice');
+    await expect(page.getByTestId('auth-meta')).toHaveText('alice');
   });
 
   test('onConnect hook delivers connect-count event on client join', async ({ page }, testInfo) => {

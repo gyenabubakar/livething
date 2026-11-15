@@ -62,7 +62,7 @@ describe('idempotent on() unsubscribe', () => {
   it('a live listener keeps the socket open even after a sibling is unsubbed twice', () => {
     vi.useFakeTimers();
     try {
-      const socket = build(connect('wss://test', { lazy: true, idleTimeout: 1000 }));
+      const socket = build(connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }));
       const unsubA = socket.on('a', () => {});
       socket.on('b', () => {});
       MockWebSocket.last().open();
@@ -162,7 +162,8 @@ describe('manual connect() during reconnecting', () => {
       socket.connect();
       expect(MockWebSocket.instances.length).toBe(before + 1);
 
-      vi.advanceTimersByTime(60_000);
+      // Past every backoff, and short of the 30 s connect timeout.
+      vi.advanceTimersByTime(5_000);
       expect(MockWebSocket.instances.length).toBe(before + 1);
     } finally {
       vi.useRealTimers();
@@ -252,7 +253,7 @@ describe('lazy idle-close after a zero-consumer reconnect', () => {
     vi.useFakeTimers();
     try {
       const socket = build(
-        connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+        connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }),
         reconnection(),
       );
       const unsub = socket.on('x', () => {});
@@ -275,10 +276,10 @@ describe('getLatency() after disconnect', () => {
   it('returns null after a deliberate disconnect', () => {
     vi.useFakeTimers();
     try {
-      const socket = build(connect('wss://test'), keepalive({ interval: 1000 }));
+      const socket = build(connect('wss://test'), keepalive());
       socket.connect();
       const ws = MockWebSocket.last();
-      ws.open();
+      ws.open('', { pingIntervalMs: 1000 });
       vi.advanceTimersByTime(1000);
 
       ws.emit('pong');
@@ -300,7 +301,7 @@ describe('idle timer armed during close must not fire during reconnect', () => {
     vi.useFakeTimers();
     try {
       const socket = client<RequestContract>()(
-        connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+        connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }),
         reconnection(),
         clientRequests({ timeout: 60_000 }),
       );

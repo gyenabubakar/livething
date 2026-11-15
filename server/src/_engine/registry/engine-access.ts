@@ -70,14 +70,14 @@ export interface EngineAccessDeps {
  * Build the registration surface a primitive sees during `__setup`. Primitives
  * register hooks and read shared services through this object — they never
  * touch the engine class directly. One fresh object per primitive setup so
- * per-primitive guards (like the once-only `onUpgrade`) stay local.
+ * per-primitive guards (like the once-only `onAuthenticate`) stay local.
  */
 export function createEngineAccess(
   core: EngineCore,
   deps: EngineAccessDeps,
   scope?: CreateEngineAccessScopeParameter,
 ): EngineAccessModule.EngineAccess {
-  let onUpgradeCalled = false;
+  let onAuthenticateCalled = false;
   return {
     storage: core.storage,
     installOnce: (key, install) => {
@@ -148,24 +148,24 @@ export function createEngineAccess(
     onError: (handler) => {
       core.hooks.error.push(handler);
     },
-    onUpgrade: (handler) => {
-      if (onUpgradeCalled) {
+    onAuthenticate: (handler) => {
+      if (onAuthenticateCalled) {
         throw new Error(
-          '[livething] A primitive may only register one onUpgrade hook in its __setup. Compose multiple upgrade-time concerns inside one handler.',
+          '[livething] A primitive may only register one onAuthenticate hook in its __setup. Compose multiple auth concerns inside one handler.',
         );
       }
 
-      onUpgradeCalled = true;
-      core.hooks.upgrade.push(handler);
+      onAuthenticateCalled = true;
+      core.hooks.authenticate.push(handler);
     },
-    setBuilderUpgradeHook: (handler) => {
-      if (core.hooks.builderUpgrade !== undefined) {
+    setBuilderAuthHook: (handler) => {
+      if (core.hooks.builderAuth !== undefined) {
         throw new Error(
-          '[livething] The `upgrade` hook is already set. Compose multiple upgrade-time concerns inside the one `upgrade` function of server({ ... }).',
+          '[livething] The `authenticate` hook is already set. Compose multiple auth concerns inside the one `authenticate` function of server({ ... }).',
         );
       }
 
-      core.hooks.builderUpgrade = handler;
+      core.hooks.builderAuth = handler;
     },
     onProtocolMessage: (event, handler) => {
       const existing = core.hooks.protocol.get(event) ?? [];
@@ -239,9 +239,13 @@ export function createEngineAccess(
     },
     getInvocationScope: () => getInvocationScope(core.asyncContext),
     enableHibernation: () => {
-      core.hibernationEnabled = true;
+      core.hibernationAllowed = true;
     },
-    getHibernationEnabled: () => core.hibernationEnabled,
+    connectionSurvivesHibernation: (connectionId) =>
+      core.connections.get(connectionId)?.survivesHibernation === true,
+    setKeepaliveTimings: (timings) => {
+      core.keepaliveTimings = timings;
+    },
     setReplayEnabled: (enabled) => {
       core.replayEnabled = enabled;
     },
@@ -282,8 +286,8 @@ export function createEngineAccess(
     registerPluginLifecycle: (kind, pluginId, handler) => {
       core.hooks.pluginLifecycle[kind].push({ pluginId, handler });
     },
-    registerPluginUpgrade: (pluginId, handler, baseId) => {
-      core.hooks.pluginUpgrade.push({ pluginId, handler, baseId });
+    registerPluginAuth: (pluginId, handler, baseId) => {
+      core.hooks.pluginAuth.push({ pluginId, handler, baseId });
     },
     registerTagGroups: (kind, groups) => {
       core.tagGroupsRegistered[kind] = true;

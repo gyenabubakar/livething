@@ -5,6 +5,7 @@ import {
   CrossInstanceRef,
   DurableStreamRequiresUser,
   InternalError,
+  LiveThingConfigError,
   RateLimited,
   RejoinRejected,
   RequestNoCorrelation,
@@ -63,7 +64,19 @@ function resolveMessageLimits(
     );
   }
 
-  return { receiveBytes: limits.receiveBytes, sendBytes: limits.sendBytes };
+  const { receiveBytes, sendBytes, postBytes } = limits;
+  if (postBytes === undefined) return { receiveBytes, sendBytes };
+
+  assertPositiveInteger(postBytes, 'messageLimits.postBytes', `Adapter "${options.adapterId}"`);
+  // Frames in flight and one more batch must fit half of the connection's budget (twice
+  // `receiveBytes`), so a POST must stay within a quarter of it.
+  if (postBytes > receiveBytes / 2) {
+    throw new LiveThingConfigError(
+      `sse() maxPostBytes (${postBytes}) is more than half of maxMessageBytes (${receiveBytes}). Lower maxPostBytes or raise maxMessageBytes.`,
+    );
+  }
+
+  return { receiveBytes, sendBytes, postBytes };
 }
 
 /**
@@ -103,7 +116,13 @@ export class EngineCore {
    */
   engineInstanceId: string | undefined;
 
-  hibernationEnabled = false;
+  /**
+   * Whether the definition set `hibernation: true`, so the adapter may hand the engine
+   * connections that survive a sleep. Each connection says for itself whether it does.
+   */
+  hibernationAllowed = false;
+  /** The ping and idle timings `keepalive()` gave at setup, for the `__connected__` frame. */
+  keepaliveTimings: { pingIntervalMs: number; idleTimeoutMs: number } | null = null;
   replayEnabled = false;
   sequencePersistent = false;
   incomingDedupCap = 0;
@@ -247,7 +266,7 @@ export class EngineCore {
   readonly channelMembers = new Map<string, Set<RuntimeConnection>>();
   // Tag-key → members index, so tag fan-out skips a full connections scan.
   readonly tagMembers = new Map<string, Set<RuntimeConnection>>();
-  readonly wsToConnectionId = new Map<unknown, string>();
+  readonly socketToConnectionId = new Map<unknown, string>();
   readonly activeStreams = new Map<string, ActiveStream>();
   readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();
 
@@ -366,7 +385,7 @@ export class EngineCore {
   }
 
   usesHibernation(): boolean {
-    return this.hibernationEnabled;
+    return this.hibernationAllowed;
   }
 
   usesTags(): boolean {

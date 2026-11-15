@@ -29,7 +29,7 @@ function createRuntime(
     compiled: baseCompiled(usersPolicy),
     connections: new Map<string, EngineRuntimeTypes.RuntimeConnection>(),
     usersByKey: new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>(),
-    wsToConnectionId: new Map(),
+    socketToConnectionId: new Map(),
     channelMembers: new Map(),
     tagMembers: new Map(),
     generateId: () => `conn_${++idCounter}`,

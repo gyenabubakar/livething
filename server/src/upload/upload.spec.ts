@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { encodeBinaryFrame, LiveThingConfigError, splitBinaryFrame } from '@livething/core';
 import { adapter } from '~/_adapters/adapter.ts';
 import { server } from '~/_define/server.ts';
+import { isConnectedFrame } from '~/_test/connected.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { binary } from '~/binary/capability.ts';
@@ -201,7 +202,7 @@ async function connect(engine: Engine, userId = 'u_amara') {
   const sent: TransportFrame[] = [];
   const handle = engine.accept(Symbol(userId), {
     send: (data: TransportFrame) => {
-      sent.push(data);
+      if (!isConnectedFrame(data)) sent.push(data);
     },
     close: () => {},
     bufferedAmount: () => 0,
@@ -886,7 +887,7 @@ describe('base.binary.upload', () => {
   });
 
   it('refuses a resume that a cancel overtook, and discards the stored upload', async () => {
-    const { engine, runs, discarded } = build({ slowStartMs: 30 });
+    const { engine, runs, discarded } = build({ slowStartMs: 200 });
     const first = await connect(engine);
     await first.start('up-1', deck);
     first.piece('up-1', 1, piece(8, 1));
@@ -916,7 +917,7 @@ describe('base.binary.upload', () => {
   });
 
   it('refuses a start that a cancel overtook, so nothing runs and nothing is stored', async () => {
-    const { engine, runs, discarded } = build({ slowStartMs: 30 });
+    const { engine, runs, discarded } = build({ slowStartMs: 200 });
     const amara = await connect(engine);
     const starting = amara.start('up-1', deck);
     await amara.cancel('up-1');
@@ -1269,6 +1270,36 @@ describe('base.binary.upload', () => {
     })(definition, undefined as never);
 
     await expect(engine.initialize()).rejects.toThrow(/pieceBytes/);
+  });
+
+  it('refuses a pieceBytes that does not fit the POST limit of server-sent events, at startup', async () => {
+    const base = server({ capabilities: [binary(), uploads()] });
+    const handleUploadAttachment = base.binary.upload('upload-attachment', {
+      pieceBytes: 64 * 1024,
+      run: async () => ({ info: null }),
+    });
+    const definition = base.assemble({ handlers: [handleUploadAttachment] });
+    let engine!: Engine;
+    adapter({
+      id: 'upload-post-limit-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        engine = createEngine({
+          storage: { sql: createTestSql(), kv: createTestKV() },
+          timers: createTestTimers(),
+          platform: {},
+          logger: { info() {}, warn() {}, error() {} },
+          messageLimits: {
+            receiveBytes: 1024 * 1024,
+            sendBytes: 1024 * 1024,
+            postBytes: 64 * 1024,
+          },
+        });
+        return {};
+      },
+    })(definition, undefined as never);
+
+    await expect(engine.initialize()).rejects.toThrow(/does not fit sse\(\) maxPostBytes/);
   });
 
   it('refuses a window that does not fit half the connection budget, at startup', async () => {
@@ -2239,7 +2270,7 @@ describe('base.binary.upload: reading the state back', () => {
   it('refuses both starts from one connection when its cancel comes while an intercept holds them', async () => {
     const sql = createTestSql();
     await droppedUpload(sql);
-    const after = build({ sql, slowStartMs: 30 });
+    const after = build({ sql, slowStartMs: 200 });
     const amara = await connect(after.engine);
 
     const first = amara.start('up-1', deck);
@@ -2344,7 +2375,7 @@ describe('base.binary.upload: reading the state back', () => {
   it('runs a start that comes after the cancel, while an older start is still held', async () => {
     const sql = createTestSql();
     await droppedUpload(sql);
-    const after = build({ sql, slowStartMs: 30 });
+    const after = build({ sql, slowStartMs: 200 });
     const amara = await connect(after.engine);
 
     const first = amara.start('up-1', deck);
@@ -2395,7 +2426,7 @@ describe('base.binary.upload: reading the state back', () => {
   it('marks no held start for a cancel sent as a binary frame', async () => {
     const sql = createTestSql();
     await droppedUpload(sql);
-    const after = build({ sql, slowStartMs: 30 });
+    const after = build({ sql, slowStartMs: 200 });
     const amara = await connect(after.engine);
 
     const first = amara.start('up-1', deck);
@@ -2497,7 +2528,7 @@ describe('base.binary.upload: reading the state back', () => {
   it('marks no held start for a cancel frame that fails its shape check', async () => {
     const sql = createTestSql();
     await droppedUpload(sql);
-    const after = build({ sql, slowStartMs: 30 });
+    const after = build({ sql, slowStartMs: 200 });
     const amara = await connect(after.engine);
 
     const first = amara.start('up-1', deck);

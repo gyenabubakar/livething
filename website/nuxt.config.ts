@@ -54,6 +54,9 @@ export default defineNuxtConfig({
     prerender: {
       crawlLinks: true,
       routes: ['/'],
+      // A page that fails to render (a code block that could not be highlighted, a broken
+      // link) fails the build instead of shipping broken.
+      failOnError: true,
       // Cap parallelism so the OG-image (satori/resvg) renders don't swamp the
       // worker pool and time out — the heavy OG template needs breathing room.
       concurrency: 3,
@@ -101,7 +104,7 @@ export default defineNuxtConfig({
     domain: siteUrl,
     title: 'LiveThing',
     description:
-      'A typed, end-to-end WebSocket framework for TypeScript: call server() once and get an inferred client and server, with channels, streams, requests, presence, and reliability built in.',
+      'A typed, end-to-end, WebSocket-first realtime framework for TypeScript: call server() once and get an inferred client and server, with channels, streams, requests, presence, and reliability built in.',
     full: {
       title: 'LiveThing — full documentation',
       description: 'Every LiveThing documentation page concatenated into one file.',

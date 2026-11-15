@@ -3,12 +3,13 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
 import { ValidationFailed } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { rateLimit } from '@livething/server/rate-limit';
 import { scheduled } from '@livething/server/scheduled';
 import { sequence } from '@livething/server/sequence';
 import { recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 export const ChatPayload = v.object({ text: v.string() });
 export const LookupReq = v.object({ id: v.string() });
@@ -21,8 +22,9 @@ export const BadPayload = v.object({ ok: v.literal(true) });
 export const GroupRequestKey = localKey<{ tag: string }>('group-request');
 
 export const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     sequence({ persist: true }),
     dedup(),
     rateLimit(),

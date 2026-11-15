@@ -1,5 +1,5 @@
 import { emits, server, t } from '@livething/server';
-import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
+import { requireUsername } from '@livething/tests-e2e-handlers/_shared/authenticate';
 
 /**
  * A hibernation-enabled server that reports every heartbeat hook it sees.
@@ -11,7 +11,7 @@ import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
  */
 const base = server({
   hibernation: true,
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     emits({
       'ping-seen': t<{ connectionId: string }>(),

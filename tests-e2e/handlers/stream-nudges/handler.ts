@@ -1,10 +1,11 @@
 import { emits, errors, server, t } from '@livething/server';
 import { dedup } from '@livething/server/dedup';
 import { error } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const overflowGates = new Map<string, () => void>();
 
@@ -13,8 +14,9 @@ const overflowGates = new Map<string, () => void>();
 export const NudgeRejected = error('nudge-rejected');
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     dedup(),
     errors([NudgeRejected]),
     emits({

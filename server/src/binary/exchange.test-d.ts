@@ -135,31 +135,34 @@ const handleDownloadRecording = rooms.binary.stream('download-recording', {
 
 const handleStartScreenShare = base.on('start-screen-share', {
   async run(ctx) {
-    const answer = await ctx.binary.request('capture-screen', { maxWidth: 1280 });
+    const answer = await ctx.binary.request('capture-screen', undefined, {
+      info: { maxWidth: 1280 },
+    });
     expectTypeOf(answer).toEqualTypeOf<{
       readonly info: { fileType: 'image/png' };
       readonly bytes: Uint8Array;
     }>();
     // With no `in`, the answer has no info to check.
     expectTypeOf(
-      (await ctx.binary.request('capture-camera', null, thumbnail, { timeout: 5000 })).info,
+      (await ctx.binary.request('capture-camera', thumbnail, { info: null, timeout: 5000 })).info,
     ).toEqualTypeOf<void>();
     // @ts-expect-error: 'capture-screen' sends { maxWidth }
-    void ctx.binary.request('capture-screen', null);
+    void ctx.binary.request('capture-screen', undefined, { info: null });
     // @ts-expect-error: 'confirm-leave' is a JSON server request
-    void ctx.binary.request('confirm-leave', null);
+    void ctx.binary.request('confirm-leave', undefined, { info: null });
     // @ts-expect-error: 'capture-screen' is a binary server request
     void ctx.request('capture-screen', { maxWidth: 1280 });
     // @ts-expect-error: the bytes must be a Uint8Array or an ArrayBuffer
-    void ctx.binary.request('capture-camera', null, 'bytes');
+    void ctx.binary.request('capture-camera', 'bytes', { info: null });
 
     const fromKofi = await ctx.users
       .get('u_kofi')
-      .binary.request('capture-screen', { maxWidth: 640 });
+      .binary.request('capture-screen', undefined, { info: { maxWidth: 640 } });
     expectTypeOf(fromKofi.info).toEqualTypeOf<{ fileType: 'image/png' }>();
     expectTypeOf(fromKofi.from).toEqualTypeOf<ConnectionRef>();
+    const camera = ctx.connections.get(ctx.connection).binary;
     expectTypeOf(
-      (await ctx.connections.get(ctx.connection).binary.request('capture-camera', null)).bytes,
+      (await camera.request('capture-camera', undefined, { info: null })).bytes,
     ).toEqualTypeOf<Uint8Array>();
 
     // The senders are still there.
@@ -169,13 +172,14 @@ const handleStartScreenShare = base.on('start-screen-share', {
 
 const handleShareWhiteboard = rooms.on('share-whiteboard', {
   async run(ctx) {
-    const answer = await ctx.channel.binary.request('capture-whiteboard', null, undefined, {
+    const answer = await ctx.channel.binary.request('capture-whiteboard', undefined, {
+      info: null,
       to: ctx.connection,
     });
     expectTypeOf(answer.info).toEqualTypeOf<null>();
-    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, answer.bytes);
+    ctx.channel.binary.broadcast('screen-frame', answer.bytes, { info: { from: ctx.user.id } });
     // @ts-expect-error: 'capture-screen' belongs to the root, not to the channel
-    void ctx.channel.binary.request('capture-screen', { maxWidth: 1 });
+    void ctx.channel.binary.request('capture-screen', undefined, { info: { maxWidth: 1 } });
   },
 });
 
@@ -263,11 +267,11 @@ const huddles = base.channel(['huddles', 'huddle:{huddleId}'], {
 });
 huddles.on('share-whiteboard', {
   run(ctx) {
-    void ctx.channel.binary.request('capture-whiteboard', null);
+    void ctx.channel.binary.request('capture-whiteboard', undefined, { info: null });
     // @ts-expect-error: this channel declares no binary events
-    ctx.channel.binary.broadcast('screen-frame', null);
+    ctx.channel.binary.broadcast('screen-frame', undefined, { info: null });
     // @ts-expect-error: this channel declares no binary events
-    ctx.channel.binary.send('any-name', null);
+    ctx.channel.binary.send('any-name', undefined, { info: null });
   },
 });
 // A channel with a plain binary() declares no binary events either.
@@ -275,7 +279,7 @@ const lounges = base.channel('lounge', { capabilities: [binary()] });
 lounges.on('share-photo', {
   run(ctx) {
     // @ts-expect-error: this channel declares no binary events
-    ctx.channel.binary.broadcast('screen-frame', null);
+    ctx.channel.binary.broadcast('screen-frame', undefined, { info: null });
   },
 });
 const huddlesOnly = base.assemble({ handlers: [huddles, lounges] });
@@ -302,18 +306,22 @@ noBinaryRequests.on('start-screen-share', {
   run(ctx) {
     ctx.binary.send;
     // @ts-expect-error: nothing is declared in binary({ serverRequests })
-    void ctx.binary.request('capture-screen', null);
+    void ctx.binary.request('capture-screen', undefined, { info: null });
   },
 });
 // Connectionless code sends no server requests.
 base.assemble({
   handlers: [],
   api: (ctx) => {
+    const connection = ctx.connections.get({} as ConnectionRef);
     // @ts-expect-error: a connectionless connection handle has no binary.request
-    void ctx.connections.get({} as ConnectionRef).binary.request('capture-screen', { maxWidth: 1 });
+    void connection.binary.request('capture-screen', undefined, { info: { maxWidth: 1 } });
     // @ts-expect-error: nor does a connectionless user handle
-    void ctx.users.get('u_kofi').binary.request('capture-screen', { maxWidth: 1 });
+    void ctx.users.get('u_kofi').binary.request('capture-screen', undefined, {
+      info: { maxWidth: 1 },
+    });
     ctx.users.get('u_kofi').binary.broadcast;
+
     return {};
   },
 });
@@ -322,7 +330,7 @@ const noBinary = server({ capabilities: [serverRequests({}), clientRequests(), s
 noBinary.on('start-screen-share', {
   run(ctx) {
     // @ts-expect-error: ctx.binary needs binary()
-    void ctx.binary.request('capture-screen', null);
+    void ctx.binary.request('capture-screen', undefined, { info: null });
   },
 });
 // @ts-expect-error: base.binary needs binary()
@@ -404,7 +412,7 @@ const studios = base.channel(['studios', 'studio:{studioId}'], {
 });
 studios.on('share-whiteboard', {
   run(ctx) {
-    void ctx.channel.binary.request('capture-whiteboard', null);
+    void ctx.channel.binary.request('capture-whiteboard', undefined, { info: null });
     // @ts-expect-error: the channel declares no JSON server requests
     ctx.channel.request;
   },

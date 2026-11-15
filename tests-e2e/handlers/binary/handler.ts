@@ -5,20 +5,22 @@ import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
 import { Disconnect } from '@livething/server/errors';
 import { inbox } from '@livething/server/inbox';
+import { keepalive } from '@livething/server/keepalive';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
 import { serverRequests } from '@livething/server/server-requests';
 import { recordedStream, stream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { pattern } from '../_shared/bytes.ts';
-import { requireUsername } from '../_shared/upgrade.ts';
 
 function defineBinary(options: { hibernation: boolean }) {
   const base = server({
     hibernation: options.hibernation,
-    upgrade: (request) => requireUsername(request),
+    authenticate: (request) => requireUsername(request),
     capabilities: [
+      keepalive(),
       binary({
         emits: { 'avatar-preview': t<{ fileType: string; size: number }>() },
         serverRequests: {
@@ -59,11 +61,9 @@ function defineBinary(options: { hibernation: boolean }) {
     input: v.object({ durationMs: v.number() }),
     maxBytes: 1024 * 1024,
     run(ctx, input, bytes) {
-      ctx.channel.binary.broadcast(
-        'voice-note',
-        { from: ctx.user.id, durationMs: input.durationMs },
-        bytes,
-      );
+      ctx.channel.binary.broadcast('voice-note', bytes, {
+        info: { from: ctx.user.id, durationMs: input.durationMs },
+      });
     },
   });
 
@@ -89,11 +89,9 @@ function defineBinary(options: { hibernation: boolean }) {
     input: v.object({ fileType: v.picklist(['image/png', 'image/jpeg']) }),
     maxBytes: 2 * 1024 * 1024,
     run(ctx, input, bytes) {
-      ctx.binary.send(
-        'avatar-preview',
-        { fileType: input.fileType, size: bytes.byteLength },
-        bytes.subarray(0, 8),
-      );
+      ctx.binary.send('avatar-preview', bytes.subarray(0, 8), {
+        info: { fileType: input.fileType, size: bytes.byteLength },
+      });
     },
   });
 
@@ -101,7 +99,7 @@ function defineBinary(options: { hibernation: boolean }) {
     input: v.null(),
     maxBytes: 1024 * 1024,
     run(ctx, _input, bytes) {
-      ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+      ctx.channel.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
     },
   });
 
@@ -167,8 +165,10 @@ function defineBinary(options: { hibernation: boolean }) {
   const handleStartScreenShare = rooms.on('start-screen-share', {
     input: v.object({}),
     async run(ctx) {
-      const { bytes } = await ctx.binary.request('capture-screen', { maxWidth: 1280 });
-      ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+      const { bytes } = await ctx.binary.request('capture-screen', undefined, {
+        info: { maxWidth: 1280 },
+      });
+      ctx.channel.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
     },
   });
 

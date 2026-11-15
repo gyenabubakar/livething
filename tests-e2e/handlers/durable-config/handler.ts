@@ -1,16 +1,18 @@
 import { emits, server, t } from '@livething/server';
 import { dedup } from '@livething/server/dedup';
+import { keepalive } from '@livething/server/keepalive';
 import { sequence } from '@livething/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 // Exercises two durable capability configs in one DO:
 //  - sequence({ persist: true }) so the seq counter survives a restart
 //  - dedup({ cap: 2 }) so the incoming dedup ring evicts the oldest id
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     sequence({ persist: true, batchSize: 5 }),
     dedup({ cap: 2 }),
     emits({ tock: t<{}>(), echoed: t<{ text: string }>() }),

@@ -2,7 +2,6 @@ import { LiveThingConfigError } from '@livething/core';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { assertTimerDelay } from '~/_engine/validation.ts';
 import { createKeepaliveMonitor } from '~/keepalive/runtime.ts';
-import type { EngineAccess } from '~/_engine/access.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -24,7 +23,8 @@ export interface KeepaliveOptions {
    * connection that has truly gone away sends nothing (not even a pong), so the
    * window elapses and it is closed.
    *
-   * Under hibernation this window does not run: there is no in-memory timer to
+   * For a WebSocket the platform holds while the server sleeps (Cloudflare under
+   * hibernation), this window does not run: there is no in-memory timer to
    * enforce it, and the underlying platform can answer a client's ping without
    * waking the instance, so the instance never even sees that traffic. See
    * hibernation in the server docs for what to do instead if an idle policy is
@@ -91,15 +91,20 @@ export function keepalive(options: KeepaliveOptions = {}): KeepalivePrimitive {
     __requires: {},
     __setup(engine) {
       engine.installOnce(KEEPALIVE_KEY, () => {
-        // Under hibernation this capability supervises nothing: the runtime
-        // answers a client's ping at the edge, so a server ping would only
-        // wake the instance, and a `setTimeout` idle timer would itself hold
-        // the instance in memory — defeating hibernation while closing
-        // quiet-but-alive clients whose traffic never reaches it to refresh
-        // the timer.
-        const monitor = createKeepaliveMonitor(engine, timings, !engine.getHibernationEnabled());
+        engine.setKeepaliveTimings(timings);
+        // A connection the platform holds while the server sleeps is not supervised:
+        // the runtime answers a client's ping at the edge, so a server ping would only
+        // wake the instance, and a `setTimeout` idle timer would itself hold the
+        // instance in memory — defeating hibernation while closing quiet-but-alive
+        // clients whose traffic never reaches it to refresh the timer. Every other
+        // connection, such as one over server-sent events, is supervised as usual.
+        const monitor = createKeepaliveMonitor(
+          engine,
+          timings,
+          (connectionId) => !engine.connectionSurvivesHibernation(connectionId),
+        );
 
-        engine.extendContext((baseCtx) => buildLatencySurface(engine, baseCtx));
+        engine.extendContext((baseCtx) => buildLatencySurface(baseCtx));
 
         engine.onConnect((ctx) => {
           const connectionId = connectionIdOf(ctx);
@@ -122,7 +127,7 @@ export function keepalive(options: KeepaliveOptions = {}): KeepalivePrimitive {
  * Both stay live getters off the raw connection so a context reused across a
  * dispatch's intercepts and handler always reflects the current measurement.
  */
-function buildLatencySurface(engine: EngineAccess, baseCtx: unknown): Record<string, unknown> {
+function buildLatencySurface(baseCtx: unknown): Record<string, unknown> {
   const connection = (baseCtx as Record<PropertyKey, unknown>)[
     ENGINE_INTERNAL_CONNECTION
   ] as RuntimeConnection;
@@ -131,7 +136,7 @@ function buildLatencySurface(engine: EngineAccess, baseCtx: unknown): Record<str
       return connection.latency;
     },
     get quality() {
-      if (engine.getHibernationEnabled() || connection.latency === null) return null;
+      if (connection.survivesHibernation || connection.latency === null) return null;
 
       return connection.quality;
     },

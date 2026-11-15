@@ -55,37 +55,37 @@ describe('tags() capability', () => {
     ]);
   });
 
-  it('seeds initial ephemeral tags from the upgrade sugar', async () => {
+  it('seeds initial ephemeral tags from the authenticate sugar', async () => {
     const base = server({
-      upgrade() {
+      authenticate() {
         return { userId: 'alice', tags: { ephemeral: { role: 'admin' } } };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
-    const upgradePrimitive = base
+    const authPrimitive = base
       .assemble({ handlers: [] })
-      .primitives.find((p) => p.__livething === 'onUpgrade') as unknown as {
+      .primitives.find((p) => p.__livething === 'onAuthenticate') as unknown as {
       handler(request: Request, helpers: unknown): Promise<{ tags?: unknown }>;
     };
-    const result = await upgradePrimitive.handler(new Request('http://x'), {});
+    const result = await authPrimitive.handler(new Request('http://x'), {});
     expect(result.tags).toEqual([
       { __livething: 'tag-ref', kind: 'ephemeral', group: 'role', key: 'admin' },
     ]);
   });
 
-  it('omits tags from the upgrade result when none are seeded', async () => {
+  it('omits tags from the authenticate result when none are seeded', async () => {
     const base = server({
-      upgrade() {
+      authenticate() {
         return { userId: 'alice' };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
-    const upgradePrimitive = base
+    const authPrimitive = base
       .assemble({ handlers: [] })
-      .primitives.find((p) => p.__livething === 'onUpgrade') as unknown as {
+      .primitives.find((p) => p.__livething === 'onAuthenticate') as unknown as {
       handler(request: Request, helpers: unknown): Promise<{ tags?: unknown }>;
     };
-    const result = await upgradePrimitive.handler(new Request('http://x'), {});
+    const result = await authPrimitive.handler(new Request('http://x'), {});
     expect(result.tags).toBeUndefined();
   });
 

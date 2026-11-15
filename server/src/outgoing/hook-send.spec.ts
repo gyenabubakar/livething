@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
+import { isConnectedFrame } from '~/_test/connected.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { emits } from '~/emits/emits.ts';
@@ -50,7 +51,7 @@ it('does not re-run onOutgoing for a send made inside onOutgoing', async () => {
   const before = new Set(engine.core.connections.keys());
   const handle = engine.accept(Symbol('alice'), {
     send: ({ text: data }: { kind: 'text'; text: string }) => {
-      frames.push(data);
+      if (!isConnectedFrame(data)) frames.push(data);
     },
     close() {},
     bufferedAmount: () => 0,

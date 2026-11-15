@@ -12,6 +12,7 @@
     "**/dist/**",
     "**/coverage/**",
     "**/node_modules/**",
+    ".codex/**",
     "website/**",
     "vite.config.*.timestamp-*.*",
     "lint-staged.config.js"
@@ -96,7 +97,6 @@
     "require-yield": "error",
     "no-nested-ternary": "error",
     "complexity": ["error", { "max": 50, "variant": "classic" }],
-    "max-params": ["error", { "max": 3 }],
     "eslint-js/no-restricted-syntax": [
       "error",
       {
@@ -109,6 +109,7 @@
       }
     ],
     "livething/max-consecutive-statements": ["error", { "max": 5 }],
+    "livething/max-params": ["error", { "max": 3 }],
     "livething/padding-after-block": "error",
     "livething/padding-after-guard-clause": "error",
     "livething/padding-after-object-literal-declaration": "error",

@@ -1,12 +1,14 @@
 import { emits, server, t } from '@livething/server';
 import { ValidationFailed } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
+    keepalive(),
     emits({
       connected: t<{ username: string }>(),
       disconnected: t<{ username: string }>(),
@@ -20,14 +22,14 @@ const base = server({
       }>(),
       'validation-error-fired': t<{ event: string }>(),
       'error-fired': t<{ message: string }>(),
-      'upgrade-meta': t<{ username: string }>(),
+      'auth-meta': t<{ username: string }>(),
       'connect-count': t<{ count: number }>(),
       'async-hook-complete': t<{ complete: boolean }>(),
     }),
   ],
   onConnect(ctx) {
     ctx.send('connected', { username: ctx.meta.username });
-    ctx.send('upgrade-meta', { username: ctx.meta.username });
+    ctx.send('auth-meta', { username: ctx.meta.username });
     ctx.send('connect-count', { count: 2 });
     ctx.send('async-hook-complete', { complete: true });
   },

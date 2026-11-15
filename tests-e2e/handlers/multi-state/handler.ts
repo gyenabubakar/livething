@@ -5,18 +5,20 @@
  * end of the handler invocation.
  */
 import { emits, server, t } from '@livething/server';
+import { keepalive } from '@livething/server/keepalive';
 import { tags } from '@livething/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
-import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/authenticate.ts';
 
 const TagBatchPayload = v.object({});
 
 const base = server({
   hibernation: true,
-  upgrade: (request) => requireUsernameWithUserTag(request),
+  authenticate: (request) => requireUsernameWithUserTag(request),
   capabilities: [
-    // `user` is consumed by `requireUsernameWithUserTag` from `_shared/upgrade.ts`;
+    keepalive(),
+    // `user` is consumed by `requireUsernameWithUserTag` from `_shared/authenticate.ts`;
     // `batch` is what the multi-state handlers under test add and remove.
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('batch', t<string>())]),
     emits({ 'tag-batch-done': t<{ ok: boolean }>() }),

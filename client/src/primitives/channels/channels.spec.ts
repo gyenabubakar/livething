@@ -637,7 +637,7 @@ describe('reliable leave', () => {
 
       const leave = room.unsubscribe();
       first.serverClose(1006, 'drop');
-      vi.advanceTimersByTime(60_000);
+      vi.advanceTimersByTime(5_000);
       MockWebSocket.last().serverClose(1006, 'still down');
 
       await expect(leave).rejects.toMatchObject({ code: 'disconnected' });
@@ -926,7 +926,7 @@ describe('stream-error routing (order-independent)', () => {
 
 describe('lazy hold lifecycle (no leak)', () => {
   function lazySocket() {
-    return client<C>()(connect('wss://test', { lazy: true, idleTimeout: 1000 }), channels());
+    return client<C>()(connect('wss://test', { lazy: true, lazyIdleTimeoutMs: 1000 }), channels());
   }
 
   it('releases the subscribe hold when the subscribe is rejected, so the socket idle-closes', async () => {

@@ -41,44 +41,47 @@ const handleUploadAvatar = base.binary.on('upload-avatar', {
     expectTypeOf(input).toEqualTypeOf<{ fileType: 'image/png' | 'image/jpeg' }>();
     expectTypeOf(bytes).toEqualTypeOf<Uint8Array>();
 
-    expectTypeOf(ctx.binary.send('avatar-preview', null, bytes)).toEqualTypeOf<boolean>();
-    ctx.binary.send('avatar-cropped', { width: 64 }, bytes.buffer as ArrayBuffer);
-    ctx.binary.send('avatar-preview', null);
+    expectTypeOf(ctx.binary.send('avatar-preview', bytes, { info: null })).toEqualTypeOf<boolean>();
+    ctx.binary.send('avatar-cropped', bytes.buffer as ArrayBuffer, { info: { width: 64 } });
+    ctx.binary.send('avatar-preview', undefined, { info: null });
     // @ts-expect-error: the info of 'avatar-preview' is null
-    ctx.binary.send('avatar-preview', { width: 64 }, bytes);
+    ctx.binary.send('avatar-preview', bytes, { info: { width: 64 } });
     // @ts-expect-error: 'avatar-saved' is a JSON event, not a binary one
-    ctx.binary.send('avatar-saved', { userId: 'u_amara' }, bytes);
+    ctx.binary.send('avatar-saved', bytes, { info: { userId: 'u_amara' } });
     // @ts-expect-error: 'avatar-preview' is a binary event, not a JSON one
     ctx.send('avatar-preview', null);
     // @ts-expect-error: the bytes must be a Uint8Array or an ArrayBuffer
-    ctx.binary.send('avatar-preview', null, 'bytes');
+    ctx.binary.send('avatar-preview', 'bytes', { info: null });
     // @ts-expect-error: no replay capability is listed, so there is no binary.sendReplay
     ctx.binary.sendReplay;
 
     expectTypeOf(
-      ctx.binary.broadcast('avatar-preview', null, bytes, { includeSelf: true }),
+      ctx.binary.broadcast('avatar-preview', bytes, { info: null, includeSelf: true }),
     ).toEqualTypeOf<void>();
-    expectTypeOf(ctx.user.binary.broadcast('avatar-preview', null, bytes)).toEqualTypeOf<number>();
     expectTypeOf(
-      ctx.connections.get(ctx.connection).binary.send('avatar-preview', null, bytes),
+      ctx.user.binary.broadcast('avatar-preview', bytes, { info: null }),
+    ).toEqualTypeOf<number>();
+    expectTypeOf(
+      ctx.connections.get(ctx.connection).binary.send('avatar-preview', bytes, { info: null }),
     ).toEqualTypeOf<boolean>();
-    ctx.users.get('u_kofi').binary.broadcast('avatar-preview', null, bytes);
-    ctx.tags.ephemeral('team').binary.broadcast('avatar-preview', null, bytes);
+    ctx.users.get('u_kofi').binary.broadcast('avatar-preview', bytes, { info: null });
+    ctx.tags.ephemeral('team').binary.broadcast('avatar-preview', bytes, { info: null });
 
-    ctx.tags.ephemeral('team').ref('design').binary.broadcast('avatar-preview', null, bytes);
+    const designTeam = ctx.tags.ephemeral('team').ref('design');
+    designTeam.binary.broadcast('avatar-preview', bytes, { info: null });
     // @ts-expect-error: 'avatar-preveiw' is not a binary event
-    ctx.tags.ephemeral('team').binary.broadcast('avatar-preveiw', null, bytes);
+    ctx.tags.ephemeral('team').binary.broadcast('avatar-preveiw', bytes, { info: null });
     // @ts-expect-error: the info of 'avatar-cropped' is { width: number }
-    ctx.tags.ephemeral('team').binary.broadcast('avatar-cropped', null, bytes);
+    ctx.tags.ephemeral('team').binary.broadcast('avatar-cropped', bytes, { info: null });
     // @ts-expect-error: 'avatar-preveiw' is not a binary event
-    ctx.tags.ephemeral('team').ref('design').binary.broadcast('avatar-preveiw', null, bytes);
+    designTeam.binary.broadcast('avatar-preveiw', bytes, { info: null });
     // @ts-expect-error: the info of 'avatar-preview' is null
-    ctx.tags.ephemeral('team').ref('design').binary.broadcast('avatar-preview', { width: 64 });
+    designTeam.binary.broadcast('avatar-preview', undefined, { info: { width: 64 } });
 
     const design = ctx.channels.get(rooms.at({ roomId: 'design' }));
-    design.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+    design.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
     // @ts-expect-error: 'screen-frame' needs its info
-    design.binary.broadcast('screen-frame', null, bytes);
+    design.binary.broadcast('screen-frame', bytes, { info: null });
     // @ts-expect-error: the channel's binary events are not JSON events
     design.broadcast('screen-frame', { from: ctx.user.id });
     design.broadcast('screen-share-started', { from: ctx.user.id });
@@ -89,21 +92,24 @@ const handleShareScreenFrame = rooms.binary.on('share-screen-frame', {
   input: v.null(),
   run(ctx, input, bytes) {
     expectTypeOf(input).toEqualTypeOf<null>();
-    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, bytes);
+    ctx.channel.binary.broadcast('screen-frame', bytes, { info: { from: ctx.user.id } });
     expectTypeOf(
-      ctx.channel.binary.broadcastTo(ctx.connection, 'screen-frame', { from: 'u_amara' }, bytes),
+      ctx.channel.binary.broadcastTo('screen-frame', bytes, {
+        to: ctx.connection,
+        info: { from: 'u_amara' },
+      }),
     ).toEqualTypeOf<number>();
     expectTypeOf(
-      ctx.channel.binary.send('screen-frame', { from: 'u_amara' }, bytes),
+      ctx.channel.binary.send('screen-frame', bytes, { info: { from: 'u_amara' } }),
     ).toEqualTypeOf<number>();
     // @ts-expect-error: 'avatar-preview' belongs to the root, not to the channel
-    ctx.channel.binary.broadcast('avatar-preview', null, bytes);
+    ctx.channel.binary.broadcast('avatar-preview', bytes, { info: null });
   },
 });
 
 const handleRenameRoom = rooms.on('rename-room', {
   run(ctx) {
-    ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id });
+    ctx.channel.binary.broadcast('screen-frame', undefined, { info: { from: ctx.user.id } });
   },
 });
 
@@ -118,12 +124,13 @@ const handleSendSticker = base.binary.on('send-sticker', {
 export const huddle = base.assemble({
   handlers: [handleUploadAvatar, handleShareScreenFrame, handleRenameRoom, handleSendSticker],
   api: (ctx) => {
-    ctx.binary.broadcast('avatar-preview', null, new Uint8Array(4));
-    ctx.channels.get(rooms.at({ roomId: 'design' })).binary.broadcast('screen-frame', {
-      from: 'admin',
-    });
-    ctx.channels.binary.broadcast({ family: 'rooms', name: 'room:design' }, 'screen-frame', {
-      from: 'admin',
+    ctx.binary.broadcast('avatar-preview', new Uint8Array(4), { info: null });
+    ctx.channels
+      .get(rooms.at({ roomId: 'design' }))
+      .binary.broadcast('screen-frame', undefined, { info: { from: 'admin' } });
+    ctx.channels.binary.broadcast('screen-frame', undefined, {
+      channel: { family: 'rooms', name: 'room:design' },
+      info: { from: 'admin' },
     });
     return {};
   },
@@ -160,7 +167,7 @@ plain.binary.on('upload-avatar', { run() {} });
 plain.on('save-avatar', {
   run(ctx) {
     // @ts-expect-error: ctx.binary needs binary events
-    ctx.binary.send('avatar-preview', null);
+    ctx.binary.send('avatar-preview', undefined, { info: null });
   },
 });
 const plainClient = plain.assemble({ handlers: [] });
@@ -179,14 +186,14 @@ const stage = screens.channel('stage', {
 const handleShareScreen = screens.binary.on('share-screen-frame', {
   input: v.null(),
   run(ctx, _input, bytes) {
-    ctx.binary.send('screen-frame', { from: ctx.user.id }, bytes);
+    ctx.binary.send('screen-frame', bytes, { info: { from: ctx.user.id } });
     // @ts-expect-error: 'screen-frame' needs its info
-    ctx.binary.send('screen-frame', null, bytes);
+    ctx.binary.send('screen-frame', bytes, { info: null });
   },
 });
 const handleShareStage = stage.binary.on('share-stage-frame', {
   run(ctx, _input, bytes) {
-    ctx.channel.binary.broadcast('stage-frame', null, bytes);
+    ctx.channel.binary.broadcast('stage-frame', bytes, { info: null });
   },
 });
 const Screens = plugin('acme:screens', {
@@ -251,15 +258,17 @@ const wire = { deliverySeq: 7, messageId: 'm-7' };
 replayed.on('resend-avatar-preview', {
   run(ctx) {
     const bytes = new Uint8Array(4);
-    expectTypeOf(ctx.binary.sendReplay('avatar-preview', null, bytes, wire)).toEqualTypeOf<void>();
-    ctx.binary.sendReplay('screen-frame', { from: 'u_amara' }, bytes, {
-      ...wire,
-      channel: replayedRooms.at({ roomId: 'general' }),
+    expectTypeOf(
+      ctx.binary.sendReplay('avatar-preview', bytes, { info: null, wire }),
+    ).toEqualTypeOf<void>();
+    ctx.binary.sendReplay('screen-frame', bytes, {
+      info: { from: 'u_amara' },
+      wire: { ...wire, channel: replayedRooms.at({ roomId: 'general' }) },
     });
     // @ts-expect-error: the info of 'avatar-preview' is null
-    ctx.binary.sendReplay('avatar-preview', { width: 64 }, bytes, wire);
+    ctx.binary.sendReplay('avatar-preview', bytes, { info: { width: 64 }, wire });
     // @ts-expect-error: 'avatar-saved' is a JSON event, so it goes through ctx.sendReplay
-    ctx.binary.sendReplay('avatar-saved', { userId: 'u_amara' }, bytes, wire);
+    ctx.binary.sendReplay('avatar-saved', bytes, { info: { userId: 'u_amara' }, wire });
     // @ts-expect-error: 'avatar-preview' is a binary event, so it goes through ctx.binary.sendReplay
     ctx.sendReplay('avatar-preview', null, wire);
   },
@@ -268,9 +277,9 @@ replayed.on('resend-avatar-preview', {
 replayedRooms.on('resend-screen-frame', {
   run(ctx) {
     const bytes = new Uint8Array(4);
-    ctx.channel.binary.sendReplay?.('screen-frame', { from: ctx.user.id }, bytes, wire);
+    ctx.channel.binary.sendReplay?.('screen-frame', bytes, { info: { from: ctx.user.id }, wire });
     // @ts-expect-error: it is absent when replay is not active for the channel
-    ctx.channel.binary.sendReplay('screen-frame', { from: ctx.user.id }, bytes, wire);
+    ctx.channel.binary.sendReplay('screen-frame', bytes, { info: { from: ctx.user.id }, wire });
     // @ts-expect-error: a channel handler has no root sendReplay, binary or JSON
     ctx.binary.sendReplay;
   },

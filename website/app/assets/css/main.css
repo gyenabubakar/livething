@@ -132,7 +132,7 @@ h6 {
   --art-glow: rgb(244 97 15 / 0.12);
 }
 
-/* Logos drawn in white for dark backgrounds (Deno, Astro): flip their lightness
+/* Logos drawn in white for dark backgrounds (Astro): flip their lightness
    in light mode and keep their hue. */
 .logo-white {
   filter: invert(1) hue-rotate(180deg);

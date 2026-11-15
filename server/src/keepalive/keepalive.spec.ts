@@ -31,6 +31,7 @@ function createFakeEngine(options: { hibernating?: boolean } = {}) {
       installed.add(key);
       install();
     },
+    setKeepaliveTimings: () => {},
     onConnect: (handler: CtxHandler) => void connectHandlers.push(handler),
     onDisconnect: (handler: CtxHandler) => void disconnectHandlers.push(handler),
     onConnectionCleanup: (handler: (id: string) => void) => void cleanupHandlers.push(handler),
@@ -38,7 +39,7 @@ function createFakeEngine(options: { hibernating?: boolean } = {}) {
     onPing: (handler: IdHandler) => void pingHandlers.push(handler),
     onPong: (handler: IdHandler) => void pongHandlers.push(handler),
     extendContext: (factory: ContextExtender) => void contextExtenders.push(factory),
-    getHibernationEnabled: () => options.hibernating ?? false,
+    connectionSurvivesHibernation: () => options.hibernating ?? false,
     sendPing: vi.fn(),
     setConnectionLatency: vi.fn(),
     refreshConnectionIdleTimeout: vi.fn(),
@@ -227,16 +228,18 @@ describe('keepalive', () => {
     });
   });
 
-  it('installs a live ctx.latency / ctx.quality surface gated on hibernation', () => {
-    let hibernating = false;
+  it('installs a live ctx.latency / ctx.quality surface, with no quality for a connection that survives hibernation', () => {
     const fake = createFakeEngine();
-    (fake.engine as { getHibernationEnabled: () => boolean }).getHibernationEnabled = () =>
-      hibernating;
 
     keepalive(OPTS).__setup?.(fake.engine);
     expect(fake.contextExtenders).toHaveLength(1);
 
-    const connection = { latency: null as number | null, quality: 'good' };
+    const connection = {
+      latency: null as number | null,
+      quality: 'good',
+      survivesHibernation: false,
+    };
+
     const baseCtx = { [ENGINE_INTERNAL_CONNECTION]: connection } as Record<PropertyKey, unknown>;
     Object.defineProperties(
       baseCtx,
@@ -251,7 +254,7 @@ describe('keepalive', () => {
     expect(baseCtx.latency).toBe(42);
     expect(baseCtx.quality).toBe('excellent');
 
-    hibernating = true;
+    connection.survivesHibernation = true;
     expect(baseCtx.quality).toBeNull();
   });
 

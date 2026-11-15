@@ -395,9 +395,19 @@ const ReadQueryResultFrame = frame(
   queryMeta,
 );
 const GapFrame = frame('__gap__', v.strictObject({ missedThrough: NonNegativeSafeInt }), Metadata);
-const ResumeFrame = frame(
-  '__resume__',
-  v.strictObject({ token: ResumeToken, seq: v.optional(NonNegativeSafeInt) }),
+const NullableMs = v.nullable(NonNegativeSafeInt);
+const ConnectedFrame = frame(
+  '__connected__',
+  v.strictObject({
+    pingIntervalMs: NullableMs,
+    idleTimeoutMs: NullableMs,
+    maxResumeTokens: NonNegativeSafeInt,
+    connectionId: v.string(),
+    features: v.array(v.picklist(['replay', 'binary', 'uploads'])),
+    resume: v.nullable(v.strictObject({ token: ResumeToken, seq: v.nullable(NonNegativeSafeInt) })),
+    secret: v.nullable(v.string()),
+    maxPostBytes: v.nullable(NonNegativeSafeInt),
+  }),
   Metadata,
 );
 const UploadAckFrame = frame(
@@ -414,7 +424,7 @@ const UploadDoneFrame = frame('__uploadDone__', v.unknown(), uploadMeta);
 export const OutgoingProtocolFrame = v.union([
   UploadAckFrame,
   UploadDoneFrame,
-  ResumeFrame,
+  ConnectedFrame,
   SubscribeOkFrame,
   UnsubscribeOkFrame,
   StreamOkFrame,
@@ -654,7 +664,7 @@ const OUTGOING_NAMES = [
   '__receivedQuery__',
   '__readQuery__',
   '__gap__',
-  '__resume__',
+  '__connected__',
 ] as const;
 export type IncomingProtocolEvent = (typeof INCOMING_NAMES)[number];
 export const OUTGOING_PROTOCOL_EVENT_NAMES: ReadonlySet<string> = new Set(OUTGOING_NAMES);

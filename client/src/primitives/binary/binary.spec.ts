@@ -147,7 +147,9 @@ describe('a binary frame on a client with binary()', () => {
     const listener = vi.fn();
     socket.binary.on('avatar-cropped', listener);
 
-    ws.emitRaw(frame('avatar-cropped', { width: 64 }, null, picture));
+    ws.emitRaw(
+      frame({ event: 'avatar-cropped', payload: { width: 64 }, metadata: null, bytes: picture }),
+    );
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.calls[0]![0]).toEqual({ width: 64 });
@@ -161,7 +163,7 @@ describe('a binary frame on a client with binary()', () => {
       got = bytes;
     });
 
-    const data = frame('avatar-preview', null, null, picture);
+    const data = frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture });
     ws.emitRaw(data);
 
     expect(Object.getPrototypeOf(got)).toBe(Uint8Array.prototype);
@@ -175,18 +177,19 @@ describe('a binary frame on a client with binary()', () => {
     const listener = vi.fn();
     socket.binary.on('avatar-preview', listener);
 
-    ws.emitRaw(frame('avatar-preview', null, null));
+    ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null }));
 
     expect(listener).toHaveBeenCalledWith(null, new Uint8Array(0));
   });
 
+  function preview(): ArrayBuffer {
+    return frame({ event: 'avatar-preview', payload: null, metadata: null });
+  }
+
   it.each([
-    ['a wrong version', () => withByte(frame('avatar-preview', null, null), 4, 2)],
+    ['a wrong version', () => withByte(preview(), 4, 2)],
     ['a truncated header', () => new Uint8Array([0x6c, 0x74, 0x62, 0x66, 1]).buffer],
-    [
-      'an envelope length past the end',
-      () => withByte(frame('avatar-preview', null, null), 8, 200),
-    ],
+    ['an envelope length past the end', () => withByte(preview(), 8, 200)],
     ['an envelope that is not JSON', () => rawFrame('not json')],
     ['an envelope that is not a LiveThing tuple', () => rawFrame('["avatar-preview",null]')],
     [
@@ -246,7 +249,7 @@ describe('a binary frame on a client with binary()', () => {
 
     socket.onError(onError);
 
-    ws.emitRaw(frame('avatar-preview', null, null, picture));
+    ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }));
 
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
     expect(String(onError.mock.calls[0]![0])).toContain('Register binary() in client()');
@@ -275,7 +278,7 @@ describe('binary routing', () => {
     const json = vi.fn();
     socket.on('avatar-preview', json);
 
-    ws.emitRaw(frame('avatar-preview', null, null, picture));
+    ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }));
 
     expect(json).not.toHaveBeenCalled();
   });
@@ -303,12 +306,15 @@ describe('binary routing', () => {
     general.on('screen-frame', onJson);
 
     ws.emitRaw(
-      frame(
-        'screen-frame',
-        { from: 'u_amara' },
-        { channel: { name: 'room:general', family: 'rooms' }, delivery: { id: 'm-8', seq: 3 } },
-        picture,
-      ),
+      frame({
+        event: 'screen-frame',
+        payload: { from: 'u_amara' },
+        metadata: {
+          channel: { name: 'room:general', family: 'rooms' },
+          delivery: { id: 'm-8', seq: 3 },
+        },
+        bytes: picture,
+      }),
     );
 
     expect(onGeneral).toHaveBeenCalledWith({ from: 'u_amara' }, expect.any(Uint8Array));
@@ -321,7 +327,14 @@ describe('binary routing', () => {
     const top = vi.fn();
     socket.binary.on('avatar-preview', top);
 
-    ws.emitRaw(frame('avatar-preview', null, { channel: { name: 'room:general' } }, picture));
+    ws.emitRaw(
+      frame({
+        event: 'avatar-preview',
+        payload: null,
+        metadata: { channel: { name: 'room:general' } },
+        bytes: picture,
+      }),
+    );
 
     expect(top).not.toHaveBeenCalled();
   });
@@ -335,7 +348,7 @@ describe('binary routing', () => {
 
     off();
     off();
-    ws.emitRaw(frame('avatar-preview', null, null, picture));
+    ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }));
 
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
@@ -352,7 +365,7 @@ describe('binary routing', () => {
 
     socket.binary.on('avatar-preview', other);
 
-    ws.emitRaw(frame('avatar-preview', null, null, picture));
+    ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }));
 
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom' }));
     expect(other).toHaveBeenCalledTimes(1);
@@ -373,8 +386,10 @@ describe('binary routing', () => {
 
     socket.binary.on('avatar-cropped', cropped);
 
-    ws.emitRaw(frame('avatar-preview', null, null, picture));
-    ws.emitRaw(frame('avatar-cropped', { width: 1 }, null, picture));
+    ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }));
+    ws.emitRaw(
+      frame({ event: 'avatar-cropped', payload: { width: 1 }, metadata: null, bytes: picture }),
+    );
 
     expect([...seen[0]!.bytes!]).toEqual([...picture]);
     expect(preview).toHaveBeenCalledTimes(1);
@@ -386,7 +401,12 @@ describe('binary routing', () => {
     const listener = vi.fn();
     socket.binary.on('avatar-preview', listener);
 
-    const data = frame('avatar-preview', null, { delivery: { id: 'm-1' } }, picture);
+    const data = frame({
+      event: 'avatar-preview',
+      payload: null,
+      metadata: { delivery: { id: 'm-1' } },
+      bytes: picture,
+    });
     ws.emitRaw(data);
     ws.emitRaw(data);
 
@@ -396,7 +416,14 @@ describe('binary routing', () => {
   it('counts the sequence of a binary frame for replay()', () => {
     const { ws } = connected(binary(), dedup(), replay(), reconnection({ maxDelay: 10 }));
     vi.useFakeTimers();
-    ws.emitRaw(frame('avatar-preview', null, { delivery: { id: 'm-1', seq: 7 } }, picture));
+    ws.emitRaw(
+      frame({
+        event: 'avatar-preview',
+        payload: null,
+        metadata: { delivery: { id: 'm-1', seq: 7 } },
+        bytes: picture,
+      }),
+    );
 
     ws.serverClose(1006);
     vi.advanceTimersByTime(5_000);
@@ -417,9 +444,21 @@ describe('binary routing', () => {
     socket.binary.on('download-attachment' as 'avatar-preview', listener);
 
     expect(() => {
-      ws.emitRaw(frame('get-thumbnail', null, { exchange: { id: 'req-9' } }, picture));
       ws.emitRaw(
-        frame('download-attachment', null, { stream: { id: 'download-1', seq: 1 } }, picture),
+        frame({
+          event: 'get-thumbnail',
+          payload: null,
+          metadata: { exchange: { id: 'req-9' } },
+          bytes: picture,
+        }),
+      );
+      ws.emitRaw(
+        frame({
+          event: 'download-attachment',
+          payload: null,
+          metadata: { stream: { id: 'download-1', seq: 1 } },
+          bytes: picture,
+        }),
       );
     }).not.toThrow();
 
@@ -440,7 +479,12 @@ describe('binary routing', () => {
     })();
 
     ws.emitRaw(
-      frame('download-attachment', null, { stream: { id: handle.streamId, seq: 1 } }, picture),
+      frame({
+        event: 'download-attachment',
+        payload: null,
+        metadata: { stream: { id: handle.streamId, seq: 1 } },
+        bytes: picture,
+      }),
     );
     ws.emit({
       event: 'download-attachment',
@@ -472,11 +516,18 @@ describe('binary routing', () => {
     socket.onRequest('capture-screen', handler);
 
     const general = { name: 'room:general', family: 'rooms' };
-    ws.emitRaw(frame('capture-screen', null, { exchange: { id: 'x-1', source: 'server' } }));
     ws.emitRaw(
-      frame('capture-whiteboard', null, {
-        exchange: { id: 'x-2', source: 'server' },
-        channel: general,
+      frame({
+        event: 'capture-screen',
+        payload: null,
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
+    );
+    ws.emitRaw(
+      frame({
+        event: 'capture-whiteboard',
+        payload: null,
+        metadata: { exchange: { id: 'x-2', source: 'server' }, channel: general },
       }),
     );
 
@@ -503,7 +554,13 @@ describe('binary routing', () => {
     socket.binary.on('avatar-preview', listener);
     socket.on('avatar-saved', text);
 
-    ws.emitRaw(frame('avatar-preview', null, { exchange: { id: 'x-1', source: 'server' } }));
+    ws.emitRaw(
+      frame({
+        event: 'avatar-preview',
+        payload: null,
+        metadata: { exchange: { id: 'x-1', source: 'server' } },
+      }),
+    );
     ws.emit({
       event: 'avatar-saved',
       payload: { userId: 'u_amara' },
@@ -521,8 +578,15 @@ describe('binary routing', () => {
     socket.setDebug(true);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    ws.emitRaw(frame('avatar-preview', null, null, new Uint8Array(12_345)));
-    socket.binary.send('upload-avatar', { fileType: 'image/png' }, new Uint8Array(321));
+    ws.emitRaw(
+      frame({
+        event: 'avatar-preview',
+        payload: null,
+        metadata: null,
+        bytes: new Uint8Array(12_345),
+      }),
+    );
+    socket.binary.send('upload-avatar', new Uint8Array(321), { info: { fileType: 'image/png' } });
 
     const lines = log.mock.calls.map((call) => call.map(String).join(' '));
     expect(lines.some((line) => line.includes('<12345 bytes>'))).toBe(true);
@@ -559,7 +623,7 @@ describe('plugin scoped sockets', () => {
           seen.push(message);
         });
         socket.binary.on('screen-frame', received);
-        share = () => socket.binary.send('share-screen-frame', null, picture);
+        share = () => socket.binary.send('share-screen-frame', picture, { info: null });
         return {};
       },
     });
@@ -569,7 +633,14 @@ describe('plugin scoped sockets', () => {
     const ws = MockWebSocket.last();
     ws.open();
 
-    ws.emitRaw(frame('__acme:screens::screen-frame', { from: 'u_kofi' }, null, picture));
+    ws.emitRaw(
+      frame({
+        event: '__acme:screens::screen-frame',
+        payload: { from: 'u_kofi' },
+        metadata: null,
+        bytes: picture,
+      }),
+    );
 
     expect(received).toHaveBeenCalledWith({ from: 'u_kofi' }, expect.any(Uint8Array));
     expect(seen[0]!.bytes).toBeInstanceOf(Uint8Array);
@@ -597,7 +668,9 @@ describe('socket.binary.send', () => {
   it('sends one binary frame with the event, the info and the bytes', () => {
     const { socket, ws } = connected(binary());
 
-    expect(socket.binary.send('upload-avatar', { fileType: 'image/png' }, picture)).toBe(true);
+    expect(socket.binary.send('upload-avatar', picture, { info: { fileType: 'image/png' } })).toBe(
+      true,
+    );
 
     const sent = decodeSent(ws.sent.at(-1));
     expect(sent.event).toBe('upload-avatar');
@@ -609,8 +682,10 @@ describe('socket.binary.send', () => {
   it('takes an ArrayBuffer, and no bytes at all', () => {
     const { socket, ws } = connected(binary());
 
-    socket.binary.send('upload-avatar', { fileType: 'image/png' }, picture.slice().buffer);
-    socket.binary.send('upload-avatar', { fileType: 'image/png' });
+    socket.binary.send('upload-avatar', picture.slice().buffer, {
+      info: { fileType: 'image/png' },
+    });
+    socket.binary.send('upload-avatar', undefined, { info: { fileType: 'image/png' } });
 
     expect([...decodeSent(ws.sent[0]).bytes!]).toEqual([...picture]);
     expect(decodeSent(ws.sent[1]).bytes!.byteLength).toBe(0);
@@ -620,7 +695,7 @@ describe('socket.binary.send', () => {
     const { socket, ws } = connected(binary(), channels());
     const general = socket.channel('rooms', 'room:general');
 
-    expect(() => general.binary.send('share-screen-frame', null, picture)).toThrow(
+    expect(() => general.binary.send('share-screen-frame', picture, { info: null })).toThrow(
       expect.objectContaining({ code: 'channel-not-subscribed' }),
     );
 
@@ -632,7 +707,7 @@ describe('socket.binary.send', () => {
     });
     await joined;
 
-    expect(general.binary.send('share-screen-frame', null, picture)).toBe(true);
+    expect(general.binary.send('share-screen-frame', picture, { info: null })).toBe(true);
     const sent = decodeSent(ws.sent.at(-1));
     expect(sent.event).toBe('share-screen-frame');
     expect(sent.metadata).toEqual({ channel: { name: 'room:general', family: 'rooms' } });
@@ -641,15 +716,17 @@ describe('socket.binary.send', () => {
   it('returns false when the socket is closed and nothing buffers', () => {
     const socket = client<C>()(connect('wss://test'), binary());
 
-    expect(socket.binary.send('upload-avatar', { fileType: 'image/png' }, picture)).toBe(false);
+    expect(socket.binary.send('upload-avatar', picture, { info: { fileType: 'image/png' } })).toBe(
+      false,
+    );
   });
 
   it('returns false for a reserved event name', () => {
     const { socket, ws } = connected(binary());
 
-    expect(socket.binary.send('__ping__' as 'upload-avatar', { fileType: 'x' }, picture)).toBe(
-      false,
-    );
+    expect(
+      socket.binary.send('__ping__' as 'upload-avatar', picture, { info: { fileType: 'x' } }),
+    ).toBe(false);
     expect(ws.sent).toHaveLength(0);
   });
 
@@ -661,8 +738,8 @@ describe('socket.binary.send', () => {
     ).byteLength;
     const fits = 100 - 9 - envelope;
 
-    expect(socket.binary.send('upload-avatar', info, new Uint8Array(fits))).toBe(true);
-    expect(socket.binary.send('upload-avatar', info, new Uint8Array(fits + 1))).toBe(false);
+    expect(socket.binary.send('upload-avatar', new Uint8Array(fits), { info })).toBe(true);
+    expect(socket.binary.send('upload-avatar', new Uint8Array(fits + 1), { info })).toBe(false);
     expect(ws.sent).toHaveLength(1);
     expect((ws.sent[0] as Uint8Array).byteLength).toBe(100);
   });
@@ -671,7 +748,9 @@ describe('socket.binary.send', () => {
     const { socket, ws } = connected(binary());
 
     expect(
-      socket.binary.send('upload-avatar', { fileType: 'x' }, new Uint8Array(32 * 1024 * 1024)),
+      socket.binary.send('upload-avatar', new Uint8Array(32 * 1024 * 1024), {
+        info: { fileType: 'x' },
+      }),
     ).toBe(false);
     expect(ws.sent).toHaveLength(0);
   });
@@ -679,9 +758,9 @@ describe('socket.binary.send', () => {
   it('takes undefined bytes with options, and sends an empty Uint8Array', () => {
     const { socket, ws } = connected(binary());
 
-    expect(socket.binary.send('upload-avatar', { fileType: 'image/png' }, undefined, {})).toBe(
-      true,
-    );
+    expect(
+      socket.binary.send('upload-avatar', undefined, { info: { fileType: 'image/png' }, ttl: 100 }),
+    ).toBe(true);
     expect(decodeSent(ws.sent[0]).bytes!.byteLength).toBe(0);
   });
 
@@ -689,7 +768,7 @@ describe('socket.binary.send', () => {
     const { socket } = connected(binary());
 
     expect(() =>
-      socket.binary.send('upload-avatar', { fileType: 'x'.repeat(70_000) }, picture),
+      socket.binary.send('upload-avatar', picture, { info: { fileType: 'x'.repeat(70_000) } }),
     ).toThrow(RangeError);
   });
 });
@@ -708,7 +787,9 @@ describe('binary.send with buffering()', () => {
   it('waits in the queue while offline and goes out on open', () => {
     const socket = offline();
 
-    expect(socket.binary.send('upload-avatar', { fileType: 'image/png' }, picture)).toBe(true);
+    expect(socket.binary.send('upload-avatar', picture, { info: { fileType: 'image/png' } })).toBe(
+      true,
+    );
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -722,7 +803,7 @@ describe('binary.send with buffering()', () => {
     const socket = offline();
     const bytes = picture.slice();
 
-    socket.binary.send('upload-avatar', { fileType: 'image/png' }, bytes);
+    socket.binary.send('upload-avatar', bytes, { info: { fileType: 'image/png' } });
     bytes[0] = 0;
     socket.connect();
     const ws = MockWebSocket.last();
@@ -735,7 +816,7 @@ describe('binary.send with buffering()', () => {
     vi.useFakeTimers();
     const socket = offline();
 
-    socket.binary.send('upload-avatar', { fileType: 'image/png' }, picture, { ttl: 100 });
+    socket.binary.send('upload-avatar', picture, { info: { fileType: 'image/png' }, ttl: 100 });
     vi.advanceTimersByTime(200);
     socket.connect();
     const ws = MockWebSocket.last();
@@ -752,10 +833,10 @@ describe('binary.send with buffering()', () => {
     ).byteLength;
     const fits = 1024 - 9 - envelope;
 
-    expect(socket.binary.send('upload-avatar', info, new Uint8Array(fits + 1))).toBe(false);
-    expect(socket.binary.send('upload-avatar', info, new Uint8Array(fits))).toBe(true);
+    expect(socket.binary.send('upload-avatar', new Uint8Array(fits + 1), { info })).toBe(false);
+    expect(socket.binary.send('upload-avatar', new Uint8Array(fits), { info })).toBe(true);
     // A second frame pushes the first out: the two together are over maxBytes.
-    expect(socket.binary.send('upload-avatar', info, new Uint8Array(1))).toBe(true);
+    expect(socket.binary.send('upload-avatar', new Uint8Array(1), { info })).toBe(true);
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -771,7 +852,9 @@ describe('binary.send with buffering()', () => {
       buffering({ maxBytes: 4096 }),
     );
 
-    expect(socket.binary.send('upload-avatar', { fileType: 'x' }, new Uint8Array(100))).toBe(false);
+    expect(
+      socket.binary.send('upload-avatar', new Uint8Array(100), { info: { fileType: 'x' } }),
+    ).toBe(false);
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -788,7 +871,7 @@ describe('binary.send with buffering()', () => {
     const socket = client<Mixed>()(connect('wss://test'), binary(), buffering());
 
     socket.send('typing', null);
-    socket.binary.send('upload-avatar', null, picture);
+    socket.binary.send('upload-avatar', picture, { info: null });
     socket.send('typing', null);
     socket.connect();
     const ws = MockWebSocket.last();
@@ -818,14 +901,14 @@ describe('a hook cannot change the kind of a frame', () => {
     socket.binary.on('avatar-preview', top);
     socket.channel('rooms', 'room:general').binary.on('screen-frame', room);
 
-    ws.emitRaw(frame('avatar-preview', null, null, picture));
+    ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }));
     ws.emitRaw(
-      frame(
-        'screen-frame',
-        { from: 'u_amara' },
-        { channel: { name: 'room:general', family: 'rooms' } },
-        picture,
-      ),
+      frame({
+        event: 'screen-frame',
+        payload: { from: 'u_amara' },
+        metadata: { channel: { name: 'room:general', family: 'rooms' } },
+        bytes: picture,
+      }),
     );
 
     expect(json).not.toHaveBeenCalled();
@@ -841,7 +924,7 @@ describe('a hook cannot change the kind of a frame', () => {
     const top = vi.fn();
     socket.binary.on('avatar-preview', top);
 
-    ws.emitRaw(frame('avatar-preview', null, null, picture));
+    ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }));
 
     expect([...(top.mock.calls[0]![1] as Uint8Array)]).toEqual([...picture]);
   });
@@ -861,7 +944,7 @@ describe('a hook cannot change the kind of a frame', () => {
     socket.binary.on('avatar-preview', top);
 
     ws.emit({ event: 'avatar-saved', payload: { userId: 'u_amara' }, metadata: null });
-    ws.emitRaw(frame('avatar-preview', null, null, picture));
+    ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }));
 
     expect(json).toHaveBeenCalledTimes(1);
     expect(top).toHaveBeenCalledTimes(1);
@@ -903,7 +986,7 @@ describe('a hook cannot change the kind of a frame', () => {
         scoped.binary.on('screen-frame', received);
 
         typing = () => scoped.send('typing', null);
-        share = () => scoped.binary.send('share-screen-frame', null, picture);
+        share = () => scoped.binary.send('share-screen-frame', picture, { info: null });
 
         return {};
       },
@@ -915,7 +998,14 @@ describe('a hook cannot change the kind of a frame', () => {
     ws.open();
 
     ws.emit({ event: '__acme:screens::notice', payload: { text: 'hi' }, metadata: null });
-    ws.emitRaw(frame('__acme:screens::screen-frame', null, null, picture));
+    ws.emitRaw(
+      frame({
+        event: '__acme:screens::screen-frame',
+        payload: null,
+        metadata: null,
+        bytes: picture,
+      }),
+    );
     typing!();
     share!();
 
@@ -941,7 +1031,7 @@ describe('a hook cannot change the kind of a frame', () => {
       socket.binary.on('avatar-preview', top);
 
       ws.emit({ event: 'avatar-saved', payload: { userId: 'u_amara' }, metadata: null });
-      ws.emitRaw(frame('avatar-preview', null, null, picture));
+      ws.emitRaw(frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }));
 
       expect(json).toHaveBeenCalledTimes(1);
       expect(top).toHaveBeenCalledTimes(1);
@@ -991,7 +1081,7 @@ describe('a hook cannot change the kind of a frame', () => {
         scoped.onOutgoing((message) => freshCopy(message));
         scoped.on('screen-frame', json);
         scoped.binary.on('screen-frame', received);
-        share = () => scoped.binary.send('share-screen-frame', null, picture);
+        share = () => scoped.binary.send('share-screen-frame', picture, { info: null });
 
         return {};
       },
@@ -1001,7 +1091,14 @@ describe('a hook cannot change the kind of a frame', () => {
     const ws = MockWebSocket.last();
     ws.open();
 
-    ws.emitRaw(frame('__acme:screens::screen-frame', { from: 'u_kofi' }, null, picture));
+    ws.emitRaw(
+      frame({
+        event: '__acme:screens::screen-frame',
+        payload: { from: 'u_kofi' },
+        metadata: null,
+        bytes: picture,
+      }),
+    );
     share!();
 
     expect(json).not.toHaveBeenCalled();
@@ -1017,7 +1114,9 @@ describe('binary input checks', () => {
     const listener = vi.fn();
     socket.binary.on('avatar-preview', listener);
 
-    const local = new Uint8Array(frame('avatar-preview', null, null, picture));
+    const local = new Uint8Array(
+      frame({ event: 'avatar-preview', payload: null, metadata: null, bytes: picture }),
+    );
     const foreign = runInNewContext(`new ArrayBuffer(${local.byteLength})`) as ArrayBuffer;
     new Uint8Array(foreign).set(local);
     expect(foreign instanceof ArrayBuffer).toBe(false);
@@ -1031,7 +1130,7 @@ describe('binary input checks', () => {
     const { socket } = connected(binary());
 
     expect(() =>
-      socket.binary.send('upload-avatar', { fileType: 'image/png' }, bytes as never),
+      socket.binary.send('upload-avatar', bytes as never, { info: { fileType: 'image/png' } }),
     ).toThrow(TypeError);
   });
 
@@ -1041,7 +1140,7 @@ describe('binary input checks', () => {
       const { socket, ws } = connected(binary());
 
       expect(() =>
-        socket.binary.send('upload-avatar', { fileType: 'image/png' }, bytes as never),
+        socket.binary.send('upload-avatar', bytes as never, { info: { fileType: 'image/png' } }),
       ).toThrow(/\[livething\].*Uint8Array or an ArrayBuffer/);
       expect(ws.sent).toHaveLength(0);
     },
@@ -1054,8 +1153,8 @@ describe('testing helpers', () => {
     const listener = vi.fn();
     socket.binary.on('avatar-cropped', listener);
 
-    injectBinary(socket, 'avatar-cropped', { width: 64 }, picture);
-    injectBinary(socket, 'avatar-preview', null);
+    injectBinary(socket, 'avatar-cropped', { info: { width: 64 }, bytes: picture });
+    injectBinary(socket, 'avatar-preview', { info: null });
 
     expect(listener).toHaveBeenCalledWith({ width: 64 }, picture);
   });
@@ -1065,7 +1164,11 @@ describe('testing helpers', () => {
     const listener = vi.fn();
     socket.channel('lobby').binary.on('screen-frame', listener);
 
-    injectChannelBinary(socket, 'lobby', 'screen-frame', { from: 'u_amara' }, picture);
+    injectChannelBinary(socket, 'screen-frame', {
+      channel: 'lobby',
+      info: { from: 'u_amara' },
+      bytes: picture,
+    });
 
     expect(listener).toHaveBeenCalledWith({ from: 'u_amara' }, picture);
   });
@@ -1077,13 +1180,11 @@ describe('testing helpers', () => {
     socket.channel('rooms', 'room:general').binary.on('screen-frame', general);
     socket.channel('rooms', 'room:design').binary.on('screen-frame', design);
 
-    injectChannelBinary(
-      socket,
-      { family: 'rooms', name: 'room:general' },
-      'screen-frame',
-      { from: 'u_amara' },
-      picture,
-    );
+    injectChannelBinary(socket, 'screen-frame', {
+      channel: { family: 'rooms', name: 'room:general' },
+      info: { from: 'u_amara' },
+      bytes: picture,
+    });
 
     expect(general).toHaveBeenCalledWith({ from: 'u_amara' }, picture);
     expect(design).not.toHaveBeenCalled();
@@ -1094,7 +1195,10 @@ describe('testing helpers', () => {
     const general = vi.fn();
     socket.channel('rooms', 'room:general').on('screen-frame', general);
 
-    injectChannel(socket, { family: 'rooms', name: 'room:general' }, 'screen-frame', 1);
+    injectChannel(socket, 'screen-frame', {
+      channel: { family: 'rooms', name: 'room:general' },
+      payload: 1,
+    });
 
     expect(general).toHaveBeenCalledWith(1);
   });

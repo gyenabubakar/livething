@@ -1,6 +1,15 @@
 export { client } from '~/client.ts';
 export { connect } from '~/connect.ts';
 export type { ConnectOptions, ConnectDescriptor } from '~/connect.ts';
+export { websocket } from '~/transports/websocket.ts';
+export { sse } from '~/transports/sse.ts';
+export type {
+  Transport,
+  TransportEvents,
+  TransportFactory,
+  TransportName,
+  TransportOpenOptions,
+} from '~/transports/transport.ts';
 
 export { reconnection } from '~/primitives/reconnection/index.ts';
 export type {

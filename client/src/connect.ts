@@ -1,13 +1,52 @@
+import { LiveThingConfigError, TOKEN_SUBPROTOCOL_PREFIX } from '@livething/core';
+import { timerDelayError } from '~/internal/config.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { TransportFactory } from '~/transports/transport.ts';
+
+function assertValidTransports(transports: readonly TransportFactory[]): void {
+  const names = transports.map((transport) => transport?.name);
+  if (names.length === 0 || names.some((name) => typeof name !== 'string')) {
+    throw new LiveThingConfigError(
+      'connect() transports must list at least one transport, such as [websocket()].',
+    );
+  }
+
+  const uncalled = transports.find((transport) => typeof transport.open !== 'function');
+  if (uncalled) {
+    throw new LiveThingConfigError(
+      `connect() transports has ${uncalled.name} without its call. Write ${uncalled.name}(), not ${uncalled.name}.`,
+    );
+  }
+
+  if (new Set(names).size !== names.length) {
+    throw new LiveThingConfigError(
+      `connect() transports lists the same transport twice: ${names.join(', ')}.`,
+    );
+  }
+}
 
 /** Options for `connect()`. */
 export interface ConnectOptions {
   /** Don't open the socket until something actually needs it. Default: `false`. */
   lazy?: boolean;
   /** In lazy mode, close after this many ms of no use. `0` means never. Default: `10_000`. */
-  idleTimeout?: number;
+  lazyIdleTimeoutMs?: number;
   /** Subprotocols to pass to the WebSocket (e.g. `['graphql-ws']`). */
   protocols?: string[];
+  /**
+   * Returns the login token, or `null` for none. It runs on every connect and reconnect,
+   * so a refreshed token is used. The server's `authenticate` reads it from the
+   * `Authorization` header as `Bearer <token>`.
+   */
+  token?: () => string | null | undefined | Promise<string | null | undefined>;
+  /** The transports to connect with, such as `[websocket()]`. Default: WebSocket only. */
+  transports?: readonly TransportFactory[];
+  /**
+   * How long to wait, in ms, for the server to accept a connection. A connection that
+   * takes longer is closed, goes to `onError`, and is retried like any other drop.
+   * Default: `30_000` with one transport, `5_000` with several.
+   */
+  connectTimeoutMs?: number;
 }
 
 /** What `connect()` returns. */
@@ -21,7 +60,7 @@ export interface ConnectDescriptor extends Primitive<EmptyTypeFn> {
  * failover or load balancing, where the address can change.
  *
  * ```ts
- * connect('wss://example.com/ws');
+ * connect('wss://example.com/huddle');
  * connect(() => getRegionalUrl(), { lazy: true });
  * ```
  */
@@ -34,8 +73,36 @@ export function connect(
     applyConfig(config) {
       config.url = url;
       if (options?.lazy !== undefined) config.lazy = options.lazy;
-      if (options?.idleTimeout !== undefined) config.idleTimeout = options.idleTimeout;
-      if (options?.protocols !== undefined) config.protocols = options.protocols;
+      if (options?.lazyIdleTimeoutMs !== undefined) {
+        config.lazyIdleTimeoutMs = options.lazyIdleTimeoutMs;
+      }
+
+      if (options?.protocols !== undefined) {
+        // The server reads the first name with this prefix as the token.
+        const reserved = options.protocols.find((name) =>
+          name.startsWith(TOKEN_SUBPROTOCOL_PREFIX),
+        );
+        if (reserved !== undefined) {
+          throw new LiveThingConfigError(
+            `connect() protocols has '${reserved}'. Names that start with '${TOKEN_SUBPROTOCOL_PREFIX}' are kept for the token.`,
+          );
+        }
+
+        config.protocols = options.protocols;
+      }
+
+      if (options?.token !== undefined) config.token = options.token;
+      if (options?.transports !== undefined) {
+        assertValidTransports(options.transports);
+        config.transports = options.transports;
+      }
+
+      if (options?.connectTimeoutMs !== undefined) {
+        const error = timerDelayError(options.connectTimeoutMs, 'connect() connectTimeoutMs');
+        if (error) throw error;
+
+        config.connectTimeoutMs = options.connectTimeoutMs;
+      }
     },
   };
 }

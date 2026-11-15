@@ -106,48 +106,51 @@ function huddle(results: unknown[], outgoing: OutgoingFrame[] = []) {
   const handlers = [
     base.on('preview-avatar', {
       run(ctx) {
-        results.push(ctx.binary.send('avatar-preview', null, picture));
+        results.push(ctx.binary.send('avatar-preview', picture, { info: null }));
       },
     }),
     base.on('preview-avatar-buffer', {
       run(ctx) {
-        results.push(ctx.binary.send('avatar-preview', null, picture.slice().buffer));
+        results.push(ctx.binary.send('avatar-preview', picture.slice().buffer, { info: null }));
       },
     }),
     base.on('preview-avatar-then-change', {
       run(ctx) {
         const bytes = picture.slice();
-        ctx.binary.send('avatar-preview', null, bytes);
+        ctx.binary.send('avatar-preview', bytes, { info: null });
         bytes.fill(0);
       },
     }),
     base.on('preview-avatar-to-everyone', {
       run(ctx) {
-        results.push(ctx.binary.broadcast('avatar-preview', null, picture, { includeSelf: true }));
+        results.push(
+          ctx.binary.broadcast('avatar-preview', picture, { info: null, includeSelf: true }),
+        );
       },
     }),
     base.on('preview-avatar-to-me', {
       run(ctx) {
-        results.push(ctx.user.binary.broadcast('avatar-preview', null, picture));
-        results.push(
-          ctx.connections.get(refs.get('u_kofi')!).binary.send('avatar-preview', null, picture),
-        );
+        results.push(ctx.user.binary.broadcast('avatar-preview', picture, { info: null }));
+        const kofi = ctx.connections.get(refs.get('u_kofi')!);
+        results.push(kofi.binary.send('avatar-preview', picture, { info: null }));
       },
     }),
     base.on('preview-avatar-to-team', {
       run(ctx) {
-        ctx.tags.ephemeral('team').add('design');
-        ctx.tags.ephemeral('team').binary.broadcast('avatar-preview', null, picture);
-        ctx.tags.ephemeral('team').ref('design').binary.broadcast('avatar-preview', null, picture);
+        const team = ctx.tags.ephemeral('team');
+        team.add('design');
+        team.binary.broadcast('avatar-preview', picture, { info: null });
+        team.ref('design').binary.broadcast('avatar-preview', picture, { info: null });
       },
     }),
     base.on('send-wrong-kind', {
       run(ctx) {
+        const tooBig = { name: 'x'.repeat(70_000) } as never;
         for (const send of [
-          () => ctx.binary.send('avatar-saved' as never, null as never, picture),
+          () => ctx.binary.send('avatar-saved' as never, picture, { info: null as never }),
           () => ctx.send('avatar-preview' as never, null as never),
-          () => ctx.binary.send('avatar-preview', { name: 'x'.repeat(70_000) } as never, picture),
-          () => ctx.binary.send('avatar-preview', null, 'not bytes' as never),
+          () => ctx.binary.send('avatar-preview', picture, { info: tooBig }),
+          () => ctx.binary.send('avatar-preview', 'not bytes' as never, { info: null }),
         ]) {
           try {
             send();
@@ -161,27 +164,27 @@ function huddle(results: unknown[], outgoing: OutgoingFrame[] = []) {
     rooms.on('start-screen-share', {
       run(ctx) {
         ctx.channel.broadcast('screen-share-started', { from: ctx.user.id });
-        ctx.channel.binary.broadcast('screen-frame', { from: ctx.user.id }, picture);
+        ctx.channel.binary.broadcast('screen-frame', picture, { info: { from: ctx.user.id } });
       },
     }),
     rooms.on('send-frame-to-kofi', {
       run(ctx) {
         results.push(
-          ctx.channel.binary.broadcastTo(
-            refs.get('u_kofi')!,
-            'screen-frame',
-            { from: ctx.user.id },
-            picture,
-          ),
+          ctx.channel.binary.broadcastTo('screen-frame', picture, {
+            to: refs.get('u_kofi')!,
+            info: { from: ctx.user.id },
+          }),
         );
-        results.push(ctx.channel.binary.send('screen-frame', { from: ctx.user.id }, picture));
+        results.push(
+          ctx.channel.binary.send('screen-frame', picture, { info: { from: ctx.user.id } }),
+        );
       },
     }),
     base.on('frame-to-design-room', {
       run(ctx) {
         ctx.channels
           .get(rooms.at({ roomId: 'design' }))
-          .binary.broadcast('screen-frame', { from: ctx.user.id }, picture);
+          .binary.broadcast('screen-frame', picture, { info: { from: ctx.user.id } });
       },
     }),
   ];
@@ -254,7 +257,7 @@ describe('sending a binary event', () => {
     const preview = base.on('preview-avatar', {
       run(ctx) {
         try {
-          ctx.binary.send('avatar-preview', null, new Uint8Array(200));
+          ctx.binary.send('avatar-preview', new Uint8Array(400), { info: null });
         } catch (error) {
           results.push((error as Error).message);
         }
@@ -262,13 +265,13 @@ describe('sending a binary event', () => {
     });
     const { engine } = build(base.assemble({ handlers: [preview] }), {
       receiveBytes: 1000,
-      sendBytes: 100,
+      sendBytes: 300,
     });
     const amara = await connect(engine, 'u_amara');
 
     await amara.send('preview-avatar');
 
-    expect(results).toEqual([expect.stringMatching(/over the send limit of 100 bytes/)]);
+    expect(results).toEqual([expect.stringMatching(/over the send limit of 300 bytes/)]);
   });
 
   it('runs onOutgoing once, with the info as payload and the bytes', async () => {
@@ -355,35 +358,34 @@ describe('a channel binary broadcast', () => {
     const kofi = await connect(engine, 'u_kofi');
     await kofi.send('__subscribe__', {}, general);
     const admin = engine.admin() as unknown as {
-      binary: { broadcast(event: string, info: unknown, bytes: Uint8Array): void };
+      binary: { broadcast(event: string, bytes: Uint8Array, options: { info: unknown }): void };
       channels: {
         get(
           family: string,
           name: string,
         ): {
-          binary: { broadcast(event: string, info: unknown, bytes: Uint8Array): void };
+          binary: {
+            broadcast(event: string, bytes: Uint8Array, options: { info: unknown }): void;
+          };
         };
         binary: {
           broadcast(
-            channel: { family: string; name: string },
             event: string,
-            info: unknown,
             bytes: Uint8Array,
+            options: { channel: { family: string; name: string }; info: unknown },
           ): void;
         };
       };
     };
 
-    admin.binary.broadcast('avatar-preview', null, picture);
+    admin.binary.broadcast('avatar-preview', picture, { info: null });
     admin.channels
       .get('rooms', 'room:general')
-      .binary.broadcast('screen-frame', { from: 'admin' }, picture);
-    admin.channels.binary.broadcast(
-      { family: 'rooms', name: 'room:general' },
-      'screen-frame',
-      { from: 'admin' },
-      picture,
-    );
+      .binary.broadcast('screen-frame', picture, { info: { from: 'admin' } });
+    admin.channels.binary.broadcast('screen-frame', picture, {
+      channel: { family: 'rooms', name: 'room:general' },
+      info: { from: 'admin' },
+    });
 
     expect(kofi.binaryFrames().map((sent) => sent.envelope[0])).toEqual([
       'avatar-preview',
@@ -531,19 +533,21 @@ describe('a binary send over a size limit', () => {
         const info = big === 'info' ? bigInfo : { from: ctx.user.id };
         const bytes = big === 'bytes' ? bigBytes : picture;
         const kofi = refs.get('u_kofi')!;
-        attempt(() => ctx.channel.binary.send('screen-frame', info, bytes));
+        attempt(() => ctx.channel.binary.send('screen-frame', bytes, { info }));
 
-        attempt(() => ctx.connections.get(kofi).binary.send('avatar-preview', info, bytes));
-        attempt(() => ctx.user.binary.broadcast('avatar-preview', info, bytes));
-        attempt(() => ctx.users.get('u_amara').binary.broadcast('avatar-preview', info, bytes));
-        attempt(() => ctx.channel.binary.broadcastTo(kofi, 'screen-frame', info, bytes));
-        attempt(() => ctx.binary.broadcast('avatar-preview', info, bytes, { includeSelf: true }));
+        attempt(() => ctx.connections.get(kofi).binary.send('avatar-preview', bytes, { info }));
+        attempt(() => ctx.user.binary.broadcast('avatar-preview', bytes, { info }));
+        attempt(() => ctx.users.get('u_amara').binary.broadcast('avatar-preview', bytes, { info }));
+        attempt(() => ctx.channel.binary.broadcastTo('screen-frame', bytes, { to: kofi, info }));
+        attempt(() => ctx.binary.broadcast('avatar-preview', bytes, { info, includeSelf: true }));
 
         attempt(() =>
-          ctx.channel.binary.broadcast('screen-frame', info, bytes, { includeSelf: true }),
+          ctx.channel.binary.broadcast('screen-frame', bytes, { info, includeSelf: true }),
         );
         ctx.tags.ephemeral('team').add('design');
-        attempt(() => ctx.tags.ephemeral('team').binary.broadcast('avatar-preview', info, bytes));
+        attempt(() =>
+          ctx.tags.ephemeral('team').binary.broadcast('avatar-preview', bytes, { info }),
+        );
       },
     });
 
@@ -601,7 +605,8 @@ describe('a binary send to a connection that is gone', () => {
     });
     const preview = base.on('preview-avatar', {
       run(ctx) {
-        results.push(ctx.connections.get(kofiRef!).binary.send('avatar-preview', null, picture));
+        const kofi = ctx.connections.get(kofiRef!);
+        results.push(kofi.binary.send('avatar-preview', picture, { info: null }));
       },
     });
     const { engine } = build(base.assemble({ handlers: [preview] }));

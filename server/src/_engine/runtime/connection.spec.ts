@@ -45,7 +45,7 @@ describe('connection runtime', () => {
       },
       connections: new Map(),
       usersByKey: new Map(),
-      wsToConnectionId: new Map(),
+      socketToConnectionId: new Map(),
       channelMembers: new Map(),
       tagMembers: new Map(),
       generateId() {
@@ -98,7 +98,7 @@ describe('connection runtime', () => {
         },
         connections: new Map(),
         usersByKey: new Map(),
-        wsToConnectionId: new Map(),
+        socketToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
         generateId() {
@@ -153,7 +153,7 @@ describe('connection runtime', () => {
         },
         connections: new Map(),
         usersByKey: new Map(),
-        wsToConnectionId: new Map(),
+        socketToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
         generateId() {
@@ -224,7 +224,7 @@ describe('connection runtime', () => {
         },
         connections: new Map(),
         usersByKey: new Map(),
-        wsToConnectionId: new Map(),
+        socketToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
         generateId() {
@@ -304,7 +304,7 @@ describe('connection runtime', () => {
         },
         connections: new Map(),
         usersByKey: new Map(),
-        wsToConnectionId: new Map(),
+        socketToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
         generateId() {
@@ -379,7 +379,7 @@ describe('connection runtime', () => {
         compiled,
         connections: new Map(),
         usersByKey: new Map(),
-        wsToConnectionId: new Map(),
+        socketToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
         generateId() {
@@ -418,13 +418,13 @@ describe('connection runtime', () => {
   it('rolls back indexes when the initial hibernation persist fails', () => {
     const connections = new Map();
     const usersByKey = new Map();
-    const wsToConnectionId = new Map();
+    const socketToConnectionId = new Map();
     const channelMembers = new Map();
     const tagMembers = new Map();
 
     const deleted: string[] = [];
     const failure = new Error('persist failed');
-    const wsKey = Symbol('ws');
+    const socketKey = Symbol('ws');
 
     expect(() =>
       acceptConnection(
@@ -444,7 +444,7 @@ describe('connection runtime', () => {
           },
           connections,
           usersByKey,
-          wsToConnectionId,
+          socketToConnectionId,
           channelMembers,
           tagMembers,
           generateId: () => 'conn_1',
@@ -463,7 +463,7 @@ describe('connection runtime', () => {
           async handleRuntimeError() {},
           async handleSocketError() {},
         },
-        wsKey,
+        socketKey,
         {
           send() {},
           close() {},
@@ -477,14 +477,14 @@ describe('connection runtime', () => {
 
     expect(connections.size).toBe(0);
     expect(usersByKey.size).toBe(0);
-    expect(wsToConnectionId.size).toBe(0);
+    expect(socketToConnectionId.size).toBe(0);
     expect(tagMembers.size).toBe(0);
     expect(deleted).toEqual(['conn_1']);
   });
 
   it('wakeHibernatedConnection sends __error__ for each orphaned stream ID in the attachment', () => {
     const sent: string[] = [];
-    const wsKey = {
+    const socketKey = {
       send(data: string) {
         sent.push(data);
       },
@@ -508,7 +508,7 @@ describe('connection runtime', () => {
         },
         connections: new Map(),
         usersByKey: new Map(),
-        wsToConnectionId: new Map(),
+        socketToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
         generateId() {
@@ -533,7 +533,7 @@ describe('connection runtime', () => {
         async handleRuntimeError() {},
         async handleSocketError() {},
       },
-      wsKey,
+      socketKey,
     );
 
     expect(sent).toHaveLength(2);
@@ -551,7 +551,7 @@ describe('connection runtime', () => {
 
   it('wakeHibernatedConnection sends no __error__ frames when attachment has no active streams', () => {
     const sent: string[] = [];
-    const wsKey = {
+    const socketKey = {
       send(data: string) {
         sent.push(data);
       },
@@ -575,7 +575,7 @@ describe('connection runtime', () => {
         },
         connections: new Map(),
         usersByKey: new Map(),
-        wsToConnectionId: new Map(),
+        socketToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
         generateId() {
@@ -592,7 +592,7 @@ describe('connection runtime', () => {
         async handleRuntimeError() {},
         async handleSocketError() {},
       },
-      wsKey,
+      socketKey,
     );
 
     expect(sent).toHaveLength(0);
@@ -602,7 +602,7 @@ describe('connection runtime', () => {
     // The hibernation snapshot only stores ephemeral tags. Persistent tags are
     // identity-scoped in durable storage, so the wake path must reload them or
     // the woken socket silently falls out of every persistent tag fan-out.
-    const wsKey = {
+    const socketKey = {
       send() {},
       close() {},
     };
@@ -627,7 +627,7 @@ describe('connection runtime', () => {
         },
         connections: new Map(),
         usersByKey: new Map(),
-        wsToConnectionId: new Map(),
+        socketToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers,
         generateId() {
@@ -656,7 +656,7 @@ describe('connection runtime', () => {
         async handleRuntimeError() {},
         async handleSocketError() {},
       },
-      wsKey,
+      socketKey,
     );
 
     expect(reloaded).toEqual(['user-1']);
@@ -664,14 +664,14 @@ describe('connection runtime', () => {
   });
 
   it('rolls back every in-memory index when wake fails after restoring state', () => {
-    const wsKey = {
+    const socketKey = {
       send() {},
       close() {},
     };
 
     const connections = new Map();
     const usersByKey = new Map();
-    const wsToConnectionId = new Map();
+    const socketToConnectionId = new Map();
     const channelMembers = new Map();
 
     const tagMembers = new Map();
@@ -695,7 +695,7 @@ describe('connection runtime', () => {
           },
           connections,
           usersByKey,
-          wsToConnectionId,
+          socketToConnectionId,
           channelMembers,
           tagMembers,
           generateId: () => 'conn_1',
@@ -726,13 +726,13 @@ describe('connection runtime', () => {
           async handleRuntimeError() {},
           async handleSocketError() {},
         },
-        wsKey,
+        socketKey,
       ),
     ).toThrow(failure);
 
     expect(connections.size).toBe(0);
     expect(usersByKey.size).toBe(0);
-    expect(wsToConnectionId.size).toBe(0);
+    expect(socketToConnectionId.size).toBe(0);
     expect(channelMembers.size).toBe(0);
     expect(tagMembers.size).toBe(0);
   });
@@ -743,7 +743,7 @@ describe('connection runtime', () => {
   ])(
     'rejects an invalid persisted %s user id before restoring the socket',
     async (_kind, userId) => {
-      const wsKey = {
+      const socketKey = {
         send: vi.fn(),
         close: vi.fn(),
       };
@@ -772,7 +772,7 @@ describe('connection runtime', () => {
           },
           connections,
           usersByKey,
-          wsToConnectionId: new Map(),
+          socketToConnectionId: new Map(),
           channelMembers,
           tagMembers,
           generateId: () => 'conn_new',
@@ -796,10 +796,10 @@ describe('connection runtime', () => {
           async handleRuntimeError() {},
           async handleSocketError() {},
         },
-        wsKey,
+        socketKey,
       );
 
-      expect(wsKey.close).toHaveBeenCalledWith(
+      expect(socketKey.close).toHaveBeenCalledWith(
         CloseCodes.GOING_AWAY,
         expect.stringMatching(/user id/i),
       );
@@ -809,7 +809,7 @@ describe('connection runtime', () => {
       expect(channelMembers.size).toBe(0);
 
       expect(tagMembers.size).toBe(0);
-      expect(wsKey.send).not.toHaveBeenCalled();
+      expect(socketKey.send).not.toHaveBeenCalled();
       await expect(handle.handleMessage('ignored')).resolves.toBeUndefined();
     },
   );
@@ -1026,7 +1026,7 @@ describe('connection runtime', () => {
     let observedReason: unknown;
     const connection: EngineRuntimeTypes.RuntimeConnection = {
       id: 'c1',
-      wsKey: Symbol('ws'),
+      socketKey: Symbol('ws'),
       descriptor: {
         send() {},
         close() {},
@@ -1047,7 +1047,7 @@ describe('connection runtime', () => {
       compiled: { channels: new Map(), channelFamilies: new Map() } as never,
       connections: new Map([[connection.id, connection]]) as never,
       usersByKey: new Map() as never,
-      wsToConnectionId: new Map() as never,
+      socketToConnectionId: new Map() as never,
       async cancelActiveStreamsForConnection() {},
       buildConnectionContext: () => ({ id: connection.id }) as Record<PropertyKey, unknown>,
       async runConnectionLifecycle(
@@ -1076,10 +1076,10 @@ describe('connection runtime', () => {
     // second time for the same socket. Re-running the lifecycle would
     // double-fire onDisconnect and rebroadcast _memberLeave to peers.
     const events: string[] = [];
-    const wsKey = Symbol('ws');
+    const socketKey = Symbol('ws');
     const connection = {
       id: 'c1',
-      wsKey,
+      socketKey,
       descriptor: {
         send() {},
         close() {},
@@ -1103,7 +1103,7 @@ describe('connection runtime', () => {
       compiled: { channels: new Map(), channelFamilies: new Map() } as never,
       connections: new Map() as never,
       usersByKey: new Map() as never,
-      wsToConnectionId: new Map() as never,
+      socketToConnectionId: new Map() as never,
       async cancelActiveStreamsForConnection() {
         events.push('cancel-streams');
       },
@@ -1132,7 +1132,7 @@ describe('connection runtime', () => {
     const events: string[] = [];
     const connection = {
       id: 'c1',
-      wsKey: Symbol('ws'),
+      socketKey: Symbol('ws'),
       descriptor: { send() {}, close() {}, bufferedAmount: () => 0, userId: 'c1' },
       userId: 'c1',
       meta: {},
@@ -1146,7 +1146,7 @@ describe('connection runtime', () => {
       compiled: { channels: new Map(), channelFamilies: new Map() } as never,
       connections: new Map([['c1', connection]]) as never,
       usersByKey: new Map() as never,
-      wsToConnectionId: new Map() as never,
+      socketToConnectionId: new Map() as never,
       async cancelActiveStreamsForConnection() {
         events.push('cancel-streams');
         await new Promise((resolve) => setTimeout(resolve, 5));
@@ -1178,11 +1178,11 @@ describe('connection runtime', () => {
     // keepalive cleanup still run.
     const events: string[] = [];
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
-    const wsKey = Symbol('ws');
+    const socketKey = Symbol('ws');
     const connection = {
       id: 'c1',
       userId: 'c1',
-      wsKey,
+      socketKey,
       descriptor: {
         send() {},
         close() {},
@@ -1208,7 +1208,7 @@ describe('connection runtime', () => {
       } as never,
       connections: new Map([[connection.id, connection]]) as never,
       usersByKey: new Map() as never,
-      wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
+      socketToConnectionId: new Map([[socketKey, connection.id]]) as never,
       logger,
       async cancelActiveStreamsForConnection() {
         events.push('streams-cancelled');
@@ -1241,7 +1241,7 @@ describe('connection runtime', () => {
     // leaves and keepalive cleanup still run.
     const events: string[] = [];
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
-    const wsKey = Symbol('ws');
+    const socketKey = Symbol('ws');
     const keepaliveHandle = Symbol('keepalive');
     const clearTimeoutSpy = vi
       .spyOn(globalThis, 'clearTimeout')
@@ -1250,7 +1250,7 @@ describe('connection runtime', () => {
     const connection = {
       id: 'c1',
       userId: 'c1',
-      wsKey,
+      socketKey,
       descriptor: {
         send() {},
         close() {},
@@ -1280,7 +1280,7 @@ describe('connection runtime', () => {
       } as never,
       connections: new Map([[connection.id, connection]]) as never,
       usersByKey: new Map() as never,
-      wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
+      socketToConnectionId: new Map([[socketKey, connection.id]]) as never,
       logger,
       async cancelActiveStreamsForConnection() {
         events.push('streams-cancelled');
@@ -1311,11 +1311,11 @@ describe('connection runtime', () => {
   });
 
   it('marks the connection as closing before channel-leave cleanup runs', async () => {
-    const wsKey = Symbol('ws');
+    const socketKey = Symbol('ws');
     const connection = {
       id: 'c1',
       userId: 'c1',
-      wsKey,
+      socketKey,
       descriptor: {
         send() {},
         close() {},
@@ -1342,7 +1342,7 @@ describe('connection runtime', () => {
       } as never,
       connections: new Map([[connection.id, connection]]) as never,
       usersByKey: new Map() as never,
-      wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
+      socketToConnectionId: new Map([[socketKey, connection.id]]) as never,
       deleteConnectionState() {},
       async cancelActiveStreamsForConnection() {},
       buildConnectionContext: () => ({ id: connection.id }),

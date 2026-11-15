@@ -2,6 +2,7 @@ import { errors, server } from '@livething/server';
 import { binary } from '@livething/server/binary';
 import { clientRequests } from '@livething/server/client-requests';
 import { Disconnect, error } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import { plugin } from '@livething/server/plugins';
 import { rateLimit } from '@livething/server/rate-limit';
 import { uploads } from '@livething/server/uploads';
@@ -9,8 +10,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import type { InferPluginClient } from '@livething/server/plugins';
 import type { UploadsOptions } from '@livething/server/uploads';
+import { allowAnonymous } from '../_shared/authenticate.ts';
 import { hash } from '../_shared/bytes.ts';
-import { allowAnonymous } from '../_shared/upgrade.ts';
 
 /** `run` throws this when the test asks the disk to fill up. */
 export const StorageFull = error('storage-full');
@@ -115,8 +116,9 @@ export type FilesWire = InferPluginClient<typeof FilesPlugin>;
 function defineUploads(options: UploadsOptions, { hibernation = false } = {}) {
   const base = server({
     hibernation,
-    upgrade: (request) => allowAnonymous(request),
+    authenticate: (request) => allowAnonymous(request),
     capabilities: [
+      keepalive(),
       binary(),
       uploads(options),
       clientRequests(),

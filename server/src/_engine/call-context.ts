@@ -9,7 +9,7 @@ export type CallKind =
   | 'task'
   | 'init'
   | 'shutdown'
-  | 'upgrade';
+  | 'authenticate';
 
 /** What one engine entry point tells the accessors about the code it is running. */
 export interface CallDescriptor {
@@ -18,7 +18,7 @@ export interface CallDescriptor {
   readonly getCtx: () => unknown;
   /** The channel's key, for the `channel`, `channelGate` and `channelLifecycle` kinds. */
   readonly channelKey?: string;
-  /** The `base` this code belongs to, when it is not the app's own (a plugin's `upgrade` hook). */
+  /** The `base` this code belongs to, when it is not the app's own (a plugin's `authenticate` hook). */
   readonly baseId?: symbol;
 }
 

@@ -1,10 +1,11 @@
 import { emits, server, t } from '@livething/server';
 import { dedup } from '@livething/server/dedup';
+import { keepalive } from '@livething/server/keepalive';
 import { sequence } from '@livething/server/sequence';
 import { stream } from '@livething/server/streams';
+import { requireUsername } from '@livething/tests-e2e-handlers/_shared/authenticate';
 import { Feed } from '@livething/tests-e2e-handlers/_shared/feed-plugin';
 import { Probe } from '@livething/tests-e2e-handlers/_shared/probe-plugin';
-import { requireUsername } from '@livething/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
 import type { ServerContract } from '@livething/server/adapters';
 import type { PluginCapability } from '@livething/server/plugins';
@@ -54,8 +55,9 @@ export function createPluginsDefinition<
   const drizzleCapability = drizzle();
 
   const base = server({
-    upgrade: (request) => requireUsername(request),
+    authenticate: (request) => requireUsername(request),
     capabilities: [
+      keepalive(),
       stream(),
       sequence({ persist: true }),
       dedup(),

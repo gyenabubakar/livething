@@ -1,9 +1,10 @@
 import { errors, server } from '@livething/server';
 import { error, LiveThingError } from '@livething/server/errors';
+import { keepalive } from '@livething/server/keepalive';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
+import { requireUsername } from '../_shared/authenticate.ts';
 import { Forbidden, NotFound } from '../_shared/errors.ts';
-import { requireUsername } from '../_shared/upgrade.ts';
 
 const SimpleError = error('simple-error');
 const Unregistered = error('unregistered', v.object({ msg: v.string() }));
@@ -14,8 +15,8 @@ const Unregistered = error('unregistered', v.object({ msg: v.string() }));
 const BigIntDetail = error('bigint-detail');
 
 const base = server({
-  upgrade: (request) => requireUsername(request),
-  capabilities: [errors([NotFound, Forbidden, SimpleError, BigIntDetail])],
+  authenticate: (request) => requireUsername(request),
+  capabilities: [keepalive(), errors([NotFound, Forbidden, SimpleError, BigIntDetail])],
 });
 
 const handleTriggerNotFound = base.on('trigger-not-found', {

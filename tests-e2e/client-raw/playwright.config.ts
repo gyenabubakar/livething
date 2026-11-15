@@ -9,8 +9,15 @@ const serverCommand = process.env.LIVETHING_E2E_SERVER_COMMAND;
 const serverCwd = process.env.LIVETHING_E2E_SERVER_CWD;
 const serverPort = Number(process.env.LIVETHING_E2E_SERVER_PORT ?? 8787);
 
+// `@drop`: a connection dropped with no close, which a server sees only when its runtime
+// reports the aborted stream. Local wrangler dev does not report it for an idle stream,
+// so its SSE script sets LIVETHING_E2E_NO_STREAM_ABORT.
+const skipDrops =
+  process.env.LIVETHING_E2E_TRANSPORT === 'sse' && !!process.env.LIVETHING_E2E_NO_STREAM_ABORT;
+
 export default defineConfig({
   testDir: 'tests',
+  ...(skipDrops ? { grepInvert: /@drop/ } : {}),
   fullyParallel: true,
   timeout: 30_000,
   // All tests share one dev server (wrangler dev / miniflare). Running tests

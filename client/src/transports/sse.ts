@@ -1,0 +1,531 @@
+import { CloseCodes, decodeBase64, LIVETHING_SUBPROTOCOL } from '@livething/core';
+import { withScheme } from './transport.ts';
+import type { Transport, TransportFactory, TransportOpenOptions } from './transport.ts';
+
+/** One below the server's 256 frames waiting per connection. */
+const MAX_BATCH_FRAMES = 255;
+const FRAME_HEADER_BYTES = 5;
+/** A POST with no answer in this time counts as failed. */
+const POST_TIMEOUT_MS = 30_000;
+/** Busy answers with no frame accepted for this long count as a failed POST. */
+const BUSY_GIVE_UP_MS = 30_000;
+const BUSY_FIRST_WAIT_MS = 250;
+const BUSY_MAX_WAIT_MS = 1_000;
+/** A connection is stable after this long open, with one POST accepted. */
+const STABLE_AFTER_MS = 30_000;
+/** How long a close waits for the POST in flight, and then for its own POST. */
+const CLOSE_WAIT_MS = 1_000;
+/** A close with no close frame, as a WebSocket reports a dropped connection. */
+const ABNORMAL_CLOSE = 1006;
+/** Statuses that mean the server does not offer this transport, so they are not final. */
+const NOT_OFFERED = new Set([404, 405, 426]);
+
+// Created on first use: a platform without TextEncoder must still load the client.
+let encoder: TextEncoder | undefined;
+let warnedHttp1 = false;
+
+function utf8(text: string): Uint8Array<ArrayBuffer> {
+  encoder ??= new TextEncoder();
+  return encoder.encode(text);
+}
+
+/**
+ * Server-sent events from the server, and POST requests from the client. A full transport:
+ * use it alone, or list it after `websocket()` to fail over when a network blocks WebSocket.
+ * It needs a `fetch` that streams the response body.
+ */
+export function sse(): TransportFactory {
+  return { name: 'sse', open: openSse };
+}
+
+interface QueuedFrame {
+  binary: boolean;
+  bytes: Uint8Array;
+}
+
+function openSse(options: TransportOpenOptions): Transport {
+  if (typeof TextEncoder === 'undefined' || typeof TextDecoder === 'undefined') {
+    throw new Error(
+      '[livething] sse() needs TextEncoder and TextDecoder, and this platform has no global for one of them.',
+    );
+  }
+
+  const { events } = options;
+  const url = withScheme(options.url, 'https', 'http');
+  const stream = new AbortController();
+  let state: 'connecting' | 'open' | 'closing' | 'closed' = 'connecting';
+  let silent = false;
+
+  let secret = '';
+  let maxPostBytes = 0;
+
+  const dataQueue: QueuedFrame[] = [];
+  let queuedBytes = 0;
+  const controlQueue: string[] = [];
+  let dataInFlight: Promise<void> | null = null;
+  let controlInFlight: Promise<void> | null = null;
+
+  let busyRoom = MAX_BATCH_FRAMES;
+  let busyWait = BUSY_FIRST_WAIT_MS;
+  let busySince: number | null = null;
+  let busyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let confirmed = false;
+  let openLongEnough = false;
+  let stableTimer: ReturnType<typeof setTimeout> | null = null;
+  let stableSent = false;
+
+  function isClosed(): boolean {
+    return state === 'closed';
+  }
+
+  function finish(code: number, reason: string, wasClean: boolean): void {
+    if (state === 'closed') return;
+
+    state = 'closed';
+    stream.abort();
+    dataQueue.length = 0;
+    controlQueue.length = 0;
+    queuedBytes = 0;
+
+    if (busyTimer !== null) clearTimeout(busyTimer);
+
+    if (stableTimer !== null) clearTimeout(stableTimer);
+
+    if (!silent) events.close(code, reason, wasClean);
+  }
+
+  function fail(reason: string, error?: unknown): void {
+    if (state === 'closed') return;
+
+    if (error !== undefined && !silent) events.error(error);
+
+    finish(ABNORMAL_CLOSE, reason, false);
+  }
+
+  void readStream();
+
+  async function readStream(): Promise<void> {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: 'text/event-stream',
+          'LiveThing-Protocol': LIVETHING_SUBPROTOCOL,
+          ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        },
+        cache: 'no-store',
+        signal: stream.signal,
+      });
+    } catch (error) {
+      fail('stream request failed', error);
+      return;
+    }
+
+    const contentType = response.headers.get('Content-Type') ?? '';
+    if (response.ok && !response.body && contentType.startsWith('text/event-stream')) {
+      fail(
+        'stream request has no body',
+        new Error(
+          "[livething] this fetch does not stream a response body, and sse() needs one. On React Native, set Expo's expo/fetch as the global fetch.",
+        ),
+      );
+      return;
+    }
+
+    if (!response.ok || !response.body || !contentType.startsWith('text/event-stream')) {
+      await failForStatus(response);
+      return;
+    }
+
+    // A close may have run while the request was in flight.
+    if (isClosed()) return;
+
+    if (!silent) events.open();
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Only the new text can hold a new blank line, plus the last character of the old.
+        let from = Math.max(0, buffer.length - 1);
+        buffer += decoder.decode(value, { stream: true });
+        let end: number;
+        while ((end = buffer.indexOf('\n\n', from)) !== -1) {
+          const block = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          from = 0;
+          handleEvent(block);
+          if (state === 'closed') return;
+        }
+      }
+    } catch (error) {
+      // An abort is our own close. Anything else, such as Node's body timeout, is a drop.
+      if (!stream.signal.aborted && state !== 'closing') fail('stream failed', error);
+      return;
+    }
+
+    // The server ends the stream when it reads our `__close__`, sometimes before it answers the POST.
+    if (state !== 'closing') fail('stream ended without a close');
+  }
+
+  /**
+   * An answer that opened no stream. An error that LiveThing made, with a 4xx status, is
+   * the server's final answer. Anything else may come from a proxy, so it is a drop.
+   */
+  async function failForStatus(response: Response): Promise<void> {
+    const { status } = response;
+    const marked = response.headers.has('LiveThing-Error');
+    if (!marked || status < 400 || status >= 500 || NOT_OFFERED.has(status)) {
+      fail(`stream request answered ${status}`);
+      return;
+    }
+
+    const reason = (await response.text().catch(() => '')).slice(0, 120);
+    let code: number = CloseCodes.AUTH_INVALID;
+    if (status === 401) code = CloseCodes.AUTH_EXPIRED;
+    else if (status === 429) code = CloseCodes.RATE_LIMITED;
+
+    finish(code, reason, false);
+  }
+
+  function handleEvent(block: string): void {
+    const text = block
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5))
+      .join('\n');
+    if (text === '') return;
+
+    if (text.startsWith('b')) {
+      const bytes = decodeBase64(text.slice(1));
+      if (bytes) {
+        events.message(bytes.buffer);
+      } else {
+        fail('bad binary event');
+      }
+
+      return;
+    }
+
+    if (text.startsWith('["__close__"')) {
+      const payload = parsePayload(text) as { code?: unknown; reason?: unknown } | null;
+      const code = typeof payload?.code === 'number' ? payload.code : CloseCodes.NORMAL;
+      finish(code, typeof payload?.reason === 'string' ? payload.reason : '', true);
+      return;
+    }
+
+    if (state === 'connecting' && text.startsWith('["__connected__"')) {
+      const payload = parsePayload(text) as { secret?: unknown; maxPostBytes?: unknown } | null;
+      if (typeof payload?.secret !== 'string' || typeof payload.maxPostBytes !== 'number') {
+        fail('__connected__ frame has no POST secret');
+        return;
+      }
+
+      secret = payload.secret;
+      maxPostBytes = payload.maxPostBytes;
+      state = 'open';
+      stableTimer = setTimeout(() => {
+        stableTimer = null;
+        openLongEnough = true;
+        checkStable();
+      }, STABLE_AFTER_MS);
+    }
+
+    events.message(text);
+  }
+
+  function checkStable(): void {
+    if (stableSent || !openLongEnough || !confirmed || silent) return;
+
+    stableSent = true;
+    events.stable();
+  }
+
+  function postAccepted(): void {
+    if (!confirmed) warnIfHttp1(url, options.warn);
+
+    confirmed = true;
+    checkStable();
+  }
+
+  async function post(lane: 'data' | 'control', body: Uint8Array<ArrayBuffer>): Promise<Response> {
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(), POST_TIMEOUT_MS);
+    try {
+      return await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'LiveThing-Secret': secret,
+          'LiveThing-Lane': lane,
+        },
+        body,
+        cache: 'no-store',
+        signal: timeout.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** A POST that failed after the open. A 404 means the server forgot the connection. */
+  function postFailed(response: Response | null, error?: unknown): void {
+    if (state !== 'open') return;
+
+    if (response?.status === 403 && response.headers.has('LiveThing-Error')) {
+      finish(CloseCodes.AUTH_INVALID, 'Origin not allowed', false);
+      return;
+    }
+
+    // A 404 means the server forgot this connection, which says nothing about the path.
+    if (!confirmed && response?.status !== 404 && !silent) events.unusable();
+
+    fail(response ? `POST answered ${response.status}` : 'POST failed', error);
+  }
+
+  function pumpData(): void {
+    if (dataInFlight || busyTimer !== null || state !== 'open' || dataQueue.length === 0) return;
+
+    let count = 0;
+    let size = 0;
+    const limit = Math.min(busyRoom, MAX_BATCH_FRAMES);
+
+    while (count < dataQueue.length && count < limit) {
+      const next = dataQueue[count]!.bytes.byteLength + FRAME_HEADER_BYTES;
+      if (size + next > maxPostBytes) break;
+
+      size += next;
+      count++;
+    }
+
+    const batch = dataQueue.slice(0, count);
+
+    dataInFlight = sendData(batch).finally(() => {
+      dataInFlight = null;
+      pumpData();
+    });
+  }
+
+  async function sendData(batch: QueuedFrame[]): Promise<void> {
+    let response: Response;
+    try {
+      response = await post('data', encodeBatch(batch));
+    } catch (error) {
+      postFailed(null, error);
+      return;
+    }
+
+    if (state !== 'open') return;
+
+    if (response.status === 204) {
+      dataQueue.splice(0, batch.length);
+
+      for (const frame of batch) queuedBytes -= frame.bytes.byteLength;
+
+      busyRoom = MAX_BATCH_FRAMES;
+      busyWait = BUSY_FIRST_WAIT_MS;
+      busySince = null;
+
+      postAccepted();
+
+      return;
+    }
+
+    if (response.status === 503 && response.headers.get('LiveThing-Error') === 'busy') {
+      const answer = (await response.json().catch(() => null)) as {
+        room?: unknown;
+        retryAfterMs?: unknown;
+      } | null;
+
+      busySince ??= Date.now();
+
+      if (Date.now() - busySince > BUSY_GIVE_UP_MS) {
+        postFailed(response);
+        return;
+      }
+
+      // Send only what fits next time, so the server need not refuse the batch again.
+      busyRoom = typeof answer?.room === 'number' && answer.room > 0 ? answer.room : 1;
+      const retryAfterMs = typeof answer?.retryAfterMs === 'number' ? answer.retryAfterMs : 0;
+      const wait = Math.max(busyWait, retryAfterMs);
+
+      busyWait = Math.min(busyWait * 2, BUSY_MAX_WAIT_MS);
+
+      busyTimer = setTimeout(() => {
+        busyTimer = null;
+        pumpData();
+      }, wait);
+
+      return;
+    }
+
+    postFailed(response);
+  }
+
+  function pumpControl(): void {
+    if (controlInFlight || state !== 'open' || controlQueue.length === 0) return;
+
+    const frames = controlQueue.splice(0);
+
+    controlInFlight = sendControlBatch(frames).finally(() => {
+      controlInFlight = null;
+      pumpControl();
+    });
+  }
+
+  async function sendControlBatch(frames: string[]): Promise<void> {
+    const batch = frames.map((frame) => ({ binary: false, bytes: utf8(frame) }));
+    let response: Response;
+    try {
+      response = await post('control', encodeBatch(batch));
+    } catch (error) {
+      postFailed(null, error);
+      return;
+    }
+
+    if (response.status === 204) {
+      postAccepted();
+    } else {
+      postFailed(response);
+    }
+  }
+
+  /**
+   * Close in order: let the data POST in flight land, so the close does not overtake
+   * earlier messages, then send `__close__` on the control lane, then stop the stream.
+   * Each wait is at most one second. Messages still queued are dropped.
+   */
+  async function closeInOrder(code: number, reason: string): Promise<void> {
+    if (state === 'closing' || state === 'closed') return;
+
+    if (state === 'connecting') {
+      finish(code, reason, false);
+      return;
+    }
+
+    state = 'closing';
+    dataQueue.length = 0;
+    controlQueue.length = 0;
+    queuedBytes = 0;
+
+    await settleWithin(dataInFlight);
+
+    // A second control POST while one is still open gets a 409, which closes with 1002.
+    if (await settleWithin(controlInFlight)) {
+      const frame = JSON.stringify(['__close__', { code, reason }, null]);
+
+      await settleWithin(post('control', encodeBatch([{ binary: false, bytes: utf8(frame) }])));
+    }
+
+    finish(code, reason, true);
+  }
+
+  return {
+    name: 'sse',
+    protocol: '',
+    webSocket: null,
+    reportsStable: true,
+
+    isOpen: () => state === 'open',
+
+    send(data) {
+      if (state !== 'open') return;
+
+      const bytes = typeof data === 'string' ? utf8(data) : data;
+      if (bytes.byteLength + FRAME_HEADER_BYTES > maxPostBytes) {
+        throw new RangeError(
+          `[livething] the message is ${bytes.byteLength} bytes, over the server's POST limit of ${maxPostBytes - FRAME_HEADER_BYTES} bytes on server-sent events. Send large data with uploads().`,
+        );
+      }
+
+      dataQueue.push({ binary: typeof data !== 'string', bytes });
+      queuedBytes += bytes.byteLength;
+
+      pumpData();
+    },
+
+    sendControl(frame) {
+      controlQueue.push(frame);
+      pumpControl();
+    },
+
+    bufferedAmount: () => queuedBytes,
+
+    close(code = CloseCodes.NORMAL, reason = '') {
+      void closeInOrder(code, reason);
+    },
+
+    dispose(code = CloseCodes.NORMAL, reason = '') {
+      silent = true;
+      void closeInOrder(code, reason);
+    },
+  };
+}
+
+/** Frames as one POST body: 1 byte for the type (0 text, 1 binary), 4 for the length, the data. */
+function encodeBatch(frames: readonly QueuedFrame[]): Uint8Array<ArrayBuffer> {
+  const size = frames.reduce((sum, frame) => sum + FRAME_HEADER_BYTES + frame.bytes.byteLength, 0);
+  const body = new Uint8Array(size);
+  const view = new DataView(body.buffer);
+
+  let offset = 0;
+  for (const frame of frames) {
+    body[offset] = frame.binary ? 1 : 0;
+    view.setUint32(offset + 1, frame.bytes.byteLength, false);
+    body.set(frame.bytes, offset + FRAME_HEADER_BYTES);
+    offset += FRAME_HEADER_BYTES + frame.bytes.byteLength;
+  }
+
+  return body;
+}
+
+function parsePayload(text: string): unknown {
+  try {
+    return (JSON.parse(text) as unknown[])[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Waits up to `CLOSE_WAIT_MS` for the promise, and says whether it settled in that time. */
+async function settleWithin(promise: Promise<unknown> | null): Promise<boolean> {
+  if (!promise) return true;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const settled = await Promise.race([
+    promise.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), CLOSE_WAIT_MS);
+    }),
+  ]);
+
+  clearTimeout(timer);
+
+  return settled;
+}
+
+/**
+ * HTTP/1.1 allows six connections per site, shared by every tab, and each SSE connection
+ * holds up to three. The browser reports the protocol of a finished request, so the
+ * check runs after the first POST.
+ */
+function warnIfHttp1(url: string, warn: (message: string) => void): void {
+  if (warnedHttp1 || typeof performance === 'undefined') return;
+
+  const entries = performance.getEntriesByName?.(url) as PerformanceResourceTiming[] | undefined;
+  if (!entries?.some((entry) => entry.nextHopProtocol === 'http/1.1')) return;
+
+  warnedHttp1 = true;
+  warn(
+    'sse() is running over HTTP/1.1, which allows six connections per site across all tabs. Serve the site over HTTP/2 or HTTP/3.',
+  );
+}

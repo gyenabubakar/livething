@@ -59,7 +59,7 @@ function fakeConnection(id: string, userId: string): RuntimeConnection {
   return {
     id,
     userId,
-    wsKey: Symbol(id),
+    socketKey: Symbol(id),
     descriptor: { send: vi.fn(), close: vi.fn(), bufferedAmount: () => 0, userId },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },

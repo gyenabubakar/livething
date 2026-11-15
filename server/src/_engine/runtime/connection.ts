@@ -13,6 +13,7 @@ import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
+import { MAX_RESUME_TOKENS } from './protocol.ts';
 import { releaseSubscribes } from './subscribe-order.ts';
 import { serializeWireFrame } from './wire-serialize.ts';
 import type * as ConnectionStore from './connection-store.ts';
@@ -51,10 +52,10 @@ type CancelActiveStreamsForConnectionRuntimeParameter = {
   >;
   logger?: Pick<PublicApi.Logger, 'error'>;
 };
-type HandleUpgradeRuntimeParameter = {
-  upgradeHooks: readonly ((
+type AuthenticateRuntimeParameter = {
+  authHooks: readonly ((
     request: Request,
-    helpers: LifecycleTypes.UpgradeHelpers,
+    helpers: LifecycleTypes.AuthHelpers,
   ) =>
     | { meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
     | Promise<{
@@ -62,16 +63,16 @@ type HandleUpgradeRuntimeParameter = {
         tags?: readonly PublicApi.TagRef[];
       }>)[];
   /**
-   * Plugin `upgrade` hooks, in registration order. Run before the
+   * Plugin `authenticate` hooks, in registration order. Run before the
    * app's builder hook (inbound onion). Each may own `userId`, but the
    * single-owner rule below allows at most one user id source overall.
    */
-  pluginUpgradeHooks?: readonly {
+  pluginAuthHooks?: readonly {
     pluginId: string;
     baseId?: symbol;
     handler: (
       request: Request,
-      helpers: LifecycleTypes.UpgradeHelpers,
+      helpers: LifecycleTypes.AuthHelpers,
     ) =>
       | { userId?: string; meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
       | Promise<{
@@ -80,10 +81,10 @@ type HandleUpgradeRuntimeParameter = {
           tags?: readonly PublicApi.TagRef[];
         }>;
   }[];
-  builderUpgradeHook?:
+  builderAuthHook?:
     | ((
         request: Request,
-        helpers: LifecycleTypes.UpgradeHelpers,
+        helpers: LifecycleTypes.AuthHelpers,
       ) =>
         | {
             userId?: string;
@@ -100,18 +101,18 @@ type HandleUpgradeRuntimeParameter = {
    * Built once per engine. It always has `ctx`. A contract with `tagGroups`
    * also populates `tags`; contracts without tag groups leave `tags` out.
    */
-  upgradeHelpers: LifecycleTypes.UpgradeHelpers;
-  /** Lets `context.upgrade(base)` reach the upgrade `ctx`. Omitted by test harnesses. */
+  authHelpers: LifecycleTypes.AuthHelpers;
+  /** Lets `context.authenticate(base)` reach the authenticate `ctx`. Omitted by test harnesses. */
   asyncContext?: EngineAsyncContext;
   /**
    * Whether a tag group of the given kind was declared. Guards tag refs an
-   * upgrade returns — including the `tags: { ephemeral: { ... } }` sugar,
+   * authenticate returns — including the `tags: { ephemeral: { ... } }` sugar,
    * which builds refs without going through the declaration-checked helper.
    */
   isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
   /**
    * The schema a tag group declared, or `undefined` for a `t<>()` group. Keys
-   * an upgrade returns are checked against it, the same as `add()`.
+   * an authenticate returns are checked against it, the same as `add()`.
    */
   getTagGroupSchema(kind: 'ephemeral' | 'persistent', group: string): unknown;
   logger?: Pick<PublicApi.Logger, 'error'>;
@@ -184,13 +185,13 @@ function removeConnectionFromUserIndex(
 function rollbackConnectionIndexes(
   runtime: Pick<
     ConnectionRuntime,
-    'connections' | 'usersByKey' | 'channelMembers' | 'tagMembers' | 'wsToConnectionId'
+    'connections' | 'usersByKey' | 'channelMembers' | 'tagMembers' | 'socketToConnectionId'
   >,
   connection: EngineRuntimeTypes.RuntimeConnection,
 ): void {
   runtime.connections.delete(connection.id);
   removeConnectionFromUserIndex(runtime.usersByKey, connection);
-  runtime.wsToConnectionId.delete(connection.wsKey);
+  runtime.socketToConnectionId.delete(connection.socketKey);
 
   for (const membership of ChannelPrimitive.listChannelMemberships(connection)) {
     ChannelPrimitive.removeChannelMembership(runtime.channelMembers, connection, membership);
@@ -202,7 +203,7 @@ function rollbackConnectionIndexes(
 /**
  * Minimal subset of the WebSocket-like object the engine wraps on wake. The
  * descriptor uses `send` and `close` to drive the underlying socket; the
- * per-connection snapshot is loaded via `runtime.restoreAttachment(wsKey)`,
+ * per-connection snapshot is loaded via `runtime.restoreAttachment(socketKey)`,
  * which routes through the adapter's hibernation API.
  */
 interface HibernatableWebSocket {
@@ -218,8 +219,6 @@ interface HibernatableWebSocket {
 interface ConnectionRuntime {
   compiled: EngineCompileTypes.CompiledServer;
 
-  hibernationEnabled?: boolean;
-
   /** The adapter's message limits. The engine always passes them; a test runtime may not. */
   messageLimits?: EngineAdapterTypes.MessageLimits;
 
@@ -228,15 +227,24 @@ interface ConnectionRuntime {
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   channelMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
-  wsToConnectionId: Map<unknown, string>;
+  socketToConnectionId: Map<unknown, string>;
 
   generateId(prefix?: string): string;
 
   /** Whether a replay capability is listed, so each connection gets a resume token. */
   replayEnabled?(): boolean;
 
-  /** Take the next delivery seq, for the `__resume__` frame's starting cursor. */
+  /**
+   * Whether the server turned on hibernation. Without it there is no table for the
+   * connection rows, so a descriptor's `survivesHibernation` is ignored.
+   */
+  hibernationAllowed?(): boolean;
+
+  /** Take the next delivery seq, for the resume cursor in the `__connected__` frame. */
   allocateDeliverySeq?(): number | undefined;
+
+  /** The engine-wide values of the `__connected__` frame. Omitted by test harnesses. */
+  connectedSettings?(connection: EngineRuntimeTypes.RuntimeConnection): ConnectedSettings;
 
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
@@ -252,7 +260,7 @@ interface ConnectionRuntime {
    * platform has no record of this socket. Adapters without hibernation
    * support omit this field.
    */
-  restoreAttachment?(wsKey: unknown): unknown;
+  restoreAttachment?(socketKey: unknown): unknown;
 
   /**
    * Read the persisted connection row matching the id read from the
@@ -354,6 +362,12 @@ function createHandle(
     handleMessage: async (data) => {
       if (connection.closing) return;
 
+      // Built-in transports always pass a string, but a custom transport may pass anything.
+      if (typeof data !== 'string') {
+        closeFor(CloseCodes.UNSUPPORTED_DATA, 'Message is not text');
+        return;
+      }
+
       // The platform should refuse a bigger message first; this makes the limit hold anyway.
       if (receiveBytes !== undefined && textOverLimit(data, receiveBytes)) {
         closeFor(CloseCodes.MESSAGE_TOO_BIG, 'Message is too big');
@@ -371,6 +385,12 @@ function createHandle(
     },
     handleBinaryMessage: async (data) => {
       if (connection.closing) return;
+
+      // `isView` and not `instanceof`, which fails for bytes made in another realm.
+      if (!ArrayBuffer.isView(data)) {
+        closeFor(CloseCodes.UNSUPPORTED_DATA, 'Message is not bytes');
+        return;
+      }
 
       if (receiveBytes !== undefined && data.byteLength > receiveBytes) {
         closeFor(CloseCodes.MESSAGE_TOO_BIG, 'Message is too big');
@@ -410,6 +430,27 @@ function createHandle(
       }
     },
   };
+}
+
+export type ConnectedFeature = 'replay' | 'binary' | 'uploads';
+
+/** The engine-wide values of the `__connected__` frame. */
+interface ConnectedSettings {
+  pingIntervalMs: number | null;
+  idleTimeoutMs: number | null;
+  features: ConnectedFeature[];
+}
+
+/** The resume token and starting seq for the `__connected__` frame, or `null` when replay is off. */
+function resumePoint(
+  runtime: ConnectionRuntime,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+): { token: string; seq: number | null } | null {
+  if (!connection.resumeToken) return null;
+
+  // A fresh seq sits after every frame sent so far and before every later
+  // one, so a client that saw no frame yet still has a cursor to catch up from.
+  return { token: connection.resumeToken, seq: runtime.allocateDeliverySeq?.() ?? null };
 }
 
 function closedHandle(): EngineAdapterTypes.ConnectionHandle {
@@ -528,7 +569,7 @@ type ConnectionCloseRuntime = Pick<
   | 'connections'
   | 'usersByKey'
   | 'tagMembers'
-  | 'wsToConnectionId'
+  | 'socketToConnectionId'
   | 'deleteConnectionState'
 > & {
   cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
@@ -589,7 +630,7 @@ async function closeConnection(
   removeConnectionFromUserIndex(runtime.usersByKey, connection);
   pendingEvictions.delete(connection);
 
-  runtime.wsToConnectionId.delete(connection.wsKey);
+  runtime.socketToConnectionId.delete(connection.socketKey);
 
   runtime.deleteConnectionState?.(connection.id);
 
@@ -669,7 +710,7 @@ async function closeConnection(
  */
 export function acceptConnection(
   runtime: ConnectionRuntime,
-  wsKey: unknown,
+  socketKey: unknown,
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): EngineAdapterTypes.ConnectionHandle {
   const normalizedDescriptor = normalizeConnectionDescriptor(descriptor, {
@@ -724,9 +765,11 @@ export function acceptConnection(
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
     userId: descriptor.userId,
-    wsKey,
+    socketKey,
     descriptor: normalizedDescriptor,
     meta: descriptor.meta ?? {},
+    survivesHibernation:
+      descriptor.survivesHibernation === true && runtime.hibernationAllowed?.() === true,
     ...(runtime.replayEnabled?.() ? { resumeToken: crypto.randomUUID() } : {}),
 
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -748,22 +791,24 @@ export function acceptConnection(
 
   runtime.connections.set(connection.id, connection);
   addConnectionToUserIndex(runtime.usersByKey, connection);
-  runtime.wsToConnectionId.set(wsKey, connection.id);
+  runtime.socketToConnectionId.set(socketKey, connection.id);
   // Initial write goes through without the gate so the row exists from the
   // moment the connection is live. Then the gate is set so onConnect state
   // changes (channel subscribes, ephemeral tag adds, etc.) batch into one
   // flush after the hook resolves.
   try {
     runtime.persistAttachment(connection);
-    if (connection.resumeToken && !connection.closing) {
-      // A fresh seq sits after every frame sent so far and before every later
-      // one, so a client that saw no frame yet still has a cursor to catch up from.
-      const seq = runtime.allocateDeliverySeq?.();
+    const settings = runtime.connectedSettings?.(connection);
+    if (settings && !connection.closing) {
       connection.descriptor.send({
         kind: 'text',
-        text: serializeWireFrame('__resume__', {
-          token: connection.resumeToken,
-          ...(seq === undefined ? {} : { seq }),
+        text: serializeWireFrame('__connected__', {
+          ...settings,
+          maxResumeTokens: MAX_RESUME_TOKENS,
+          connectionId: connection.id,
+          resume: resumePoint(runtime, connection),
+          secret: descriptor.secret ?? null,
+          maxPostBytes: descriptor.maxPostBytes ?? null,
         }),
       });
     }
@@ -829,7 +874,7 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
   try {
     runtime.connections.set(connection.id, connection);
     addConnectionToUserIndex(runtime.usersByKey, connection);
-    runtime.wsToConnectionId.set(connection.wsKey, connection.id);
+    runtime.socketToConnectionId.set(connection.socketKey, connection.id);
 
     for (const tag of row?.ephemeral_tags ?? []) {
       addConnectionTag(runtime.tagMembers, connection, {
@@ -888,15 +933,15 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
  */
 export function wakeHibernatedConnection(
   runtime: ConnectionRuntime,
-  wsKey: unknown,
+  socketKey: unknown,
 ): EngineAdapterTypes.ConnectionHandle {
-  const existingId = runtime.wsToConnectionId.get(wsKey);
+  const existingId = runtime.socketToConnectionId.get(socketKey);
   if (existingId) {
     const existing = runtime.connections.get(existingId)!;
     return createHandle(runtime, existing);
   }
 
-  const wsLike = wsKey as HibernatableWebSocket;
+  const wsLike = socketKey as HibernatableWebSocket;
   // The attachment now carries a tiny correlation payload — just the
   // connection id — so the engine can find the full state row in SQL. Falls
   // back to a generated id when there is nothing to read (defensive: a
@@ -905,7 +950,7 @@ export function wakeHibernatedConnection(
   let attachment: unknown;
   try {
     attachment = runtime.restoreAttachment
-      ? assertSynchronousResult(runtime.restoreAttachment(wsKey), 'adapter hibernation.restore')
+      ? assertSynchronousResult(runtime.restoreAttachment(socketKey), 'adapter hibernation.restore')
       : undefined;
   } catch (error) {
     wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[livething] hibernation restore failed');
@@ -974,9 +1019,11 @@ export function wakeHibernatedConnection(
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id,
     userId,
-    wsKey,
+    socketKey,
     descriptor,
     meta,
+    // Only a socket the platform held while the server slept can wake.
+    survivesHibernation: true,
     ...(typeof row?.metadata?.resumeToken === 'string'
       ? { resumeToken: row.metadata.resumeToken }
       : {}),
@@ -995,25 +1042,21 @@ export function wakeHibernatedConnection(
 }
 
 /**
- * Run the optional upgrade hook and normalize its result into adapter-friendly
+ * Run the optional authenticate hook and normalize its result into adapter-friendly
  * accept/reject data.
  */
-export async function handleUpgrade(
-  runtime: HandleUpgradeRuntimeParameter,
+export async function authenticate(
+  runtime: AuthenticateRuntimeParameter,
   request: Request,
-): Promise<EngineAdapterTypes.UpgradeDecision> {
-  const pluginUpgradeHooks = runtime.pluginUpgradeHooks ?? [];
-  if (
-    pluginUpgradeHooks.length === 0 &&
-    runtime.upgradeHooks.length === 0 &&
-    !runtime.builderUpgradeHook
-  ) {
+): Promise<EngineAdapterTypes.AuthDecision> {
+  const pluginAuthHooks = runtime.pluginAuthHooks ?? [];
+  if (pluginAuthHooks.length === 0 && runtime.authHooks.length === 0 && !runtime.builderAuthHook) {
     return {};
   }
 
   // Which hook is running, so the log can name it when the handshake fails.
   let runningHook = 'none';
-  // Onion order: plugin upgrades first (registration order), then internal
+  // Onion order: plugin authenticate hooks first (registration order), then internal
   // primitive hooks, then the app's builder hook last. Each result's meta is
   // shallow-merged into the running total — since the app applies last it
   // wins on key conflict; tags are concatenated (TagRef equality is by
@@ -1026,7 +1069,7 @@ export async function handleUpgrade(
     if (result.userId !== undefined) {
       if (userIdOwner !== undefined) {
         throw new Error(
-          `[livething] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
+          `[livething] Two authenticate hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
             'A user id has exactly one owner per connection — the app or one plugin, never both.',
         );
       }
@@ -1043,13 +1086,13 @@ export async function handleUpgrade(
       for (const ref of result.tags) {
         if (ref.kind === 'persistent') {
           throw new Error(
-            `[livething] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
+            `[livething] onAuthenticate returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
           );
         }
 
         if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
           throw new Error(
-            `[livething] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
+            `[livething] onAuthenticate returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
           );
         }
 
@@ -1063,7 +1106,7 @@ export async function handleUpgrade(
             validateValue(schema, ref.key, `tag ephemeral:${ref.group}`);
           } catch (error) {
             throw new Error(
-              `[livething] onUpgrade returned the ephemeral tag key '${ref.key}' for group '${ref.group}', which the group's schema rejects.`,
+              `[livething] onAuthenticate returned the ephemeral tag key '${ref.key}' for group '${ref.group}', which the group's schema rejects.`,
               { cause: error },
             );
           }
@@ -1075,16 +1118,16 @@ export async function handleUpgrade(
   }
 
   try {
-    for (const entry of pluginUpgradeHooks) {
+    for (const entry of pluginAuthHooks) {
       runningHook = `plugin '${entry.pluginId}'`;
-      // The plugin gets its own scoped `ctx`. The same object reaches `context.upgrade(pluginBase)`.
+      // The plugin gets its own scoped `ctx`. The same object reaches `context.authenticate(pluginBase)`.
       const helpers = {
-        ...runtime.upgradeHelpers,
-        ctx: scopePluginContext(entry.pluginId, runtime.upgradeHelpers.ctx),
+        ...runtime.authHelpers,
+        ctx: scopePluginContext(entry.pluginId, runtime.authHelpers.ctx),
       };
 
       const call: CallDescriptor = {
-        kind: 'upgrade',
+        kind: 'authenticate',
         getCtx: () => helpers.ctx,
         baseId: entry.baseId,
       };
@@ -1095,17 +1138,17 @@ export async function handleUpgrade(
       apply(result ?? {}, `plugin '${entry.pluginId}'`);
     }
 
-    for (const hook of runtime.upgradeHooks) {
+    for (const hook of runtime.authHooks) {
       runningHook = 'an internal hook';
-      apply((await hook(request, runtime.upgradeHelpers)) ?? {}, 'an internal hook');
+      apply((await hook(request, runtime.authHelpers)) ?? {}, 'an internal hook');
     }
 
-    const builderUpgradeHook = runtime.builderUpgradeHook;
-    if (builderUpgradeHook) {
+    const builderAuthHook = runtime.builderAuthHook;
+    if (builderAuthHook) {
       runningHook = 'the app';
-      const call: CallDescriptor = { kind: 'upgrade', getCtx: () => runtime.upgradeHelpers.ctx };
+      const call: CallDescriptor = { kind: 'authenticate', getCtx: () => runtime.authHelpers.ctx };
       const result = await withCallContext(runtime.asyncContext, call, () =>
-        builderUpgradeHook(request, runtime.upgradeHelpers),
+        builderAuthHook(request, runtime.authHelpers),
       );
       apply(result ?? {}, 'the app');
     }
@@ -1119,7 +1162,7 @@ export async function handleUpgrade(
     if (
       error &&
       typeof error === 'object' &&
-      (error as { __livething?: string }).__livething === 'reject-upgrade'
+      (error as { __livething?: string }).__livething === 'reject-auth'
     ) {
       const code = (error as { code: number }).code;
       if (isValidCloseCode(code) || isValidHttpUpgradeStatus(code)) {
@@ -1130,19 +1173,19 @@ export async function handleUpgrade(
         };
       }
 
-      runtime.logger?.error('[livething] invalid upgrade rejection code; rejecting with HTTP 403', {
+      runtime.logger?.error('[livething] invalid RejectAuth code; rejecting with HTTP 403', {
         code,
         hook: runningHook,
       });
       return {
         reject: true,
         code: 403,
-        reason: 'Upgrade rejected',
+        reason: 'Authentication rejected',
       };
     }
 
     // The client only sees a generic reason; the real error goes to the log.
-    runtime.logger?.error('[livething] upgrade hook threw; rejecting with HTTP 500', {
+    runtime.logger?.error('[livething] authenticate hook threw; rejecting with HTTP 500', {
       hook: runningHook,
       error: error instanceof Error ? error.message : String(error),
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
@@ -1153,7 +1196,7 @@ export async function handleUpgrade(
     return {
       reject: true,
       code: 500,
-      reason: 'Upgrade failed',
+      reason: 'Authentication failed',
     };
   }
 }

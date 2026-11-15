@@ -1,7 +1,7 @@
 import { emits, server, t } from '@livething/server';
 import { plugin } from '@livething/server/plugins';
 import type { InferClient } from '@livething/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsername } from '../_shared/authenticate.ts';
 
 /**
  * A plugin that observes the same ping/pong frames the app does. It proves a
@@ -33,7 +33,7 @@ const HeartbeatProbe = plugin('e2e:heartbeat', { definition: probe.assemble({ ha
  * listed plugin observes the same frames.
  */
 const base = server({
-  upgrade: (request) => requireUsername(request),
+  authenticate: (request) => requireUsername(request),
   capabilities: [
     HeartbeatProbe(),
     emits({

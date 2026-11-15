@@ -121,6 +121,8 @@ export interface ServerDefinition<
   /** Id of the `base` that assembled this definition. Read by the `context.*` accessors. @internal */
   readonly __baseId?: symbol;
   readonly primitives: TPrimitives;
+  /** The kinds of the definition's top-level capabilities, such as `keepalive`. @internal */
+  readonly __capabilityKinds?: ReadonlySet<string>;
   /**
    * Type-only field — never set at runtime.
    *
@@ -184,12 +186,12 @@ export type AdminOf<TDefinition> =
     : ConnectionlessContext<Record<string, unknown>, unknown>;
 
 /**
- * The per-connection metadata type a server definition's `upgrade(...)` returns, read off
+ * The per-connection metadata type a server definition's `authenticate(...)` returns, read off
  * the ctx the definition is branded with.
  *
  * Adapters that carry connection snapshots across a serializing boundary need
  * the concrete type: a `Record<string, unknown>` fallback is not something
- * Cloudflare's RPC types accept as sendable. A server definition with no `upgrade` hook
+ * Cloudflare's RPC types accept as sendable. A server definition with no `authenticate` hook
  * has no metadata type to read, so it lands on the empty fallback rather than
  * `unknown` — which would fail the same sendability check.
  */

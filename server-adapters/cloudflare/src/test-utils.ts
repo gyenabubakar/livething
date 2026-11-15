@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { ConnectionHandle, Engine, UpgradeDecision } from '@livething/server/adapters';
+import type { AuthDecision, ConnectionHandle, Engine } from '@livething/server/adapters';
 
 // `WebSocketRequestResponsePair` is a Workers runtime global; Node test runs
 // lack it, so stand it in for the adapter's setWebSocketAutoResponse wiring.
@@ -135,7 +135,7 @@ function baseFakeState(): FakeDOState {
 }
 
 /**
- * Build a fake Engine that records calls and lets tests stage upgrade decisions
+ * Build a fake Engine that records calls and lets tests stage authenticate decisions
  * plus per-connection handle behavior.
  */
 export interface FakeEngine {
@@ -143,7 +143,7 @@ export interface FakeEngine {
   calls: {
     initialize: number;
     create: unknown[];
-    handleUpgrade: Request[];
+    authenticate: Request[];
     accept: Array<{ ws: unknown; descriptor: unknown }>;
     handleHibernationWake: unknown[];
     handleAlarm: number;
@@ -152,9 +152,7 @@ export interface FakeEngine {
     reconcileConnections: Array<ReadonlySet<string>>;
     restoreHibernatedConnections: unknown[][];
   };
-  stageUpgrade: (
-    decision: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision),
-  ) => void;
+  stageAuth: (decision: AuthDecision | (() => Promise<AuthDecision> | AuthDecision)) => void;
   setHibernation: (enabled: boolean) => void;
   setRestoreFailure: (error?: unknown) => void;
   connectionHandle: {
@@ -185,7 +183,7 @@ export function makeFakeEngine(): FakeEngine {
   const calls: FakeEngine['calls'] = {
     initialize: 0,
     create: [],
-    handleUpgrade: [],
+    authenticate: [],
     accept: [],
     handleHibernationWake: [],
     handleAlarm: 0,
@@ -195,7 +193,7 @@ export function makeFakeEngine(): FakeEngine {
     restoreHibernatedConnections: [],
   };
 
-  let stagedUpgrade: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision) = {};
+  let stagedAuth: AuthDecision | (() => Promise<AuthDecision> | AuthDecision) = {};
   let hibernation = false;
   let restoreFailure: unknown;
 
@@ -256,9 +254,9 @@ export function makeFakeEngine(): FakeEngine {
     initialize: vi.fn(async () => {
       calls.initialize += 1;
     }),
-    handleUpgrade: vi.fn(async (req: Request) => {
-      calls.handleUpgrade.push(req);
-      const v = typeof stagedUpgrade === 'function' ? await stagedUpgrade() : stagedUpgrade;
+    authenticate: vi.fn(async (req: Request) => {
+      calls.authenticate.push(req);
+      const v = typeof stagedAuth === 'function' ? await stagedAuth() : stagedAuth;
       return v;
     }),
     accept: vi.fn((ws: unknown, descriptor: unknown) => {
@@ -290,8 +288,8 @@ export function makeFakeEngine(): FakeEngine {
   return {
     engine,
     calls,
-    stageUpgrade(decision) {
-      stagedUpgrade = decision;
+    stageAuth(decision) {
+      stagedAuth = decision;
     },
     setHibernation(enabled) {
       hibernation = enabled;
@@ -322,7 +320,9 @@ export function installPermissiveResponse(): { restore: () => void } {
       this.init = init;
       this.status = (init.status as number | undefined) ?? 200;
       Object.assign(this, init);
+      this.headers = new Headers(init.headers as HeadersInit | undefined);
     }
+    readonly headers: Headers;
     text() {
       return Promise.resolve(typeof this.body === 'string' ? this.body : String(this.body ?? ''));
     }

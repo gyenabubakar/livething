@@ -98,9 +98,9 @@ const landingItems = [
         to: '/server/server/overview'
       },
       {
-        label: 'Adapters',
+        label: 'Runtime & Transports',
         icon: 'i-ph-plugs-duotone',
-        description: 'Run the definition on a platform',
+        description: 'Run the definition on a platform, and choose how clients connect',
         to: '/server/adapters/overview'
       },
       {

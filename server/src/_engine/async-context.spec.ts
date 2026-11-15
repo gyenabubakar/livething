@@ -33,10 +33,12 @@ describe('createAsyncContext', () => {
     const asyncContext = createAsyncContext(<TStore>() => new AsyncLocalStorage<TStore>(), appBase);
     const seen: (symbol | undefined)[] = [];
 
-    withCallContext(asyncContext, { kind: 'upgrade', getCtx: () => ({}), baseId: pluginBase }, () =>
-      seen.push(getCurrentCall()?.baseId),
+    withCallContext(
+      asyncContext,
+      { kind: 'authenticate', getCtx: () => ({}), baseId: pluginBase },
+      () => seen.push(getCurrentCall()?.baseId),
     );
-    withCallContext(asyncContext, { kind: 'upgrade', getCtx: () => ({}) }, () =>
+    withCallContext(asyncContext, { kind: 'authenticate', getCtx: () => ({}) }, () =>
       seen.push(getCurrentCall()?.baseId),
     );
 

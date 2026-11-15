@@ -1,7 +1,7 @@
-import { bind } from '@livething/server-cloudflare';
 import { receiptsDefinition } from '@livething/tests-e2e-handlers/receipts';
+import { bindFixture } from './bind-fixture.ts';
 
-const Base = bind(receiptsDefinition);
+const Base = bindFixture(receiptsDefinition);
 
 export class ReceiptsServer extends Base {
   #ctx: DurableObjectState;

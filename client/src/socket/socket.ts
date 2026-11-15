@@ -3,16 +3,20 @@ import {
   CloseCodes,
   decodeMessage,
   encodeMessage,
+  isLiveThingSubprotocol,
   LiveThingConfigError,
+  tokenSubprotocols,
   utf8ByteLength,
 } from '@livething/core';
 import { assertValidTtl } from '~/internal/config.ts';
+import { parseConnectedInfo } from '~/internal/connected.ts';
 import { dispatchToHandlers, keepFrameKind, runMessageHook } from '~/internal/dispatch.ts';
 import { toLiveThingError } from '~/internal/error-frame.ts';
 import { NAMESPACE_DELIMITER } from '~/internal/namespace.ts';
 import { createStore } from '~/internal/store.ts';
 import { isProtocolFrameEvent, isReservedEventName } from '~/internal/wire-validation.ts';
 import { Emitter } from '~/socket/emitter.ts';
+import { websocket } from '~/transports/websocket.ts';
 import type { LiveThingError } from '@livething/core';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
@@ -28,6 +32,7 @@ import type {
 } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { SendOptions } from '~/messaging.ts';
+import type { Transport, TransportFactory, TransportName } from '~/transports/transport.ts';
 import type { ConnectionState } from '~/types.ts';
 
 /** What an `onClose` handler receives. */
@@ -70,6 +75,20 @@ function isValidCloseReason(reason: unknown): reason is string {
   return typeof reason === 'string' && utf8ByteLength(reason) <= 123;
 }
 
+const DEFAULT_TRANSPORT = websocket();
+
+/** How long a transport that failed is skipped, so one slow start cannot keep a page on the fallback. */
+const FAILED_TRANSPORT_MS = 5 * 60_000;
+
+/** A close with no close frame, as a dropped connection reports it. */
+const ABNORMAL_CLOSE = 1006;
+
+/** Where the transports of one open connect, and with which token. */
+interface TransportTarget {
+  url: string;
+  token: string | null;
+}
+
 /** The URL safe for a log line: no userinfo, query string or hash, which can carry credentials such as an auth token. */
 function redactUrl(url: string): string {
   try {
@@ -90,8 +109,20 @@ function redactUrl(url: string): string {
  * typed `Socket`.
  */
 export class LiveThingSocket {
-  /** The native WebSocket, or `null` when not connected. */
-  ws: WebSocket | null = null;
+  /** The open transport, or `null` when not connected. Every send and close goes through it. */
+  private _transport: Transport | null = null;
+
+  /** The native WebSocket, or `null` when not connected or on another transport. */
+  get ws(): WebSocket | null {
+    return this._transport?.webSocket ?? null;
+  }
+
+  private _transportStore = createStore<TransportName | null>(null, (error) =>
+    this._reportError(error),
+  );
+
+  /** The transport in use, as a reactive store: its name, or `null` when not connected. */
+  readonly transport: ReadableStore<TransportName | null> = this._transportStore.store;
 
   /** The subprotocol the server picked, or `null`. */
   protocol: string | null = null;
@@ -167,6 +198,23 @@ export class LiveThingSocket {
   private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
 
   private _pongHandlers: (() => void)[] = [];
+
+  /** Runs out when the transport of the current attempt sends no `__connected__` frame in time. */
+  private _connectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Until when each transport that failed recently is skipped. Memory only, never stored. */
+  private readonly _failedUntil = new Map<TransportName, number>();
+
+  /** The transports this open has not tried yet, in list order. */
+  private _untried: TransportFactory[] = [];
+
+  /** The transports this open gave up on, marked failed only if a later one connects. */
+  private _failedThisOpen: TransportName[] = [];
+
+  /** Where this open's transports connect, and with which token. */
+  private _target: TransportTarget | null = null;
+
+  private readonly _warnedFeatures = new Set<string>();
 
   private _outgoingFallback:
     | ((message: Message, options?: InternalSendOptions) => 'buffered' | 'dropped' | null)
@@ -253,19 +301,16 @@ export class LiveThingSocket {
     if (intentional) this._isFirstConnect = true;
     this._clearLazyIdleTimer();
 
+    this._clearConnectTimer();
+
     // Was there anything to tear down? A teardown on an already-closed socket
     // must not fire a second onClose. Closing a connecting/reconnecting socket
     // still counts (matches native close-during-connecting).
     const wasActive = this._state !== 'closed';
 
-    if (this.ws) {
-      this.ws.onopen = null;
-      this.ws.onclose = null;
-      this.ws.onerror = null;
-      this.ws.onmessage = null;
-      this.ws.close(code, reason);
-
-      this.ws = null;
+    if (this._transport) {
+      this._transport.dispose(code, reason);
+      this._setTransport(null);
     }
 
     this.protocol = null;
@@ -278,7 +323,7 @@ export class LiveThingSocket {
     // live listeners.
     for (const primitive of this._primitives) {
       try {
-        primitive.onClose?.(code, reason, intentional, suspended);
+        primitive.onClose?.({ code, reason, intentional, suspended });
       } catch (error) {
         this._reportError(error);
       }
@@ -332,14 +377,15 @@ export class LiveThingSocket {
   }
 
   /**
-   * Wait until the WebSocket's `bufferedAmount` is below 256 KiB, checking every 25 ms. It
+   * Wait until the transport's buffered bytes are below 256 KiB, checking every 25 ms. It
    * resolves at once when the socket is not open, and stops waiting after about 50 seconds.
    */
   async drain(): Promise<void> {
-    const OPEN = 1;
     for (
       let poll = 0;
-      poll < 2000 && this.ws?.readyState === OPEN && this.ws.bufferedAmount >= 256 * 1024;
+      poll < 2000 &&
+      this._transport?.isOpen() === true &&
+      this._transport.bufferedAmount() >= 256 * 1024;
       poll++
     ) {
       await new Promise((resolve) => setTimeout(resolve, 25));
@@ -415,7 +461,7 @@ export class LiveThingSocket {
 
       rawSend: (message, owner) => this._rawSend(message, owner),
 
-      sendPing: () => this.ws?.send('ping'),
+      sendPing: () => this._transport?.sendControl('ping'),
 
       send: (message, options) => this._send(message, options),
 
@@ -439,7 +485,7 @@ export class LiveThingSocket {
 
       failReconnect: () => this._abandonReconnect(true),
 
-      forceClose: (code, reason) => this.ws?.close(code, reason),
+      forceClose: (code, reason) => this._transport?.close(code, reason),
 
       onUnexpectedClose: (handler) => {
         this._unexpectedCloseHandler = handler;
@@ -500,7 +546,7 @@ export class LiveThingSocket {
   private async _openConnection(): Promise<void> {
     const attemptId = ++this._connectAttemptId;
     this._setState('connecting');
-    let urlIsNotAString = false;
+    let configReturnsWrongType = false;
 
     try {
       const url =
@@ -508,7 +554,7 @@ export class LiveThingSocket {
       if (attemptId !== this._connectAttemptId) return; // a disconnect() cancelled us mid-resolve
 
       if (typeof url !== 'string') {
-        urlIsNotAString = true;
+        configReturnsWrongType = true;
         throw new LiveThingConfigError(
           `the connect() url must be a string, or a function that returns one, got ${url === null ? 'null' : typeof url}.`,
         );
@@ -534,108 +580,22 @@ export class LiveThingSocket {
         }
       }
 
+      const token = this._config.token ? await this._config.token() : undefined;
+      if (attemptId !== this._connectAttemptId) return;
+
+      if (token !== undefined && token !== null && typeof token !== 'string') {
+        configReturnsWrongType = true;
+        throw new LiveThingConfigError(
+          `the connect() token function must return a string or null, got ${typeof token}.`,
+        );
+      }
+
       this._log(`connecting to ${redactUrl(url)}`);
 
-      const ws = new WebSocket(url, this._config.protocols);
-      // A Blob can only be read with `await`, and a later message could be handled first.
-      if (this._binary) ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => {
-        if (attemptId !== this._connectAttemptId) {
-          ws.close();
-          return;
-        }
-
-        this.ws = ws;
-        this.protocol = ws.protocol || null;
-        this._setState('open');
-
-        const isReconnect = !this._isFirstConnect;
-        this._isFirstConnect = false;
-
-        // On a reconnect, restore membership state BEFORE flushing queued ops:
-        // channels rejoin and durable streams continue in onReconnect, so a request,
-        // ack, scoped send, stream trigger, or nudge queued during the drop reaches
-        // the server only after its channel is rejoined and its stream continued.
-        // Otherwise a queued channel op races ahead of the rejoin and the server
-        // answers ChannelNotSubscribed or it times out.
-        if (isReconnect) {
-          for (const primitive of this._primitives) {
-            try {
-              this._flushPrimitiveFrames(primitive.onReconnect?.());
-            } catch (error) {
-              this._reportError(error);
-            }
-          }
-        }
-
-        // Then the flush phase: replay, the request/ack/stream outboxes, the
-        // subscribe/unsubscribe flush, and the buffered messages — now ordered
-        // after the rejoin/continue above.
-        for (const primitive of this._primitives) {
-          try {
-            this._flushPrimitiveFrames(primitive.onOpen?.());
-          } catch (error) {
-            this._reportError(error);
-          }
-        }
-
-        this._emitter.emit('open');
-        if (isReconnect) this._emitter.emit('reconnect');
-
-        // If we opened with no active listeners (e.g. the last one unsubscribed
-        // while reconnecting), start the idle timer now — onopen is the only
-        // place that can, because _lazyRelease only runs while the socket is open.
-        if (this._lazy && this._lazyConsumers === 0) this._startLazyIdleTimer();
-      };
-
-      ws.onclose = (event) => {
-        if (attemptId !== this._connectAttemptId) return;
-
-        this.ws = null;
-        this.protocol = null;
-
-        for (const primitive of this._primitives) {
-          try {
-            primitive.onClose?.(event.code, event.reason, false, false);
-          } catch (error) {
-            this._reportError(error);
-          }
-        }
-
-        this._clearLazyIdleTimer();
-
-        // Update the state BEFORE firing onClose so a handler that reads
-        // getState() sees the final state ('reconnecting' or 'closed').
-        if (this._intentionalClose) {
-          this._setState('closed');
-        } else if (this._unexpectedCloseHandler) {
-          // The reconnection module decides what to do next (sets 'reconnecting'
-          // or gives up to 'closed'); without it, an unexpected drop stays closed.
-          this._unexpectedCloseHandler(event.code, event.reason);
-        } else {
-          this._setState('closed');
-        }
-
-        this._emitter.emit('close', {
-          code: event.code,
-          reason: event.reason,
-          wasClean: event.wasClean,
-        });
-      };
-
-      ws.onerror = (event) => {
-        if (attemptId !== this._connectAttemptId) return;
-
-        this._log('WebSocket error');
-        this._reportError(event);
-      };
-
-      ws.onmessage = (event) => {
-        if (attemptId !== this._connectAttemptId) return;
-
-        this._handleMessage(event);
-      };
+      this._untried = this._transportOrder();
+      this._failedThisOpen = [];
+      this._target = { url, token: token ?? null };
+      this._openTransport(attemptId);
     } catch (error) {
       if (attemptId !== this._connectAttemptId) return;
 
@@ -646,14 +606,14 @@ export class LiveThingSocket {
       // first connect doesn't leave channel/request/ack state pending.
       for (const primitive of this._primitives) {
         try {
-          primitive.onClose?.(1006, 'connection failed', false, false);
+          primitive.onClose?.({ code: 1006, reason: 'connection failed', intentional: false });
         } catch (closeError) {
           this._reportError(closeError);
         }
       }
 
-      // A retry would call the same broken url function and report the same error.
-      if (urlIsNotAString) {
+      // A retry would call the same broken url or token function and report the same error.
+      if (configReturnsWrongType) {
         this._abandonReconnect(false);
       } else if (this._unexpectedCloseHandler) {
         this._unexpectedCloseHandler(1006, 'connection failed');
@@ -665,18 +625,337 @@ export class LiveThingSocket {
     }
   }
 
-  private _handleMessage(event: MessageEvent): void {
-    const raw = event.data;
+  /**
+   * The transports to try, in list order, without the ones that failed in the last 5 minutes.
+   * When every one failed, all of them, so a socket always has something to try.
+   */
+  private _transportOrder(): TransportFactory[] {
+    const listed = this._config.transports ?? [DEFAULT_TRANSPORT];
+    const now = Date.now();
+    const usable = listed.filter((factory) => (this._failedUntil.get(factory.name) ?? 0) <= now);
+    return usable.length > 0 ? usable : [...listed];
+  }
 
+  /**
+   * Open the next untried transport of this attempt. One that throws while opening counts
+   * as failed, and the one after it is tried. Throws only when none is left.
+   */
+  private _openTransport(attemptId: number): void {
+    for (;;) {
+      const factory = this._untried.shift()!;
+      try {
+        this._startTransport(attemptId, factory);
+        return;
+      } catch (error) {
+        if (this._untried.length === 0) throw error;
+
+        this._log(`${factory.name} could not open; trying the next one`, error);
+        this._failedThisOpen.push(factory.name);
+      }
+    }
+  }
+
+  private _startTransport(attemptId: number, factory: TransportFactory): void {
+    const target = this._target!;
+    let heldError: unknown;
+    // Kept from the start, so a teardown can close it before the server accepts it.
+    // Events from a transport that is no longer the current one, such as a late
+    // frame after a timeout or a close, are ignored.
+    const isCurrent = () => this._transport === transport;
+    // A transport may fire events before `open` returns, when `transport` is not set yet.
+    // They wait until it is, then run in order.
+    let early: (() => void)[] | null = [];
+    function afterOpen<Args extends unknown[]>(handle: (...args: Args) => void) {
+      return (...args: Args): void => {
+        if (early) early.push(() => handle(...args));
+        else handle(...args);
+      };
+    }
+
+    const transport: Transport = factory.open({
+      url: target.url,
+      protocols: tokenSubprotocols(target.token, this._config.protocols),
+      token: target.token,
+      binary: this._binary !== null,
+      warn: (message) => this._logger.warn(message),
+      events: {
+        open: afterOpen(() => {
+          if (isCurrent()) this._log('waiting for __connected__');
+        }),
+        close: afterOpen((code: number, reason: string, wasClean: boolean) => {
+          if (!isCurrent()) return;
+
+          const close = { code, reason, wasClean };
+          const error = heldError;
+          heldError = undefined;
+          if (this._failOver(attemptId, close)) return;
+
+          if (error !== undefined) this._reportError(error);
+
+          this._handleTransportClose(attemptId, close);
+        }),
+        error: afterOpen((event: unknown) => {
+          if (!isCurrent()) return;
+
+          this._log(`${transport.name} error`);
+          // While connecting, the close that follows decides: a transport that fails over
+          // is not the app's problem, so its error is only reported if it does not.
+          if (this._state === 'connecting') heldError = event;
+          else this._reportError(event);
+        }),
+        message: afterOpen((data: string | ArrayBuffer) => {
+          if (isCurrent()) this._handleMessage(data);
+        }),
+        stable: afterOpen(() => {
+          if (isCurrent() && this._state === 'open') this._handleStable();
+        }),
+        unusable: afterOpen(() => {
+          if (!isCurrent()) return;
+
+          this._log(`${transport.name} cannot carry data here; skipping it for 5 minutes`);
+          this._failedUntil.set(transport.name, Date.now() + FAILED_TRANSPORT_MS);
+        }),
+      },
+    });
+    this._transport = transport;
+    this._startConnectTimer(attemptId);
+
+    const waiting = early;
+    early = null;
+    for (const run of waiting) run();
+  }
+
+  /** Whether a failure now would move on to another transport instead of closing. */
+  private _mayFailOver(): boolean {
+    return this._state === 'connecting' && this._untried.length > 0 && !this._intentionalClose;
+  }
+
+  /**
+   * Try the next transport when the current one failed before its `__connected__` frame
+   * with no answer: a timeout or a drop (1006). A close with any other code is the server's
+   * answer and is final. Returns whether it moved on.
+   */
+  private _failOver(attemptId: number, close: CloseEvent): boolean {
+    if (attemptId !== this._connectAttemptId || !this._target) return false;
+
+    if (close.code !== ABNORMAL_CLOSE || !this._mayFailOver()) return false;
+
+    const failed = this._transport;
+    this._clearConnectTimer();
+    this._transport = null;
+    failed?.dispose();
+    if (failed) this._failedThisOpen.push(failed.name);
+
+    this._log(`${failed?.name ?? 'transport'} failed while connecting; trying the next one`);
+    try {
+      this._openTransport(attemptId);
+    } catch (error) {
+      this._reportError(error);
+      this._handleTransportClose(attemptId, close);
+    }
+
+    return true;
+  }
+
+  private _setTransport(transport: Transport | null): void {
+    this._transport = transport;
+    this._transportStore.set(transport?.name ?? null);
+  }
+
+  private _startConnectTimer(attemptId: number): void {
+    const transportCount = this._config.transports?.length ?? 1;
+    const timeout = this._config.connectTimeoutMs ?? (transportCount > 1 ? 5_000 : 30_000);
+    this._connectTimer = setTimeout(() => {
+      this._connectTimer = null;
+      this._abandonTransport(
+        attemptId,
+        new Error(`[livething] the server did not accept the connection within ${timeout} ms.`),
+        { code: 1006, reason: 'connect timeout', wasClean: false },
+      );
+    }, timeout);
+  }
+
+  private _clearConnectTimer(): void {
+    if (this._connectTimer === null) return;
+
+    clearTimeout(this._connectTimer);
+    this._connectTimer = null;
+  }
+
+  /** Close a transport that sent no usable `__connected__` frame, and handle it as a drop. */
+  private _abandonTransport(attemptId: number, error: Error, close: CloseEvent): void {
+    if (attemptId !== this._connectAttemptId) return;
+
+    // A transport that fails over is not the app's problem, so its error is only logged.
+    if (this._failOver(attemptId, close)) {
+      this._log(error.message);
+      return;
+    }
+
+    this._reportError(error);
+    this._transport?.dispose();
+    this._handleTransportClose(attemptId, close);
+  }
+
+  private _handleConnected(payload: unknown): void {
+    const attemptId = this._connectAttemptId;
+    const info = parseConnectedInfo(payload);
+    if (!info) {
+      this._abandonTransport(
+        attemptId,
+        new Error('[livething] the server sent a __connected__ frame this client cannot read.'),
+        { code: CloseCodes.PROTOCOL_ERROR, reason: 'bad __connected__ frame', wasClean: false },
+      );
+      return;
+    }
+
+    this._clearConnectTimer();
+    this._warnMissingFeatures(info.features);
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onConnected?.(info);
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+
+    // A hook can disconnect, and then there is nothing left to open.
+    const transport = this._transport;
+    if (attemptId === this._connectAttemptId && transport) this._handleOpen(transport);
+  }
+
+  /** Warn once for each client primitive whose server feature is off. */
+  private _warnMissingFeatures(features: readonly string[]): void {
+    for (const feature of ['replay', 'binary', 'uploads']) {
+      if (!this._knownTags.has(feature) || features.includes(feature)) continue;
+
+      if (this._warnedFeatures.has(feature)) continue;
+
+      this._warnedFeatures.add(feature);
+      this._logger.warn(
+        `${feature}() is on the client, but the server does not have it on, so it will not work. Turn it on in the server, or remove ${feature}() from the client.`,
+      );
+    }
+  }
+
+  private _handleOpen(transport: Transport): void {
+    // A later transport connected, so the ones before it really failed on this network.
+    for (const name of this._failedThisOpen) {
+      this._failedUntil.set(name, Date.now() + FAILED_TRANSPORT_MS);
+    }
+
+    this._failedThisOpen = [];
+    this._transportStore.set(transport.name);
+    const protocol = transport.protocol;
+    this.protocol = protocol && !isLiveThingSubprotocol(protocol) ? protocol : null;
+    this._setState('open');
+
+    const isReconnect = !this._isFirstConnect;
+    this._isFirstConnect = false;
+
+    // On a reconnect, restore membership state BEFORE flushing queued ops:
+    // channels rejoin and durable streams continue in onReconnect, so a request,
+    // ack, scoped send, stream trigger, or nudge queued during the drop reaches
+    // the server only after its channel is rejoined and its stream continued.
+    // Otherwise a queued channel op races ahead of the rejoin and the server
+    // answers ChannelNotSubscribed or it times out.
+    if (isReconnect) {
+      for (const primitive of this._primitives) {
+        try {
+          this._flushPrimitiveFrames(primitive.onReconnect?.());
+        } catch (error) {
+          this._reportError(error);
+        }
+      }
+    }
+
+    // Then the flush phase: replay, the request/ack/stream outboxes, the
+    // subscribe/unsubscribe flush, and the buffered messages — now ordered
+    // after the rejoin/continue above.
+    for (const primitive of this._primitives) {
+      try {
+        this._flushPrimitiveFrames(primitive.onOpen?.());
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+
+    this._emitter.emit('open');
+    if (isReconnect) this._emitter.emit('reconnect');
+
+    // One connection that carries both directions has proved itself by opening.
+    if (!transport.reportsStable && this._transport === transport) this._handleStable();
+
+    // If we opened with no active listeners (e.g. the last one unsubscribed
+    // while reconnecting), start the idle timer now — the open is the only
+    // place that can, because _lazyRelease only runs while the socket is open.
+    if (this._lazy && this._lazyConsumers === 0) this._startLazyIdleTimer();
+  }
+
+  private _handleStable(): void {
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onStable?.();
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+  }
+
+  private _handleTransportClose(attemptId: number, event: CloseEvent): void {
+    if (attemptId !== this._connectAttemptId) return;
+
+    this._clearConnectTimer();
+    this._setTransport(null);
+    this.protocol = null;
+
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onClose?.({ code: event.code, reason: event.reason, intentional: false });
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+
+    this._clearLazyIdleTimer();
+
+    // Update the state BEFORE firing onClose so a handler that reads
+    // getState() sees the final state ('reconnecting' or 'closed').
+    if (this._intentionalClose) {
+      this._setState('closed');
+    } else if (this._unexpectedCloseHandler) {
+      // The reconnection module decides what to do next (sets 'reconnecting'
+      // or gives up to 'closed'); without it, an unexpected drop stays closed.
+      this._unexpectedCloseHandler(event.code, event.reason);
+    } else {
+      this._setState('closed');
+    }
+
+    this._emitter.emit('close', event);
+  }
+
+  private _handleMessage(raw: unknown): void {
     if (raw === 'ping') {
       this._log('ping received');
-      this.ws?.send('pong');
+      this._transport?.sendControl('pong');
       return;
     }
 
     if (raw === 'pong') {
       this._log('pong received');
       dispatchToHandlers(this._pongHandlers, this._logger);
+      return;
+    }
+
+    // A transport counts as working only once the server accepts it with `__connected__`.
+    if (this._state !== 'open') {
+      const first = typeof raw === 'string' ? decodeMessage(raw) : null;
+      if (first?.event === '__connected__') {
+        this._handleConnected(first.payload);
+      } else {
+        this._log('a frame arrived before __connected__ — dropping it');
+      }
+
       return;
     }
 
@@ -850,7 +1129,7 @@ export class LiveThingSocket {
   private _startLazyIdleTimer(): void {
     this._clearLazyIdleTimer();
 
-    const timeout = this._config.idleTimeout ?? 10_000;
+    const timeout = this._config.lazyIdleTimeoutMs ?? 10_000;
     if (timeout <= 0) return;
 
     this._lazyIdleTimer = setTimeout(() => {
@@ -897,7 +1176,7 @@ export class LiveThingSocket {
     const kept = this._outgoingFallback?.(outgoing, options);
     if (kept) return kept;
 
-    if (this._state !== 'open' || !this.ws) {
+    if (this._state !== 'open' || !this._transport) {
       if (this._debug) this._log(`send('${outgoing.event}') not sent — not connected`);
       // connecting/reconnecting still has a flush coming; closed does not.
       return this._state === 'connecting' || this._state === 'reconnecting'
@@ -905,7 +1184,7 @@ export class LiveThingSocket {
         : 'closed';
     }
 
-    this.ws.send(this._encode(outgoing));
+    this._transport.send(this._encode(outgoing));
     if (this._debug) this._log(`send('${outgoing.event}')`, outgoing.payload);
 
     // A send counts as activity. In lazy mode with no active listeners the idle
@@ -939,27 +1218,25 @@ export class LiveThingSocket {
    * where it went so a Promise-bearing protocol op can queue or fail fast.
    *
    * When an `owner` is given (a Promise-bearing op flushing a held frame), a
-   * serialization throw rejects that owner and is reported, instead of escaping
-   * to the caller — so a flush of one bad frame can't strand the owner or the
-   * frames queued behind it.
+   * serialization or send throw (a message over the POST limit of server-sent
+   * events) rejects that owner and is reported, instead of escaping to the
+   * caller — so a flush of one bad frame can't strand the owner or the frames
+   * queued behind it.
    */
   _rawSend(message: Message, owner?: FrameOwner): SendResult {
-    if (this._state === 'open' && this.ws) {
+    if (this._state === 'open' && this._transport) {
       if (owner) {
-        let serialized: string | Uint8Array<ArrayBuffer>;
         try {
-          serialized = this._encode(message);
+          this._transport.send(this._encode(message));
         } catch (error) {
           owner.reject(error);
           this._reportError(error);
-          return 'sent';
         }
 
-        this.ws.send(serialized);
         return 'sent';
       }
 
-      this.ws.send(this._encode(message));
+      this._transport.send(this._encode(message));
       return 'sent';
     }
 
