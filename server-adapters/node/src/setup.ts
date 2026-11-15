@@ -25,8 +25,9 @@ export interface NodeEndpointBinding<TAdmin = NodeAdmin> {
   upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void;
   /**
    * Serve a plain HTTP request to the endpoint's path, from `node:http` or a `node:http2`
-   * compatibility server: the server-sent events stream, its POSTs and their CORS
-   * preflight. Without `sse()` in `transports`, it answers 426.
+   * compatibility server. The custom transports in `transports` get it first, in list order,
+   * then server-sent events: the stream, its POSTs and their CORS preflight. When no custom
+   * transport takes the request and `sse()` is not in `transports`, it answers 426.
    */
   handle(request: NodeHttpRequest, response: NodeHttpResponse): void;
   ready(): Promise<void>;

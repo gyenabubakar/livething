@@ -124,6 +124,9 @@ export class WebResponseWriter implements NodeHttpResponse {
 
   private clientLeft(): void {
     this.finished = true;
+    // Nothing writes for a client that left, and the framework must not wait forever.
+    if (!this.headersSent) this.resolveAnswer(new Response(null, { status: 503 }));
+
     this.emitClose();
   }
 

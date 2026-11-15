@@ -19,8 +19,9 @@ import type { NodeCompressionOption } from '../../endpoint.ts';
 export interface HonoEndpoint<TAdmin = NodeAdmin> {
   upgrade: MiddlewareHandler;
   /**
-   * The route for the server-sent events stream, its POSTs and their CORS preflight. Mount
-   * it on the same path as `upgrade`, for every method. Without `sse()` it answers 426.
+   * The route for custom transports and for the server-sent events stream, its POSTs and
+   * their CORS preflight. Mount it on the same path as `upgrade`, for every method. When no
+   * custom transport takes a request and `sse()` is not listed, it answers 426.
    */
   handle: MiddlewareHandler;
   ready(): Promise<void>;

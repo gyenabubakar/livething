@@ -17,9 +17,10 @@ export function requestToWebRequest(
   const { signal, clientIp } = options;
   const encrypted = 'encrypted' in request.socket && request.socket.encrypted === true;
   const protocol = encrypted ? 'https' : 'http';
-  // HTTP/2 has `:authority` and no `Host` header.
+  // HTTP/2 names the target in `:authority`, and RFC 9113 §8.3.1 says `Host` must not
+  // override it.
   const authority = request.headers[':authority'];
-  const host = request.headers.host ?? (typeof authority === 'string' ? authority : 'localhost');
+  const host = typeof authority === 'string' ? authority : (request.headers.host ?? 'localhost');
   const target = request.url ?? '/';
 
   const base = new URL(`${protocol}://${host}`);
@@ -46,6 +47,9 @@ export function requestToWebRequest(
       headers.set(name, value);
     }
   }
+
+  // The origin check and `authenticate` read `Host`, so it names the same target as the URL.
+  if (typeof authority === 'string') headers.set('host', authority);
 
   headers.delete('LiveThing-Client-IP');
   if (clientIp !== undefined) headers.set('LiveThing-Client-IP', clientIp);

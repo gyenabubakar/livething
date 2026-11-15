@@ -2,8 +2,8 @@ import { LiveThingConfigError } from '@livething/core';
 import { hasCapability, resolveTransports, sse, websocket } from '~/_adapters/transports.ts';
 import { server } from '~/_define/server.ts';
 import { keepalive } from '~/keepalive/capability.ts';
-import { describe, expect, it } from 'vitest';
-import type { ServerTransport } from '~/_adapters/transports.ts';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { ServerTransport, TransportConnection } from '~/_adapters/transports.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 
 const plain = server({}).assemble({ handlers: [] }) as ServerDefinition;
@@ -119,5 +119,12 @@ describe('hasCapability', () => {
   it('finds a capability in the definition', () => {
     expect(hasCapability(withKeepalive, 'keepalive')).toBe(true);
     expect(hasCapability(plain, 'keepalive')).toBe(false);
+  });
+});
+
+describe('TransportConnection', () => {
+  // The engine reads only a synchronous `false` as not sent, so a Promise would count as sent.
+  it('takes a send that returns a boolean or nothing, not a Promise', () => {
+    expectTypeOf<ReturnType<TransportConnection['send']>>().toEqualTypeOf<boolean | void>();
   });
 });

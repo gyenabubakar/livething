@@ -148,6 +148,16 @@ describe('createSseHub: POSTs', () => {
     expect(handle.handleBinaryMessage).toHaveBeenCalledWith(bytes);
   });
 
+  // A WebSocket hands the engine a text frame as it came, so a leading BOM stays.
+  it('keeps a leading BOM in a text frame', () => {
+    const hub = createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 });
+    const { handle, secret } = open(hub);
+
+    postNow(hub.beginPost(secret, 'data'), batch(`﻿${sendMessage('a')}`));
+
+    expect(handle.handleMessage).toHaveBeenCalledWith(`﻿${sendMessage('a')}`);
+  });
+
   it('frees the lane before it answers, so the next POST in the lane is accepted', () => {
     const hub = createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 });
     const { secret } = open(hub);

@@ -188,6 +188,31 @@ describe('failover while connecting', () => {
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
+  // Node 22's WebSocket fires `error` and never `close` when the server refuses the upgrade.
+  it('moves to sse at once when a refused WebSocket fires error and no close', async () => {
+    const socket = build(connect(url, { transports: [websocket(), fakeSse()] }));
+    socket.connect();
+    await opened(() => MockWebSocket.instances.length, 1);
+
+    MockWebSocket.last().onerror?.(new Event('error'));
+
+    await opened(() => FakeSse.opened.length, 1);
+  });
+
+  it('moves to sse once when a refused WebSocket fires error and then close', async () => {
+    const socket = build(connect(url, { transports: [websocket(), fakeSse()] }));
+    socket.connect();
+    await opened(() => MockWebSocket.instances.length, 1);
+    const ws = MockWebSocket.last();
+    const onclose = ws.onclose;
+
+    ws.onerror?.(new Event('error'));
+    onclose?.({ code: 1006, reason: '', wasClean: false });
+    await retryWait();
+
+    expect(FakeSse.opened).toHaveLength(1);
+  });
+
   it('moves to sse when the WebSocket never sends __connected__', async () => {
     const socket = build(
       connect(url, { transports: [websocket(), fakeSse()], connectTimeoutMs: 1_000 }),

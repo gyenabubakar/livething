@@ -108,4 +108,15 @@ describe('requestToWebRequest', () => {
     expect([...request.headers.keys()]).not.toContain(':path');
     expect(request.headers.get('accept')).toBe('text/event-stream');
   });
+
+  // RFC 9113 §8.3.1: with `:authority` present, `Host` must not pick the target URI.
+  it('takes :authority over a different Host on HTTP/2', () => {
+    const request = requestToWebRequest(
+      incomingRequest({ headers: { ':authority': 'huddle.test', host: 'evil.example' } }),
+    );
+
+    expect(request.url).toBe('http://huddle.test/socket?room=one');
+    // The origin check reads `Host`, so it must see the same target.
+    expect(request.headers.get('host')).toBe('huddle.test');
+  });
 });

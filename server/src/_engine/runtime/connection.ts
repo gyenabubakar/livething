@@ -234,6 +234,12 @@ interface ConnectionRuntime {
   /** Whether a replay capability is listed, so each connection gets a resume token. */
   replayEnabled?(): boolean;
 
+  /**
+   * Whether the server turned on hibernation. Without it there is no table for the
+   * connection rows, so a descriptor's `survivesHibernation` is ignored.
+   */
+  hibernationAllowed?(): boolean;
+
   /** Take the next delivery seq, for the resume cursor in the `__connected__` frame. */
   allocateDeliverySeq?(): number | undefined;
 
@@ -777,7 +783,8 @@ export function acceptConnection(
     socketKey,
     descriptor: normalizedDescriptor,
     meta: descriptor.meta ?? {},
-    survivesHibernation: descriptor.survivesHibernation ?? false,
+    survivesHibernation:
+      descriptor.survivesHibernation === true && runtime.hibernationAllowed?.() === true,
     ...(runtime.replayEnabled?.() ? { resumeToken: crypto.randomUUID() } : {}),
 
     tags: { ephemeral: new Map(), persistent: new Map() },

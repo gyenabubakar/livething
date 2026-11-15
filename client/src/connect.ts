@@ -1,4 +1,4 @@
-import { LiveThingConfigError } from '@livething/core';
+import { LiveThingConfigError, TOKEN_SUBPROTOCOL_PREFIX } from '@livething/core';
 import { timerDelayError } from '~/internal/config.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { TransportFactory } from '~/transports/transport.ts';
@@ -77,7 +77,20 @@ export function connect(
         config.lazyIdleTimeoutMs = options.lazyIdleTimeoutMs;
       }
 
-      if (options?.protocols !== undefined) config.protocols = options.protocols;
+      if (options?.protocols !== undefined) {
+        // The server reads the first name with this prefix as the token.
+        const reserved = options.protocols.find((name) =>
+          name.startsWith(TOKEN_SUBPROTOCOL_PREFIX),
+        );
+        if (reserved !== undefined) {
+          throw new LiveThingConfigError(
+            `connect() protocols has '${reserved}'. Names that start with '${TOKEN_SUBPROTOCOL_PREFIX}' are kept for the token.`,
+          );
+        }
+
+        config.protocols = options.protocols;
+      }
+
       if (options?.token !== undefined) config.token = options.token;
       if (options?.transports !== undefined) {
         assertValidTransports(options.transports);

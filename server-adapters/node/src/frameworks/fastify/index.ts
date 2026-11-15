@@ -95,7 +95,8 @@ export function setup(): FastifySetup {
           upgrades.set(request.raw, upgrade);
         },
 
-        // A plain GET is the server-sent events stream, or a 426 without sse().
+        // A plain GET goes to the custom transports, then to the server-sent events stream,
+        // or gets a 426 when none takes it.
         handler: serveHttp,
 
         wsHandler(socket, request) {

@@ -14,9 +14,26 @@ function openWebSocket(options: TransportOpenOptions): Transport {
   // A Blob can only be read with `await`, and a later message could be handled first.
   if (options.binary) ws.binaryType = 'arraybuffer';
 
-  ws.onopen = () => events.open();
-  ws.onclose = (event) => events.close(event.code, event.reason, event.wasClean);
-  ws.onerror = (event) => events.error(event);
+  let opened = false;
+  let closed = false;
+  function close(code: number, reason: string, wasClean: boolean): void {
+    if (closed) return;
+
+    closed = true;
+    events.close(code, reason, wasClean);
+  }
+
+  ws.onopen = () => {
+    opened = true;
+    events.open();
+  };
+  ws.onclose = (event) => close(event.code, event.reason, event.wasClean);
+  ws.onerror = (event) => {
+    events.error(event);
+    // Node 22's WebSocket fires no `close` after a failed handshake. Browsers fire one
+    // with 1006 right after the error, so treating the error as that drop is the same.
+    if (!opened) close(1006, '', false);
+  };
   ws.onmessage = (event) => events.message(event.data);
 
   return {

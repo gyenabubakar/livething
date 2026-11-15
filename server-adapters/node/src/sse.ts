@@ -42,6 +42,8 @@ export interface NodeSseDeps {
   originAllowed(request: NodeHttpRequest): boolean;
   authenticate(request: NodeHttpRequest, signal: AbortSignal): Promise<AuthDecision>;
   attach(transport: ConnectionTransport, decision: AuthDecision): ConnectionHandle;
+  /** Aborts when the endpoint shuts down, which ends a stream still in `authenticate`. */
+  shutdownSignal: AbortSignal;
 }
 
 /** Serves the stream `GET`, its `POST`s and the CORS preflight of one endpoint. */
@@ -99,19 +101,33 @@ interface StreamRequest {
 async function openStream(deps: NodeSseDeps, stream: StreamRequest): Promise<void> {
   const { hub, request, response, cors } = stream;
   const abort = new AbortController();
-  function onClose(): void {
+  function stop(): void {
     abort.abort();
   }
 
-  response.once('close', onClose);
-  let decision: AuthDecision;
+  response.once('close', stop);
+  deps.shutdownSignal.addEventListener('abort', stop);
+  const aborted = new Promise<null>((resolve) => {
+    abort.signal.addEventListener('abort', () => resolve(null), { once: true });
+  });
+  let decision: AuthDecision | null;
   try {
-    decision = await deps.authenticate(request, abort.signal);
+    const decided = deps.authenticate(request, abort.signal);
+    decided.catch(() => {});
+    // A hook that ignores the signal must not keep the stream, or a shutdown, waiting.
+    decision = await Promise.race([decided, aborted]);
   } finally {
-    response.off('close', onClose);
+    response.off('close', stop);
+    deps.shutdownSignal.removeEventListener('abort', stop);
   }
 
-  if (abort.signal.aborted) return;
+  if (decision === null || abort.signal.aborted) {
+    if (deps.shutdownSignal.aborted && !response.headersSent) {
+      writeAnswer(response, errorAnswer(503, 'shutting-down'), cors);
+    }
+
+    return;
+  }
 
   if (decision.reject && !isSocketRejection(decision)) {
     const { status, body } = upgradeRejection(decision);

@@ -34,6 +34,18 @@ describe('decodeBase64', () => {
     expect(decodeBase64('ab=d')).toBeNull();
   });
 
+  it.each(['=', '==', 'AAAA=', 'AAAA==', 'AA=', 'AAA=='])(
+    'refuses %j, whose padding does not end a 4-character group',
+    (encoded) => {
+      expect(decodeBase64(encoded)).toBeNull();
+    },
+  );
+
+  it('decodes padding that ends the last 4-character group', () => {
+    expect(decodeBase64('AA==')).toEqual(new Uint8Array([0]));
+    expect(decodeBase64('AAA=')).toEqual(new Uint8Array([0, 0]));
+  });
+
   it('decodes an empty string to no bytes', () => {
     expect(decodeBase64('')).toEqual(new Uint8Array(0));
   });

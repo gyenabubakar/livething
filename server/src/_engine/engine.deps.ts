@@ -542,6 +542,7 @@ function buildConnectionRuntime(core: EngineCore) {
     generateId: (prefix?: string) => core.generateId(prefix),
 
     replayEnabled: () => core.replayEnabled,
+    hibernationAllowed: () => core.hibernationAllowed,
     allocateDeliverySeq: () => core.allocateDeliverySeq?.(),
     connectedSettings: (connection: RuntimeConnection) => {
       // The platform watches a connection that survives a sleep, so the engine pings it never.

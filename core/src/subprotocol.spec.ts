@@ -22,7 +22,7 @@ describe('encodeBase64Url', () => {
 
 describe('decodeBase64Url', () => {
   it('reverses encodeBase64Url', () => {
-    for (const text of ['', 'a', 'ab', 'abc', 'abcd', 'çé 🙂 ✓', 'x'.repeat(11_625)]) {
+    for (const text of ['', 'a', 'ab', 'abc', 'abcd', 'çé 🙂 ✓', '﻿abc', 'x'.repeat(11_625)]) {
       expect(decodeBase64Url(encodeBase64Url(text))).toBe(text);
     }
   });
