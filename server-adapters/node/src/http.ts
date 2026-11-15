@@ -64,10 +64,11 @@ interface HeldEvents {
 /**
  * The event streams holding events. Every POST read in one turn can broadcast, and each
  * broadcast writes to every member. Held, a member gets them all as one write: one HTTP/1.1
- * chunk or HTTP/2 DATA frame and one system call, instead of one each. Node frames each write
- * of a `node:http` response as its own chunk, so corking its socket would still cost four
- * socket writes for each event. `setImmediate` runs once the turn has read its I/O, so an event
- * waits for no new I/O.
+ * chunk or HTTP/2 DATA frame and one system call, instead of one each. Corking alone does not
+ * do that for small events: Node frames each write of a `node:http` response as its own chunk,
+ * four socket writes each. So small events are copied into one write, and only big ones, where
+ * the copy would cost more, go as corked writes. `setImmediate` runs once the turn has read its
+ * I/O, so an event waits for no new I/O.
  */
 const heldThisTurn = new Set<HeldEvents>();
 
@@ -162,6 +163,7 @@ export function createNodeHttpHandler(
     if (request.method === 'POST') {
       if (header(request, UPLOAD_HEADER.toLowerCase()) !== 'stream') {
         writeAnswer(response, await post(hub, request), cors);
+        if (!request.complete) endBody(request, response);
         return;
       }
 
@@ -375,8 +377,8 @@ function readBody(request: NodeHttpRequest, limit: number): Promise<Uint8Array |
         return;
       }
 
-      // As leaving a `for await` early did: drop the request, and with it the rest of the body.
-      request.destroy();
+      // Not `request.destroy()`: on HTTP/1.1 that resets the socket, and the client never sees
+      // the 413. The caller drops the rest of the body after the answer, with `endBody`.
       settle(null);
     }
 

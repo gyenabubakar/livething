@@ -217,19 +217,32 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 
     const handleHttp = createNodeHttpHandler({
       hub,
-      // Runs on every POST, so it reads the Node headers instead of building a web `Request`.
-      // The stream GET is checked again on a full `Request` in `decideNodeUpgrade`.
+      // Runs on every POST, so it makes the checks of `requestToWebRequest` on the Node headers
+      // instead of building a web `Request`. The stream GET is checked again on a full
+      // `Request` in `decideNodeUpgrade`.
       originAllowed(request) {
         const { headers } = request;
+        const host = headers[':authority'] ?? headers.host ?? 'localhost';
+        const target = request.url ?? '/';
+        if (typeof host !== 'string' || target.includes('\\')) return false;
+
+        const encrypted = 'encrypted' in request.socket && request.socket.encrypted === true;
+        try {
+          const base = new URL(`${encrypted ? 'https' : 'http'}://${host}`);
+          const url = new URL(target.startsWith('//') ? `${base.origin}${target}` : target, base);
+          if (url.origin !== base.origin) return false;
+        } catch {
+          return false;
+        }
+
         return originAllowed({
           url: '',
           headers: {
             get(name) {
-              const value =
-                name === 'host' ? (headers[':authority'] ?? headers.host) : headers[name];
-              return (
-                (Array.isArray(value) ? value[0] : value) ?? (name === 'host' ? 'localhost' : null)
-              );
+              if (name === 'host') return host;
+
+              const value = headers[name];
+              return (Array.isArray(value) ? value[0] : value) ?? null;
             },
           },
         });

@@ -105,4 +105,57 @@ describe('the Node http stream request', () => {
     expect(await response.text()).toContain('data: "first"\n\ndata: "second"\n\n');
     await new Promise((resolve) => http.close(resolve));
   });
+
+  it('sends big events as their own writes, in order, and 64 KiB of them at once', async () => {
+    let transport: ConnectionTransport | undefined;
+    const handle = createNodeHttpHandler({
+      hub: createHttpHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
+      originAllowed: () => true,
+      authenticate: async () => ({}),
+      attach(opened) {
+        transport = opened;
+        return { handleClose: async () => {} } as unknown as ConnectionHandle;
+      },
+      shutdownSignal: new AbortController().signal,
+    });
+
+    const writes: string[] = [];
+    const http = createServer((request, response) => {
+      const write = response.write.bind(response) as (chunk: Uint8Array) => boolean;
+      response.write = ((chunk: Uint8Array) => {
+        writes.push(Buffer.from(chunk).toString());
+        return write(chunk);
+      }) as typeof response.write;
+      void handle(request, response);
+    });
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+    const { port } = http.address() as { port: number };
+
+    const response = await fetch(`http://127.0.0.1:${port}/huddle`, {
+      headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const before = writes.length;
+    function big(letter: string, length: number): string {
+      return `"${letter.repeat(length)}"`;
+    }
+
+    transport!.send({ kind: 'text', text: big('a', 2000) });
+    transport!.send({ kind: 'text', text: big('b', 2000) });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(writes.slice(before)).toEqual([
+      `data: ${big('a', 2000)}\n\n`,
+      `data: ${big('b', 2000)}\n\n`,
+    ]);
+
+    const held = writes.length;
+    transport!.send({ kind: 'text', text: big('c', 70_000) });
+    expect(writes.length).toBe(held + 1);
+
+    transport!.close(1000, 'done');
+    const text = await response.text();
+    expect(text.indexOf('aaa')).toBeLessThan(text.indexOf('bbb'));
+    expect(text.indexOf('bbb')).toBeLessThan(text.indexOf('ccc'));
+    await new Promise((resolve) => http.close(resolve));
+  });
 });

@@ -6,8 +6,8 @@
 // Modes:
 //   livething           LiveThing over WebSocket
 //   livething-http      LiveThing over http() on HTTP/1.1: a server-sent events stream, and
-//                       batched POSTs from the client
-//   livething-http-h2   the same batched POSTs, over cleartext HTTP/2 (one connection a client)
+//                       batch mode POSTs from the client
+//   livething-http-h2   the same batch mode, over cleartext HTTP/2 (one connection a client)
 //   livething-http-stream  http() stream mode over cleartext HTTP/2: one long POST a client
 //   ws                  the same app on plain `ws`, to show what LiveThing adds
 //   socket.io           the same app on Socket.IO over WebSocket

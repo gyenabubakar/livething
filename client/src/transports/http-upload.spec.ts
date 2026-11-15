@@ -242,7 +242,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('http(): batched POSTs', () => {
+describe('http(): batch mode', () => {
   it('numbers the frames of each data POST', async () => {
     const { transport } = open();
     await flush();
@@ -326,7 +326,7 @@ describe('http(): stream mode', () => {
     expect(server.upload.chunks - chunksBefore).toBe(1);
   });
 
-  it('stays on batched POSTs when the probe ack does not come in 2 seconds', async () => {
+  it('stays in batch mode when the probe ack does not come in 2 seconds', async () => {
     const transport = await openAndTry();
 
     await vi.advanceTimersByTimeAsync(2_000);
@@ -348,7 +348,7 @@ describe('http(): stream mode', () => {
     expect(server.uploads).toHaveLength(1);
   });
 
-  it('stays on batched POSTs when the upload fetch fails', async () => {
+  it('stays in batch mode when the upload fetch fails', async () => {
     const transport = await openAndTry();
 
     server.upload.fail();

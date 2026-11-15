@@ -169,8 +169,17 @@ watch([visible, paused, reduced], ([isVisible, isPaused, isReduced]) => {
 })
 
 let observer: IntersectionObserver | undefined
+let motion: MediaQueryList | undefined
+// Turned on while the page is open, reduced motion starts the picture again in its still form.
+function onMotion(): void {
+  reduced.value = motion!.matches
+  if (reduced.value && timers.length > 0) reset()
+}
+
 onMounted(() => {
-  reduced.value = matchMedia('(prefers-reduced-motion: reduce)').matches
+  motion = matchMedia('(prefers-reduced-motion: reduce)')
+  onMotion()
+  motion.addEventListener('change', onMotion)
   reset()
   observer = new IntersectionObserver(([entry]) => {
     visible.value = entry!.isIntersecting
@@ -179,6 +188,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   observer?.disconnect()
+  motion?.removeEventListener('change', onMotion)
   cancelAnimationFrame(frameId)
 })
 
@@ -219,8 +229,8 @@ const tabName = (row: Row) => (row.sub ? `${row.name}: ${row.sub}` : row.name)
 </script>
 
 <template>
-  <SplitStreamFigure v-model:paused="paused" animated caption="All three run the same traffic at the same time, slowed down. Each band is one open HTTP request. Grey chips are the server's answer to a POST (204: done, nothing to send back), or the new GET that long polling opens after each event. The counts leave out pings and the probe.">
-    <div class="mb-3 flex flex-wrap items-center gap-2 pr-20">
+  <SplitStreamFigure v-model:paused="paused" animated caption="All three run the same traffic at the same time, slowed down. Each band is one open HTTP request. Grey chips are the server's answer to a POST (204: done, nothing to send back), or the new GET that long polling opens after each event. The counts leave out pings, the probe, and the first POST that stream mode sends before it opens the long POST.">
+    <div class="mb-3 flex flex-wrap items-center gap-2">
       <UButton
         v-for="(row, index) in rows"
         :key="index"

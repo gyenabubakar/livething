@@ -399,6 +399,32 @@ describe('POSTs on Node', () => {
 
     expect(response.status).toBe(413);
   });
+
+  // A chunked body has no Content-Length, so the size is only known as the body arrives.
+  it('answers 413 to a chunked HTTP/1.1 body that grows over maxPostBytes', async () => {
+    const url = await start({ transports: [http({ maxPostBytes: 1024 })] });
+    const { secret, abort } = await rawStream(url);
+    const { hostname, port, pathname } = new URL(url);
+    const socket = tcpConnect(Number(port), hostname);
+    let reply = '';
+
+    socket.on('data', (chunk) => (reply += chunk.toString()));
+    socket.on('error', () => {});
+
+    const piece = Buffer.concat([Buffer.from('258\r\n'), Buffer.alloc(600), Buffer.from('\r\n')]);
+    socket.write(
+      `POST ${pathname} HTTP/1.1\r\nHost: ${hostname}\r\nLiveThing-Secret: ${secret}\r\n` +
+        'LiveThing-Lane: data\r\nLiveThing-Seq: 1\r\nTransfer-Encoding: chunked\r\n\r\n',
+    );
+    socket.write(Buffer.concat([piece, piece, piece]));
+
+    try {
+      await vi.waitFor(() => expect(reply).toContain('413'));
+    } finally {
+      socket.destroy();
+      abort();
+    }
+  });
 });
 
 describe('CORS on Node', () => {
@@ -437,6 +463,31 @@ describe('CORS on Node', () => {
     expect(response.status).toBe(403);
     expect(response.headers.get('LiveThing-Error')).toBe('origin');
     expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+
+  it('refuses a POST whose Host does not parse, or whose target names another host', async () => {
+    const url = await start(options);
+    const { hostname, port, pathname } = new URL(url);
+
+    for (const head of [
+      `${pathname} HTTP/1.1\r\nHost: [::1`,
+      `http://other.test${pathname} HTTP/1.1\r\nHost: ${hostname}`,
+    ]) {
+      const socket = tcpConnect(Number(port), hostname);
+      let reply = '';
+      socket.on('data', (chunk) => (reply += chunk.toString()));
+      socket.on('error', () => {});
+      socket.write(
+        `POST ${head}\r\nLiveThing-Secret: nope\r\nLiveThing-Lane: data\r\nContent-Length: 0\r\n\r\n`,
+      );
+
+      try {
+        await vi.waitFor(() => expect(reply).toMatch(/^HTTP\/1\.1 \d+/));
+        expect(reply).toMatch(/^HTTP\/1\.1 403/);
+      } finally {
+        socket.destroy();
+      }
+    }
   });
 
   it('marks the stream of an allowed origin readable cross-origin', async () => {

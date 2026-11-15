@@ -31,13 +31,16 @@ interface NativeBuffer {
     offset: number,
     length: number,
   ): { toString(encoding: string): string };
+  isEncoding?(encoding: string): boolean;
 }
 
 /**
  * Node's `Buffer`, also on Cloudflare with `nodejs_compat`. It encodes in native code, several
  * times faster than the loop below, which the server feels on every binary event it streams.
+ * Bundlers and React Native may add the `buffer` package as a global instead, with no base64url.
  */
-const nativeBuffer = (globalThis as { Buffer?: NativeBuffer }).Buffer;
+const globalBuffer = (globalThis as { Buffer?: NativeBuffer }).Buffer;
+const nativeBuffer = globalBuffer?.isEncoding?.('base64url') ? globalBuffer : undefined;
 
 // `Uint8Array.prototype.toBase64` is too new for Node 22 and 24, so LiveThing encodes by hand
 // where there is no `Buffer`. It writes the character codes into bytes and turns them into text

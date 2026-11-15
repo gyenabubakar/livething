@@ -39,6 +39,30 @@ describe('encodeBase64', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  // Bundlers and React Native add the `buffer` package as a global Buffer, and it has no base64url.
+  it('encodes base64url where a global Buffer is a polyfill with no base64url', async () => {
+    const NodeBuffer = Buffer;
+    vi.stubGlobal('Buffer', {
+      isEncoding: (encoding: string) => encoding === 'base64',
+      from: (buffer: ArrayBuffer, offset: number, length: number) => ({
+        toString(encoding: string) {
+          if (encoding !== 'base64') throw new TypeError(`Unknown encoding: ${encoding}`);
+
+          return NodeBuffer.from(buffer, offset, length).toString(encoding);
+        },
+      }),
+    });
+    vi.resetModules();
+    try {
+      const fresh = await import('./base64.ts');
+      for (const bytes of samples) {
+        expect(fresh.encodeBase64(bytes, true)).toBe(encodeBase64(bytes, true));
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe('decodeBase64', () => {

@@ -10,7 +10,7 @@ const S = 588
 
 <template>
   <SplitStreamFigure animated caption="The client writes a tiny probe into the long POST. The server answers on the event stream. An answer within 2 seconds means the whole path streams, and the client moves to stream mode.">
-    <div class="mb-3 flex items-center gap-3 pr-20">
+    <div class="mb-3 flex items-center gap-3">
       <USwitch v-model="held" label="A proxy on the way holds request bodies" />
     </div>
 

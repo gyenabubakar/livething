@@ -9,14 +9,15 @@ const paused = defineModel<boolean>('paused', { default: false })
 
 <template>
   <figure class="ss-figure not-prose my-6 overflow-hidden rounded-lg border border-default bg-(--art-top)" :class="{ 'ss-paused': paused }">
-    <div class="relative">
-      <!-- On a phone a picture keeps a readable size and scrolls sideways in its frame. -->
-      <div class="ss-scroll overflow-x-auto p-3 sm:p-5">
-        <slot />
-      </div>
+    <!-- On a phone a picture keeps a readable size and scrolls sideways in its frame. -->
+    <div class="ss-scroll overflow-x-auto p-3 sm:p-5">
+      <slot />
+    </div>
+    <figcaption v-if="caption || animated" class="flex items-start gap-3 border-t border-default px-4 py-2.5 text-sm text-muted">
+      <span v-if="caption" class="flex-1">{{ caption }}</span>
       <UButton
         v-if="animated"
-        class="ss-pause absolute right-2 top-2"
+        class="ss-pause shrink-0"
         size="xs"
         color="neutral"
         variant="subtle"
@@ -24,9 +25,6 @@ const paused = defineModel<boolean>('paused', { default: false })
         :label="paused ? 'Play' : 'Pause'"
         @click="paused = !paused"
       />
-    </div>
-    <figcaption v-if="caption" class="border-t border-default px-4 py-2.5 text-sm text-muted">
-      {{ caption }}
     </figcaption>
   </figure>
 </template>

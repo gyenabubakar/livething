@@ -2,7 +2,7 @@ import { CloseCodes, decodeBase64, LIVETHING_SUBPROTOCOL } from '@livething/core
 import { withScheme } from './transport.ts';
 import type { Transport, TransportFactory, TransportOpenOptions } from './transport.ts';
 
-/** One below the server's 256 frames waiting per connection. */
+/** The server's limit of frames waiting per connection. */
 const MAX_BATCH_FRAMES = 255;
 const FRAME_HEADER_BYTES = 5;
 /** A POST with no answer in this time counts as failed. */
@@ -54,10 +54,10 @@ function utf8(text: string): Uint8Array<ArrayBuffer> {
  * use it alone, or list it after `websocket()` to fail over when a network blocks WebSocket.
  * It needs a `fetch` that streams the response body.
  *
- * It starts with batched POSTs: one in flight, with the sends that come meanwhile in the next.
+ * It starts in batch mode: one POST in flight, with the sends that come meanwhile in the next.
  * Where fetch can stream a request body and the site is not on HTTP/1.1, it also tries stream
  * mode: one long POST that carries every send. A probe frame checks that the server gets the
- * body as it streams. If its ack does not come, the client keeps the batched POSTs.
+ * body as it streams. If its ack does not come, the client stays in batch mode.
  */
 export function http(): TransportFactory {
   return { name: 'http', open: openHttp };
@@ -488,7 +488,7 @@ function openHttp(options: TransportOpenOptions): Transport {
   }
 
   /**
-   * The upload stopped. Its frames that were not acked go again in batched POSTs, and the
+   * The upload stopped. Its frames that were not acked go again in batch mode, and the
    * server drops the ones it already has. A probe that failed is remembered for the origin.
    */
   function uploadDied(reason: string, probeFailed = !probeAcked): void {
@@ -496,14 +496,14 @@ function openHttp(options: TransportOpenOptions): Transport {
 
     if (probeFailed) uploadFailedUntil.set(originOf(url), Date.now() + UPLOAD_RETRY_MS);
 
-    if (!silent && state === 'open') options.warn(`http() stays on batched POSTs: ${reason}.`);
+    if (!silent && state === 'open') options.warn(`http() stays in batch mode: ${reason}.`);
 
     endUpload();
     settleUpload();
     if (state === 'open') pumpData();
   }
 
-  /** Stops the upload and its timers. The frames it held wait for a batched POST. */
+  /** Stops the upload and its timers. The frames it held wait for the next POST of batch mode. */
   function endUpload(): void {
     mode = 'batch';
     probeAcked = false;
