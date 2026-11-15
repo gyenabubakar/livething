@@ -9,7 +9,7 @@ import { isInsideOutgoingHook, runOutgoingHook } from '~/_engine/call-context.ts
 import { markSeqScope } from '~/_engine/runtime/catch-up-hold.ts';
 import { assertPayload, serializePayload } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
-import { serializeWireFrame } from '~/_engine/runtime/wire-serialize.ts';
+import { serializeWireFrameJson } from '~/_engine/runtime/wire-serialize.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { isBinaryPayload } from '~/outgoing/binary-payload.ts';
 import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
@@ -67,6 +67,27 @@ export interface OutgoingRuntime {
   logger: Pick<PublicApi.Logger, 'warn' | 'error'>;
 
   generateId(prefix?: string): string;
+
+  /**
+   * Runs before any app message that carries a channel, so the presence changes still waiting
+   * for that channel reach its members first. That includes a send to one member and a reply to
+   * a channel request: the reply can name a member that the others have not heard about yet.
+   * So a busy channel sends its waiting changes before each message, not once per window.
+   */
+  beforeChannelMessage?: (channelName: string, channelFamily: string | null) => void;
+}
+
+/** Send the channel's waiting presence changes before an app message to that channel. */
+function flushPresenceFor(
+  runtime: Pick<OutgoingRuntime, 'beforeChannelMessage'>,
+  routing: EngineRuntimeTypes.RoutingTarget | undefined,
+  event: string,
+): void {
+  if (!runtime.beforeChannelMessage || routing?.channel === undefined) return;
+
+  if (Protocol.isProtocolEventName(event)) return;
+
+  runtime.beforeChannelMessage(routing.channel, routing.channelFamily ?? null);
 }
 
 /** A send's JSON payload and, for a binary send, its bytes. */
@@ -82,7 +103,7 @@ function splitPayload(payload: unknown): { payload: unknown; bytes?: Uint8Array 
 /** The frame to write: text, or the binary frame of the envelope text and the bytes. */
 function transportFrame(text: string, bytes: Uint8Array | undefined): TransportFrame {
   return bytes === undefined
-    ? { kind: 'text', text }
+    ? { kind: 'text', text, shared: false }
     : { kind: 'bytes', bytes: encodeBinaryFrame(text, bytes) };
 }
 
@@ -115,7 +136,7 @@ function undeclaredOutgoing(
  * sent as: an `emits()` event (or a stream) for a text frame, a `binary({ emits })` event
  * for a binary frame.
  *
- * Real protocol events — the fixed set the engine sends, like `__memberJoin__`
+ * Real protocol events — the fixed set the engine sends, like `__memberChanges__`
  * — are allowed, as text only. An unknown `__x__` name is not, so it cannot slip past the
  * scope check by looking protocol-shaped. A plugin's namespaced
  * `emits()` lives in the normal outgoing/channel maps, so it is found by the
@@ -390,12 +411,16 @@ export function sendThroughPipeline(
   const livething = buildLiveThing(routing) as Record<string, unknown>;
   applyLiveThingStampers(runtime.livethingStampHooks, event, livething);
 
-  const wirePayload = isVoidResponse
-    ? null
-    : (JSON.parse(serializePayload(event, payload)) as Record<string, unknown> | null);
+  const payloadJson = isVoidResponse ? 'null' : serializePayload(event, payload);
+  const records = !isRequestResponse && hasBroadcastHooks(runtime);
+  // The hooks get a plain copy of what was serialized. Without hooks, nothing parses it back.
+  const wirePayload =
+    records || runtime.outgoingHooks.length > 0
+      ? (JSON.parse(payloadJson) as Record<string, unknown> | null)
+      : null;
 
   let recorded: EngineRuntimeTypes.WireBroadcastMessage | undefined;
-  if (!isRequestResponse && hasBroadcastHooks(runtime)) {
+  if (records) {
     const recipients = recipientsOf([connection]);
     if (recipients.length > 0) {
       recorded = { event, payload: wirePayload, livething, recipients };
@@ -406,7 +431,8 @@ export function sendThroughPipeline(
     }
   }
 
-  const frame = transportFrame(serializeWireFrame(event, wirePayload, livething), bytes);
+  flushPresenceFor(runtime, routing, event);
+  const frame = transportFrame(serializeWireFrameJson(event, payloadJson, livething), bytes);
   markSeqScope(frame, livething);
   const sent = connection.descriptor.send(frame) !== false;
   if (recorded) runAfterBroadcastHooks(runtime, recorded);
@@ -426,7 +452,11 @@ export function sendThroughPipeline(
 interface PreparedBroadcast {
   event: string;
 
-  finalPayload: Record<string, unknown> | null;
+  /** The payload, serialized once. Every frame of the send uses this text. */
+  payloadJson: string;
+
+  /** A plain copy of the payload for the hooks and the inbox, parsed on first use by `plainPayload`. */
+  finalPayload?: Record<string, unknown> | null;
 
   baseLiveThing: Record<string, unknown>;
 
@@ -444,15 +474,30 @@ interface PreparedBroadcast {
   frame?: TransportFrame;
 }
 
+/**
+ * The payload as plain data, the same for every hook and recipient, so a `toJSON()` still runs
+ * only once for the whole send.
+ */
+function plainPayload(prepared: PreparedBroadcast): Record<string, unknown> | null {
+  if (prepared.finalPayload === undefined) {
+    prepared.finalPayload = JSON.parse(prepared.payloadJson) as Record<string, unknown> | null;
+  }
+
+  return prepared.finalPayload;
+}
+
 function sharedFrame(prepared: PreparedBroadcast): TransportFrame {
   if (prepared.frame) return prepared.frame;
 
-  prepared.frame = transportFrame(
+  const text =
     prepared.envelope ??
-      serializeWireFrame(prepared.event, prepared.finalPayload, prepared.baseLiveThing),
-    prepared.bytes,
-  );
+    serializeWireFrameJson(prepared.event, prepared.payloadJson, prepared.baseLiveThing);
+  prepared.frame =
+    prepared.bytes === undefined
+      ? { kind: 'text', text, shared: true }
+      : { kind: 'bytes', bytes: encodeBinaryFrame(text, prepared.bytes), shared: true };
   markSeqScope(prepared.frame, prepared.baseLiveThing);
+
   return prepared.frame;
 }
 
@@ -465,6 +510,7 @@ type BroadcastRuntime = Pick<
   | 'logger'
   | 'outgoingHooks'
   | 'livethingStampHooks'
+  | 'beforeChannelMessage'
 >;
 
 function hasBroadcastHooks(runtime: BroadcastRuntime): boolean {
@@ -480,7 +526,7 @@ function toBroadcastMessage(
 ): EngineRuntimeTypes.WireBroadcastMessage {
   const message: EngineRuntimeTypes.WireBroadcastMessage = {
     event: prepared.event,
-    payload: prepared.finalPayload,
+    payload: plainPayload(prepared),
     livething: prepared.baseLiveThing,
   };
 
@@ -542,6 +588,7 @@ interface PrepareBroadcastOptions {
   routing: EngineRuntimeTypes.RoutingTarget | undefined;
   event: string;
   payload: unknown;
+  payloadJson?: string;
 }
 
 function prepareBroadcast(
@@ -558,25 +605,23 @@ function prepareBroadcast(
     throw undeclaredOutgoing(runtime.compiled, event, { routing, bytes });
   }
 
-  // From here every frame, recipient and hook uses this plain copy of what was serialized, so a
-  // toJSON() runs once for the whole broadcast and every peer gets the same payload.
-  const finalPayload = JSON.parse(serializePayload(event, payload)) as Record<
-    string,
-    unknown
-  > | null;
+  // From here every frame, recipient and hook uses this text or its plain copy, so a toJSON()
+  // runs once for the whole broadcast and every peer gets the same payload.
+  const payloadJson = opts.payloadJson ?? serializePayload(event, payload);
 
   // Stamp once for the whole broadcast: all recipients share one deliverySeq/messageId, so replay stores one row, not one per member.
   const baseLiveThing = buildLiveThing(routing) as Record<string, unknown>;
   applyLiveThingStampers(runtime.livethingStampHooks, event, baseLiveThing);
 
-  if (bytes === undefined) return { event, finalPayload, baseLiveThing };
+  flushPresenceFor(runtime, routing, event);
+  if (bytes === undefined) return { event, payloadJson, baseLiveThing };
 
   // Check the envelope now, so a send over 64 KiB fails once for the whole send. The frame
   // itself is built on the first recipient, so a send that reaches nobody copies nothing.
-  const envelope = serializeWireFrame(event, finalPayload, baseLiveThing);
+  const envelope = serializeWireFrameJson(event, payloadJson, baseLiveThing);
   assertEnvelopeSize(envelope);
 
-  return { event, finalPayload, baseLiveThing, bytes, envelope };
+  return { event, payloadJson, baseLiveThing, bytes, envelope };
 }
 
 /** Throw a `RangeError` when a binary frame's envelope is over the 64 KiB limit. */
@@ -604,9 +649,11 @@ function notifyPrepared(
   prepared: PreparedBroadcast,
   sent: Pick<SentFrame, 'routing' | 'target' | 'recipients'>,
 ): void {
+  if (runtime.outgoingHooks.length === 0) return;
+
   notifyOutgoing(runtime, {
     event: prepared.event,
-    payload: prepared.finalPayload,
+    payload: plainPayload(prepared),
     bytes: prepared.bytes,
     ...sent,
   });
@@ -656,7 +703,7 @@ function openPreparedSend(
 
       const frame = extra
         ? transportFrame(
-            serializeWireFrame(prepared.event, prepared.finalPayload, {
+            serializeWireFrameJson(prepared.event, prepared.payloadJson, {
               ...prepared.baseLiveThing,
               ...extra,
             }),
@@ -922,6 +969,15 @@ export interface BroadcastToChannelOptions {
 
   /** Whether to also deliver to `excludeConnectionId`. Defaults to `false`. */
   includeSelf?: boolean;
+
+  /** Only these members get it, not the whole channel. Presence batches use this. */
+  recipients?: Iterable<EngineRuntimeTypes.RuntimeConnection>;
+
+  /**
+   * `payload` as JSON text that the caller already built. Presence batches use this, so each
+   * change is turned into JSON once, not once for every member that gets it.
+   */
+  payloadJson?: string;
 }
 
 export function broadcastToChannel(
@@ -951,6 +1007,7 @@ export function broadcastToChannel(
       routing: { channel: channelName, channelFamily },
       event,
       payload,
+      payloadJson: opts.payloadJson,
     });
   } catch (error) {
     rethrowIfConfigError(error);
@@ -974,7 +1031,7 @@ export function broadcastToChannel(
           channelName,
           channelFamily,
           event: prepared.event,
-          payload: prepared.finalPayload,
+          payload: plainPayload(prepared),
           ...(prepared.bytes === undefined ? {} : { bytes: prepared.bytes }),
           deliverySeq,
           messageId,
@@ -1020,7 +1077,7 @@ export function broadcastToChannel(
   }
 
   let recipients = 0;
-  for (const connection of members ?? []) {
+  for (const connection of opts.recipients ?? members ?? []) {
     if (excludeConnectionId && !(includeSelf ?? false) && connection.id === excludeConnectionId) {
       continue;
     }

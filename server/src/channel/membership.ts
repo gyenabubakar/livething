@@ -17,6 +17,12 @@ type OptsParameter = {
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
+function hasPersistentChannel(core: EngineCore): boolean {
+  for (const durable of core.channelDurabilityOverrides.values()) if (durable) return true;
+
+  return false;
+}
+
 /** Server-initiated channel subscribe. Used by the auto-rejoin path. */
 type SubscribeFromServerFn = (ref: PublicApi.ConnectionRef, opts: OptsParameter) => Promise<void>;
 
@@ -148,6 +154,9 @@ export async function autoRejoinIdentity(
   subscribeFromServer: SubscribeFromServerFn,
   connection: RuntimeConnection,
 ): Promise<void> {
+  // Boot deletes the rows of channels that are not persistent, so there is nothing to read.
+  if (!hasPersistentChannel(core)) return;
+
   const sql = core.storage.sql;
   await runAutoRejoin(
     {

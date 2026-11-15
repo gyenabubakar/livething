@@ -120,7 +120,6 @@ async function openStream(
     );
   }
 
-  const encoder = new TextEncoder();
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   let state: 'open' | 'ending' | 'done' = 'open';
   let opened: SseStream | null = null;
@@ -206,8 +205,7 @@ async function openStream(
     write(chunk) {
       if (state !== 'open') return;
 
-      const bytes = encoder.encode(chunk);
-      if (fits(bytes.byteLength)) controller.enqueue(bytes);
+      if (fits(chunk.byteLength)) controller.enqueue(chunk);
     },
     // Ends after the client reads what is queued, so the `__close__` frame reaches it.
     end() {

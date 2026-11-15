@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
-import { frameData, sendWhenOpen } from '../../socket.ts';
+import { sendToWs, sendWhenOpen, terminateWs } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { isNodeWebSocketUpgrade, rawDataToBytes } from '../../upgrade.ts';
 import type { NodeAdmin, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
@@ -120,9 +120,9 @@ export function setup(): FastifySetup {
           let connection;
           try {
             connection = upgrade.accept({
-              send: (frame) => sendWhenOpen(socket.readyState, () => socket.send(frameData(frame))),
+              send: (frame) => sendWhenOpen(socket.readyState, () => sendToWs(socket, frame)),
               close: (code, reason) => socket.close(code, reason),
-              terminate: () => socket.terminate(),
+              terminate: () => terminateWs(socket),
               bufferedAmount: () => socket.bufferedAmount,
               backpressureSupported: true,
             });

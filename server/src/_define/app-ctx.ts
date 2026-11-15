@@ -906,10 +906,13 @@ interface ConnectionlessChannelHandleBase<TOutgoing, TMeta> {
   broadcast<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): void;
   /** Snapshot of the channel's members. */
   members(): ConnectionInfo<TMeta>[];
+  /** How many connections are in the channel, without building the list. */
+  memberCount(): number;
   /**
-   * Remove a user (or everyone holding a tag) from this channel for good. The
-   * durable membership row is dropped, so the user does not auto-rejoin on
-   * reconnect.
+   * Remove a user (or every connection holding a tag) from this channel. On a
+   * persistent channel, when the kick removes a user's last connection there,
+   * or a `UserRef` names a member with no live connection, the durable
+   * membership row is dropped, so the user does not auto-rejoin on reconnect.
    */
   kick(target: UserRef | TagRef, opts: { reason: string }): Promise<void>;
 }

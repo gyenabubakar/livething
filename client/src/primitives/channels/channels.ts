@@ -14,6 +14,7 @@ import type { LiveThingError } from '@livething/core';
 import type { LiveThingMetadata, Message } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { ChannelContext, FamilyHandle } from '~/primitives/channels/messaging.ts';
+import type { MemberChange } from '~/primitives/channels/state.ts';
 import type { ChannelsPrimitive, SubscribeSource } from '~/primitives/channels/types.ts';
 import type { LiveThingSocket } from '~/socket/socket.ts';
 
@@ -53,6 +54,17 @@ function readSyncMember(
   return { ...member, online };
 }
 
+const CHANGE_KINDS: ReadonlySet<unknown> = new Set(['join', 'leave', 'online', 'offline']);
+
+/** Parse one `{ kind, memberId, meta? }` entry of a `__memberChanges__` — null if the shape is wrong. */
+function readChange(entry: unknown): MemberChange | null {
+  const member = readMember(entry);
+  const kind = (entry as { kind?: unknown } | null | undefined)?.kind;
+  if (!member || !CHANGE_KINDS.has(kind)) return null;
+
+  return { ...member, kind: kind as MemberChange['kind'] };
+}
+
 /**
  * True when an `__error__` payload names the frame it answers, and that frame
  * is not a subscribe: a channel message or another protocol frame such as
@@ -77,13 +89,7 @@ interface ChannelIncoming {
   metadata: LiveThingMetadata | null | undefined;
 }
 
-const PRESENCE_EVENTS = new Set([
-  '__memberSync__',
-  '__memberJoin__',
-  '__memberLeave__',
-  '__memberOnline__',
-  '__memberOffline__',
-]);
+const PRESENCE_EVENTS = new Set(['__memberSync__', '__memberChanges__']);
 
 /**
  * Wrap the host `channel` method for a plugin scope. A plugin owns its namespace,
@@ -235,25 +241,9 @@ export function channels(): ChannelsPrimitive {
           return null;
         }
 
-        const member = readMember(message.payload);
-        if (!member) return null;
-
-        switch (message.event) {
-          case '__memberJoin__':
-            state.addMember(member.memberId, member.meta);
-            break;
-
-          case '__memberLeave__':
-            state.removeMember(member.memberId);
-            break;
-
-          case '__memberOnline__':
-            state.memberWentOnline(member.memberId, member.meta);
-            break;
-
-          case '__memberOffline__':
-            state.memberWentOffline(member.memberId);
-            break;
+        const raw = (message.payload as { changes?: unknown })?.changes;
+        if (Array.isArray(raw)) {
+          state.applyMemberChanges(raw.map(readChange).filter((change) => change !== null));
         }
 
         return null;

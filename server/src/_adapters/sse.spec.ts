@@ -30,9 +30,18 @@ function sendMessage(text: string): string {
 
 function open(hub: SseHub, { settle = true } = {}) {
   const written: string[] = [];
-  const sink = { write: vi.fn((chunk: string) => written.push(chunk)), end: vi.fn() };
+  const chunks: Uint8Array[] = [];
+  const sink = {
+    write: vi.fn((chunk: Uint8Array) => {
+      chunks.push(chunk);
+      written.push(new TextDecoder().decode(chunk));
+    }),
+    end: vi.fn(),
+  };
+
   const stream = hub.openStream({ ...sink, bufferedAmount: () => 0, backpressureSupported: true });
   const pending: (() => void)[] = [];
+
   const handle = {
     handleMessage: vi.fn((_text: string) =>
       settle ? Promise.resolve() : new Promise<void>((resolve) => pending.push(resolve)),
@@ -44,7 +53,7 @@ function open(hub: SseHub, { settle = true } = {}) {
 
   stream.attach(handle);
 
-  return { stream, handle, written, sink, pending, secret: stream.socket.secret };
+  return { stream, handle, written, chunks, sink, pending, secret: stream.socket.secret };
 }
 
 /** The answer to a POST: its early refusal, or what its body got. */
@@ -74,6 +83,27 @@ describe('createSseHub: the stream', () => {
     stream.socket.send({ kind: 'bytes', bytes: new Uint8Array([1, 2, 255]) });
 
     expect(written).toEqual(['data: ["messageCreated",{},null]\n\n', 'data: bAQL/\n\n']);
+  });
+
+  it('builds the event of a shared frame once, for every stream it reaches', () => {
+    const hub = createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 });
+    const first = open(hub);
+    const second = open(hub);
+    const shared = [
+      { kind: 'text', text: '["messageCreated",{},null]', shared: true },
+      { kind: 'bytes', bytes: new Uint8Array([1, 2, 255]), shared: true },
+    ] as const;
+    const single = { kind: 'text', text: '["messageCreated",{},null]' } as const;
+
+    for (const frame of [...shared, single]) {
+      first.stream.socket.send(frame);
+      second.stream.socket.send(frame);
+    }
+
+    expect(second.written).toEqual(first.written);
+    expect(second.chunks[0]).toBe(first.chunks[0]);
+    expect(second.chunks[1]).toBe(first.chunks[1]);
+    expect(second.chunks[2]).not.toBe(first.chunks[2]);
   });
 
   it('gives the engine its secret and maxPostBytes', () => {

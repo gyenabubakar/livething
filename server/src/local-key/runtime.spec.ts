@@ -83,7 +83,7 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
 
 function makeRuntime() {
   return {
-    asyncContext: new AsyncLocalStorage<{ connectionId?: string; [key: PropertyKey]: unknown }>(),
+    asyncContext: new AsyncLocalStorage<{ [key: PropertyKey]: unknown }>(),
   };
 }
 

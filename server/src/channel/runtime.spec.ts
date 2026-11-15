@@ -13,6 +13,7 @@ import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
+import type { PresenceChange } from '~/channel/presence-batch.ts';
 import type { BroadcastToChannelOptions, LeaveChannelOptions } from '~/channel/runtime.ts';
 import type { StoredMembership } from '~/channel/storage.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
@@ -54,6 +55,7 @@ function createRuntime(
     excludeConnectionId?: string;
     channelFamily?: string;
   }[] = [];
+  const presence: (PresenceChange & { channelName: string; channelFamily?: string })[] = [];
 
   const rooms = {
     key: 'rooms' as string,
@@ -72,6 +74,7 @@ function createRuntime(
   return {
     protocol,
     broadcasts,
+    presence,
     connections,
     channelMembers,
     runtime: {
@@ -135,6 +138,15 @@ function createRuntime(
           channelFamily: channelFamily ?? undefined,
         });
       },
+      hasPresence: () => true,
+      recordPresence(
+        { channelName, channelFamily }: { channelName: string; channelFamily: string | null },
+        changes: PresenceChange[],
+      ) {
+        for (const change of changes) {
+          presence.push({ channelName, channelFamily: channelFamily ?? undefined, ...change });
+        }
+      },
       async handleRuntimeError() {},
       isChannelDurable: () => false,
       persistMembership: () => {},
@@ -166,7 +178,7 @@ describe('channel runtime', () => {
     });
 
     const second = createConnection('conn_2', { userId: 'b' });
-    const { runtime, connections, protocol, broadcasts } = createRuntime(channelMembers);
+    const { runtime, connections, protocol, presence } = createRuntime(channelMembers);
     connections.set(first.id, first);
     connections.set(second.id, second);
 
@@ -201,31 +213,25 @@ describe('channel runtime', () => {
         livething: { channel: 'room:general', channelFamily: 'rooms', source: 'client' },
       },
     ]);
-    expect(broadcasts).toEqual([
+    expect(presence).toEqual([
       {
         channelName: 'room:general',
-        event: '__memberJoin__',
-        payload: {
-          memberId: 'conn_2',
-          meta: { userId: 'b' },
-        },
-        excludeConnectionId: 'conn_2',
         channelFamily: 'rooms',
+        kind: 'join',
+        memberId: 'conn_2',
+        meta: { userId: 'b' },
       },
       {
         channelName: 'room:general',
-        event: '__memberOnline__',
-        payload: {
-          memberId: 'conn_2',
-          meta: { userId: 'b' },
-        },
-        excludeConnectionId: 'conn_2',
         channelFamily: 'rooms',
+        kind: 'online',
+        memberId: 'conn_2',
+        meta: { userId: 'b' },
       },
     ]);
   });
 
-  it('unsubscribes a connection and broadcasts member leave', async () => {
+  it('unsubscribes a connection and records the leave', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1', { userId: 'a' });
     addChannelMembership(channelMembers, connection, {
@@ -233,7 +239,7 @@ describe('channel runtime', () => {
       channelFamily: 'rooms',
     });
 
-    const { runtime, connections, broadcasts } = createRuntime(channelMembers);
+    const { runtime, connections, presence } = createRuntime(channelMembers);
     connections.set(connection.id, connection);
 
     await unsubscribeConnection(
@@ -249,21 +255,15 @@ describe('channel runtime', () => {
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(false);
-    expect(broadcasts).toEqual([
+    expect(presence).toEqual([
       {
         channelName: 'room:general',
-        event: '__memberLeave__',
-        payload: { memberId: 'conn_1', meta: { userId: 'a' } },
-        excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
+        kind: 'leave',
+        memberId: 'conn_1',
+        meta: { userId: 'a' },
       },
-      {
-        channelName: 'room:general',
-        event: '__memberOffline__',
-        payload: { memberId: 'conn_1' },
-        excludeConnectionId: 'conn_1',
-        channelFamily: 'rooms',
-      },
+      { channelName: 'room:general', channelFamily: 'rooms', kind: 'offline', memberId: 'conn_1' },
     ]);
   });
 
@@ -550,7 +550,7 @@ describe('channel runtime', () => {
       channelFamily: 'lobbies',
     });
 
-    const { runtime, connections, broadcasts } = createRuntime(channelMembers);
+    const { runtime, connections, presence } = createRuntime(channelMembers);
     runtime.compiled.channelFamilies.set('lobbies', {
       ...runtime.compiled.channelFamilies.get('rooms')!,
       key: 'lobbies',
@@ -575,21 +575,15 @@ describe('channel runtime', () => {
     expect(
       connection.channelMemberships.has(createChannelMembershipKey('room:general', 'lobbies')),
     ).toBe(true);
-    expect(broadcasts).toEqual([
+    expect(presence).toEqual([
       {
         channelName: 'room:general',
-        event: '__memberLeave__',
-        payload: { memberId: 'conn_1', meta: {} },
-        excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
+        kind: 'leave',
+        memberId: 'conn_1',
+        meta: {},
       },
-      {
-        channelName: 'room:general',
-        event: '__memberOffline__',
-        payload: { memberId: 'conn_1' },
-        excludeConnectionId: 'conn_1',
-        channelFamily: 'rooms',
-      },
+      { channelName: 'room:general', channelFamily: 'rooms', kind: 'offline', memberId: 'conn_1' },
     ]);
   });
 
@@ -869,7 +863,7 @@ describe('channel runtime', () => {
   it('two concurrent subscribes with check each see the other in the initial sync', async () => {
     const connA = createConnection('conn_A', { who: 'a' });
     const connB = createConnection('conn_B', { who: 'b' });
-    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    const { runtime, connections, protocol, presence } = createRuntime();
     connections.set(connA.id, connA);
     connections.set(connB.id, connB);
 
@@ -920,12 +914,11 @@ describe('channel runtime', () => {
     );
     expect(bSyncIds).toEqual(['conn_A']);
 
-    // Broadcasts: A broadcast __memberJoin__{A} (no recipients yet),
-    // B broadcast __memberJoin__{B} (A receives via the broadcast path).
-    const broadcastJoiners = broadcasts
-      .filter((b) => b.event === '__memberJoin__')
-      .map((b) => (b.payload as { memberId: string }).memberId);
-    expect(broadcastJoiners).toEqual(['conn_A', 'conn_B']);
+    // Each subscribe records its own join: A's reaches nobody yet, B's reaches A.
+    const joiners = presence
+      .filter((change) => change.kind === 'join')
+      .map((change) => change.memberId);
+    expect(joiners).toEqual(['conn_A', 'conn_B']);
 
     expect(aSyncIds).not.toContain('conn_A');
     expect(bSyncIds).not.toContain('conn_B');
@@ -1055,7 +1048,7 @@ describe('channel runtime', () => {
     });
   });
 
-  it('leaveChannel runs membership removal, persistAttachment, and _memberLeave broadcast even when an onUnsubscribe hook throws, then re-throws', async () => {
+  it('leaveChannel runs membership removal, persistAttachment, and the leave even when an onUnsubscribe hook throws, then re-throws', async () => {
     // A throwing onUnsubscribe is contained until membership removal,
     // persistence, and peer notification finish. The original error is then
     // rethrown so callers still observe it.
@@ -1066,7 +1059,7 @@ describe('channel runtime', () => {
       channelFamily: 'rooms',
     });
 
-    const { runtime, broadcasts } = createRuntime(channelMembers);
+    const { runtime, presence } = createRuntime(channelMembers);
     const persisted: string[] = [];
     const logger = { error: vi.fn() };
     const runtimeWithHook = {
@@ -1099,21 +1092,15 @@ describe('channel runtime', () => {
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(false);
     expect(persisted).toEqual(['conn_1']);
-    expect(broadcasts).toEqual([
+    expect(presence).toEqual([
       {
         channelName: 'room:general',
-        event: '__memberLeave__',
-        payload: { memberId: 'conn_1', meta: {} },
-        excludeConnectionId: 'conn_1',
         channelFamily: 'rooms',
+        kind: 'leave',
+        memberId: 'conn_1',
+        meta: {},
       },
-      {
-        channelName: 'room:general',
-        event: '__memberOffline__',
-        payload: { memberId: 'conn_1' },
-        excludeConnectionId: 'conn_1',
-        channelFamily: 'rooms',
-      },
+      { channelName: 'room:general', channelFamily: 'rooms', kind: 'offline', memberId: 'conn_1' },
     ]);
     expect(logger.error).toHaveBeenCalledTimes(1);
   });
@@ -1169,7 +1156,7 @@ describe('__subscribeOk__ inbox flag', () => {
 
 describe('subscribeConnectionAsServer', () => {
   it('runs the gate, commits, and sends _subscribeOk with source server', async () => {
-    const { protocol, broadcasts, connections, runtime } = createRuntime();
+    const { protocol, presence, connections, runtime } = createRuntime();
     const target = createConnection('target', { userId: 't' });
     connections.set(target.id, target);
 
@@ -1201,20 +1188,20 @@ describe('subscribeConnectionAsServer', () => {
         livething: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
       },
     ]);
-    expect(broadcasts).toEqual([
+    expect(presence).toEqual([
       {
         channelName: 'room:general',
-        event: '__memberJoin__',
-        payload: { memberId: 'target', meta: { userId: 't' } },
-        excludeConnectionId: 'target',
         channelFamily: 'rooms',
+        kind: 'join',
+        memberId: 'target',
+        meta: { userId: 't' },
       },
       {
         channelName: 'room:general',
-        event: '__memberOnline__',
-        payload: { memberId: 'target', meta: { userId: 't' } },
-        excludeConnectionId: 'target',
         channelFamily: 'rooms',
+        kind: 'online',
+        memberId: 'target',
+        meta: { userId: 't' },
       },
     ]);
   });
@@ -1717,9 +1704,9 @@ describe('subscribeConnectionAsServer', () => {
 });
 
 describe('channel runtime bug tests', () => {
-  it('two concurrent client subscribes for same connection+channel fire subscribeOk and memberJoin exactly once each', async () => {
+  it('two concurrent client subscribes for same connection+channel fire subscribeOk and the join exactly once each', async () => {
     const connection = createConnection('conn_1', { who: 'me' });
-    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    const { runtime, connections, protocol, presence } = createRuntime();
     connections.set(connection.id, connection);
 
     let releaseGate!: () => void;
@@ -1759,7 +1746,7 @@ describe('channel runtime bug tests', () => {
     await Promise.all([subA, subB]);
 
     const subscribeOkCount = protocol.filter((p) => p.event === '__subscribeOk__').length;
-    const memberJoinCount = broadcasts.filter((b) => b.event === '__memberJoin__').length;
+    const memberJoinCount = presence.filter((change) => change.kind === 'join').length;
     const memberships = [...connection.channelMemberships.values()].filter(
       (m) => m.channelName === 'room:general',
     );
@@ -1770,7 +1757,7 @@ describe('channel runtime bug tests', () => {
     expect(memberships).toHaveLength(1);
   });
 
-  it('disconnect leave with undefined channel on a persistent connection does not broadcast __memberLeave__', async () => {
+  it('disconnect leave with undefined channel on a persistent connection records no leave', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
     addChannelMembership(channelMembers, connection, {
@@ -1778,7 +1765,7 @@ describe('channel runtime bug tests', () => {
       channelFamily: 'rooms',
     });
 
-    const { runtime, broadcasts } = createRuntime(channelMembers);
+    const { runtime, presence } = createRuntime(channelMembers);
     const persistentRuntime = {
       ...runtime,
       // Simulate the channel definition being gone (hot-reload / upgrade).
@@ -1794,8 +1781,7 @@ describe('channel runtime bug tests', () => {
       disconnect: true,
     });
 
-    const memberLeaveCount = broadcasts.filter((b) => b.event === '__memberLeave__').length;
-    expect(memberLeaveCount).toBe(0);
+    expect(presence.map((change) => change.kind)).toEqual(['offline']);
   });
 });
 
@@ -1825,7 +1811,7 @@ describe('matchScopeParams', () => {
 describe('server self-defense against untrusted client frames', () => {
   it('a sequential second subscribe for an existing member is a no-op', async () => {
     const connection = createConnection('conn_1', { who: 'me' });
-    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    const { runtime, connections, protocol, presence } = createRuntime();
     connections.set(connection.id, connection);
 
     const onSubscribeHook = vi.fn();
@@ -1841,7 +1827,7 @@ describe('server self-defense against untrusted client frames', () => {
     });
 
     // A SECOND subscribe for the same channel from the same connection must be
-    // ignored server-side: no extra __subscribeOk__, no extra __memberJoin__,
+    // ignored server-side: no extra __subscribeOk__, no extra join,
     // no extra onSubscribe — exactly like subscribeConnectionAsServer already does.
     await subscribeConnection(runtimeWithHook, connection, {
       channelName: 'room:general',
@@ -1850,7 +1836,7 @@ describe('server self-defense against untrusted client frames', () => {
     });
 
     const subscribeOkCount = protocol.filter((p) => p.event === '__subscribeOk__').length;
-    const memberJoinCount = broadcasts.filter((b) => b.event === '__memberJoin__').length;
+    const memberJoinCount = presence.filter((change) => change.kind === 'join').length;
 
     expect(subscribeOkCount).toBe(1);
     expect(memberJoinCount).toBe(1);

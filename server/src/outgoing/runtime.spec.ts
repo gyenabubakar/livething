@@ -235,8 +235,8 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     expect(() =>
       sendThroughPipeline(runtime, connection, {
         routing: undefined,
-        event: '__memberJoin__',
-        payload: { connectionId: 'c1' },
+        event: '__memberChanges__',
+        payload: { changes: [] },
       }),
     ).not.toThrow();
 
@@ -1100,8 +1100,8 @@ describe('outgoing watch hook (outgoingHooks)', () => {
     const seen: OutgoingFrame[] = [];
 
     broadcastToConnections(watching(seen), [createConnection()], {
-      event: '__memberJoin__',
-      payload: { userId: 'u1' },
+      event: '__memberChanges__',
+      payload: { changes: [] },
     });
 
     expect(seen).toEqual([]);
@@ -1347,6 +1347,6 @@ describe('frameOwner', () => {
   });
 
   it('treats a protocol-shaped name with no :: as app-owned', () => {
-    expect(frameOwner('__memberJoin__')).toEqual({ kind: 'app' });
+    expect(frameOwner('__memberChanges__')).toEqual({ kind: 'app' });
   });
 });

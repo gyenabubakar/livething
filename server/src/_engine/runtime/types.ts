@@ -427,6 +427,9 @@ export interface RuntimeConnection {
   /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
 
+  /** The `ctx` members that depend only on this connection, built once for all its contexts. */
+  messagingApi?: unknown;
+
   /** Ordered app work waiting for this connection. */
   workQueue?: ConnectionWorkQueue;
 

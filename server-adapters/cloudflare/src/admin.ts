@@ -289,6 +289,11 @@ class AdminChannel<TMeta> extends RpcTarget {
     return this.#handle().members() as ConnectionInfo<TMeta>[];
   }
 
+  /** How many connections are subscribed to the channel now. */
+  memberCount(): number {
+    return this.#handle().memberCount();
+  }
+
   /**
    * Remove a user, or everyone holding a tag, from this channel. A user ref
    * built in the Worker has no instance id, so it is treated as local to this

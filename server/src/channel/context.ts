@@ -13,6 +13,7 @@ type ChannelHandleDeps = Pick<
   | 'broadcastToChannel'
   | 'channelHandleAugmenters'
   | 'getChannelMembers'
+  | 'countChannelMembers'
   | 'kickChannelMembers'
   | 'sendThroughPipeline'
   | 'broadcastToChannelRecipient'
@@ -74,6 +75,7 @@ export function buildChannelHandle(
       });
     },
     members: () => deps.getChannelMembers(scope.channelName, scope.channelFamily),
+    memberCount: () => deps.countChannelMembers(scope.channelName, scope.channelFamily),
     subscribe: (ref, payload) =>
       deps.subscribeConnectionAsServer(ref, {
         channelName: scope.channelName,

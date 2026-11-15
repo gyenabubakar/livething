@@ -6,8 +6,38 @@ export interface MembershipMarkerPrimitive extends Primitive<'membership-marker'
   readonly durable: boolean;
 }
 
+/** The TypeScript type returned by `presenceMarker(window)`. */
+export interface PresenceMarkerPrimitive extends Primitive<'presence-marker'> {
+  /** The batch window in milliseconds, or `false` when the channel sends no presence. */
+  readonly window: number | false;
+}
+
 /** @internal */
 const MEMBERSHIP_MARKER_KEY = Symbol('membership-marker');
+
+/** @internal */
+const PRESENCE_MARKER_KEY = Symbol('presence-marker');
+
+/**
+ * Channel-scope marker that records the dev's per-channel `presence` choice on the engine. A
+ * channel with no explicit choice sends presence with the default window.
+ *
+ * @internal
+ */
+export function presenceMarker(window: number | false): PresenceMarkerPrimitive {
+  return {
+    __livething: 'presence-marker',
+    __identity: [PRESENCE_MARKER_KEY],
+    __requires: {},
+    window,
+    __setup(engine) {
+      const scope = engine.getScopeInfo();
+      if (!scope.channelKey) return;
+
+      engine.setChannelPresence(scope.channelKey, window);
+    },
+  };
+}
 
 /**
  * Channel-scope marker that records the dev's per-channel `membership` choice

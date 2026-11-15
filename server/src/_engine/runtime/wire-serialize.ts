@@ -7,12 +7,13 @@ export function metadataFromLiveThing(
   const livething = input as Partial<LiveThingProtocol> | undefined;
   if (!livething) return null;
 
-  const metadata: Record<string, unknown> = {};
+  // Plain writes, not spreads of `cond ? {} : { key }`: this runs for every frame sent.
+  let metadata: Record<string, unknown> | null = null;
   if (livething.correlationId !== undefined || livething.source !== undefined) {
-    metadata.exchange = {
-      ...(livething.correlationId === undefined ? {} : { id: livething.correlationId }),
-      ...(livething.source === undefined ? {} : { source: livething.source }),
-    };
+    const exchange: Record<string, unknown> = {};
+    if (livething.correlationId !== undefined) exchange.id = livething.correlationId;
+    if (livething.source !== undefined) exchange.source = livething.source;
+    metadata = { exchange };
   }
 
   if (
@@ -22,49 +23,42 @@ export function metadataFromLiveThing(
     livething.inbox !== undefined ||
     livething.readReceipts !== undefined
   ) {
-    metadata.channel = {
-      name: livething.channel,
-      ...(typeof livething.channelFamily === 'string' ? { family: livething.channelFamily } : {}),
-      ...(livething.unsubscribeId === undefined ? {} : { unsubscribeId: livething.unsubscribeId }),
-      ...(livething.channelMembership === undefined
-        ? {}
-        : { membership: livething.channelMembership }),
-      ...(livething.inbox === undefined ? {} : { inbox: livething.inbox }),
-      ...(livething.readReceipts === undefined ? {} : { readReceipts: livething.readReceipts }),
-    };
+    const channel: Record<string, unknown> = { name: livething.channel };
+    if (typeof livething.channelFamily === 'string') channel.family = livething.channelFamily;
+    if (livething.unsubscribeId !== undefined) channel.unsubscribeId = livething.unsubscribeId;
+    if (livething.channelMembership !== undefined) channel.membership = livething.channelMembership;
+    if (livething.inbox !== undefined) channel.inbox = livething.inbox;
+
+    if (livething.readReceipts !== undefined) channel.readReceipts = livething.readReceipts;
+    (metadata ??= {}).channel = channel;
   }
 
   if (livething.messageId !== undefined || livething.deliverySeq !== undefined) {
-    metadata.delivery = {
-      ...(livething.messageId === undefined ? {} : { id: livething.messageId }),
-      ...(livething.deliverySeq === undefined ? {} : { seq: livething.deliverySeq }),
-    };
+    const delivery: Record<string, unknown> = {};
+    if (livething.messageId !== undefined) delivery.id = livething.messageId;
+    if (livething.deliverySeq !== undefined) delivery.seq = livething.deliverySeq;
+    (metadata ??= {}).delivery = delivery;
   }
 
   if (livething.streamId !== undefined) {
-    metadata.stream = {
-      id: livething.streamId,
-      ...(livething.eventName === undefined ? {} : { event: livething.eventName }),
-      ...(livething.streamDurability === undefined
-        ? {}
-        : { durability: livething.streamDurability }),
-      ...(livething.streamSeq === undefined ? {} : { seq: livething.streamSeq }),
-      ...(livething.streamNudgeId === undefined ? {} : { nudgeId: livething.streamNudgeId }),
-      ...(livething.streamTerminated === undefined
-        ? {}
-        : { terminated: livething.streamTerminated }),
-    };
+    const stream: Record<string, unknown> = { id: livething.streamId };
+    if (livething.eventName !== undefined) stream.event = livething.eventName;
+    if (livething.streamDurability !== undefined) stream.durability = livething.streamDurability;
+    if (livething.streamSeq !== undefined) stream.seq = livething.streamSeq;
+    if (livething.streamNudgeId !== undefined) stream.nudgeId = livething.streamNudgeId;
+
+    if (livething.streamTerminated !== undefined) stream.terminated = livething.streamTerminated;
+    (metadata ??= {}).stream = stream;
   }
 
   if (livething.uploadId !== undefined) {
-    metadata.upload = {
-      id: livething.uploadId,
-      ...(livething.uploadSeq === undefined ? {} : { seq: livething.uploadSeq }),
-      ...(livething.uploadSize === undefined ? {} : { size: livething.uploadSize }),
-    };
+    const upload: Record<string, unknown> = { id: livething.uploadId };
+    if (livething.uploadSeq !== undefined) upload.seq = livething.uploadSeq;
+    if (livething.uploadSize !== undefined) upload.size = livething.uploadSize;
+    (metadata ??= {}).upload = upload;
   }
 
-  return Object.keys(metadata).length === 0 ? null : metadata;
+  return metadata;
 }
 
 function isProtocolEventName(name: string): boolean {
@@ -85,4 +79,19 @@ export function serializeWireFrame(
       Object.keys(payload).length === 0);
 
   return JSON.stringify([event, noPayload ? null : payload, metadataFromLiveThing(livething)]);
+}
+
+/**
+ * {@link serializeWireFrame} for a payload that is already JSON text, such as the output of
+ * `serializePayload`. The text goes into the frame as it is, so the payload is not parsed and
+ * serialized again. The frame is the same string `serializeWireFrame` builds from the parsed value.
+ */
+export function serializeWireFrameJson(
+  event: string,
+  payloadJson: string,
+  livething?: Partial<LiveThingProtocol> | Record<string, unknown>,
+): string {
+  const payload = payloadJson === '{}' && isProtocolEventName(event) ? 'null' : payloadJson;
+
+  return `[${JSON.stringify(event)},${payload},${JSON.stringify(metadataFromLiveThing(livething))}]`;
 }

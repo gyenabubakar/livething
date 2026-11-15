@@ -92,6 +92,7 @@ await admin.channels.broadcast({ family: 'rooms', name: 'room:42' }, 'huddleClos
 // @ts-expect-error — the channel handle does not broadcast; use channels.broadcast
 admin.channels.get('general').broadcast;
 expectTypeOf(await admin.channels.get('general').members()).toBeArray();
+expectTypeOf(await admin.channels.get('general').memberCount()).toEqualTypeOf<number>();
 // @ts-expect-error — not a channel this definition declares
 admin.channels.get('random');
 

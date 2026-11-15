@@ -639,13 +639,20 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   ): void;
   /** Snapshot of the channel's members. */
   members(): ConnectionInfo<TMeta>[];
+  /**
+   * How many connections are in the channel: the length of `members()`, without building the
+   * list. A user with two tabs in the channel counts twice.
+   */
+  memberCount(): number;
   /** Server-side subscribe a connection to this channel. */
   subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
   /**
    * Remove a user, everyone holding a tag, or everyone with any key under a
    * tag group (`ctx.tags.ephemeral(...)` / `.persistent(...)`) from this
-   * channel for good. The durable membership row is dropped, so the user does
-   * not auto-rejoin on reconnect. Every targeted connection is
+   * channel. On a persistent channel, when the kick removes a user's last
+   * connection there, or a `UserRef` names a member with no live connection,
+   * the durable membership row is dropped, so the user does not auto-rejoin on
+   * reconnect. Every targeted connection is
    * kicked even when a leave hook throws; then the promise rejects with an
    * `AggregateError` holding every hook failure.
    */
@@ -883,6 +890,12 @@ export type ChannelConfig<
   ) => unknown | void;
   /** Whether membership survives a reconnect (default `'ephemeral'`). */
   readonly membership?: 'persistent' | 'ephemeral';
+  /**
+   * Whether members get a member sync on subscribe and then member changes (default `true`).
+   * Changes are batched: the first one on a quiet channel goes out at once, and the ones that
+   * follow within `windowMs` (default 500) go out together. `false` sends no presence.
+   */
+  readonly presence?: boolean | { readonly windowMs: number };
   /**
    * Per-channel replay opt-in/out, cascading from `server`. `true` is
    * shorthand for history mode with defaults; `false` opts this channel out.

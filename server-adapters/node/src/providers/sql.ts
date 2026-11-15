@@ -32,6 +32,11 @@ export interface SqliteStatement {
 /** The part of a better-sqlite3 database that the SQL and KV providers use. */
 export interface SqliteDatabase {
   prepare(query: string): SqliteStatement;
+  /**
+   * SQLite's schema version, for a driver whose prepared statement keeps the old columns for one
+   * run after the schema changed. The SQL provider then prepares its statements again.
+   */
+  schemaVersion?(): unknown;
   exec(query: string): unknown;
   transaction<T>(fn: () => T): () => T;
   close(): void;
@@ -80,7 +85,74 @@ function isSqlProvider(source: NodeSqlSource): source is SQLProvider {
   );
 }
 
+/**
+ * How many prepared statements one database keeps. An app and the engine run a small, fixed set
+ * of SQL texts, so this holds all of them. SQL built with values in its text gets a new entry for
+ * each value and pushes out the oldest one.
+ */
+const STATEMENT_CACHE_SIZE = 128;
+// ponytail: DDL on a temp table or an attached database run on the app's own handle, outside
+// this provider, is not seen here; node:sqlite then gives one `SELECT *` the old columns.
+const SCHEMA_KEYWORD = /(?:ALTER|CREATE|DROP|ATTACH|DETACH)\b/iy;
+
+/** Whether the statement's first keyword, after any comments, changes the schema. */
+function changesSchema(query: string): boolean {
+  let index = 0;
+  while (index < query.length) {
+    if (query.startsWith('--', index)) {
+      const end = query.indexOf('\n', index);
+      if (end === -1) return false;
+
+      index = end + 1;
+    } else if (query.startsWith('/*', index)) {
+      const end = query.indexOf('*/', index + 2);
+      if (end === -1) return false;
+
+      index = end + 2;
+    } else if (/\s/.test(query[index]!)) {
+      index++;
+    } else {
+      break;
+    }
+  }
+
+  SCHEMA_KEYWORD.lastIndex = index;
+
+  return SCHEMA_KEYWORD.test(query);
+}
+
 function createSqlProvider(database: SqliteDatabase): SQLProvider {
+  // Least recently used first, so the oldest entry is the first key.
+  const statements = new Map<string, SqliteStatement>();
+  let schemaVersion: unknown;
+
+  function prepare(query: string): SqliteStatement {
+    if (database.schemaVersion) {
+      const version = database.schemaVersion();
+      if (version !== schemaVersion) {
+        statements.clear();
+        schemaVersion = version;
+      }
+    }
+
+    const cached = statements.get(query);
+    if (cached) {
+      statements.delete(query);
+      statements.set(query, cached);
+
+      return cached;
+    }
+
+    const statement = database.prepare(query);
+    if (statements.size >= STATEMENT_CACHE_SIZE) {
+      statements.delete(statements.keys().next().value!);
+    }
+
+    statements.set(query, statement);
+
+    return statement;
+  }
+
   function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
     const trimmed = query.trim();
 
@@ -88,27 +160,35 @@ function createSqlProvider(database: SqliteDatabase): SQLProvider {
 
     let statement: SqliteStatement;
     try {
-      statement = database.prepare(trimmed);
+      statement = prepare(trimmed);
     } catch (error) {
       if (params.length > 0) throw error;
 
       // The public SQL contract is one statement, but the engine uses an
       // unparameterized batch for schema setup. Let SQLite parse that batch so
       // semicolons inside string literals remain part of the SQL.
-      database.exec(trimmed);
+      // A batch that fails halfway has still run its first statements.
+      try {
+        database.exec(trimmed);
+      } finally {
+        statements.clear();
+      }
+
       return emptyResult<TRow>();
     }
 
     if (statement.reader) {
-      const columns = statement.columns().map((column) => column.name);
       const rawRows = statement.raw().all(...params) as unknown[][];
-      const rows = rawRows.map((values) =>
-        Object.fromEntries(columns.map((name, index) => [name, values[index]])),
-      ) as TRow[];
-      return createResult(rows, rawRows);
+      // Read after running: SQLite prepares a cached statement again when the schema changed,
+      // so a `SELECT *` can have more columns than when it was first prepared.
+      const columns = statement.columns().map((column) => column.name);
+      return createResult(rawRows.map((values) => rowObject(columns, values)) as TRow[], rawRows);
     }
 
     statement.run(...params);
+    // The schema version only covers the main database, so a change to a temp table or an
+    // attached database must also drop the cached statements.
+    if (changesSchema(trimmed)) statements.clear();
 
     return emptyResult<TRow>();
   }
@@ -129,6 +209,30 @@ function createSqlProvider(database: SqliteDatabase): SQLProvider {
       return runTransaction();
     },
   };
+}
+
+/** One row as an object. A later column wins over an earlier one with the same name. */
+function rowObject(
+  columns: readonly string[],
+  values: readonly unknown[],
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+  for (let index = 0; index < columns.length; index++) {
+    const name = columns[index]!;
+    // A plain write to `__proto__` sets the prototype instead of adding the column.
+    if (name === '__proto__') {
+      Object.defineProperty(row, name, {
+        value: values[index],
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    } else {
+      row[name] = values[index];
+    }
+  }
+
+  return row;
 }
 
 function createResult<TRow>(rows: TRow[], rawRows: unknown[][] = []): SqlResult<TRow> {

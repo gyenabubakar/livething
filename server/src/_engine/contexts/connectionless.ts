@@ -51,6 +51,7 @@ export function createConnectionlessContext(
             excludeConnectionId: undefined,
           }),
         members: () => deps.getChannelMembers(channelName, channelFamily),
+        memberCount: () => deps.countChannelMembers(channelName, channelFamily),
         kick: (target, opts) =>
           deps.kickChannelMembers({
             channelName,

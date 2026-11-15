@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { CloseCodes } from '@livething/core';
+import { currentConnectionId, registerCallContext } from '~/_engine/call-context.ts';
 import {
   acceptConnection,
   cancelActiveStreamsForConnection,
@@ -13,7 +14,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 type AsyncContextStore = {
-  connectionId?: string;
   [key: PropertyKey]: unknown;
 };
 
@@ -973,13 +973,14 @@ describe('connection runtime', () => {
 
   it('runs lifecycle hooks inside the connection async context', async () => {
     const asyncContext = new AsyncLocalStorage<AsyncContextStore>();
+    registerCallContext(() => new AsyncLocalStorage());
     let seen: string | undefined;
 
     await runConnectionLifecycle(
       {
         connectHooks: [
           () => {
-            seen = asyncContext.getStore()?.connectionId;
+            seen = currentConnectionId();
           },
         ],
         disconnectHooks: [],
@@ -990,18 +991,21 @@ describe('connection runtime', () => {
     );
 
     expect(seen).toBe('conn_42');
-    // The async context is auto-scoped — nothing leaks past the lifecycle.
-    expect(asyncContext.getStore()).toBeUndefined();
+    // The call context is scoped to the lifecycle, so nothing leaks past it.
+    expect(currentConnectionId()).toBeUndefined();
   });
 
-  it('does not leak the async context when an onConnect hook throws', async () => {
+  it('does not leak the call context when an onConnect hook throws', async () => {
     const asyncContext = new AsyncLocalStorage<AsyncContextStore>();
+    registerCallContext(() => new AsyncLocalStorage());
+    let seen: string | undefined;
 
     await expect(
       runConnectionLifecycle(
         {
           connectHooks: [
             () => {
+              seen = currentConnectionId();
               throw new Error('boom');
             },
           ],
@@ -1013,7 +1017,8 @@ describe('connection runtime', () => {
       ),
     ).rejects.toThrow('boom');
 
-    expect(asyncContext.getStore()).toBeUndefined();
+    expect(seen).toBe('conn_42');
+    expect(currentConnectionId()).toBeUndefined();
   });
 
   it('handleConnectionClose attaches closeCode and closeReason to the disconnect ctx', async () => {

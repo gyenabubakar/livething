@@ -3,7 +3,7 @@ import { addChannelMembership, kickChannelMembers, leaveChannel } from '~/channe
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
-import type { BroadcastToChannelOptions } from '~/channel/runtime.ts';
+import type { PresenceChange } from '~/channel/presence-batch.ts';
 
 function createConnection(id: string) {
   return {
@@ -27,7 +27,7 @@ function createConnection(id: string) {
 }
 
 describe('channels.kick end-to-end', () => {
-  it('kicks tagged members, sends _kicked to them, and broadcasts _memberLeave', async () => {
+  it('kicks tagged members, sends _kicked to them, and records their leave', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const kept = createConnection('keeper');
     const banned = createConnection('banned');
@@ -49,12 +49,7 @@ describe('channels.kick end-to-end', () => {
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 
     const protocol: { connectionId: string; event: string; payload: any; livething: any }[] = [];
-    const broadcasts: {
-      channelName: string;
-      event: string;
-      payload: any;
-      excludeConnectionId?: string;
-    }[] = [];
+    const leaves: PresenceChange[] = [];
 
     const generalChannel = {
       key: 'room:general',
@@ -115,13 +110,10 @@ describe('channels.kick end-to-end', () => {
       ) {
         protocol.push({ connectionId: c.id, event, payload, livething });
       },
-      broadcastToChannel({
-        channelName,
-        event,
-        payload,
-        excludeConnectionId,
-      }: BroadcastToChannelOptions) {
-        broadcasts.push({ channelName, event, payload, excludeConnectionId });
+      broadcastToChannel() {},
+      hasPresence: () => true,
+      recordPresence(_scope: unknown, changes: PresenceChange[]) {
+        leaves.push(...changes.filter((change) => change.kind === 'leave'));
       },
       isChannelDurable: () => false,
       persistMembership() {},
@@ -153,9 +145,8 @@ describe('channels.kick end-to-end', () => {
     expect(kicked.every((p) => p.livething.channel === 'room:general')).toBe(true);
     expect(new Set(kicked.map((p) => p.connectionId))).toEqual(new Set(['banned', 'also_banned']));
 
-    const memberLeaves = broadcasts.filter((b) => b.event === '__memberLeave__');
-    expect(memberLeaves).toHaveLength(2);
-    expect(new Set(memberLeaves.map((b) => b.excludeConnectionId))).toEqual(
+    expect(leaves).toHaveLength(2);
+    expect(new Set(leaves.map((change) => change.memberId))).toEqual(
       new Set(['banned', 'also_banned']),
     );
 
@@ -243,6 +234,8 @@ describe('channels.kick end-to-end', () => {
       persistAttachment() {},
       sendProtocolMessage() {},
       broadcastToChannel() {},
+      hasPresence: () => true,
+      recordPresence() {},
       isChannelDurable: () => false,
       persistMembership() {},
       deleteDurableMembership() {},
@@ -341,6 +334,8 @@ describe('channels.kick end-to-end', () => {
       persistAttachment() {},
       sendProtocolMessage() {},
       broadcastToChannel() {},
+      hasPresence: () => true,
+      recordPresence() {},
       isChannelDurable: (_key: string) => true,
       persistMembership() {},
       deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null) {

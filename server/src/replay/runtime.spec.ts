@@ -186,13 +186,13 @@ describe('replay/runtime', () => {
     // seq, so storing it would throw). It's re-derived via __memberSync__ on
     // reconnect, so dropping it from replay loses nothing.
     expect(
-      shouldStoreReplayMessage('__memberOffline__', {
+      shouldStoreReplayMessage('__memberChanges__', {
         channelKey: 'rooms',
         livething: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
-    for (const event of ['__memberJoin__', '__subscribeOk__', '__error__', '__streamEnd__']) {
+    for (const event of ['__memberSync__', '__subscribeOk__', '__error__', '__streamEnd__']) {
       expect(
         shouldStoreReplayMessage(event, {
           channelKey: undefined,
