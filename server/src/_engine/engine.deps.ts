@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
+import { currentConnectionId } from '~/_engine/call-context.ts';
 import { createConnectionlessContext } from '~/_engine/contexts/connectionless.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
@@ -675,7 +676,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
       core.scheduledService?.cancelScheduled(core, connectionlessContextFactory(core), opts),
     rescheduleAlarm: () => rescheduleEngineAlarm(core),
     buildCurrentContext: () => {
-      const activeId = core.asyncContext.getStore()?.connectionId;
+      const activeId = currentConnectionId();
       const connection = activeId ? core.connections.get(activeId) : undefined;
       return connection ? buildCtx(connection) : undefined;
     },

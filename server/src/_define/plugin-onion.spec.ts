@@ -7,7 +7,7 @@ import {
 } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it } from 'vitest';
 
-const noopAsyncContext = new AsyncLocalStorage<{ connectionId?: string }>();
+const noopAsyncContext = new AsyncLocalStorage<Record<PropertyKey, unknown>>();
 
 function push(trace: string[], label: string): () => void {
   return () => {

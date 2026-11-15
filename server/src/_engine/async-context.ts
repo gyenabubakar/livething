@@ -1,4 +1,4 @@
-import { registerCallContext, runInCall } from '~/_engine/call-context.ts';
+import { currentConnectionId, registerCallContext, runInCall } from '~/_engine/call-context.ts';
 import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AsyncContext, AsyncContextFactory, SQLProvider } from '~/context.ts';
@@ -22,10 +22,9 @@ export interface InvocationScopeState {
   purgeEpoch: number;
 }
 
-export interface EngineAsyncContextStore {
-  connectionId?: string;
+export type EngineAsyncContextStore = {
   [INVOCATION_SCOPE]?: InvocationScopeState;
-}
+};
 
 export type EngineAsyncContext = AsyncContext<EngineAsyncContextStore>;
 
@@ -45,22 +44,6 @@ export function createAsyncContext(
   baseIds.set(asyncContext, baseId);
 
   return asyncContext;
-}
-
-/**
- * Run `fn` with `connectionId` recorded as the active connection so engine
- * helpers called inside it — notably a plugin's `getState()` — resolve to the
- * right connection even while other connections' handlers interleave.
- */
-function withConnectionContext<T>(
-  asyncContext: EngineAsyncContext | undefined,
-  connectionId: string,
-  fn: () => T,
-): T {
-  if (!asyncContext) return fn();
-
-  const current = asyncContext.getStore();
-  return asyncContext.run({ ...current, connectionId }, fn);
 }
 
 /** A {@link CallDescriptor} for code that runs for one connection. */
@@ -91,17 +74,16 @@ export function inConnectionCall(
 }
 
 /**
- * Like {@link withConnectionContext}, and also makes the running `ctx` reachable
- * through `context.*`.
+ * Run `fn` for one connection, so the `context.*` accessors reach its `ctx` and the
+ * `onOutgoing` hooks build their `ctx` for it, even while other connections' handlers
+ * interleave.
  */
 export function withConnectionCall<T>(
   asyncContext: EngineAsyncContext | undefined,
   call: ConnectionCall,
   fn: () => T,
 ): T {
-  return withCallContext(asyncContext, call, () =>
-    withConnectionContext(asyncContext, call.connectionId, fn),
-  );
+  return withCallContext(asyncContext, call, fn);
 }
 
 /**
@@ -114,8 +96,9 @@ export function withCallContext<T>(
   fn: () => T,
 ): T {
   const baseId = call.baseId ?? (asyncContext ? baseIds.get(asyncContext) : undefined);
+  const connectionId = call.connectionId ?? currentConnectionId();
 
-  return runInCall({ ...call, baseId }, fn);
+  return runInCall({ ...call, baseId, connectionId }, fn);
 }
 
 /** One connection and the `ctx` that code running for it receives. */
