@@ -6,7 +6,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { RawData, WebSocket, WebSocketServer } from 'ws';
 import { closeWebSocket } from './close.ts';
-import { frameData, sendWhenOpen } from './socket.ts';
+import { sendToWs, sendWhenOpen } from './socket.ts';
 import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
 import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
 import type { ConnectionTransport } from './socket.ts';
@@ -178,7 +178,7 @@ async function writeHttpResponse(socket: Duplex, response: Response): Promise<vo
 
 function webSocketTransport(socket: WebSocket): ConnectionTransport {
   return {
-    send: (frame) => sendWhenOpen(socket.readyState, () => socket.send(frameData(frame))),
+    send: (frame) => sendWhenOpen(socket.readyState, () => sendToWs(socket, frame)),
     close: (code, reason) => socket.close(code, reason),
     terminate: () => socket.terminate(),
     bufferedAmount: () => socket.bufferedAmount,

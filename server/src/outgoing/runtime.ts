@@ -101,7 +101,7 @@ function splitPayload(payload: unknown): { payload: unknown; bytes?: Uint8Array 
 /** The frame to write: text, or the binary frame of the envelope text and the bytes. */
 function transportFrame(text: string, bytes: Uint8Array | undefined): TransportFrame {
   return bytes === undefined
-    ? { kind: 'text', text }
+    ? { kind: 'text', text, shared: false }
     : { kind: 'bytes', bytes: encodeBinaryFrame(text, bytes) };
 }
 
@@ -487,12 +487,15 @@ function plainPayload(prepared: PreparedBroadcast): Record<string, unknown> | nu
 function sharedFrame(prepared: PreparedBroadcast): TransportFrame {
   if (prepared.frame) return prepared.frame;
 
-  prepared.frame = transportFrame(
+  const text =
     prepared.envelope ??
-      serializeWireFrameJson(prepared.event, prepared.payloadJson, prepared.baseLiveThing),
-    prepared.bytes,
-  );
+    serializeWireFrameJson(prepared.event, prepared.payloadJson, prepared.baseLiveThing);
+  prepared.frame =
+    prepared.bytes === undefined
+      ? { kind: 'text', text, shared: true }
+      : transportFrame(text, prepared.bytes);
   markSeqScope(prepared.frame, prepared.baseLiveThing);
+
   return prepared.frame;
 }
 

@@ -6,10 +6,45 @@ import type {
   TransportConnection,
   TransportFrame,
 } from '@livething/server/adapters';
+import type { WebSocket } from 'ws';
 
 /** What a WebSocket `send()` takes for a frame: a string goes as text, bytes go as binary. */
 export function frameData(frame: TransportFrame): string | Uint8Array<ArrayBuffer> {
   return frame.kind === 'text' ? frame.text : frame.bytes;
+}
+
+/**
+ * The UTF-8 bytes of shared text frames, or `null` after the first send. A broadcast hands every
+ * member the same frame object, and `ws` turns a string into bytes on each send, so the bytes are
+ * made on the second send and reused. A shared frame that reaches one socket never pays for them.
+ */
+const sharedTextBytes = new WeakMap<TransportFrame, Buffer | null>();
+
+/** Send one frame on a `ws` socket: text as a text message, bytes as a binary message. */
+export function sendToWs(socket: Pick<WebSocket, 'send'>, frame: TransportFrame): void {
+  if (frame.kind === 'bytes') {
+    socket.send(frame.bytes);
+    return;
+  }
+
+  if (!frame.shared) {
+    socket.send(frame.text);
+    return;
+  }
+
+  let bytes = sharedTextBytes.get(frame);
+  if (bytes === undefined) {
+    sharedTextBytes.set(frame, null);
+    socket.send(frame.text);
+    return;
+  }
+
+  if (bytes === null) {
+    bytes = Buffer.from(frame.text);
+    sharedTextBytes.set(frame, bytes);
+  }
+
+  socket.send(bytes, { binary: false });
 }
 
 /** The WebSocket `readyState` of an open socket. */

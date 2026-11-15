@@ -12,9 +12,12 @@ import type { ServerDefinition } from '~/server-definition.ts';
  * One frame the engine hands a transport. A WebSocket sends a `text` frame as a text
  * message and a `bytes` frame as a binary message. The bytes are always backed by a plain
  * `ArrayBuffer`, which is what a web `WebSocket.send()` accepts.
+ *
+ * `shared` marks a text frame that the engine hands to many sockets as the same object, as a
+ * broadcast does. A transport can turn its text into bytes once and reuse them for each socket.
  */
 export type TransportFrame =
-  | { kind: 'text'; text: string }
+  | { kind: 'text'; text: string; shared?: boolean }
   | { kind: 'bytes'; bytes: Uint8Array<ArrayBuffer> };
 
 /** The low-level send/close callbacks of one accepted WebSocket. */
