@@ -96,7 +96,7 @@ function createSecret(): string {
 
 /** Where a stream writes. The adapter makes one for each open response. */
 export interface SseSink {
-  /** The chunk can be shared by many streams, so the sink must not change it. */
+  /** The chunk can be shared by many streams, so the sink must not change or transfer it. */
   write(chunk: Uint8Array): void;
   end(): void;
   /** Drop the response at once, for a client that stopped reading. */

@@ -79,6 +79,8 @@ function createRuntime(memberCount: number) {
       JSON.stringify([event, payload, null]);
     },
     broadcastToChannel: () => {},
+    hasPresence: () => true,
+    recordPresence: () => {},
     livethingStampHooks: [],
     handleRuntimeError: async () => {},
     isChannelDurable: () => false,

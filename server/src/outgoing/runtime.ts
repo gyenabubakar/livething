@@ -69,8 +69,10 @@ export interface OutgoingRuntime {
   generateId(prefix?: string): string;
 
   /**
-   * Runs before an app message goes to a channel's members, so the presence changes still
-   * waiting for that channel reach them first.
+   * Runs before any app message that carries a channel, so the presence changes still waiting
+   * for that channel reach its members first. That includes a send to one member and a reply to
+   * a channel request: the reply can name a member that the others have not heard about yet.
+   * So a busy channel sends its waiting changes before each message, not once per window.
    */
   beforeChannelMessage?: (channelName: string, channelFamily: string | null) => void;
 }

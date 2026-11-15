@@ -909,8 +909,9 @@ interface ConnectionlessChannelHandleBase<TOutgoing, TMeta> {
   /** How many connections are in the channel, without building the list. */
   memberCount(): number;
   /**
-   * Remove a user (or every connection holding a tag) from this channel. When
-   * the kick removes a user's last connection in the channel, the durable
+   * Remove a user (or every connection holding a tag) from this channel. On a
+   * persistent channel, when the kick removes a user's last connection there,
+   * or a `UserRef` names a member with no live connection, the durable
    * membership row is dropped, so the user does not auto-rejoin on reconnect.
    */
   kick(target: UserRef | TagRef, opts: { reason: string }): Promise<void>;

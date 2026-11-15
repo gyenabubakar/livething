@@ -10,8 +10,22 @@ import { buildHuddleDefinition } from './huddle-definition.mjs';
 
 const connectionCount = Number(process.argv[2] ?? 5000);
 // The small-room steps put every connection in a room of 10.
-if (connectionCount % 10 !== 0) throw new Error('Use a connection count that is a multiple of 10.');
-const bigRoomSize = Math.min(Number(process.env.ENGINE_BIG_ROOM ?? 1000), connectionCount);
+if (!Number.isSafeInteger(connectionCount) || connectionCount <= 0 || connectionCount % 10 !== 0) {
+  throw new Error('Use a positive connection count that is a multiple of 10.');
+}
+
+// Without the flag, `gc()` does not exist and every heap number would include garbage.
+if (typeof globalThis.gc !== 'function') throw new Error('Run with node --expose-gc.');
+
+const bigRoomRaw = process.env.ENGINE_BIG_ROOM ?? '1000';
+// Number('') is 0, which would skip the big room without a word.
+const bigRoomSetting = bigRoomRaw.trim() === '' ? Number.NaN : Number(bigRoomRaw);
+// A room of one has no one to deliver to, so its fan-out would divide by zero.
+if (!Number.isSafeInteger(bigRoomSetting) || bigRoomSetting === 1 || bigRoomSetting < 0) {
+  throw new Error('ENGINE_BIG_ROOM must be 0 (skip) or a whole number of at least 2.');
+}
+
+const bigRoomSize = Math.min(bigRoomSetting, connectionCount);
 const huddleEndpoint = binding().bind(buildHuddleDefinition(), {
   logger: { debug() {}, info() {}, warn() {}, error: console.error },
 });
@@ -116,61 +130,70 @@ async function sendAll(frameFor) {
   }
 }
 
-// Frames are built before each step, so the step's CPU time is the engine's.
+// Frames are built before each step, so the step's CPU time is the engine's. Each step's frames
+// live in a block, so they are garbage after it and not in the heap measured at the end.
 function frames(frameFor) {
   return Array.from({ length: perConnection }, (_unused, i) =>
     connections.map((_connection, index) => frameFor(index, i)),
   );
 }
 
-const echoFrames = frames(() => JSON.stringify(['echo', { text: 'hello there' }, null]));
-await step('echo', { units: connectionCount * perConnection, unit: 'message' }, async () => {
-  await sendAll((index, i) => echoFrames[i][index]);
-  if (count('echoed') < connectionCount * perConnection) throw new Error('echo lost frames');
-});
+{
+  const echoFrames = frames(() => JSON.stringify(['echo', { text: 'hello there' }, null]));
+  await step('echo', { units: connectionCount * perConnection, unit: 'message' }, async () => {
+    await sendAll((index, i) => echoFrames[i][index]);
+    if (count('echoed') < connectionCount * perConnection) throw new Error('echo lost frames');
+  });
+}
 
-const requestFrames = frames((index, i) =>
-  JSON.stringify(['get-profile', null, { exchange: { id: `r${index}-${i}`, source: 'client' } }]),
-);
-await step('request', { units: connectionCount * perConnection, unit: 'request' }, async () => {
-  await sendAll((index, i) => requestFrames[i][index]);
-  if (count('get-profile') < connectionCount * perConnection) {
-    throw new Error('request lost frames');
-  }
-});
+{
+  const requestFrames = frames((index, i) =>
+    JSON.stringify(['get-profile', null, { exchange: { id: `r${index}-${i}`, source: 'client' } }]),
+  );
+  await step('request', { units: connectionCount * perConnection, unit: 'request' }, async () => {
+    await sendAll((index, i) => requestFrames[i][index]);
+    if (count('get-profile') < connectionCount * perConnection) {
+      throw new Error('request lost frames');
+    }
+  });
+}
 
 const roomSize = 10;
-const roomCount = Math.ceil(connectionCount / roomSize);
+const roomCount = connectionCount / roomSize;
 function smallRoom(index) {
   return channel(`room:small${index % roomCount}`);
 }
 
-const joinFrames = connections.map((_connection, index) =>
-  JSON.stringify(['__subscribe__', null, smallRoom(index)]),
-);
-await step(`join rooms of ${roomSize}`, { units: connectionCount, unit: 'join' }, async () => {
-  for (let index = 0; index < connectionCount; index++) {
-    await connections[index].message(joinFrames[index]);
-  }
-
-  await presenceWindowEnds();
-});
-
-counts.clear();
-const smallFrames = frames((index) =>
-  JSON.stringify(['send-message', { text: 'hi all' }, smallRoom(index)]),
-);
-const smallDeliveries = connectionCount * perConnection * (roomSize - 1);
-await step(
-  `send in rooms of ${roomSize}`,
-  { units: smallDeliveries, unit: 'delivery' },
-  async () => {
-    await sendAll((index, i) => smallFrames[i][index]);
-    if (count('message') !== smallDeliveries) {
-      throw new Error(`small rooms delivered ${count('message')}`);
+{
+  const joinFrames = connections.map((_connection, index) =>
+    JSON.stringify(['__subscribe__', null, smallRoom(index)]),
+  );
+  await step(`join rooms of ${roomSize}`, { units: connectionCount, unit: 'join' }, async () => {
+    for (let index = 0; index < connectionCount; index++) {
+      await connections[index].message(joinFrames[index]);
     }
-  },
-);
+
+    await presenceWindowEnds();
+  });
+}
+
+{
+  counts.clear();
+  const smallFrames = frames((index) =>
+    JSON.stringify(['send-message', { text: 'hi all' }, smallRoom(index)]),
+  );
+  const smallDeliveries = connectionCount * perConnection * (roomSize - 1);
+  await step(
+    `send in rooms of ${roomSize}`,
+    { units: smallDeliveries, unit: 'delivery' },
+    async () => {
+      await sendAll((index, i) => smallFrames[i][index]);
+      if (count('message') !== smallDeliveries) {
+        throw new Error(`small rooms delivered ${count('message')}`);
+      }
+    },
+  );
+}
 
 if (bigRoomSize > 0) {
   const bigJoin = JSON.stringify(['__subscribe__', null, channel('room:big')]);

@@ -18,11 +18,18 @@ function setup() {
   ]);
   const sent: { to: string[]; changes: string[] }[] = [];
   const logger = { error: vi.fn() };
+  let failingSends = 0;
+
   const batcher = createPresenceBatcher({
     channelMembers,
     logger,
     windowMsOf: () => windowMs,
     send({ payloadJson, recipients }) {
+      if (failingSends > 0) {
+        failingSends--;
+        throw new Error('the send failed');
+      }
+
       const { changes } = JSON.parse(payloadJson) as { changes: PresenceChange[] };
       sent.push({
         to: recipients.map((recipient) => recipient.id),
@@ -45,7 +52,11 @@ function setup() {
     return taken;
   }
 
-  return { members, batcher, logger, joins, take };
+  function failNextSend(): void {
+    failingSends = 1;
+  }
+
+  return { members, batcher, logger, joins, take, failNextSend };
 }
 
 function change(kind: PresenceChange['kind'], memberId: string): PresenceChange {
@@ -213,6 +224,26 @@ describe('presence batching', () => {
     t.joins('dave');
 
     expect(t.logger.error).toHaveBeenCalledOnce();
+    expect(t.take().find((frame) => frame.to.includes('alice'))?.changes).toEqual([
+      'join dave',
+      'online dave',
+    ]);
+  });
+
+  it('keeps sending after a send at the end of a window throws', () => {
+    const t = setup();
+    t.members.add(member('alice'));
+    t.joins('bob');
+    t.joins('carol');
+    t.take();
+
+    t.failNextSend();
+    vi.advanceTimersByTime(windowMs);
+    expect(t.logger.error).toHaveBeenCalledOnce();
+
+    t.joins('dave');
+    vi.advanceTimersByTime(windowMs);
+
     expect(t.take().find((frame) => frame.to.includes('alice'))?.changes).toEqual([
       'join dave',
       'online dave',

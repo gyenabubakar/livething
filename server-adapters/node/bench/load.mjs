@@ -13,7 +13,8 @@
 // Environment variables:
 //   LOAD_PRESENCE=off     turn presence off on LiveThing
 //   LOAD_BINARY_SIZES     sizes of the binary steps in bytes (default 1024,65536; empty skips them)
-//   LOAD_BIG_ROOMS        sizes of the one-room join steps (default 500,1000,2000; empty skips them)
+//   LOAD_BIG_ROOMS        sizes of the one-room join steps (default 500,1000,2000; empty skips
+//                         them). The fan-out steps use the biggest one.
 //   LOAD_STEPS            measure only the steps whose names start with these words, comma-separated
 //   LOAD_PROFILE          an existing folder to write one server CPU profile for each step to
 //   LOAD_BASELINE         a copy of the repo to run the server from, to compare two versions
@@ -32,14 +33,31 @@ if (!modes.includes(mode)) throw new Error(`Unknown mode ${mode}. Use ${modes.jo
 
 const connectionCount = Number(process.argv[3] ?? 5000);
 // The small-room steps put every connection in a room of 10.
-if (connectionCount % 10 !== 0) throw new Error('Use a connection count that is a multiple of 10.');
+if (!Number.isSafeInteger(connectionCount) || connectionCount <= 0 || connectionCount % 10 !== 0) {
+  throw new Error('Use a positive connection count that is a multiple of 10.');
+}
+
+/** A comma-separated list of whole numbers, each at least `min`. "" is an empty list. */
+function numberList(name, fallback, min) {
+  const values = (process.env[name] ?? fallback).split(',').filter(Boolean).map(Number);
+  if (values.some((value) => !Number.isSafeInteger(value) || value < min)) {
+    throw new Error(`${name} must be whole numbers of at least ${min}, separated by commas.`);
+  }
+
+  return values;
+}
+
 // LOAD_PRESENCE=off turns presence off on the rooms, so a LiveThing join tells nobody.
 const waitForPresence = mode.startsWith('livething') && process.env.LOAD_PRESENCE !== 'off';
 // LOAD_BINARY_SIZES="1024,65536" sets the sizes of the binary steps, in bytes. "" skips them.
-const binarySizes = (process.env.LOAD_BINARY_SIZES ?? '1024,65536')
-  .split(',')
-  .filter(Boolean)
-  .map(Number);
+const binarySizes = numberList('LOAD_BINARY_SIZES', '1024,65536', 1);
+// LOAD_BIG_ROOMS="" skips the big-room joins (they are slow on purpose) and the fan-outs that use
+// them. A room of one has no one to deliver to, so its fan-out would divide by zero.
+// Each size once, smallest first: a second join of a room a client is in gets no reply from
+// LiveThing, and the fan-out uses the biggest room.
+const bigRooms = [...new Set(numberList('LOAD_BIG_ROOMS', '500,1000,2000', 2))]
+  .filter((size) => size <= connectionCount)
+  .sort((a, b) => a - b);
 
 // LOAD_BASELINE=<dir> runs the server from another copy of the packages (a `node_modules` in
 // that folder), to compare a change with the build before it.
@@ -74,6 +92,11 @@ function serverStats() {
 
 const profileDir = process.env.LOAD_PROFILE;
 const onlySteps = process.env.LOAD_STEPS?.split(',').filter(Boolean);
+if (onlySteps?.length === 0) {
+  throw new Error('LOAD_STEPS is empty. Leave it out to measure every step.');
+}
+
+const matchedSteps = new Set();
 
 const counts = new Map();
 let wake = noop;
@@ -479,7 +502,10 @@ const results = [];
 async function step(name, measure, run) {
   const { units, unit: unitLabel } = measure;
 
-  const measured = !onlySteps || onlySteps.some((prefix) => name.startsWith(prefix));
+  const prefixes = onlySteps?.filter((wanted) => name.startsWith(wanted)) ?? [];
+  for (const prefix of prefixes) matchedSteps.add(prefix);
+  const measured = !onlySteps || prefixes.length > 0;
+
   const before = await serverStats();
   if (measured && profileDir) await callServer('profile-start');
   const started = performance.now();
@@ -599,12 +625,6 @@ await step(
   },
 );
 
-// LOAD_BIG_ROOMS="" skips these joins (they are slow on purpose) and the fan-outs that use them.
-const bigRooms = (process.env.LOAD_BIG_ROOMS ?? '500,1000,2000')
-  .split(',')
-  .filter(Boolean)
-  .map(Number)
-  .filter((size) => size <= connectionCount);
 for (const size of bigRooms) {
   await step(`join one room of ${size}`, { units: size, unit: 'join' }, async () => {
     counts.clear();
@@ -662,6 +682,9 @@ await step('disconnect', { units: connectionCount, unit: 'connection' }, async (
   // The server's close handlers run after the client sees the close.
   await new Promise((resolve) => setTimeout(resolve, 500));
 });
+
+const unmatched = onlySteps?.filter((prefix) => !matchedSteps.has(prefix)) ?? [];
+if (unmatched.length > 0) throw new Error(`LOAD_STEPS names no step: ${unmatched.join(', ')}`);
 
 const end = await serverStats();
 console.log(

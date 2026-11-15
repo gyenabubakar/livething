@@ -991,19 +991,21 @@ describe('connection runtime', () => {
     );
 
     expect(seen).toBe('conn_42');
-    // The async context is auto-scoped — nothing leaks past the lifecycle.
+    // The call context is scoped to the lifecycle, so nothing leaks past it.
     expect(currentConnectionId()).toBeUndefined();
-    expect(asyncContext.getStore()).toBeUndefined();
   });
 
-  it('does not leak the async context when an onConnect hook throws', async () => {
+  it('does not leak the call context when an onConnect hook throws', async () => {
     const asyncContext = new AsyncLocalStorage<AsyncContextStore>();
+    registerCallContext(() => new AsyncLocalStorage());
+    let seen: string | undefined;
 
     await expect(
       runConnectionLifecycle(
         {
           connectHooks: [
             () => {
+              seen = currentConnectionId();
               throw new Error('boom');
             },
           ],
@@ -1015,7 +1017,8 @@ describe('connection runtime', () => {
       ),
     ).rejects.toThrow('boom');
 
-    expect(asyncContext.getStore()).toBeUndefined();
+    expect(seen).toBe('conn_42');
+    expect(currentConnectionId()).toBeUndefined();
   });
 
   it('handleConnectionClose attaches closeCode and closeReason to the disconnect ctx', async () => {

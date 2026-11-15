@@ -35,7 +35,7 @@ function createConnection(id: string, userId: string): RuntimeConnection {
   } as unknown as RuntimeConnection;
 }
 
-function createRuntime(durable: boolean) {
+function createRuntime(durable: boolean, presenceOn = true) {
   const rows = new Map<string, StoredMembership>();
   const presence: { event: string; payload: Record<string, unknown> }[] = [];
   const protocol: {
@@ -83,7 +83,7 @@ function createRuntime(durable: boolean) {
       });
     },
     broadcastToChannel() {},
-    hasPresence: () => true,
+    hasPresence: () => presenceOn,
     recordPresence(_scope: unknown, changes: PresenceChange[]) {
       for (const change of changes) {
         presence.push({
@@ -541,5 +541,33 @@ describe('presence on an ephemeral channel is keyed by connection id', () => {
 
     await t.disconnect(tabA);
     expect(t.takePresence()).toEqual(['leave conn_a', 'offline conn_a']);
+  });
+});
+
+describe('a channel with presence: false', () => {
+  it('records no change on a disconnect or a kick of an ephemeral member', async () => {
+    const t = createRuntime(false, false);
+    const alice = createConnection('conn_a', 'alice');
+    const bob = createConnection('conn_b', 'bob');
+    await t.join(alice);
+    await t.join(bob);
+
+    await t.disconnect(alice);
+    await t.kick('bob');
+
+    expect(t.takePresence()).toEqual([]);
+  });
+
+  it('records no change when a kick ends a stored member with no live connection', async () => {
+    const t = createRuntime(true, false);
+    const alice = createConnection('conn_a', 'alice');
+    await t.join(alice);
+    await t.disconnect(alice);
+    expect(t.rows.has('alice')).toBe(true);
+
+    await t.kick('alice');
+
+    expect(t.rows.has('alice')).toBe(false);
+    expect(t.takePresence()).toEqual([]);
   });
 });

@@ -57,7 +57,8 @@ export interface PresenceBatcher {
 /**
  * Batch presence changes per channel. The first change on a quiet channel goes out at once
  * and opens a window. Changes during the window wait and go out together when it ends, so a
- * burst of joins costs each member one frame per window, not one frame per join.
+ * burst of joins costs each member one frame per window, not one frame per join. A channel
+ * message also sends the waiting changes first, so a busy channel sends them more often.
  */
 export function createPresenceBatcher(deps: PresenceBatcherDeps): PresenceBatcher {
   // By family, then by channel name. `flush` runs before every channel message, so the lookup
@@ -123,7 +124,18 @@ export function createPresenceBatcher(deps: PresenceBatcherDeps): PresenceBatche
         return;
       }
 
-      send(batch);
+      // A throw here has no caller to reach. Log it and keep the window going, or every later
+      // change of the channel would wait in a batch that nothing sends.
+      try {
+        send(batch);
+      } catch (error) {
+        deps.logger.error('[livething] sending presence changes failed', {
+          channel: scope.channelName,
+          channelFamily: scope.channelFamily,
+          error,
+        });
+      }
+
       batch.timer = setTimeout(endWindow, deps.windowMsOf(scope));
       (batch.timer as { unref?: () => void }).unref?.();
     }
