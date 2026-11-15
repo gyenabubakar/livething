@@ -236,6 +236,33 @@ describe('createHttpHub: the data lane and the sequence numbers', () => {
     expect(received()).toEqual(['one', 'two', 'three']);
   });
 
+  it('lets a fresh upload take over from the old one, with no frame handled twice', async () => {
+    const { secret, handle, received } = open(hub);
+    const old = upload(hub, secret);
+    old.push(join(start(1), texts('one', 'two')));
+
+    // The client renews: the fresh upload starts again at the first frame without an ack.
+    const fresh = upload(hub, secret);
+    fresh.push(join(start(2), texts('two', 'three')));
+    old.push(texts('late'));
+    await flush();
+
+    await expect(old.stopped).resolves.toMatchObject({ status: 409 });
+    expect(handle.handleClose).not.toHaveBeenCalled();
+    expect(received()).toEqual(['one', 'two', 'three']);
+    expect(fresh.finish().status).toBe(204);
+  });
+
+  it('acks a fresh upload that carries only frames the old one handed over', async () => {
+    const { secret, acks } = open(hub);
+    upload(hub, secret).push(join(start(1), texts('one', 'two')));
+
+    upload(hub, secret).push(join(start(1), texts('one', 'two')));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(acks()).toEqual([{ seq: 2 }]);
+  });
+
   it('closes the connection with 1002 when frames are missing', async () => {
     const { secret, handle } = open(hub);
     post(secret, 1, texts('one'));

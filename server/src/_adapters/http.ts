@@ -548,6 +548,10 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
 
       started = true;
       seq = first - 1;
+      // The client starts again from its first frame without an ack, so the frames the server
+      // already has need an ack too: the old upload's waiting ack went when it lost the lane.
+      ackedSeq = Math.min(ackedSeq, seq);
+      if (session.lastSeq > ackedSeq) ackTimer ??= setTimeout(flushAck, ACK_DELAY_MS);
 
       return true;
     }

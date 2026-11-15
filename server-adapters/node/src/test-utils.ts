@@ -243,8 +243,10 @@ class HttpRawClient extends EventEmitter {
     new DataView(body.buffer).setUint32(1, bytes.byteLength);
     body.set(bytes, 5);
 
-    // Data POSTs go one at a time, so each is the next frame in the sequence.
-    const seq = lane === 'data' ? { 'LiveThing-Seq': String(++this.dataSeq) } : {};
+    // Data POSTs go one at a time, so each is the next frame in the sequence. The number moves
+    // on only when the server took the frame, so a failed POST does not leave a gap.
+    const next = this.dataSeq + 1;
+    const seq = lane === 'data' ? { 'LiveThing-Seq': String(next) } : {};
     const response = await fetch(this.url, {
       method: 'POST',
       headers: {
@@ -257,6 +259,8 @@ class HttpRawClient extends EventEmitter {
     });
     await response.arrayBuffer();
     if (!response.ok) throw new Error(`POST answered ${response.status}`);
+
+    if (lane === 'data') this.dataSeq = next;
   }
 
   private fail(error: unknown): void {

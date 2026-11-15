@@ -137,11 +137,11 @@ class FakeServer {
     this.controller.enqueue(new TextEncoder().encode(`data: ${text}\n\n`));
   }
 
-  accept(): void {
+  accept(maxPostBytes = 1024): void {
     this.event(
       JSON.stringify([
         '__connected__',
-        { connectionId: 'c_kofi', secret: 's3cret', maxPostBytes: 1024 },
+        { connectionId: 'c_kofi', secret: 's3cret', maxPostBytes },
         null,
       ]),
     );
@@ -440,6 +440,117 @@ describe('http(): stream mode', () => {
     expect(server.controlTexts()).toEqual([
       JSON.stringify(['__close__', { code: 1000, reason: 'bye' }, null]),
     ]);
+  });
+
+  it('starts a fresh upload after 8 MiB, from the first frame without an ack, with no probe', async () => {
+    const { transport } = open();
+    await flush();
+    server.accept(512 * 1024);
+    await flush();
+    transport.send(sendMessage('hello'));
+
+    await flush();
+    server.ack(1, true);
+    await flush();
+
+    function big(i: number): string {
+      return sendMessage(`${i}:${'x'.repeat(400 * 1024)}`);
+    }
+
+    // Each frame is acked, except the last one written to the first upload.
+    for (let i = 2; i <= 22; i++) {
+      transport.send(big(i));
+      await flush();
+      if (server.uploads.length === 1) server.ack(i);
+      await flush();
+    }
+
+    expect(server.uploads).toHaveLength(2);
+    const [first, second] = server.uploads as [Upload, Upload];
+    expect(first.ended).toBe(true);
+    const [start] = second.frames();
+    expect(start).toMatchObject({ type: START });
+
+    const resentFrom = new DataView(start!.bytes.buffer).getUint32(0, false);
+    expect(second.frames().some((frame) => frame.type === PROBE)).toBe(false);
+    // Every frame arrives, in order, across the two uploads.
+    const firstTexts = first.texts().slice(0, resentFrom - 2);
+    expect([...firstTexts, ...second.texts()]).toEqual(
+      Array.from({ length: 21 }, (_, i) => big(i + 2)),
+    );
+  });
+
+  it('renews once when the frames it writes again are over 8 MiB', async () => {
+    const { transport } = open();
+    await flush();
+    server.accept(5 * 1024 * 1024);
+    await flush();
+    transport.send(sendMessage('hello'));
+
+    await flush();
+    server.ack(1, true);
+    await flush();
+
+    for (let i = 0; i < 3; i++) transport.send(sendMessage(`${i}:${'x'.repeat(3 * 1024 * 1024)}`));
+    await flush();
+    await flush();
+
+    expect(server.uploads).toHaveLength(2);
+  });
+
+  it('does not renew while it closes, and waits for the last frames', async () => {
+    const { transport } = open();
+    await flush();
+    server.accept(512 * 1024);
+    await flush();
+    transport.send(sendMessage('hello'));
+
+    await flush();
+    server.ack(1, true);
+    await flush();
+    // 20 frames of 400 KiB, each acked: the upload is just under 8 MiB.
+    for (let i = 2; i <= 21; i++) {
+      transport.send(sendMessage(`${i}:${'x'.repeat(400 * 1024)}`));
+      await flush();
+      server.ack(i);
+      await flush();
+    }
+
+    transport.send(sendMessage(`last:${'x'.repeat(400 * 1024)}`));
+    transport.close(1000, 'bye');
+    await flush();
+
+    expect(server.uploads).toHaveLength(1);
+    expect(server.controlTexts()).toEqual([]);
+    server.ack(22);
+    await flush();
+    await flush();
+
+    expect(server.controlTexts()).toHaveLength(1);
+  });
+
+  it('delivers a send made just before close', async () => {
+    const transport = await openInStreamMode();
+
+    transport.send(sendMessage('last'));
+    transport.close(1000, 'bye');
+    await flush();
+
+    expect(server.upload.texts()).toContain(sendMessage('last'));
+  });
+
+  it('does not remember a missed idle probe for the origin, once the upload worked', async () => {
+    const url = 'https://huddle-idle-probe.example/huddle';
+    const first = await openAndTry(url);
+    server.ack(1, true);
+    await flush();
+
+    await vi.advanceTimersByTimeAsync(32_000);
+    first.close();
+    await flush();
+    await openAndTry(url);
+
+    expect(server.uploads).toHaveLength(2);
   });
 
   it('sends a probe on an idle upload, and moves back to POSTs when its ack does not come', async () => {

@@ -31,6 +31,12 @@ const IDLE_PROBE_MS = 15_000;
 const UPLOAD_RETRY_MS = 10 * 60_000;
 /** The upload's frames written and not acked may hold this many times `maxPostBytes`. */
 const UPLOAD_WINDOW_POSTS = 4;
+/**
+ * An upload ends and a fresh one starts after this many new bytes. The fresh one also sends the
+ * unacked window again (at most 4 x maxPostBytes), so one upload stays well under Cloudflare's
+ * 100 MB body limit at the default maxPostBytes.
+ */
+const RENEW_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 // Created on first use: a platform without TextEncoder must still load the client.
 let encoder: TextEncoder | undefined;
@@ -91,6 +97,8 @@ function openHttp(options: TransportOpenOptions): Transport {
   let probeAcked = false;
   let uploadWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
   let uploadAbort: AbortController | null = null;
+  /** Bytes written to the current upload, for `RENEW_UPLOAD_BYTES`. */
+  let uploadBytes = 0;
 
   let probeTimer: ReturnType<typeof setTimeout> | null = null;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -310,6 +318,32 @@ function openHttp(options: TransportOpenOptions): Transport {
 
   function startUpload(): void {
     mode = 'probing';
+    openUploadRequest();
+    sendProbe();
+  }
+
+  /**
+   * Ends a long upload and opens a fresh one, so no one request grows past a proxy's body
+   * limit, or past the CPU time one request may use on Cloudflare. The fresh one starts at the
+   * first frame without an ack; its start frame takes the lane from the old one, and the server
+   * drops the frames it already has.
+   */
+  function renewUpload(): void {
+    const old = uploadWriter;
+    void old?.close().catch(() => {});
+    openUploadRequest();
+    // The frames written again do not count, so each upload carries 8 MiB of new frames, and a
+    // window over 8 MiB cannot renew again and again.
+    uploadBytes = -writtenBytes;
+    written = 0;
+    writtenBytes = 0;
+
+    startPending = true;
+    scheduleFlush();
+  }
+
+  function openUploadRequest(): void {
+    uploadBytes = 0;
     const pipe = new TransformStream<Uint8Array, Uint8Array>();
     const writer = pipe.writable.getWriter();
     const abort = new AbortController();
@@ -338,20 +372,20 @@ function openHttp(options: TransportOpenOptions): Transport {
         if (uploadWriter === writer) uploadDied('upload request failed');
       },
     );
-    sendProbe();
   }
 
   function sendProbe(): void {
     writeUpload(encodeFrame(PROBE_FRAME, new Uint8Array(0)));
     probeTimer = setTimeout(() => {
       probeTimer = null;
-      uploadDied('no probe ack', true);
+      uploadDied('no probe ack');
     }, PROBE_TIMEOUT_MS);
   }
 
   function writeUpload(chunk: Uint8Array): void {
     const writer = uploadWriter;
     wroteSinceIdleCheck = true;
+    uploadBytes += chunk.byteLength;
     writer?.write(chunk).catch(() => {
       if (uploadWriter === writer) uploadDied('upload write failed');
     });
@@ -449,6 +483,8 @@ function openHttp(options: TransportOpenOptions): Transport {
     written = count;
     writtenBytes = bytes;
     writeUpload(frames);
+    // While it closes, the frames stay in this upload until their ack.
+    if (state === 'open' && uploadBytes >= RENEW_UPLOAD_BYTES) renewUpload();
   }
 
   /**
@@ -661,7 +697,10 @@ function openHttp(options: TransportOpenOptions): Transport {
     }
 
     state = 'closing';
-    // The frames in the upload stay until their ack. The ones not sent yet are dropped.
+    // A send of this tick waits for a microtask to reach the upload. Write it now, as batch mode
+    // would have put it in its POST already. The frames in the upload stay until their ack; the
+    // ones past the window are dropped.
+    if (flushQueued) flushUpload();
     for (const frame of dataQueue.splice(written)) queuedBytes -= frame.bytes.byteLength;
 
     controlQueue.length = 0;

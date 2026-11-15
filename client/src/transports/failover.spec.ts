@@ -163,7 +163,7 @@ async function retryWait(): Promise<void> {
 }
 
 describe('failover while connecting', () => {
-  it('moves to httpwhen the WebSocket drops with 1006, and marks the WebSocket', async () => {
+  it('moves to http when the WebSocket drops with 1006, and marks the WebSocket', async () => {
     const socket = build(connect(url, { transports: [websocket(), fakeHttp()] }));
     const closes: number[] = [];
     socket.onClose((event) => closes.push(event.code));
@@ -189,7 +189,7 @@ describe('failover while connecting', () => {
   });
 
   // Node 22's WebSocket fires `error` and never `close` when the server refuses the upgrade.
-  it('moves to httpat once when a refused WebSocket fires error and no close', async () => {
+  it('moves to http at once when a refused WebSocket fires error and no close', async () => {
     const socket = build(connect(url, { transports: [websocket(), fakeHttp()] }));
     socket.connect();
     await opened(() => MockWebSocket.instances.length, 1);
@@ -199,7 +199,7 @@ describe('failover while connecting', () => {
     await opened(() => FakeHttp.opened.length, 1);
   });
 
-  it('moves to httponce when a refused WebSocket fires error and then close', async () => {
+  it('moves to http once when a refused WebSocket fires error and then close', async () => {
     const socket = build(connect(url, { transports: [websocket(), fakeHttp()] }));
     socket.connect();
     await opened(() => MockWebSocket.instances.length, 1);
@@ -213,7 +213,7 @@ describe('failover while connecting', () => {
     expect(FakeHttp.opened).toHaveLength(1);
   });
 
-  it('moves to httpwhen the WebSocket never sends __connected__', async () => {
+  it('moves to http when the WebSocket never sends __connected__', async () => {
     const socket = build(
       connect(url, { transports: [websocket(), fakeHttp()], connectTimeoutMs: 1_000 }),
     );
