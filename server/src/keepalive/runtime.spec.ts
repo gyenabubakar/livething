@@ -99,16 +99,16 @@ describe('keepalive/runtime', () => {
       const monitor = createKeepaliveMonitor(
         port,
         TIMINGS,
-        (connectionId) => connectionId === 'sse',
+        (connectionId) => connectionId === 'http',
       );
 
-      monitor.watch('sse');
+      monitor.watch('http');
       monitor.watch('hibernating');
       monitor.touch('hibernating');
       passOnePingInterval();
 
-      expect(port.refreshConnectionIdleTimeout.mock.calls).toEqual([['sse', 60_000]]);
-      expect(port.sendPing.mock.calls).toEqual([['sse']]);
+      expect(port.refreshConnectionIdleTimeout.mock.calls).toEqual([['http', 60_000]]);
+      expect(port.sendPing.mock.calls).toEqual([['http']]);
     });
 
     it('is a no-op for a connection already being watched', () => {

@@ -6,7 +6,7 @@ import { binding } from './binding.ts';
 import { resolveCompression, resolveMaxMessageBytes } from './endpoint.ts';
 import { createNodeUpgradeHandler } from './upgrade.ts';
 import type { NodeAdmin, NodeCompressionOption, NodeEndpointOptions } from './endpoint.ts';
-import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './http.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
 
 /** Options for one definition bound directly to a Node HTTP upgrade listener. */
@@ -27,7 +27,7 @@ export interface NodeEndpointBinding<TAdmin = NodeAdmin> {
    * Serve a plain HTTP request to the endpoint's path, from `node:http` or a `node:http2`
    * compatibility server. The custom transports in `transports` get it first, in list order,
    * then server-sent events: the stream, its POSTs and their CORS preflight. When no custom
-   * transport takes the request and `sse()` is not in `transports`, it answers 426.
+   * transport takes the request and `http()` is not in `transports`, it answers 426.
    */
   handle(request: NodeHttpRequest, response: NodeHttpResponse): void;
   ready(): Promise<void>;

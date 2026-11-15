@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // React Native 0.87 and older (and JSC) have no TextDecoder, and may lack TextEncoder too.
-// An app that never uses sse() or binary() must still be able to import the client.
+// An app that never uses http() or binary() must still be able to import the client.
 describe('loading the client', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -15,6 +15,6 @@ describe('loading the client', () => {
     const loaded = await import('./index.ts');
 
     expect(typeof loaded.connect).toBe('function');
-    expect(typeof loaded.sse).toBe('function');
+    expect(typeof loaded.http).toBe('function');
   });
 });

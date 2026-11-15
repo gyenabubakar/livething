@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { sse, websocket } from '@livething/server/adapters';
+import { http, websocket } from '@livething/server/adapters';
 import WebSocket from 'ws';
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { RawData } from 'ws';
@@ -70,17 +70,17 @@ export function captureBridges(socket: typeof Socket): typeof Socket {
 }
 
 /**
- * The transport the adapter specs run their raw clients over. The `sse` vitest project
- * sets `LIVETHING_TEST_TRANSPORT=sse`, so the same specs run once over each transport.
+ * The transport the adapter specs run their raw clients over. The `http` vitest project
+ * sets `LIVETHING_TEST_TRANSPORT=http`, so the same specs run once over each transport.
  */
-type RawTransport = 'websocket' | 'sse';
+type RawTransport = 'websocket' | 'http';
 
 export const rawTransport: RawTransport =
-  process.env.LIVETHING_TEST_TRANSPORT === 'sse' ? 'sse' : 'websocket';
+  process.env.LIVETHING_TEST_TRANSPORT === 'http' ? 'http' : 'websocket';
 
 /** The endpoint options that serve {@link rawTransport}. Spread them into `bind()`. */
 export const rawTransportOptions: Pick<NodeServerEndpointOptions, 'transports'> =
-  rawTransport === 'sse' ? { transports: [websocket(), sse()] } : {};
+  rawTransport === 'http' ? { transports: [websocket(), http()] } : {};
 
 interface HandlingEndpoint {
   handle(request: IncomingMessage, response: ServerResponse): void;
@@ -89,7 +89,7 @@ interface HandlingEndpoint {
 /** The HTTP listener for a spec's server: the endpoint's `handle` over SSE, else 404. */
 export function rawRequestListener(endpoint: HandlingEndpoint): RequestListener {
   return (request, response) => {
-    if (rawTransport === 'sse') {
+    if (rawTransport === 'http') {
       endpoint.handle(request, response);
       return;
     }
@@ -113,17 +113,18 @@ export function openRawClient(url: string, options: RawClientOptions = {}): WebS
     return new WebSocket(url.replace(/^http/, 'ws'), { headers: options.headers });
   }
 
-  return new SseRawClient(url.replace(/^ws/, 'http'), options) as unknown as WebSocket;
+  return new HttpRawClient(url.replace(/^ws/, 'http'), options) as unknown as WebSocket;
 }
 
 const TEXT_FRAME = 0;
 const BINARY_FRAME = 1;
 
-class SseRawClient extends EventEmitter {
+class HttpRawClient extends EventEmitter {
   readyState: number = WebSocket.CONNECTING;
   private secret = '';
   private readonly stream = new AbortController();
   private dataLane: Promise<void> = Promise.resolve();
+  private dataSeq = 0;
 
   constructor(
     private readonly url: string,
@@ -242,12 +243,15 @@ class SseRawClient extends EventEmitter {
     new DataView(body.buffer).setUint32(1, bytes.byteLength);
     body.set(bytes, 5);
 
+    // Data POSTs go one at a time, so each is the next frame in the sequence.
+    const seq = lane === 'data' ? { 'LiveThing-Seq': String(++this.dataSeq) } : {};
     const response = await fetch(this.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/octet-stream',
         'LiveThing-Secret': this.secret,
         'LiveThing-Lane': lane,
+        ...seq,
       },
       body,
     });

@@ -1,5 +1,5 @@
 /** The name of a transport, as `socket.transport` reports it: a built-in one, or a custom one. */
-export type TransportName = 'websocket' | 'sse' | (string & {});
+export type TransportName = 'websocket' | 'http' | (string & {});
 
 /** How a transport reports what happens on its connection. */
 export interface TransportEvents {

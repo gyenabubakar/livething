@@ -5,15 +5,17 @@ import {
   isStreamRequest,
   preflightAnswer,
   PROTOCOL_HEADER,
+  SEQ_HEADER,
   SSE_HEADERS,
   sseCloseEvent,
+  UPLOAD_HEADER,
 } from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
 import type {
   AuthDecision,
   ConnectionHandle,
-  SseAnswer,
-  SseHub,
+  HttpAnswer,
+  HttpHub,
   SseStream,
 } from '@livething/server/adapters';
 
@@ -31,10 +33,10 @@ interface UnreadCaps {
 
 const DEFAULT_CAPS: UnreadCaps = { streamBytes: 48 * MiB, objectBytes: 64 * MiB };
 
-/** What the SSE handler needs from its Durable Object. */
-export interface CloudflareSseDeps {
+/** What the http handler needs from its Durable Object. */
+export interface CloudflareHttpDeps {
   /** `null` when the object does not offer server-sent events. */
-  hub: SseHub | null;
+  hub: HttpHub | null;
   originAllowed(request: Request): boolean;
   authenticate(request: Request): Promise<AuthDecision>;
   attach(socket: SseStream['socket'], decision: AuthDecision): ConnectionHandle;
@@ -42,20 +44,24 @@ export interface CloudflareSseDeps {
 }
 
 /** An open stream, as the object's caps see it. */
+interface UploadStop {
+  answer: HttpAnswer | null;
+}
+
 interface LiveStream {
   unread(): number;
   drop(): void;
 }
 
-interface StreamDeps extends CloudflareSseDeps {
-  hub: SseHub;
+interface StreamDeps extends CloudflareHttpDeps {
+  hub: HttpHub;
   caps: UnreadCaps;
   live: Set<LiveStream>;
 }
 
 /** Serves the stream `GET`, its `POST`s and the CORS preflight of one Durable Object. */
-export function createCloudflareSseHandler(
-  deps: CloudflareSseDeps,
+export function createCloudflareHttpHandler(
+  deps: CloudflareHttpDeps,
 ): (request: Request) => Promise<Response> {
   const caps = deps.caps ?? DEFAULT_CAPS;
   const live = new Set<LiveStream>();
@@ -82,7 +88,10 @@ export function createCloudflareSseHandler(
 
     if (request.method === 'GET') return openStream({ ...deps, hub, caps, live }, request, cors);
 
-    if (request.method === 'POST') return toResponse(await post(hub, request), cors);
+    if (request.method === 'POST') {
+      const uploading = request.headers.get(UPLOAD_HEADER) === 'stream';
+      return toResponse(await (uploading ? upload(hub, request) : post(hub, request)), cors);
+    }
 
     return toResponse(
       { ...errorAnswer(405, 'method'), headers: { [ERROR_HEADER]: 'method', Allow: 'GET, POST' } },
@@ -233,13 +242,14 @@ async function openStream(
   return new Response(body, { headers });
 }
 
-async function post(hub: SseHub, request: Request): Promise<SseAnswer> {
+async function post(hub: HttpHub, request: Request): Promise<HttpAnswer> {
   const length = Number(request.headers.get('Content-Length') ?? 0);
   if (length > hub.maxPostBytes) return errorAnswer(413, 'too-large');
 
   const started = hub.beginPost(
     request.headers.get('LiveThing-Secret'),
     request.headers.get('LiveThing-Lane'),
+    request.headers.get(SEQ_HEADER),
   );
   if (!('finish' in started)) return started;
 
@@ -255,6 +265,42 @@ async function post(hub: SseHub, request: Request): Promise<SseAnswer> {
   }
 
   return started.finish(body);
+}
+
+/**
+ * The one long POST: each chunk goes to the hub as it arrives, and the next `read()` waits
+ * while the hub has no room. Whether the edge passes the body on as it streams, and not
+ * whole, only the client's probe can tell.
+ */
+async function upload(hub: HttpHub, request: Request): Promise<HttpAnswer> {
+  const started = hub.beginUpload(request.headers.get('LiveThing-Secret'));
+  if (!('push' in started)) return started;
+
+  if (!request.body) return started.finish();
+
+  const reader = request.body.getReader();
+  const stop: UploadStop = { answer: null };
+  void started.stopped.then((answer) => {
+    stop.answer = answer;
+    void reader.cancel().catch(() => {});
+  });
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (stop.answer) return stop.answer;
+
+      if (done) return started.finish();
+
+      const wait = started.push(value);
+      if (wait) await wait;
+    }
+  } catch {
+    if (stop.answer) return stop.answer;
+
+    started.cancel();
+    return errorAnswer(400, 'aborted');
+  }
 }
 
 /** The body, `null` when it is over the limit, or `undefined` when it did not arrive whole. */
@@ -291,7 +337,7 @@ async function readBody(request: Request, limit: number): Promise<Uint8Array | n
   return body;
 }
 
-function toResponse(answer: SseAnswer, extra: Record<string, string> = {}): Response {
+function toResponse(answer: HttpAnswer, extra: Record<string, string> = {}): Response {
   return new Response(answer.body, {
     status: answer.status,
     headers: { ...answer.headers, ...extra },

@@ -1,5 +1,5 @@
 import { server } from '@livething/server';
-import { sse, websocket } from '@livething/server/adapters';
+import { http, websocket } from '@livething/server/adapters';
 import { keepalive } from '@livething/server/keepalive';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as ServerAdapters from '@livething/server/adapters';
@@ -110,7 +110,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
   });
 
   it('returns 426 to an upgrade when websocket() is not listed', async () => {
-    const Cls = buildClass({ transports: [sse()] });
+    const Cls = buildClass({ transports: [http()] });
     const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
 
     const res = await instance.fetch(upgradeRequest());
@@ -122,7 +122,7 @@ describe('LiveThingDurableObject fetch / upgrade', () => {
 
   describe('a server-sent events stream', () => {
     async function openStream() {
-      const Cls = buildClass({ transports: [websocket(), sse()] });
+      const Cls = buildClass({ transports: [websocket(), http()] });
       const state = makeFakeDOState();
       const instance = new Cls(state as unknown as DurableObjectState, {});
       const res = await instance.fetch(

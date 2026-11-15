@@ -5,10 +5,17 @@ import {
   isStreamRequest,
   preflightAnswer,
   PROTOCOL_HEADER,
+  SEQ_HEADER,
   SSE_HEADERS,
   sseCloseEvent,
+  UPLOAD_HEADER,
 } from '@livething/server/adapters';
-import type { AuthDecision, ConnectionHandle, SseAnswer, SseHub } from '@livething/server/adapters';
+import type {
+  AuthDecision,
+  ConnectionHandle,
+  HttpAnswer,
+  HttpHub,
+} from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Http2ServerRequest } from 'node:http2';
 import { isSocketRejection, upgradeRejection } from './upgrade.ts';
@@ -35,10 +42,10 @@ export interface NodeHttpResponse {
   readonly writableLength?: number;
 }
 
-/** What the SSE handler needs from its endpoint. */
-export interface NodeSseDeps {
+/** What the http handler needs from its endpoint. */
+export interface NodeHttpDeps {
   /** `null` when the endpoint does not offer server-sent events. */
-  hub: SseHub | null;
+  hub: HttpHub | null;
   originAllowed(request: NodeHttpRequest): boolean;
   authenticate(request: NodeHttpRequest, signal: AbortSignal): Promise<AuthDecision>;
   attach(transport: ConnectionTransport, decision: AuthDecision): ConnectionHandle;
@@ -47,8 +54,8 @@ export interface NodeSseDeps {
 }
 
 /** Serves the stream `GET`, its `POST`s and the CORS preflight of one endpoint. */
-export function createNodeSseHandler(
-  deps: NodeSseDeps,
+export function createNodeHttpHandler(
+  deps: NodeHttpDeps,
 ): (request: NodeHttpRequest, response: NodeHttpResponse) => Promise<void> {
   return async (request, response) => {
     const { hub } = deps;
@@ -79,7 +86,8 @@ export function createNodeSseHandler(
     }
 
     if (request.method === 'POST') {
-      writeAnswer(response, await post(hub, request), cors);
+      const uploading = header(request, UPLOAD_HEADER.toLowerCase()) === 'stream';
+      writeAnswer(response, await (uploading ? upload(hub, request) : post(hub, request)), cors);
       return;
     }
 
@@ -92,13 +100,13 @@ export function createNodeSseHandler(
 }
 
 interface StreamRequest {
-  hub: SseHub;
+  hub: HttpHub;
   request: NodeHttpRequest;
   response: NodeHttpResponse;
   cors: Record<string, string>;
 }
 
-async function openStream(deps: NodeSseDeps, stream: StreamRequest): Promise<void> {
+async function openStream(deps: NodeHttpDeps, stream: StreamRequest): Promise<void> {
   const { hub, request, response, cors } = stream;
   const abort = new AbortController();
   function stop(): void {
@@ -159,13 +167,14 @@ async function openStream(deps: NodeSseDeps, stream: StreamRequest): Promise<voi
   }
 }
 
-async function post(hub: SseHub, request: NodeHttpRequest): Promise<SseAnswer> {
+async function post(hub: HttpHub, request: NodeHttpRequest): Promise<HttpAnswer> {
   const length = Number(header(request, 'content-length') ?? 0);
   if (length > hub.maxPostBytes) return errorAnswer(413, 'too-large');
 
   const started = hub.beginPost(
     header(request, 'livething-secret'),
     header(request, 'livething-lane'),
+    header(request, SEQ_HEADER.toLowerCase()),
   );
   if (!('finish' in started)) return started;
 
@@ -181,6 +190,55 @@ async function post(hub: SseHub, request: NodeHttpRequest): Promise<SseAnswer> {
   }
 
   return started.finish(body);
+}
+
+/**
+ * The one long POST: each chunk goes to the hub as it arrives. While the hub has no room, the
+ * request is paused, so the client's writes slow down through TCP or HTTP/2 flow control.
+ */
+function upload(hub: HttpHub, request: NodeHttpRequest): Promise<HttpAnswer> {
+  const started = hub.beginUpload(header(request, 'livething-secret'));
+  if (!('push' in started)) return Promise.resolve(started);
+
+  const uploading = started;
+  return new Promise((resolve) => {
+    let done = false;
+    function settle(answer: HttpAnswer): void {
+      if (done) return;
+
+      done = true;
+      request.off('data', onData);
+      resolve(answer);
+    }
+
+    function onData(chunk: Buffer): void {
+      const wait = uploading.push(chunk);
+      if (!wait) return;
+
+      request.pause();
+      void wait.then(() => {
+        if (!done) request.resume();
+      });
+    }
+
+    function broke(): void {
+      if (done) return;
+
+      uploading.cancel();
+      settle(errorAnswer(400, 'aborted'));
+    }
+
+    request.on('data', onData);
+    request.once('end', () => settle(uploading.finish()));
+    request.once('error', broke);
+    request.once('close', broke);
+    // An HTTP/2 stream reset ends a compatibility request with `aborted`, not always `close`.
+    request.once('aborted', broke);
+    void uploading.stopped.then((answer) => {
+      request.pause();
+      settle(answer);
+    });
+  });
 }
 
 /** The body, `null` when it is over the limit, or `undefined` when it did not arrive whole. */
@@ -213,7 +271,7 @@ function header(request: NodeHttpRequest, name: string): string | null {
 
 function writeAnswer(
   response: NodeHttpResponse,
-  answer: SseAnswer,
+  answer: HttpAnswer,
   extra: Record<string, string> = {},
 ): void {
   if (response.headersSent) {

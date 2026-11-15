@@ -192,8 +192,8 @@ const CLIENT_ENGINES = {
   clientRequests: { marker: 'clientRequests timeout', label: 'clientRequests() primitive' },
   serverRequests: { marker: 'replaced an existing handler', label: 'serverRequests() primitive' },
   stream: { marker: 'stream maxBytes must be', label: 'stream() primitive' },
-  // A transport is a function, so an app that does not list sse() does not ship it.
-  sse: { marker: 'stream ended without a close', label: 'sse() transport' },
+  // A transport is a function, so an app that does not list http() does not ship it.
+  http: { marker: 'stream ended without a close', label: 'http() transport' },
 };
 
 function clientScenarios(f) {
@@ -202,12 +202,19 @@ function clientScenarios(f) {
       name: 'index (full socket)',
       source: importStar(f('index.js')),
       owns: 'socket',
-      alsoPulls: ['binary', 'binaryExchanges', 'clientRequests', 'serverRequests', 'stream', 'sse'],
+      alsoPulls: [
+        'binary',
+        'binaryExchanges',
+        'clientRequests',
+        'serverRequests',
+        'stream',
+        'http',
+      ],
     },
     {
-      name: 'sse',
-      source: importNamed(f('index.js'), 'client', 'connect', 'sse'),
-      owns: 'sse',
+      name: 'http',
+      source: importNamed(f('index.js'), 'client', 'connect', 'http'),
+      owns: 'http',
       alsoPulls: [],
     },
     {

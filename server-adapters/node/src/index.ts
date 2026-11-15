@@ -1,6 +1,6 @@
-export { sse, websocket } from '@livething/server/adapters';
-export type { ServerTransport, SseOptions } from '@livething/server/adapters';
-export type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
+export { http, websocket } from '@livething/server/adapters';
+export type { HttpOptions, ServerTransport } from '@livething/server/adapters';
+export type { NodeHttpRequest, NodeHttpResponse } from './http.ts';
 export type { Platform } from './platform.ts';
 export { setup } from './setup.ts';
 export type { NodeEndpointBinding, NodeServerEndpointOptions, NodeSetup } from './setup.ts';

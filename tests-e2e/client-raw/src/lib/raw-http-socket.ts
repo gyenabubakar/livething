@@ -1,5 +1,5 @@
-// A raw client for the SSE run of this lane. It has the shape of the browser's WebSocket,
-// so the same specs talk to the server over SSE: the frames go down a real event stream
+// A raw client for the http run of this lane. It has the shape of the browser's WebSocket,
+// so the same specs talk to the server over http: the frames go down a real event stream
 // and up as real POSTs, and the specs see exactly what the server sent, `__connected__`,
 // `ping` and `__close__` included, as they do over WebSocket.
 
@@ -33,7 +33,7 @@ function decodeBase64(text: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
 }
 
-export class RawSseSocket extends EventTarget {
+export class RawHttpSocket extends EventTarget {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSING = 2;
@@ -46,7 +46,7 @@ export class RawSseSocket extends EventTarget {
   readonly url: string;
   readonly protocol = '';
   readonly extensions = '';
-  readyState = RawSseSocket.CONNECTING;
+  readyState = RawHttpSocket.CONNECTING;
   binaryType: BinaryType = 'blob';
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -62,6 +62,8 @@ export class RawSseSocket extends EventTarget {
     data: { queue: [] as Queued[], busy: false },
     control: { queue: [] as Queued[], busy: false },
   };
+  /** The sequence number of the last data frame the server took. */
+  private dataSeq = 0;
 
   constructor(url: string | URL) {
     super();
@@ -78,11 +80,11 @@ export class RawSseSocket extends EventTarget {
   }
 
   send(data: Data): void {
-    if (this.readyState === RawSseSocket.CONNECTING) {
+    if (this.readyState === RawHttpSocket.CONNECTING) {
       throw new DOMException("Failed to execute 'send' on 'WebSocket': Still in CONNECTING state.");
     }
 
-    if (this.readyState !== RawSseSocket.OPEN) return;
+    if (this.readyState !== RawHttpSocket.OPEN) return;
 
     if (typeof data === 'string') {
       // `ping` and `pong` go on the control lane, as the client library sends them.
@@ -95,14 +97,14 @@ export class RawSseSocket extends EventTarget {
   }
 
   close(code = 1000, reason = ''): void {
-    if (this.readyState >= RawSseSocket.CLOSING) return;
+    if (this.readyState >= RawHttpSocket.CLOSING) return;
 
-    if (this.readyState === RawSseSocket.CONNECTING) {
+    if (this.readyState === RawHttpSocket.CONNECTING) {
       this.finish(1006, '', false);
       return;
     }
 
-    this.readyState = RawSseSocket.CLOSING;
+    this.readyState = RawHttpSocket.CLOSING;
     this.closing = { code, reason };
     this.enqueue('control', {
       type: TEXT_FRAME,
@@ -131,26 +133,35 @@ export class RawSseSocket extends EventTarget {
     if (lane.busy || this.secret === null || lane.queue.length === 0) return;
 
     lane.busy = true;
+    let limit = MAX_BATCH_FRAMES;
     try {
-      while (lane.queue.length > 0 && this.readyState !== RawSseSocket.CLOSED) {
-        const batch = lane.queue.slice(0, MAX_BATCH_FRAMES);
+      while (lane.queue.length > 0 && this.readyState !== RawHttpSocket.CLOSED) {
+        const batch = lane.queue.slice(0, limit);
         const response = await fetch(this.httpUrl, {
           method: 'POST',
-          headers: { 'LiveThing-Secret': this.secret, 'LiveThing-Lane': name },
+          headers: {
+            'LiveThing-Secret': this.secret,
+            'LiveThing-Lane': name,
+            // Each data frame has a number from 1, so the server can drop one it already has.
+            ...(name === 'data' ? { 'LiveThing-Seq': String(this.dataSeq + 1) } : {}),
+          },
           body: encodeBatch(batch),
         });
         if (response.status === 503) {
+          // The server took none of the batch: send only what fits next time.
           const { room, retryAfterMs } = (await response.json()) as {
             room: number;
             retryAfterMs: number;
           };
-          if (room > 0) lane.queue.splice(0, room);
+          limit = Math.max(1, room);
           await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
           continue;
         }
 
         await response.arrayBuffer();
         lane.queue.splice(0, batch.length);
+        if (name === 'data') this.dataSeq += batch.length;
+        limit = MAX_BATCH_FRAMES;
         if (!response.ok) {
           this.fail();
           return;
@@ -180,7 +191,7 @@ export class RawSseSocket extends EventTarget {
       return;
     }
 
-    this.readyState = RawSseSocket.OPEN;
+    this.readyState = RawHttpSocket.OPEN;
     this.fire(new Event('open'), this.onopen);
     const decoder = new TextDecoder();
     let buffer = '';
@@ -202,7 +213,7 @@ export class RawSseSocket extends EventTarget {
   }
 
   private handleEvent(block: string): void {
-    if (this.readyState === RawSseSocket.CLOSED) return;
+    if (this.readyState === RawHttpSocket.CLOSED) return;
 
     const text = block
       .split('\n')
@@ -234,16 +245,16 @@ export class RawSseSocket extends EventTarget {
   }
 
   private fail(): void {
-    if (this.readyState === RawSseSocket.CLOSED) return;
+    if (this.readyState === RawHttpSocket.CLOSED) return;
 
     this.fire(new Event('error'), this.onerror);
     this.finish(1006, '', false);
   }
 
   private finish(code: number, reason: string, wasClean: boolean): void {
-    if (this.readyState === RawSseSocket.CLOSED) return;
+    if (this.readyState === RawHttpSocket.CLOSED) return;
 
-    this.readyState = RawSseSocket.CLOSED;
+    this.readyState = RawHttpSocket.CLOSED;
     this.stream.abort();
     this.lanes.data.queue.length = 0;
     this.lanes.control.queue.length = 0;

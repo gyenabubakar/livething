@@ -1,12 +1,17 @@
 import { createServer } from 'node:http';
-import { client, sse as clientSse, websocket as clientWebsocket, connect } from '@livething/client';
+import {
+  client,
+  http as clientHttp,
+  websocket as clientWebsocket,
+  connect,
+} from '@livething/client';
 import { emits, server, t } from '@livething/server';
 import { keepalive } from '@livething/server/keepalive';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InferClient } from '@livething/server';
 import type { ServerTransport } from '@livething/server/adapters';
 import { binding } from './binding.ts';
-import { sse, websocket } from './index.ts';
+import { http, websocket } from './index.ts';
 import { longPollingClient, longPollingServer } from './long-polling.fixture.ts';
 import { setup } from './setup.ts';
 import type { NodeServerEndpointOptions } from './setup.ts';
@@ -228,13 +233,13 @@ describe('a custom transport built on the public API', () => {
       },
     };
 
-    const withSse = await start({ transports: [audit, sse()] });
-    const withoutSse = await start({ transports: [audit, websocket()] });
+    const withHttp = await start({ transports: [audit, http()] });
+    const withoutHttp = await start({ transports: [audit, websocket()] });
 
-    const stream = await fetch(withSse.url, {
+    const stream = await fetch(withHttp.url, {
       headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
     });
-    const plain = await fetch(withoutSse.url);
+    const plain = await fetch(withoutHttp.url);
 
     expect(stream.status).toBe(200);
     expect(stream.headers.get('content-type')).toBe('text/event-stream');
@@ -245,8 +250,8 @@ describe('a custom transport built on the public API', () => {
 
   it('leaves the body unread for server-sent events when it returns null', async () => {
     const audit: ServerTransport = { name: 'audit', handle: async () => null };
-    const huddle = await start({ transports: [audit, sse()] });
-    const { socket, received } = open(huddle.url, [clientSse()]);
+    const huddle = await start({ transports: [audit, http()] });
+    const { socket, received } = open(huddle.url, [clientHttp()]);
     await vi.waitFor(() => expect(socket.state.get()).toBe('open'));
 
     socket.send('sendMessage', { text: 'hello' });

@@ -2,8 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   adapter,
   asUint8Array,
+  createHttpHub,
   createOriginCheck,
-  createSseHub,
   errorAnswer,
   isValidCloseCode,
   normalizeCloseReason,
@@ -23,9 +23,9 @@ import type {
   TransportFrame,
 } from '@livething/server/adapters';
 import { buildAdmin } from './admin.ts';
+import { createCloudflareHttpHandler } from './http.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
-import { createCloudflareSseHandler } from './sse.ts';
 import type { CloudflareAdmin } from './admin.ts';
 
 /** `WebSocket.READY_STATE_OPEN` on Workers. */
@@ -120,12 +120,12 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
   ) {
     const originAllowed = createOriginCheck(options.allowedOrigins);
     const transports = resolveTransports(options.transports, definition);
-    const maxPostBytes = transports.sse?.maxPostBytes;
+    const maxPostBytes = transports.http?.maxPostBytes;
 
     return class LiveThingDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine<TApi>;
       private readonly ready: Promise<void>;
-      private readonly handleSse: (request: Request) => Promise<Response>;
+      private readonly handleHttp: (request: Request) => Promise<Response>;
 
       constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
@@ -154,11 +154,11 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
             ...(maxPostBytes === undefined ? {} : { postBytes: maxPostBytes }),
           },
         });
-        this.handleSse = createCloudflareSseHandler({
+        this.handleHttp = createCloudflareHttpHandler({
           hub:
             maxPostBytes === undefined
               ? null
-              : createSseHub({ maxPostBytes, receiveBytes: CLOUDFLARE_MESSAGE_BYTES }),
+              : createHttpHub({ maxPostBytes, receiveBytes: CLOUDFLARE_MESSAGE_BYTES }),
           originAllowed,
           authenticate: (request) => this.engine.authenticate(requestWithClientIp(request)),
           attach: (socket, decision) =>
@@ -299,7 +299,7 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
         await this.ready;
 
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-          return (await this.handleCustom(request)) ?? this.handleSse(request);
+          return (await this.handleCustom(request)) ?? this.handleHttp(request);
         }
 
         if (!transports.websocket) {

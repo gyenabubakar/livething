@@ -164,7 +164,7 @@ export function upload(event: string, config: UploadBuildConfig): UploadPrimitiv
       // Over server-sent events a piece goes up in a POST, with the 5-byte batch header too.
       if (postBytes !== undefined && options.pieceBytes + 4 * KiB + 5 > postBytes) {
         throw new LiveThingConfigError(
-          `${method}: 'pieceBytes' (${options.pieceBytes}) does not fit sse() maxPostBytes (${postBytes} bytes) with room for the frame's header. Lower 'pieceBytes' or raise maxPostBytes.`,
+          `${method}: 'pieceBytes' (${options.pieceBytes}) does not fit http() maxPostBytes (${postBytes} bytes) with room for the frame's header. Lower 'pieceBytes' or raise maxPostBytes.`,
         );
       }
 

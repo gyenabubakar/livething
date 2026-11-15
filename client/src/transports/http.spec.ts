@@ -6,7 +6,7 @@ import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
-import { sse } from '~/transports/sse.ts';
+import { http } from '~/transports/http.ts';
 import { websocket } from '~/transports/websocket.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectOptions } from '~/connect.ts';
@@ -142,7 +142,7 @@ afterEach(() => {
 
 function open(options: ConnectOptions = {}, ...primitives: Primitive[]) {
   const socket = client<HuddleContract>()(
-    connect('wss://huddle.test/huddle?room=design', { transports: [sse()], ...options }),
+    connect('wss://huddle.test/huddle?room=design', { transports: [http()], ...options }),
     ...(primitives as []),
   );
   const closes: { code: number; reason: string }[] = [];
@@ -168,7 +168,7 @@ function sendMessage(text: string): string {
   return JSON.stringify(['sendMessage', { text }, null]);
 }
 
-describe('sse(): the stream', () => {
+describe('http(): the stream', () => {
   it('asks for an event stream at the http URL, with the token as a bearer token', async () => {
     open({ token: () => 'kofi-token' });
 
@@ -200,7 +200,7 @@ describe('sse(): the stream', () => {
 
   it('rejects a queued request over maxPostBytes and still sends the ones after it', async () => {
     const socket = client<HuddleContract>()(
-      connect('wss://huddle.test/huddle?room=design', { transports: [sse()] }),
+      connect('wss://huddle.test/huddle?room=design', { transports: [http()] }),
       clientRequests(),
     );
     const errors: unknown[] = [];
@@ -218,10 +218,10 @@ describe('sse(): the stream', () => {
     expect(errors).toHaveLength(1);
   });
 
-  it('opens on the __connected__ frame, and reports the transport as sse', async () => {
+  it('opens on the __connected__ frame, and reports the transport as http', async () => {
     const { socket } = await opened();
 
-    expect(socket.transport.get()).toBe('sse');
+    expect(socket.transport.get()).toBe('http');
     expect(socket.ws).toBeNull();
   });
 
@@ -287,7 +287,7 @@ describe('sse(): the stream', () => {
       const { errors } = open();
 
       await vi.waitFor(() => expect(errors).toHaveLength(1));
-      expect(String(errors[0])).toMatch(/sse\(\) needs TextEncoder and TextDecoder/);
+      expect(String(errors[0])).toMatch(/http\(\) needs TextEncoder and TextDecoder/);
       expect(server.streams).toHaveLength(0);
     },
   );
@@ -329,7 +329,7 @@ describe('sse(): the stream', () => {
   );
 });
 
-describe('sse(): sending', () => {
+describe('http(): sending', () => {
   it('POSTs a frame on the data lane, with the secret', async () => {
     const { socket } = await opened();
 
@@ -445,7 +445,7 @@ describe('sse(): sending', () => {
   });
 });
 
-describe('sse(): closing', () => {
+describe('http(): closing', () => {
   it('lets the data POST in flight land, then sends __close__ on the control lane, then stops the stream', async () => {
     server.autoAnswer = false;
     const { socket } = await opened();
@@ -484,7 +484,7 @@ describe('sse(): closing', () => {
   function openTransport() {
     const closes: [number, string, boolean][] = [];
     const errors: unknown[] = [];
-    const transport = sse().open({
+    const transport = http().open({
       url: 'wss://huddle.test/huddle',
       protocols: undefined,
       token: null,
@@ -548,7 +548,7 @@ describe('sse(): closing', () => {
   });
 });
 
-describe('sse(): a POST that fails before any POST worked', () => {
+describe('http(): a POST that fails before any POST worked', () => {
   let restoreWebSocket: () => void;
   beforeEach(() => {
     restoreWebSocket = installMockWebSocket();
@@ -560,7 +560,7 @@ describe('sse(): a POST that fails before any POST worked', () => {
   async function firstPostAnswered(status: number) {
     server.autoAnswer = false;
     const { socket } = await opened(
-      { transports: [sse(), websocket()] },
+      { transports: [http(), websocket()] },
       reconnection({ maxDelay: 1 }),
     );
     socket.send('sendMessage', { text: 'hi' });
@@ -569,14 +569,14 @@ describe('sse(): a POST that fails before any POST worked', () => {
     server.posts[0]!.answer(status);
   }
 
-  it('skips sse on the next open, so the WebSocket is tried', async () => {
+  it('skips http on the next open, so the WebSocket is tried', async () => {
     await firstPostAnswered(500);
 
     await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
     expect(server.streams).toHaveLength(1);
   });
 
-  it('keeps sse after a 404, which only means the server forgot the connection', async () => {
+  it('keeps http after a 404, which only means the server forgot the connection', async () => {
     await firstPostAnswered(404);
 
     await vi.waitFor(() => expect(server.streams).toHaveLength(2));
@@ -584,7 +584,7 @@ describe('sse(): a POST that fails before any POST worked', () => {
   });
 });
 
-describe('sse() and keepalive()', () => {
+describe('http() and keepalive()', () => {
   it('closes a stream that hangs after its first frame, and opens a new one', async () => {
     vi.useFakeTimers();
     const { socket, closes } = open({}, keepalive(), reconnection({ maxDelay: 1 }));
@@ -600,7 +600,7 @@ describe('sse() and keepalive()', () => {
   });
 });
 
-describe('sse() and reconnection()', () => {
+describe('http() and reconnection()', () => {
   it('resets the attempt count only after 30 s open with one POST accepted', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const { socket } = open({}, reconnection() as Primitive);

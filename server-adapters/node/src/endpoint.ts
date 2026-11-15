@@ -1,7 +1,7 @@
 import {
   adapter,
+  createHttpHub,
   createOriginCheck,
-  createSseHub,
   ERROR_HEADER,
   resolveTransports,
 } from '@livething/server/adapters';
@@ -20,14 +20,14 @@ import type { PerMessageDeflateOptions } from 'ws';
 import { createAsyncContext } from './async-context.ts';
 import { createClientIpResolver } from './client-ip.ts';
 import { createNodeCustomTransportHandler } from './custom-transports.ts';
+import { createNodeHttpHandler } from './http.ts';
 import { requestToWebRequest } from './request.ts';
 import { createRuntime } from './runtime.ts';
 import { createConnectionBridge } from './socket.ts';
-import { createNodeSseHandler } from './sse.ts';
 import type { NodeClientIpConfig } from './client-ip.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './http.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
 import type { ConnectionTransport } from './socket.ts';
-import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
 
 /** The default `maxMessageBytes`: 32 MiB, Cloudflare's limit, so an app behaves the same on both. */
 const DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
@@ -148,7 +148,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     const resolveClientIp = createClientIpResolver(options.clientIp);
     const originAllowed = createOriginCheck(options.allowedOrigins);
     const transports = resolveTransports(options.transports, definition);
-    const maxPostBytes = transports.sse?.maxPostBytes;
+    const maxPostBytes = transports.http?.maxPostBytes;
 
     const runtime = createRuntime({
       sql: options.sql,
@@ -174,7 +174,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     const hub =
       maxPostBytes === undefined
         ? null
-        : createSseHub({ maxPostBytes, receiveBytes: maxMessageBytes });
+        : createHttpHub({ maxPostBytes, receiveBytes: maxMessageBytes });
 
     function nodeRequest(request: NodeHttpRequest, signal?: AbortSignal): Request {
       // An HTTP/2 compatibility request has the same `socket` and `headers` fields.
@@ -215,7 +215,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         logger.error('[livething] a custom transport threw in handle()', { error }),
     });
 
-    const handleSse = createNodeSseHandler({
+    const handleHttp = createNodeHttpHandler({
       hub,
       originAllowed(request) {
         try {
@@ -292,7 +292,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 
         if (transports.custom.length > 0 && (await handleCustom(request, response))) return;
 
-        await handleSse(request, response);
+        await handleHttp(request, response);
       },
 
       attachTransport(token, transport, decision) {

@@ -4,7 +4,7 @@ import type { ServerDefinition } from '~/server-definition.ts';
 import type { AuthDecision, ConnectionHandle, SocketDescriptor, TransportFrame } from './types.ts';
 
 /** The name of a transport a server endpoint offers: a built-in one, or a custom one. */
-export type ServerTransportName = 'websocket' | 'sse' | (string & {});
+export type ServerTransportName = 'websocket' | 'http' | (string & {});
 
 /** A connection a custom transport hands to the engine with `endpoint.accept()`. */
 export interface TransportConnection extends Omit<
@@ -60,7 +60,7 @@ export interface CustomServerTransport extends ServerTransport {
 }
 
 /** Options of the server-sent events transport. */
-export interface SseOptions {
+export interface HttpOptions {
   /**
    * The largest POST body a client may send, in bytes. A client sends a bigger message
    * over uploads. At most half of `maxMessageBytes`. Default: 512 KiB.
@@ -68,8 +68,8 @@ export interface SseOptions {
   maxPostBytes?: number;
 }
 
-interface SseTransport extends ServerTransport {
-  readonly name: 'sse';
+interface HttpTransport extends ServerTransport {
+  readonly name: 'http';
   readonly maxPostBytes: number;
 }
 
@@ -77,12 +77,12 @@ interface SseTransport extends ServerTransport {
 export interface ResolvedTransports {
   readonly websocket: boolean;
   /** The server-sent events settings, or `null` when the endpoint does not offer it. */
-  readonly sse: { readonly maxPostBytes: number } | null;
+  readonly http: { readonly maxPostBytes: number } | null;
   /** The custom transports, in list order. Each gets a request before server-sent events do. */
   readonly custom: readonly CustomServerTransport[];
 }
 
-const BUILT_IN_NAMES: ReadonlySet<string> = new Set(['websocket', 'sse']);
+const BUILT_IN_NAMES: ReadonlySet<string> = new Set(['websocket', 'http']);
 
 /** The default `maxPostBytes`: under nginx's 1 MB body limit, above the 256 KiB upload piece. */
 const DEFAULT_MAX_POST_BYTES = 512 * 1024;
@@ -97,15 +97,15 @@ export function websocket(): ServerTransport {
  * that works over plain HTTP. List it alone, or after `websocket()` so a client on a network
  * that blocks WebSocket moves to it. It needs `keepalive()` in the server definition.
  */
-export function sse(options: SseOptions = {}): ServerTransport {
+export function http(options: HttpOptions = {}): ServerTransport {
   const maxPostBytes = options.maxPostBytes ?? DEFAULT_MAX_POST_BYTES;
   if (!Number.isSafeInteger(maxPostBytes) || maxPostBytes < 1) {
     throw new LiveThingConfigError(
-      `sse() maxPostBytes must be a whole number of bytes from 1, got ${String(maxPostBytes)}.`,
+      `http() maxPostBytes must be a whole number of bytes from 1, got ${String(maxPostBytes)}.`,
     );
   }
 
-  const transport: SseTransport = { name: 'sse', maxPostBytes };
+  const transport: HttpTransport = { name: 'http', maxPostBytes };
   return transport;
 }
 
@@ -128,7 +128,7 @@ export function resolveTransports(
   transports: readonly ServerTransport[] | undefined,
   definition: ServerDefinition,
 ): ResolvedTransports {
-  if (transports === undefined) return { websocket: true, sse: null, custom: [] };
+  if (transports === undefined) return { websocket: true, http: null, custom: [] };
 
   const names = transports.map((transport) => (transport as ServerTransport | null)?.name);
   if (names.length === 0) {
@@ -145,13 +145,13 @@ export function resolveTransports(
     );
   }
 
-  const sseTransport = transports.find((transport): transport is SseTransport => {
-    return transport.name === 'sse';
+  const httpTransport = transports.find((transport): transport is HttpTransport => {
+    return transport.name === 'http';
   });
   // A stream can go quiet behind a proxy that never closes it, and only pings find that out.
-  if (sseTransport && !hasCapability(definition, 'keepalive')) {
+  if (httpTransport && !hasCapability(definition, 'keepalive')) {
     throw new LiveThingConfigError(
-      'bind() transports lists sse(), which needs keepalive() in the server definition. Add keepalive() to server({ capabilities: [...] }).',
+      'bind() transports lists http(), which needs keepalive() in the server definition. Add keepalive() to server({ capabilities: [...] }).',
     );
   }
 
@@ -159,7 +159,7 @@ export function resolveTransports(
 
   return {
     websocket: names.includes('websocket'),
-    sse: sseTransport ? { maxPostBytes: sseTransport.maxPostBytes } : null,
+    http: httpTransport ? { maxPostBytes: httpTransport.maxPostBytes } : null,
     custom: transports.filter(isCustom),
   };
 }

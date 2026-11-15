@@ -1,7 +1,7 @@
-import { createSseHub } from '@livething/server/adapters';
+import { createHttpHub } from '@livething/server/adapters';
 import { describe, expect, it, vi } from 'vitest';
 import type { ConnectionHandle, SseStream } from '@livething/server/adapters';
-import { createCloudflareSseHandler } from './sse.ts';
+import { createCloudflareHttpHandler } from './http.ts';
 
 interface OpenedStream {
   socket: SseStream['socket'];
@@ -11,11 +11,11 @@ interface OpenedStream {
 
 const STREAM_HEADERS = { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' };
 
-/** An SSE handler of one object, with caps small enough for a test. */
+/** An http handler of one object, with caps small enough for a test. */
 function huddleObject(caps = { streamBytes: 1_000, objectBytes: 1_500 }) {
   let pending: Omit<OpenedStream, 'reader'> | null = null;
-  const handle = createCloudflareSseHandler({
-    hub: createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
+  const handle = createCloudflareHttpHandler({
+    hub: createHttpHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
     originAllowed: () => true,
     authenticate: async () => ({}),
     attach(socket) {
@@ -41,7 +41,7 @@ function frame(size: number) {
   return { kind: 'text', text: 'x'.repeat(size - 8) } as const;
 }
 
-describe('the unread-bytes caps of Cloudflare SSE', () => {
+describe('the unread-bytes caps of Cloudflare http', () => {
   it('drops a stream at once when its unread bytes would pass the stream cap', async () => {
     const huddle = huddleObject();
     const kofi = await huddle.open();
@@ -118,8 +118,8 @@ describe('a client that drops its stream', () => {
 
 describe('the stream request', () => {
   function huddleHandler(authenticate = vi.fn(async () => ({}))) {
-    return createCloudflareSseHandler({
-      hub: createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
+    return createCloudflareHttpHandler({
+      hub: createHttpHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
       originAllowed: () => true,
       authenticate,
       attach: () => ({ handleClose: vi.fn(async () => {}) }) as unknown as ConnectionHandle,
@@ -148,8 +148,8 @@ describe('the stream request', () => {
   });
 
   it('rejects when attach throws, so the request gets no stream', async () => {
-    const handle = createCloudflareSseHandler({
-      hub: createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
+    const handle = createCloudflareHttpHandler({
+      hub: createHttpHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
       originAllowed: () => true,
       authenticate: async () => ({}),
       attach() {

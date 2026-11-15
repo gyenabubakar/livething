@@ -1,4 +1,4 @@
-import type { NodeHttpResponse } from './sse.ts';
+import type { NodeHttpResponse } from './http.ts';
 
 const encoder = new TextEncoder();
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);

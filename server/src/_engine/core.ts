@@ -72,7 +72,7 @@ function resolveMessageLimits(
   // `receiveBytes`), so a POST must stay within a quarter of it.
   if (postBytes > receiveBytes / 2) {
     throw new LiveThingConfigError(
-      `sse() maxPostBytes (${postBytes}) is more than half of maxMessageBytes (${receiveBytes}). Lower maxPostBytes or raise maxMessageBytes.`,
+      `http() maxPostBytes (${postBytes}) is more than half of maxMessageBytes (${receiveBytes}). Lower maxPostBytes or raise maxMessageBytes.`,
     );
   }
 

@@ -1,12 +1,12 @@
 import { createServer } from 'node:http';
-import { createSseHub } from '@livething/server/adapters';
+import { createHttpHub } from '@livething/server/adapters';
 import { describe, expect, it } from 'vitest';
-import { createNodeSseHandler } from './sse.ts';
+import { createNodeHttpHandler } from './http.ts';
 
-describe('the Node SSE stream request', () => {
+describe('the Node http stream request', () => {
   it('rejects and ends the response when attach throws', async () => {
-    const handle = createNodeSseHandler({
-      hub: createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
+    const handle = createNodeHttpHandler({
+      hub: createHttpHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
       originAllowed: () => true,
       authenticate: async () => ({}),
       attach() {
@@ -35,8 +35,8 @@ describe('the Node SSE stream request', () => {
   // H3 v1 and other frameworks do not end open responses at shutdown, so the handler must.
   it('answers 503 when the endpoint shuts down during an authenticate that never ends', async () => {
     const shutdown = new AbortController();
-    const handle = createNodeSseHandler({
-      hub: createSseHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
+    const handle = createNodeHttpHandler({
+      hub: createHttpHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
       originAllowed: () => true,
       authenticate: () => new Promise(() => {}),
       attach() {

@@ -21,7 +21,7 @@ export interface HonoEndpoint<TAdmin = NodeAdmin> {
   /**
    * The route for custom transports and for the server-sent events stream, its POSTs and
    * their CORS preflight. Mount it on the same path as `upgrade`, for every method. When no
-   * custom transport takes a request and `sse()` is not listed, it answers 426.
+   * custom transport takes a request and `http()` is not listed, it answers 426.
    */
   handle: MiddlewareHandler;
   ready(): Promise<void>;

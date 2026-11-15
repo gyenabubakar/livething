@@ -5,9 +5,9 @@ import {
   client,
   binary as clientBinary,
   dedup as clientDedup,
+  http as clientHttp,
   reconnection as clientReconnection,
   replay as clientReplay,
-  sse as clientSse,
   websocket as clientWebsocket,
   connect,
 } from '@livething/client';
@@ -23,7 +23,7 @@ import type { InferClient } from '@livething/server';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type { IncomingMessage, Server, ServerOptions } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { sse, websocket } from './index.ts';
+import { http, websocket } from './index.ts';
 import { setup } from './setup.ts';
 import type { NodeServerEndpointOptions } from './setup.ts';
 
@@ -98,7 +98,7 @@ afterEach(async () => {
 });
 
 async function start(
-  options: NodeServerEndpointOptions = { transports: [sse()] },
+  options: NodeServerEndpointOptions = { transports: [http()] },
   serverOptions: ServerOptions = {},
   definition: ServerDefinition = huddleDefinition,
 ) {
@@ -134,7 +134,7 @@ async function start(
 
 function open(url: string, token?: string) {
   const socket = client<HuddleClient>()(
-    connect(url, { transports: [clientSse()], ...(token ? { token: () => token } : {}) }),
+    connect(url, { transports: [clientHttp()], ...(token ? { token: () => token } : {}) }),
     clientBinary(),
   );
   const closes: { code: number; reason: string }[] = [];
@@ -155,7 +155,7 @@ describe('server-sent events on Node', () => {
     socket.on('messageCreated', (message) => received.push(`${message.by}:${message.text}`));
 
     await vi.waitFor(() => expect(socket.state.get()).toBe('open'));
-    expect(socket.transport.get()).toBe('sse');
+    expect(socket.transport.get()).toBe('http');
     expect(socket.ws).toBeNull();
     for (let i = 0; i < 600; i++) socket.send('sendMessage', { text: String(i) });
 
@@ -234,7 +234,7 @@ describe('server-sent events on Node', () => {
   });
 
   it('refuses a message over maxPostBytes before it sends anything', async () => {
-    const url = await start({ transports: [sse({ maxPostBytes: 300 * 1024 })] });
+    const url = await start({ transports: [http({ maxPostBytes: 300 * 1024 })] });
     const { socket } = open(url);
     await vi.waitFor(() => expect(socket.state.get()).toBe('open'));
 
@@ -248,7 +248,7 @@ describe('server-sent events on Node', () => {
 
 describe('the transports option on Node', () => {
   it('answers a WebSocket upgrade with 404 when websocket() is not listed', async () => {
-    const url = await start({ transports: [sse()] });
+    const url = await start({ transports: [http()] });
 
     const status = await new Promise<number | undefined>((resolve, reject) => {
       const request = httpRequest(url, {
@@ -268,7 +268,7 @@ describe('the transports option on Node', () => {
     expect(status).toBe(404);
   });
 
-  it('answers a stream request with 426 when sse() is not listed', async () => {
+  it('answers a stream request with 426 when http() is not listed', async () => {
     const url = await start({ transports: [websocket()] });
 
     const response = await fetch(url, {
@@ -286,7 +286,7 @@ describe('the transports option on Node', () => {
     const watched = server({ authenticate, capabilities: [keepalive()] }).assemble({
       handlers: [],
     });
-    const url = await start({ transports: [sse()] }, {}, watched);
+    const url = await start({ transports: [http()] }, {}, watched);
 
     const missing = await fetch(url, { headers: { accept: 'text/event-stream' } });
     const wrong = await fetch(url, {
@@ -299,10 +299,10 @@ describe('the transports option on Node', () => {
     expect(authenticate).not.toHaveBeenCalled();
   });
 
-  it('refuses sse() at bind() when the definition has no keepalive()', () => {
+  it('refuses http() at bind() when the definition has no keepalive()', () => {
     const plain = server({}).assemble({ handlers: [] });
 
-    expect(() => setup().bind(plain, { transports: [sse()] })).toThrow(/needs keepalive\(\)/);
+    expect(() => setup().bind(plain, { transports: [http()] })).toThrow(/needs keepalive\(\)/);
   });
 });
 
@@ -321,7 +321,7 @@ describe('POSTs on Node', () => {
   });
 
   it('answers 413 to a body over maxPostBytes', async () => {
-    const url = await start({ transports: [sse({ maxPostBytes: 1024 })] });
+    const url = await start({ transports: [http({ maxPostBytes: 1024 })] });
 
     const response = await fetch(url, {
       method: 'POST',
@@ -334,7 +334,7 @@ describe('POSTs on Node', () => {
 });
 
 describe('CORS on Node', () => {
-  const options = { transports: [sse()], allowedOrigins: ['https://app.huddle.test'] };
+  const options = { transports: [http()], allowedOrigins: ['https://app.huddle.test'] };
 
   it('answers a preflight from an allowed origin', async () => {
     const url = await start(options);
@@ -436,7 +436,7 @@ function textBatch(...texts: string[]): Buffer {
 describe("Node's own server limits", () => {
   it('keeps a stream open past requestTimeout, and answers a slow POST body with 408', async () => {
     const url = await start(
-      { transports: [sse()] },
+      { transports: [http()] },
       {
         requestTimeout: 1000,
         headersTimeout: 900,
@@ -450,7 +450,12 @@ describe("Node's own server limits", () => {
     const status = await new Promise<number | undefined>((resolve) => {
       const request = httpRequest(url, {
         method: 'POST',
-        headers: { 'Content-Length': '100', 'LiveThing-Secret': secret, 'LiveThing-Lane': 'data' },
+        headers: {
+          'Content-Length': '100',
+          'LiveThing-Secret': secret,
+          'LiveThing-Lane': 'data',
+          'LiveThing-Seq': '1',
+        },
       });
       request.on('response', (response) => resolve(response.statusCode));
       request.on('error', () => resolve(undefined));
@@ -469,7 +474,7 @@ describe("Node's own server limits", () => {
 describe('a client that stops reading its stream', () => {
   it('is closed with 1013 once its buffer stayed over twice maxMessageBytes for 10 seconds', async () => {
     const url = await start({
-      transports: [sse({ maxPostBytes: 16 * 1024 })],
+      transports: [http({ maxPostBytes: 16 * 1024 })],
       maxMessageBytes: 64 * 1024,
     });
     const abort = new AbortController();
@@ -486,7 +491,7 @@ describe('a client that stops reading its stream', () => {
 
     const answer = await fetch(url, {
       method: 'POST',
-      headers: { 'LiveThing-Secret': secret, 'LiveThing-Lane': 'data' },
+      headers: { 'LiveThing-Secret': secret, 'LiveThing-Lane': 'data', 'LiveThing-Seq': '1' },
       body: textBatch(JSON.stringify(['loadHistory', null, null])),
     });
     expect(answer.status).toBe(204);
@@ -523,9 +528,9 @@ describe('replay over server-sent events', () => {
   const announcementsDefinition = replayBase.assemble({ handlers: [] });
 
   it('replays what a client missed while its stream was down, once', async () => {
-    const url = await start({ transports: [sse()] }, {}, announcementsDefinition);
+    const url = await start({ transports: [http()] }, {}, announcementsDefinition);
     const socket = client<InferClient<typeof announcementsDefinition>>()(
-      connect(url, { transports: [clientSse()] }),
+      connect(url, { transports: [clientHttp()] }),
       clientReconnection({ maxDelay: 200 }),
       clientDedup(),
       clientReplay(),
@@ -544,7 +549,7 @@ describe('replay over server-sent events', () => {
     await (await admin()).broadcast('announcement', { text: 'standup moved to 11' });
 
     await vi.waitFor(() => expect(seen).toEqual(['standup at 10', 'standup moved to 11']));
-    expect(socket.transport.get()).toBe('sse');
+    expect(socket.transport.get()).toBe('http');
     socket.disconnect();
   });
 });
@@ -552,7 +557,7 @@ describe('replay over server-sent events', () => {
 describe('failover on Node', () => {
   // The 15 s limit is longer than the 5 s wait for the fallback below.
   it('moves to server-sent events when a proxy accepts the upgrade and passes nothing', async () => {
-    const url = await start({ transports: [websocket(), sse()] });
+    const url = await start({ transports: [websocket(), http()] });
     // The proxy: it answers the handshake, then never forwards a frame.
     running!.http.removeAllListeners('upgrade');
     const stalled: Duplex[] = [];
@@ -568,7 +573,7 @@ describe('failover on Node', () => {
 
     const socket = client<HuddleClient>()(
       connect(url, {
-        transports: [clientWebsocket(), clientSse()],
+        transports: [clientWebsocket(), clientHttp()],
         token: () => 'kofi',
         connectTimeoutMs: 1_000,
       }),
@@ -581,7 +586,7 @@ describe('failover on Node', () => {
 
     socket.connect();
     await vi.waitFor(() => expect(socket.state.get()).toBe('open'), { timeout: 5_000 });
-    expect(socket.transport.get()).toBe('sse');
+    expect(socket.transport.get()).toBe('http');
     // The app never heard about the stalled WebSocket.
     expect(errors).toEqual([]);
 
@@ -607,9 +612,10 @@ describe('shutdown on Node', () => {
 });
 
 describe('HTTP/2 on Node', () => {
-  it('serves the stream and its POSTs to a node:http2 compatibility server', async () => {
+  /** A node:http2 server with the endpoint, and one client stream on one HTTP/2 connection. */
+  async function openOverH2() {
     const livething = setup();
-    const huddleEndpoint = livething.bind(huddleDefinition, { transports: [sse()] });
+    const huddleEndpoint = livething.bind(huddleDefinition, { transports: [http()] });
     const h2 = createHttp2Server((request, response) => huddleEndpoint.handle(request, response));
     await huddleEndpoint.ready();
     await new Promise<void>((resolve) => h2.listen(0, '127.0.0.1', resolve));
@@ -639,20 +645,122 @@ describe('HTTP/2 on Node', () => {
       JSON.parse(events[0]!.slice('data: '.length)) as [string, { secret: string }]
     )[1].secret;
 
-    const post = session.request({
-      ':method': 'POST',
-      ':path': '/huddle',
-      'livething-secret': secret,
-      'livething-lane': 'data',
-      'content-type': 'application/octet-stream',
-    });
-    const status = new Promise((resolve) =>
-      post.on('response', (headers) => resolve(headers[':status'])),
-    );
-    post.end(textBatch(JSON.stringify(['sendMessage', { text: 'over h2' }, null])));
+    function post(seq: number, body: Uint8Array): Promise<unknown> {
+      const request = session.request({
+        ':method': 'POST',
+        ':path': '/huddle',
+        'livething-secret': secret,
+        'livething-lane': 'data',
+        'livething-seq': String(seq),
+        'content-type': 'application/octet-stream',
+      });
+      const status = new Promise((resolve) =>
+        request.on('response', (headers) => resolve(headers[':status'])),
+      );
+      request.end(body);
+      return status;
+    }
 
-    expect(await status).toBe(204);
-    await vi.waitFor(() => expect(events.some((event) => event.includes('over h2'))).toBe(true));
+    function upload() {
+      const request = session.request({
+        ':method': 'POST',
+        ':path': '/huddle',
+        'livething-secret': secret,
+        'livething-lane': 'data',
+        'livething-upload': 'stream',
+        'content-type': 'application/octet-stream',
+      });
+      request.on('error', () => {});
+      return request;
+    }
+
+    function sent(text: string): number {
+      return events.filter((event) => event.includes(`"${text}"`)).length;
+    }
+
+    return { events, stream, post, upload, sent };
+  }
+
+  function uploadFrame(type: number, data: Uint8Array): Buffer {
+    const frame = Buffer.alloc(5 + data.byteLength);
+    frame[0] = type;
+    frame.writeUInt32BE(data.byteLength, 1);
+    frame.set(data, 5);
+
+    return frame;
+  }
+
+  function startFrame(seq: number): Buffer {
+    const bytes = Buffer.alloc(4);
+    bytes.writeUInt32BE(seq);
+    return uploadFrame(3, bytes);
+  }
+
+  function message(text: string): Uint8Array {
+    return textBatch(JSON.stringify(['sendMessage', { text }, null]));
+  }
+
+  it('serves the stream and its POSTs to a node:http2 compatibility server', async () => {
+    const { stream, post, sent } = await openOverH2();
+
+    expect(await post(1, message('over h2'))).toBe(204);
+    await vi.waitFor(() => expect(sent('over h2')).toBe(1));
+    stream.close();
+  });
+
+  it('reads an upload as it streams: the probe is acked and frames arrive before the body ends', async () => {
+    const { events, stream, upload, sent } = await openOverH2();
+    const uploading = upload();
+
+    uploading.write(uploadFrame(2, new Uint8Array(0)));
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.includes('"probe":true'))).toBe(true),
+    );
+    uploading.write(Buffer.concat([startFrame(1), message('first'), message('second')]));
+
+    await vi.waitFor(() => expect(sent('second')).toBe(1));
+    expect(sent('first')).toBe(1);
+    await vi.waitFor(() => expect(events.some((event) => event.includes('{"seq":2}'))).toBe(true));
+    const answered = new Promise((resolve) =>
+      uploading.on('response', (headers) => resolve(headers[':status'])),
+    );
+    uploading.end();
+
+    expect(await answered).toBe(204);
+    stream.close();
+  });
+
+  it('takes the resent frames of a dead upload by POST, with no frame handled twice', async () => {
+    const { events, stream, post, upload, sent } = await openOverH2();
+    const uploading = upload();
+    uploading.write(Buffer.concat([startFrame(1), message('one'), message('two')]));
+    await vi.waitFor(() => expect(sent('two')).toBe(1));
+
+    // The client never saw an ack, so it sends both again, with a new one.
+    uploading.close();
+    const resend = Buffer.concat([message('one'), message('two'), message('three')]);
+    expect(await post(1, resend)).toBe(204);
+
+    await vi.waitFor(() => expect(sent('three')).toBe(1));
+    expect([sent('one'), sent('two')]).toEqual([1, 1]);
+    expect(events.some((event) => event.includes('__close__'))).toBe(false);
+    stream.close();
+  });
+
+  it('lets a POST take the data lane from a live upload, with no close', async () => {
+    const { events, stream, post, upload, sent } = await openOverH2();
+    const uploading = upload();
+    const answered = new Promise((resolve) =>
+      uploading.on('response', (headers) => resolve(headers[':status'])),
+    );
+    uploading.write(Buffer.concat([startFrame(1), message('one')]));
+    await vi.waitFor(() => expect(sent('one')).toBe(1));
+
+    expect(await post(2, message('two'))).toBe(204);
+
+    expect(await answered).toBe(409);
+    await vi.waitFor(() => expect(sent('two')).toBe(1));
+    expect(events.some((event) => event.includes('__close__'))).toBe(false);
     stream.close();
   });
 });

@@ -1,6 +1,6 @@
 import websocketPlugin from '@fastify/websocket';
 import { createAdaptorServer } from '@hono/node-server';
-import { client, sse as clientSse, connect } from '@livething/client';
+import { client, http as clientHttp, connect } from '@livething/client';
 import { emits, server, t } from '@livething/server';
 import { keepalive } from '@livething/server/keepalive';
 import Fastify from 'fastify';
@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InferClient } from '@livething/server';
 import type { ServerTransport } from '@livething/server/adapters';
-import { sse } from '../index.ts';
+import { http as httpTransport } from '../index.ts';
 import { setup as setupFastify } from './fastify/index.ts';
 import { setup as setupHono } from './hono/index.ts';
 
@@ -36,7 +36,7 @@ afterEach(async () => {
 /** Connects the real client over SSE, sends one message and waits for the answer. */
 async function roundTrip(url: string): Promise<string[]> {
   const socket = client<InferClient<typeof huddleDefinition>>()(
-    connect(`${url}?user=kofi`, { transports: [clientSse()] }),
+    connect(`${url}?user=kofi`, { transports: [clientHttp()] }),
   );
   socket.onError(() => {});
   const received: string[] = [];
@@ -59,7 +59,7 @@ describe('server-sent events through the framework helpers', () => {
   it('works on Hono, with handle mounted on the endpoint path', async () => {
     const app = new Hono();
     const livething = setupHono();
-    const huddleEndpoint = livething.bind(huddleDefinition, { transports: [sse()] });
+    const huddleEndpoint = livething.bind(huddleDefinition, { transports: [httpTransport()] });
     app.all('/huddle', huddleEndpoint.handle);
     const http = createAdaptorServer({ fetch: app.fetch, websocket: livething.websocket });
 
@@ -78,7 +78,7 @@ describe('server-sent events through the framework helpers', () => {
     const app = Fastify();
     await app.register(websocketPlugin);
     const livething = setupFastify();
-    const huddleEndpoint = livething.bind(huddleDefinition, { transports: [sse()] });
+    const huddleEndpoint = livething.bind(huddleDefinition, { transports: [httpTransport()] });
     app.get('/huddle', huddleEndpoint.connect);
 
     app.route({ method: ['POST', 'OPTIONS'], url: '/huddle', ...huddleEndpoint.handle });
@@ -93,7 +93,7 @@ describe('server-sent events through the framework helpers', () => {
     expect(await roundTrip(`http://127.0.0.1:${port}/huddle`)).toEqual(['kofi:hello']);
   });
 
-  it('answers a plain GET on Fastify with 426 when sse() is not listed', async () => {
+  it('answers a plain GET on Fastify with 426 when http() is not listed', async () => {
     const app = Fastify();
     await app.register(websocketPlugin);
     const livething = setupFastify();
@@ -172,7 +172,7 @@ describe('shutdown while a stream is still in authenticate', () => {
   it('ends the stream on Hono', async () => {
     const app = new Hono();
     const livething = setupHono();
-    app.all('/huddle', livething.bind(stuckDefinition, { transports: [sse()] }).handle);
+    app.all('/huddle', livething.bind(stuckDefinition, { transports: [httpTransport()] }).handle);
     const http = createAdaptorServer({ fetch: app.fetch, websocket: livething.websocket });
     await livething.ready();
 

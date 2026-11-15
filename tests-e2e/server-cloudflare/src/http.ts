@@ -1,5 +1,5 @@
 import { emits, server, t } from '@livething/server';
-import { bind, sse, websocket } from '@livething/server-cloudflare';
+import { bind, http, websocket } from '@livething/server-cloudflare';
 import { binary } from '@livething/server/binary';
 import { RejectAuth } from '@livething/server/errors';
 import { keepalive } from '@livething/server/keepalive';
@@ -40,11 +40,11 @@ const handleUploadAvatar = base.binary.on('upload-avatar', {
   },
 });
 
-export const sseDefinition = base.assemble({
+export const httpDefinition = base.assemble({
   handlers: [handleSendMessage, handleLeaveHuddle, handleUploadAvatar],
 });
 
-export class SseServer extends bind(sseDefinition, {
-  transports: [websocket(), sse({ maxPostBytes: 1024 })],
+export class HttpServer extends bind(httpDefinition, {
+  transports: [websocket(), http({ maxPostBytes: 1024 })],
   allowedOrigins: ['https://huddle.example'],
 }) {}

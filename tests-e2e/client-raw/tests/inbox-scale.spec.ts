@@ -9,10 +9,10 @@ import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 // stored copy. Only a real worker can prove this: node:sqlite allows 32,766, so
 // a unit test against it passes either way. That is exactly how this shipped.
 
-// The SSE run uses 5: a browser opens only 6 connections to one host, each member's
+// The http run uses 5: a browser opens only 6 connections to one host, each member's
 // stream holds one, and the POSTs need the last. 5 stays under the bind limit, so
-// that run checks the inbox flow over SSE, not the batching.
-const MEMBERS = process.env.LIVETHING_E2E_TRANSPORT === 'sse' ? 5 : 24;
+// that run checks the inbox flow over the http transport, not the batching.
+const MEMBERS = process.env.LIVETHING_E2E_TRANSPORT === 'http' ? 5 : 24;
 
 test.describe('inbox at scale (raw wire, real Durable Object)', () => {
   // Asserts the DURABLE side directly. A fan-out that throws is logged and the

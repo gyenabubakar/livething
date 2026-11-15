@@ -1,10 +1,10 @@
-import { binary, client, connect, sse } from '@livething/client';
+import { binary, client, connect, http } from '@livething/client';
 import { exports } from 'cloudflare:workers';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { InferClient } from '@livething/server';
-import type { sseDefinition } from '../src/sse.ts';
+import type { httpDefinition } from '../src/http.ts';
 
-type HuddleClient = InferClient<typeof sseDefinition>;
+type HuddleClient = InferClient<typeof httpDefinition>;
 
 // The client's fetch reaches this test Worker, so its stream and POSTs reach the real object.
 const networkFetch = globalThis.fetch;
@@ -17,7 +17,7 @@ afterEach(() => {
 
 function open(room: string, query = '') {
   const socket = client<HuddleClient>()(
-    connect(`https://huddle.test/ws/sse?room=${room}${query}`, { transports: [sse()] }),
+    connect(`https://huddle.test/ws/http?room=${room}${query}`, { transports: [http()] }),
     binary(),
   );
   const closes: { code: number; reason: string }[] = [];
@@ -33,13 +33,13 @@ function opened(socket: ReturnType<typeof open>['socket']): Promise<void> {
   return vi.waitFor(() => expect(socket.state.get()).toBe('open'), { timeout: 15_000 });
 }
 
-it('connects over SSE, and carries messages both ways in order', async () => {
+it('connects over http(), and carries messages both ways in order', async () => {
   const { socket } = open('client-order', '&username=kofi');
   const received: string[] = [];
   socket.on('message-created', (message) => received.push(`${message.by}:${message.text}`));
 
   await opened(socket);
-  expect(socket.transport.get()).toBe('sse');
+  expect(socket.transport.get()).toBe('http');
   for (let i = 0; i < 300; i++) socket.send('send-message', { text: String(i) });
 
   await vi.waitFor(() => expect(received).toHaveLength(300), { timeout: 10_000 });

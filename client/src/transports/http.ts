@@ -19,10 +19,24 @@ const CLOSE_WAIT_MS = 1_000;
 const ABNORMAL_CLOSE = 1006;
 /** Statuses that mean the server does not offer this transport, so they are not final. */
 const NOT_OFFERED = new Set([404, 405, 426]);
+/** Upload only: asks the server for an ack at once. */
+const PROBE_FRAME = 2;
+/** Upload only: the 4-byte sequence number of the next data frame. */
+const START_FRAME = 3;
+/** How long the upload's probe may wait for its ack before the client gives up on it. */
+const PROBE_TIMEOUT_MS = 2_000;
+/** An upload that wrote nothing for this long sends a probe, so a dead path shows up. */
+const IDLE_PROBE_MS = 15_000;
+/** After a failed probe, the origin's next connections skip the upload for this long. */
+const UPLOAD_RETRY_MS = 10 * 60_000;
+/** The upload's frames written and not acked may hold this many times `maxPostBytes`. */
+const UPLOAD_WINDOW_POSTS = 4;
 
 // Created on first use: a platform without TextEncoder must still load the client.
 let encoder: TextEncoder | undefined;
 let warnedHttp1 = false;
+/** Origins where a probe failed, and when the upload may be tried there again. */
+const uploadFailedUntil = new Map<string, number>();
 
 function utf8(text: string): Uint8Array<ArrayBuffer> {
   encoder ??= new TextEncoder();
@@ -33,9 +47,14 @@ function utf8(text: string): Uint8Array<ArrayBuffer> {
  * Server-sent events from the server, and POST requests from the client. A full transport:
  * use it alone, or list it after `websocket()` to fail over when a network blocks WebSocket.
  * It needs a `fetch` that streams the response body.
+ *
+ * It starts with batched POSTs: one in flight, with the sends that come meanwhile in the next.
+ * Where fetch can stream a request body and the site is not on HTTP/1.1, it also tries stream
+ * mode: one long POST that carries every send. A probe frame checks that the server gets the
+ * body as it streams. If its ack does not come, the client keeps the batched POSTs.
  */
-export function sse(): TransportFactory {
-  return { name: 'sse', open: openSse };
+export function http(): TransportFactory {
+  return { name: 'http', open: openHttp };
 }
 
 interface QueuedFrame {
@@ -43,10 +62,10 @@ interface QueuedFrame {
   bytes: Uint8Array;
 }
 
-function openSse(options: TransportOpenOptions): Transport {
+function openHttp(options: TransportOpenOptions): Transport {
   if (typeof TextEncoder === 'undefined' || typeof TextDecoder === 'undefined') {
     throw new Error(
-      '[livething] sse() needs TextEncoder and TextDecoder, and this platform has no global for one of them.',
+      '[livething] http() needs TextEncoder and TextDecoder, and this platform has no global for one of them.',
     );
   }
 
@@ -59,8 +78,27 @@ function openSse(options: TransportOpenOptions): Transport {
   let secret = '';
   let maxPostBytes = 0;
 
+  // Every data frame not yet confirmed, in order. In stream mode the first `written` of them are
+  // in the upload, waiting for an ack. `firstSeq` is the sequence number of `dataQueue[0]`.
   const dataQueue: QueuedFrame[] = [];
   let queuedBytes = 0;
+  let firstSeq = 1;
+  let written = 0;
+  let writtenBytes = 0;
+
+  let mode: 'batch' | 'probing' | 'stream' = 'batch';
+  let uploadTried = false;
+  let probeAcked = false;
+  let uploadWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
+  let uploadAbort: AbortController | null = null;
+
+  let probeTimer: ReturnType<typeof setTimeout> | null = null;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let wroteSinceIdleCheck = false;
+  let flushQueued = false;
+  let startPending = false;
+  /** Runs once every written frame is acked or the upload ended, for the ordered close. */
+  let onUploadSettled: (() => void) | null = null;
   const controlQueue: string[] = [];
   let dataInFlight: Promise<void> | null = null;
   let controlInFlight: Promise<void> | null = null;
@@ -84,8 +122,10 @@ function openSse(options: TransportOpenOptions): Transport {
 
     state = 'closed';
     stream.abort();
+    endUpload();
     dataQueue.length = 0;
     controlQueue.length = 0;
+
     queuedBytes = 0;
 
     if (busyTimer !== null) clearTimeout(busyTimer);
@@ -127,7 +167,7 @@ function openSse(options: TransportOpenOptions): Transport {
       fail(
         'stream request has no body',
         new Error(
-          "[livething] this fetch does not stream a response body, and sse() needs one. On React Native, set Expo's expo/fetch as the global fetch.",
+          "[livething] this fetch does not stream a response body, and http() needs one. On React Native, set Expo's expo/fetch as the global fetch.",
         ),
       );
       return;
@@ -201,6 +241,12 @@ function openSse(options: TransportOpenOptions): Transport {
       .join('\n');
     if (text === '') return;
 
+    if (text.startsWith('["__ack__"')) {
+      const payload = parsePayload(text) as { seq?: unknown; probe?: unknown } | null;
+      if (typeof payload?.seq === 'number') uploadAcked(payload.seq, payload.probe === true);
+      return;
+    }
+
     if (text.startsWith('b')) {
       const bytes = decodeBase64(text.slice(1));
       if (bytes) {
@@ -251,9 +297,204 @@ function openSse(options: TransportOpenOptions): Transport {
 
     confirmed = true;
     checkStable();
+    // The browser reports a request's protocol once it finished, so the try waits for one.
+    if (!uploadTried) {
+      uploadTried = true;
+      if (uploadWorthTrying(url)) startUpload();
+    }
   }
 
-  async function post(lane: 'data' | 'control', body: Uint8Array<ArrayBuffer>): Promise<Response> {
+  // ---- Stream mode: one long POST ----
+
+  function startUpload(): void {
+    mode = 'probing';
+    const pipe = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = pipe.writable.getWriter();
+    const abort = new AbortController();
+    uploadWriter = writer;
+
+    uploadAbort = abort;
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'LiveThing-Secret': secret,
+        'LiveThing-Lane': 'data',
+        'LiveThing-Upload': 'stream',
+      },
+      body: pipe.readable,
+      duplex: 'half',
+      cache: 'no-store',
+      signal: abort.signal,
+    } as RequestInit).then(
+      // The server answers only when the upload ends, so any answer means it is over.
+      (response) => {
+        void response.body?.cancel().catch(() => {});
+        if (uploadWriter === writer) uploadDied(`upload answered ${response.status}`);
+      },
+      () => {
+        if (uploadWriter === writer) uploadDied('upload request failed');
+      },
+    );
+    sendProbe();
+  }
+
+  function sendProbe(): void {
+    writeUpload(encodeFrame(PROBE_FRAME, new Uint8Array(0)));
+    probeTimer = setTimeout(() => {
+      probeTimer = null;
+      uploadDied('no probe ack', true);
+    }, PROBE_TIMEOUT_MS);
+  }
+
+  function writeUpload(chunk: Uint8Array): void {
+    const writer = uploadWriter;
+    wroteSinceIdleCheck = true;
+    writer?.write(chunk).catch(() => {
+      if (uploadWriter === writer) uploadDied('upload write failed');
+    });
+  }
+
+  function uploadAcked(seq: number, probe: boolean): void {
+    if (probe && probeTimer !== null) {
+      clearTimeout(probeTimer);
+      probeTimer = null;
+    }
+
+    let acked = 0;
+    let ackedBytes = 0;
+    while (acked < written && firstSeq + acked <= seq) {
+      ackedBytes += dataQueue[acked]!.bytes.byteLength;
+      acked++;
+    }
+
+    if (acked > 0) {
+      dataQueue.splice(0, acked);
+      firstSeq += acked;
+      written -= acked;
+      writtenBytes -= ackedBytes + acked * FRAME_HEADER_BYTES;
+      queuedBytes -= ackedBytes;
+    }
+
+    if (mode === 'probing' && probe) {
+      probeAcked = true;
+      moveToStream();
+    } else if (mode === 'stream') {
+      scheduleFlush();
+    }
+
+    if (written === 0) settleUpload();
+  }
+
+  /** After the probe ack, once no data POST is in flight, every send goes in the upload. */
+  function moveToStream(): void {
+    if (!probeAcked || mode !== 'probing' || dataInFlight || busyTimer !== null) return;
+
+    if (state !== 'open') return;
+
+    mode = 'stream';
+    startPending = true;
+    wroteSinceIdleCheck = false;
+    idleTimer = setTimeout(checkIdle, IDLE_PROBE_MS);
+    scheduleFlush();
+  }
+
+  function checkIdle(): void {
+    idleTimer = null;
+    if (mode !== 'stream') return;
+
+    if (!wroteSinceIdleCheck && probeTimer === null) sendProbe();
+
+    wroteSinceIdleCheck = false;
+    idleTimer = setTimeout(checkIdle, IDLE_PROBE_MS);
+  }
+
+  function scheduleFlush(): void {
+    if (flushQueued) return;
+
+    flushQueued = true;
+    queueMicrotask(flushUpload);
+  }
+
+  /** Writes the frames that fit in the window, all in one chunk. */
+  function flushUpload(): void {
+    flushQueued = false;
+    if (mode !== 'stream') return;
+
+    const window = UPLOAD_WINDOW_POSTS * maxPostBytes;
+    let count = written;
+    let bytes = writtenBytes;
+    while (count < dataQueue.length) {
+      const next = dataQueue[count]!.bytes.byteLength + FRAME_HEADER_BYTES;
+      // One frame always goes when none is waiting for an ack, so a big one cannot stall.
+      if (bytes + next > window && count > 0) break;
+
+      bytes += next;
+      count++;
+    }
+
+    if (count === written && !startPending) return;
+
+    let start: Uint8Array | null = null;
+    if (startPending) {
+      startPending = false;
+      const seq = new Uint8Array(4);
+      new DataView(seq.buffer).setUint32(0, firstSeq + written, false);
+      start = encodeFrame(START_FRAME, seq);
+    }
+
+    const frames = encodeBatch(dataQueue.slice(written, count), start);
+    written = count;
+    writtenBytes = bytes;
+    writeUpload(frames);
+  }
+
+  /**
+   * The upload stopped. Its frames that were not acked go again in batched POSTs, and the
+   * server drops the ones it already has. A probe that failed is remembered for the origin.
+   */
+  function uploadDied(reason: string, probeFailed = !probeAcked): void {
+    if (mode === 'batch') return;
+
+    if (probeFailed) uploadFailedUntil.set(originOf(url), Date.now() + UPLOAD_RETRY_MS);
+
+    if (!silent && state === 'open') options.warn(`http() stays on batched POSTs: ${reason}.`);
+
+    endUpload();
+    settleUpload();
+    if (state === 'open') pumpData();
+  }
+
+  /** Stops the upload and its timers. The frames it held wait for a batched POST. */
+  function endUpload(): void {
+    mode = 'batch';
+    probeAcked = false;
+    startPending = false;
+    if (probeTimer !== null) clearTimeout(probeTimer);
+
+    if (idleTimer !== null) clearTimeout(idleTimer);
+
+    probeTimer = null;
+    idleTimer = null;
+    written = 0;
+    writtenBytes = 0;
+    uploadAbort?.abort();
+
+    uploadAbort = null;
+    uploadWriter = null;
+  }
+
+  function settleUpload(): void {
+    const settled = onUploadSettled;
+    onUploadSettled = null;
+    settled?.();
+  }
+
+  async function post(
+    lane: 'data' | 'control',
+    body: Uint8Array<ArrayBuffer>,
+    seq?: number,
+  ): Promise<Response> {
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), POST_TIMEOUT_MS);
     try {
@@ -263,6 +504,7 @@ function openSse(options: TransportOpenOptions): Transport {
           'Content-Type': 'application/octet-stream',
           'LiveThing-Secret': secret,
           'LiveThing-Lane': lane,
+          ...(seq === undefined ? {} : { 'LiveThing-Seq': String(seq) }),
         },
         body,
         cache: 'no-store',
@@ -289,6 +531,11 @@ function openSse(options: TransportOpenOptions): Transport {
   }
 
   function pumpData(): void {
+    if (mode === 'stream') {
+      scheduleFlush();
+      return;
+    }
+
     if (dataInFlight || busyTimer !== null || state !== 'open' || dataQueue.length === 0) return;
 
     let count = 0;
@@ -305,16 +552,17 @@ function openSse(options: TransportOpenOptions): Transport {
 
     const batch = dataQueue.slice(0, count);
 
-    dataInFlight = sendData(batch).finally(() => {
+    dataInFlight = sendData(batch, firstSeq).finally(() => {
       dataInFlight = null;
+      moveToStream();
       pumpData();
     });
   }
 
-  async function sendData(batch: QueuedFrame[]): Promise<void> {
+  async function sendData(batch: QueuedFrame[], seq: number): Promise<void> {
     let response: Response;
     try {
-      response = await post('data', encodeBatch(batch));
+      response = await post('data', encodeBatch(batch), seq);
     } catch (error) {
       postFailed(null, error);
       return;
@@ -324,6 +572,7 @@ function openSse(options: TransportOpenOptions): Transport {
 
     if (response.status === 204) {
       dataQueue.splice(0, batch.length);
+      firstSeq += batch.length;
 
       for (const frame of batch) queuedBytes -= frame.bytes.byteLength;
 
@@ -358,6 +607,7 @@ function openSse(options: TransportOpenOptions): Transport {
 
       busyTimer = setTimeout(() => {
         busyTimer = null;
+        moveToStream();
         pumpData();
       }, wait);
 
@@ -409,11 +659,23 @@ function openSse(options: TransportOpenOptions): Transport {
     }
 
     state = 'closing';
-    dataQueue.length = 0;
+    // The frames in the upload stay until their ack. The ones not sent yet are dropped.
+    for (const frame of dataQueue.splice(written)) queuedBytes -= frame.bytes.byteLength;
+
     controlQueue.length = 0;
-    queuedBytes = 0;
 
     await settleWithin(dataInFlight);
+
+    if (mode === 'stream') {
+      // The server acks the last frame at once when the body ends.
+      const settled = new Promise<void>((resolve) => (onUploadSettled = resolve));
+      void uploadWriter?.close().catch(() => {});
+      if (written > 0) await settleWithin(settled);
+    }
+
+    endUpload();
+    dataQueue.length = 0;
+    queuedBytes = 0;
 
     // A second control POST while one is still open gets a 409, which closes with 1002.
     if (await settleWithin(controlInFlight)) {
@@ -426,7 +688,7 @@ function openSse(options: TransportOpenOptions): Transport {
   }
 
   return {
-    name: 'sse',
+    name: 'http',
     protocol: '',
     webSocket: null,
     reportsStable: true,
@@ -468,12 +730,20 @@ function openSse(options: TransportOpenOptions): Transport {
 }
 
 /** Frames as one POST body: 1 byte for the type (0 text, 1 binary), 4 for the length, the data. */
-function encodeBatch(frames: readonly QueuedFrame[]): Uint8Array<ArrayBuffer> {
-  const size = frames.reduce((sum, frame) => sum + FRAME_HEADER_BYTES + frame.bytes.byteLength, 0);
+function encodeBatch(
+  frames: readonly QueuedFrame[],
+  prefix: Uint8Array | null = null,
+): Uint8Array<ArrayBuffer> {
+  const start = prefix?.byteLength ?? 0;
+  const size = frames.reduce(
+    (sum, frame) => sum + FRAME_HEADER_BYTES + frame.bytes.byteLength,
+    start,
+  );
   const body = new Uint8Array(size);
   const view = new DataView(body.buffer);
+  if (prefix) body.set(prefix);
 
-  let offset = 0;
+  let offset = start;
   for (const frame of frames) {
     body[offset] = frame.binary ? 1 : 0;
     view.setUint32(offset + 1, frame.bytes.byteLength, false);
@@ -482,6 +752,66 @@ function encodeBatch(frames: readonly QueuedFrame[]): Uint8Array<ArrayBuffer> {
   }
 
   return body;
+}
+
+/** One upload frame of the given type. */
+function encodeFrame(type: number, data: Uint8Array): Uint8Array<ArrayBuffer> {
+  const frame = new Uint8Array(FRAME_HEADER_BYTES + data.byteLength);
+  frame[0] = type;
+  new DataView(frame.buffer).setUint32(1, data.byteLength, false);
+  frame.set(data, FRAME_HEADER_BYTES);
+
+  return frame;
+}
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Whether to try stream mode: fetch can stream a request body, the origin's last probe did
+ * not fail lately, and the site is not on HTTP/1.1, where Chrome refuses a streaming body and
+ * the upload would hold one of the six connections.
+ */
+function uploadWorthTrying(url: string): boolean {
+  const until = uploadFailedUntil.get(originOf(url));
+  if (until !== undefined && until > Date.now()) return false;
+
+  if (!canStreamUploads()) return false;
+
+  const entries =
+    typeof performance === 'undefined'
+      ? undefined
+      : (performance.getEntriesByName?.(url) as PerformanceResourceTiming[] | undefined);
+
+  return !entries?.some((entry) => entry.nextHopProtocol === 'http/1.1');
+}
+
+/**
+ * Where fetch streams a request body, `new Request` reads `duplex` and sets no Content-Type
+ * for a stream body. Firefox and Safari do neither.
+ */
+function canStreamUploads(): boolean {
+  if (typeof ReadableStream === 'undefined' || typeof TransformStream === 'undefined') return false;
+
+  try {
+    let duplexRead = false;
+    const request = new Request('https://livething.invalid/', {
+      method: 'POST',
+      body: new ReadableStream(),
+      get duplex() {
+        duplexRead = true;
+        return 'half';
+      },
+    } as RequestInit);
+    return duplexRead && !request.headers.has('Content-Type');
+  } catch {
+    return false;
+  }
 }
 
 function parsePayload(text: string): unknown {
@@ -526,6 +856,6 @@ function warnIfHttp1(url: string, warn: (message: string) => void): void {
 
   warnedHttp1 = true;
   warn(
-    'sse() is running over HTTP/1.1, which allows six connections per site across all tabs. Serve the site over HTTP/2 or HTTP/3.',
+    'http() is running over HTTP/1.1, which allows six connections per site across all tabs. Serve the site over HTTP/2 or HTTP/3.',
   );
 }

@@ -2,15 +2,15 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import type { Plugin } from 'vite';
 
-const sseClient = fileURLToPath(new URL('tests/_sse-client.ts', import.meta.url));
+const httpClient = fileURLToPath(new URL('tests/_http-client.ts', import.meta.url));
 
-// The SSE run: every page's `@livething/client` import gets the client that connects over SSE.
-function connectOverSse(): Plugin {
+// The http run: every page's `@livething/client` import gets the client that connects over http().
+function connectOverHttp(): Plugin {
   return {
-    name: 'livething-connect-over-sse',
+    name: 'livething-connect-over-http',
     enforce: 'pre',
     resolveId(source, importer) {
-      if (source === '@livething/client' && importer !== sseClient) return sseClient;
+      if (source === '@livething/client' && importer !== httpClient) return httpClient;
 
       return null;
     },
@@ -24,7 +24,7 @@ function connectOverSse(): Plugin {
 //    cloudflare worker's 8787. The target is just a URL — the page never knows
 //    which adapter is behind it.
 export default defineConfig({
-  plugins: process.env.LIVETHING_E2E_TRANSPORT === 'sse' ? [connectOverSse()] : [],
+  plugins: process.env.LIVETHING_E2E_TRANSPORT === 'http' ? [connectOverHttp()] : [],
   server: {
     host: '127.0.0.1',
     port: Number(process.env.LIVETHING_E2E_CLIENT_PORT ?? 4180),

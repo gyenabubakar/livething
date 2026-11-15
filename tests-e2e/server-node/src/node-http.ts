@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setup, sse, websocket } from '@livething/server-node';
+import { http, setup, websocket } from '@livething/server-node';
 import { hasCapability } from '@livething/server/adapters';
 import type { NodeEndpointBinding, NodeEndpointOptions } from '@livething/server-node';
 import type { ServerDefinition } from '@livething/server/adapters';
@@ -132,7 +132,7 @@ export async function getFixture(route: string, room: string): Promise<Fixture> 
     // Every fixture with keepalive() offers both transports, so one suite runs over each.
     const service = bindFixture(definition, {
       sql: databasePath(route, room),
-      ...(hasCapability(definition, 'keepalive') ? { transports: [websocket(), sse()] } : {}),
+      ...(hasCapability(definition, 'keepalive') ? { transports: [websocket(), http()] } : {}),
     });
     const fixture = {
       service,

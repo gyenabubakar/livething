@@ -6,7 +6,7 @@ const TEXT_FRAME = 0;
 const BINARY_FRAME = 1;
 
 function huddleUrl(room: string, query = ''): string {
-  return `https://huddle.test/ws/sse?room=${room}${query}`;
+  return `https://huddle.test/ws/http?room=${room}${query}`;
 }
 
 function worker(url: string, init?: RequestInit): Promise<Response> {
@@ -86,12 +86,27 @@ interface Post {
   lane?: 'data' | 'control';
 }
 
+/** Each test sends at most one data POST on a connection, so its first frame is number 1. */
 function post({ url, secret, frames, lane = 'data' }: Post): Promise<Response> {
   return worker(url, {
     method: 'POST',
-    headers: { 'LiveThing-Secret': secret, 'LiveThing-Lane': lane },
+    headers: {
+      'LiveThing-Secret': secret,
+      'LiveThing-Lane': lane,
+      ...(lane === 'data' ? { 'LiveThing-Seq': '1' } : {}),
+    },
     body: batch(frames),
   });
+}
+
+/** One upload frame: a probe (2) or a start frame (3), which the batch helper does not make. */
+function uploadFrame(type: number, data: Uint8Array = new Uint8Array(0)): Uint8Array {
+  const frame = new Uint8Array(5 + data.byteLength);
+  frame[0] = type;
+  new DataView(frame.buffer).setUint32(1, data.byteLength);
+  frame.set(data, 5);
+
+  return frame;
 }
 
 async function openStream(room: string, query = '') {
@@ -110,7 +125,7 @@ async function openStream(room: string, query = '') {
 }
 
 it('opens a stream with the event-stream headers and a __connected__ frame first', async () => {
-  const { response, name, connected, events } = await openStream('sse-open');
+  const { response, name, connected, events } = await openStream('http-open');
 
   expect(response.status).toBe(200);
   expect(response.headers.get('Content-Type')).toBe('text/event-stream');
@@ -124,7 +139,7 @@ it('opens a stream with the event-stream headers and a __connected__ frame first
 });
 
 it('runs keepalive timers for a stream on a hibernating object', async () => {
-  const { connected, events } = await openStream('sse-timers');
+  const { connected, events } = await openStream('http-timers');
 
   expect(connected.pingIntervalMs).toBe(200);
   await expect(events.next()).resolves.toBe('ping');
@@ -132,7 +147,7 @@ it('runs keepalive timers for a stream on a hibernating object', async () => {
 });
 
 it('keeps a WebSocket in the same object hibernating, with no ping timings', async () => {
-  const response = (await worker(huddleUrl('sse-mixed'), {
+  const response = (await worker(huddleUrl('http-mixed'), {
     headers: { Upgrade: 'websocket' },
   })) as Response & { webSocket: WebSocket };
   const socket = response.webSocket;
@@ -147,7 +162,7 @@ it('keeps a WebSocket in the same object hibernating, with no ping timings', asy
 });
 
 it('closes a stream whose client never answers a ping with 4004', async () => {
-  const { events } = await openStream('sse-idle');
+  const { events } = await openStream('http-idle');
 
   let close: string | null = null;
   while (close === null) {
@@ -160,7 +175,7 @@ it('closes a stream whose client never answers a ping with 4004', async () => {
 });
 
 it('keeps a stream open past the idle timeout while the client answers pings', async () => {
-  const { url, connected, events } = await openStream('sse-pong');
+  const { url, connected, events } = await openStream('http-pong');
 
   const until = Date.now() + 1_000;
   while (Date.now() < until) {
@@ -173,8 +188,48 @@ it('keeps a stream open past the idle timeout while the client answers pings', a
   await events.cancel();
 });
 
+it('reads an upload as it streams: the object acks the probe before the body ends', async () => {
+  const { url, connected, events } = await openStream('http-upload', '&username=kofi');
+  const pipe = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = pipe.writable.getWriter();
+  const answered = worker(url, {
+    method: 'POST',
+    headers: {
+      'LiveThing-Secret': connected.secret,
+      'LiveThing-Lane': 'data',
+      'LiveThing-Upload': 'stream',
+    },
+    body: pipe.readable,
+    duplex: 'half',
+  } as RequestInit);
+
+  await writer.write(uploadFrame(2));
+  expect(JSON.parse((await events.nextFrame())!)).toEqual([
+    '__ack__',
+    { seq: 0, probe: true },
+    null,
+  ]);
+
+  const start = new Uint8Array(4);
+  new DataView(start.buffer).setUint32(0, 1);
+  await writer.write(uploadFrame(3, start));
+  await writer.write(
+    batch([JSON.stringify(['send-message', { text: 'Sent while streaming' }, null])]),
+  );
+  expect(JSON.parse((await events.nextFrame())!)).toEqual([
+    'message-created',
+    { text: 'Sent while streaming', by: 'kofi' },
+    null,
+  ]);
+
+  await writer.close();
+  expect((await answered).status).toBe(204);
+  expect(JSON.parse((await events.nextFrame())!)).toEqual(['__ack__', { seq: 1 }, null]);
+  await events.cancel();
+});
+
 it('delivers a POST in the same room to its stream', async () => {
-  const { url, connected, events } = await openStream('sse-room-a', '&username=amara');
+  const { url, connected, events } = await openStream('http-room-a', '&username=amara');
 
   const answer = await post({
     url,
@@ -192,10 +247,10 @@ it('delivers a POST in the same room to its stream', async () => {
 });
 
 it('answers 404 to a POST with the secret of a stream in another room', async () => {
-  const { connected, events } = await openStream('sse-room-a2');
+  const { connected, events } = await openStream('http-room-a2');
 
   const answer = await post({
-    url: huddleUrl('sse-room-b2'),
+    url: huddleUrl('http-room-b2'),
     secret: connected.secret,
     frames: [JSON.stringify(['send-message', { text: 'wrong room' }, null])],
   });
@@ -206,7 +261,7 @@ it('answers 404 to a POST with the secret of a stream in another room', async ()
 });
 
 it('carries binary frames both ways', async () => {
-  const { url, connected, events } = await openStream('sse-binary');
+  const { url, connected, events } = await openStream('http-binary');
   const avatar = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]);
 
   const answer = await post({
@@ -231,7 +286,7 @@ it('carries binary frames both ways', async () => {
 });
 
 it("ends the stream with the server's close code and reason", async () => {
-  const { url, connected, events } = await openStream('sse-server-close');
+  const { url, connected, events } = await openStream('http-server-close');
 
   await post({
     url,
@@ -248,7 +303,7 @@ it("ends the stream with the server's close code and reason", async () => {
 });
 
 it("ends the stream after the client's __close__", async () => {
-  const { url, connected, events } = await openStream('sse-client-close');
+  const { url, connected, events } = await openStream('http-client-close');
 
   const answer = await post({
     url,
@@ -264,7 +319,7 @@ it("ends the stream after the client's __close__", async () => {
 });
 
 it('answers a reject by close code with a __close__ frame and no __connected__', async () => {
-  const response = await worker(huddleUrl('sse-banned', '&banned'), {
+  const response = await worker(huddleUrl('http-banned', '&banned'), {
     headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
   });
   const events = new EventReader(response);
@@ -279,7 +334,7 @@ it('answers a reject by close code with a __close__ frame and no __connected__',
 });
 
 it('answers a reject by HTTP status with that status', async () => {
-  const response = await worker(huddleUrl('sse-expired', '&expired'), {
+  const response = await worker(huddleUrl('http-expired', '&expired'), {
     headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
   });
 
@@ -289,7 +344,7 @@ it('answers a reject by HTTP status with that status', async () => {
 });
 
 it('answers 413 to a POST body over maxPostBytes', async () => {
-  const { url, connected, events } = await openStream('sse-too-large');
+  const { url, connected, events } = await openStream('http-too-large');
 
   const answer = await post({ url, secret: connected.secret, frames: ['x'.repeat(2_000)] });
 
@@ -299,14 +354,14 @@ it('answers 413 to a POST body over maxPostBytes', async () => {
 });
 
 it('answers 426 to a GET that does not ask for an event stream', async () => {
-  const response = await worker(huddleUrl('sse-plain-get'));
+  const response = await worker(huddleUrl('http-plain-get'));
 
   expect(response.status).toBe(426);
   expect(response.headers.get('LiveThing-Error')).toBe('not-offered');
 });
 
 it('answers a preflight from an allowed origin inside the object', async () => {
-  const response = await worker(huddleUrl('sse-preflight'), {
+  const response = await worker(huddleUrl('http-preflight'), {
     method: 'OPTIONS',
     headers: {
       Origin: 'https://huddle.example',
@@ -322,7 +377,7 @@ it('answers a preflight from an allowed origin inside the object', async () => {
 });
 
 it('marks the stream of an allowed origin readable cross-origin', async () => {
-  const response = await worker(huddleUrl('sse-cors'), {
+  const response = await worker(huddleUrl('http-cors'), {
     headers: {
       Accept: 'text/event-stream',
       'LiveThing-Protocol': 'livething-v1',
@@ -337,7 +392,7 @@ it('marks the stream of an allowed origin readable cross-origin', async () => {
 });
 
 it('refuses another origin with 403 and no CORS headers', async () => {
-  const response = await worker(huddleUrl('sse-other-origin'), {
+  const response = await worker(huddleUrl('http-other-origin'), {
     method: 'OPTIONS',
     headers: { Origin: 'https://evil.example', 'Access-Control-Request-Method': 'POST' },
   });
@@ -348,7 +403,7 @@ it('refuses another origin with 403 and no CORS headers', async () => {
 });
 
 it('accepts a stream whose Origin matches the forwarded Host', async () => {
-  const response = await worker(huddleUrl('sse-same-origin'), {
+  const response = await worker(huddleUrl('http-same-origin'), {
     headers: {
       Accept: 'text/event-stream',
       'LiveThing-Protocol': 'livething-v1',
