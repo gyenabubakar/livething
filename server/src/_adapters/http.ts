@@ -460,127 +460,146 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
     const found = secret === null ? undefined : sessions.get(secret);
     if (!found) return errorAnswer(404, 'unknown-connection');
 
-    return openUpload(found);
+    return new Upload(found);
   }
 
-  function openUpload(session: Session): HttpUpload {
-    let stopped = false;
-    let started = false;
+  /**
+   * The state of one upload. A class, not closures: a connection holds its upload for its whole
+   * life, and one object costs much less memory than a closure for each function.
+   */
+  class Upload implements HttpUpload, UploadControl {
+    readonly stopped: Promise<HttpAnswer>;
+    private readonly session: Session;
+    private isStopped = false;
+    private started = false;
     /** The sequence number of the last data frame read from this body. */
-    let seq = 0;
-    let ackedSeq = session.lastSeq;
-    let ackTimer: ReturnType<typeof setTimeout> | null = null;
+    private seq = 0;
+    private ackedSeq: number;
+    private ackTimer: ReturnType<typeof setTimeout> | null = null;
     /** The chunks of a frame that is not whole yet. They are joined once `carryNeeds` bytes are in. */
-    let carry: Uint8Array[] = [];
-    let carryBytes = 0;
-    let carryNeeds = 0;
-    let lastActivity = Date.now();
-    let idleTimer: ReturnType<typeof setTimeout> | null = setTimeout(checkIdle, UPLOAD_IDLE_MS);
+    private carry: Uint8Array[] = [];
+    private carryBytes = 0;
+    private carryNeeds = 0;
+    private lastActivity = Date.now();
+    private idleTimer: ReturnType<typeof setTimeout> | null;
     /** Wakes the adapter's read loop when this upload waits for room. */
-    let waiting: (() => void) | null = null;
-    let stoppedWith!: (answer: HttpAnswer) => void;
-    const stoppedPromise = new Promise<HttpAnswer>((resolve) => (stoppedWith = resolve));
+    private waiting: (() => void) | null = null;
+    private stoppedWith!: (answer: HttpAnswer) => void;
 
-    const control: UploadControl = { stop };
-    session.uploads.add(control);
+    constructor(session: Session) {
+      this.session = session;
+      this.ackedSeq = session.lastSeq;
+      this.idleTimer = setTimeout(checkIdle, UPLOAD_IDLE_MS, this);
+      this.stopped = new Promise<HttpAnswer>((resolve) => (this.stoppedWith = resolve));
+      session.uploads.add(this);
+    }
 
-    function release(): void {
-      stopped = true;
-      if (idleTimer !== null) clearTimeout(idleTimer);
-      if (ackTimer !== null) clearTimeout(ackTimer);
-      idleTimer = null;
-      ackTimer = null;
+    /** The body broke off. */
+    cancel(): void {
+      this.release();
+    }
 
-      carry = [];
-      carryBytes = 0;
-      session.uploads.delete(control);
-      if (session.laneUpload === control) {
+    private release(): void {
+      this.isStopped = true;
+      if (this.idleTimer !== null) clearTimeout(this.idleTimer);
+      if (this.ackTimer !== null) clearTimeout(this.ackTimer);
+      this.idleTimer = null;
+      this.ackTimer = null;
+
+      this.carry = [];
+      this.carryBytes = 0;
+      const { session } = this;
+      session.uploads.delete(this);
+      if (session.laneUpload === this) {
         session.laneUpload = null;
         session.lanes.data = false;
       }
 
+      const { waiting } = this;
       if (waiting) {
         if (session.roomWaiter === waiting) session.roomWaiter = null;
         waiting();
       }
     }
 
-    function stop(answer: HttpAnswer): void {
-      if (stopped) return;
+    stop(answer: HttpAnswer): void {
+      if (this.isStopped) return;
 
-      release();
-      stoppedWith(answer);
+      this.release();
+      this.stoppedWith(answer);
     }
 
-    function breakRules(reason: string): void {
-      stop(errorAnswer(400, 'bad-upload'));
-      session.close(CloseCodes.PROTOCOL_ERROR, reason);
+    private breakRules(reason: string): void {
+      this.stop(errorAnswer(400, 'bad-upload'));
+      this.session.close(CloseCodes.PROTOCOL_ERROR, reason);
     }
 
     // The timer is not moved on each chunk: it checks the time of the last one when it fires.
-    function checkIdle(): void {
-      idleTimer = null;
-      if (stopped) return;
+    checkIdle(): void {
+      this.idleTimer = null;
+      if (this.isStopped) return;
 
       // A wait for room is the server's doing, not the client's.
-      const idle = waiting ? 0 : Date.now() - lastActivity;
+      const idle = this.waiting ? 0 : Date.now() - this.lastActivity;
       if (idle >= UPLOAD_IDLE_MS) {
-        stop(errorAnswer(408, 'idle'));
+        this.stop(errorAnswer(408, 'idle'));
         return;
       }
 
-      idleTimer = setTimeout(checkIdle, UPLOAD_IDLE_MS - idle);
+      this.idleTimer = setTimeout(checkIdle, UPLOAD_IDLE_MS - idle, this);
     }
 
-    function ack(probe: boolean): void {
-      ackedSeq = session.lastSeq;
-      session.event(
-        probe
-          ? `["__ack__",{"seq":${ackedSeq},"probe":true},null]`
-          : `["__ack__",{"seq":${ackedSeq}},null]`,
+    private ack(probe: boolean): void {
+      const seq = (this.ackedSeq = this.session.lastSeq);
+      this.session.event(
+        probe ? `["__ack__",{"seq":${seq},"probe":true},null]` : `["__ack__",{"seq":${seq}},null]`,
       );
     }
 
-    function flushAck(): void {
-      ackTimer = null;
-      if (!stopped && session.lastSeq > ackedSeq) ack(false);
+    flushAck(): void {
+      this.ackTimer = null;
+      if (!this.isStopped && this.session.lastSeq > this.ackedSeq) this.ack(false);
     }
 
-    function takeLane(first: number): boolean {
+    private takeLane(first: number): boolean {
+      const { session } = this;
       if (first < 1 || first > session.lastSeq + 1) {
-        breakRules('data frames are missing');
+        this.breakRules('data frames are missing');
         return false;
       }
 
-      if (session.laneUpload !== control) {
+      if (session.laneUpload !== this) {
         session.laneUpload?.stop(errorAnswer(409, 'lane-taken'));
         if (session.lanes.data) {
-          breakRules('an upload and a POST at once in the data lane');
+          this.breakRules('an upload and a POST at once in the data lane');
           return false;
         }
 
         session.lanes.data = true;
-        session.laneUpload = control;
+        session.laneUpload = this;
       }
 
-      started = true;
-      seq = first - 1;
+      this.started = true;
+      this.seq = first - 1;
       // The client starts again from its first frame without an ack, so the frames the server
       // already has need an ack too: the old upload's waiting ack went when it lost the lane.
-      ackedSeq = Math.min(ackedSeq, seq);
-      if (session.lastSeq > ackedSeq) ackTimer ??= setTimeout(flushAck, ACK_DELAY_MS);
+      this.ackedSeq = Math.min(this.ackedSeq, this.seq);
+      if (session.lastSeq > this.ackedSeq) {
+        this.ackTimer ??= setTimeout(flushAck, ACK_DELAY_MS, this);
+      }
 
       return true;
     }
 
     /** Reads the frames of `data` from `offset`. A promise when it waits for room. */
-    function consume(data: Uint8Array, offset: number): Promise<void> | null {
+    private consume(data: Uint8Array, offset: number): Promise<void> | null {
+      const { session } = this;
       const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-      while (!stopped && data.byteLength - offset >= FRAME_HEADER_BYTES) {
+      while (!this.isStopped && data.byteLength - offset >= FRAME_HEADER_BYTES) {
         const type = data[offset]!;
         const length = view.getUint32(offset + 1, false);
         if (length > maxPostBytes - FRAME_HEADER_BYTES) {
-          stop(errorAnswer(413, 'too-large'));
+          this.stop(errorAnswer(413, 'too-large'));
           return null;
         }
 
@@ -588,47 +607,47 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
         if (end > data.byteLength) break;
 
         if (type === PROBE_FRAME) {
-          ack(true);
+          this.ack(true);
         } else if (type === START_FRAME) {
           if (length !== 4) {
-            breakRules('bad upload start frame');
+            this.breakRules('bad upload start frame');
             return null;
           }
 
-          if (!takeLane(view.getUint32(offset + FRAME_HEADER_BYTES, false))) return null;
+          if (!this.takeLane(view.getUint32(offset + FRAME_HEADER_BYTES, false))) return null;
         } else {
-          if (!started) {
-            breakRules('upload data before its start frame');
+          if (!this.started) {
+            this.breakRules('upload data before its start frame');
             return null;
           }
 
-          const frameSeq = seq + 1;
+          const frameSeq = this.seq + 1;
           if (frameSeq > session.lastSeq) {
             const frame = parseFrame(type, data.subarray(offset + FRAME_HEADER_BYTES, end));
             if (!frame) {
-              breakRules('bad upload frame');
+              this.breakRules('bad upload frame');
               return null;
             }
 
-            if (!hasRoom(session, frame)) return waitForRoom(data, offset);
+            if (!hasRoom(session, frame)) return this.waitForRoom(data, offset);
 
             handOver(session, frame);
             session.lastSeq = frameSeq;
-            ackTimer ??= setTimeout(flushAck, ACK_DELAY_MS);
+            this.ackTimer ??= setTimeout(flushAck, ACK_DELAY_MS, this);
           }
 
-          seq = frameSeq;
+          this.seq = frameSeq;
         }
 
         offset = end;
       }
 
-      if (!stopped && offset < data.byteLength) {
+      if (!this.isStopped && offset < data.byteLength) {
         // A copy, also for a Node Buffer, whose `slice` is a view.
         const rest = new Uint8Array(data.subarray(offset));
-        carry = [rest];
-        carryBytes = rest.byteLength;
-        carryNeeds =
+        this.carry = [rest];
+        this.carryBytes = rest.byteLength;
+        this.carryNeeds =
           rest.byteLength < FRAME_HEADER_BYTES
             ? FRAME_HEADER_BYTES
             : FRAME_HEADER_BYTES + view.getUint32(offset + 1, false);
@@ -637,53 +656,58 @@ export function createHttpHub(options: HttpHubOptions): HttpHub {
       return null;
     }
 
-    function waitForRoom(data: Uint8Array, offset: number): Promise<void> {
+    private waitForRoom(data: Uint8Array, offset: number): Promise<void> {
       return new Promise<void>((resolve) => {
-        waiting = resolve;
-        session.roomWaiter = resolve;
+        this.waiting = resolve;
+        this.session.roomWaiter = resolve;
       }).then(() => {
-        waiting = null;
-        lastActivity = Date.now();
-        return stopped ? undefined : (consume(data, offset) ?? undefined);
+        this.waiting = null;
+        this.lastActivity = Date.now();
+        return this.isStopped ? undefined : (this.consume(data, offset) ?? undefined);
       });
     }
 
-    return {
-      stopped: stoppedPromise,
-      push(chunk) {
-        if (stopped) return null;
+    push(chunk: Uint8Array): Promise<void> | null {
+      if (this.isStopped) return null;
 
-        lastActivity = Date.now();
-        if (carry.length === 0) return consume(chunk, 0);
+      this.lastActivity = Date.now();
+      if (this.carry.length === 0) return this.consume(chunk, 0);
 
-        // A copy: an adapter may reuse its chunk buffer after `push` returns.
-        carry.push(new Uint8Array(chunk));
-        carryBytes += chunk.byteLength;
-        if (carryBytes < carryNeeds) return null;
+      // A copy: an adapter may reuse its chunk buffer after `push` returns.
+      this.carry.push(new Uint8Array(chunk));
+      this.carryBytes += chunk.byteLength;
+      if (this.carryBytes < this.carryNeeds) return null;
 
-        const data = new Uint8Array(carryBytes);
-        let at = 0;
-        for (const part of carry) {
-          data.set(part, at);
-          at += part.byteLength;
-        }
+      const data = new Uint8Array(this.carryBytes);
+      let at = 0;
+      for (const part of this.carry) {
+        data.set(part, at);
+        at += part.byteLength;
+      }
 
-        carry = [];
-        carryBytes = 0;
+      this.carry = [];
+      this.carryBytes = 0;
 
-        return consume(data, 0);
-      },
-      finish() {
-        if (stopped) return errorAnswer(410, 'closed');
+      return this.consume(data, 0);
+    }
 
-        const broken = carry.length > 0;
-        if (session.lastSeq > ackedSeq) ack(false);
-        release();
+    finish(): HttpAnswer {
+      if (this.isStopped) return errorAnswer(410, 'closed');
 
-        return broken ? errorAnswer(400, 'aborted') : NO_CONTENT;
-      },
-      cancel: release,
-    };
+      const broken = this.carry.length > 0;
+      if (this.session.lastSeq > this.ackedSeq) this.ack(false);
+      this.release();
+
+      return broken ? errorAnswer(400, 'aborted') : NO_CONTENT;
+    }
+  }
+
+  function checkIdle(upload: Upload): void {
+    upload.checkIdle();
+  }
+
+  function flushAck(upload: Upload): void {
+    upload.flushAck();
   }
 
   return { maxPostBytes, openStream, beginPost, beginUpload };

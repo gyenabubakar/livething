@@ -1,7 +1,9 @@
 import { createServer } from 'node:http';
 import { createHttpHub } from '@livething/server/adapters';
 import { describe, expect, it } from 'vitest';
+import type { ConnectionHandle } from '@livething/server/adapters';
 import { createNodeHttpHandler } from './http.ts';
+import type { ConnectionTransport } from './socket.ts';
 
 describe('the Node http stream request', () => {
   it('rejects and ends the response when attach throws', async () => {
@@ -57,6 +59,50 @@ describe('the Node http stream request', () => {
     const response = await answer;
     expect(response.status).toBe(503);
     expect(response.headers.get('LiveThing-Error')).toBe('shutting-down');
+    await new Promise((resolve) => http.close(resolve));
+  });
+
+  it('sends the events of one event loop turn as one write, and counts them as buffered', async () => {
+    let transport: ConnectionTransport | undefined;
+    const handle = createNodeHttpHandler({
+      hub: createHttpHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
+      originAllowed: () => true,
+      authenticate: async () => ({}),
+      attach(opened) {
+        transport = opened;
+        return { handleClose: async () => {} } as unknown as ConnectionHandle;
+      },
+      shutdownSignal: new AbortController().signal,
+    });
+
+    const writes: string[] = [];
+    const http = createServer((request, response) => {
+      const write = response.write.bind(response) as (chunk: Uint8Array) => boolean;
+      response.write = ((chunk: Uint8Array) => {
+        writes.push(Buffer.from(chunk).toString());
+        return write(chunk);
+      }) as typeof response.write;
+      void handle(request, response);
+    });
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+    const { port } = http.address() as { port: number };
+
+    const response = await fetch(`http://127.0.0.1:${port}/huddle`, {
+      headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const before = writes.length;
+
+    transport!.send({ kind: 'text', text: '"first"' });
+    transport!.send({ kind: 'text', text: '"second"' });
+    expect(writes.length).toBe(before);
+    expect(transport!.bufferedAmount()).toBeGreaterThanOrEqual(31);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(writes.slice(before)).toEqual(['data: "first"\n\ndata: "second"\n\n']);
+
+    transport!.close(1000, 'done');
+    expect(await response.text()).toContain('data: "first"\n\ndata: "second"\n\n');
     await new Promise((resolve) => http.close(resolve));
   });
 });

@@ -17,6 +17,28 @@ describe('encodeBase64', () => {
       expect(encodeBase64(bytes, true)).toBe(Buffer.from(bytes).toString('base64url'));
     }
   });
+
+  it('encodes a view into a larger buffer by its own bytes only', () => {
+    const whole = Uint8Array.from({ length: 20 }, (_, i) => i);
+    expect(encodeBase64(whole.subarray(5, 12))).toBe(
+      Buffer.from(whole.subarray(5, 12)).toString('base64'),
+    );
+  });
+
+  // Browsers have no `Buffer`, so they use the encoder written in JavaScript.
+  it('encodes the same with no Buffer', async () => {
+    vi.stubGlobal('Buffer', undefined);
+    vi.resetModules();
+    try {
+      const fresh = await import('./base64.ts');
+      for (const bytes of samples) {
+        expect(fresh.encodeBase64(bytes)).toBe(encodeBase64(bytes));
+        expect(fresh.encodeBase64(bytes, true)).toBe(encodeBase64(bytes, true));
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe('decodeBase64', () => {

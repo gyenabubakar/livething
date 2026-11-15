@@ -25,11 +25,31 @@ function asciiText(chars: Uint8Array): string {
   return parts.join('');
 }
 
-// `Uint8Array.prototype.toBase64` is too new for Node 22 and 24, so LiveThing encodes by hand.
-// It writes the character codes into bytes and turns them into text in large pieces: building
-// the string one character at a time takes seconds for a 32 MiB message.
+interface NativeBuffer {
+  from(
+    buffer: ArrayBufferLike,
+    offset: number,
+    length: number,
+  ): { toString(encoding: string): string };
+}
+
+/**
+ * Node's `Buffer`, also on Cloudflare with `nodejs_compat`. It encodes in native code, several
+ * times faster than the loop below, which the server feels on every binary event it streams.
+ */
+const nativeBuffer = (globalThis as { Buffer?: NativeBuffer }).Buffer;
+
+// `Uint8Array.prototype.toBase64` is too new for Node 22 and 24, so LiveThing encodes by hand
+// where there is no `Buffer`. It writes the character codes into bytes and turns them into text
+// in large pieces: building the string one character at a time takes seconds for a 32 MiB message.
 /** Encodes bytes as base64 with padding, or as base64url with no padding when `url` is true. */
 export function encodeBase64(bytes: Uint8Array, url = false): string {
+  if (nativeBuffer) {
+    return nativeBuffer
+      .from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+      .toString(url ? 'base64url' : 'base64');
+  }
+
   const alphabet = url ? URL_SAFE : STANDARD;
   const tail = bytes.length % 3;
   const whole = bytes.length - tail;

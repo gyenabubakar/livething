@@ -1,6 +1,12 @@
 const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443' };
 const OTHER_SITE = new Set(['cross-site', 'same-site']);
 
+/** What the origin check reads: a web `Request` has it, and an adapter can pass less. */
+export interface OriginCheckRequest {
+  readonly headers: { get(name: string): string | null };
+  readonly url: string;
+}
+
 /**
  * Builds the check that adapters run before `authenticate`. A request with no `Origin`
  * header passes, because it comes from a client that is not a browser: a browser sends
@@ -16,7 +22,7 @@ const OTHER_SITE = new Set(['cross-site', 'same-site']);
  */
 export function createOriginCheck(
   allowedOrigins: readonly string[] = [],
-): (request: Request) => boolean {
+): (request: OriginCheckRequest) => boolean {
   const allowed = new Set(allowedOrigins.map(parseAllowedOrigin));
 
   return (request) => {

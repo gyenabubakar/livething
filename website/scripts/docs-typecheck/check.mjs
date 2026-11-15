@@ -201,7 +201,7 @@ function pageFile(containing, name) {
   const ownsFiles =
     example?.page.startsWith('6.recipes/01.framework-hooks/') ||
     example?.page.startsWith('4.client/07.plugins/') ||
-    example?.page.startsWith('1.start/05') ||
+    example?.page.startsWith('1.start/06.quickstart') ||
     example?.page.startsWith('2.learn/11.identity-and-access') ||
     (example?.page === NODE_PAGE && NITRO_SECTIONS.includes(example.section));
   if (!ownsFiles) return undefined;

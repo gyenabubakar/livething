@@ -43,6 +43,77 @@ export interface NodeHttpResponse {
   /** Only on `node:http`. HTTP/2 sends the headers with `writeHead`. */
   flushHeaders?(): void;
   readonly writableLength?: number;
+  /** Only on `node:http2`: the stream the response writes to. */
+  readonly stream?: Corkable;
+  /** On `node:http`, the TCP socket. `null` once the response is done. */
+  readonly socket?: Corkable | null;
+}
+
+interface Corkable {
+  cork(): void;
+  uncork(): void;
+}
+
+/** The events an event stream holds until the end of this event loop turn. */
+interface HeldEvents {
+  response: NodeHttpResponse;
+  chunks: Uint8Array[];
+  bytes: number;
+}
+
+/**
+ * The event streams holding events. Every POST read in one turn can broadcast, and each
+ * broadcast writes to every member. Held, a member gets them all as one write: one HTTP/1.1
+ * chunk or HTTP/2 DATA frame and one system call, instead of one each. Node frames each write
+ * of a `node:http` response as its own chunk, so corking its socket would still cost four
+ * socket writes for each event. `setImmediate` runs once the turn has read its I/O, so an event
+ * waits for no new I/O.
+ */
+const heldThisTurn = new Set<HeldEvents>();
+
+/** A stream holding this many bytes sends them at once, as `ws` sockets do. */
+const HOLD_BYTES = 64 * 1024;
+
+/**
+ * Held events smaller than this on average are copied into one write, which costs less than a
+ * write for each. Bigger ones go as corked writes, with no copy.
+ */
+const COPY_BYTES = 1024;
+
+function flushAll(): void {
+  for (const held of heldThisTurn) flush(held);
+}
+
+function flush(held: HeldEvents): void {
+  heldThisTurn.delete(held);
+  const { chunks, bytes } = held;
+  if (chunks.length === 0) return;
+
+  held.chunks = [];
+  held.bytes = 0;
+  const { response } = held;
+  const corked = bytes >= chunks.length * COPY_BYTES ? (response.stream ?? response.socket) : null;
+  if (chunks.length === 1) {
+    response.write(chunks[0]!);
+  } else if (corked) {
+    // A corked HTTP/2 stream or TCP socket sends its writes together, with no copy.
+    corked.cork();
+    for (const chunk of chunks) response.write(chunk);
+    corked.uncork();
+  } else {
+    response.write(Buffer.concat(chunks, bytes));
+  }
+}
+
+function holdEvent(held: HeldEvents, chunk: Uint8Array): void {
+  if (held.chunks.length === 0) {
+    if (heldThisTurn.size === 0) setImmediate(flushAll);
+    heldThisTurn.add(held);
+  }
+
+  held.chunks.push(chunk);
+  held.bytes += chunk.byteLength;
+  if (held.bytes >= HOLD_BYTES) flush(held);
 }
 
 /** What the http handler needs from its endpoint. */
@@ -89,9 +160,17 @@ export function createNodeHttpHandler(
     }
 
     if (request.method === 'POST') {
-      const uploading = header(request, UPLOAD_HEADER.toLowerCase()) === 'stream';
-      writeAnswer(response, await (uploading ? upload(hub, request) : post(hub, request)), cors);
-      if (uploading && !request.complete) endBody(request, response);
+      if (header(request, UPLOAD_HEADER.toLowerCase()) !== 'stream') {
+        writeAnswer(response, await post(hub, request), cors);
+        return;
+      }
+
+      // An upload lasts as long as the connection. Like the event stream, it returns at once and
+      // is answered later, so no suspended `async` call holds memory for each connection.
+      void upload(hub, request).then((answer) => {
+        writeAnswer(response, answer, cors);
+        if (!request.complete) endBody(request, response);
+      });
       return;
     }
 
@@ -155,11 +234,18 @@ async function openStream(deps: NodeHttpDeps, stream: StreamRequest): Promise<vo
 
   // Send the headers now: the client waits for them before it reads any event.
   response.flushHeaders?.();
+  const held: HeldEvents = { response, chunks: [], bytes: 0 };
   const opened = hub.openStream({
-    write: (chunk) => void response.write(chunk),
-    end: () => void response.end(),
-    terminate: () => void response.destroy(),
-    bufferedAmount: () => response.writableLength ?? 0,
+    write: (chunk) => holdEvent(held, chunk),
+    end() {
+      flush(held);
+      response.end();
+    },
+    terminate() {
+      flush(held);
+      response.destroy();
+    },
+    bufferedAmount: () => (response.writableLength ?? 0) + held.bytes,
     backpressureSupported: true,
   });
   response.once('close', () => opened.ended());
@@ -232,12 +318,14 @@ function upload(hub: HttpHub, request: NodeHttpRequest): Promise<HttpAnswer> {
       settle(errorAnswer(400, 'aborted'));
     }
 
+    // `on`, not `once`: each `once` wraps its listener in a bound function and a state object,
+    // and they stay for the whole upload. `settle` and `broke` run once anyway.
     request.on('data', onData);
-    request.once('end', () => settle(uploading.finish()));
-    request.once('error', broke);
-    request.once('close', broke);
+    request.on('end', () => settle(uploading.finish()));
+    request.on('error', broke);
+    request.on('close', broke);
     // An HTTP/2 stream reset ends a compatibility request with `aborted`, not always `close`.
-    request.once('aborted', broke);
+    request.on('aborted', broke);
     void uploading.stopped.then((answer) => {
       request.pause();
       settle(answer);
@@ -266,26 +354,45 @@ function endBody(request: NodeHttpRequest, response: NodeHttpResponse): void {
 }
 
 /** The body, `null` when it is over the limit, or `undefined` when it did not arrive whole. */
-async function readBody(
-  request: NodeHttpRequest,
-  limit: number,
-): Promise<Uint8Array | null | undefined> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  try {
-    for await (const chunk of request as AsyncIterable<Buffer>) {
-      size += chunk.byteLength;
-      if (size > limit) return null;
+// Events, not `for await`: an async iterator for each POST costs more than reading its body.
+function readBody(request: NodeHttpRequest, limit: number): Promise<Uint8Array | null | undefined> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+    function settle(result: Uint8Array | null | undefined): void {
+      if (done) return;
 
-      chunks.push(chunk);
+      done = true;
+      request.off('data', onData);
+      resolve(result);
     }
-  } catch {
-    return undefined;
-  }
 
-  const body = Buffer.concat(chunks);
+    function onData(chunk: Buffer): void {
+      size += chunk.byteLength;
+      if (size <= limit) {
+        chunks.push(chunk);
+        return;
+      }
 
-  return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+      // As leaving a `for await` early did: drop the request, and with it the rest of the body.
+      request.destroy();
+      settle(null);
+    }
+
+    function broke(): void {
+      settle(undefined);
+    }
+
+    request.on('data', onData);
+    request.on('end', () => {
+      const body = chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks, size);
+      settle(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+    });
+    request.on('error', broke);
+    request.on('close', broke);
+    request.on('aborted', broke);
+  });
 }
 
 function header(request: NodeHttpRequest, name: string): string | null {
