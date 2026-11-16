@@ -24,6 +24,7 @@
 //   LOAD_SERVER_FLAGS     extra Node.js flags for the server process
 //   LOAD_H2_ENTRY=stream  on the HTTP/2 modes, serve the raw streams with `handleStream`
 //                         instead of a compatibility server with `handle`
+//   LOAD_WARM=on          run every step twice in the same server and report only the second time
 import { fork } from 'node:child_process';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import http from 'node:http';
@@ -616,7 +617,18 @@ async function openClients(n, concurrency = 100) {
 
 const results = [];
 
+// LOAD_WARM=on runs every step twice in the same server and reports only the second time. V8
+// compiles a server's code on other threads while it warms up, and the server's CPU time counts
+// those threads, so the first time a step runs it measures some of that compiling too.
+const warm = process.env.LOAD_WARM === 'on';
+let warming = false;
+
 async function step(name, measure, run) {
+  if (warming) {
+    await run();
+    return undefined;
+  }
+
   const { units, unit: unitLabel } = measure;
 
   const prefixes = onlySteps?.filter((wanted) => name.startsWith(wanted)) ?? [];
@@ -661,145 +673,164 @@ function sizeLabel(bytes) {
   return bytes >= 1024 ? `${bytes / 1024} KiB` : `${bytes} B`;
 }
 
-const baseline = await serverStats();
-let clients;
-const connect = await step('connect', { units: connectionCount, unit: 'connection' }, async () => {
-  clients = await openClients(connectionCount);
-});
-const connectRow = results.find((row) => row.step === 'connect');
-if (connectRow) {
-  connectRow.heapBytesPerConnection = Math.round(
-    (connect.after.memory.heapUsed - baseline.memory.heapUsed) / connectionCount,
-  );
-}
-
-const echoesEach = 10;
-await step('echo', { units: connectionCount * echoesEach, unit: 'message' }, async () => {
+/** Run every step once, from the first connection to the last disconnect. */
+async function runSteps() {
   counts.clear();
-  for (const client of clients) for (let i = 0; i < echoesEach; i++) client.echo();
-  await waitFor(() => count('echoed') >= connectionCount * echoesEach, 'echo');
-});
+  const baseline = await serverStats();
 
-await step('request', { units: connectionCount * echoesEach, unit: 'request' }, async () => {
-  counts.clear();
-  for (const client of clients) for (let i = 0; i < echoesEach; i++) client.request();
-  await waitFor(() => count('get-profile') >= connectionCount * echoesEach, 'request');
-});
-
-// A small message is sent 10 times by each client, a large one once, so each step moves a
-// similar amount of data.
-function sendsFor(size) {
-  return size <= 4096 ? 10 : 1;
-}
-
-for (const size of binarySizes) {
-  const each = sendsFor(size);
-  await step(
-    `binary echo ${sizeLabel(size)}`,
-    { units: connectionCount * each, unit: 'message' },
+  let clients;
+  const connect = await step(
+    'connect',
+    { units: connectionCount, unit: 'connection' },
     async () => {
-      counts.clear();
-      const bytes = Buffer.alloc(size, 7);
-      for (const client of clients) {
-        const frame = client.avatarFrame(bytes);
-        for (let i = 0; i < each; i++) client.uploadAvatar(frame);
-      }
-
-      await waitFor(() => count('avatar-preview') >= connectionCount * each, 'binary echo');
+      clients = await openClients(connectionCount);
     },
   );
-}
+  const connectRow = results.find((row) => row.step === 'connect');
+  if (connectRow) {
+    connectRow.heapBytesPerConnection = Math.round(
+      (connect.after.memory.heapUsed - baseline.memory.heapUsed) / connectionCount,
+    );
+  }
 
-const roomSize = 10;
-const roomCount = connectionCount / roomSize;
-await step(
-  `join ${roomCount} rooms of ${roomSize}`,
-  { units: connectionCount, unit: 'join' },
-  async () => {
+  const echoesEach = 10;
+  await step('echo', { units: connectionCount * echoesEach, unit: 'message' }, async () => {
     counts.clear();
-    clients.forEach((client, index) => client.join(`room:small${index % roomCount}`));
-    await waitFor(() => count('joined') >= connectionCount, 'small join');
-    if (waitForPresence) {
-      const pairs = roomCount * ((roomSize * (roomSize - 1)) / 2);
-      await waitFor(() => count('member online') >= pairs, 'small join presence');
-    }
-  },
-);
-
-const smallSends = 5;
-// A broadcast from a handler skips its sender, so each send reaches the room minus one.
-const smallDeliveries = connectionCount * smallSends * (roomSize - 1);
-await step(
-  `send in rooms of ${roomSize}`,
-  { units: smallDeliveries, unit: 'delivery' },
-  async () => {
-    counts.clear();
-    clients.forEach((client, index) => {
-      for (let i = 0; i < smallSends; i++) {
-        client.sendMessage(`room:small${index % roomCount}`, 'hi all');
-      }
-    });
-    await waitFor(() => count('message') >= smallDeliveries, 'small send');
-  },
-);
-
-for (const size of bigRooms) {
-  await step(`join one room of ${size}`, { units: size, unit: 'join' }, async () => {
-    counts.clear();
-    for (let i = 0; i < size; i++) clients[i].join(`room:big${size}`);
-    await waitFor(() => count('joined') >= size, 'big join');
-    if (waitForPresence) {
-      await waitFor(() => count('member online') >= (size * (size - 1)) / 2, 'big join presence');
-    }
+    for (const client of clients) for (let i = 0; i < echoesEach; i++) client.echo();
+    await waitFor(() => count('echoed') >= connectionCount * echoesEach, 'echo');
   });
-}
 
-const fanOutSize = bigRooms.at(-1);
-if (fanOutSize) {
-  const fanOutRoom = `room:big${fanOutSize}`;
-  const senders = Math.min(20, fanOutSize);
-  const sendsEach = 10;
-  const fanOutDeliveries = senders * sendsEach * (fanOutSize - 1);
-  await step(
-    `fan-out to ${fanOutSize}`,
-    { units: fanOutDeliveries, unit: 'delivery' },
-    async () => {
-      counts.clear();
-      for (let s = 0; s < senders; s++) {
-        for (let i = 0; i < sendsEach; i++) clients[s].sendMessage(fanOutRoom, 'hello room');
-      }
+  await step('request', { units: connectionCount * echoesEach, unit: 'request' }, async () => {
+    counts.clear();
+    for (const client of clients) for (let i = 0; i < echoesEach; i++) client.request();
+    await waitFor(() => count('get-profile') >= connectionCount * echoesEach, 'request');
+  });
 
-      await waitFor(() => count('message') >= fanOutDeliveries, 'fan-out');
-    },
-  );
+  // A small message is sent 10 times by each client, a large one once, so each step moves a
+  // similar amount of data.
+  function sendsFor(size) {
+    return size <= 4096 ? 10 : 1;
+  }
 
   for (const size of binarySizes) {
-    // 100 small frames, or 2 large ones, so each step moves a similar amount of data.
-    const sends = size <= 4096 ? 100 : 2;
-    const binarySenders = Math.min(senders, sends);
-    const deliveries = sends * (fanOutSize - 1);
+    const each = sendsFor(size);
     await step(
-      `binary fan-out ${sizeLabel(size)} to ${fanOutSize}`,
-      { units: deliveries, unit: 'delivery' },
+      `binary echo ${sizeLabel(size)}`,
+      { units: connectionCount * each, unit: 'message' },
       async () => {
         counts.clear();
         const bytes = Buffer.alloc(size, 7);
-        for (let i = 0; i < sends; i++) {
-          const client = clients[i % binarySenders];
-          client.shareScreenFrame(client.screenFrame(fanOutRoom, bytes));
+        for (const client of clients) {
+          const frame = client.avatarFrame(bytes);
+          for (let i = 0; i < each; i++) client.uploadAvatar(frame);
         }
 
-        await waitFor(() => count('screen-frame') >= deliveries, 'binary fan-out');
+        await waitFor(() => count('avatar-preview') >= connectionCount * each, 'binary echo');
       },
     );
   }
+
+  const roomSize = 10;
+  const roomCount = connectionCount / roomSize;
+  await step(
+    `join ${roomCount} rooms of ${roomSize}`,
+    { units: connectionCount, unit: 'join' },
+    async () => {
+      counts.clear();
+      clients.forEach((client, index) => client.join(`room:small${index % roomCount}`));
+      await waitFor(() => count('joined') >= connectionCount, 'small join');
+      if (waitForPresence) {
+        const pairs = roomCount * ((roomSize * (roomSize - 1)) / 2);
+        await waitFor(() => count('member online') >= pairs, 'small join presence');
+      }
+    },
+  );
+
+  const smallSends = 5;
+  // A broadcast from a handler skips its sender, so each send reaches the room minus one.
+  const smallDeliveries = connectionCount * smallSends * (roomSize - 1);
+  await step(
+    `send in rooms of ${roomSize}`,
+    { units: smallDeliveries, unit: 'delivery' },
+    async () => {
+      counts.clear();
+      clients.forEach((client, index) => {
+        for (let i = 0; i < smallSends; i++) {
+          client.sendMessage(`room:small${index % roomCount}`, 'hi all');
+        }
+      });
+      await waitFor(() => count('message') >= smallDeliveries, 'small send');
+    },
+  );
+
+  for (const size of bigRooms) {
+    await step(`join one room of ${size}`, { units: size, unit: 'join' }, async () => {
+      counts.clear();
+      for (let i = 0; i < size; i++) clients[i].join(`room:big${size}`);
+      await waitFor(() => count('joined') >= size, 'big join');
+      if (waitForPresence) {
+        await waitFor(() => count('member online') >= (size * (size - 1)) / 2, 'big join presence');
+      }
+    });
+  }
+
+  const fanOutSize = bigRooms.at(-1);
+  if (fanOutSize) {
+    const fanOutRoom = `room:big${fanOutSize}`;
+    const senders = Math.min(20, fanOutSize);
+    const sendsEach = 10;
+    const fanOutDeliveries = senders * sendsEach * (fanOutSize - 1);
+    await step(
+      `fan-out to ${fanOutSize}`,
+      { units: fanOutDeliveries, unit: 'delivery' },
+      async () => {
+        counts.clear();
+        for (let s = 0; s < senders; s++) {
+          for (let i = 0; i < sendsEach; i++) clients[s].sendMessage(fanOutRoom, 'hello room');
+        }
+
+        await waitFor(() => count('message') >= fanOutDeliveries, 'fan-out');
+      },
+    );
+
+    for (const size of binarySizes) {
+      // 100 small frames, or 2 large ones, so each step moves a similar amount of data.
+      const sends = size <= 4096 ? 100 : 2;
+      const binarySenders = Math.min(senders, sends);
+      const deliveries = sends * (fanOutSize - 1);
+      await step(
+        `binary fan-out ${sizeLabel(size)} to ${fanOutSize}`,
+        { units: deliveries, unit: 'delivery' },
+        async () => {
+          counts.clear();
+          const bytes = Buffer.alloc(size, 7);
+          for (let i = 0; i < sends; i++) {
+            const client = clients[i % binarySenders];
+            client.shareScreenFrame(client.screenFrame(fanOutRoom, bytes));
+          }
+
+          await waitFor(() => count('screen-frame') >= deliveries, 'binary fan-out');
+        },
+      );
+    }
+  }
+
+  await step('disconnect', { units: connectionCount, unit: 'connection' }, async () => {
+    await Promise.all(clients.map((client) => client.close()));
+    // The server's close handlers run after the client sees the close.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  });
+
+  return baseline;
 }
 
-await step('disconnect', { units: connectionCount, unit: 'connection' }, async () => {
-  await Promise.all(clients.map((client) => client.close()));
-  // The server's close handlers run after the client sees the close.
-  await new Promise((resolve) => setTimeout(resolve, 500));
-});
+if (warm) {
+  warming = true;
+  await runSteps();
+  warming = false;
+}
+
+const baseline = await runSteps();
 
 const unmatched = onlySteps?.filter((prefix) => !matchedSteps.has(prefix)) ?? [];
 if (unmatched.length > 0) throw new Error(`LOAD_STEPS names no step: ${unmatched.join(', ')}`);

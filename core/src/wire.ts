@@ -107,8 +107,10 @@ function isExchangeMetadata(group: Record<string, unknown>): boolean {
   );
 }
 
-function isChannelMetadata(group: Record<string, unknown>): boolean {
+/** Whether a value is a valid `channel` group of a frame's metadata. */
+export function isChannelMetadata(group: unknown): group is LiveThingChannelMetadata {
   return (
+    isRecord(group) &&
     hasOnlyKeys(group, [
       'name',
       'family',

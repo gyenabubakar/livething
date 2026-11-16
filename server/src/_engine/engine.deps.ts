@@ -360,6 +360,11 @@ function buildChannelRuntime(core: EngineCore) {
     sessionEndHooks: core.hooks.sessionEnd,
     asyncContext: core.asyncContext,
 
+    // Read when used: the adapter can set the instance id after this bag is built.
+    get instanceId() {
+      return core.engineInstanceId;
+    },
+
     broadcastToChannel: (opts: ChannelPrimitive.BroadcastToChannelOptions) => {
       OutgoingRuntime.broadcastToChannel(dispatchRuntime(core), opts);
     },

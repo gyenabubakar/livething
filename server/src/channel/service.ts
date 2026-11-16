@@ -80,11 +80,7 @@ const channelService: ChannelService = {
   },
 
   subscribeFromServer(core, ref, opts) {
-    return EngineChannelFrames.subscribeFromServer(
-      { ...channelRuntime(core), instanceId: core.engineInstanceId },
-      ref,
-      opts,
-    );
+    return EngineChannelFrames.subscribeFromServer(channelRuntime(core), ref, opts);
   },
 };
 

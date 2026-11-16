@@ -65,7 +65,7 @@ export function createChannelMembershipKey(
   channelName: string,
   channelFamily: string | null,
 ): string {
-  return JSON.stringify([channelFamily, channelName]);
+  return subscribeKey(channelName, channelFamily);
 }
 
 /** Record that a connection has joined a channel, updating the member index. */
@@ -660,6 +660,20 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<() => void
   };
 }
 
+/** The commit gate of a channel with no gate hooks. */
+function NO_COMMIT_GATE(): void {}
+
+/** Whether a subscribe has a gate hook to run: `check` or `commit`, or `revalidate` on a rejoin. */
+function hasSubscribeGate(runtime: ChannelRuntime, opts: RunSubscribeFlowOptions): boolean {
+  const key = opts.channel.key;
+  if (opts.rejoining) return runtime.revalidateHooks.get(key)?.[0] !== undefined;
+
+  return (
+    runtime.checkHooks.get(key)?.[0] !== undefined ||
+    runtime.commitHooks.get(key)?.[0] !== undefined
+  );
+}
+
 async function runSubscribeFlow(
   runtime: ChannelRuntime,
   connection: RuntimeConnection,
@@ -674,7 +688,12 @@ async function runSubscribeFlow(
 
   let runCommitGate: () => void;
   try {
-    runCommitGate = await runSubscribeGates({ runtime, connection, opts, scope });
+    // Always wait, even with no gates: frames from the same read, such as an
+    // unsubscribe or a newer subscribe, must take their place before this
+    // join commits.
+    runCommitGate = await (hasSubscribeGate(runtime, opts)
+      ? runSubscribeGates({ runtime, connection, opts, scope })
+      : NO_COMMIT_GATE);
   } catch (error) {
     if (!attempt?.abandoned) throw error;
 
@@ -727,9 +746,7 @@ async function runSubscribeFlow(
   runtime.persistAttachment(connection);
 
   const presence = runtime.hasPresence(scope.channel.key);
-  const members = presence ? snapshotMembers(runtime, scope, connection) : [];
-
-  const livething = buildChannelRouting(scope);
+  const members = presence ? snapshotMembers(runtime, scope, connection) : undefined;
 
   // Send confirmation before running onSubscribe, so a throwing hook cannot
   // delay or block it from reaching the client. The membership value tells the
@@ -737,11 +754,9 @@ async function runSubscribeFlow(
   // reconnect ('persistent') rather than re-subscribing it itself
   // ('ephemeral'). The inbox flag tells the client to ack this channel's
   // messages (and only inbox channels) with `__received__`.
-  const confirmation: Record<string, unknown> = {
-    ...livething,
-    source,
-    channelMembership: userSeat ? 'persistent' : 'ephemeral',
-  };
+  const confirmation = buildChannelRouting(scope);
+  confirmation.source = source;
+  confirmation.channelMembership = userSeat ? 'persistent' : 'ephemeral';
 
   if (runtime.isInboxChannel?.(scope.channelName, scope.channelFamily)) {
     confirmation.inbox = true;
@@ -771,11 +786,13 @@ async function runSubscribeFlow(
   }
 
   if (presence) {
+    const routing = buildChannelRouting(scope);
+    routing.source = source;
     try {
       runtime.sendProtocolMessage(connection, {
         event: '__memberSync__',
         payload: { members },
-        livething: { ...livething, source },
+        livething: routing,
       });
     } catch (error) {
       rollbackFailedSubscribe(runtime, connection, { scope, isDurable, stored });
@@ -913,17 +930,15 @@ export interface SubscribeConnectionOptions {
   data: unknown;
 }
 
-export async function subscribeConnection(
+export function subscribeConnection(
   runtime: ChannelRuntime,
   connection: RuntimeConnection,
   opts: SubscribeConnectionOptions,
 ): Promise<void> {
   const scope = resolveChannelByName(runtime, opts.channelName, opts.channelFamily);
-  if (!scope) {
-    throw ChannelNotFound();
-  }
+  if (!scope) return Promise.reject(ChannelNotFound());
 
-  await runSubscribeFlow(runtime, connection, {
+  return runSubscribeFlow(runtime, connection, {
     ...scope,
     data: opts.data,
     source: 'client',

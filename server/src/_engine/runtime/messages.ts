@@ -29,6 +29,7 @@ import {
   abandonSubscribes,
   beginSubscribe,
   finishSubscribe,
+  gateOpened,
   subscribeKey,
 } from './subscribe-order.ts';
 import { connectionBusy, MAX_PENDING_CONNECTION_WORK, runConnectionWork } from './work-queue.ts';
@@ -90,7 +91,7 @@ function connectionHoldsMembership(
   channelName: string,
   channelFamily: string | null,
 ): boolean {
-  return connection.channelMemberships.has(JSON.stringify([channelFamily, channelName]));
+  return connection.channelMemberships.has(subscribeKey(channelName, channelFamily));
 }
 
 /**
@@ -996,18 +997,16 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
  * answers with `pong`, and `keepalive()` listens on `pong` to time the
  * round-trip.
  */
-export async function processTextMessage(
+export function processTextMessage(
   runtime: FrameRuntime,
   connection: RuntimeConnection,
   data: string,
 ): Promise<void> {
   const parsed = data === 'ping' || data === 'pong' ? undefined : parseFrame(data);
-  await processFrame(runtime, connection, {
-    data,
-    parsed,
-    size: utf8ByteLength(data),
-    ...(parsed === INVALID_FRAME ? { invalid: 'Invalid JSON message dropped' } : {}),
-  });
+  const received: ReceivedFrame = { data, parsed, size: utf8ByteLength(data) };
+  if (parsed === INVALID_FRAME) received.invalid = 'Invalid JSON message dropped';
+
+  return processFrame(runtime, connection, received);
 }
 
 /** The runtime bag that the text and the binary receive paths share. */
@@ -1047,13 +1046,7 @@ export async function processFrame(
 ): Promise<void> {
   const { parsed, size, bytes } = received;
   // The frame's bytes count against the connection from now until its handler starts.
-  function answersWaitingRequest(correlationId: string): boolean {
-    return (runtime.answerAwaitedHooks ?? []).some((awaits) =>
-      awaits(connection.id, correlationId),
-    );
-  }
-
-  const counted = waitsInLine(parsed, bytes !== undefined, answersWaitingRequest) ? size : 0;
+  const counted = waitsInLine(runtime, connection, received) ? size : 0;
   const held = connection.pendingBytes ?? 0;
   if (counted > 0 && held + counted > runtime.maxPendingBytes) {
     await refuseBusy(runtime, connection, parsed);
@@ -1069,19 +1062,19 @@ export async function processFrame(
     connection.pendingBytes! -= counted;
   }
 
-  let place: FramePlace = {};
+  let place = NO_PLACE;
   // Before the first await too, so a cancel sent after this start sees it coming.
   const pendingStart = noteUploadStart(runtime, connection, received);
   try {
     // Before the first await, so frames take their place in the order they arrived
     // even when hooks below make this frame wait.
     place = placeFrame(connection, parsed, bytes !== undefined);
-    await processParsedMessage(runtime, connection, {
-      ...received,
-      place,
-      release,
-      pendingStart,
-    });
+    // Every caller passes a frame of its own, so it becomes the message instead of a copy.
+    const message = received as IncomingFrame;
+    message.place = place;
+    message.release = release;
+    message.pendingStart = pendingStart;
+    await processParsedMessage(runtime, connection, message);
   } finally {
     release();
     pendingStart?.end();
@@ -1096,24 +1089,27 @@ export async function processFrame(
  * budget must not stop a client from leaving a channel, cancelling a stream or answering.
  */
 function waitsInLine(
-  parsed: unknown,
-  binary: boolean,
-  answersWaitingRequest: (correlationId: string) => boolean,
+  runtime: FrameRuntime,
+  connection: RuntimeConnection,
+  received: ReceivedFrame,
 ): boolean {
+  const { parsed, bytes } = received;
   if (!Array.isArray(parsed) || typeof parsed[0] !== 'string') return false;
 
   // A binary frame with a framework event name is refused at once, so it never waits.
-  if (Protocol.isProtocolEventName(parsed[0])) return !binary && parsed[0] === '__subscribe__';
+  if (Protocol.isProtocolEventName(parsed[0])) {
+    return bytes === undefined && parsed[0] === '__subscribe__';
+  }
 
   // Only a real answer skips the budget. A frame that only says it answers can still
   // reach a handler and wait for it.
   const exchange = (parsed[2] as { exchange?: { id?: unknown; source?: unknown } } | null)
     ?.exchange;
-  return !(
-    exchange?.source === 'server' &&
-    typeof exchange.id === 'string' &&
-    answersWaitingRequest(exchange.id)
-  );
+  if (exchange?.source !== 'server' || typeof exchange.id !== 'string') return true;
+
+  const correlationId = exchange.id;
+
+  return !(runtime.answerAwaitedHooks ?? []).some((awaits) => awaits(connection.id, correlationId));
 }
 
 /** Answer a frame that would take the connection over its byte budget with `ConnectionBusy`. */
@@ -1146,6 +1142,9 @@ interface FramePlace {
   /** The subscribes that were running when the frame arrived. It runs after them. */
   gate?: SubscribeGate;
 }
+
+/** The place of a frame outside every channel. Places are never changed, so one is shared. */
+const NO_PLACE: FramePlace = Object.freeze({});
 
 /** One received frame with its place in its channel's order. */
 interface IncomingFrame extends ReceivedFrame {
@@ -1182,7 +1181,7 @@ function frameChannelKey(parsed: unknown): string | undefined {
  */
 function placeFrame(connection: RuntimeConnection, parsed: unknown, binary: boolean): FramePlace {
   const key = frameChannelKey(parsed);
-  if (key === undefined) return {};
+  if (key === undefined) return NO_PLACE;
 
   // A binary `__subscribe__` or `__unsubscribe__` is refused, so it must not touch a subscribe.
   const event = binary ? undefined : (parsed as unknown[])[0];
@@ -1223,7 +1222,7 @@ async function waitForTurn(
   }
 
   connection.heldFrames = heldFrames + 1;
-  await gate.opened;
+  await gateOpened(gate);
   connection.heldFrames -= 1;
 
   return !connection.closing;
@@ -1360,15 +1359,23 @@ function mayBeNudge(runtime: FrameRuntime, frame: NudgeCandidate): boolean {
   return !streams.streams.has(frame.event) && !streams.recordedStreams.has(frame.event);
 }
 
+/** What a connection hook is told. Built only when a hook runs. */
+function observation(
+  runtime: FrameRuntime,
+  connection: RuntimeConnection,
+): ConnectionHookObservation {
+  return { connectionId: connection.id, logger: runtime.logger };
+}
+
 async function processParsedMessage(
   runtime: FrameRuntime,
   connection: RuntimeConnection,
   message: IncomingFrame,
 ): Promise<void> {
   const { data, parsed, place, size, release, bytes } = message;
-  const observed = { connectionId: connection.id, logger: runtime.logger };
 
   if (runtime.activityHooks.length > 0) {
+    const observed = observation(runtime, connection);
     await runConnectionHooks(runtime.activityHooks, 'connection activity', observed);
   }
 
@@ -1376,6 +1383,7 @@ async function processParsedMessage(
   // (the engine's reply, `keepalive()`'s measurement), then plugins, then the
   // app — so a plugin or the app always reads a fresh `ctx.latency`.
   if (data === 'ping') {
+    const observed = observation(runtime, connection);
     await runConnectionHooks(runtime.pingHooks, 'ping', observed);
     if (runtime.pluginPingHooks.length > 0) {
       await runPluginConnectionHooks(runtime.pluginPingHooks, 'ping', {
@@ -1390,6 +1398,7 @@ async function processParsedMessage(
   }
 
   if (data === 'pong') {
+    const observed = observation(runtime, connection);
     await runConnectionHooks(runtime.pongHooks, 'pong', observed);
     if (runtime.pluginPongHooks.length > 0) {
       await runPluginConnectionHooks(runtime.pluginPongHooks, 'pong', {
@@ -1416,7 +1425,11 @@ async function processParsedMessage(
   const event = parsed[0];
 
   if (runtime.messageActivityHooks.length > 0) {
-    await runConnectionHooks(runtime.messageActivityHooks, 'message activity', observed);
+    await runConnectionHooks(
+      runtime.messageActivityHooks,
+      'message activity',
+      observation(runtime, connection),
+    );
   }
 
   let livething: Protocol.LiveThingProtocol | undefined;
@@ -1458,10 +1471,15 @@ async function processParsedMessage(
     if (Protocol.isProtocolEventName(event)) {
       if (place.attempt?.abandoned) return;
 
-      const routing = isHeld(place.gate) ? rawFrameRouting(parsed) : undefined;
       // A subscribe has no turn to wait for, and starts here with no await.
-      const turn = { gate: place.gate, event, routing };
-      if (place.attempt || (await waitForTurn(runtime, connection, turn))) {
+      if (
+        place.attempt ||
+        (await waitForTurn(runtime, connection, {
+          gate: place.gate,
+          event,
+          routing: isHeld(place.gate) ? rawFrameRouting(parsed) : undefined,
+        }))
+      ) {
         await dispatchProtocolFrame(runtime, connection, parsed);
       }
 

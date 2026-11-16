@@ -1,5 +1,5 @@
 /** The LiveThing wire protocol. Frames are always [event, payload, metadata]. */
-import { WIRE_LIMITS } from '@livething/core';
+import { isChannelMetadata, WIRE_LIMITS } from '@livething/core';
 import * as v from 'valibot';
 
 const NonNegativeSafeInt = v.pipe(
@@ -307,11 +307,37 @@ const INCOMING_FRAMES = {
 export const IncomingProtocolFrame = v.union(Object.values(INCOMING_FRAMES));
 
 /**
+ * A `__subscribe__` frame whose metadata holds only a valid `channel` group, checked by hand.
+ * The schema makes new objects at each of its layers, and joins are common. Any other shape
+ * returns `undefined` and goes through the schema, so a bad frame gets the same error. The
+ * hand check accepts only frames the schema accepts, and builds the same output.
+ */
+export function parseUsualSubscribeFrame(input: unknown[]): SubscribeFrame | undefined {
+  const metadata = input[2];
+  if (input.length !== 3 || typeof metadata !== 'object' || metadata === null) return undefined;
+
+  for (const key in metadata) if (key !== 'channel') return undefined;
+
+  if (!isChannelMetadata((metadata as { channel?: unknown }).channel)) return undefined;
+
+  return {
+    event: '__subscribe__',
+    payload: input[1],
+    __livething: metadataToLiveThing(metadata) as SubscribeFrame['__livething'],
+  };
+}
+
+/**
  * Parse an incoming protocol frame with the schema of the event it names, so an
  * issue says what is wrong with that frame, not that no frame of the union fits.
  */
 export function parseIncomingProtocolFrame(input: unknown): IncomingProtocolFrame {
   const event = Array.isArray(input) ? (input[0] as unknown) : undefined;
+  if (event === '__subscribe__') {
+    const subscribe = parseUsualSubscribeFrame(input as unknown[]);
+    if (subscribe) return subscribe;
+  }
+
   if (typeof event === 'string' && Object.hasOwn(INCOMING_FRAMES, event)) {
     return v.parse(
       INCOMING_FRAMES[event as keyof typeof INCOMING_FRAMES] as v.GenericSchema<

@@ -5,13 +5,125 @@ import {
   metadataFromLiveThing,
   MetadataSchema,
   OutgoingProtocolFrame,
+  parseIncomingProtocolFrame,
   parseUserEventFrame,
+  parseUsualSubscribeFrame,
   ReadFrame,
   ReplayFrame,
   serializeWireFrame,
+  SubscribeFrame,
   SubscribeOkFrame,
   UserEventFrameSchema,
 } from './protocol.ts';
+
+describe('the hand check of a __subscribe__ frame', () => {
+  const absent = Symbol('absent');
+  const fields = {
+    name: [absent, '', 'room:general', 'x'.repeat(256), 'x'.repeat(257), 5, null],
+    family: [absent, null, '', 'room', 'f'.repeat(128), 'f'.repeat(129), 3, undefined],
+    unsubscribeId: [absent, '', 'leave-1', 'u'.repeat(129)],
+    membership: [absent, 'persistent', 'ephemeral', 'forever'],
+    inbox: [absent, true, 'yes'],
+    readReceipts: [absent, false, 0],
+    extra: [absent, 1],
+  };
+
+  function* channels(): Generator<Record<string, unknown>> {
+    const keys = Object.keys(fields) as (keyof typeof fields)[];
+    function* build(
+      index: number,
+      group: Record<string, unknown>,
+    ): Generator<Record<string, unknown>> {
+      if (index === keys.length) {
+        yield group;
+        return;
+      }
+
+      for (const value of fields[keys[index]!]) {
+        yield* build(index + 1, value === absent ? group : { ...group, [keys[index]!]: value });
+      }
+    }
+
+    yield* build(0, {});
+  }
+
+  function frames(): unknown[][] {
+    const list: unknown[][] = [];
+    for (const channel of channels()) list.push(['__subscribe__', { topic: 'x' }, { channel }]);
+
+    const good = { name: 'room:general' };
+    list.push(
+      ['__subscribe__', null, { channel: good, exchange: { id: 'e1' } }],
+      ['__subscribe__', null, { channel: good, other: {} }],
+      ['__subscribe__', null, { channel: good }, 'extra'],
+      ['__subscribe__', null],
+      ['__subscribe__', null, null],
+      ['__subscribe__', null, {}],
+      ['__subscribe__', null, []],
+      ['__subscribe__', null, [good]],
+      ['__subscribe__', null, { channel: [] }],
+      ['__subscribe__', null, { channel: null }],
+      ['__subscribe__', undefined, { channel: good }],
+    );
+
+    return list;
+  }
+
+  it('accepts only frames the schema accepts, with the same output', () => {
+    let accepted = 0;
+    for (const frame of frames()) {
+      const usual = parseUsualSubscribeFrame(frame);
+      const schema = v.safeParse(SubscribeFrame, frame);
+      if (usual) {
+        accepted += 1;
+        expect(schema.success, JSON.stringify(frame)).toBe(true);
+        expect(usual).toStrictEqual(schema.output);
+      }
+
+      let parsed: unknown;
+      let error: unknown;
+      try {
+        parsed = parseIncomingProtocolFrame(frame);
+      } catch (thrown) {
+        error = thrown;
+      }
+
+      if (schema.success) {
+        expect(parsed, JSON.stringify(frame)).toStrictEqual(schema.output);
+      } else {
+        expect((error as Error).message).toBe(new v.ValiError(schema.issues).message);
+      }
+    }
+
+    expect(accepted).toBeGreaterThan(100);
+  });
+
+  it('takes the usual join frames without the schema', () => {
+    expect(
+      parseUsualSubscribeFrame(['__subscribe__', null, { channel: { name: 'room:1' } }]),
+    ).toEqual({
+      event: '__subscribe__',
+      payload: null,
+      __livething: { channel: 'room:1', channelFamily: null },
+    });
+    expect(
+      parseUsualSubscribeFrame([
+        '__subscribe__',
+        { inviteCode: 'k2' },
+        { channel: { name: 'room:1', family: 'room', unsubscribeId: 'u1', inbox: true } },
+      ]),
+    ).toEqual({
+      event: '__subscribe__',
+      payload: { inviteCode: 'k2' },
+      __livething: {
+        channel: 'room:1',
+        channelFamily: 'room',
+        unsubscribeId: 'u1',
+        inbox: true,
+      },
+    });
+  });
+});
 
 describe('upload metadata', () => {
   it('reads an upload id, seq and size, and writes them back', () => {

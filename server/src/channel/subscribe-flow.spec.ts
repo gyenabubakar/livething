@@ -183,6 +183,49 @@ describe('subscribe, unsubscribe, subscribe with a slower first check', () => {
   });
 });
 
+// A channel with no `check` has nothing to wait for. Its frames that arrive together must still
+// be ordered as the client sent them, so the last request wins.
+describe.each([
+  ['no gate hooks', {}],
+  ['only a commit hook', { commit() {} }],
+])('frames that arrive together on a channel with %s', (_, gates) => {
+  function room() {
+    const base = server({ capabilities: [channels()] });
+    return base.assemble({ handlers: [base.channel('room', gates)] });
+  }
+
+  it('end with the connection a member after subscribe, unsubscribe, subscribe', async () => {
+    const { engine } = await startEngine(room());
+    const { handle, events, connection } = await connect(engine);
+
+    await Promise.all([
+      handle.handleMessage(subscribeFrame),
+      handle.handleMessage(unsubscribeFrame),
+      handle.handleMessage(subscribeFrame),
+    ]);
+
+    const answers = events().filter(
+      (event) => event === '__subscribeOk__' || event === '__unsubscribeOk__',
+    );
+    expect(answers.at(-1)).toBe('__subscribeOk__');
+    expect(hasChannelMembership(connection, 'room', null)).toBe(true);
+  });
+
+  it('cancel the subscribe when an unsubscribe follows it', async () => {
+    const { engine } = await startEngine(room());
+    const { handle, events, connection } = await connect(engine);
+
+    await Promise.all([
+      handle.handleMessage(subscribeFrame),
+      handle.handleMessage(unsubscribeFrame),
+    ]);
+
+    expect(events()).not.toContain('__subscribeOk__');
+    expect(events()).toContain('__unsubscribeOk__');
+    expect(hasChannelMembership(connection, 'room', null)).toBe(false);
+  });
+});
+
 describe('frames queued behind a pending subscribe', () => {
   function limitedRoom(
     gate: Promise<void>,
