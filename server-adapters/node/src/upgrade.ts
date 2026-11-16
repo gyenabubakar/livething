@@ -6,7 +6,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { RawData, WebSocket, WebSocketServer } from 'ws';
 import { closeWebSocket } from './close.ts';
-import { sendToWs, sendWhenOpen, terminateWs } from './socket.ts';
+import { sendToWs, sendWhenOpen, terminateWs, wsBufferedAmount } from './socket.ts';
 import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
 import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
 import type { ConnectionTransport } from './socket.ts';
@@ -181,7 +181,7 @@ function webSocketTransport(socket: WebSocket): ConnectionTransport {
     send: (frame) => sendWhenOpen(socket.readyState, () => sendToWs(socket, frame)),
     close: (code, reason) => socket.close(code, reason),
     terminate: () => terminateWs(socket),
-    bufferedAmount: () => socket.bufferedAmount,
+    bufferedAmount: () => wsBufferedAmount(socket),
     backpressureSupported: true,
   };
 }

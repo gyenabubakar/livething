@@ -14,140 +14,283 @@ export function frameData(frame: TransportFrame): string | Uint8Array<ArrayBuffe
   return frame.kind === 'text' ? frame.text : frame.bytes;
 }
 
-/** `ws` internals a pre-built frame is written through. `@types/ws` does not declare them. */
+interface TcpSocket {
+  cork(): void;
+  uncork(): void;
+  write(chunk: Uint8Array): boolean;
+  readonly writableLength: number;
+  readonly destroyed: boolean;
+}
+
+type SendFrame = (list: readonly (Uint8Array | string)[], callback?: () => void) => void;
+
+interface WsSender {
+  sendFrame: SendFrame;
+  _socket: TcpSocket;
+}
+
+/** `ws` internals the frames are written through. `@types/ws` does not declare them. */
 interface WsInternals {
-  _sender?: { sendFrame?: (list: Buffer[]) => void };
+  _sender?: WsSender;
   _extensions?: Record<string, unknown>;
   _socket?: TcpSocket;
 }
 
-interface TcpSocket {
-  cork(): void;
-  uncork(): void;
-  readonly writableLength: number;
+const { Sender } = ws as unknown as { Sender: { prototype: { sendFrame?: SendFrame } } };
+const wsSendFrame = Sender.prototype.sendFrame;
+
+/**
+ * The frames sent to one socket in this turn and not written yet. A frame is either a whole
+ * frame (`opcode` 0) or a payload that still needs its header.
+ */
+class HeldFrames {
+  readonly payloads: (Uint8Array | string)[] = [];
+  readonly opcodes: number[] = [];
+  readonly lengths: number[] = [];
+  bytes = 0;
 }
 
 /**
- * The TCP sockets corked until the end of this turn, each with the bytes it held before.
- * Holding a socket's writes sends every frame written to it in the turn with one system call
- * instead of one each: a burst of broadcasts to many members was mostly system calls before.
- * `setImmediate` runs once the turn has read its I/O, so the broadcasts of every message read
- * together go out as one write for each member, the way the event streams of `http()` do. A
- * `nextTick` would send after each socket's read instead: 1.5 times the CPU for a broadcast to
- * 2,000 members. The order of the frames does not change, and an event waits for no new I/O.
+ * The sockets holding frames until the end of this turn. A member of a busy channel gets many
+ * small frames in one turn, and each one costs the system call a piece of its own. Held, they
+ * are written into one buffer and go out as one write. `setImmediate` runs once the turn has
+ * read its I/O, so the broadcasts of every message read together go out together, the way the
+ * event streams of `http()` do, and a frame waits for no new I/O.
  */
-const corkedThisTurn = new Map<TcpSocket, number>();
+const heldThisTurn = new Map<WsSender, HeldFrames>();
 
 /**
- * A socket holding this many bytes written in this turn sends them at once. Batching gains
- * nothing past this size, and held bytes count in `bufferedAmount`: replay catch-up and
- * `ctx.stream.drain()` would wait on bytes that only wait for the turn to end.
+ * A socket holding this many bytes sends them at once. Holding gains nothing past this size,
+ * and held bytes count in `bufferedAmount`: replay catch-up and `ctx.stream.drain()` would wait
+ * on bytes that only wait for the turn to end.
  */
 const HOLD_BYTES = 64 * 1024;
 
-function uncorkAll(): void {
-  try {
-    for (const tcp of corkedThisTurn.keys()) tcp.uncork();
-  } finally {
-    corkedThisTurn.clear();
+/**
+ * Held frames smaller than this on average are copied into one buffer, which costs less than a
+ * piece for each. Bigger ones go as corked writes, with no copy.
+ */
+const COPY_BYTES = 1024;
+
+const OPCODE_FRAMED = 0;
+const OPCODE_TEXT = 1;
+const OPCODE_BINARY = 2;
+
+function headerSize(length: number): number {
+  if (length < 126) return 2;
+
+  return length < 65_536 ? 4 : 10;
+}
+
+/** Writes frames one after another into a buffer that has room for them. */
+class FrameWriter {
+  readonly target: Buffer;
+  at = 0;
+
+  constructor(target: Buffer) {
+    this.target = target;
+  }
+
+  /** The header of a final, unmasked frame: what a server sends. */
+  header(opcode: number, length: number): void {
+    const { target, at } = this;
+    target[at] = 0x80 | opcode;
+    if (length < 126) {
+      target[at + 1] = length;
+      this.at += 2;
+    } else if (length < 65_536) {
+      target[at + 1] = 126;
+      target.writeUInt16BE(length, at + 2);
+      this.at += 4;
+    } else {
+      target[at + 1] = 127;
+      target.writeUInt32BE(Math.floor(length / 2 ** 32), at + 2);
+      target.writeUInt32BE(length >>> 0, at + 6);
+      this.at += 10;
+    }
+  }
+
+  payload(payload: Uint8Array | string): void {
+    if (typeof payload === 'string') {
+      this.at += this.target.write(payload, this.at);
+      return;
+    }
+
+    this.target.set(payload, this.at);
+    this.at += payload.byteLength;
   }
 }
 
-function corkForTurn(tcp: TcpSocket): void {
-  if (corkedThisTurn.has(tcp)) return;
-
-  if (corkedThisTurn.size === 0) setImmediate(uncorkAll);
-  corkedThisTurn.set(tcp, tcp.writableLength);
-  tcp.cork();
+function payloadLength(payload: Uint8Array | string): number {
+  return typeof payload === 'string' ? Buffer.byteLength(payload) : payload.byteLength;
 }
 
-/** Send what a socket holds now, before the turn ends. */
-function release(tcp: TcpSocket): void {
-  if (!corkedThisTurn.delete(tcp)) return;
+/** One frame as a buffer of its own: its header and its payload. */
+function frameBuffer(opcode: number, payload: Uint8Array | string): Buffer {
+  const length = payloadLength(payload);
+  const writer = new FrameWriter(Buffer.allocUnsafe(headerSize(length) + length));
+  writer.header(opcode, length);
+  writer.payload(payload);
+
+  return writer.target;
+}
+
+function flushAll(): void {
+  try {
+    for (const [sender, held] of heldThisTurn) flush(sender, held);
+  } finally {
+    // A flush that threw must not leave the others held with no flush to come.
+    if (heldThisTurn.size > 0) setImmediate(flushAll);
+  }
+}
+
+function flush(sender: WsSender, held: HeldFrames): void {
+  heldThisTurn.delete(sender);
+  const tcp = sender._socket;
+  if (tcp.destroyed) return;
+
+  const { payloads, opcodes, lengths, bytes } = held;
+  const count = payloads.length;
+  if (bytes < count * COPY_BYTES) {
+    const writer = new FrameWriter(Buffer.allocUnsafe(bytes));
+    for (let index = 0; index < count; index++) {
+      const opcode = opcodes[index]!;
+      if (opcode !== OPCODE_FRAMED) writer.header(opcode, lengths[index]!);
+      writer.payload(payloads[index]!);
+    }
+
+    tcp.write(writer.target);
+    return;
+  }
+
+  tcp.cork();
+  for (let index = 0; index < count; index++) {
+    writeApart(tcp, opcodes[index]!, payloads[index]!);
+  }
 
   tcp.uncork();
 }
 
-/** Terminate a `ws` socket after sending the frames it holds, which `terminate()` would drop. */
-export function terminateWs(socket: Pick<WebSocket, 'terminate'>): void {
-  const tcp = (socket as WsInternals)._socket;
-  if (tcp) release(tcp);
+/** Write a frame's header and payload as two pieces, so a big payload is not copied. */
+function writeApart(tcp: TcpSocket, opcode: number, payload: Uint8Array | string): void {
+  if (opcode === OPCODE_FRAMED) {
+    tcp.write(payload as Uint8Array);
+    return;
+  }
 
-  socket.terminate();
+  const length = payloadLength(payload);
+  const header = new FrameWriter(Buffer.allocUnsafe(headerSize(length)));
+  header.header(opcode, length);
+  tcp.write(header.target);
+  tcp.write(typeof payload === 'string' ? Buffer.from(payload) : payload);
 }
 
-const { Sender } = ws as unknown as {
-  Sender: { frame(data: Buffer, options: Record<string, boolean | number>): Buffer[] };
-};
+/**
+ * The `sendFrame` of a sender that holds frames. `ws` writes its own frames through it (a
+ * close, a ping, a pong), so the held frames go first and the order does not change.
+ */
+function sendAfterHeld(
+  this: WsSender,
+  list: readonly (Uint8Array | string)[],
+  callback?: () => void,
+): void {
+  const held = heldThisTurn.get(this);
+  if (held) flush(this, held);
 
-/** An unmasked, uncompressed, final text frame: what a server sends. */
-const TEXT_FRAME = { fin: true, rsv1: false, opcode: 1, mask: false, readOnly: false };
+  wsSendFrame!.call(this, list, callback);
+}
+
+function hold(sender: WsSender, opcode: number, payload: Uint8Array | string): void {
+  const length = payloadLength(payload);
+  let held = heldThisTurn.get(sender);
+  if (!held) {
+    // A frame this big would be sent at once anyway: it skips the hold.
+    if (length >= HOLD_BYTES) {
+      const tcp = sender._socket;
+      if (tcp.destroyed) return;
+
+      tcp.cork();
+      writeApart(tcp, opcode, payload);
+      tcp.uncork();
+      return;
+    }
+
+    if (heldThisTurn.size === 0) setImmediate(flushAll);
+    held = new HeldFrames();
+    heldThisTurn.set(sender, held);
+  }
+
+  held.payloads.push(payload);
+  held.opcodes.push(opcode);
+  held.lengths.push(length);
+  held.bytes += opcode === OPCODE_FRAMED ? length : headerSize(length) + length;
+  if (held.bytes >= HOLD_BYTES) flush(sender, held);
+}
 
 /**
- * The whole WebSocket frame (header and UTF-8 bytes) of shared text frames, or `null` after the
- * first send. A broadcast hands every member the same frame object, so the frame is built on the
- * second send and written as it is to every later socket, the way Socket.IO broadcasts on `ws`.
- * A shared frame that reaches one socket never pays for it.
+ * The `ws` sender frames can be held for, or `undefined`. `ws` queues a send only while it
+ * compresses or reads a `Blob`, so a socket without compression (LiveThing sends no `Blob`)
+ * writes in order. A compressed socket, or a `ws` without `sendFrame`, goes through `send()`.
  */
-const sharedTextFrames = new WeakMap<TransportFrame, Buffer[] | null>();
-
-/**
- * The `ws` sender a pre-built frame can be written to, or `undefined`. `ws` queues a send only
- * while it compresses or reads a `Blob`, so a socket without compression (LiveThing sends no
- * `Blob`) writes in order. A compressed socket, or a `ws` without `sendFrame`, goes through `send()`.
- */
-function frameSender(socket: object): { sendFrame: (list: Buffer[]) => void } | undefined {
+function holdingSender(socket: object): WsSender | undefined {
   const internals = socket as WsInternals;
   if (internals._extensions?.['permessage-deflate'] !== undefined) return undefined;
 
   const sender = internals._sender;
-  return typeof sender?.sendFrame === 'function'
-    ? (sender as { sendFrame: (list: Buffer[]) => void })
-    : undefined;
+  if (!sender?._socket || typeof wsSendFrame !== 'function') return undefined;
+
+  if (sender.sendFrame !== sendAfterHeld) sender.sendFrame = sendAfterHeld;
+
+  return sender;
 }
+
+/**
+ * The whole WebSocket frame of a shared text frame. A broadcast hands every member the same
+ * frame object, so its header and UTF-8 bytes are made once and copied to every member.
+ */
+const sharedTextFrames = new WeakMap<TransportFrame, Buffer>();
 
 /** Send one frame on a `ws` socket: text as a text message, bytes as a binary message. */
 export function sendToWs(socket: Pick<WebSocket, 'send'>, frame: TransportFrame): void {
-  const tcp = (socket as WsInternals)._socket;
-  if (!tcp) {
-    writeFrame(socket, frame);
+  const sender = holdingSender(socket);
+  if (!sender) {
+    socket.send(frameData(frame));
     return;
   }
 
-  corkForTurn(tcp);
-  writeFrame(socket, frame);
-  const heldBefore = corkedThisTurn.get(tcp);
-  if (heldBefore !== undefined && tcp.writableLength - heldBefore >= HOLD_BYTES) release(tcp);
-}
-
-function writeFrame(socket: Pick<WebSocket, 'send'>, frame: TransportFrame): void {
   if (frame.kind === 'bytes') {
-    socket.send(frame.bytes);
+    hold(sender, OPCODE_BINARY, frame.bytes);
     return;
   }
 
   if (!frame.shared) {
-    socket.send(frame.text);
+    hold(sender, OPCODE_TEXT, frame.text);
     return;
   }
 
   let wire = sharedTextFrames.get(frame);
-  if (wire === undefined) {
-    sharedTextFrames.set(frame, null);
-    socket.send(frame.text);
-    return;
-  }
-
-  if (wire === null) {
-    wire = Sender.frame(Buffer.from(frame.text), TEXT_FRAME);
+  if (!wire) {
+    wire = frameBuffer(OPCODE_TEXT, frame.text);
     sharedTextFrames.set(frame, wire);
   }
 
-  const sender = frameSender(socket);
-  if (sender) sender.sendFrame(wire);
-  // An unmasked frame keeps the payload apart from the header, as its last buffer. Newer ws
-  // returns only the header for an empty payload.
-  else socket.send(wire.length > 1 ? wire.at(-1)! : frame.text, { binary: false });
+  hold(sender, OPCODE_FRAMED, wire);
+}
+
+/** The bytes a `ws` socket has not sent yet, held frames included. */
+export function wsBufferedAmount(socket: Pick<WebSocket, 'bufferedAmount'>): number {
+  const sender = (socket as WsInternals)._sender;
+  const held = sender ? heldThisTurn.get(sender) : undefined;
+  return socket.bufferedAmount + (held?.bytes ?? 0);
+}
+
+/** Terminate a `ws` socket after sending the frames it holds, which `terminate()` would drop. */
+export function terminateWs(socket: Pick<WebSocket, 'terminate'>): void {
+  const sender = (socket as WsInternals)._sender;
+  const held = sender ? heldThisTurn.get(sender) : undefined;
+  if (sender && held) flush(sender, held);
+
+  socket.terminate();
 }
 
 /** The WebSocket `readyState` of an open socket. */
