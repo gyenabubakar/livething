@@ -101,6 +101,8 @@ export function rawRequestListener(endpoint: HandlingEndpoint): RequestListener 
 
 interface RawClientOptions {
   headers?: Record<string, string>;
+  /** WebSocket only: `false` asks for no compression. */
+  perMessageDeflate?: boolean;
 }
 
 /**
@@ -110,7 +112,10 @@ interface RawClientOptions {
  */
 export function openRawClient(url: string, options: RawClientOptions = {}): WebSocket {
   if (rawTransport === 'websocket') {
-    return new WebSocket(url.replace(/^http/, 'ws'), { headers: options.headers });
+    return new WebSocket(url.replace(/^http/, 'ws'), {
+      headers: options.headers,
+      ...(options.perMessageDeflate === false ? { perMessageDeflate: false } : {}),
+    });
   }
 
   return new HttpRawClient(url.replace(/^ws/, 'http'), options) as unknown as WebSocket;

@@ -13,7 +13,7 @@ import { serializeWireFrameJson } from '~/_engine/runtime/wire-serialize.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { isBinaryPayload } from '~/outgoing/binary-payload.ts';
 import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
-import type { TransportFrame } from '~/_adapters/types.ts';
+import type { TransportFrame, WriteGate } from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -996,6 +996,8 @@ export function broadcastToChannel(
        * to nobody, and this has logged why. Set only when `inbox()` is listed.
        */
       inboxCanStore?: (message: BroadcastToChannelOptsParameter) => boolean;
+      /** See `EngineRuntimeOptions.writeGate`. */
+      writeGate?: Pick<WriteGate, 'commitNow'>;
     },
   opts: BroadcastToChannelOptions,
 ): void {
@@ -1058,6 +1060,10 @@ export function broadcastToChannel(
   );
 
   if (inboxMessage) {
+    // The inbox stores its copies now, so the replay rows waiting for the write gate go first: a
+    // member must never get from the inbox a message whose replay row was lost.
+    if (runtime.writeGate?.commitNow() === false) return;
+
     try {
       runtime.inboxFanOut!({
         ...inboxMessage,

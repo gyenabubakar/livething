@@ -69,7 +69,16 @@ export function createSql(source: NodeSqlSource = ':memory:'): NodeSqlRuntime {
 }
 
 function openDatabase(source: string | NodeSqlDatabase | DatabaseSync): SqliteDatabase {
-  if (typeof source === 'string') return new Database(source) as unknown as SqliteDatabase;
+  if (typeof source === 'string') {
+    const database = new Database(source);
+    // SQLite's own default waits for the disk on every commit, which caps a server with replay at
+    // a few thousand messages a second. WAL with NORMAL waits only at checkpoints: an app crash
+    // loses nothing, and a power cut can lose the last commits. An in-memory database ignores both.
+    database.pragma('journal_mode = WAL');
+    database.pragma('synchronous = NORMAL');
+
+    return database as unknown as SqliteDatabase;
+  }
 
   if (isNodeSqliteDatabase(source)) return wrapNodeSqlite(source);
 

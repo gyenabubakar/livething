@@ -8,6 +8,13 @@ import type {
   TransportFrame,
 } from '@livething/server/adapters';
 import type { WebSocket } from 'ws';
+import {
+  commitBeforeWrite,
+  gatesOwnWrites,
+  LOST_WRITE_CLOSE,
+  onWriteGateFailure,
+  writeFailed,
+} from './write-gate.ts';
 
 /** What a WebSocket `send()` takes for a frame: a string goes as text, bytes go as binary. */
 export function frameData(frame: TransportFrame): string | Uint8Array<ArrayBuffer> {
@@ -58,6 +65,20 @@ class HeldFrames {
  * event streams of `http()` do, and a frame waits for no new I/O.
  */
 const heldThisTurn = new Map<WsSender, HeldFrames>();
+
+/** The socket of each sender frames are held for, to close it when its held frames are dropped. */
+const socketOfSender = new WeakMap<WsSender, Pick<WebSocket, 'close'>>();
+
+function closeLostWrite(sender: WsSender): void {
+  socketOfSender.get(sender)?.close(LOST_WRITE_CLOSE.code, LOST_WRITE_CLOSE.reason);
+}
+
+onWriteGateFailure(() => {
+  for (const sender of heldThisTurn.keys()) {
+    heldThisTurn.delete(sender);
+    closeLostWrite(sender);
+  }
+});
 
 /**
  * A socket holding this many bytes sends them at once. Holding gains nothing past this size,
@@ -145,6 +166,9 @@ function flushAll(): void {
 }
 
 function flush(sender: WsSender, held: HeldFrames): void {
+  // On a failed commit, the failure drop has already dropped this socket's frames and closed it.
+  if (!commitBeforeWrite()) return;
+
   heldThisTurn.delete(sender);
   const tcp = sender._socket;
   if (tcp.destroyed) return;
@@ -201,6 +225,11 @@ function sendAfterHeld(
 }
 
 function hold(sender: WsSender, opcode: number, payload: Uint8Array | string): void {
+  if (writeFailed()) {
+    closeLostWrite(sender);
+    return;
+  }
+
   const length = payloadLength(payload);
   let held = heldThisTurn.get(sender);
   if (!held) {
@@ -208,6 +237,11 @@ function hold(sender: WsSender, opcode: number, payload: Uint8Array | string): v
     if (length >= HOLD_BYTES) {
       const tcp = sender._socket;
       if (tcp.destroyed) return;
+
+      if (!commitBeforeWrite()) {
+        closeLostWrite(sender);
+        return;
+      }
 
       tcp.cork();
       writeApart(tcp, opcode, payload);
@@ -232,14 +266,17 @@ function hold(sender: WsSender, opcode: number, payload: Uint8Array | string): v
  * compresses or reads a `Blob`, so a socket without compression (LiveThing sends no `Blob`)
  * writes in order. A compressed socket, or a `ws` without `sendFrame`, goes through `send()`.
  */
-function holdingSender(socket: object): WsSender | undefined {
+function holdingSender(socket: Pick<WebSocket, 'close'>): WsSender | undefined {
   const internals = socket as WsInternals;
   if (internals._extensions?.['permessage-deflate'] !== undefined) return undefined;
 
   const sender = internals._sender;
   if (!sender?._socket || typeof wsSendFrame !== 'function') return undefined;
 
-  if (sender.sendFrame !== sendAfterHeld) sender.sendFrame = sendAfterHeld;
+  if (sender.sendFrame !== sendAfterHeld) {
+    sender.sendFrame = sendAfterHeld;
+    socketOfSender.set(sender, socket);
+  }
 
   return sender;
 }
@@ -251,10 +288,10 @@ function holdingSender(socket: object): WsSender | undefined {
 const sharedTextFrames = new WeakMap<TransportFrame, Buffer>();
 
 /** Send one frame on a `ws` socket: text as a text message, bytes as a binary message. */
-export function sendToWs(socket: Pick<WebSocket, 'send'>, frame: TransportFrame): void {
+export function sendToWs(socket: Pick<WebSocket, 'send' | 'close'>, frame: TransportFrame): void {
   const sender = holdingSender(socket);
   if (!sender) {
-    socket.send(frameData(frame));
+    sendNow(socket, frame);
     return;
   }
 
@@ -275,6 +312,15 @@ export function sendToWs(socket: Pick<WebSocket, 'send'>, frame: TransportFrame)
   }
 
   hold(sender, OPCODE_FRAMED, wire);
+}
+
+/**
+ * Send one frame at once, on a socket that does not hold frames: a compressed one, or a
+ * framework's. A failed commit closes the socket instead, as it does the holding ones.
+ */
+export function sendNow(socket: Pick<WebSocket, 'send' | 'close'>, frame: TransportFrame): void {
+  if (commitBeforeWrite()) socket.send(frameData(frame));
+  else socket.close(LOST_WRITE_CLOSE.code, LOST_WRITE_CLOSE.reason);
 }
 
 /** The bytes a `ws` socket has not sent yet, held frames included. */
@@ -323,8 +369,22 @@ export interface ConnectionBridgeOptions {
   decision: AuthDecision;
 }
 
-/** Creates the engine connection handle for an accepted transport. */
+/**
+ * Creates the engine connection handle for an accepted transport. A framework's or custom
+ * transport's `send` is app code that can write the frame at once, so it runs after the gate.
+ */
 export function createConnectionBridge(options: ConnectionBridgeOptions): ConnectionHandle {
   const { engine, token, transport, decision } = options;
-  return engine.accept(token, transportDescriptor(transport, decision));
+  const descriptor = transportDescriptor(transport, decision);
+  if (gatesOwnWrites(transport)) return engine.accept(token, descriptor);
+
+  const send = descriptor.send.bind(descriptor);
+  descriptor.send = (frame) => {
+    if (commitBeforeWrite()) return send(frame);
+
+    descriptor.close(LOST_WRITE_CLOSE.code, LOST_WRITE_CLOSE.reason);
+    return false;
+  };
+
+  return engine.accept(token, descriptor);
 }

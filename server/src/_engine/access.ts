@@ -395,6 +395,9 @@ export interface EngineAccess {
   /** The adapter's message limits, in bytes. */
   getMessageLimits(): EngineAdapterTypes.MessageLimits;
 
+  /** The adapter's write gate, or `undefined` when it writes frames as they are sent. */
+  getWriteGate(): EngineAdapterTypes.WriteGate | undefined;
+
   /**
    * Add extra fields or methods to every live connection context.
    */

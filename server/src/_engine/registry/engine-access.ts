@@ -219,6 +219,7 @@ export function createEngineAccess(
     }),
     getReplayClaimedChannelKeys: () => core.compiled.replayClaimedChannelKeys,
     getMessageLimits: () => core.messageLimits,
+    getWriteGate: () => core.writeGate,
     getBinaryEvents: () => {
       const { compiled } = core;
       const declaring = [

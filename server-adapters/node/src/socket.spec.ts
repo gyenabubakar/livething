@@ -9,7 +9,8 @@ function recorder() {
     send(data: string | Uint8Array, options?: { binary?: boolean }) {
       sent.push({ data, binary: options?.binary });
     },
-  } as unknown as Pick<WebSocket, 'send'>;
+    close() {},
+  } as unknown as Pick<WebSocket, 'send' | 'close'>;
 
   return { sent, socket };
 }

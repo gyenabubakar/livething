@@ -318,6 +318,7 @@ function buildMemberRuntime(core: EngineCore) {
     inboxFanOut: core.inboxService
       ? (opts: InboxFanOutOptions) => core.inboxService?.fanOut(core, opts)
       : undefined,
+    writeGate: core.writeGate,
     inboxCanStore: core.inboxService
       ? (message: InboxMessage) => core.inboxService?.canStore(core, message) ?? true
       : undefined,
@@ -539,6 +540,7 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     messageLimits: core.messageLimits,
+    writeGate: core.writeGate,
     connections: core.connections,
     usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,

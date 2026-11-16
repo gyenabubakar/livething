@@ -41,6 +41,7 @@ export type {
   MessageLimits,
   TransportFrame,
   AuthDecision,
+  WriteGate,
 } from './types.ts';
 export { ADMIN_CONTEXT_MEMBERS } from '~/admin/context.ts';
 export type {

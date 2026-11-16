@@ -13,6 +13,7 @@ import {
 } from '~/_engine/runtime/catch-up.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import {
+  buildReplayRow,
   dropQueuedReplaySnapshots,
   ensureReplaySchema,
   isChannelReplayAuthorized,
@@ -30,8 +31,10 @@ import {
   replayAudiencesOfRow,
   ReplayPruneGate,
   shouldStoreReplayMessage,
+  storeReplayRow,
 } from '~/replay/runtime.ts';
 import { createSendReplayExtender, readConnectionId } from '~/replay/send-replay.ts';
+import type { WriteGate } from '~/_adapters/types.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -44,7 +47,11 @@ import type {
 } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { ReplaySnapshotEntry, ReplayStoreOwner } from '~/replay/runtime.ts';
+import type {
+  ReplayAudienceScope,
+  ReplaySnapshotEntry,
+  ReplayStoreOwner,
+} from '~/replay/runtime.ts';
 import type { ReplayOptions, ReplayRow } from '~/replay/types.ts';
 
 /** The primitive type produced by `replay.history()` and `replay.snapshot()`. */
@@ -216,6 +223,7 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
           (core as EngineCore).pendingSnapshotFlushes as Map<string, ReplaySnapshotEntry>,
           userId,
         );
+        installer.dropQueuedUser(userId);
         purgeReplayUser(engine.storage.sql, userId);
       });
     },
@@ -258,6 +266,19 @@ interface ReplayRowAudience {
   excludedToken?: string;
 }
 
+/** A history row built at send time, waiting for the write gate. */
+interface QueuedReplayRow {
+  row: ReplayRow;
+  /** The stores and audiences its retention counts it in. */
+  scopes: readonly ReplayAudienceScope[];
+}
+
+interface QueueRowInput {
+  wireMessage: WireBroadcastMessage;
+  audience: ReplayRowAudience;
+  scopes: readonly ReplayAudienceScope[];
+}
+
 interface ReplayInstallerOptions {
   engine: EngineAccess;
 
@@ -283,6 +304,8 @@ class ReplayInstaller {
   private readonly opts: ReplayOptions;
   private readonly pruneGate = new ReplayPruneGate();
   private readonly warnedTooBig = new Set<string>();
+  /** History rows waiting for the adapter's write gate. See `EngineRuntimeOptions.writeGate`. */
+  private queued: QueuedReplayRow[] = [];
 
   constructor(options: ReplayInstallerOptions) {
     const { engine, channelKey, exclude, opts } = options;
@@ -329,6 +352,12 @@ class ReplayInstaller {
       (recipient) => !(recipient.userId && this.engine.isUserPurging?.(recipient.userId)),
     );
     if (recipients.length === 0) return;
+
+    // A history row is one row, so a queued one needs no transaction of its own.
+    if (!isSnapshot && this.engine.getWriteGate()) {
+      this.persistRow(wireMessage, { recipients });
+      return;
+    }
 
     const audiences: ReplayRowAudience[] = [];
     if (isSnapshot) {
@@ -386,6 +415,96 @@ class ReplayInstaller {
       );
   };
 
+  /**
+   * Build a history row now, so it holds the message as it was sent, and store it when the write
+   * gate opens, with the other rows of this turn.
+   */
+  private queueRow(gate: WriteGate, queue: QueueRowInput): void {
+    const { wireMessage, audience } = queue;
+    const row = buildReplayRow(wireMessage.event, {
+      options: this.opts,
+      payload: wireMessage.payload,
+      // The bytes are a view of the sender's buffer, which it may reuse once the send returns.
+      bytes: wireMessage.bytes?.slice(),
+      livething: wireMessage.livething,
+      userId: audience.userId,
+      recipients: audience.recipients,
+      excludedToken: audience.excludedToken,
+      now: Date.now(),
+    });
+
+    this.queued.push({ row, scopes: queue.scopes });
+    if (this.queued.length === 1) gate.beforeNextWrite(this.commitQueued);
+  }
+
+  /**
+   * Store the queued rows in one transaction. When it fails, store each row on its own, so one bad
+   * row does not lose the others. Returns `false` when some row could not be stored.
+   */
+  private commitQueued = (): boolean => {
+    const rows = this.queued;
+    this.queued = [];
+    const { sql } = this.engine.storage;
+    try {
+      sql.transaction(() => {
+        for (const queued of rows) this.storeQueued(sql, queued);
+      });
+
+      return true;
+    } catch {
+      let stored = true;
+      for (const queued of rows) {
+        try {
+          sql.transaction(() => this.storeQueued(sql, queued));
+        } catch (error) {
+          stored = false;
+          this.engine
+            .getLogger?.()
+            ?.error(
+              `[livething] replay could not store "${queued.row.event}"${
+                this.opts.durability === 'best-effort' ? '' : ', so no client gets it'
+              }: ` + (error instanceof Error ? error.message : String(error)),
+              { event: queued.row.event, seq: queued.row.seq },
+            );
+        }
+      }
+
+      // A best-effort message never waits for its row, so a lost row stops no frame.
+      return stored || this.opts.durability === 'best-effort';
+    }
+  };
+
+  private storeQueued(sql: Pick<SQLProvider, 'exec' | 'limits'>, queued: QueuedReplayRow): void {
+    const { row } = queued;
+    const skip = storeReplayRow(sql, row, {
+      sendBytes: this.engine.getMessageLimits().sendBytes,
+      maxBytes: this.opts.retention?.maxBytes,
+    });
+    if (skip) this.warnRowTooBig(row, skip);
+
+    this.pruneGate.prune(sql, {
+      retention: this.opts.retention,
+      scopes: queued.scopes,
+      owner: this.owner(),
+      stamp: row.createdAt,
+      rowBytes: skip ? 0 : row.rowBytes,
+    });
+  }
+
+  /** Drop a purged user from the rows that wait for the write gate. */
+  dropQueuedUser(userId: string): void {
+    this.queued = this.queued.flatMap((queued) => {
+      const { row } = queued;
+      if (row.userId === userId) return [];
+
+      if (!row.recipients?.some((recipient) => recipient.userId === userId)) return [queued];
+
+      const recipients = row.recipients.filter((recipient) => recipient.userId !== userId);
+
+      return recipients.length === 0 ? [] : [{ ...queued, row: { ...row, recipients } }];
+    });
+  }
+
   /** The open handler scope's snapshot queue, when snapshot rows are queued instead of written. */
   private snapshotQueue(): Map<string, ReplaySnapshotEntry> | undefined {
     if ((this.opts.type ?? 'history') !== 'snapshot') return undefined;
@@ -410,6 +529,12 @@ class ReplayInstaller {
     const audienceScopes = replayAudiencesOfRow(audience.userId, audience.recipients).map(
       (replayAudience) => ({ ...replayScope, audience: replayAudience }),
     );
+
+    const writeGate = this.engine.getWriteGate();
+    if (writeGate && (this.opts.type ?? 'history') === 'history') {
+      this.queueRow(writeGate, { wireMessage, audience, scopes: audienceScopes });
+      return;
+    }
 
     const retention = this.opts.retention;
     const owner = this.owner();

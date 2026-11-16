@@ -179,6 +179,30 @@ export interface EngineRuntimeOptions {
    * throws instead of sending a bigger one. Default: 32 MiB each.
    */
   messageLimits?: MessageLimits;
+
+  /**
+   * For an adapter that holds a turn's outgoing frames and writes them when the turn ends. With
+   * it, the engine keeps the replay rows of a turn in memory and stores them in one transaction
+   * just before the first byte goes to a client, instead of one transaction for each message.
+   * Leave it out when frames are written as they are sent.
+   */
+  writeGate?: WriteGate;
+}
+
+/** See `EngineRuntimeOptions.writeGate`. */
+export interface WriteGate {
+  /**
+   * Run `commit` before this process next writes a byte to any client, and at the latest when
+   * the current turn ends. `commit` returns `false` when some writes could not be stored. The
+   * adapter must then send no frame it holds, and close those connections.
+   */
+  beforeNextWrite(commit: () => boolean): void;
+  /**
+   * Run the waiting commits now, as before a write. The engine calls it before it keeps a frame
+   * back to send later, outside the adapter's hold. Returns `false` when the commit failed, and
+   * then the frame must reach nobody.
+   */
+  commitNow(): boolean;
 }
 
 /** An adapter's message limits, in bytes. See `EngineRuntimeOptions.messageLimits`. */

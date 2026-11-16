@@ -25,6 +25,10 @@
 //   LOAD_H2_ENTRY=stream  on the HTTP/2 modes, serve the raw streams with `handleStream`
 //                         instead of a compatibility server with `handle`
 //   LOAD_WARM=on          run every step twice in the same server and report only the second time
+//   LOAD_SUITE=chat       run the chat app instead, which stores messages in a SQLite file: sends,
+//                         history loads, a busy hour of mixed actions and a reconnect wave
+//   LOAD_MIX_RATE         actions a second in the chat's busy hour (default 2000)
+//   LOAD_MIX_SECONDS      how long the busy hour lasts, in seconds (default 20)
 import { fork } from 'node:child_process';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import http from 'node:http';
@@ -45,6 +49,14 @@ const modes = [
 ];
 const mode = process.argv[2] ?? 'livething';
 if (!modes.includes(mode)) throw new Error(`Unknown mode ${mode}. Use ${modes.join(', ')}.`);
+
+const suite = process.env.LOAD_SUITE ?? 'core';
+if (suite !== 'core' && suite !== 'chat') throw new Error('LOAD_SUITE must be core or chat.');
+
+const replay = process.env.LOAD_REPLAY === 'on';
+if (replay && (suite !== 'chat' || !mode.startsWith('livething'))) {
+  throw new Error('LOAD_REPLAY=on runs only with LOAD_SUITE=chat on a LiveThing mode.');
+}
 
 const connectionCount = Number(process.argv[3] ?? 5000);
 // The small-room steps put every connection in a room of 10.
@@ -80,7 +92,12 @@ let serverScript = fileURLToPath(new URL('./load-server.mjs', import.meta.url));
 if (process.env.LOAD_BASELINE) {
   const benchCopy = join(process.env.LOAD_BASELINE, 'bench');
   mkdirSync(benchCopy, { recursive: true });
-  for (const file of ['load-server.mjs', 'huddle-definition.mjs']) {
+  for (const file of [
+    'load-server.mjs',
+    'huddle-definition.mjs',
+    'huddle-chat-definition.mjs',
+    'chat-servers.mjs',
+  ]) {
     copyFileSync(join(dirname(serverScript), file), join(benchCopy, file));
   }
 
@@ -148,11 +165,40 @@ function waitFor(condition, label) {
 
 const FRAME_NAMES = { __connected__: 'connected', __subscribeOk__: 'joined' };
 
-function countText(text) {
+// While the busy-hour step runs, each client keeps how long a message took to reach it and how
+// long a history request took to answer, in milliseconds. All clients run in this one process,
+// so the times they compare come from one clock.
+let latencies = null;
+const historyStarts = new Map();
+let historyRequests = 0;
+// The time a busy-hour action was planned for. A reply time counts from it, not from when the
+// action ran, so a client that falls behind its plan does not hide the wait.
+let plannedAt;
+
+// With LOAD_REPLAY=on, the highest delivery number each client has seen in its room, and how many
+// messages it got, by client index, so the client can catch up from there after it reconnects.
+const lastSeqs = [];
+const messagesByClient = [];
+
+function keepLastSeq(text, index) {
+  const [, payload, metadata] = JSON.parse(text);
+  const seq = metadata?.delivery?.seq ?? payload?.seq;
+  if (seq > (lastSeqs[index] ?? 0)) lastSeqs[index] = seq;
+}
+
+function countText(text, index) {
   if (text === 'ping' || text === 'pong') return;
 
   const event = text.slice(2, text.indexOf('"', 2));
   bump(FRAME_NAMES[event] ?? event);
+  if (replay && (event === 'message' || event === '__subscribeOk__')) keepLastSeq(text, index);
+  if (replay && event === 'message') messagesByClient[index] = (messagesByClient[index] ?? 0) + 1;
+  if (latencies && event === 'message') {
+    latencies.message.push(performance.now() - Number(JSON.parse(text)[1].text));
+  } else if (latencies && event === 'load-history') {
+    historyAnswered(JSON.parse(text)[2].exchange.id);
+  }
+
   if (event === '__memberChanges__') {
     for (const change of JSON.parse(text)[1].changes) bump(`member ${change.kind}`);
   }
@@ -175,6 +221,21 @@ function channel(room) {
   return { channel: { name: room, family: 'rooms' } };
 }
 
+function historyAnswered(id) {
+  const started = historyStarts.get(id);
+  if (started === undefined) return;
+
+  historyStarts.delete(id);
+  latencies?.history.push(performance.now() - started);
+}
+
+/** A new history request ID, with its start time while the busy-hour step runs. */
+function historyRequestId() {
+  const id = `h${historyRequests++}`;
+  if (latencies) historyStarts.set(id, plannedAt ?? performance.now());
+  return id;
+}
+
 /** The steps' actions as LiveThing frames, on any client that can send a frame. */
 function frameActions(send, close) {
   let requestId = 0;
@@ -190,6 +251,19 @@ function frameActions(send, close) {
       ),
     join: (room) => send(JSON.stringify(['__subscribe__', null, channel(room)])),
     sendMessage: (room, text) => send(JSON.stringify(['send-message', { text }, channel(room)])),
+    react: (room, messageId) =>
+      send(JSON.stringify(['react', { messageId, emoji: '+1' }, channel(room)])),
+    startTyping: (room) => send(JSON.stringify(['start-typing', null, channel(room)])),
+    catchUp: (room, lastKnownSeq) =>
+      send(JSON.stringify(['__replay__', { lastKnownSeq }, channel(room)])),
+    loadHistory: (room) =>
+      send(
+        JSON.stringify([
+          'load-history',
+          {},
+          { ...channel(room), exchange: { id: historyRequestId(), source: 'client' } },
+        ]),
+      ),
     uploadAvatar: (frame) => send(frame),
     shareScreenFrame: (frame) => send(frame),
     avatarFrame: (bytes) => binaryFrame(['upload-avatar', null, null], bytes),
@@ -204,7 +278,7 @@ function openWebSocketClient(index) {
       perMessageDeflate: false,
     });
     socket.on('message', (data, isBinary) =>
-      isBinary ? countBinary(data) : countText(data.toString()),
+      isBinary ? countBinary(data) : countText(data.toString(), index),
     );
     socket.once('message', () =>
       resolve(
@@ -500,7 +574,7 @@ function openHttpClient(index) {
           void ready();
         }
 
-        countText(text);
+        countText(text, index);
       }
     }
 
@@ -559,9 +633,14 @@ function openSocketIoClient(index) {
       reconnection: false,
       forceNew: true,
     });
-    for (const event of ['echoed', 'message', 'avatar-preview', 'screen-frame']) {
+    for (const event of ['echoed', 'avatar-preview', 'screen-frame', 'reaction', 'typing']) {
       socket.on(event, () => bump(event));
     }
+
+    socket.on('message', (message) => {
+      bump('message');
+      if (latencies) latencies.message.push(performance.now() - Number(message.text));
+    });
 
     socket.on('disconnect', (reason) => bump(`disconnect: ${reason}`));
 
@@ -572,6 +651,15 @@ function openSocketIoClient(index) {
         request: () => socket.emit('get-profile', null, () => bump('get-profile')),
         join: (room) => socket.emit('join', room, () => bump('joined')),
         sendMessage: (room, text) => socket.emit('send-message', room, { text }),
+        react: (room, messageId) => socket.emit('react', room, { messageId, emoji: '+1' }),
+        startTyping: (room) => socket.emit('start-typing', room),
+        loadHistory: (room) => {
+          const id = historyRequestId();
+          socket.emit('load-history', room, {}, () => {
+            bump('load-history');
+            historyAnswered(id);
+          });
+        },
         uploadAvatar: (bytes) => socket.emit('upload-avatar', bytes),
         shareScreenFrame: (frame) => socket.emit('share-screen-frame', frame.room, frame.bytes),
         avatarFrame: (bytes) => bytes,
@@ -673,11 +761,30 @@ function sizeLabel(bytes) {
   return bytes >= 1024 ? `${bytes / 1024} KiB` : `${bytes} B`;
 }
 
-/** Run every step once, from the first connection to the last disconnect. */
-async function runSteps() {
-  counts.clear();
-  const baseline = await serverStats();
+const roomSize = 10;
+const roomCount = connectionCount / roomSize;
 
+function smallRoom(index) {
+  return `room:small${index % roomCount}`;
+}
+
+async function joinSmallRooms(clients) {
+  await step(
+    `join ${roomCount} rooms of ${roomSize}`,
+    { units: connectionCount, unit: 'join' },
+    async () => {
+      counts.clear();
+      clients.forEach((client, index) => client.join(smallRoom(index)));
+      await waitFor(() => count('joined') >= connectionCount, 'small join');
+      if (waitForPresence) {
+        const pairs = roomCount * ((roomSize * (roomSize - 1)) / 2);
+        await waitFor(() => count('member online') >= pairs, 'small join presence');
+      }
+    },
+  );
+}
+
+async function connectStep(baseline) {
   let clients;
   const connect = await step(
     'connect',
@@ -692,6 +799,202 @@ async function runSteps() {
       (connect.after.memory.heapUsed - baseline.memory.heapUsed) / connectionCount,
     );
   }
+
+  return clients;
+}
+
+async function disconnectStep(clients) {
+  await step('disconnect', { units: connectionCount, unit: 'connection' }, async () => {
+    await Promise.all(clients.map((client) => client.close()));
+    // The server's close handlers run after the client sees the close.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  });
+}
+
+/** A seeded random number generator (mulberry32), so every server gets the same busy hour. */
+function seededRandom(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function percentile(values, p) {
+  if (values.length === 0) return null;
+
+  const sorted = values.toSorted((a, b) => a - b);
+  return Number(sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)].toFixed(1));
+}
+
+// LOAD_MIX_RATE actions a second, for LOAD_MIX_SECONDS, in the busy-hour step.
+const mixRate = numberList('LOAD_MIX_RATE', '2000', 1)[0];
+const mixSeconds = numberList('LOAD_MIX_SECONDS', '20', 1)[0];
+// Out of 100 actions in the busy hour: what a person in a team chat does most, typing, then
+// sending, reacting, and scrolling back through the history.
+// `event` is what the action's answer is called, and `answers` how many it gets: a send reaches
+// the room minus its sender.
+const MIX = [
+  { action: 'startTyping', share: 40, event: 'typing', answers: roomSize - 1 },
+  { action: 'sendMessage', share: 30, event: 'message', answers: roomSize - 1 },
+  { action: 'react', share: 15, event: 'reaction', answers: roomSize - 1 },
+  { action: 'loadHistory', share: 15, event: 'load-history', answers: 1 },
+];
+
+/** One action of the busy hour, planned for `at`: a message's text is that time. */
+function act(client, planned, at) {
+  const { action } = planned.kind;
+  const room = smallRoom(planned.client);
+  plannedAt = at;
+  if (action === 'sendMessage') {
+    client.sendMessage(room, String(at));
+  } else if (action === 'react') {
+    client.react(room, `m${planned.at}`);
+  } else {
+    client[action](room);
+  }
+
+  plannedAt = undefined;
+}
+
+/** The chat app with its SQLite store: sends, history, a busy hour and a reconnect wave. */
+async function runChatSteps() {
+  counts.clear();
+  const baseline = await serverStats();
+  const clients = await connectStep(baseline);
+  await joinSmallRooms(clients);
+
+  // A broadcast from a handler skips its sender, so each send reaches the room minus one.
+  const sendsEach = 5;
+  await step(
+    `send and store in rooms of ${roomSize}`,
+    { units: connectionCount * sendsEach, unit: 'message' },
+    async () => {
+      counts.clear();
+      clients.forEach((client, index) => {
+        for (let i = 0; i < sendsEach; i++) client.sendMessage(smallRoom(index), '0');
+      });
+      const deliveries = connectionCount * sendsEach * (roomSize - 1);
+      await waitFor(() => count('message') >= deliveries, 'send and store');
+    },
+  );
+
+  const loadsEach = 5;
+  await step(
+    'load 50 messages of history',
+    { units: connectionCount * loadsEach, unit: 'request' },
+    async () => {
+      counts.clear();
+      clients.forEach((client, index) => {
+        for (let i = 0; i < loadsEach; i++) client.loadHistory(smallRoom(index));
+      });
+      await waitFor(() => count('load-history') >= connectionCount * loadsEach, 'history');
+    },
+  );
+
+  const random = seededRandom(1);
+  const expected = new Map(MIX.map((kind) => [kind.event, 0]));
+  const actions = Array.from({ length: mixRate * mixSeconds }, () => {
+    let pick = random() * 100;
+    const kind = MIX.find((option) => (pick -= option.share) < 0);
+    expected.set(kind.event, expected.get(kind.event) + kind.answers);
+
+    return {
+      at: random() * mixSeconds * 1000,
+      kind,
+      client: Math.floor(random() * connectionCount),
+    };
+  }).sort((a, b) => a.at - b.at);
+
+  const busyName = `busy hour, ${mixRate} actions a second`;
+  await step(busyName, { units: actions.length, unit: 'action' }, async () => {
+    counts.clear();
+    latencies = { message: [], history: [] };
+    const started = performance.now();
+    let next = 0;
+    await new Promise((resolve) => {
+      const timer = setInterval(() => {
+        const now = performance.now() - started;
+        while (next < actions.length && actions[next].at <= now) {
+          const planned = actions[next++];
+          act(clients[planned.client], planned, started + planned.at);
+        }
+
+        if (next === actions.length) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 2);
+    });
+
+    await waitFor(() => [...expected].every((entry) => count(entry[0]) >= entry[1]), 'busy hour');
+  });
+
+  const busyRow = results.find((row) => row.step === busyName);
+  if (busyRow) {
+    const replyTimes = {
+      messageP50Ms: percentile(latencies.message, 50),
+      messageP99Ms: percentile(latencies.message, 99),
+      historyP50Ms: percentile(latencies.history, 50),
+      historyP99Ms: percentile(latencies.history, 99),
+    };
+
+    Object.assign(busyRow, replyTimes);
+    console.error(JSON.stringify({ step: busyName, ...replyTimes }));
+  }
+
+  latencies = null;
+  historyStarts.clear();
+
+  // One client in each room loses its connection at once, as when a building's Wi-Fi drops. While
+  // it is away, every other member of its room sends a message. Then it connects again, joins its
+  // room again and gets what it missed: with replay, the server sends the missed messages, and
+  // without it, the client loads the room's history.
+  const wave = roomCount;
+  await Promise.all(clients.slice(0, wave).map((client) => client.close()));
+  counts.clear();
+  for (let index = wave; index < connectionCount; index++) {
+    clients[index].sendMessage(smallRoom(index), '0');
+  }
+
+  const sentWhileAway = (connectionCount - wave) * (roomSize - 2);
+  await waitFor(() => count('message') >= sentWhileAway, 'sends while away');
+  // A rejoin's `__subscribeOk__` moves the cursor past the missed messages, so keep it first.
+  const cursors = lastSeqs.slice(0, wave);
+
+  await step(`reconnect ${wave} clients`, { units: wave, unit: 'reconnect' }, async () => {
+    counts.clear();
+    messagesByClient.length = 0;
+    const reopened = await openClients(wave);
+    reopened.forEach((client, index) => {
+      clients[index] = client;
+      client.join(smallRoom(index));
+      if (replay) client.catchUp(smallRoom(index), cursors[index]);
+      else client.loadHistory(smallRoom(index));
+    });
+
+    // Catch-up can send a few more: a client never gets its own broadcast live, so when its own
+    // message was the room's last one, its cursor is before it and replay sends it back too.
+    const caughtUp = replay
+      ? () => cursors.every((_, index) => (messagesByClient[index] ?? 0) >= roomSize - 1)
+      : () => count('load-history') >= wave;
+    await waitFor(() => count('joined') >= wave && caughtUp(), 'reconnect');
+    if (waitForPresence) {
+      await waitFor(() => count('member online') >= wave * (roomSize - 1), 'reconnect presence');
+    }
+  });
+
+  await disconnectStep(clients);
+
+  return baseline;
+}
+
+/** Run every step once, from the first connection to the last disconnect. */
+async function runCoreSteps() {
+  counts.clear();
+  const baseline = await serverStats();
+  const clients = await connectStep(baseline);
 
   const echoesEach = 10;
   await step('echo', { units: connectionCount * echoesEach, unit: 'message' }, async () => {
@@ -730,21 +1033,7 @@ async function runSteps() {
     );
   }
 
-  const roomSize = 10;
-  const roomCount = connectionCount / roomSize;
-  await step(
-    `join ${roomCount} rooms of ${roomSize}`,
-    { units: connectionCount, unit: 'join' },
-    async () => {
-      counts.clear();
-      clients.forEach((client, index) => client.join(`room:small${index % roomCount}`));
-      await waitFor(() => count('joined') >= connectionCount, 'small join');
-      if (waitForPresence) {
-        const pairs = roomCount * ((roomSize * (roomSize - 1)) / 2);
-        await waitFor(() => count('member online') >= pairs, 'small join presence');
-      }
-    },
-  );
+  await joinSmallRooms(clients);
 
   const smallSends = 5;
   // A broadcast from a handler skips its sender, so each send reaches the room minus one.
@@ -815,14 +1104,12 @@ async function runSteps() {
     }
   }
 
-  await step('disconnect', { units: connectionCount, unit: 'connection' }, async () => {
-    await Promise.all(clients.map((client) => client.close()));
-    // The server's close handlers run after the client sees the close.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  });
+  await disconnectStep(clients);
 
   return baseline;
 }
+
+const runSteps = suite === 'chat' ? runChatSteps : runCoreSteps;
 
 if (warm) {
   warming = true;

@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config';
 const HTTP_SPECS = [
   'src/server.integration.spec.ts',
   'src/replay.integration.spec.ts',
+  'src/write-gate.integration.spec.ts',
   'src/user-transaction.integration.spec.ts',
   'src/binary.integration.spec.ts',
   'src/frameworks/**/index.integration.spec.ts',

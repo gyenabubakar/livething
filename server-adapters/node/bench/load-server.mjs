@@ -15,6 +15,16 @@ import { buildHuddleDefinition } from './huddle-definition.mjs';
 
 const mode = process.argv[2] ?? 'livething';
 const presence = process.env.LOAD_PRESENCE !== 'off';
+// LOAD_SUITE=chat serves the chat app, which stores its messages in a SQLite file. Its files load
+// only then, so a LOAD_BASELINE build without them still runs the core suite.
+const chat =
+  process.env.LOAD_SUITE === 'chat'
+    ? {
+        ...(await import('./chat-servers.mjs')),
+        ...(await import('./huddle-chat-definition.mjs')),
+      }
+    : undefined;
+const chatDatabase = chat?.openChatDatabase();
 
 function listen(httpServer) {
   // Node closes an idle keep-alive connection after 5 seconds. The pauses between steps are
@@ -32,8 +42,15 @@ async function startLiveThing(transport) {
   const livething = setup();
   const overHttp = transport !== 'websocket';
 
-  const huddleEndpoint = livething.bind(buildHuddleDefinition({ presence, keepalive: overHttp }), {
+  const build = chat ? chat.buildHuddleChatDefinition : buildHuddleDefinition;
+  const definition = build({
+    presence,
+    keepalive: overHttp,
+    replay: process.env.LOAD_REPLAY === 'on',
+  });
+  const huddleEndpoint = livething.bind(definition, {
     ...(overHttp ? { transports: [http()] } : {}),
+    ...(chatDatabase ? { sql: chatDatabase } : {}),
     logger: { debug() {}, info() {}, warn() {}, error: console.error },
   });
   function handler(request, response) {
@@ -184,9 +201,11 @@ const starters = {
   'livething-http': () => startLiveThing('http'),
   'livething-http-h2': () => startLiveThing('http-h2'),
   'livething-http-stream': () => startLiveThing('http-h2'),
-  ws: startPlainWs,
-  'socket.io': () => startSocketIo('websocket'),
-  'socket.io-polling': () => startSocketIo('polling'),
+  ws: chat ? () => chat.startPlainWsChat(chatDatabase, listen) : startPlainWs,
+  'socket.io': () =>
+    chat ? chat.startSocketIoChat(chatDatabase, listen, 'websocket') : startSocketIo('websocket'),
+  'socket.io-polling': () =>
+    chat ? chat.startSocketIoChat(chatDatabase, listen, 'polling') : startSocketIo('polling'),
 };
 
 if (!starters[mode]) {

@@ -2,6 +2,7 @@ import type { Logger, StorageProvider } from '@livething/server/adapters';
 import { createLogger } from './logger.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
+import { commitBeforeWrite } from './write-gate.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
 import type { NodeTimers } from './providers/timers.ts';
 
@@ -37,6 +38,8 @@ export function createRuntime(options: NodeRuntimeOptions): NodeRuntime {
     async close() {
       timers.stop();
       await timers.drain();
+      // Rows the engine still holds for the write gate, before their database closes.
+      commitBeforeWrite();
       storageRuntime.close();
     },
   };

@@ -20,6 +20,12 @@ import type {
 import type { IncomingHttpHeaders } from 'node:http';
 import type { IncomingHttpHeaders as Http2IncomingHttpHeaders } from 'node:http2';
 import { isSocketRejection, upgradeRejection } from './upgrade.ts';
+import {
+  commitBeforeWrite,
+  gatesItsOwnWrites,
+  onWriteGateFailure,
+  writeFailed,
+} from './write-gate.ts';
 import type { ConnectionTransport } from './socket.ts';
 
 /** How long an HTTP/1.1 upload stopped early may go on sending after its answer. */
@@ -133,10 +139,26 @@ function flushAll(): void {
   for (const held of heldThisTurn) flush(held);
 }
 
+onWriteGateFailure(() => {
+  for (const held of heldThisTurn) {
+    heldThisTurn.delete(held);
+    held.chunks = [];
+    held.bytes = 0;
+    held.response.destroy();
+  }
+});
+
 function flush(held: HeldEvents): void {
+  if (held.chunks.length === 0) {
+    heldThisTurn.delete(held);
+    return;
+  }
+
+  // On a failed commit, the failure drop has already dropped this stream's events and ended it.
+  if (!commitBeforeWrite()) return;
+
   heldThisTurn.delete(held);
   const { chunks, bytes } = held;
-  if (chunks.length === 0) return;
 
   held.chunks = [];
   held.bytes = 0;
@@ -155,6 +177,11 @@ function flush(held: HeldEvents): void {
 }
 
 function holdEvent(held: HeldEvents, chunk: Uint8Array): void {
+  if (writeFailed()) {
+    held.response.destroy();
+    return;
+  }
+
   if (held.chunks.length === 0) {
     if (heldThisTurn.size === 0) setImmediate(flushAll);
     heldThisTurn.add(held);
@@ -287,7 +314,7 @@ async function openStream(deps: NodeHttpDeps, stream: StreamRequest): Promise<vo
   const opened = hub.openStream(new HeldEvents(response));
   response.once('close', () => opened.ended());
   try {
-    opened.attach(deps.attach(opened.socket, decision));
+    opened.attach(deps.attach(gatesItsOwnWrites(opened.socket), decision));
   } catch (error) {
     response.destroy();
     throw error;

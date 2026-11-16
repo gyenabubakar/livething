@@ -338,6 +338,34 @@ describe('createSql', () => {
     expect(() => runtime.close()).not.toThrow();
   });
 
+  it('opens a file path in WAL mode with synchronous NORMAL', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'livething-wal-'));
+    const runtime = createSql(join(directory, 'huddle.sqlite'));
+    try {
+      const database = runtime.database as unknown as Database.Database;
+
+      expect(database.pragma('journal_mode', { simple: true })).toBe('wal');
+      expect(database.pragma('synchronous', { simple: true })).toBe(1);
+    } finally {
+      runtime.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the settings of a database it was given', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'livething-wal-'));
+    const database = new Database(join(directory, 'huddle.sqlite'));
+    const runtime = createSql(database);
+    try {
+      expect(database.pragma('journal_mode', { simple: true })).toBe('delete');
+      expect(database.pragma('synchronous', { simple: true })).toBe(2);
+    } finally {
+      runtime.close();
+      database.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('closes its owned database when default KV initialization fails', () => {
     const directory = mkdtempSync(join(tmpdir(), 'livething-storage-'));
     const databasePath = join(directory, 'state.sqlite');

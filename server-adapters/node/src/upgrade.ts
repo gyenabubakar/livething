@@ -8,6 +8,7 @@ import type { RawData, WebSocket, WebSocketServer } from 'ws';
 import { closeWebSocket } from './close.ts';
 import { sendToWs, sendWhenOpen, terminateWs, wsBufferedAmount } from './socket.ts';
 import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
+import { gatesItsOwnWrites } from './write-gate.ts';
 import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
 import type { ConnectionTransport } from './socket.ts';
 
@@ -177,13 +178,13 @@ async function writeHttpResponse(socket: Duplex, response: Response): Promise<vo
 }
 
 function webSocketTransport(socket: WebSocket): ConnectionTransport {
-  return {
+  return gatesItsOwnWrites({
     send: (frame) => sendWhenOpen(socket.readyState, () => sendToWs(socket, frame)),
     close: (code, reason) => socket.close(code, reason),
     terminate: () => terminateWs(socket),
     bufferedAmount: () => wsBufferedAmount(socket),
     backpressureSupported: true,
-  };
+  });
 }
 
 /**
