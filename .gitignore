@@ -28,6 +28,8 @@ vite.config.*.timestamp-*.*
 
 _type_experiments
 
+bench-results
+
 ideas.md
 AUDIT.md
 .playwright-mcp/

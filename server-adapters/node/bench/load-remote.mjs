@@ -4,7 +4,8 @@
 //
 //   node bench/load-remote.mjs <private IP>
 //
-// It listens on that IP (default 127.0.0.1), on LOAD_CONTROL_PORT (default 9100). A client picks
+// It listens on that IP (default 127.0.0.1), on LOAD_CONTROL_PORT (default 9100), and the server
+// listens on LOAD_PORT (default 9101), so the client machine needs only those two. A client picks
 // only the server mode and the settings below. Node flags for the server come from this
 // machine's own LOAD_SERVER_FLAGS, never from the client. It runs one server at a time, and stops
 // a server that hears nothing for 5 minutes, as when its `load.mjs` was stopped.
@@ -62,7 +63,7 @@ function startServer(mode, env) {
   if (server) throw new Error('Another run is using the server. Wait for it to end.');
 
   // Only the client's settings: one it leaves out must not come from this machine.
-  const serverEnv = { ...process.env, LOAD_HOST: host };
+  const serverEnv = { ...process.env, LOAD_HOST: host, LOAD_PORT: process.env.LOAD_PORT ?? '9101' };
   for (const name of SETTINGS) {
     delete serverEnv[name];
     if (env?.[name] !== undefined) serverEnv[name] = String(env[name]);

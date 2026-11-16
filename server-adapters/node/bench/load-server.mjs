@@ -18,6 +18,8 @@ const presence = process.env.LOAD_PRESENCE !== 'off';
 // `load-remote.mjs` sets it to the server machine's private IP, so clients on another machine can
 // connect.
 const host = process.env.LOAD_HOST ?? '127.0.0.1';
+// `load-remote.mjs` sets a fixed port, so the firewall between the machines opens only that one.
+const listenPort = Number(process.env.LOAD_PORT ?? 0);
 // LOAD_SUITE=chat serves the chat app, which stores its messages in a SQLite file, and
 // LOAD_SUITE=features the same app with direct messages, a search stream and a confirmed delete.
 // Their files load only then, so a LOAD_BASELINE build without them still runs the core suite.
@@ -38,7 +40,7 @@ function listen(httpServer) {
   // for about a minute too.
   httpServer.keepAliveTimeout = 65_000;
   return new Promise((resolve) => {
-    httpServer.listen(0, host, () => resolve(httpServer.address().port));
+    httpServer.listen(listenPort, host, () => resolve(httpServer.address().port));
   });
 }
 
@@ -75,7 +77,7 @@ async function startLiveThing(transport) {
     if (raw) h2Server.on('stream', huddleEndpoint.handleStream);
     await huddleEndpoint.ready();
     return new Promise((resolve) => {
-      h2Server.listen(0, host, () => resolve(h2Server.address().port));
+      h2Server.listen(listenPort, host, () => resolve(h2Server.address().port));
     });
   }
 
