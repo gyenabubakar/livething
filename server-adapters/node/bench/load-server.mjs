@@ -15,16 +15,21 @@ import { buildHuddleDefinition } from './huddle-definition.mjs';
 
 const mode = process.argv[2] ?? 'livething';
 const presence = process.env.LOAD_PRESENCE !== 'off';
-// LOAD_SUITE=chat serves the chat app, which stores its messages in a SQLite file. Its files load
-// only then, so a LOAD_BASELINE build without them still runs the core suite.
+// `load-remote.mjs` sets it to the server machine's private IP, so clients on another machine can
+// connect.
+const host = process.env.LOAD_HOST ?? '127.0.0.1';
+// LOAD_SUITE=chat serves the chat app, which stores its messages in a SQLite file, and
+// LOAD_SUITE=features the same app with direct messages, a search stream and a confirmed delete.
+// Their files load only then, so a LOAD_BASELINE build without them still runs the core suite.
+const features = process.env.LOAD_SUITE === 'features';
 const chat =
-  process.env.LOAD_SUITE === 'chat'
+  process.env.LOAD_SUITE === 'chat' || features
     ? {
         ...(await import('./chat-servers.mjs')),
         ...(await import('./huddle-chat-definition.mjs')),
       }
     : undefined;
-const chatDatabase = chat?.openChatDatabase();
+const chatDatabase = chat?.openChatDatabase({ search: features });
 
 function listen(httpServer) {
   // Node closes an idle keep-alive connection after 5 seconds. The pauses between steps are
@@ -33,7 +38,7 @@ function listen(httpServer) {
   // for about a minute too.
   httpServer.keepAliveTimeout = 65_000;
   return new Promise((resolve) => {
-    httpServer.listen(0, '127.0.0.1', () => resolve(httpServer.address().port));
+    httpServer.listen(0, host, () => resolve(httpServer.address().port));
   });
 }
 
@@ -47,6 +52,9 @@ async function startLiveThing(transport) {
     presence,
     keepalive: overHttp,
     replay: process.env.LOAD_REPLAY === 'on',
+    dedup: process.env.LOAD_DEDUP === 'on',
+    rateLimit: process.env.LOAD_RATE_LIMIT === 'on',
+    features,
   });
   const huddleEndpoint = livething.bind(definition, {
     ...(overHttp ? { transports: [http()] } : {}),
@@ -67,7 +75,7 @@ async function startLiveThing(transport) {
     if (raw) h2Server.on('stream', huddleEndpoint.handleStream);
     await huddleEndpoint.ready();
     return new Promise((resolve) => {
-      h2Server.listen(0, '127.0.0.1', () => resolve(h2Server.address().port));
+      h2Server.listen(0, host, () => resolve(h2Server.address().port));
     });
   }
 

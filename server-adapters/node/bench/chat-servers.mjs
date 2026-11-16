@@ -7,8 +7,12 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { WebSocketServer } from 'ws';
 
-/** A new database file in a temporary folder, with the settings a production chat server uses. */
-export function openChatDatabase() {
+/**
+ * A new database file in a temporary folder, with the settings a production chat server uses.
+ * `search` adds the index that lets a search read the newest messages first and stop at 20 hits,
+ * so its cost does not grow with the table.
+ */
+export function openChatDatabase(options = {}) {
   const database = new Database(join(mkdtempSync(join(tmpdir(), 'huddle-chat-')), 'huddle.sqlite'));
   database.pragma('journal_mode = WAL');
   database.pragma('synchronous = NORMAL');
@@ -18,6 +22,7 @@ export function openChatDatabase() {
     CREATE INDEX messages_by_room ON messages (room, sent_at);
     CREATE TABLE reactions (message_id TEXT NOT NULL, user_id TEXT NOT NULL, emoji TEXT NOT NULL);
   `);
+  if (options.search) database.exec('CREATE INDEX messages_by_time ON messages (sent_at)');
 
   return database;
 }

@@ -5,15 +5,36 @@ import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { dedup } from '@livething/server/dedup';
+import { inbox, readReceipts } from '@livething/server/inbox';
 import { keepalive } from '@livething/server/keepalive';
+import { rateLimit } from '@livething/server/rate-limit';
 import { replay } from '@livething/server/replay';
 import { sequence } from '@livething/server/sequence';
+import { serverRequests } from '@livething/server/server-requests';
+import { stream } from '@livething/server/streams';
+
+/** The answer to `confirm-delete`, checked as a standard schema. */
+const ConfirmDeleteAnswer = {
+  '~standard': {
+    version: 1,
+    vendor: 'huddle',
+    validate(value) {
+      return typeof value?.confirmed === 'boolean'
+        ? { value }
+        : { issues: [{ message: 'confirmed must be true or false' }] };
+    },
+  },
+};
 
 /**
  * `keepalive` is for the http() transport, which needs it. `replay` has the engine record every
- * message but `typing` in SQLite, so a client that reconnects gets what it missed.
+ * message but `typing` in SQLite, so a client that reconnects gets what it missed. `dedup` gives
+ * every message an ID, and `rateLimit` caps each connection at 600 actions a minute, which no
+ * bench client reaches. `features` adds direct messages with an inbox and read receipts, a
+ * message search that streams its hits, and a delete that asks the client to confirm.
  */
 export function buildHuddleChatDefinition(options = {}) {
+  const needsSequence = options.replay || options.features;
   const base = server({
     authenticate(request) {
       return { userId: new URL(request.url).searchParams.get('user') ?? undefined };
@@ -22,8 +43,12 @@ export function buildHuddleChatDefinition(options = {}) {
       channels(),
       clientRequests(),
       ...(options.keepalive ? [keepalive()] : []),
-      ...(options.replay
-        ? [dedup(), sequence({ persist: true }), replay.history({ exclude: ['typing'] })]
+      ...(options.dedup || needsSequence ? [dedup()] : []),
+      ...(needsSequence ? [sequence({ persist: true })] : []),
+      ...(options.replay ? [replay.history({ exclude: ['typing'] })] : []),
+      ...(options.rateLimit ? [rateLimit({ windowMs: 60_000, maxMessages: 600 })] : []),
+      ...(options.features
+        ? [stream(), serverRequests({ 'confirm-delete': { out: t(), in: ConfirmDeleteAnswer } })]
         : []),
     ],
   });
@@ -42,14 +67,7 @@ export function buildHuddleChatDefinition(options = {}) {
         sentAt: Date.now(),
       };
 
-      ctx.sql.exec(
-        'INSERT INTO messages (id, room, user_id, text, sent_at) VALUES (?, ?, ?, ?, ?)',
-        message.id,
-        ctx.channel.name,
-        message.from,
-        message.text,
-        message.sentAt,
-      );
+      saveMessage(ctx, message);
       ctx.channel.broadcast('message', message);
     },
   });
@@ -90,5 +108,81 @@ export function buildHuddleChatDefinition(options = {}) {
     },
   });
 
-  return base.assemble({ handlers: [sendMessage, react, startTyping, loadHistory] });
+  const handlers = [sendMessage, react, startTyping, loadHistory];
+  if (!options.features) return base.assemble({ handlers });
+
+  // A direct message between two users. Each member gets a stored copy until they say they
+  // received it, so a member who is away gets it when they come back.
+  const dms = base.channel(['dms', 'dm:{pair}'], {
+    membership: 'persistent',
+    capabilities: [inbox(), readReceipts(), emits({ message: t() })],
+    check(ctx) {
+      if (!ctx.channel.params.pair.split('-').includes(ctx.user.id)) {
+        throw new Error('only the two people in a direct message can join it');
+      }
+    },
+  });
+
+  // Unlike Huddle's event, a request: the sender learns the message is stored, which is how the
+  // bench knows the inbox kept it for a member who is away. It is saved like a room message, so
+  // the search finds it.
+  const sendDm = dms.request('send-message', {
+    run(ctx, input) {
+      const message = {
+        id: crypto.randomUUID(),
+        text: input.text,
+        from: ctx.user.id,
+        sentAt: Date.now(),
+      };
+
+      saveMessage(ctx, message);
+      ctx.channel.broadcast('message', message);
+
+      return { id: message.id };
+    },
+  });
+
+  // The hits of a search over every room, as they are found.
+  const searchMessages = base.stream('search-messages', {
+    async *run(ctx, input) {
+      const hits = ctx.sql
+        .exec(
+          'SELECT id, room, text FROM messages WHERE text LIKE ? ORDER BY sent_at DESC LIMIT 20',
+          `%${input.query}%`,
+        )
+        .toArray();
+      for (const hit of hits) yield { hit };
+    },
+  });
+
+  // The client confirms before the message is gone.
+  const deleteMessage = base.request('delete-message', {
+    async run(ctx, input) {
+      const answer = await ctx.request('confirm-delete', { preview: input.preview });
+      if (!answer.confirmed) return { deleted: false };
+
+      ctx.sql.exec(
+        'DELETE FROM messages WHERE id = ? AND user_id = ?',
+        input.messageId,
+        ctx.user.id,
+      );
+
+      return { deleted: true };
+    },
+  });
+
+  return base.assemble({
+    handlers: [...handlers, sendDm, searchMessages, deleteMessage],
+  });
+}
+
+function saveMessage(ctx, message) {
+  ctx.sql.exec(
+    'INSERT INTO messages (id, room, user_id, text, sent_at) VALUES (?, ?, ?, ?, ?)',
+    message.id,
+    ctx.channel.name,
+    message.from,
+    message.text,
+    message.sentAt,
+  );
 }

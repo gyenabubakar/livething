@@ -20,6 +20,9 @@
 //                         them). The fan-out steps use the biggest one.
 //   LOAD_STEPS            measure only the steps whose names start with these words, comma-separated
 //   LOAD_PROFILE          an existing folder to write one server CPU profile for each step to
+//   LOAD_SERVER           the private IP of a server machine running `load-remote.mjs`, to run
+//                         the clients on this machine and the server on that one
+//   LOAD_CONTROL_PORT     the port `load-remote.mjs` listens on (default 9100)
 //   LOAD_BASELINE         a copy of the repo to run the server from, to compare two versions
 //   LOAD_SERVER_FLAGS     extra Node.js flags for the server process
 //   LOAD_H2_ENTRY=stream  on the HTTP/2 modes, serve the raw streams with `handleStream`
@@ -27,6 +30,15 @@
 //   LOAD_WARM=on          run every step twice in the same server and report only the second time
 //   LOAD_SUITE=chat       run the chat app instead, which stores messages in a SQLite file: sends,
 //                         history loads, a busy hour of mixed actions and a reconnect wave
+//   LOAD_SUITE=features   LiveThing only: the chat app's direct messages with an inbox and read
+//                         receipts, a search that streams its hits, and a delete the client
+//                         confirms through a server request
+//   LOAD_REPLAY=on        LiveThing chat only: record messages for replay, and catch up with it
+//   LOAD_DEDUP=on         LiveThing chat only: list dedup(), which gives every message an ID. The
+//                         LiveThing client sends no IDs of its own, so neither do these clients.
+//   LOAD_RATE_LIMIT=on    LiveThing chat only: a rate limit of 600 actions a minute for each
+//                         connection,
+//                         which no client reaches, to measure the check
 //   LOAD_MIX_RATE         actions a second in the chat's busy hour (default 2000)
 //   LOAD_MIX_SECONDS      how long the busy hour lasts, in seconds (default 20)
 import { fork } from 'node:child_process';
@@ -51,11 +63,19 @@ const mode = process.argv[2] ?? 'livething';
 if (!modes.includes(mode)) throw new Error(`Unknown mode ${mode}. Use ${modes.join(', ')}.`);
 
 const suite = process.env.LOAD_SUITE ?? 'core';
-if (suite !== 'core' && suite !== 'chat') throw new Error('LOAD_SUITE must be core or chat.');
+if (!['core', 'chat', 'features'].includes(suite)) {
+  throw new Error('LOAD_SUITE must be core, chat or features.');
+}
+
+if (suite === 'features' && !mode.startsWith('livething')) {
+  throw new Error('LOAD_SUITE=features runs only on a LiveThing mode.');
+}
 
 const replay = process.env.LOAD_REPLAY === 'on';
-if (replay && (suite !== 'chat' || !mode.startsWith('livething'))) {
-  throw new Error('LOAD_REPLAY=on runs only with LOAD_SUITE=chat on a LiveThing mode.');
+for (const name of ['LOAD_REPLAY', 'LOAD_DEDUP', 'LOAD_RATE_LIMIT']) {
+  if (process.env[name] === 'on' && (suite !== 'chat' || !mode.startsWith('livething'))) {
+    throw new Error(`${name}=on runs only with LOAD_SUITE=chat on a LiveThing mode.`);
+  }
 }
 
 const connectionCount = Number(process.argv[3] ?? 5000);
@@ -104,14 +124,53 @@ if (process.env.LOAD_BASELINE) {
   serverScript = join(benchCopy, 'load-server.mjs');
 }
 
-const serverProcess = fork(serverScript, [mode], {
-  execArgv: ['--expose-gc', ...(process.env.LOAD_SERVER_FLAGS?.split(' ').filter(Boolean) ?? [])],
-});
-// A crash here must not leave the server running, or a caller waiting on it never ends.
-process.on('exit', () => serverProcess.kill());
-const { port } = await new Promise((resolve) => serverProcess.once('message', resolve));
+const serverFlags = process.env.LOAD_SERVER_FLAGS?.split(' ').filter(Boolean) ?? [];
+// LOAD_SERVER=<private IP> runs the server on that machine, through `load-remote.mjs`.
+const remote = process.env.LOAD_SERVER;
+if (remote && (process.env.LOAD_BASELINE || process.env.LOAD_PROFILE || serverFlags.length)) {
+  throw new Error(
+    'LOAD_BASELINE, LOAD_PROFILE and LOAD_SERVER_FLAGS run only with a local server. Set ' +
+      'LOAD_SERVER_FLAGS on the server machine instead, and leave the others out.',
+  );
+}
+
+// `load-remote.mjs` stops a server that hears nothing for 5 minutes, and the busy hour asks for
+// nothing while it runs.
+if (remote && Number(process.env.LOAD_MIX_SECONDS ?? 20) > 240) {
+  throw new Error('With LOAD_SERVER, keep LOAD_MIX_SECONDS at 240 or less.');
+}
+
+const serverHost = remote ?? '127.0.0.1';
+const controlUrl = `http://${remote}:${process.env.LOAD_CONTROL_PORT ?? 9100}/`;
+
+async function control(request) {
+  const response = await fetch(controlUrl, { method: 'POST', body: JSON.stringify(request) });
+  const answer = await response.json();
+  if (!response.ok) throw new Error(`load-remote: ${answer.error}`);
+
+  return answer;
+}
+
+let serverProcess = null;
+let port;
+if (remote) {
+  // The server reads its settings from these variables, so they go to the other machine.
+  const env = {};
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith('LOAD_')) env[name] = process.env[name];
+  }
+
+  ({ port } = await control({ start: { mode, env } }));
+} else {
+  serverProcess = fork(serverScript, [mode], { execArgv: ['--expose-gc', ...serverFlags] });
+  // A crash here must not leave the server running, or a caller waiting on it never ends.
+  process.on('exit', () => serverProcess.kill());
+  ({ port } = await new Promise((resolve) => serverProcess.once('message', resolve)));
+}
 
 function callServer(message) {
+  if (remote) return control({ message });
+
   return new Promise((resolve) => {
     serverProcess.once('message', resolve);
     serverProcess.send(message);
@@ -174,6 +233,9 @@ let historyRequests = 0;
 // The time a busy-hour action was planned for. A reply time counts from it, not from when the
 // action ran, so a client that falls behind its plan does not hide the wait.
 let plannedAt;
+// How busy the clients' process was in the busy hour, in percent of one CPU core.
+let clientCpuAtStart;
+let clientCpuPercent;
 
 // With LOAD_REPLAY=on, the highest delivery number each client has seen in its room, and how many
 // messages it got, by client index, so the client can catch up from there after it reconnects.
@@ -190,9 +252,12 @@ function countText(text, index) {
   if (text === 'ping' || text === 'pong') return;
 
   const event = text.slice(2, text.indexOf('"', 2));
-  bump(FRAME_NAMES[event] ?? event);
   if (replay && (event === 'message' || event === '__subscribeOk__')) keepLastSeq(text, index);
   if (replay && event === 'message') messagesByClient[index] = (messagesByClient[index] ?? 0) + 1;
+  if (suite === 'features') answerFeatureFrame(text, index, event);
+  // Last: a wait checks its condition on each bump, so what the frame changed must be in place.
+  bump(FRAME_NAMES[event] ?? event);
+
   if (latencies && event === 'message') {
     latencies.message.push(performance.now() - Number(JSON.parse(text)[1].text));
   } else if (latencies && event === 'load-history') {
@@ -236,10 +301,79 @@ function historyRequestId() {
   return id;
 }
 
+// LOAD_SUITE=features: each client's way to send a frame, by index, so it can answer a server
+// request and acknowledge a direct message as the LiveThing client does.
+const frameSenders = [];
+const lastDmSeqs = [];
+const ackedDmSeqs = [];
+const sentDmIds = [];
+// Frames to send once a reconnecting client is ready: the inbox can deliver before it is.
+const waitingFrames = [];
+let frameIds = 0;
+
+function sendFrom(index, frame) {
+  if (frameSenders[index]) frameSenders[index](frame);
+  else (waitingFrames[index] ??= []).push(frame);
+}
+
+/** A direct message's channel: the two users of a pair, client 2k and client 2k + 1. */
+function dmChannel(index) {
+  const first = index - (index % 2);
+  return { channel: { name: `dm:u${first}-u${first + 1}`, family: 'dms' } };
+}
+
+/** Answers what the server sends a client in the features suite. */
+function answerFeatureFrame(text, index, event) {
+  if (event === 'confirm-delete') {
+    const [, , metadata] = JSON.parse(text);
+    sendFrom(index, JSON.stringify(['confirm-delete', { confirmed: true }, metadata]));
+  } else if (event === 'delete-message') {
+    if (JSON.parse(text)[1].deleted) bump('deleted');
+  } else if (event === 'send-message') {
+    sentDmIds[index] ??= [];
+    sentDmIds[index].push(JSON.parse(text)[1].id);
+  } else if (event === 'message') {
+    // As the LiveThing client does, tell the server once, after the messages that arrived together.
+    const acking = lastDmSeqs[index] === ackedDmSeqs[index];
+    lastDmSeqs[index] = JSON.parse(text)[2].delivery.seq;
+    if (acking) {
+      queueMicrotask(() => {
+        ackedDmSeqs[index] = lastDmSeqs[index];
+        const ack = { receivedThrough: lastDmSeqs[index] };
+        sendFrom(index, JSON.stringify(['__received__', ack, dmChannel(index)]));
+      });
+    }
+  }
+}
+
 /** The steps' actions as LiveThing frames, on any client that can send a frame. */
-function frameActions(send, close) {
+function frameActions(send, close, index) {
+  frameSenders[index] = send;
+  for (const frame of waitingFrames[index]?.splice(0) ?? []) send(frame);
+
   let requestId = 0;
+  function request(event, payload, metadata) {
+    const exchange = { id: `f${frameIds++}`, source: 'client' };
+    send(JSON.stringify([event, payload, { ...metadata, exchange }]));
+  }
+
   return {
+    joinDm: () => send(JSON.stringify(['__subscribe__', null, dmChannel(index)])),
+    leaveDm: () =>
+      send(
+        JSON.stringify([
+          '__unsubscribe__',
+          null,
+          { channel: { ...dmChannel(index).channel, unsubscribeId: `leave-${index}` } },
+        ]),
+      ),
+    sendDm: (text) => request('send-message', { text }, dmChannel(index)),
+    readDms: () =>
+      send(JSON.stringify(['__read__', { readThrough: lastDmSeqs[index] }, dmChannel(index)])),
+    searchMessages: (query) =>
+      send(JSON.stringify(['search-messages', { query }, { stream: { id: `s${frameIds++}` } }])),
+    deleteMessage: () =>
+      request('delete-message', { messageId: sentDmIds[index].shift(), preview: 'hello' }),
     echo: () => send(JSON.stringify(['echo', { text: 'hello there' }, null])),
     request: () =>
       send(
@@ -274,9 +408,13 @@ function frameActions(send, close) {
 
 function openWebSocketClient(index) {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/huddle?user=u${index}`, ['livething-v1'], {
-      perMessageDeflate: false,
-    });
+    const socket = new WebSocket(
+      `ws://${serverHost}:${port}/huddle?user=u${index}`,
+      ['livething-v1'],
+      {
+        perMessageDeflate: false,
+      },
+    );
     socket.on('message', (data, isBinary) =>
       isBinary ? countBinary(data) : countText(data.toString(), index),
     );
@@ -289,6 +427,7 @@ function openWebSocketClient(index) {
               socket.once('close', closed);
               socket.close(1000);
             }),
+          index,
         ),
       ),
     );
@@ -397,7 +536,7 @@ function openHttpClient(index) {
     let ended;
     const streamEnded = new Promise((done) => (ended = done));
 
-    const session = H2 ? http2.connect(`http://127.0.0.1:${port}`) : null;
+    const session = H2 ? http2.connect(`http://${serverHost}:${port}`) : null;
     session?.on('error', () => {});
 
     const lanes = {
@@ -468,7 +607,7 @@ function openHttpClient(index) {
 
       return new Promise((done, fail) => {
         const request = http.request(
-          { method: 'POST', host: '127.0.0.1', port, path, agent: postAgent, headers },
+          { method: 'POST', host: serverHost, port, path, agent: postAgent, headers },
           (response) => readAnswer(response, response.statusCode).then(done),
         );
         request.on('error', fail);
@@ -557,6 +696,7 @@ function openHttpClient(index) {
             await streamEnded;
             session?.close();
           },
+          index,
         ),
       );
     }
@@ -610,7 +750,7 @@ function openHttpClient(index) {
       request.on('error', reject);
     } else {
       const request = http.get(
-        { host: '127.0.0.1', port, path, agent: streamAgent, headers: streamHeaders },
+        { host: serverHost, port, path, agent: streamAgent, headers: streamHeaders },
         (response) => onStream(response, response.statusCode),
       );
       request.on('error', reject);
@@ -624,7 +764,7 @@ const { io } = mode.startsWith('socket.io') ? await import('socket.io-client') :
 
 function openSocketIoClient(index) {
   return new Promise((resolve, reject) => {
-    const socket = io(`http://127.0.0.1:${port}`, {
+    const socket = io(`http://${serverHost}:${port}`, {
       transports: [mode === 'socket.io' ? 'websocket' : 'polling'],
       query: { user: `u${index}` },
       // In Node, the polling client opens a new TCP connection for every request unless it
@@ -831,6 +971,18 @@ function percentile(values, p) {
 // LOAD_MIX_RATE actions a second, for LOAD_MIX_SECONDS, in the busy-hour step.
 const mixRate = numberList('LOAD_MIX_RATE', '2000', 1)[0];
 const mixSeconds = numberList('LOAD_MIX_SECONDS', '20', 1)[0];
+// A client sends about 20 frames outside the busy hour. Over the limit, the server would drop
+// frames and the run would only time out.
+if (
+  process.env.LOAD_RATE_LIMIT === 'on' &&
+  (mixRate * Math.min(mixSeconds, 60)) / connectionCount + 20 > 600
+) {
+  throw new Error(
+    'With LOAD_RATE_LIMIT=on, a client would send more than its 600 actions a minute. Use more ' +
+      'connections, a lower LOAD_MIX_RATE or fewer LOAD_MIX_SECONDS.',
+  );
+}
+
 // Out of 100 actions in the busy hour: what a person in a team chat does most, typing, then
 // sending, reacting, and scrolling back through the history.
 // `event` is what the action's answer is called, and `answers` how many it gets: a send reaches
@@ -912,6 +1064,8 @@ async function runChatSteps() {
     counts.clear();
     latencies = { message: [], history: [] };
     const started = performance.now();
+    clientCpuAtStart = process.cpuUsage();
+
     let next = 0;
     await new Promise((resolve) => {
       const timer = setInterval(() => {
@@ -929,11 +1083,18 @@ async function runChatSteps() {
     });
 
     await waitFor(() => [...expected].every((entry) => count(entry[0]) >= entry[1]), 'busy hour');
+    const clientCpu = process.cpuUsage(clientCpuAtStart);
+    clientCpuPercent = Math.round(
+      (clientCpu.user + clientCpu.system) / 10 / (performance.now() - started),
+    );
   });
 
   const busyRow = results.find((row) => row.step === busyName);
   if (busyRow) {
     const replyTimes = {
+      // Every client runs in this one process. Near 100, the clients wait for their own thread,
+      // and the reply times measure them as much as the server.
+      clientCpuPercent,
       messageP50Ms: percentile(latencies.message, 50),
       messageP99Ms: percentile(latencies.message, 99),
       historyP50Ms: percentile(latencies.history, 50),
@@ -942,6 +1103,13 @@ async function runChatSteps() {
 
     Object.assign(busyRow, replyTimes);
     console.error(JSON.stringify({ step: busyName, ...replyTimes }));
+    if (clientCpuPercent >= 90) {
+      console.error(
+        `The clients used ${clientCpuPercent}% of a CPU core in the busy hour, so their reply ` +
+          'times include their own waiting. The server CPU numbers still hold. Use fewer clients ' +
+          'or a lower LOAD_MIX_RATE for reply times.',
+      );
+    }
   }
 
   latencies = null;
@@ -985,6 +1153,119 @@ async function runChatSteps() {
     }
   });
 
+  await disconnectStep(clients);
+
+  return baseline;
+}
+
+/**
+ * LiveThing's own features on the chat app: direct messages with an inbox and read receipts, a
+ * search that streams its hits, and a delete that asks the client to confirm. Client 2k and client
+ * 2k + 1 share a direct message. Each step ends when the last client heard back, and a client's
+ * frames are handled in order, so a reply proves the server handled every frame before it.
+ */
+async function runFeatureSteps() {
+  counts.clear();
+  const baseline = await serverStats();
+  const clients = await connectStep(baseline);
+  const dmsEach = 5;
+  const half = connectionCount / 2;
+
+  await step('join a direct message', { units: connectionCount, unit: 'join' }, async () => {
+    counts.clear();
+    for (const client of clients) client.joinDm();
+    await waitFor(() => count('joined') >= connectionCount, 'direct message join');
+    // The second of each pair to join tells the first one.
+    await waitFor(() => count('member online') >= half, 'direct message presence');
+  });
+
+  // Each read goes to both people in the direct message, so a client hears its own read once the
+  // server handled every acknowledgement it sent before it. Like Huddle's, the inbox tells no one
+  // about an acknowledgement (`broadcastReceipts` is off), so the step has no `__received__` frames.
+  await step(
+    'direct message to an online member, acknowledged and read',
+    { units: connectionCount * dmsEach, unit: 'message' },
+    async () => {
+      counts.clear();
+      for (const client of clients) for (let i = 0; i < dmsEach; i++) client.sendDm('hello');
+      await waitFor(
+        () => count('send-message') >= connectionCount * dmsEach,
+        'direct messages stored',
+      );
+      await waitFor(() => count('message') >= connectionCount * dmsEach, 'direct messages');
+
+      for (const client of clients) client.readDms();
+      await waitFor(() => count('__read__') >= connectionCount * 2, 'reads');
+    },
+  );
+
+  // The odd clients are away, so the inbox keeps each message for them. Their partners hear it
+  // before the step starts, so the step measures none of the leaving.
+  counts.clear();
+  await Promise.all(
+    clients.map((client, index) => {
+      if (index % 2 === 0) return undefined;
+
+      frameSenders[index] = null;
+      return client.close();
+    }),
+  );
+  await waitFor(() => count('member offline') >= half, 'partners away');
+
+  await step(
+    'direct message to a member who is away',
+    { units: half * dmsEach, unit: 'message' },
+    async () => {
+      counts.clear();
+      clients.forEach((client, index) => {
+        if (index % 2 === 0) for (let i = 0; i < dmsEach; i++) client.sendDm('hello again');
+      });
+      await waitFor(() => count('send-message') >= half * dmsEach, 'direct messages stored');
+    },
+  );
+
+  await step('reconnect and get the inbox', { units: half, unit: 'reconnect' }, async () => {
+    counts.clear();
+    await Promise.all(
+      clients.map(async (_, index) => {
+        if (index % 2 === 1) clients[index] = await openClient(index);
+      }),
+    );
+    await waitFor(() => count('message') >= half * dmsEach, 'inbox');
+    clients.forEach((client, index) => index % 2 === 1 && client.readDms());
+    await waitFor(() => count('__read__') >= connectionCount, 'reads');
+  });
+
+  await step(
+    'search that streams 20 hits',
+    { units: connectionCount, unit: 'search' },
+    async () => {
+      counts.clear();
+      for (const client of clients) client.searchMessages('hello');
+      await waitFor(() => count('__streamEnd__') >= connectionCount, 'searches');
+      if (count('search-messages') < connectionCount * 20) {
+        throw new Error(`A search found fewer than 20 hits: ${count('search-messages')} in all.`);
+      }
+    },
+  );
+
+  await step(
+    'delete confirmed with a server request',
+    { units: connectionCount, unit: 'delete' },
+    async () => {
+      counts.clear();
+      for (const client of clients) client.deleteMessage();
+      await waitFor(() => count('delete-message') >= connectionCount, 'deletes');
+      if (count('deleted') < connectionCount) {
+        throw new Error('A confirmed delete deleted nothing.');
+      }
+    },
+  );
+
+  // Leave the direct messages, so a second pass with LOAD_WARM=on joins them again.
+  counts.clear();
+  for (const client of clients) client.leaveDm();
+  await waitFor(() => count('__unsubscribeOk__') >= connectionCount, 'direct message leave');
   await disconnectStep(clients);
 
   return baseline;
@@ -1109,7 +1390,7 @@ async function runCoreSteps() {
   return baseline;
 }
 
-const runSteps = suite === 'chat' ? runChatSteps : runCoreSteps;
+const runSteps = { core: runCoreSteps, chat: runChatSteps, features: runFeatureSteps }[suite];
 
 if (warm) {
   warming = true;
@@ -1133,7 +1414,12 @@ console.log(
     results,
   }),
 );
-serverProcess.send('exit');
-await new Promise((resolve) => serverProcess.once('exit', resolve));
+if (remote) {
+  await control({ message: 'exit' });
+} else {
+  serverProcess.send('exit');
+  await new Promise((resolve) => serverProcess.once('exit', resolve));
+}
+
 // A pipe to stdout can still be writing the report, so exit once it is out.
 process.stdout.write('', () => process.exit(0));
