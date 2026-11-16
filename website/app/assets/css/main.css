@@ -157,6 +157,13 @@ td:has(> .bench-close) {
   color: var(--ui-text-highlighted);
 }
 
+/* How far a marked result leads the next one, under the number. */
+.bench-lead {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ui-text-muted);
+}
+
 /* A dashed line whose dashes flow from its start point to its end point.
    The offset travels one full dash period (6 + 4) so the loop has no jump. */
 .dash-flow {
