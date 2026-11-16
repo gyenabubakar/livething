@@ -28,40 +28,42 @@ interface TcpSocket {
 }
 
 /**
- * The TCP sockets corked until the end of the current tick, each with the bytes it held before.
- * Holding a socket's writes until the end of the tick sends every frame written to it in the
- * tick with one system call instead of one each: a burst of broadcasts to many members was
- * mostly system calls before. The order of the frames does not change, and one `nextTick`
- * uncorks every socket.
+ * The TCP sockets corked until the end of this turn, each with the bytes it held before.
+ * Holding a socket's writes sends every frame written to it in the turn with one system call
+ * instead of one each: a burst of broadcasts to many members was mostly system calls before.
+ * `setImmediate` runs once the turn has read its I/O, so the broadcasts of every message read
+ * together go out as one write for each member, the way the event streams of `http()` do. A
+ * `nextTick` would send after each socket's read instead: 1.5 times the CPU for a broadcast to
+ * 2,000 members. The order of the frames does not change, and an event waits for no new I/O.
  */
-const corkedThisTick = new Map<TcpSocket, number>();
+const corkedThisTurn = new Map<TcpSocket, number>();
 
 /**
- * A socket holding this many bytes written in the current tick sends them at once. Batching
- * gains nothing past this size, and held bytes count in `bufferedAmount`: replay catch-up and
- * `ctx.stream.drain()` would wait on bytes that only wait for the tick to end.
+ * A socket holding this many bytes written in this turn sends them at once. Batching gains
+ * nothing past this size, and held bytes count in `bufferedAmount`: replay catch-up and
+ * `ctx.stream.drain()` would wait on bytes that only wait for the turn to end.
  */
 const HOLD_BYTES = 64 * 1024;
 
 function uncorkAll(): void {
   try {
-    for (const tcp of corkedThisTick.keys()) tcp.uncork();
+    for (const tcp of corkedThisTurn.keys()) tcp.uncork();
   } finally {
-    corkedThisTick.clear();
+    corkedThisTurn.clear();
   }
 }
 
-function corkForTick(tcp: TcpSocket): void {
-  if (corkedThisTick.has(tcp)) return;
+function corkForTurn(tcp: TcpSocket): void {
+  if (corkedThisTurn.has(tcp)) return;
 
-  if (corkedThisTick.size === 0) process.nextTick(uncorkAll);
-  corkedThisTick.set(tcp, tcp.writableLength);
+  if (corkedThisTurn.size === 0) setImmediate(uncorkAll);
+  corkedThisTurn.set(tcp, tcp.writableLength);
   tcp.cork();
 }
 
-/** Send what a socket holds now, before the tick ends. */
+/** Send what a socket holds now, before the turn ends. */
 function release(tcp: TcpSocket): void {
-  if (!corkedThisTick.delete(tcp)) return;
+  if (!corkedThisTurn.delete(tcp)) return;
 
   tcp.uncork();
 }
@@ -112,9 +114,9 @@ export function sendToWs(socket: Pick<WebSocket, 'send'>, frame: TransportFrame)
     return;
   }
 
-  corkForTick(tcp);
+  corkForTurn(tcp);
   writeFrame(socket, frame);
-  const heldBefore = corkedThisTick.get(tcp);
+  const heldBefore = corkedThisTurn.get(tcp);
   if (heldBefore !== undefined && tcp.writableLength - heldBefore >= HOLD_BYTES) release(tcp);
 }
 

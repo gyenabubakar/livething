@@ -135,7 +135,7 @@ describe('sendToWs', () => {
       }
     });
 
-    it('writes every frame sent to a socket in one tick with one system call', async () => {
+    it('writes every frame sent to a socket in one turn with one system call', async () => {
       const { sockets, received } = await connect(1);
       const tcp = (sockets[0] as unknown as { _socket: Socket })._socket;
       const writes = { one: 0, many: 0 };
@@ -152,16 +152,21 @@ describe('sendToWs', () => {
       };
       const texts = ['["a",{},null]', '["b",{},null]', '["c",{},null]', '["d",{},null]'];
 
-      for (const text of texts) sendToWs(sockets[0]!, { kind: 'text', text, shared: false });
+      const [first, ...rest] = texts;
+      sendToWs(sockets[0]!, { kind: 'text', text: first!, shared: false });
       expect(tcp.writableCorked).toBe(1);
+      // Code after an `await`, or the read of another socket, still writes into the same turn.
       await new Promise((resolve) => process.nextTick(resolve));
+      for (const text of rest) sendToWs(sockets[0]!, { kind: 'text', text, shared: false });
+      expect(tcp.writableCorked).toBe(1);
+      await new Promise((resolve) => setImmediate(resolve));
       expect(tcp.writableCorked).toBe(0);
 
       await until(() => received[0]!.length === texts.length);
       expect(received[0]).toEqual(texts);
       expect(writes).toEqual({ one: 0, many: 1 });
 
-      // The next tick holds its frames again, and lets them go at its end.
+      // The next turn holds its frames again, and lets them go at its end.
       sendToWs(sockets[0]!, { kind: 'text', text: '["e",{},null]', shared: false });
       expect(tcp.writableCorked).toBe(1);
       await until(() => received[0]!.length === texts.length + 1);
