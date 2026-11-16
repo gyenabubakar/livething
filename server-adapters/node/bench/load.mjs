@@ -23,6 +23,8 @@
 //   LOAD_SERVER           the private IP of a server machine running `load-remote.mjs`, to run
 //                         the clients on this machine and the server on that one
 //   LOAD_CONTROL_PORT     the port `load-remote.mjs` listens on (default 9100)
+//   LOAD_CLIENT_PROCESSES run the clients in this many processes (default 1), so no one process
+//                         is too busy to read its replies on time
 //   LOAD_BASELINE         a copy of the repo to run the server from, to compare two versions
 //   LOAD_SERVER_FLAGS     extra Node.js flags for the server process
 //   LOAD_H2_ENTRY=stream  on the HTTP/2 modes, serve the raw streams with `handleStream`
@@ -83,6 +85,33 @@ const connectionCount = Number(process.argv[3] ?? 5000);
 if (!Number.isSafeInteger(connectionCount) || connectionCount <= 0 || connectionCount % 10 !== 0) {
   throw new Error('Use a positive connection count that is a multiple of 10.');
 }
+
+// LOAD_CLIENT_PROCESSES=<n> runs the clients in n processes, so one busy thread does not slow
+// their replies down. This process starts the server and the n client processes. Each one runs
+// every step for its share of the clients, and they meet here at the start and end of each step
+// and to clear their counts. A step waits on the counts of all of them, added up here. Client
+// process 0 writes the report.
+const clientProcesses = Number(process.env.LOAD_CLIENT_PROCESSES ?? 1);
+if (!Number.isSafeInteger(clientProcesses) || clientProcesses < 1) {
+  throw new Error('LOAD_CLIENT_PROCESSES must be a whole number of at least 1.');
+}
+
+if (connectionCount % clientProcesses !== 0) {
+  throw new Error('Use a connection count that LOAD_CLIENT_PROCESSES divides evenly.');
+}
+
+if (clientProcesses > 1 && process.env.LOAD_PROFILE) {
+  throw new Error('LOAD_PROFILE runs only with one client process.');
+}
+
+/** This client process's number, or null for the one that starts the server. */
+const shard = process.env.LOAD_SHARD === undefined ? null : Number(process.env.LOAD_SHARD);
+const coordinating = clientProcesses > 1 && shard === null;
+const reporting = shard === null || shard === 0;
+const shardSize = connectionCount / clientProcesses;
+/** The clients this process runs: from this index, up to but not including `ownTo`. */
+const ownFrom = (shard ?? 0) * shardSize;
+const ownTo = ownFrom + shardSize;
 
 /** A comma-separated list of whole numbers, each at least `min`. "" is an empty list. */
 function numberList(name, fallback, min) {
@@ -153,7 +182,9 @@ async function control(request) {
 
 let serverProcess = null;
 let port;
-if (remote) {
+if (shard !== null) {
+  port = Number(process.env.LOAD_SHARD_PORT);
+} else if (remote) {
   // The server reads its settings from these variables, so they go to the other machine.
   const env = {};
   for (const name of Object.keys(process.env)) {
@@ -177,8 +208,40 @@ function callServer(message) {
   });
 }
 
-function serverStats() {
-  return callServer('stats');
+// ---- Client processes meeting the process that started the server ----
+
+const meetings = new Map();
+let meetingCount = 0;
+let stepStarted = 0;
+/** The counts of every client process, added up, while LOAD_CLIENT_PROCESSES is over 1. */
+let totals = {};
+
+/**
+ * Wait here until every client process has called `together` with the same `name`, then get what
+ * the process that started the server answers. They call it in the same order, so the nth call of
+ * each one is the same meeting.
+ */
+function together(name, data) {
+  const id = meetingCount++;
+  process.send({ together: name, id, data });
+  return new Promise((resolve) => meetings.set(id, resolve));
+}
+
+if (shard !== null) {
+  process.on('message', (message) => {
+    if (message.totals) {
+      totals = message.totals;
+      wake();
+    } else {
+      meetings.get(message.id)(message.result);
+      meetings.delete(message.id);
+    }
+  });
+}
+
+/** `ended`: when this process finished its part of the step, on the shared clock. */
+function serverStats(ended) {
+  return shard === null ? callServer('stats') : together('stats', ended);
 }
 
 const profileDir = process.env.LOAD_PROFILE;
@@ -194,20 +257,39 @@ let wake = noop;
 
 function noop() {}
 
+let countsSent = true;
+
 function bump(name, by = 1) {
   counts.set(name, (counts.get(name) ?? 0) + by);
-  wake();
+  if (shard === null) {
+    wake();
+  } else if (countsSent) {
+    // Many frames arrive in a few milliseconds, so their counts go out together.
+    countsSent = false;
+    setTimeout(() => {
+      countsSent = true;
+      process.send({ counts: Object.fromEntries(counts) });
+    }, 5);
+  }
 }
 
 function count(name) {
-  return counts.get(name) ?? 0;
+  return shard === null ? (counts.get(name) ?? 0) : (totals[name] ?? 0);
+}
+
+/** Start counting again from zero, in every client process at once. */
+async function clearCounts() {
+  counts.clear();
+  // A step's time starts once every process is ready, not while they wait for each other.
+  if (shard !== null) stepStarted = await together('clear');
 }
 
 function waitFor(condition, label) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       wake = noop;
-      reject(new Error(`Timed out: ${label} (${JSON.stringify(Object.fromEntries(counts))})`));
+      const seen = shard === null ? Object.fromEntries(counts) : totals;
+      reject(new Error(`Timed out: ${label} (${JSON.stringify(seen)})`));
     }, 120_000);
     wake = () => {
       if (!condition()) return;
@@ -242,6 +324,14 @@ let clientCpuPercent;
 const lastSeqs = [];
 const messagesByClient = [];
 
+/**
+ * The time in milliseconds on a clock every process on this machine shares, unlike
+ * `performance.now()`, so a client in one process can time a message from a client in another.
+ */
+function clock() {
+  return performance.timeOrigin + performance.now();
+}
+
 function keepLastSeq(text, index) {
   const [, payload, metadata] = JSON.parse(text);
   const seq = metadata?.delivery?.seq ?? payload?.seq;
@@ -253,13 +343,18 @@ function countText(text, index) {
 
   const event = text.slice(2, text.indexOf('"', 2));
   if (replay && (event === 'message' || event === '__subscribeOk__')) keepLastSeq(text, index);
-  if (replay && event === 'message') messagesByClient[index] = (messagesByClient[index] ?? 0) + 1;
+  if (replay && event === 'message') {
+    messagesByClient[index] = (messagesByClient[index] ?? 0) + 1;
+    // A client that reconnects has caught up once it has the message of each other member.
+    if (messagesByClient[index] === roomSize - 1) bump('caught up');
+  }
+
   if (suite === 'features') answerFeatureFrame(text, index, event);
   // Last: a wait checks its condition on each bump, so what the frame changed must be in place.
   bump(FRAME_NAMES[event] ?? event);
 
   if (latencies && event === 'message') {
-    latencies.message.push(performance.now() - Number(JSON.parse(text)[1].text));
+    latencies.message.push(clock() - Number(JSON.parse(text)[1].text));
   } else if (latencies && event === 'load-history') {
     historyAnswered(JSON.parse(text)[2].exchange.id);
   }
@@ -291,13 +386,13 @@ function historyAnswered(id) {
   if (started === undefined) return;
 
   historyStarts.delete(id);
-  latencies?.history.push(performance.now() - started);
+  latencies?.history.push(clock() - started);
 }
 
 /** A new history request ID, with its start time while the busy-hour step runs. */
 function historyRequestId() {
   const id = `h${historyRequests++}`;
-  if (latencies) historyStarts.set(id, plannedAt ?? performance.now());
+  if (latencies) historyStarts.set(id, plannedAt ?? clock());
   return id;
 }
 
@@ -459,7 +554,9 @@ class PacedAgent extends http.Agent {
   }
 }
 
-const MAX_OPENING = 100;
+// A long-poll GET frees its slot before the server accepts it. Several client processes open them
+// fast enough to fill the queue, so they share a smaller limit.
+const MAX_OPENING = clientProcesses === 1 ? 100 : Math.ceil(16 / clientProcesses);
 let opening = 0;
 const waitingToOpen = [];
 
@@ -779,7 +876,7 @@ function openSocketIoClient(index) {
 
     socket.on('message', (message) => {
       bump('message');
-      if (latencies) latencies.message.push(performance.now() - Number(message.text));
+      if (latencies) latencies.message.push(clock() - Number(message.text));
     });
 
     socket.on('disconnect', (reason) => bump(`disconnect: ${reason}`));
@@ -825,17 +922,27 @@ const openClient = {
   'socket.io-polling': openSocketIoClient,
 }[mode];
 
-async function openClients(n, concurrency = 100) {
+/** The clients of this process. */
+function own(clients) {
+  return clients.slice(ownFrom, ownTo);
+}
+
+/**
+ * Open clients 0 to n - 1, at most 100 at a time across every client process. This process opens
+ * only its own, and the array has no entry for the others.
+ */
+async function openClients(n) {
   const clients = new Array(n);
-  let next = 0;
+  let next = ownFrom;
+  const to = Math.min(n, ownTo);
   async function worker() {
-    while (next < n) {
+    while (next < to) {
       const index = next++;
       clients[index] = await openClient(index);
     }
   }
 
-  await Promise.all(Array.from({ length: concurrency }, worker));
+  await Promise.all(Array.from({ length: Math.ceil(100 / clientProcesses) }, worker));
   await waitFor(() => count('connected') >= n, 'connected');
 
   return clients;
@@ -865,12 +972,14 @@ async function step(name, measure, run) {
 
   const before = await serverStats();
   if (measured && profileDir) await callServer('profile-start');
-  const started = performance.now();
+  stepStarted = clock();
   await run();
 
-  const wallMs = performance.now() - started;
   // Read the stats first, so the CPU of writing the profile is not counted in the step.
-  const after = await serverStats();
+  const ran = clock();
+  const after = await serverStats(ran);
+  // With more client processes, the step ends when the last one is done.
+  const wallMs = (after.ended ?? ran) - stepStarted;
   if (measured && profileDir) {
     await callServer({ profileTo: `${profileDir}/${name.replaceAll(' ', '-')}.cpuprofile` });
   }
@@ -891,8 +1000,10 @@ async function step(name, measure, run) {
     rssMB: Math.round(after.memory.rss / 2 ** 20),
   };
 
-  results.push(row);
-  console.error(JSON.stringify(row));
+  if (reporting) {
+    results.push(row);
+    console.error(JSON.stringify(row));
+  }
 
   return { before, after };
 }
@@ -913,7 +1024,7 @@ async function joinSmallRooms(clients) {
     `join ${roomCount} rooms of ${roomSize}`,
     { units: connectionCount, unit: 'join' },
     async () => {
-      counts.clear();
+      await clearCounts();
       clients.forEach((client, index) => client.join(smallRoom(index)));
       await waitFor(() => count('joined') >= connectionCount, 'small join');
       if (waitForPresence) {
@@ -1012,7 +1123,7 @@ function act(client, planned, at) {
 
 /** The chat app with its SQLite store: sends, history, a busy hour and a reconnect wave. */
 async function runChatSteps() {
-  counts.clear();
+  await clearCounts();
   const baseline = await serverStats();
   const clients = await connectStep(baseline);
   await joinSmallRooms(clients);
@@ -1023,7 +1134,7 @@ async function runChatSteps() {
     `send and store in rooms of ${roomSize}`,
     { units: connectionCount * sendsEach, unit: 'message' },
     async () => {
-      counts.clear();
+      await clearCounts();
       clients.forEach((client, index) => {
         for (let i = 0; i < sendsEach; i++) client.sendMessage(smallRoom(index), '0');
       });
@@ -1037,7 +1148,7 @@ async function runChatSteps() {
     'load 50 messages of history',
     { units: connectionCount * loadsEach, unit: 'request' },
     async () => {
-      counts.clear();
+      await clearCounts();
       clients.forEach((client, index) => {
         for (let i = 0; i < loadsEach; i++) client.loadHistory(smallRoom(index));
       });
@@ -1061,18 +1172,21 @@ async function runChatSteps() {
 
   const busyName = `busy hour, ${mixRate} actions a second`;
   await step(busyName, { units: actions.length, unit: 'action' }, async () => {
-    counts.clear();
+    await clearCounts();
     latencies = { message: [], history: [] };
-    const started = performance.now();
+    // Every client process plans from the same moment.
+    const started = shard === null ? clock() : await together('busy-start');
+    stepStarted = started;
     clientCpuAtStart = process.cpuUsage();
 
     let next = 0;
     await new Promise((resolve) => {
       const timer = setInterval(() => {
-        const now = performance.now() - started;
+        const now = clock() - started;
         while (next < actions.length && actions[next].at <= now) {
           const planned = actions[next++];
-          act(clients[planned.client], planned, started + planned.at);
+          const client = clients[planned.client];
+          if (client) act(client, planned, started + planned.at);
         }
 
         if (next === actions.length) {
@@ -1084,21 +1198,25 @@ async function runChatSteps() {
 
     await waitFor(() => [...expected].every((entry) => count(entry[0]) >= entry[1]), 'busy hour');
     const clientCpu = process.cpuUsage(clientCpuAtStart);
-    clientCpuPercent = Math.round(
-      (clientCpu.user + clientCpu.system) / 10 / (performance.now() - started),
-    );
+    clientCpuPercent = Math.round((clientCpu.user + clientCpu.system) / 10 / (clock() - started));
   });
 
+  // The busiest client process, and the reply times of all of them.
+  const replies =
+    shard === null
+      ? { ...latencies, clientCpuPercent }
+      : await together('busy-results', { ...latencies, clientCpuPercent });
   const busyRow = results.find((row) => row.step === busyName);
   if (busyRow) {
+    ({ clientCpuPercent } = replies);
     const replyTimes = {
-      // Every client runs in this one process. Near 100, the clients wait for their own thread,
-      // and the reply times measure them as much as the server.
+      // Near 100, the clients wait for their own thread, and the reply times measure them as much
+      // as the server. More LOAD_CLIENT_PROCESSES spread them out.
       clientCpuPercent,
-      messageP50Ms: percentile(latencies.message, 50),
-      messageP99Ms: percentile(latencies.message, 99),
-      historyP50Ms: percentile(latencies.history, 50),
-      historyP99Ms: percentile(latencies.history, 99),
+      messageP50Ms: percentile(replies.message, 50),
+      messageP99Ms: percentile(replies.message, 99),
+      historyP50Ms: percentile(replies.history, 50),
+      historyP99Ms: percentile(replies.history, 99),
     };
 
     Object.assign(busyRow, replyTimes);
@@ -1106,8 +1224,8 @@ async function runChatSteps() {
     if (clientCpuPercent >= 90) {
       console.error(
         `The clients used ${clientCpuPercent}% of a CPU core in the busy hour, so their reply ` +
-          'times include their own waiting. The server CPU numbers still hold. Use fewer clients ' +
-          'or a lower LOAD_MIX_RATE for reply times.',
+          'times include their own waiting. The server CPU numbers still hold. For reply ' +
+          'times, use more LOAD_CLIENT_PROCESSES, fewer clients or a lower LOAD_MIX_RATE.',
       );
     }
   }
@@ -1121,9 +1239,9 @@ async function runChatSteps() {
   // without it, the client loads the room's history.
   const wave = roomCount;
   await Promise.all(clients.slice(0, wave).map((client) => client.close()));
-  counts.clear();
+  await clearCounts();
   for (let index = wave; index < connectionCount; index++) {
-    clients[index].sendMessage(smallRoom(index), '0');
+    clients[index]?.sendMessage(smallRoom(index), '0');
   }
 
   const sentWhileAway = (connectionCount - wave) * (roomSize - 2);
@@ -1132,7 +1250,7 @@ async function runChatSteps() {
   const cursors = lastSeqs.slice(0, wave);
 
   await step(`reconnect ${wave} clients`, { units: wave, unit: 'reconnect' }, async () => {
-    counts.clear();
+    await clearCounts();
     messagesByClient.length = 0;
     const reopened = await openClients(wave);
     reopened.forEach((client, index) => {
@@ -1145,7 +1263,7 @@ async function runChatSteps() {
     // Catch-up can send a few more: a client never gets its own broadcast live, so when its own
     // message was the room's last one, its cursor is before it and replay sends it back too.
     const caughtUp = replay
-      ? () => cursors.every((_, index) => (messagesByClient[index] ?? 0) >= roomSize - 1)
+      ? () => count('caught up') >= wave
       : () => count('load-history') >= wave;
     await waitFor(() => count('joined') >= wave && caughtUp(), 'reconnect');
     if (waitForPresence) {
@@ -1165,15 +1283,15 @@ async function runChatSteps() {
  * frames are handled in order, so a reply proves the server handled every frame before it.
  */
 async function runFeatureSteps() {
-  counts.clear();
+  await clearCounts();
   const baseline = await serverStats();
   const clients = await connectStep(baseline);
   const dmsEach = 5;
   const half = connectionCount / 2;
 
   await step('join a direct message', { units: connectionCount, unit: 'join' }, async () => {
-    counts.clear();
-    for (const client of clients) client.joinDm();
+    await clearCounts();
+    for (const client of own(clients)) client.joinDm();
     await waitFor(() => count('joined') >= connectionCount, 'direct message join');
     // The second of each pair to join tells the first one.
     await waitFor(() => count('member online') >= half, 'direct message presence');
@@ -1186,22 +1304,22 @@ async function runFeatureSteps() {
     'direct message to an online member, acknowledged and read',
     { units: connectionCount * dmsEach, unit: 'message' },
     async () => {
-      counts.clear();
-      for (const client of clients) for (let i = 0; i < dmsEach; i++) client.sendDm('hello');
+      await clearCounts();
+      for (const client of own(clients)) for (let i = 0; i < dmsEach; i++) client.sendDm('hello');
       await waitFor(
         () => count('send-message') >= connectionCount * dmsEach,
         'direct messages stored',
       );
       await waitFor(() => count('message') >= connectionCount * dmsEach, 'direct messages');
 
-      for (const client of clients) client.readDms();
+      for (const client of own(clients)) client.readDms();
       await waitFor(() => count('__read__') >= connectionCount * 2, 'reads');
     },
   );
 
   // The odd clients are away, so the inbox keeps each message for them. Their partners hear it
   // before the step starts, so the step measures none of the leaving.
-  counts.clear();
+  await clearCounts();
   await Promise.all(
     clients.map((client, index) => {
       if (index % 2 === 0) return undefined;
@@ -1216,7 +1334,7 @@ async function runFeatureSteps() {
     'direct message to a member who is away',
     { units: half * dmsEach, unit: 'message' },
     async () => {
-      counts.clear();
+      await clearCounts();
       clients.forEach((client, index) => {
         if (index % 2 === 0) for (let i = 0; i < dmsEach; i++) client.sendDm('hello again');
       });
@@ -1225,7 +1343,7 @@ async function runFeatureSteps() {
   );
 
   await step('reconnect and get the inbox', { units: half, unit: 'reconnect' }, async () => {
-    counts.clear();
+    await clearCounts();
     await Promise.all(
       clients.map(async (_, index) => {
         if (index % 2 === 1) clients[index] = await openClient(index);
@@ -1240,8 +1358,8 @@ async function runFeatureSteps() {
     'search that streams 20 hits',
     { units: connectionCount, unit: 'search' },
     async () => {
-      counts.clear();
-      for (const client of clients) client.searchMessages('hello');
+      await clearCounts();
+      for (const client of own(clients)) client.searchMessages('hello');
       await waitFor(() => count('__streamEnd__') >= connectionCount, 'searches');
       if (count('search-messages') < connectionCount * 20) {
         throw new Error(`A search found fewer than 20 hits: ${count('search-messages')} in all.`);
@@ -1253,8 +1371,8 @@ async function runFeatureSteps() {
     'delete confirmed with a server request',
     { units: connectionCount, unit: 'delete' },
     async () => {
-      counts.clear();
-      for (const client of clients) client.deleteMessage();
+      await clearCounts();
+      for (const client of own(clients)) client.deleteMessage();
       await waitFor(() => count('delete-message') >= connectionCount, 'deletes');
       if (count('deleted') < connectionCount) {
         throw new Error('A confirmed delete deleted nothing.');
@@ -1263,8 +1381,8 @@ async function runFeatureSteps() {
   );
 
   // Leave the direct messages, so a second pass with LOAD_WARM=on joins them again.
-  counts.clear();
-  for (const client of clients) client.leaveDm();
+  await clearCounts();
+  for (const client of own(clients)) client.leaveDm();
   await waitFor(() => count('__unsubscribeOk__') >= connectionCount, 'direct message leave');
   await disconnectStep(clients);
 
@@ -1273,20 +1391,20 @@ async function runFeatureSteps() {
 
 /** Run every step once, from the first connection to the last disconnect. */
 async function runCoreSteps() {
-  counts.clear();
+  await clearCounts();
   const baseline = await serverStats();
   const clients = await connectStep(baseline);
 
   const echoesEach = 10;
   await step('echo', { units: connectionCount * echoesEach, unit: 'message' }, async () => {
-    counts.clear();
-    for (const client of clients) for (let i = 0; i < echoesEach; i++) client.echo();
+    await clearCounts();
+    for (const client of own(clients)) for (let i = 0; i < echoesEach; i++) client.echo();
     await waitFor(() => count('echoed') >= connectionCount * echoesEach, 'echo');
   });
 
   await step('request', { units: connectionCount * echoesEach, unit: 'request' }, async () => {
-    counts.clear();
-    for (const client of clients) for (let i = 0; i < echoesEach; i++) client.request();
+    await clearCounts();
+    for (const client of own(clients)) for (let i = 0; i < echoesEach; i++) client.request();
     await waitFor(() => count('get-profile') >= connectionCount * echoesEach, 'request');
   });
 
@@ -1302,9 +1420,9 @@ async function runCoreSteps() {
       `binary echo ${sizeLabel(size)}`,
       { units: connectionCount * each, unit: 'message' },
       async () => {
-        counts.clear();
+        await clearCounts();
         const bytes = Buffer.alloc(size, 7);
-        for (const client of clients) {
+        for (const client of own(clients)) {
           const frame = client.avatarFrame(bytes);
           for (let i = 0; i < each; i++) client.uploadAvatar(frame);
         }
@@ -1323,7 +1441,7 @@ async function runCoreSteps() {
     `send in rooms of ${roomSize}`,
     { units: smallDeliveries, unit: 'delivery' },
     async () => {
-      counts.clear();
+      await clearCounts();
       clients.forEach((client, index) => {
         for (let i = 0; i < smallSends; i++) {
           client.sendMessage(`room:small${index % roomCount}`, 'hi all');
@@ -1335,8 +1453,8 @@ async function runCoreSteps() {
 
   for (const size of bigRooms) {
     await step(`join one room of ${size}`, { units: size, unit: 'join' }, async () => {
-      counts.clear();
-      for (let i = 0; i < size; i++) clients[i].join(`room:big${size}`);
+      await clearCounts();
+      for (let i = 0; i < size; i++) clients[i]?.join(`room:big${size}`);
       await waitFor(() => count('joined') >= size, 'big join');
       if (waitForPresence) {
         await waitFor(() => count('member online') >= (size * (size - 1)) / 2, 'big join presence');
@@ -1354,9 +1472,9 @@ async function runCoreSteps() {
       `fan-out to ${fanOutSize}`,
       { units: fanOutDeliveries, unit: 'delivery' },
       async () => {
-        counts.clear();
+        await clearCounts();
         for (let s = 0; s < senders; s++) {
-          for (let i = 0; i < sendsEach; i++) clients[s].sendMessage(fanOutRoom, 'hello room');
+          for (let i = 0; i < sendsEach; i++) clients[s]?.sendMessage(fanOutRoom, 'hello room');
         }
 
         await waitFor(() => count('message') >= fanOutDeliveries, 'fan-out');
@@ -1372,11 +1490,11 @@ async function runCoreSteps() {
         `binary fan-out ${sizeLabel(size)} to ${fanOutSize}`,
         { units: deliveries, unit: 'delivery' },
         async () => {
-          counts.clear();
+          await clearCounts();
           const bytes = Buffer.alloc(size, 7);
           for (let i = 0; i < sends; i++) {
             const client = clients[i % binarySenders];
-            client.shareScreenFrame(client.screenFrame(fanOutRoom, bytes));
+            client?.shareScreenFrame(client.screenFrame(fanOutRoom, bytes));
           }
 
           await waitFor(() => count('screen-frame') >= deliveries, 'binary fan-out');
@@ -1390,36 +1508,138 @@ async function runCoreSteps() {
   return baseline;
 }
 
-const runSteps = { core: runCoreSteps, chat: runChatSteps, features: runFeatureSteps }[suite];
+/**
+ * Start the client processes and answer their meetings until they are done. Returns whether they
+ * all ended well.
+ */
+async function coordinate() {
+  const children = [];
+  const childCounts = [];
+  const open = new Map();
+  let failed = false;
 
-if (warm) {
-  warming = true;
-  await runSteps();
-  warming = false;
+  function sendAll(message) {
+    for (const child of children) child.send(message);
+  }
+
+  function addUp() {
+    const sum = {};
+    for (const shardCounts of childCounts) {
+      for (const [name, value] of Object.entries(shardCounts)) sum[name] = (sum[name] ?? 0) + value;
+    }
+
+    return sum;
+  }
+
+  async function meet(name, data) {
+    if (name === 'stats') return { ...(await serverStats()), ended: Math.max(...data) };
+
+    // A little later than now, so each process gets the time before it starts.
+    if (name === 'busy-start') return clock() + 100;
+
+    if (name === 'busy-results') {
+      return {
+        message: data.flatMap((one) => one.message),
+        history: data.flatMap((one) => one.history),
+        clientCpuPercent: Math.max(...data.map((one) => one.clientCpuPercent)),
+      };
+    }
+
+    // 'clear': every process has cleared its own counts, and each one's were zeroed as it arrived.
+    sendAll({ totals: addUp() });
+
+    return clock();
+  }
+
+  async function onMessage(index, message) {
+    if (message.counts) {
+      childCounts[index] = message.counts;
+      sendAll({ totals: addUp() });
+      return;
+    }
+
+    // Counts a process sends after this are from after its clear, so they must stay.
+    if (message.together === 'clear') childCounts[index] = {};
+
+    const meeting = open.get(message.id) ?? { data: [], arrived: 0 };
+    open.set(message.id, meeting);
+    meeting.data[index] = message.data;
+    meeting.arrived += 1;
+    if (meeting.arrived < clientProcesses) return;
+
+    open.delete(message.id);
+    const result = await meet(message.together, meeting.data);
+    sendAll({ id: message.id, result });
+  }
+
+  const ended = [];
+  for (let index = 0; index < clientProcesses; index++) {
+    const child = fork(fileURLToPath(import.meta.url), process.argv.slice(2), {
+      env: { ...process.env, LOAD_SHARD: String(index), LOAD_SHARD_PORT: String(port) },
+    });
+    children.push(child);
+    childCounts.push({});
+    child.on('message', (message) => void onMessage(index, message));
+    ended.push(
+      new Promise((resolve) => {
+        child.once('exit', (code) => {
+          // One that fails leaves the others waiting at a meeting, so stop them too.
+          if (code !== 0 && !failed) {
+            failed = true;
+            console.error(`Client process ${index} exited with code ${code}. Stopping the others.`);
+            for (const other of children) other.kill();
+          }
+
+          resolve();
+        });
+      }),
+    );
+  }
+
+  await Promise.all(ended);
+
+  return !failed;
 }
 
-const baseline = await runSteps();
-
-const unmatched = onlySteps?.filter((prefix) => !matchedSteps.has(prefix)) ?? [];
-if (unmatched.length > 0) throw new Error(`LOAD_STEPS names no step: ${unmatched.join(', ')}`);
-
-const end = await serverStats();
-console.log(
-  JSON.stringify({
-    mode,
-    connections: connectionCount,
-    heapLeftAfterCloseMB: Number(
-      ((end.memory.heapUsed - baseline.memory.heapUsed) / 2 ** 20).toFixed(1),
-    ),
-    results,
-  }),
-);
-if (remote) {
-  await control({ message: 'exit' });
+let exitCode = 0;
+if (coordinating) {
+  if (!(await coordinate())) exitCode = 1;
 } else {
+  const runSteps = { core: runCoreSteps, chat: runChatSteps, features: runFeatureSteps }[suite];
+
+  if (warm) {
+    warming = true;
+    await runSteps();
+    warming = false;
+  }
+
+  const baseline = await runSteps();
+
+  const unmatched = onlySteps?.filter((prefix) => !matchedSteps.has(prefix)) ?? [];
+  if (unmatched.length > 0) throw new Error(`LOAD_STEPS names no step: ${unmatched.join(', ')}`);
+
+  const end = await serverStats();
+  if (reporting) {
+    console.log(
+      JSON.stringify({
+        mode,
+        connections: connectionCount,
+        heapLeftAfterCloseMB: Number(
+          ((end.memory.heapUsed - baseline.memory.heapUsed) / 2 ** 20).toFixed(1),
+        ),
+        results,
+      }),
+    );
+  }
+}
+
+// A client process leaves the server to the process that started it.
+if (shard === null && remote) {
+  await control({ message: 'exit' });
+} else if (shard === null) {
   serverProcess.send('exit');
   await new Promise((resolve) => serverProcess.once('exit', resolve));
 }
 
 // A pipe to stdout can still be writing the report, so exit once it is out.
-process.stdout.write('', () => process.exit(0));
+process.stdout.write('', () => process.exit(exitCode));
