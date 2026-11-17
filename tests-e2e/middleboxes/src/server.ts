@@ -136,6 +136,8 @@ const server = createTlsServer(tlsOptions, (socket) => {
 });
 
 await huddleEndpoint.ready();
+// On every interface, not only 127.0.0.1: the proxies in Docker reach it through the host's
+// address. So other machines on the network can reach it too, and its /stats, while it runs.
 server.listen(port, '0.0.0.0', () => console.log(`middlebox server on ${port}`));
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

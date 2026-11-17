@@ -35,7 +35,7 @@ const DEFAULT_CAPS: UnreadCaps = { streamBytes: 48 * MiB, objectBytes: 64 * MiB 
 
 /** What the http handler needs from its Durable Object. */
 export interface CloudflareHttpDeps {
-  /** `null` when the object does not offer server-sent events. */
+  /** `null` when the object does not offer `http()`. */
   hub: HttpHub | null;
   originAllowed(request: Request): boolean;
   authenticate(request: Request): Promise<AuthDecision>;

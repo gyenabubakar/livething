@@ -43,7 +43,7 @@ export interface H3Endpoint<
   /** The `GET` route a client connects on: a WebSocket upgrade, or the server-sent events stream. */
   connect: THandler;
   /**
-   * The route handler for the endpoint's server-sent events: the stream, its POSTs and
+   * The route handler for the endpoint's `http()`: the stream, its POSTs and
    * their CORS preflight. Mount it on the same path, for every method.
    */
   handle(event: H3Event): Promise<Response>;

@@ -194,7 +194,7 @@ function holdEvent(held: HeldEvents, chunk: Uint8Array): void {
 
 /** What the http handler needs from its endpoint. */
 export interface NodeHttpDeps {
-  /** `null` when the endpoint does not offer server-sent events. */
+  /** `null` when the endpoint does not offer `http()`. */
   hub: HttpHub | null;
   originAllowed(request: NodeHttpRequest): boolean;
   authenticate(request: NodeHttpRequest, signal: AbortSignal): Promise<AuthDecision>;

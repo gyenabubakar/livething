@@ -42,7 +42,7 @@ export interface SocketDescriptor {
 
   /**
    * Whether this connection exposes real outbound buffer pressure through
-   * `bufferedAmount()`. When `true` (Node, and SSE on Cloudflare), `ctx.stream.drain()`
+   * `bufferedAmount()`. When `true` (Node, and `http()` on Cloudflare), `ctx.stream.drain()`
    * paces the generator against the live buffer. When `false` or absent (a WebSocket on
    * Cloudflare, which does not expose buffer fullness), `bufferedAmount()` is treated as
    * unsupported and `drain()` resolves immediately as a no-op.
@@ -210,7 +210,7 @@ export interface MessageLimits {
   receiveBytes: number;
   sendBytes: number;
   /**
-   * The largest POST body, when the adapter takes messages over POST (server-sent events).
+   * The largest POST body, when the adapter takes messages over POST (`http()`).
    * At most half of `receiveBytes`, so one POST of frames fits the connection's budget.
    */
   postBytes?: number;

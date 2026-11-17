@@ -57,6 +57,7 @@ export {
   TOKEN_SUBPROTOCOL_PREFIX,
   decodeBase64Url,
   encodeBase64Url,
+  isHeaderToken,
   isLiveThingSubprotocol,
   tokenSubprotocols,
 } from './subprotocol.ts';

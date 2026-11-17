@@ -28,7 +28,7 @@ export interface NodeEndpointBinding<TAdmin = NodeAdmin> {
   /**
    * Serve a plain HTTP request to the endpoint's path, from `node:http` or a `node:http2`
    * compatibility server. The custom transports in `transports` get it first, in list order,
-   * then server-sent events: the stream, its POSTs and their CORS preflight. When no custom
+   * then `http()`: the stream, its POSTs and their CORS preflight. When no custom
    * transport takes the request and `http()` is not in `transports`, it answers 426.
    */
   handle(request: NodeHttpRequest, response: NodeHttpResponse): void;

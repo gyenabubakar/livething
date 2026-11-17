@@ -136,6 +136,28 @@ for (const [name, path] of selected) {
         await browser.close();
       }
     });
+
+    test('http() alone: a long POST carries more than 1 MiB and stays in stream mode', async () => {
+      test.skip(!path.streamMode, 'this path has no stream mode');
+
+      const { browser, page } = await open(path);
+      try {
+        const run = (await page.evaluate(() =>
+          (window as unknown as { runBigStream(): Promise<unknown> }).runBigStream(),
+        )) as {
+          echoed: number;
+          inOrder: boolean;
+          batchPostsDuring: number;
+          streamPostsBefore: number;
+        };
+        test.info().annotations.push({ type: 'result', description: JSON.stringify(run) });
+
+        expect(run.streamPostsBefore).toBeGreaterThan(0);
+        expect(run).toMatchObject({ echoed: 40, inOrder: true, batchPostsDuring: 0 });
+      } finally {
+        await browser.close();
+      }
+    });
   });
 }
 

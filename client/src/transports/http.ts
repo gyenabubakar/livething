@@ -742,7 +742,7 @@ function openHttp(options: TransportOpenOptions): Transport {
       const bytes = typeof data === 'string' ? utf8(data) : data;
       if (bytes.byteLength + FRAME_HEADER_BYTES > maxPostBytes) {
         throw new RangeError(
-          `[livething] the message is ${bytes.byteLength} bytes, over the server's POST limit of ${maxPostBytes - FRAME_HEADER_BYTES} bytes on server-sent events. Send large data with uploads().`,
+          `[livething] the message is ${bytes.byteLength} bytes, over the server's POST limit of ${maxPostBytes - FRAME_HEADER_BYTES} bytes on http(). Send large data with uploads().`,
         );
       }
 

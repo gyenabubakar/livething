@@ -97,7 +97,7 @@ export function keepalive(options: KeepaliveOptions = {}): KeepalivePrimitive {
         // wake the instance, and a `setTimeout` idle timer would itself hold the
         // instance in memory — defeating hibernation while closing quiet-but-alive
         // clients whose traffic never reaches it to refresh the timer. Every other
-        // connection, such as one over server-sent events, is supervised as usual.
+        // connection, such as one over `http()`, is supervised as usual.
         const monitor = createKeepaliveMonitor(
           engine,
           timings,

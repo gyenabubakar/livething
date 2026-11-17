@@ -225,7 +225,7 @@ export interface PrimitiveRuntime {
 
   /**
    * Runs once the open connection has proved it carries data both ways: at once on a
-   * WebSocket, and on server-sent events after 30 seconds open with one POST accepted.
+   * WebSocket, and on `http()` after 30 seconds open with one POST accepted.
    */
   onStable?(): void;
 

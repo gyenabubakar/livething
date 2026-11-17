@@ -5,6 +5,8 @@
 //   node scripts/run.mjs                   # every middlebox
 //   node scripts/run.mjs nginx squid       # only these
 import { execFileSync, spawn } from 'node:child_process';
+import http from 'node:http';
+import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -75,7 +77,59 @@ async function addToxiproxy() {
   throw new Error('toxiproxy did not answer');
 }
 
-run(process.execPath, ['scripts/certs.mjs']);
+/**
+ * The ports each profile publishes, and whether they speak TLS. Toxiproxy opens 9445 only once
+ * `addToxiproxy` adds it.
+ */
+const PORTS = {
+  nginx: [
+    { port: 9443, tls: true },
+    { port: 9444, tls: true },
+  ],
+  toxiproxy: [{ port: 8474, tls: false }],
+  mitmproxy: [
+    { port: 8080, tls: false },
+    { port: 8081, tls: false },
+  ],
+  squid: [{ port: 3128, tls: false }],
+};
+
+/** Whether the port answers one HTTP request with anything, an error page included. */
+function answers({ port, tls }) {
+  return new Promise((resolve) => {
+    // Only "is it up?": the certificate is checked by the tests themselves.
+    const request = (tls ? https : http).get(
+      { host: '127.0.0.1', port, path: '/', rejectUnauthorized: false, timeout: 2_000 },
+      (response) => {
+        response.resume();
+        resolve(true);
+      },
+    );
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(false));
+  });
+}
+
+/**
+ * Wait until every port of a profile answers. `--wait` returns once a container runs, which can
+ * be before its proxy listens, and Docker's port proxy accepts a TCP connection either way.
+ */
+async function waitForProxies(middlebox) {
+  for (const port of PORTS[middlebox] ?? []) {
+    let answered = false;
+    for (let attempt = 0; attempt < 30 && !answered; attempt++) {
+      answered = await answers(port);
+      if (!answered) await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+
+    if (!answered) throw new Error(`${middlebox} did not answer on port ${port.port}`);
+  }
+}
+
+if (!run(process.execPath, ['scripts/certs.mjs'])) {
+  throw new Error('could not make the test certificates. Is openssl installed?');
+}
+
 const server = await startServer();
 const results = {};
 try {
@@ -90,7 +144,15 @@ try {
         continue;
       }
 
-      if (middlebox === 'toxiproxy') await addToxiproxy();
+      try {
+        await waitForProxies(middlebox);
+        if (middlebox === 'toxiproxy') await addToxiproxy();
+      } catch (error) {
+        console.error(error.message);
+        results[middlebox] = 'did not start';
+        continue;
+      }
+
       results[middlebox] = run('pnpm', ['exec', 'playwright', 'test'], {
         extraEnv: { LIVETHING_MIDDLEBOX: middlebox },
       })

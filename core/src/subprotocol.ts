@@ -6,6 +6,15 @@ export const LIVETHING_SUBPROTOCOL = 'livething-v1';
 /** The token subprotocol is this prefix followed by the base64url-encoded token. */
 export const TOKEN_SUBPROTOCOL_PREFIX = `${LIVETHING_SUBPROTOCOL}.token.`;
 
+/**
+ * Whether a token can go in `Authorization: Bearer <token>`, where the server's `authenticate`
+ * reads it on every transport. `Headers` keeps only Latin-1 with no NUL, CR or LF, and trims
+ * a trailing space or tab.
+ */
+export function isHeaderToken(token: string): boolean {
+  return /^[^\0\r\nĀ-\u{10FFFF}]*(?<![ \t])$/u.test(token);
+}
+
 /** Encodes text as UTF-8, then as base64url with no padding. */
 export function encodeBase64Url(text: string): string {
   return encodeBase64(new TextEncoder().encode(text), true);

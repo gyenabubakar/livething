@@ -3,6 +3,7 @@ import {
   CloseCodes,
   decodeMessage,
   encodeMessage,
+  isHeaderToken,
   isLiveThingSubprotocol,
   LiveThingConfigError,
   tokenSubprotocols,
@@ -546,7 +547,7 @@ export class LiveThingSocket {
   private async _openConnection(): Promise<void> {
     const attemptId = ++this._connectAttemptId;
     this._setState('connecting');
-    let configReturnsWrongType = false;
+    let configReturnsBadValue = false;
 
     try {
       const url =
@@ -554,7 +555,7 @@ export class LiveThingSocket {
       if (attemptId !== this._connectAttemptId) return; // a disconnect() cancelled us mid-resolve
 
       if (typeof url !== 'string') {
-        configReturnsWrongType = true;
+        configReturnsBadValue = true;
         throw new LiveThingConfigError(
           `the connect() url must be a string, or a function that returns one, got ${url === null ? 'null' : typeof url}.`,
         );
@@ -584,9 +585,17 @@ export class LiveThingSocket {
       if (attemptId !== this._connectAttemptId) return;
 
       if (token !== undefined && token !== null && typeof token !== 'string') {
-        configReturnsWrongType = true;
+        configReturnsBadValue = true;
         throw new LiveThingConfigError(
           `the connect() token function must return a string or null, got ${typeof token}.`,
+        );
+      }
+
+      if (token && !isHeaderToken(token)) {
+        configReturnsBadValue = true;
+        throw new LiveThingConfigError(
+          'the connect() token must fit in an Authorization header, where the server reads it: ' +
+            'Latin-1 characters only, no line break, and no space or tab at the end.',
         );
       }
 
@@ -613,7 +622,7 @@ export class LiveThingSocket {
       }
 
       // A retry would call the same broken url or token function and report the same error.
-      if (configReturnsWrongType) {
+      if (configReturnsBadValue) {
         this._abandonReconnect(false);
       } else if (this._unexpectedCloseHandler) {
         this._unexpectedCloseHandler(1006, 'connection failed');

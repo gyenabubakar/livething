@@ -94,6 +94,23 @@ describe('connect() with a token', () => {
     expect((errors[0] as Error).message).toMatch(/token/);
     expect(MockWebSocket.instances).toHaveLength(0);
   });
+
+  it.each([
+    ['a character above U+00FF', 'session-€'],
+    ['a line break', 'session\n8f2c'],
+    ['a space at the end', 'session-8f2c '],
+  ])('reports a token with %s, which no header can carry, before it connects', async (_, token) => {
+    const socket = build(connect('wss://huddle.test/huddle', { token: () => token }));
+    const errors: unknown[] = [];
+    socket.onError((error) => errors.push(error));
+
+    socket.connect();
+    await vi.waitFor(() => expect(errors).toHaveLength(1));
+
+    expect(errors[0]).toBeInstanceOf(LiveThingConfigError);
+    expect((errors[0] as Error).message).toMatch(/Authorization header/);
+    expect(MockWebSocket.instances).toHaveLength(0);
+  });
 });
 
 describe('socket.protocol', () => {

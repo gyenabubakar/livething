@@ -59,7 +59,7 @@ export interface CustomServerTransport extends ServerTransport {
   handle(request: Request, endpoint: TransportEndpoint): Promise<Response | null>;
 }
 
-/** Options of the server-sent events transport. */
+/** Options of the `http()` transport. */
 export interface HttpOptions {
   /**
    * The largest POST body a client may send, in bytes. A client sends a bigger message
@@ -76,9 +76,9 @@ interface HttpTransport extends ServerTransport {
 /** The transports an endpoint offers, after the startup checks. */
 export interface ResolvedTransports {
   readonly websocket: boolean;
-  /** The server-sent events settings, or `null` when the endpoint does not offer it. */
+  /** The `http()` settings, or `null` when the endpoint does not offer it. */
   readonly http: { readonly maxPostBytes: number } | null;
-  /** The custom transports, in list order. Each gets a request before server-sent events do. */
+  /** The custom transports, in list order. Each gets a request before `http()` does. */
   readonly custom: readonly CustomServerTransport[];
 }
 

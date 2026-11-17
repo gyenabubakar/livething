@@ -15,7 +15,7 @@ export interface NodeCustomTransportDeps {
 
 /**
  * Offers a request to each custom transport in list order. Returns `true` when one
- * answered it, and `false` when the request is for server-sent events or no transport.
+ * answered it, and `false` when the request is for `http()` or no transport.
  */
 export function createNodeCustomTransportHandler(
   deps: NodeCustomTransportDeps,

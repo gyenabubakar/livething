@@ -17,7 +17,7 @@ export interface FastifyWebSocketRoute {
 }
 
 /**
- * Route options for the POSTs of server-sent events and their CORS preflight. It answers
+ * Route options for the POSTs of `http()` and their CORS preflight. It answers
  * in `onRequest`, before Fastify reads the body.
  */
 export interface FastifyHttpRoute {
@@ -29,7 +29,7 @@ export interface FastifyHttpRoute {
 export interface FastifyEndpoint<TAdmin = NodeAdmin> {
   /** The `GET` route a client connects on: a WebSocket upgrade, or the server-sent events stream. */
   connect: FastifyWebSocketRoute;
-  /** The `POST` and `OPTIONS` route on the same path, for server-sent events. */
+  /** The `POST` and `OPTIONS` route on the same path, for `http()`. */
   handle: FastifyHttpRoute;
   ready(): Promise<void>;
   admin(): Promise<TAdmin>;

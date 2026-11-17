@@ -91,6 +91,38 @@
         return result;
       };
 
+      // Sends more than 1 MiB once stream mode has had time to start, and reports the server's
+      // POST counts before and after, so a test can see whether the long POST kept going or the
+      // client fell back to batch POSTs.
+      window.runBigStream = async ({ messages = 40, textBytes = 64 * 1024 } = {}) => {
+        const socket = await openSocket('ada', ['http']);
+        const echoed = [];
+        socket.on('echoed', (data) => echoed.push(data.n));
+        socket.send('echo', { n: 0, text: 'start' });
+        // The probe gets its answer within 2 seconds when the path streams.
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+
+        const stats = async () => (await fetch('/stats', { cache: 'no-store' })).json();
+        const before = await stats();
+        const text = 'x'.repeat(textBytes);
+        const allEchoed = new Promise((resolve) => {
+          socket.on('echoed', () => {
+            if (echoed.length === messages + 1) resolve();
+          });
+        });
+        for (let n = 1; n <= messages; n++) socket.send('echo', { n, text });
+        await Promise.race([allEchoed, deadline(30_000, 'big echoes')]);
+        const after = await stats();
+        socket.disconnect();
+
+        return {
+          echoed: echoed.length - 1,
+          inOrder: echoed.every((n, i) => n === i),
+          batchPostsDuring: after.batchPosts - before.batchPosts,
+          streamPostsBefore: before.streamPosts,
+        };
+      };
+
       // For a path that cuts connections: sends one message every `everyMs`, and reports what
       // came back, so a test can check that nothing arrived twice or out of order.
       window.runThroughDrops = async ({

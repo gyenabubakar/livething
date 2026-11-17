@@ -9,7 +9,8 @@
 #                                              # whole bodies, 8081 streams them
 #   docker compose --profile squid up -d       # TLS intercepting forward proxy on 3128, HTTP/1.1
 #
-# Every port is published on 127.0.0.1 only, so no other machine can use these proxies.
+# Every port is published on 127.0.0.1 only, so no other machine can use these proxies. The
+# LiveThing server on the host is not: the containers must reach it (see src/server.ts).
 name: livething-middleboxes
 
 x-host: &host
