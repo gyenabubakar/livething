@@ -218,6 +218,9 @@ describe('replay', () => {
       getReplayClaimedChannelKeys() {
         return new Set();
       },
+      getWriteGate() {
+        return undefined;
+      },
       onBeforeBroadcast() {},
       onAfterBroadcast() {},
       onBoot() {},
@@ -264,6 +267,9 @@ describe('replay', () => {
       setReplayEnabled() {},
       getReplayClaimedChannelKeys() {
         return new Set();
+      },
+      getWriteGate() {
+        return undefined;
       },
       onBeforeBroadcast() {},
       onAfterBroadcast() {},
@@ -333,6 +339,9 @@ describe('replay', () => {
       setReplayEnabled() {},
       getReplayClaimedChannelKeys() {
         return new Set();
+      },
+      getWriteGate() {
+        return undefined;
       },
       onBeforeBroadcast() {},
       onAfterBroadcast() {},
@@ -407,6 +416,9 @@ describe('replay', () => {
       setReplayEnabled() {},
       getReplayClaimedChannelKeys() {
         return new Set();
+      },
+      getWriteGate() {
+        return undefined;
       },
       onBeforeBroadcast() {},
       onAfterBroadcast() {},
@@ -563,6 +575,9 @@ describe('replay', () => {
         setReplayEnabled() {},
         getReplayClaimedChannelKeys() {
           return new Set();
+        },
+        getWriteGate() {
+          return undefined;
         },
         getBinaryEvents() {
           return [];

@@ -8,11 +8,11 @@ export const TOKEN_SUBPROTOCOL_PREFIX = `${LIVETHING_SUBPROTOCOL}.token.`;
 
 /**
  * Whether a token can go in `Authorization: Bearer <token>`, where the server's `authenticate`
- * reads it on every transport. `Headers` keeps only Latin-1 with no NUL, CR or LF, and trims
- * a trailing space or tab.
+ * reads it on every transport: Latin-1 with no control character below U+0020 but tab, and no
+ * DEL, as Node's `fetch` refuses those, and no trailing space or tab, which `Headers` trims.
  */
 export function isHeaderToken(token: string): boolean {
-  return /^[^\0\r\nĀ-\u{10FFFF}]*(?<![ \t])$/u.test(token);
+  return /^[\t\x20-\x7e\x80-\xff]*(?<![ \t])$/.test(token);
 }
 
 /** Encodes text as UTF-8, then as base64url with no padding. */

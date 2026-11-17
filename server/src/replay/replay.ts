@@ -662,6 +662,9 @@ class ReplayInstaller {
   private async catchUp(request: CatchUpRequest): Promise<void> {
     const { connectionId, connection, scope, resumeTokens } = request;
     const { sql } = this.engine.storage;
+    // A message sent earlier in this turn, before this client was a member, reaches it only
+    // through its row, so the rows that wait for the write gate are stored first.
+    this.engine.getWriteGate()?.commitNow();
     const loadScope = {
       channelName: scope.channelName,
       channelFamily: scope.channelFamily ?? null,

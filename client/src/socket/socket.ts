@@ -595,7 +595,8 @@ export class LiveThingSocket {
         configReturnsBadValue = true;
         throw new LiveThingConfigError(
           'the connect() token must fit in an Authorization header, where the server reads it: ' +
-            'Latin-1 characters only, no line break, and no space or tab at the end.',
+            'Latin-1 characters only, no control character but tab (no line break, no DEL), ' +
+            'and no space or tab at the end.',
         );
       }
 

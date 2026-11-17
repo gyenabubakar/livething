@@ -99,6 +99,8 @@ describe('connect() with a token', () => {
     ['a character above U+00FF', 'session-€'],
     ['a line break', 'session\n8f2c'],
     ['a space at the end', 'session-8f2c '],
+    ['a control character', 'session\x018f2c'],
+    ['a DEL character', 'session\x7f8f2c'],
   ])('reports a token with %s, which no header can carry, before it connects', async (_, token) => {
     const socket = build(connect('wss://huddle.test/huddle', { token: () => token }));
     const errors: unknown[] = [];

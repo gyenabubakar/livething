@@ -134,7 +134,12 @@ const HOLD_BYTES = 64 * 1024;
 const COPY_BYTES = 1024;
 
 function flushAll(): void {
-  for (const held of heldThisTurn) flush(held);
+  try {
+    for (const held of heldThisTurn) flush(held);
+  } finally {
+    // A flush that threw must not leave the others held with no flush to come.
+    if (heldThisTurn.size > 0) setImmediate(flushAll);
+  }
 }
 
 onWriteGateFailure((gate) => {

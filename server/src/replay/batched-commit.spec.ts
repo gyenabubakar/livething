@@ -5,6 +5,7 @@ import { server } from '~/_define/server.ts';
 import { purgeUser } from '~/_engine/runtime/purge-user.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
+import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { replay } from '~/replay/capability.ts';
@@ -20,6 +21,7 @@ function buildDefinition(durability: 'strict' | 'best-effort', maxBytes?: number
   const base = server({
     capabilities: [
       emits({ news: Text, dm: Text }),
+      channels(),
       dedup(),
       sequence({ persist: true }),
       replay.history({ durability, ...(maxBytes ? { retention: { maxBytes } } : {}) }),
@@ -57,7 +59,15 @@ function buildDefinition(durability: 'strict' | 'best-effort', maxBytes?: number
     },
   });
 
-  return base.assemble({ handlers: [shout, shoutTwice, sendToUser, noteToSelf] });
+  const room = base.channel('room', { capabilities: [emits({ said: Text })] });
+  const say = room.on('say', {
+    input: v.object({ text: v.string() }),
+    run(ctx, payload) {
+      ctx.channel.broadcast('said', { text: payload.text });
+    },
+  });
+
+  return base.assemble({ handlers: [shout, shoutTwice, sendToUser, noteToSelf, room, say] });
 }
 
 /** A write gate the test opens by hand: `commit()` runs what the engine queued. */
@@ -109,10 +119,10 @@ async function startEngine(
   return { engine: captured, errors };
 }
 
-async function connect(engine: Engine, userId: string) {
+async function connect(engine: Engine, userId: string, sent: unknown[][] = []) {
   const before = new Set(engine.core.connections.keys());
   const handle = engine.accept(Symbol(userId), {
-    send() {},
+    send: ({ text }: { kind: 'text'; text: string }) => sent.push(JSON.parse(text) as unknown[]),
     close() {},
     bufferedAmount: () => 0,
     userId,
@@ -120,7 +130,8 @@ async function connect(engine: Engine, userId: string) {
   const connection = [...engine.core.connections.values()].find((c) => !before.has(c.id))!;
   await connection.lifecycleReady;
 
-  return (frame: unknown[]) => handle.handleMessage(JSON.stringify([...frame, null]));
+  return (frame: unknown[]) =>
+    handle.handleMessage(JSON.stringify(frame.length === 3 ? frame : [...frame, null]));
 }
 
 function storedTexts(engine: Engine): string[] {
@@ -261,6 +272,28 @@ describe('replay with a write gate', () => {
     expect(gate.pending()).toBe(1);
     gate.commit();
     expect(storedTexts(engine)).toEqual(['one', 'two']);
+  });
+});
+
+describe('a channel catch-up in the turn of a broadcast', () => {
+  it('gets the message it missed, though the gate has not stored its row yet', async () => {
+    const gate = manualGate();
+    const { engine } = await startEngine(gate.gate);
+    const inRoom = { channel: { name: 'room' } };
+    const sendAnn = await connect(engine, 'ann');
+    const kofiFrames: unknown[][] = [];
+
+    const sendKofi = await connect(engine, 'kofi', kofiFrames);
+    await sendAnn(['__subscribe__', {}, inRoom]);
+    gate.commit();
+
+    await sendAnn(['say', { text: 'before kofi joins' }, inRoom]);
+    await sendKofi(['__subscribe__', {}, inRoom]);
+    await sendKofi(['__replay__', { lastKnownSeq: 0 }, inRoom]);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const said = kofiFrames.filter((frame) => frame[0] === 'said').map((frame) => frame[1]);
+    expect(said).toEqual([{ text: 'before kofi joins' }]);
   });
 });
 
