@@ -12,7 +12,7 @@ export const TOKEN_SUBPROTOCOL_PREFIX = `${LIVETHING_SUBPROTOCOL}.token.`;
  * DEL, as Node's `fetch` refuses those, and no trailing space or tab, which `Headers` trims.
  */
 export function isHeaderToken(token: string): boolean {
-  return /^[\t\x20-\x7e\x80-\xff]*(?<![ \t])$/.test(token);
+  return /^[\t\x20-\x7e\x80-\xff]*$/.test(token) && !/[ \t]$/.test(token);
 }
 
 /** Encodes text as UTF-8, then as base64url with no padding. */

@@ -131,7 +131,31 @@ for (const [name, path] of selected) {
         expect(run.transport).toBe('http');
         expect(run).toMatchObject({ inOrder: true, echoed: 50, binaryOk: true, broadcastOk: true });
         if (path.streamMode) expect(stats.streamPosts).toBeGreaterThan(0);
-        else expect(stats.batchPosts).toBeGreaterThan(0);
+      } finally {
+        await browser.close();
+      }
+    });
+
+    test('http() alone: where the path cannot stream, sends stay in batch mode', async () => {
+      test.skip(
+        path.sse === false || path.streamMode,
+        'this path streams, or no event gets through',
+      );
+
+      const { browser, page } = await open(path);
+      try {
+        const run = (await page.evaluate(() =>
+          (
+            window as unknown as {
+              runBigStream(options: { messages: number; textBytes: number }): Promise<unknown>;
+            }
+          ).runBigStream({ messages: 10, textBytes: 1024 }),
+        )) as { echoed: number; inOrder: boolean; batchPostsDuring: number };
+        test.info().annotations.push({ type: 'result', description: JSON.stringify(run) });
+
+        // On a path that streams, the same sends go in the long POST and this count is 0.
+        expect(run).toMatchObject({ echoed: 10, inOrder: true });
+        expect(run.batchPostsDuring).toBeGreaterThan(0);
       } finally {
         await browser.close();
       }
