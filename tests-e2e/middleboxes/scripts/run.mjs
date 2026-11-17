@@ -37,10 +37,10 @@ async function startServer() {
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error('the server did not start in 30 seconds')),
-      30_000,
-    );
+    const timer = setTimeout(() => {
+      server.kill('SIGTERM');
+      reject(new Error('the server did not start in 30 seconds'));
+    }, 30_000);
     server.stdout.on('data', (chunk) => {
       process.stdout.write(chunk);
       if (String(chunk).includes('middlebox server on')) {
@@ -48,7 +48,10 @@ async function startServer() {
         resolve();
       }
     });
-    server.on('exit', (code) => reject(new Error(`the server exited with ${code}`)));
+    server.on('exit', (code) => {
+      clearTimeout(timer);
+      reject(new Error(`the server exited with ${code}`));
+    });
   });
   return server;
 }

@@ -227,6 +227,8 @@ const port = await starters[mode]();
 const inspector = new Session();
 inspector.connect();
 
+// `load.mjs` and `load-remote.mjs` stop a server with SIGTERM, so the 'exit' handlers still run.
+process.once('SIGTERM', () => process.exit(0));
 process.on('message', async (message) => {
   if (message === 'exit') process.exit(0);
 

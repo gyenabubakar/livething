@@ -1503,6 +1503,15 @@ export class ReplayPruneGate {
   private readonly anonymousCounts = new Map<string, number>();
   private readonly anonymousBytes = new Map<string, number>();
 
+  /** Forget every cached total, so each is read from the table again. */
+  reset(): void {
+    this.minSeeded = false;
+    this.scopeCounts.clear();
+    this.scopeBytes.clear();
+    this.anonymousCounts.clear();
+    this.anonymousBytes.clear();
+  }
+
   prune(sql: Pick<SQLProvider, 'exec' | 'limits'>, opts: ReplayPruneOptions): void {
     const { retention, scopes, owner, stamp, rowBytes } = opts;
     if (retention?.maxAgeMs !== undefined) {

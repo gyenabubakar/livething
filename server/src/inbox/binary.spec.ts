@@ -435,11 +435,21 @@ describe('an inbox broadcast whose replay row waits for the write gate', () => {
   });
 
   it('keeps no inbox copy of a message whose replay row could not be stored', async () => {
-    const { engine, sql } = build({ writeGate: gateWith(false) });
+    let diskFull = false;
+    const sql = createTestSql({
+      onExec(query) {
+        if (diskFull && /INTO __livething_replay \(/.test(query)) throw new Error('disk full');
+      },
+    });
+    const { engine } = build({ sql, writeGate: gateWith(true) });
     const amara = await kofiOffline(engine);
+    diskFull = true;
 
     await amara.send('send-message', { text: 'hello' });
 
+    expect(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM __livething_replay').one()!.n).toBe(
+      0,
+    );
     expect(loadUndeliveredRows(sql, 'u_kofi')).toHaveLength(0);
   });
 });

@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Socket } from 'node:net';
 import { sendToWs, terminateWs, wsBufferedAmount } from './socket.ts';
+import { NodeWriteGate } from './write-gate.ts';
+
+const gate = new NodeWriteGate();
 
 function recorder() {
   const sent: { data: string | Uint8Array; binary: boolean | undefined }[] = [];
@@ -19,7 +22,7 @@ describe('sendToWs', () => {
   it('sends a frame for one socket as a string', () => {
     const { sent, socket } = recorder();
 
-    sendToWs(socket, { kind: 'text', text: '["echoed",{},null]', shared: false });
+    sendToWs(gate, socket, { kind: 'text', text: '["echoed",{},null]', shared: false });
 
     expect(sent).toEqual([{ data: '["echoed",{},null]', binary: undefined }]);
   });
@@ -29,8 +32,8 @@ describe('sendToWs', () => {
     const first = recorder();
     const second = recorder();
 
-    sendToWs(first.socket, frame);
-    sendToWs(second.socket, frame);
+    sendToWs(gate, first.socket, frame);
+    sendToWs(gate, second.socket, frame);
 
     expect(first.sent).toEqual([{ data: frame.text, binary: undefined }]);
     expect(second.sent).toEqual([{ data: frame.text, binary: undefined }]);
@@ -107,7 +110,7 @@ describe('sendToWs', () => {
 
       for (const text of texts) {
         const frame = { kind: 'text', text, shared: true } as const;
-        for (const socket of sockets) sendToWs(socket, frame);
+        for (const socket of sockets) sendToWs(gate, socket, frame);
       }
 
       await until(() => received.every((messages) => messages.length === texts.length));
@@ -141,8 +144,8 @@ describe('sendToWs', () => {
         if (length > 0) bytes[length - 1] = 9;
         const text = JSON.stringify(['row', { text: 'é'.repeat(Math.floor(length / 2)) }, null]);
 
-        sendToWs(socket, { kind: 'bytes', bytes });
-        sendToWs(socket, { kind: 'text', text, shared: false });
+        sendToWs(gate, socket, { kind: 'bytes', bytes });
+        sendToWs(gate, socket, { kind: 'text', text, shared: false });
         expected.push(length === 0 ? [0, -1, -1] : [length, 7, 9], text);
       }
 
@@ -155,7 +158,7 @@ describe('sendToWs', () => {
       const closed = new Promise<number>((resolve) => clients[0]!.once('close', resolve));
       const texts = ['["a",{},null]', '["b",{},null]'];
 
-      for (const text of texts) sendToWs(sockets[0]!, { kind: 'text', text, shared: false });
+      for (const text of texts) sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
       sockets[0]!.close(1000, 'bye');
 
       expect(await closed).toBe(1000);
@@ -168,7 +171,7 @@ describe('sendToWs', () => {
       const errors: Error[] = [];
       tcp.on('error', (error) => errors.push(error));
 
-      sendToWs(sockets[0]!, { kind: 'text', text: '["a",{},null]', shared: false });
+      sendToWs(gate, sockets[0]!, { kind: 'text', text: '["a",{},null]', shared: false });
       tcp.destroy();
       const write = vi.spyOn(tcp, 'write');
 
@@ -185,13 +188,13 @@ describe('sendToWs', () => {
         JSON.stringify(['row', { text: letter.repeat(5000) }, null]),
       );
 
-      for (const text of texts) sendToWs(sockets[0]!, { kind: 'text', text, shared: false });
+      for (const text of texts) sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
       await new Promise((resolve) => setImmediate(resolve));
       // A header and a payload for each frame, sent together.
       expect(write).toHaveBeenCalledTimes(6);
 
       const big = 'b'.repeat(64 * 1024);
-      sendToWs(sockets[0]!, { kind: 'text', text: big, shared: false });
+      sendToWs(gate, sockets[0]!, { kind: 'text', text: big, shared: false });
       // A frame over the hold limit goes at once, without waiting for the turn to end.
       expect(write).toHaveBeenCalledTimes(8);
       expect((write.mock.calls[7]![0] as Buffer).byteLength).toBe(big.length);
@@ -204,7 +207,7 @@ describe('sendToWs', () => {
       const { sockets } = await connect(1);
       const text = '["a",{},null]';
 
-      sendToWs(sockets[0]!, { kind: 'text', text, shared: false });
+      sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
       expect(wsBufferedAmount(sockets[0]!)).toBe(sockets[0]!.bufferedAmount + 2 + text.length);
 
       await new Promise((resolve) => setImmediate(resolve));
@@ -216,9 +219,9 @@ describe('sendToWs', () => {
       const shared = { kind: 'text', text: '["message",{"n":1},null]', shared: true } as const;
 
       for (const socket of sockets) {
-        sendToWs(socket, { kind: 'text', text: '["before",{},null]', shared: false });
-        sendToWs(socket, shared);
-        sendToWs(socket, { kind: 'text', text: '["after",{},null]', shared: false });
+        sendToWs(gate, socket, { kind: 'text', text: '["before",{},null]', shared: false });
+        sendToWs(gate, socket, shared);
+        sendToWs(gate, socket, { kind: 'text', text: '["after",{},null]', shared: false });
       }
 
       await until(() => received.every((messages) => messages.length === 3));
@@ -245,10 +248,10 @@ describe('sendToWs', () => {
       const texts = ['["a",{},null]', '["b",{},null]', '["c",{},null]', '["d",{},null]'];
 
       const [first, ...rest] = texts;
-      sendToWs(sockets[0]!, { kind: 'text', text: first!, shared: false });
+      sendToWs(gate, sockets[0]!, { kind: 'text', text: first!, shared: false });
       // Code after an `await`, or the read of another socket, still writes into the same turn.
       await new Promise((resolve) => process.nextTick(resolve));
-      for (const text of rest) sendToWs(sockets[0]!, { kind: 'text', text, shared: false });
+      for (const text of rest) sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
       expect(writes).toEqual({ one: 0, many: 0 });
       await new Promise((resolve) => setImmediate(resolve));
 
@@ -258,7 +261,7 @@ describe('sendToWs', () => {
       expect(writes).toEqual({ one: 1, many: 0 });
 
       // The next turn holds its frames again, and lets them go at its end.
-      sendToWs(sockets[0]!, { kind: 'text', text: '["e",{},null]', shared: false });
+      sendToWs(gate, sockets[0]!, { kind: 'text', text: '["e",{},null]', shared: false });
       expect(writes).toEqual({ one: 1, many: 0 });
       await until(() => received[0]!.length === texts.length + 1);
       expect(writes).toEqual({ one: 2, many: 0 });
@@ -273,7 +276,7 @@ describe('sendToWs', () => {
       // A replay catch-up sends rows in one loop and waits while bufferedAmount is 256 KiB or more.
       // The kernel buffer fills in the loop too, so the plain socket shows the real backlog.
       for (let i = 0; i < 1000; i++) {
-        sendToWs(held, { kind: 'text', text, shared: false });
+        sendToWs(gate, held, { kind: 'text', text, shared: false });
         plain.send(text);
         highest.held = Math.max(highest.held, wsBufferedAmount(held));
         highest.plain = Math.max(highest.plain, plain.bufferedAmount);
@@ -288,7 +291,7 @@ describe('sendToWs', () => {
       const closed = new Promise((resolve) => clients[0]!.once('close', resolve));
       const texts = ['["a",{},null]', '["b",{},null]', '["c",{},null]'];
 
-      for (const text of texts) sendToWs(sockets[0]!, { kind: 'text', text, shared: false });
+      for (const text of texts) sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
       terminateWs(sockets[0]!);
 
       await closed;
@@ -305,7 +308,7 @@ describe('sendToWs', () => {
 
       const sends = countSends(sockets);
 
-      for (const socket of sockets) sendToWs(socket, frame);
+      for (const socket of sockets) sendToWs(gate, socket, frame);
 
       await until(() => received.every((messages) => messages.length === 1));
       for (const messages of received) expect(messages).toEqual([frame.text]);
@@ -317,7 +320,7 @@ describe('sendToWs', () => {
     const { sent, socket } = recorder();
     const bytes = new Uint8Array([1, 2, 3]);
 
-    sendToWs(socket, { kind: 'bytes', bytes });
+    sendToWs(gate, socket, { kind: 'bytes', bytes });
 
     expect(sent).toEqual([{ data: bytes, binary: undefined }]);
   });

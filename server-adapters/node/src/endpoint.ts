@@ -24,7 +24,6 @@ import { createNodeHttpHandler } from './http.ts';
 import { requestToWebRequest } from './request.ts';
 import { createRuntime } from './runtime.ts';
 import { createConnectionBridge } from './socket.ts';
-import { nodeWriteGate } from './write-gate.ts';
 import type { NodeClientIpConfig } from './client-ip.ts';
 import type { NodeHttpRequest, NodeHttpResponse } from './http.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
@@ -156,7 +155,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       kv: options.kv,
       logger: options.logger,
     });
-    const logger = runtime.logger;
+    const { logger, writeGate } = runtime;
     let shuttingDown = false;
     const shutdownAbort = new AbortController();
     let shutdownPromise: Promise<void> | undefined;
@@ -171,7 +170,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         sendBytes: maxMessageBytes,
         ...(maxPostBytes === undefined ? {} : { postBytes: maxPostBytes }),
       },
-      writeGate: nodeWriteGate,
+      writeGate,
     });
     const hub =
       maxPostBytes === undefined
@@ -198,6 +197,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
             token: connection,
             transport: connection,
             decision,
+            writeGate,
           });
         },
       },
@@ -252,7 +252,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       attach(transport, decision) {
         if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
-        return createConnectionBridge({ engine, token: transport, transport, decision });
+        return createConnectionBridge({ engine, token: transport, transport, decision, writeGate });
       },
       shutdownSignal: shutdownAbort.signal,
     });
@@ -322,7 +322,7 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       attachTransport(token, transport, decision) {
         if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
-        return createConnectionBridge({ engine, token, transport, decision });
+        return createConnectionBridge({ engine, token, transport, decision, writeGate });
       },
 
       async admin() {

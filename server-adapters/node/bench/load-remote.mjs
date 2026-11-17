@@ -107,12 +107,17 @@ async function control(request) {
 
 http
   .createServer(async (request, response) => {
-    let body = '';
-    for await (const chunk of request) body += chunk;
-
+    // A client that resets mid-request must not stop this process and its server.
+    request.on('error', () => {});
     try {
-      response.end(JSON.stringify((await control(JSON.parse(body))) ?? null));
+      let body = '';
+      for await (const chunk of request) body += chunk;
+
+      const answer = JSON.stringify((await control(JSON.parse(body))) ?? null);
+      if (!response.destroyed) response.end(answer);
     } catch (error) {
+      if (response.destroyed) return;
+
       response.statusCode = 500;
       response.end(JSON.stringify({ error: error.message }));
     }

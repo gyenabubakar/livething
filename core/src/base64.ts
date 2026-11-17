@@ -47,6 +47,9 @@ const nativeBuffer = globalBuffer?.isEncoding?.('base64url') ? globalBuffer : un
 // in large pieces: building the string one character at a time takes seconds for a 32 MiB message.
 /** Encodes bytes as base64 with padding, or as base64url with no padding when `url` is true. */
 export function encodeBase64(bytes: Uint8Array, url = false): string {
+  // `Buffer.from` throws on a transferred buffer, even with no bytes to read.
+  if (bytes.length === 0) return '';
+
   if (nativeBuffer) {
     return nativeBuffer
       .from(bytes.buffer, bytes.byteOffset, bytes.byteLength)

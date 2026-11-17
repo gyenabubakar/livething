@@ -17,7 +17,11 @@ import { fileURLToPath } from 'node:url';
 
 const loadScript = fileURLToPath(new URL('./load.mjs', import.meta.url));
 const rounds = Number(process.env.BENCH_ROUNDS ?? 5);
-const connections = String(process.env.BENCH_CONNECTIONS ?? 2000);
+if (!Number.isSafeInteger(rounds) || rounds < 1) {
+  throw new Error('BENCH_ROUNDS must be a whole number of at least 1.');
+}
+
+const connections = Number(process.env.BENCH_CONNECTIONS ?? 2000);
 const outDir =
   process.env.BENCH_OUT ?? join('bench-results', new Date().toISOString().replaceAll(':', '-'));
 
@@ -29,6 +33,28 @@ for (const suite of suites) {
 
 // The chat's busy hour measures reply times, so its clients need more than one process.
 const chatClients = { LOAD_CLIENT_PROCESSES: process.env.LOAD_CLIENT_PROCESSES ?? '4' };
+// The same checks as `load.mjs`, so a bad value stops here, not in every run.
+const clientProcesses = Number(
+  suites.some((suite) => suite !== 'core')
+    ? chatClients.LOAD_CLIENT_PROCESSES
+    : (process.env.LOAD_CLIENT_PROCESSES ?? 1),
+);
+if (!Number.isSafeInteger(clientProcesses) || clientProcesses < 1) {
+  throw new Error('LOAD_CLIENT_PROCESSES must be a whole number of at least 1.');
+}
+
+if (
+  !Number.isSafeInteger(connections) ||
+  connections <= 0 ||
+  connections % 10 !== 0 ||
+  connections % clientProcesses !== 0
+) {
+  throw new Error(
+    `BENCH_CONNECTIONS must be a positive multiple of 10 that ${clientProcesses} client ` +
+      'processes (LOAD_CLIENT_PROCESSES) divide evenly.',
+  );
+}
+
 const presenceOff = { LOAD_PRESENCE: 'off' };
 
 const RUNS = {
@@ -101,7 +127,7 @@ function runOnce(run, warm) {
   };
 
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [loadScript, run.mode, connections], {
+    const child = spawn(process.execPath, [loadScript, run.mode, String(connections)], {
       env,
       stdio: ['ignore', 'pipe', 'inherit'],
     });
@@ -143,6 +169,8 @@ const reports = new Map(plan.map((entry) => [keyOf(entry), []]));
 mkdirSync(outDir, { recursive: true });
 const rawFile = join(outDir, 'runs.jsonl');
 const summaryFile = join(outDir, 'summary.json');
+// The summary holds only this run's reports, so the raw file must too.
+writeFileSync(rawFile, '');
 
 /**
  * For each run and step, the median of every number in its rows, and how many units one CPU core

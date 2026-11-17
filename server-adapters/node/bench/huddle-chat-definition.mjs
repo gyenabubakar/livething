@@ -161,13 +161,15 @@ export function buildHuddleChatDefinition(options = {}) {
       const answer = await ctx.request('confirm-delete', { preview: input.preview });
       if (!answer.confirmed) return { deleted: false };
 
-      ctx.sql.exec(
-        'DELETE FROM messages WHERE id = ? AND user_id = ?',
-        input.messageId,
-        ctx.user.id,
-      );
+      const deleted = ctx.sql
+        .exec(
+          'DELETE FROM messages WHERE id = ? AND user_id = ? RETURNING id',
+          input.messageId,
+          ctx.user.id,
+        )
+        .one();
 
-      return { deleted: true };
+      return { deleted: deleted !== null };
     },
   });
 

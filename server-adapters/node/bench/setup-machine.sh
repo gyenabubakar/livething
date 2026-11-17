@@ -1,5 +1,5 @@
 #!/bin/sh
-# Gets a fresh Linux machine (x64 or arm64, Ubuntu or Amazon Linux) ready to run the load
+# Gets a fresh Linux machine (x64 or arm64, Ubuntu or Amazon Linux 2023) ready to run the load
 # benchmark: installs build tools, Node.js and the repo's pnpm, then installs and builds the
 # packages. It needs sudo. Run it from anywhere in the repo:
 #
@@ -22,7 +22,8 @@ if command -v apt-get >/dev/null; then
   sudo apt-get update -q
   sudo apt-get install -y -q build-essential python3 xz-utils curl
 elif command -v dnf >/dev/null; then
-  sudo dnf install -y -q gcc-c++ make python3 xz tar curl
+  # Amazon Linux 2023 ships curl-minimal, which conflicts with the curl package.
+  sudo dnf install -y -q gcc-c++ make python3 xz tar
 fi
 
 if [ "$(node --version 2>/dev/null)" != "v$node_version" ]; then

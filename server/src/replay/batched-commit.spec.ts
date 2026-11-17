@@ -16,14 +16,21 @@ import type { Engine } from '~/_engine/engine.ts';
 
 const Text = t<{ text: string }>();
 
-function buildDefinition(durability: 'strict' | 'best-effort') {
+function buildDefinition(durability: 'strict' | 'best-effort', maxBytes?: number) {
   const base = server({
     capabilities: [
       emits({ news: Text, dm: Text }),
       dedup(),
       sequence({ persist: true }),
-      replay.history({ durability }),
+      replay.history({ durability, ...(maxBytes ? { retention: { maxBytes } } : {}) }),
     ],
+  });
+
+  const noteToSelf = base.on('note-to-self', {
+    input: v.object({ text: v.string() }),
+    run(ctx, payload) {
+      ctx.send('dm', { text: payload.text });
+    },
   });
 
   const shout = base.on('shout', {
@@ -50,7 +57,7 @@ function buildDefinition(durability: 'strict' | 'best-effort') {
     },
   });
 
-  return base.assemble({ handlers: [shout, shoutTwice, sendToUser] });
+  return base.assemble({ handlers: [shout, shoutTwice, sendToUser, noteToSelf] });
 }
 
 /** A write gate the test opens by hand: `commit()` runs what the engine queued. */
@@ -73,7 +80,11 @@ function manualGate() {
   return { gate, pending: () => commits.length, commit };
 }
 
-async function startEngine(writeGate?: WriteGate, durability: 'strict' | 'best-effort' = 'strict') {
+async function startEngine(
+  writeGate?: WriteGate,
+  durability: 'strict' | 'best-effort' = 'strict',
+  maxBytes?: number,
+) {
   let captured: Engine | undefined;
   const errors: string[] = [];
   const runAdapter = adapter({
@@ -90,7 +101,7 @@ async function startEngine(writeGate?: WriteGate, durability: 'strict' | 'best-e
       return {};
     },
   });
-  runAdapter(buildDefinition(durability), undefined as never);
+  runAdapter(buildDefinition(durability, maxBytes), undefined as never);
   if (!captured) throw new Error('engine not captured');
 
   await captured.initialize();
@@ -182,6 +193,42 @@ describe('replay with a write gate', () => {
     expect(gate.commit()).toBe(false);
     expect(storedTexts(engine)).toEqual(['kept']);
     expect(errors.join('\n')).toMatch(/disk full/);
+  });
+
+  it('does not count the rows a failed transaction rolled back, so it prunes no row within retention', async () => {
+    const probe = manualGate();
+    const sized = await startEngine(probe.gate);
+    await (
+      await connect(sized.engine, '')
+    )(['note-to-self', { text: 'note-0' }]);
+    probe.commit();
+    const { rowBytes } = sized.engine.core.storage.sql
+      .exec<{ rowBytes: number }>('SELECT rowBytes FROM __livething_replay')
+      .one()!;
+
+    const gate = manualGate();
+    const { engine } = await startEngine(gate.gate, 'strict', rowBytes * 10);
+    const send = await connect(engine, '');
+    for (let index = 1; index <= 9; index++) {
+      await send(['note-to-self', { text: `note-${index}` }]);
+    }
+
+    gate.commit();
+
+    await send(['note-to-self', { text: 'note-x' }]);
+    await send(['note-to-self', { text: 'lost' }]);
+    const { sql } = engine.core.storage;
+    const exec = sql.exec.bind(sql);
+    sql.exec = ((query: string, ...params: unknown[]) => {
+      if (/INTO __livething_replay\s/.test(query) && JSON.stringify(params).includes('lost')) {
+        throw new Error('disk full');
+      }
+
+      return exec(query, ...params);
+    }) as typeof sql.exec;
+
+    expect(gate.commit()).toBe(false);
+    expect(storedTexts(engine)).toHaveLength(10);
   });
 
   it('reports a best-effort row it could not store as no loss, so its message still goes out', async () => {

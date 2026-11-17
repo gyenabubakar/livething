@@ -1,6 +1,6 @@
 // The chat app of `huddle-chat-definition.mjs` on plain `ws` and on Socket.IO, and the SQLite
 // database that all three servers store it in.
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +13,13 @@ import { WebSocketServer } from 'ws';
  * so its cost does not grow with the table.
  */
 export function openChatDatabase(options = {}) {
-  const database = new Database(join(mkdtempSync(join(tmpdir(), 'huddle-chat-')), 'huddle.sqlite'));
+  const folder = mkdtempSync(join(tmpdir(), 'huddle-chat-'));
+  const database = new Database(join(folder, 'huddle.sqlite'));
+  process.once('exit', () => {
+    database.close();
+    rmSync(folder, { recursive: true, force: true });
+  });
+
   database.pragma('journal_mode = WAL');
   database.pragma('synchronous = NORMAL');
   database.exec(`

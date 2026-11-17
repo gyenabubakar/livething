@@ -4,10 +4,9 @@ import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
-import { sendToWs, sendWhenOpen, terminateWs, wsBufferedAmount } from '../../socket.ts';
+import { webSocketTransport } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { isNodeWebSocketUpgrade, rawDataToBytes } from '../../upgrade.ts';
-import { gatesItsOwnWrites } from '../../write-gate.ts';
 import type { NodeAdmin, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
 
 /** Route options returned by a Fastify LiveThing endpoint. */
@@ -120,15 +119,7 @@ export function setup(): FastifySetup {
 
           let connection;
           try {
-            connection = upgrade.accept(
-              gatesItsOwnWrites({
-                send: (frame) => sendWhenOpen(socket.readyState, () => sendToWs(socket, frame)),
-                close: (code, reason) => socket.close(code, reason),
-                terminate: () => terminateWs(socket),
-                bufferedAmount: () => wsBufferedAmount(socket),
-                backpressureSupported: true,
-              }),
-            );
+            connection = upgrade.accept(webSocketTransport(socket));
           } catch {
             closeWebSocket(socket, 1011, '[livething] connection setup failed');
             return;

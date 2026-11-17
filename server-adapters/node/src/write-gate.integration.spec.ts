@@ -24,6 +24,9 @@ type Frame = [event: string, payload: Record<string, unknown>, livething: unknow
 /** What `save-and-shout` saw: whether another connection to the file read its write at once. */
 const seenByAnotherConnection: number[] = [];
 
+/** What `note-and-nudge` runs in its turn, after its note. */
+let nudge: (() => void) | undefined;
+
 function buildDefinition(sqlFile: string, durability: 'strict' | 'best-effort') {
   const base = createServerDefinition({
     authenticate: (request) => ({
@@ -50,6 +53,13 @@ function buildDefinition(sqlFile: string, durability: 'strict' | 'best-effort') 
     run(ctx, input: { text: string }) {
       ctx.send('heads-up', { text: 'a note is coming' });
       ctx.send('note', { text: input.text });
+    },
+  });
+
+  const noteAndNudge = base.on('note-and-nudge', {
+    run(ctx, input: { text: string }) {
+      ctx.send('note', { text: input.text });
+      nudge?.();
     },
   });
 
@@ -97,6 +107,7 @@ function buildDefinition(sqlFile: string, durability: 'strict' | 'best-effort') 
     handlers: [
       noteToSelf,
       headsUpThenNote,
+      noteAndNudge,
       bigNoteToSelf,
       shout,
       bigShout,
@@ -110,6 +121,7 @@ interface Running {
   url: string;
   sqlFile: string;
   database: Database.Database;
+  admin(): Promise<{ broadcast(event: string, payload: unknown): void }>;
   shutdown(): Promise<void>;
 }
 
@@ -141,6 +153,7 @@ async function start(
     url: `ws://127.0.0.1:${port}/`,
     sqlFile,
     database: new Database(sqlFile, { readonly: true }),
+    admin: endpoint.admin as Running['admin'],
     async shutdown() {
       instance.database.close();
       await livething.shutdown();
@@ -157,6 +170,7 @@ afterEach(async () => {
   await Promise.all(running.splice(0).map((instance) => instance.shutdown()));
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true });
   seenByAnotherConnection.length = 0;
+  nudge = undefined;
 });
 
 interface Client {
@@ -366,5 +380,20 @@ describe('replay rows stored at the write gate, on real better-sqlite3', () => {
     await waitFor(() => notes(listener) === 2, 'the next note');
     sender.socket.close();
     listener.socket.close();
+  });
+
+  it('closes no connection of another endpoint when a row fails to store', async () => {
+    const huddle = await start();
+    const standup = await start();
+    const kofi = await connect(huddle, 'kofi');
+    const ama = await connect(standup, 'ama');
+    const standupAdmin = await standup.admin();
+
+    doomRows(huddle);
+    nudge = () => standupAdmin.broadcast('note', { text: 'standup in 5' });
+
+    await expectLost(kofi, ['note-and-nudge', { text: 'doomed' }, null]);
+    await waitFor(() => notes(ama) === 1, 'the standup note');
+    ama.socket.close();
   });
 });

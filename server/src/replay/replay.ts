@@ -452,11 +452,14 @@ class ReplayInstaller {
 
       return true;
     } catch {
+      // The prune caches counted the rows the transaction rolled back.
+      this.pruneGate.reset();
       let stored = true;
       for (const queued of rows) {
         try {
           sql.transaction(() => this.storeQueued(sql, queued));
         } catch (error) {
+          this.pruneGate.reset();
           stored = false;
           this.engine
             .getLogger?.()

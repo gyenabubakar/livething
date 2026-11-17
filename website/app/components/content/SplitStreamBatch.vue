@@ -9,7 +9,7 @@ const TRAVEL2 = LANE.to - LANE.from - POST2_W - 8
 </script>
 
 <template>
-  <SplitStreamFigure animated caption="Batch mode keeps one POST in flight. The messages you send meanwhile wait, and the next POST carries all of them, up to 255. Four messages cost two requests. 204 is the server's answer: done, nothing to send back.">
+  <SplitStreamFigure animated caption="Batch mode keeps one POST in flight. The messages you send meanwhile wait, and the next POST carries all of them, up to 255 messages or the server's maxPostBytes size limit. Four messages cost two requests. 204 is the server's answer: done, nothing to send back.">
     <svg viewBox="0 0 680 280" class="w-full" role="img" aria-label="The first POST carries one message to the server. While it is in flight, three more messages wait in the browser. When the server answers 204, the second POST carries all three.">
       <!-- browser and its queue -->
       <rect x="10" y="20" width="146" height="222" rx="10" class="fill-(--ui-bg) stroke-(--art-line)" />
@@ -53,7 +53,7 @@ const TRAVEL2 = LANE.to - LANE.from - POST2_W - 8
         <text :x="(LANE.from + LANE.to) / 2" y="238" text-anchor="middle" class="text-[13px] fill-(--ui-text-muted)">← 204 done</text>
       </g>
 
-      <text x="340" y="270" text-anchor="middle" class="text-[14px] fill-(--ui-text-muted)">4 messages, 2 POSTs, never more than one in flight</text>
+      <text x="340" y="270" text-anchor="middle" class="text-[14px] fill-(--ui-text-muted)">4 messages, 2 data POSTs, never more than one data POST in flight</text>
     </svg>
   </SplitStreamFigure>
 </template>

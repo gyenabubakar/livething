@@ -506,33 +506,6 @@ function validExchange(input: unknown): boolean {
   return input.source === undefined || input.source === 'server' || input.source === 'client';
 }
 
-function validChannel(input: unknown): boolean {
-  if (!isRecord(input) || !validString(input.name, WIRE_LIMITS.channel)) return false;
-
-  const allowed = ['name', 'family', 'unsubscribeId', 'membership', 'inbox', 'readReceipts'];
-  if (Object.keys(input).some((key) => !allowed.includes(key))) return false;
-
-  if (input.family !== undefined && !validString(input.family, WIRE_LIMITS.channelFamily)) {
-    return false;
-  }
-
-  if (input.unsubscribeId !== undefined && !validString(input.unsubscribeId, WIRE_LIMITS.wireId)) {
-    return false;
-  }
-
-  if (
-    input.membership !== undefined &&
-    input.membership !== 'persistent' &&
-    input.membership !== 'ephemeral'
-  ) {
-    return false;
-  }
-
-  if (input.inbox !== undefined && typeof input.inbox !== 'boolean') return false;
-
-  return input.readReceipts === undefined || typeof input.readReceipts === 'boolean';
-}
-
 function validDelivery(input: unknown): boolean {
   if (!isRecord(input) || Object.keys(input).length === 0) return false;
 
@@ -590,7 +563,7 @@ function fastMetadata(input: unknown): LiveThingProtocol | null | undefined {
 
   if (input.exchange !== undefined && !validExchange(input.exchange)) return undefined;
 
-  if (input.channel !== undefined && !validChannel(input.channel)) return undefined;
+  if (input.channel !== undefined && !isChannelMetadata(input.channel)) return undefined;
 
   if (input.delivery !== undefined && !validDelivery(input.delivery)) return undefined;
 

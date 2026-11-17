@@ -116,10 +116,10 @@ function serverEvent() {
   })
 }
 
-function scheduleLoop(start: number) {
+function scheduleLoop(start: number, repeat: boolean) {
   for (const at of MESSAGES) later(start + at - clock, sendMessage)
   for (const at of EVENTS) later(start + at - clock, serverEvent)
-  later(start + LOOP - clock, () => scheduleLoop(start + LOOP))
+  if (repeat) later(start + LOOP - clock, () => scheduleLoop(start + LOOP, true))
 }
 
 function advance(seconds: number) {
@@ -135,19 +135,25 @@ function advance(seconds: number) {
 
 const reduced = ref(false)
 
+/** Runs every timer, and those they add, until nothing is in flight. */
+function settle() {
+  while (timers.length > 0) advance(timers.at(-1)!.at - clock)
+}
+
 function reset() {
   timers = []
   flights.splice(0)
   rows.splice(0, rows.length, ...freshRows())
   clock = 0
-  scheduleLoop(0.3)
-  // Without motion, jump ahead so the counters already tell the story.
-  advance(reduced.value ? LOOP + 3.3 : 0)
+  // Without motion, run one loop to its end, so the counters already tell the story.
+  scheduleLoop(0.3, !reduced.value)
+  if (reduced.value) settle()
+  advance(0)
 }
 
 function act(action: () => void) {
   action()
-  if (reduced.value) advance(TRAVEL)
+  if (reduced.value) settle()
 }
 
 const paused = ref(false)
@@ -170,17 +176,16 @@ watch([visible, paused, reduced], ([isVisible, isPaused, isReduced]) => {
 
 let observer: IntersectionObserver | undefined
 let motion: MediaQueryList | undefined
-// Turned on while the page is open, reduced motion starts the picture again in its still form.
+// Reduced motion, turned on or off while the page is open, starts the picture again.
 function onMotion(): void {
   reduced.value = motion!.matches
-  if (reduced.value && timers.length > 0) reset()
+  reset()
 }
 
 onMounted(() => {
   motion = matchMedia('(prefers-reduced-motion: reduce)')
   onMotion()
   motion.addEventListener('change', onMotion)
-  reset()
   observer = new IntersectionObserver(([entry]) => {
     visible.value = entry!.isIntersecting
   })

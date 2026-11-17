@@ -6,11 +6,9 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { RawData, WebSocket, WebSocketServer } from 'ws';
 import { closeWebSocket } from './close.ts';
-import { sendToWs, sendWhenOpen, terminateWs, wsBufferedAmount } from './socket.ts';
+import { webSocketTransport } from './socket.ts';
 import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
-import { gatesItsOwnWrites } from './write-gate.ts';
 import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
-import type { ConnectionTransport } from './socket.ts';
 
 /** The HTTP status and body of an `authenticate` rejection that is not a close code. */
 export function upgradeRejection(decision: AuthDecision): { body: string; status: number } {
@@ -175,16 +173,6 @@ async function writeHttpResponse(socket: Duplex, response: Response): Promise<vo
   for (const [name, value] of headers) lines.push(`${name}: ${value}`);
   lines.push('', '');
   socket.end(Buffer.concat([Buffer.from(lines.join('\r\n')), body]));
-}
-
-function webSocketTransport(socket: WebSocket): ConnectionTransport {
-  return gatesItsOwnWrites({
-    send: (frame) => sendWhenOpen(socket.readyState, () => sendToWs(socket, frame)),
-    close: (code, reason) => socket.close(code, reason),
-    terminate: () => terminateWs(socket),
-    bufferedAmount: () => wsBufferedAmount(socket),
-    backpressureSupported: true,
-  });
 }
 
 /**

@@ -3,6 +3,7 @@ import { createHttpHub } from '@livething/server/adapters';
 import { describe, expect, it } from 'vitest';
 import type { ConnectionHandle } from '@livething/server/adapters';
 import { createNodeHttpHandler } from './http.ts';
+import { giveOwnGate, NodeWriteGate } from './write-gate.ts';
 import type { ConnectionTransport } from './socket.ts';
 
 describe('the Node http stream request', () => {
@@ -35,12 +36,17 @@ describe('the Node http stream request', () => {
   });
 
   // H3 v1 and other frameworks do not end open responses at shutdown, so the handler must.
-  it('answers 503 when the endpoint shuts down during an authenticate that never ends', async () => {
+  async function expectShuttingDown(abortAt: 'before' | 'in-authenticate'): Promise<void> {
     const shutdown = new AbortController();
+    if (abortAt === 'before') shutdown.abort();
+
     const handle = createNodeHttpHandler({
       hub: createHttpHub({ maxPostBytes: 1024, receiveBytes: 4096 }),
       originAllowed: () => true,
-      authenticate: () => new Promise(() => {}),
+      authenticate: () => {
+        shutdown.abort();
+        return new Promise(() => {});
+      },
       attach() {
         throw new Error('not reached');
       },
@@ -50,16 +56,21 @@ describe('the Node http stream request', () => {
     await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
     const { port } = http.address() as { port: number };
 
-    const answer = fetch(`http://127.0.0.1:${port}/huddle`, {
+    const response = await fetch(`http://127.0.0.1:${port}/huddle`, {
       headers: { Accept: 'text/event-stream', 'LiveThing-Protocol': 'livething-v1' },
+      signal: AbortSignal.timeout(2000),
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    shutdown.abort();
-
-    const response = await answer;
     expect(response.status).toBe(503);
     expect(response.headers.get('LiveThing-Error')).toBe('shutting-down');
     await new Promise((resolve) => http.close(resolve));
+  }
+
+  it('answers 503 when the endpoint shuts down during an authenticate that never ends', async () => {
+    await expectShuttingDown('in-authenticate');
+  });
+
+  it('answers 503 to a stream that comes after the endpoint shut down', async () => {
+    await expectShuttingDown('before');
   });
 
   it('sends the events of one event loop turn as one write, and counts them as buffered', async () => {
@@ -69,6 +80,7 @@ describe('the Node http stream request', () => {
       originAllowed: () => true,
       authenticate: async () => ({}),
       attach(opened) {
+        giveOwnGate(opened, new NodeWriteGate());
         transport = opened;
         return { handleClose: async () => {} } as unknown as ConnectionHandle;
       },
@@ -113,6 +125,7 @@ describe('the Node http stream request', () => {
       originAllowed: () => true,
       authenticate: async () => ({}),
       attach(opened) {
+        giveOwnGate(opened, new NodeWriteGate());
         transport = opened;
         return { handleClose: async () => {} } as unknown as ConnectionHandle;
       },

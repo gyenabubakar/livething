@@ -26,6 +26,14 @@ describe('encodeBase64', () => {
   });
 
   // Browsers have no `Buffer`, so they use the encoder written in JavaScript.
+  it('encodes a view of a transferred buffer as empty text', () => {
+    const bytes = new Uint8Array(8);
+    structuredClone(bytes.buffer, { transfer: [bytes.buffer] });
+
+    expect(encodeBase64(bytes)).toBe('');
+    expect(encodeBase64(bytes, true)).toBe('');
+  });
+
   it('encodes the same with no Buffer', async () => {
     vi.stubGlobal('Buffer', undefined);
     vi.resetModules();
