@@ -202,7 +202,7 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(frameId)
 })
 
-const chipWidth = (flight: Flight) => flight.label.length * 7.6 + 22
+const chipWidth = (flight: Flight) => flight.label.length * 6.8 + 18
 
 // A chip is drawn behind its point when it goes to the server, ahead of it when it comes back,
 // so it travels from one end of the lane to the other without covering either box.
@@ -240,70 +240,80 @@ const tabName = (row: Row) => (row.sub ? `${row.name}: ${row.sub}` : row.name)
 
 <template>
   <SplitStreamFigure v-model:paused="paused" animated caption="All three run the same traffic at the same time, slowed down. Each band is one open HTTP request. Grey chips are the server's answer to a POST (204: done, nothing to send back), or the new GET that long polling opens after each event. The counts leave out pings, the probe, and the first POST that stream mode sends before it opens the long POST.">
-    <div class="mb-3 flex flex-wrap items-center gap-2">
-      <UButton
+    <div class="mb-4 flex overflow-x-auto border-b border-default font-mono text-xs" role="tablist">
+      <button
         v-for="(row, index) in rows"
         :key="index"
-        :color="current === index ? 'primary' : 'neutral'"
-        :variant="current === index ? 'solid' : 'outline'"
-        :aria-pressed="current === index"
+        type="button"
+        role="tab"
+        :aria-selected="current === index"
+        class="flex shrink-0 items-center gap-2 whitespace-nowrap px-3 py-2.5 transition-colors"
+        :class="current === index ? 'text-highlighted shadow-[inset_0_-1px_0_var(--ui-primary)]' : 'text-muted hover:text-toned'"
         @click="current = index"
       >
         {{ tabName(row) }}
-        <span class="tabular-nums opacity-75">{{ row.requests }}</span>
-      </UButton>
+        <span class="border border-default px-1.5 tabular-nums" :class="current === index ? 'border-primary/50 text-primary' : ''">{{ row.requests }}</span>
+      </button>
     </div>
 
-    <p class="mb-1 text-base text-highlighted">
-      <strong class="tabular-nums">{{ rows[current]!.requests }}</strong> HTTP requests so far ·
-      <span :class="rows[current]!.waited ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'">
+    <p class="mb-1 font-mono text-sm text-highlighted">
+      <span class="tabular-nums">{{ rows[current]!.requests }}</span> HTTP requests so far ·
+      <span :class="rows[current]!.waited ? 'text-red-600 dark:text-red-300' : 'text-emerald-600 dark:text-emerald-300'">
         {{ rows[current]!.waited ? `${rows[current]!.waited} had to wait` : 'nothing waits' }}
       </span>
     </p>
-    <p class="mb-3 text-sm text-muted">{{ notes[current] }}</p>
+    <!-- Every note sits in the same cell, so the box keeps the tallest note's height. -->
+    <div class="mb-4 grid text-sm/6 text-muted">
+      <p v-for="(note, index) in notes" :key="index" class="[grid-area:1/1]" :class="{ invisible: index !== current }" :aria-hidden="index !== current">{{ note }}</p>
+    </div>
 
     <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" class="ss-narrow w-full" role="img" :aria-label="label">
       <!-- the two ends -->
-      <rect x="1" y="14" width="74" height="130" rx="10" class="fill-(--ui-bg) stroke-(--art-line)" />
-      <text x="38" y="84" text-anchor="middle" class="text-[13px] font-medium fill-(--ui-text-highlighted)">Browser</text>
-      <rect :x="W - 75" y="14" width="74" height="130" rx="10" class="fill-(--ui-bg) stroke-orange-400/70" />
-      <text :x="W - 38" y="84" text-anchor="middle" class="text-[13px] font-medium fill-(--ui-text-highlighted)">Server</text>
+      <rect x="1" y="14" width="74" height="130" class="fill-(--art-top) stroke-(--art-line)" />
+      <text x="38" y="83" text-anchor="middle" class="font-mono text-[11px] fill-(--ui-text-highlighted)">browser</text>
+      <rect :x="W - 75" y="14" width="74" height="130" class="fill-(--art-top) stroke-orange-400/60" />
+      <text :x="W - 38" y="83" text-anchor="middle" class="font-mono text-[11px] fill-(--ui-text-highlighted)">server</text>
 
       <!-- one band per open request, a dashed line where none is open -->
       <g v-for="lane in (['down', 'up'] as const)" :key="lane">
         <template v-if="band(current, lane)">
-          <rect :x="L" :y="laneY(lane) - 15" :width="R - L" height="30" rx="15" :class="lane === 'down' ? 'fill-orange-500/[0.08] stroke-orange-400/50' : 'fill-sky-500/[0.08] stroke-sky-500/50'" />
-          <text :x="(L + R) / 2" :y="laneY(lane) + 4.5" text-anchor="middle" class="text-[12px] fill-(--ui-text-muted)">{{ band(current, lane) }}</text>
+          <rect :x="L" :y="laneY(lane) - 15" :width="R - L" height="30" :class="lane === 'down' ? 'fill-orange-500/[0.08] stroke-orange-400/50' : 'fill-sky-500/[0.08] stroke-sky-500/50'" />
+          <text :x="(L + R) / 2" :y="laneY(lane) + 4" text-anchor="middle" class="font-mono text-[10.5px] fill-(--ui-text-muted)">{{ band(current, lane) }}</text>
         </template>
         <template v-else>
-          <line :x1="L" :y1="laneY(lane)" :x2="R" :y2="laneY(lane)" class="stroke-(--ui-text-muted)/40" stroke-dasharray="4 5" />
-          <text :x="(L + R) / 2" :y="laneY(lane) - 7" text-anchor="middle" class="text-[12px] italic fill-(--ui-text-muted)">no request open</text>
+          <line :x1="L" :y1="laneY(lane)" :x2="R" :y2="laneY(lane)" class="stroke-(--art-line)" stroke-dasharray="2 5" />
+          <text :x="(L + R) / 2" :y="laneY(lane) - 7" text-anchor="middle" class="font-mono text-[10.5px] fill-(--ui-text-dimmed)">no request open</text>
         </template>
       </g>
 
       <!-- what waits: messages in the browser, events at the server -->
-      <circle v-for="dot in Math.min(rows[current]!.queued, 6)" :key="`q${dot}`" :cx="L + 6 + (dot - 1) * 13" :cy="laneY('up') + 27" r="5" class="fill-sky-500" />
-      <text v-if="rows[current]!.queued" :x="L + 4 + Math.min(rows[current]!.queued, 6) * 13" :y="laneY('up') + 31.5" class="text-[12px] font-medium fill-sky-700 dark:fill-sky-300">{{ rows[current]!.queued }} waiting</text>
-      <circle v-for="dot in Math.min(rows[current]!.heldEvents, 6)" :key="`h${dot}`" :cx="R - 6 - (dot - 1) * 13" :cy="laneY('down') - 27" r="5" class="fill-orange-500" />
-      <text v-if="rows[current]!.heldEvents" :x="R - 4 - Math.min(rows[current]!.heldEvents, 6) * 13" :y="laneY('down') - 22.5" text-anchor="end" class="text-[12px] font-medium fill-orange-700 dark:fill-orange-300">{{ rows[current]!.heldEvents }} waiting</text>
+      <rect v-for="dot in Math.min(rows[current]!.queued, 6)" :key="`q${dot}`" :x="L + 2 + (dot - 1) * 13" :y="laneY('up') + 22" width="9" height="9" fill="#7dd3fc" class="ss-glow-up" />
+      <text v-if="rows[current]!.queued" :x="L + 4 + Math.min(rows[current]!.queued, 6) * 13" :y="laneY('up') + 30.5" class="font-mono text-[10.5px] fill-sky-700 dark:fill-sky-300">{{ rows[current]!.queued }} waiting</text>
+      <rect v-for="dot in Math.min(rows[current]!.heldEvents, 6)" :key="`h${dot}`" :x="R - 11 - (dot - 1) * 13" :y="laneY('down') - 31" width="9" height="9" fill="#ffb36b" class="ss-glow-down" />
+      <text v-if="rows[current]!.heldEvents" :x="R - 4 - Math.min(rows[current]!.heldEvents, 6) * 13" :y="laneY('down') - 22.5" text-anchor="end" class="font-mono text-[10.5px] fill-orange-700 dark:fill-orange-300">{{ rows[current]!.heldEvents }} waiting</text>
 
       <!-- everything on the way -->
       <g v-for="flight in flights" v-show="flight.row === current" :key="flight.id" :transform="`translate(${flightX(flight)} ${laneY(flight.lane)})`">
         <rect
-          :x="flight.toServer ? -chipWidth(flight) : 0" y="-12" :width="chipWidth(flight)" height="24" rx="12"
-          :class="flight.small ? 'fill-(--ui-bg) stroke-(--ui-text-muted)/60' : flight.lane === 'down' ? 'fill-orange-500' : 'fill-sky-500'"
+          :x="flight.toServer ? -chipWidth(flight) : 0" y="-11" :width="chipWidth(flight)" height="22"
+          :class="flight.small ? 'fill-(--ui-bg) stroke-(--ui-text-muted)/60' : flight.lane === 'down' ? 'fill-orange-500 ss-glow-down' : 'fill-sky-500 ss-glow-up'"
         />
         <text
-          :x="(flight.toServer ? -1 : 1) * chipWidth(flight) / 2" y="4.5" text-anchor="middle"
-          :class="flight.small ? 'text-[12.5px] fill-(--ui-text-muted)' : 'text-[12.5px] font-medium fill-white'"
+          :x="(flight.toServer ? -1 : 1) * chipWidth(flight) / 2" y="4" text-anchor="middle"
+          :class="flight.small ? 'font-mono text-[11px] fill-(--ui-text-muted)' : 'font-mono text-[11px] fill-white'"
         >{{ flight.label }}</text>
       </g>
     </svg>
 
-    <div class="mt-3 flex flex-wrap items-center gap-2">
-      <UButton size="sm" color="neutral" variant="outline" icon="i-ph-paper-plane-tilt" label="Send 3 messages" @click="act(() => { sendMessage(); later(0.4, sendMessage); later(0.8, sendMessage) })" />
-      <UButton size="sm" color="neutral" variant="outline" icon="i-ph-broadcast" label="Server sends an event" @click="act(serverEvent)" />
-      <UButton size="sm" color="neutral" variant="ghost" icon="i-ph-arrow-counter-clockwise" label="Reset" @click="reset" />
+    <div class="mt-4 flex flex-wrap items-center gap-2 font-mono text-xs">
+      <button v-for="action in [
+        { label: 'send 3 messages', icon: 'i-ph-paper-plane-tilt', run: () => act(() => { sendMessage(); later(0.4, sendMessage); later(0.8, sendMessage) }) },
+        { label: 'server sends an event', icon: 'i-ph-broadcast', run: () => act(serverEvent) },
+        { label: 'reset', icon: 'i-ph-arrow-counter-clockwise', run: reset },
+      ]" :key="action.label" type="button" class="flex items-center gap-1.5 border border-default px-2.5 py-1.5 text-toned hover:border-primary/60 hover:text-highlighted" @click="action.run">
+        <UIcon :name="action.icon" class="size-3.5" aria-hidden="true" />
+        {{ action.label }}
+      </button>
     </div>
   </SplitStreamFigure>
 </template>

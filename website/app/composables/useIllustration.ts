@@ -5,12 +5,23 @@ import type { Ref } from 'vue'
 /**
  * Builds an anime.js timeline for a landing illustration and plays it only
  * while the illustration is on screen. Under `prefers-reduced-motion` nothing
- * is built, so the SVG keeps its static markup as the final picture.
+ * is built, so the SVG keeps its static markup as the final picture. A
+ * `paused` ref, when given, holds the timeline still while it is true.
  */
-export function useIllustration(root: Ref<HTMLElement | SVGElement | undefined>, build: () => Timeline) {
+export function useIllustration(
+  root: Ref<HTMLElement | SVGElement | undefined>,
+  build: () => Timeline,
+  options: { paused?: Ref<boolean> } = {},
+) {
   let scope: Scope | undefined
   let timeline: Timeline | undefined
+  let visible = false
   const reduced = ref(false)
+
+  const sync = () => {
+    if (visible && !options.paused?.value) timeline?.play()
+    else timeline?.pause()
+  }
 
   onMounted(() => {
     reduced.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -25,10 +36,16 @@ export function useIllustration(root: Ref<HTMLElement | SVGElement | undefined>,
           timeline = build()
         })
       }
-      timeline?.play()
+      visible = true
+      sync()
     },
-    onExit: () => timeline?.pause(),
+    onExit() {
+      visible = false
+      sync()
+    },
   })
+
+  if (options.paused) watch(options.paused, sync)
 
   onBeforeUnmount(() => scope?.revert())
 }
