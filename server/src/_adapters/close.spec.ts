@@ -1,5 +1,7 @@
+import { beginCatchUpHold, markSeqScope, seqScopeKey } from '~/_engine/runtime/catch-up-hold.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizeCloseReason, normalizeConnectionDescriptor } from './close.ts';
+import type { TransportFrame } from './types.ts';
 
 describe('normalizeCloseReason', () => {
   it('leaves a reason within the WebSocket limit unchanged', () => {
@@ -182,5 +184,38 @@ describe('the slow-member close of a normalized descriptor', () => {
     expect(descriptor.send({ kind: 'text', text: 'late' })).toBe(false);
     expect(close).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a frame kept back by a replay catch-up', () => {
+  function catchingUp(stored: boolean) {
+    const close = vi.fn();
+    const hold = { scopes: new Map(), bytes: 0 };
+    beginCatchUpHold({ catchUpHold: hold } as never, seqScopeKey('room:general', 'rooms'));
+    const descriptor = normalizeConnectionDescriptor(
+      { send: vi.fn(), close, bufferedAmount: () => 0 },
+      { catchUpHold: () => hold, writeGate: { commitNow: () => stored } },
+    );
+
+    const message: TransportFrame = { kind: 'text', text: '["message",{}]', shared: false };
+    markSeqScope(message, { deliverySeq: 7, channel: 'room:general', channelFamily: 'rooms' });
+
+    return { descriptor, message, close, hold };
+  }
+
+  it('waits in the hold once the waiting replay rows are stored', () => {
+    const { descriptor, message, close, hold } = catchingUp(true);
+
+    expect(descriptor.send(message)).toBe(true);
+    expect(hold.bytes).toBeGreaterThan(0);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('closes the connection instead when the rows could not be stored', () => {
+    const { descriptor, message, close, hold } = catchingUp(false);
+
+    expect(descriptor.send(message)).toBe(false);
+    expect(hold.bytes).toBe(0);
+    expect(close).toHaveBeenCalledWith(1011, 'The server could not store a message');
   });
 });

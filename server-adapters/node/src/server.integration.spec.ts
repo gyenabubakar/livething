@@ -38,7 +38,7 @@ vi.mock('./socket.ts', async (importOriginal) => {
 type WireFrame = readonly [event: string, payload: unknown, metadata: null];
 
 /** A test of the WebSocket handshake or of `ws` itself, which has no meaning over SSE. */
-const wsOnly = it.skipIf(rawTransport === 'sse');
+const wsOnly = it.skipIf(rawTransport === 'http');
 
 interface IntegrationState {
   upgradeRequest?: Request;
@@ -675,7 +675,7 @@ describe('Node server integration', () => {
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
   });
 
-  describe.skipIf(rawTransport === 'sse')('the token subprotocol', () => {
+  describe.skipIf(rawTransport === 'http')('the token subprotocol', () => {
     async function startService(state: IntegrationState) {
       const service = createTestService(buildServerDefinition(state), { port: 0 });
       services.push(service);
@@ -801,7 +801,7 @@ describe('Node server integration', () => {
     await expect(closed).resolves.toEqual({ code: 1011, reason: 'Internal error' });
   });
 
-  describe.skipIf(rawTransport === 'sse')('maxMessageBytes', () => {
+  describe.skipIf(rawTransport === 'http')('maxMessageBytes', () => {
     async function connectTo(options: NodeServerEndpointOptions) {
       const state: IntegrationState = { errors: [], shutdowns: 0 };
       const service = createTestService(buildServerDefinition(state), { port: 0, ...options });
@@ -895,7 +895,7 @@ describe('Node server integration', () => {
     });
   });
 
-  describe.skipIf(rawTransport === 'sse')('compression', () => {
+  describe.skipIf(rawTransport === 'http')('compression', () => {
     async function connectTo(options: NodeServerEndpointOptions) {
       const state: IntegrationState = { errors: [], shutdowns: 0 };
       const service = createTestService(buildServerDefinition(state), { port: 0, ...options });

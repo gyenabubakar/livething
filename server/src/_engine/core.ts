@@ -76,7 +76,7 @@ function resolveMessageLimits(
   // `receiveBytes`), so a POST must stay within a quarter of it.
   if (postBytes > receiveBytes / 2) {
     throw new LiveThingConfigError(
-      `sse() maxPostBytes (${postBytes}) is more than half of maxMessageBytes (${receiveBytes}). Lower maxPostBytes or raise maxMessageBytes.`,
+      `http() maxPostBytes (${postBytes}) is more than half of maxMessageBytes (${receiveBytes}). Lower maxPostBytes or raise maxMessageBytes.`,
     );
   }
 
@@ -111,6 +111,8 @@ export class EngineCore {
   logger: PublicApi.Logger;
   /** The adapter's message limits, with the 32 MiB defaults filled in. */
   messageLimits: EngineAdapterTypes.MessageLimits;
+  /** See `EngineRuntimeOptions.writeGate`. */
+  writeGate: EngineAdapterTypes.WriteGate | undefined;
 
   /**
    * Engine id for multi-instance setups. Adapters that expose more than one
@@ -344,6 +346,7 @@ export class EngineCore {
     this.platform = options.platform;
     this.logger = options.logger;
     this.messageLimits = resolveMessageLimits(options);
+    this.writeGate = options.writeGate;
     this.userTransactions = new UserTransactionTracker(
       (error) => {
         this.logger.error('[livething] could not redo a storage write after a rollback', {
@@ -353,6 +356,7 @@ export class EngineCore {
       options.asyncContextFactory,
       (error) => this.logger.error(error.message),
     );
+
     this.storage = createEngineStorage(options.storage, this.userTransactions);
 
     this.timers = createEngineTimers(options.timers, this.userTransactions);

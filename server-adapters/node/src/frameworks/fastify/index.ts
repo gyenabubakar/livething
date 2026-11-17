@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
-import { sendToWs, sendWhenOpen, terminateWs } from '../../socket.ts';
+import { webSocketTransport } from '../../socket.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import { isNodeWebSocketUpgrade, rawDataToBytes } from '../../upgrade.ts';
 import type { NodeAdmin, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
@@ -17,7 +17,7 @@ export interface FastifyWebSocketRoute {
 }
 
 /**
- * Route options for the POSTs of server-sent events and their CORS preflight. It answers
+ * Route options for the POSTs of `http()` and their CORS preflight. It answers
  * in `onRequest`, before Fastify reads the body.
  */
 export interface FastifyHttpRoute {
@@ -29,7 +29,7 @@ export interface FastifyHttpRoute {
 export interface FastifyEndpoint<TAdmin = NodeAdmin> {
   /** The `GET` route a client connects on: a WebSocket upgrade, or the server-sent events stream. */
   connect: FastifyWebSocketRoute;
-  /** The `POST` and `OPTIONS` route on the same path, for server-sent events. */
+  /** The `POST` and `OPTIONS` route on the same path, for `http()`. */
   handle: FastifyHttpRoute;
   ready(): Promise<void>;
   admin(): Promise<TAdmin>;
@@ -119,13 +119,7 @@ export function setup(): FastifySetup {
 
           let connection;
           try {
-            connection = upgrade.accept({
-              send: (frame) => sendWhenOpen(socket.readyState, () => sendToWs(socket, frame)),
-              close: (code, reason) => socket.close(code, reason),
-              terminate: () => terminateWs(socket),
-              bufferedAmount: () => socket.bufferedAmount,
-              backpressureSupported: true,
-            });
+            connection = upgrade.accept(webSocketTransport(socket));
           } catch {
             closeWebSocket(socket, 1011, '[livething] connection setup failed');
             return;

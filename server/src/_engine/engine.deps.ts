@@ -318,6 +318,7 @@ function buildMemberRuntime(core: EngineCore) {
     inboxFanOut: core.inboxService
       ? (opts: InboxFanOutOptions) => core.inboxService?.fanOut(core, opts)
       : undefined,
+    writeGate: core.writeGate,
     inboxCanStore: core.inboxService
       ? (message: InboxMessage) => core.inboxService?.canStore(core, message) ?? true
       : undefined,
@@ -359,6 +360,11 @@ function buildChannelRuntime(core: EngineCore) {
     unsubscribeHooks: core.hooks.unsubscribe,
     sessionEndHooks: core.hooks.sessionEnd,
     asyncContext: core.asyncContext,
+
+    // Read when used: the adapter can set the instance id after this bag is built.
+    get instanceId() {
+      return core.engineInstanceId;
+    },
 
     broadcastToChannel: (opts: ChannelPrimitive.BroadcastToChannelOptions) => {
       OutgoingRuntime.broadcastToChannel(dispatchRuntime(core), opts);
@@ -534,6 +540,7 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     messageLimits: core.messageLimits,
+    writeGate: core.writeGate,
     connections: core.connections,
     usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,

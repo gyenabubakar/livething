@@ -1,5 +1,5 @@
 /** The LiveThing wire protocol. Frames are always [event, payload, metadata]. */
-import { WIRE_LIMITS } from '@livething/core';
+import { isChannelMetadata, WIRE_LIMITS } from '@livething/core';
 import * as v from 'valibot';
 
 const NonNegativeSafeInt = v.pipe(
@@ -307,11 +307,37 @@ const INCOMING_FRAMES = {
 export const IncomingProtocolFrame = v.union(Object.values(INCOMING_FRAMES));
 
 /**
+ * A `__subscribe__` frame whose metadata holds only a valid `channel` group, checked by hand.
+ * The schema makes new objects at each of its layers, and joins are common. Any other shape
+ * returns `undefined` and goes through the schema, so a bad frame gets the same error. The
+ * hand check accepts only frames the schema accepts, and builds the same output.
+ */
+export function parseUsualSubscribeFrame(input: unknown[]): SubscribeFrame | undefined {
+  const metadata = input[2];
+  if (input.length !== 3 || typeof metadata !== 'object' || metadata === null) return undefined;
+
+  for (const key in metadata) if (key !== 'channel') return undefined;
+
+  if (!isChannelMetadata((metadata as { channel?: unknown }).channel)) return undefined;
+
+  return {
+    event: '__subscribe__',
+    payload: input[1],
+    __livething: metadataToLiveThing(metadata) as SubscribeFrame['__livething'],
+  };
+}
+
+/**
  * Parse an incoming protocol frame with the schema of the event it names, so an
  * issue says what is wrong with that frame, not that no frame of the union fits.
  */
 export function parseIncomingProtocolFrame(input: unknown): IncomingProtocolFrame {
   const event = Array.isArray(input) ? (input[0] as unknown) : undefined;
+  if (event === '__subscribe__') {
+    const subscribe = parseUsualSubscribeFrame(input as unknown[]);
+    if (subscribe) return subscribe;
+  }
+
   if (typeof event === 'string' && Object.hasOwn(INCOMING_FRAMES, event)) {
     return v.parse(
       INCOMING_FRAMES[event as keyof typeof INCOMING_FRAMES] as v.GenericSchema<
@@ -480,33 +506,6 @@ function validExchange(input: unknown): boolean {
   return input.source === undefined || input.source === 'server' || input.source === 'client';
 }
 
-function validChannel(input: unknown): boolean {
-  if (!isRecord(input) || !validString(input.name, WIRE_LIMITS.channel)) return false;
-
-  const allowed = ['name', 'family', 'unsubscribeId', 'membership', 'inbox', 'readReceipts'];
-  if (Object.keys(input).some((key) => !allowed.includes(key))) return false;
-
-  if (input.family !== undefined && !validString(input.family, WIRE_LIMITS.channelFamily)) {
-    return false;
-  }
-
-  if (input.unsubscribeId !== undefined && !validString(input.unsubscribeId, WIRE_LIMITS.wireId)) {
-    return false;
-  }
-
-  if (
-    input.membership !== undefined &&
-    input.membership !== 'persistent' &&
-    input.membership !== 'ephemeral'
-  ) {
-    return false;
-  }
-
-  if (input.inbox !== undefined && typeof input.inbox !== 'boolean') return false;
-
-  return input.readReceipts === undefined || typeof input.readReceipts === 'boolean';
-}
-
 function validDelivery(input: unknown): boolean {
   if (!isRecord(input) || Object.keys(input).length === 0) return false;
 
@@ -564,7 +563,7 @@ function fastMetadata(input: unknown): LiveThingProtocol | null | undefined {
 
   if (input.exchange !== undefined && !validExchange(input.exchange)) return undefined;
 
-  if (input.channel !== undefined && !validChannel(input.channel)) return undefined;
+  if (input.channel !== undefined && !isChannelMetadata(input.channel)) return undefined;
 
   if (input.delivery !== undefined && !validDelivery(input.delivery)) return undefined;
 

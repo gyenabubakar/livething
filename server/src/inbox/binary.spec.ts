@@ -32,6 +32,7 @@ interface BuildOptions {
   limits?: Partial<SqlLimits>;
   messageLimits?: EngineRuntimeOptions['messageLimits'];
   sql?: ReturnType<typeof createTestSql>;
+  writeGate?: EngineRuntimeOptions['writeGate'];
 }
 
 function build(options: BuildOptions = {}) {
@@ -132,6 +133,7 @@ function build(options: BuildOptions = {}) {
         platform: {},
         logger: { info() {}, warn() {}, error: (...args: unknown[]) => errors.push(args) },
         ...(options.messageLimits ? { messageLimits: options.messageLimits } : {}),
+        ...(options.writeGate ? { writeGate: options.writeGate } : {}),
       });
       return {};
     },
@@ -407,6 +409,48 @@ describe('a refused inbox broadcast and replay', () => {
     expect(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM __livething_replay').one()!.n).toBe(
       1,
     );
+  });
+});
+
+describe('an inbox broadcast whose replay row waits for the write gate', () => {
+  function gateWith(stored: boolean) {
+    const commits: (() => boolean)[] = [];
+    function commitNow(): boolean {
+      return commits.splice(0).every((commit) => commit() && stored);
+    }
+
+    return { beforeNextWrite: (commit: () => boolean) => commits.push(commit), commitNow };
+  }
+
+  it('stores the replay row before the inbox copy', async () => {
+    const { engine, sql } = build({ writeGate: gateWith(true) });
+    const amara = await kofiOffline(engine);
+
+    await amara.send('send-message', { text: 'hello' });
+
+    expect(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM __livething_replay').one()!.n).toBe(
+      1,
+    );
+    expect(loadUndeliveredRows(sql, 'u_kofi')).toHaveLength(1);
+  });
+
+  it('keeps no inbox copy of a message whose replay row could not be stored', async () => {
+    let diskFull = false;
+    const sql = createTestSql({
+      onExec(query) {
+        if (diskFull && /INTO __livething_replay \(/.test(query)) throw new Error('disk full');
+      },
+    });
+    const { engine } = build({ sql, writeGate: gateWith(true) });
+    const amara = await kofiOffline(engine);
+    diskFull = true;
+
+    await amara.send('send-message', { text: 'hello' });
+
+    expect(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM __livething_replay').one()!.n).toBe(
+      0,
+    );
+    expect(loadUndeliveredRows(sql, 'u_kofi')).toHaveLength(0);
   });
 });
 

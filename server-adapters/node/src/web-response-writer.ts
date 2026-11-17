@@ -1,11 +1,11 @@
-import type { NodeHttpResponse } from './sse.ts';
+import type { NodeHttpResponse } from './http.ts';
 
 const encoder = new TextEncoder();
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 
 /**
  * A {@link NodeHttpResponse} that a web framework can return: `answer` resolves with a web
- * `Response` at `writeHead`, and its body streams what the SSE handler writes after that.
+ * `Response` at `writeHead`, and its body streams what the `http()` handler writes after that.
  * `writableLength` is what the framework has not read from the body yet.
  */
 export class WebResponseWriter implements NodeHttpResponse {
@@ -130,7 +130,7 @@ export class WebResponseWriter implements NodeHttpResponse {
     this.emitClose();
   }
 
-  /** Node emits `close` after `end()` returns, and the SSE handler counts on that order. */
+  /** Node emits `close` after `end()` returns, and the `http()` handler counts on that order. */
   private emitCloseSoon(): void {
     queueMicrotask(() => this.emitClose());
   }

@@ -10,15 +10,38 @@ export interface SubscribeAttempt {
   committed: boolean;
 }
 
-/** What later frames for a channel wait on while subscribes run. It opens when the last one ends. */
+/**
+ * What later frames for a channel wait on while subscribes run. It opens when the last one ends.
+ * Its promise is made only when a frame has to wait, which few joins see.
+ */
 export interface SubscribeGate {
   readonly attempts: Set<SubscribeAttempt>;
-  readonly opened: Promise<void>;
-  readonly open: () => void;
+  opened?: Promise<void>;
+  open?: () => void;
 }
 
+/** A promise that settles when the gate opens. */
+export function gateOpened(gate: SubscribeGate): Promise<void> {
+  return (gate.opened ??= new Promise<void>((resolve) => (gate.open = resolve)));
+}
+
+let lastName: string | undefined;
+let lastFamily: string | null = null;
+let lastKey = '';
+
+/**
+ * The key of one channel in the member index and in a connection's memberships. One join asks
+ * for the same channel's key several times, and the joins of one channel often come together,
+ * so the last key is kept.
+ */
 export function subscribeKey(channelName: string, channelFamily: string | null): string {
-  return JSON.stringify([channelFamily, channelName]);
+  if (channelName !== lastName || channelFamily !== lastFamily) {
+    lastName = channelName;
+    lastFamily = channelFamily;
+    lastKey = JSON.stringify([channelFamily, channelName]);
+  }
+
+  return lastKey;
 }
 
 function endAttempt(connection: RuntimeConnection, attempt: SubscribeAttempt): void {
@@ -26,7 +49,7 @@ function endAttempt(connection: RuntimeConnection, attempt: SubscribeAttempt): v
   if (!gate?.attempts.delete(attempt) || gate.attempts.size > 0) return;
 
   connection.pendingSubscribes?.delete(attempt.key);
-  gate.open();
+  gate.open?.();
 }
 
 /** Stop the subscribes of a channel that can still be stopped. */
@@ -55,18 +78,15 @@ export function beginSubscribe(
   source: SubscribeAttempt['source'],
 ): SubscribeAttempt {
   const gates = (connection.pendingSubscribes ??= new Map());
-  let gate = gates.get(key);
-  if (!gate) {
-    let open!: () => void;
-    const opened = new Promise<void>((resolve) => (open = resolve));
-    gate = { attempts: new Set(), opened, open };
-    gates.set(key, gate);
-  }
+  // A gate is removed when its last subscribe ends, so one that is here has others running.
+  const running = gates.get(key);
+  const gate = running ?? { attempts: new Set<SubscribeAttempt>() };
+  if (!running) gates.set(key, gate);
 
   // Added first, so the gate stays closed for the frames behind the replaced subscribe.
   const attempt: SubscribeAttempt = { key, source, abandoned: false, committed: false };
   gate.attempts.add(attempt);
-  if (source === 'client') {
+  if (source === 'client' && running) {
     abandonSubscribes(connection, key, (other) => other !== attempt && other.source === 'client');
   }
 
@@ -82,8 +102,11 @@ export function pendingClientSubscribe(
   connection: RuntimeConnection,
   key: string,
 ): SubscribeAttempt | undefined {
-  const attempts = connection.pendingSubscribes?.get(key)?.attempts ?? [];
-  return [...attempts].find((attempt) => attempt.source === 'client' && !attempt.committed);
+  for (const attempt of connection.pendingSubscribes?.get(key)?.attempts ?? []) {
+    if (attempt.source === 'client' && !attempt.committed) return attempt;
+  }
+
+  return undefined;
 }
 
 /** A closed connection has no more frames to order: release everything held behind its subscribes. */

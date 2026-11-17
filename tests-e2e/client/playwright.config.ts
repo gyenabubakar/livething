@@ -14,10 +14,10 @@ const serverPort = Number(process.env.LIVETHING_E2E_SERVER_PORT ?? 8787);
 const clientPort = Number(process.env.LIVETHING_E2E_CLIENT_PORT ?? 4180);
 const adapter = Boolean(serverCommand);
 
-// The SSE run skips `@websocket` specs (they reach into the WebSocket itself) and, where the
+// The http run skips `@websocket` specs (they reach into the WebSocket itself) and, where the
 // local runtime does not report an aborted idle stream (wrangler dev), `@drop` specs.
-const sse = process.env.LIVETHING_E2E_TRANSPORT === 'sse';
-const skipped = sse
+const http = process.env.LIVETHING_E2E_TRANSPORT === 'http';
+const skipped = http
   ? ['@websocket', ...(process.env.LIVETHING_E2E_NO_STREAM_ABORT ? ['@drop'] : [])]
   : [];
 

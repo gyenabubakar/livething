@@ -4,8 +4,8 @@ import type { IncomingMessage } from 'node:http';
 import { createNodeEndpoint } from './endpoint.ts';
 import { createHttpRejectionResponse, isSocketRejection } from './upgrade.ts';
 import type { NodeAdmin, NodeEndpointInternals, NodeEndpointOptions } from './endpoint.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './http.ts';
 import type { ConnectionTransport } from './socket.ts';
-import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
 
 export { closeWebSocket } from './close.ts';
 export type { ClosableWebSocket } from './close.ts';
@@ -14,7 +14,7 @@ export type { UpgradeLifecycle } from './upgrade-lifecycle.ts';
 
 export type { NodeAdmin, NodeEndpointOptions } from './endpoint.ts';
 export type { ConnectionTransport } from './socket.ts';
-export type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
+export type { NodeHttpRequest, NodeHttpResponse } from './http.ts';
 
 /** Forwards lifecycle events from an accepted transport to LiveThing. */
 export interface NodeConnection {

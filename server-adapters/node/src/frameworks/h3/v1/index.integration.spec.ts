@@ -1,6 +1,11 @@
 import { createServer } from 'node:http';
 import { connect as connectTcp } from 'node:net';
-import { client, sse as clientSse, websocket as clientWebSocket, connect } from '@livething/client';
+import {
+  client,
+  http as clientHttp,
+  websocket as clientWebSocket,
+  connect,
+} from '@livething/client';
 import { server as createServerDefinition, emits, t } from '@livething/server';
 import { RejectAuth } from '@livething/server/errors';
 import { keepalive } from '@livething/server/keepalive';
@@ -21,7 +26,7 @@ import {
 import { createH3V1Setup } from './setup.ts';
 
 /** A test of the WebSocket upgrade or of `ws` itself, which has no meaning over SSE. */
-const wsOnly = it.skipIf(rawTransport === 'sse');
+const wsOnly = it.skipIf(rawTransport === 'http');
 
 vi.mock('../../../socket.ts', async (importOriginal) => {
   const { captureBridges } = await import('../../../test-utils.ts');
@@ -290,7 +295,7 @@ describe('H3 v1 binding', () => {
     apps.push(app);
     const socket = client<TestClient>()(
       connect(`ws://127.0.0.1:${app.port}/ws/lobby`, {
-        transports: [rawTransport === 'sse' ? clientSse() : clientWebSocket()],
+        transports: [rawTransport === 'http' ? clientHttp() : clientWebSocket()],
       }),
     );
     sockets.push(socket);

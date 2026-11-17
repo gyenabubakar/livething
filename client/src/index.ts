@@ -2,7 +2,7 @@ export { client } from '~/client.ts';
 export { connect } from '~/connect.ts';
 export type { ConnectOptions, ConnectDescriptor } from '~/connect.ts';
 export { websocket } from '~/transports/websocket.ts';
-export { sse } from '~/transports/sse.ts';
+export { http } from '~/transports/http.ts';
 export type {
   Transport,
   TransportEvents,

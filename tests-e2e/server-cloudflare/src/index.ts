@@ -60,7 +60,7 @@ export { InboxGapServer } from './inbox-gap.ts';
 export { InboxHandleServer } from './inbox-handle.ts';
 export { LastSeenServer } from './last-seen.ts';
 export { UploadsExpiryServer, UploadsHibernationServer, UploadsServer } from './uploads.ts';
-export { SseServer } from './sse.ts';
+export { HttpServer } from './http.ts';
 
 /** Returned when a route names an op that has no case below. */
 const UNKNOWN_OP = Symbol('unknown-op');
@@ -183,7 +183,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/admin': 'ADMIN_SERVER',
   '/ws/incoming': 'INCOMING_SERVER',
   '/ws/binary': 'BINARY_SERVER',
-  '/ws/sse': 'SSE_SERVER',
+  '/ws/http': 'HTTP_SERVER',
   '/ws/request': 'REQUEST_SERVER',
   '/ws/server-request': 'SERVER_REQUEST_SERVER',
   '/ws/stream-basic': 'STREAM_BASIC_SERVER',

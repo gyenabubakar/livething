@@ -1299,7 +1299,7 @@ describe('base.binary.upload', () => {
       },
     })(definition, undefined as never);
 
-    await expect(engine.initialize()).rejects.toThrow(/does not fit sse\(\) maxPostBytes/);
+    await expect(engine.initialize()).rejects.toThrow(/does not fit http\(\) maxPostBytes/);
   });
 
   it('refuses a window that does not fit half the connection budget, at startup', async () => {

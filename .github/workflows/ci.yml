@@ -232,24 +232,24 @@ jobs:
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
-          # The same suites again, with every client connecting over SSE.
-          - name: cf-raw-sse
-            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-server-cloudflare run test:e2e:cloudflare
+          # The same suites again, with every client connecting over http().
+          - name: cf-raw-http
+            command: LIVETHING_E2E_TRANSPORT=http pnpm --filter @livething/tests-e2e-server-cloudflare run test:e2e:cloudflare
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
-          - name: cf-packaged-sse
-            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-client run test:e2e:cloudflare
+          - name: cf-packaged-http
+            command: LIVETHING_E2E_TRANSPORT=http pnpm --filter @livething/tests-e2e-client run test:e2e:cloudflare
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
-          - name: node-http-raw-sse
-            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-server-node run test:e2e:node:http
+          - name: node-http-raw-http
+            command: LIVETHING_E2E_TRANSPORT=http pnpm --filter @livething/tests-e2e-server-node run test:e2e:node:http
             report-path: |
               tests-e2e/client-raw/playwright-report/
               tests-e2e/client-raw/test-results/
-          - name: node-http-packaged-sse
-            command: LIVETHING_E2E_TRANSPORT=sse pnpm --filter @livething/tests-e2e-client run test:e2e:node:http
+          - name: node-http-packaged-http
+            command: LIVETHING_E2E_TRANSPORT=http pnpm --filter @livething/tests-e2e-client run test:e2e:node:http
             report-path: |
               tests-e2e/client/playwright-report/
               tests-e2e/client/test-results/
@@ -281,5 +281,49 @@ jobs:
         with:
           name: playwright-report-${{ matrix.name }}
           path: ${{ matrix.report-path }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The proxies run in Docker Compose, so this job runs on the runner itself, not in the
+  # Playwright image. scripts/run.mjs makes the certificates with openssl and sets
+  # NODE_EXTRA_CA_CERTS; the browser maps livething.test itself, so /etc/hosts stays as it is.
+  middleboxes:
+    name: e2e (Playwright) — middleboxes
+    needs: [gate, checks, guards]
+    if: needs.gate.outputs.should_run == 'true' && !github.event.pull_request.draft
+    # Playwright 1.59.1 installs no browser on ubuntu-latest (26.04). Move this up with Playwright.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @livething/tests-e2e-middleboxes exec playwright install --with-deps chromium
+
+      - name: e2e — middleboxes
+        run: pnpm test:middleboxes
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report-middleboxes
+          path: |
+            tests-e2e/middleboxes/test-results/
           retention-days: 7
           if-no-files-found: ignore

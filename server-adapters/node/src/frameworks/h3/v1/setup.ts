@@ -66,7 +66,7 @@ export type H3V1EndpointOptions = Omit<NodeEndpointOptions, 'clientIp'> & {
 export interface H3V1Endpoint<THandler, TAdmin = NodeAdmin> {
   /** The `GET` route a client connects on: a WebSocket upgrade, or the server-sent events stream. */
   connect: THandler;
-  /** The route for the server-sent events POSTs and their CORS preflight. */
+  /** The route for the `http()` POSTs and their CORS preflight. */
   handle: THandler;
   ready(): Promise<void>;
   admin(): Promise<TAdmin>;

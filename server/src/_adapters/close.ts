@@ -2,7 +2,7 @@ import { CloseCodes, utf8ByteLength } from '@livething/core';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
 import { heldScopeOf } from '~/_engine/runtime/catch-up-hold.ts';
 import type { CatchUpHold } from '~/_engine/runtime/catch-up-hold.ts';
-import type { SocketDescriptor, TransportFrame } from './types.ts';
+import type { SocketDescriptor, TransportFrame, WriteGate } from './types.ts';
 
 type NormalizeConnectionDescriptorOptionsParameter = {
   onInvalidCloseCode?: (code: unknown) => void;
@@ -12,6 +12,8 @@ type NormalizeConnectionDescriptorOptionsParameter = {
   onTooSlow?: () => void;
   /** The frames a replay catch-up holds back right now, if one is running. */
   catchUpHold?: () => CatchUpHold | undefined;
+  /** Stores the waiting replay rows before a frame waits in the catch-up hold. */
+  writeGate?: Pick<WriteGate, 'commitNow'>;
 };
 
 /**
@@ -160,6 +162,12 @@ export function normalizeConnectionDescriptor(
       const hold = options.catchUpHold?.();
       const held = heldScopeOf(hold, frame);
       if (held) {
+        // The adapter's write gate never sees this frame before it goes out, after the catch-up.
+        if (options.writeGate?.commitNow() === false) {
+          if (!closed) close(CloseCodes.INTERNAL_ERROR, 'The server could not store a message');
+          return false;
+        }
+
         const bytes = frameBytes(frame);
         held.frames.push(frame);
         held.bytes += bytes;

@@ -80,7 +80,7 @@
       { "name": "UPLOADS_EXPIRY_SERVER", "class_name": "UploadsExpiryServer" },
       { "name": "BINARY_HIBERNATION_SERVER", "class_name": "BinaryHibernationServer" },
       { "name": "UPLOADS_HIBERNATION_SERVER", "class_name": "UploadsHibernationServer" },
-      { "name": "SSE_SERVER", "class_name": "SseServer" },
+      { "name": "HTTP_SERVER", "class_name": "HttpServer" },
     ],
   },
   "observability": {
@@ -156,7 +156,7 @@
         "UploadsExpiryServer",
         "BinaryHibernationServer",
         "UploadsHibernationServer",
-        "SseServer",
+        "HttpServer",
       ],
     },
   ],

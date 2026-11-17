@@ -1,0 +1,19 @@
+{
+  "name": "@livething/tests-e2e-middleboxes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:middleboxes": "node scripts/run.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@livething/client": "workspace:*",
+    "@livething/server": "workspace:*",
+    "@livething/server-node": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1",
+    "@types/node": "^24.12.0",
+    "typescript": "^6.0.2"
+  }
+}

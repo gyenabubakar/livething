@@ -2,7 +2,7 @@ import { LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
-import { sse } from '~/transports/sse.ts';
+import { http } from '~/transports/http.ts';
 import { websocket } from '~/transports/websocket.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SocketContract } from '~/types.ts';
@@ -69,7 +69,7 @@ describe('connect() transports', () => {
 
   it('refuses a transport factory that was not called', () => {
     expect(() =>
-      build(connect('wss://huddle.test/huddle', { transports: [websocket as never, sse()] })),
+      build(connect('wss://huddle.test/huddle', { transports: [websocket as never, http()] })),
     ).toThrow(LiveThingConfigError);
   });
 

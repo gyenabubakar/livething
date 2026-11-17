@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Huddle through a middlebox</title>
+  </head>
+  <body>
+    <script type="module">
+      import {
+        binary,
+        channels,
+        client,
+        connect,
+        http,
+        keepalive,
+        reconnection,
+        websocket,
+      } from '/client/index.js';
+
+      function deadline(ms, what) {
+        return new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`timed out: ${what}`)), ms),
+        );
+      }
+
+      // Connects through whatever sits between the browser and the server, then checks that
+      // messages, bytes and room broadcasts all arrive, in order and once each.
+      function openSocket(user, transports) {
+        const socket = client()(
+          connect(`${location.origin}/huddle?user=${user}`, {
+            transports: transports.map((name) => (name === 'websocket' ? websocket() : http())),
+          }),
+          keepalive(),
+          binary(),
+          channels(),
+        );
+        const opened = new Promise((resolve) => socket.onOpen(resolve));
+        socket.connect();
+        return Promise.race([opened, deadline(20_000, `open ${user}`)]).then(() => socket);
+      }
+
+      window.runHuddle = async ({
+        transports = ['websocket', 'http'],
+        messages = 50,
+        bytes = 64 * 1024,
+      } = {}) => {
+        const started = performance.now();
+        const socket = await openSocket('ada', transports);
+        const openMs = Math.round(performance.now() - started);
+
+        const echoed = [];
+        const allEchoed = new Promise((resolve) => {
+          socket.on('echoed', (data) => {
+            echoed.push(data.n);
+            if (echoed.length === messages) resolve();
+          });
+        });
+        for (let n = 1; n <= messages; n++) socket.send('echo', { n, text: `message ${n}` });
+        await Promise.race([allEchoed, deadline(20_000, 'echoes')]);
+
+        const sent = Uint8Array.from({ length: bytes }, (_, i) => (i * 31) & 255);
+        const preview = new Promise((resolve) =>
+          socket.binary.on('avatar-preview', (_info, data) => resolve(data)),
+        );
+        socket.binary.send('upload-avatar', sent, { info: null });
+        const back = await Promise.race([preview, deadline(20_000, 'binary')]);
+
+        // A broadcast skips its sender, so a second member listens for it.
+        const grace = await openSocket('grace', transports);
+        const room = socket.channel('rooms', 'room:general');
+        const graceRoom = grace.channel('rooms', 'room:general');
+        await Promise.race([
+          Promise.all([room.subscribe({}), graceRoom.subscribe({})]),
+          deadline(20_000, 'subscribe'),
+        ]);
+        const broadcast = new Promise((resolve) => graceRoom.on('message', resolve));
+        room.send('send-message', { n: 1 });
+        const message = await Promise.race([broadcast, deadline(20_000, 'broadcast')]);
+        grace.disconnect();
+
+        const result = {
+          transport: socket.transport.get(),
+          openMs,
+          inOrder: echoed.every((n, i) => n === i + 1),
+          echoed: echoed.length,
+          binaryOk: back.length === sent.length && back.every((value, i) => value === sent[i]),
+          broadcastOk: message.n === 1 && message.from === 'ada',
+          totalMs: Math.round(performance.now() - started),
+        };
+        socket.disconnect();
+        return result;
+      };
+
+      // Sends more than 1 MiB once stream mode has had time to start, and reports the server's
+      // POST counts before and after, so a test can see whether the long POST kept going or the
+      // client fell back to batch POSTs.
+      window.runBigStream = async ({ messages = 40, textBytes = 64 * 1024 } = {}) => {
+        const socket = await openSocket('ada', ['http']);
+        const echoed = [];
+        socket.on('echoed', (data) => echoed.push(data.n));
+        socket.send('echo', { n: 0, text: 'start' });
+        // The probe gets its answer within 2 seconds when the path streams.
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+
+        const stats = async () => (await fetch('/stats', { cache: 'no-store' })).json();
+        const before = await stats();
+        const text = 'x'.repeat(textBytes);
+        const allEchoed = new Promise((resolve) => {
+          socket.on('echoed', () => {
+            if (echoed.length === messages + 1) resolve();
+          });
+        });
+        for (let n = 1; n <= messages; n++) socket.send('echo', { n, text });
+        await Promise.race([allEchoed, deadline(30_000, 'big echoes')]);
+        const after = await stats();
+        socket.disconnect();
+
+        return {
+          echoed: echoed.length - 1,
+          inOrder: echoed.every((n, i) => n === i),
+          batchPostsDuring: after.batchPosts - before.batchPosts,
+          streamPostsBefore: before.streamPosts,
+        };
+      };
+
+      // For a path that cuts connections: sends one message every `everyMs`, and reports what
+      // came back, so a test can check that nothing arrived twice or out of order.
+      window.runThroughDrops = async ({
+        transports = ['websocket', 'http'],
+        messages = 60,
+        everyMs = 100,
+      } = {}) => {
+        const socket = client()(
+          connect(`${location.origin}/huddle?user=ada`, {
+            transports: transports.map((name) => (name === 'websocket' ? websocket() : http())),
+          }),
+          keepalive(),
+          reconnection(),
+        );
+        const opens = [];
+        socket.onOpen(() => opens.push(socket.transport.get()));
+        const opened = new Promise((resolve) => socket.onOpen(resolve));
+        socket.connect();
+        await Promise.race([opened, deadline(20_000, 'open')]);
+
+        const echoed = [];
+        socket.on('echoed', (data) => echoed.push(data.n));
+        const refused = [];
+        for (let n = 1; n <= messages; n++) {
+          // While the socket reconnects, a send with no buffering() fails, as it would in an app.
+          try {
+            socket.send('echo', { n, text: `message ${n}` });
+          } catch {
+            refused.push(n);
+          }
+          await new Promise((resolve) => setTimeout(resolve, everyMs));
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+        socket.disconnect();
+        return { opens, echoed, refused };
+      };
+    </script>
+  </body>
+</html>

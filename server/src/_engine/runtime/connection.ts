@@ -222,6 +222,8 @@ interface ConnectionRuntime {
   /** The adapter's message limits. The engine always passes them; a test runtime may not. */
   messageLimits?: EngineAdapterTypes.MessageLimits;
 
+  writeGate?: EngineAdapterTypes.WriteGate;
+
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   /** User-key → members index, maintained on accept, close, and hibernation wake. */
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
@@ -740,6 +742,7 @@ export function acceptConnection(
       connection.closing = true;
     },
     catchUpHold: () => connection.catchUpHold,
+    writeGate: runtime.writeGate,
   });
 
   assertUsableUserId(descriptor.userId);

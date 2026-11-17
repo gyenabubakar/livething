@@ -1,12 +1,14 @@
 import { WebSocketServer } from 'ws';
 import type { ServerDefinition } from '@livething/server/adapters';
 import type { IncomingMessage } from 'node:http';
+import type { IncomingHttpHeaders, ServerHttp2Stream } from 'node:http2';
 import type { Duplex } from 'node:stream';
 import { binding } from './binding.ts';
 import { resolveCompression, resolveMaxMessageBytes } from './endpoint.ts';
+import { StreamExchange } from './http2-stream.ts';
 import { createNodeUpgradeHandler } from './upgrade.ts';
 import type { NodeAdmin, NodeCompressionOption, NodeEndpointOptions } from './endpoint.ts';
-import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './http.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
 
 /** Options for one definition bound directly to a Node HTTP upgrade listener. */
@@ -26,10 +28,18 @@ export interface NodeEndpointBinding<TAdmin = NodeAdmin> {
   /**
    * Serve a plain HTTP request to the endpoint's path, from `node:http` or a `node:http2`
    * compatibility server. The custom transports in `transports` get it first, in list order,
-   * then server-sent events: the stream, its POSTs and their CORS preflight. When no custom
-   * transport takes the request and `sse()` is not in `transports`, it answers 426.
+   * then `http()`: the stream, its POSTs and their CORS preflight. When no custom
+   * transport takes the request and `http()` is not in `transports`, it answers 426.
    */
   handle(request: NodeHttpRequest, response: NodeHttpResponse): void;
+  /**
+   * The same as `handle`, for one raw stream of a `node:http2` server:
+   * `server.on('stream', endpoint.handleStream)`. When the server has no `request` listener,
+   * Node makes no request and response objects for its streams, so each open stream costs
+   * about 2 KB less. A server that also serves HTTP/1.1 needs a `request` listener, and then
+   * Node makes them for every stream anyway: use `handle` there.
+   */
+  handleStream(stream: ServerHttp2Stream, headers: IncomingHttpHeaders): void;
   ready(): Promise<void>;
   admin(): Promise<TAdmin>;
 }
@@ -73,6 +83,25 @@ export function setup(): NodeSetup {
         new WebSocketServer({ noServer: true, maxPayload, perMessageDeflate });
       const handleUpgrade = createNodeUpgradeHandler({ endpoint, webSocketServer });
 
+      function handle(request: NodeHttpRequest, response: NodeHttpResponse): void {
+        if (shuttingDown) {
+          response.destroy();
+          return;
+        }
+
+        // An open stream is closed by the engine's shutdown; one still in `authenticate`
+        // is destroyed here, like a pending upgrade.
+        const task = endpoint.handleNode(request, response).catch(() => {
+          response.destroy();
+        });
+        pendingUpgrades.add(task);
+        pendingResponses.add(response);
+        void task.finally(() => {
+          pendingUpgrades.delete(task);
+          pendingResponses.delete(response);
+        });
+      }
+
       return {
         upgrade(request, socket, head) {
           if (shuttingDown) {
@@ -90,23 +119,16 @@ export function setup(): NodeSetup {
             pendingSockets.delete(socket);
           });
         },
-        handle(request, response) {
-          if (shuttingDown) {
-            response.destroy();
+        handle,
+        handleStream(stream, headers) {
+          // A stream the client already reset, while an async listener waited, has no session.
+          if (!stream.session) {
+            stream.destroy();
             return;
           }
 
-          // An open stream is closed by the engine's shutdown; one still in `authenticate`
-          // is destroyed here, like a pending upgrade.
-          const task = endpoint.handleNode(request, response).catch(() => {
-            response.destroy();
-          });
-          pendingUpgrades.add(task);
-          pendingResponses.add(response);
-          void task.finally(() => {
-            pendingUpgrades.delete(task);
-            pendingResponses.delete(response);
-          });
+          const exchange = new StreamExchange(stream, headers);
+          handle(exchange, exchange);
         },
         ready: endpoint.ready,
         admin: endpoint.admin,

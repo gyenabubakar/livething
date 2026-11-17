@@ -1,18 +1,37 @@
 // The server half of the load benchmark. `load.mjs` forks it, so its CPU time and memory are
 // the server's alone. Run with `--expose-gc`.
 //
-// Modes: `livething` (WebSocket), `livething-sse` (server-sent events), `ws` (the same app on
-// plain `ws`), `socket.io` (WebSocket) and `socket.io-polling` (HTTP long-polling).
+// Modes: `livething` (WebSocket), `livething-http` (http() over HTTP/1.1), `livething-http-h2`
+// and `livething-http-stream` (http() over cleartext HTTP/2), `ws` (the same app on plain `ws`),
+// `socket.io` (WebSocket) and `socket.io-polling` (HTTP long-polling).
 import { writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createServer as createH2cServer } from 'node:http2';
 import { Session } from 'node:inspector/promises';
 import { setup } from '@livething/server-node';
-import { sse } from '@livething/server/adapters';
+import { http } from '@livething/server/adapters';
 import { WebSocketServer } from 'ws';
 import { buildHuddleDefinition } from './huddle-definition.mjs';
 
 const mode = process.argv[2] ?? 'livething';
 const presence = process.env.LOAD_PRESENCE !== 'off';
+// `load-remote.mjs` sets it to the server machine's private IP, so clients on another machine can
+// connect.
+const host = process.env.LOAD_HOST ?? '127.0.0.1';
+// `load-remote.mjs` sets a fixed port, so the firewall between the machines opens only that one.
+const listenPort = Number(process.env.LOAD_PORT ?? 0);
+// LOAD_SUITE=chat serves the chat app, which stores its messages in a SQLite file, and
+// LOAD_SUITE=features the same app with direct messages, a search stream and a confirmed delete.
+// Their files load only then, so a LOAD_BASELINE build without them still runs the core suite.
+const features = process.env.LOAD_SUITE === 'features';
+const chat =
+  process.env.LOAD_SUITE === 'chat' || features
+    ? {
+        ...(await import('./chat-servers.mjs')),
+        ...(await import('./huddle-chat-definition.mjs')),
+      }
+    : undefined;
+const chatDatabase = chat?.openChatDatabase({ search: features });
 
 function listen(httpServer) {
   // Node closes an idle keep-alive connection after 5 seconds. The pauses between steps are
@@ -21,18 +40,48 @@ function listen(httpServer) {
   // for about a minute too.
   httpServer.keepAliveTimeout = 65_000;
   return new Promise((resolve) => {
-    httpServer.listen(0, '127.0.0.1', () => resolve(httpServer.address().port));
+    httpServer.listen(listenPort, host, () => resolve(httpServer.address().port));
   });
 }
 
-async function startLiveThing(overSse) {
+/** `transport`: 'websocket', 'http' (HTTP/1.1) or 'http-h2' (cleartext HTTP/2). */
+async function startLiveThing(transport) {
   const livething = setup();
+  const overHttp = transport !== 'websocket';
 
-  const huddleEndpoint = livething.bind(buildHuddleDefinition({ presence, keepalive: overSse }), {
-    ...(overSse ? { transports: [sse()] } : {}),
+  const build = chat ? chat.buildHuddleChatDefinition : buildHuddleDefinition;
+  const definition = build({
+    presence,
+    keepalive: overHttp,
+    replay: process.env.LOAD_REPLAY === 'on',
+    dedup: process.env.LOAD_DEDUP === 'on',
+    rateLimit: process.env.LOAD_RATE_LIMIT === 'on',
+    features,
+  });
+  const huddleEndpoint = livething.bind(definition, {
+    ...(overHttp ? { transports: [http()] } : {}),
+    ...(chatDatabase ? { sql: chatDatabase } : {}),
     logger: { debug() {}, info() {}, warn() {}, error: console.error },
   });
-  const httpServer = createServer((request, response) => huddleEndpoint.handle(request, response));
+  function handler(request, response) {
+    return huddleEndpoint.handle(request, response);
+  }
+
+  if (transport === 'http-h2') {
+    // LOAD_H2_ENTRY=stream serves the raw streams, so Node makes no compatibility objects.
+    const raw = process.env.LOAD_H2_ENTRY === 'stream';
+    const h2Server = createH2cServer(
+      { settings: { maxConcurrentStreams: 1000 } },
+      raw ? undefined : handler,
+    );
+    if (raw) h2Server.on('stream', huddleEndpoint.handleStream);
+    await huddleEndpoint.ready();
+    return new Promise((resolve) => {
+      h2Server.listen(listenPort, host, () => resolve(h2Server.address().port));
+    });
+  }
+
+  const httpServer = createServer(handler);
   httpServer.on('upgrade', huddleEndpoint.upgrade);
   await huddleEndpoint.ready();
 
@@ -158,11 +207,15 @@ async function startSocketIo(transport) {
 }
 
 const starters = {
-  livething: () => startLiveThing(false),
-  'livething-sse': () => startLiveThing(true),
-  ws: startPlainWs,
-  'socket.io': () => startSocketIo('websocket'),
-  'socket.io-polling': () => startSocketIo('polling'),
+  livething: () => startLiveThing('websocket'),
+  'livething-http': () => startLiveThing('http'),
+  'livething-http-h2': () => startLiveThing('http-h2'),
+  'livething-http-stream': () => startLiveThing('http-h2'),
+  ws: chat ? () => chat.startPlainWsChat(chatDatabase, listen) : startPlainWs,
+  'socket.io': () =>
+    chat ? chat.startSocketIoChat(chatDatabase, listen, 'websocket') : startSocketIo('websocket'),
+  'socket.io-polling': () =>
+    chat ? chat.startSocketIoChat(chatDatabase, listen, 'polling') : startSocketIo('polling'),
 };
 
 if (!starters[mode]) {
@@ -174,6 +227,8 @@ const port = await starters[mode]();
 const inspector = new Session();
 inspector.connect();
 
+// `load.mjs` and `load-remote.mjs` stop a server with SIGTERM, so the 'exit' handlers still run.
+process.once('SIGTERM', () => process.exit(0));
 process.on('message', async (message) => {
   if (message === 'exit') process.exit(0);
 

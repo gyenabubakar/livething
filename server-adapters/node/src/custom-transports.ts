@@ -1,5 +1,5 @@
 import type { CustomServerTransport, TransportEndpoint } from '@livething/server/adapters';
-import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './http.ts';
 
 /** What the custom transport handler needs from its endpoint. */
 export interface NodeCustomTransportDeps {
@@ -15,7 +15,7 @@ export interface NodeCustomTransportDeps {
 
 /**
  * Offers a request to each custom transport in list order. Returns `true` when one
- * answered it, and `false` when the request is for server-sent events or no transport.
+ * answered it, and `false` when the request is for `http()` or no transport.
  */
 export function createNodeCustomTransportHandler(
   deps: NodeCustomTransportDeps,

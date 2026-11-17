@@ -43,6 +43,7 @@
         "bench/engine.mjs",
         "bench/load.mjs",
         "bench/load-server.mjs",
+        "bench/load-remote.mjs",
       ],
       "project": ["src/**/*.ts", "bench/**/*.mjs"],
     },
@@ -60,6 +61,14 @@
         "@livething/tests-e2e-server-cloudflare",
         "@livething/tests-e2e-server-node",
       ],
+    },
+    "tests-e2e/middleboxes": {
+      // scripts/run.mjs starts src/server.ts; the browser loads the built client from client/dist.
+      "entry": ["src/server.ts", "scripts/*.mjs", "tests/*.spec.ts"],
+      "project": ["src/**/*.ts", "scripts/**/*.mjs", "tests/**/*.ts"],
+      "ignoreDependencies": ["@livething/client"],
+      // scripts/certs.mjs makes the test certificates with the system's openssl.
+      "ignoreBinaries": ["openssl"],
     },
     "tests-e2e/server-cloudflare": {
       "entry": ["src/**/*.test.ts", "test/**/*.test.ts"],

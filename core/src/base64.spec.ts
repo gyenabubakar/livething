@@ -17,6 +17,60 @@ describe('encodeBase64', () => {
       expect(encodeBase64(bytes, true)).toBe(Buffer.from(bytes).toString('base64url'));
     }
   });
+
+  it('encodes a view into a larger buffer by its own bytes only', () => {
+    const whole = Uint8Array.from({ length: 20 }, (_, i) => i);
+    expect(encodeBase64(whole.subarray(5, 12))).toBe(
+      Buffer.from(whole.subarray(5, 12)).toString('base64'),
+    );
+  });
+
+  // Browsers have no `Buffer`, so they use the encoder written in JavaScript.
+  it('encodes a view of a transferred buffer as empty text', () => {
+    const bytes = new Uint8Array(8);
+    structuredClone(bytes.buffer, { transfer: [bytes.buffer] });
+
+    expect(encodeBase64(bytes)).toBe('');
+    expect(encodeBase64(bytes, true)).toBe('');
+  });
+
+  it('encodes the same with no Buffer', async () => {
+    vi.stubGlobal('Buffer', undefined);
+    vi.resetModules();
+    try {
+      const fresh = await import('./base64.ts');
+      for (const bytes of samples) {
+        expect(fresh.encodeBase64(bytes)).toBe(encodeBase64(bytes));
+        expect(fresh.encodeBase64(bytes, true)).toBe(encodeBase64(bytes, true));
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // Bundlers and React Native add the `buffer` package as a global Buffer, and it has no base64url.
+  it('encodes base64url where a global Buffer is a polyfill with no base64url', async () => {
+    const NodeBuffer = Buffer;
+    vi.stubGlobal('Buffer', {
+      isEncoding: (encoding: string) => encoding === 'base64',
+      from: (buffer: ArrayBuffer, offset: number, length: number) => ({
+        toString(encoding: string) {
+          if (encoding !== 'base64') throw new TypeError(`Unknown encoding: ${encoding}`);
+
+          return NodeBuffer.from(buffer, offset, length).toString(encoding);
+        },
+      }),
+    });
+    vi.resetModules();
+    try {
+      const fresh = await import('./base64.ts');
+      for (const bytes of samples) {
+        expect(fresh.encodeBase64(bytes, true)).toBe(encodeBase64(bytes, true));
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe('decodeBase64', () => {

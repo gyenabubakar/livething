@@ -49,6 +49,7 @@
     "test:h3-packages": "node check-h3-packages.mjs",
     "typecheck": "tsc --noEmit",
     "bench": "vitest bench --run --project websocket",
+    "bench:load": "node bench/run-all.mjs",
     "clean": "rm -rf dist node_modules"
   },
   "peerDependencies": {

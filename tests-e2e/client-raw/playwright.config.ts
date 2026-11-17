@@ -11,9 +11,9 @@ const serverPort = Number(process.env.LIVETHING_E2E_SERVER_PORT ?? 8787);
 
 // `@drop`: a connection dropped with no close, which a server sees only when its runtime
 // reports the aborted stream. Local wrangler dev does not report it for an idle stream,
-// so its SSE script sets LIVETHING_E2E_NO_STREAM_ABORT.
+// so its http script sets LIVETHING_E2E_NO_STREAM_ABORT.
 const skipDrops =
-  process.env.LIVETHING_E2E_TRANSPORT === 'sse' && !!process.env.LIVETHING_E2E_NO_STREAM_ABORT;
+  process.env.LIVETHING_E2E_TRANSPORT === 'http' && !!process.env.LIVETHING_E2E_NO_STREAM_ABORT;
 
 export default defineConfig({
   testDir: 'tests',

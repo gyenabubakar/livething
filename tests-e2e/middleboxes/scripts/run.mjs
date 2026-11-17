@@ -1,0 +1,177 @@
+// Runs the middlebox lane: makes the certificates, starts the Huddle server on the host, then
+// starts each compose profile in turn, runs the specs through it, and stops it. Each step has a
+// time limit, so a stuck proxy fails the lane instead of hanging it.
+//
+//   node scripts/run.mjs                   # every middlebox
+//   node scripts/run.mjs nginx squid       # only these
+import { execFileSync, spawn } from 'node:child_process';
+import http from 'node:http';
+import https from 'node:https';
+import { fileURLToPath } from 'node:url';
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+const all = ['direct', 'nginx', 'toxiproxy', 'mitmproxy', 'squid'];
+const chosen = process.argv.slice(2).length > 0 ? process.argv.slice(2) : all;
+const env = { ...process.env, NODE_EXTRA_CA_CERTS: `${root}certs/ca.crt` };
+
+function run(command, args, { timeoutMs = 600_000, extraEnv = {} } = {}) {
+  try {
+    execFileSync(command, args, {
+      cwd: root,
+      stdio: 'inherit',
+      timeout: timeoutMs,
+      env: { ...env, ...extraEnv },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function compose(...args) {
+  return run('docker', ['compose', ...args], { timeoutMs: 900_000 });
+}
+
+async function startServer() {
+  const server = spawn(process.execPath, ['--experimental-strip-types', 'src/server.ts'], {
+    cwd: root,
+    env,
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      server.kill('SIGTERM');
+      reject(new Error('the server did not start in 30 seconds'));
+    }, 30_000);
+    server.stdout.on('data', (chunk) => {
+      process.stdout.write(chunk);
+      if (String(chunk).includes('middlebox server on')) {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+    server.on('exit', (code) => {
+      clearTimeout(timer);
+      reject(new Error(`the server exited with ${code}`));
+    });
+  });
+  return server;
+}
+
+async function addToxiproxy() {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const response = await fetch('http://127.0.0.1:8474/proxies', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'livething',
+        listen: '0.0.0.0:9445',
+        upstream: 'host.docker.internal:8443',
+      }),
+      signal: AbortSignal.timeout(5_000),
+    }).catch(() => null);
+    if (response?.ok || response?.status === 409) return;
+
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+
+  throw new Error('toxiproxy did not answer');
+}
+
+/**
+ * The ports each profile publishes, and whether they speak TLS. Toxiproxy opens 9445 only once
+ * `addToxiproxy` adds it.
+ */
+const PORTS = {
+  nginx: [
+    { port: 9443, tls: true },
+    { port: 9444, tls: true },
+  ],
+  toxiproxy: [{ port: 8474, tls: false }],
+  mitmproxy: [
+    { port: 8080, tls: false },
+    { port: 8081, tls: false },
+  ],
+  squid: [{ port: 3128, tls: false }],
+};
+
+/** Whether the port answers one HTTP request with anything, an error page included. */
+function answers({ port, tls }) {
+  return new Promise((resolve) => {
+    // Only "is it up?": the certificate is checked by the tests themselves.
+    const request = (tls ? https : http).get(
+      { host: '127.0.0.1', port, path: '/', rejectUnauthorized: false, timeout: 2_000 },
+      (response) => {
+        response.resume();
+        resolve(true);
+      },
+    );
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(false));
+  });
+}
+
+/**
+ * Wait until every port of a profile answers. `--wait` returns once a container runs, which can
+ * be before its proxy listens, and Docker's port proxy accepts a TCP connection either way.
+ */
+async function waitForProxies(middlebox) {
+  for (const port of PORTS[middlebox] ?? []) {
+    let answered = false;
+    for (let attempt = 0; attempt < 30 && !answered; attempt++) {
+      answered = await answers(port);
+      if (!answered) await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+
+    if (!answered) throw new Error(`${middlebox} did not answer on port ${port.port}`);
+  }
+}
+
+if (!run(process.execPath, ['scripts/certs.mjs'])) {
+  throw new Error('could not make the test certificates. Is openssl installed?');
+}
+
+const server = await startServer();
+const results = {};
+try {
+  for (const middlebox of chosen) {
+    // A failed `up` can still leave containers running, so `down` runs after every attempt.
+    try {
+      if (
+        middlebox !== 'direct' &&
+        !compose('--profile', middlebox, 'up', '-d', '--build', '--wait')
+      ) {
+        results[middlebox] = 'did not start';
+        continue;
+      }
+
+      try {
+        await waitForProxies(middlebox);
+        if (middlebox === 'toxiproxy') await addToxiproxy();
+      } catch (error) {
+        console.error(error.message);
+        results[middlebox] = 'did not start';
+        continue;
+      }
+
+      results[middlebox] = run('pnpm', ['exec', 'playwright', 'test'], {
+        extraEnv: { LIVETHING_MIDDLEBOX: middlebox },
+      })
+        ? 'passed'
+        : 'failed';
+    } finally {
+      if (middlebox !== 'direct') compose('--profile', middlebox, 'down');
+    }
+  }
+} finally {
+  // The server shuts down after SIGTERM, so the lane waits for it to exit: the next run needs
+  // its port. A server that does not exit in 10 seconds is killed.
+  server.kill('SIGTERM');
+  setTimeout(() => server.kill('SIGKILL'), 10_000).unref();
+}
+
+console.log('\nmiddlebox lane:');
+for (const [middlebox, result] of Object.entries(results)) {
+  console.log(`  ${middlebox.padEnd(10)} ${result}`);
+}
+
+process.exitCode = Object.values(results).every((result) => result === 'passed') ? 0 : 1;

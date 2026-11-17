@@ -2,12 +2,13 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   adapter,
   asUint8Array,
+  createHttpHub,
   createOriginCheck,
-  createSseHub,
   errorAnswer,
   isValidCloseCode,
   normalizeCloseReason,
   resolveTransports,
+  transportDescriptor,
 } from '@livething/server/adapters';
 import { CloseCodes } from '@livething/server/errors';
 import { DurableObject } from 'cloudflare:workers';
@@ -23,9 +24,9 @@ import type {
   TransportFrame,
 } from '@livething/server/adapters';
 import { buildAdmin } from './admin.ts';
+import { createCloudflareHttpHandler } from './http.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
-import { createCloudflareSseHandler } from './sse.ts';
 import type { CloudflareAdmin } from './admin.ts';
 
 /** `WebSocket.READY_STATE_OPEN` on Workers. */
@@ -120,12 +121,12 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
   ) {
     const originAllowed = createOriginCheck(options.allowedOrigins);
     const transports = resolveTransports(options.transports, definition);
-    const maxPostBytes = transports.sse?.maxPostBytes;
+    const maxPostBytes = transports.http?.maxPostBytes;
 
     return class LiveThingDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine<TApi>;
       private readonly ready: Promise<void>;
-      private readonly handleSse: (request: Request) => Promise<Response>;
+      private readonly handleHttp: (request: Request) => Promise<Response>;
 
       constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
@@ -154,23 +155,17 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
             ...(maxPostBytes === undefined ? {} : { postBytes: maxPostBytes }),
           },
         });
-        this.handleSse = createCloudflareSseHandler({
+        this.handleHttp = createCloudflareHttpHandler({
           hub:
             maxPostBytes === undefined
               ? null
-              : createSseHub({ maxPostBytes, receiveBytes: CLOUDFLARE_MESSAGE_BYTES }),
+              : createHttpHub({ maxPostBytes, receiveBytes: CLOUDFLARE_MESSAGE_BYTES }),
           originAllowed,
           authenticate: (request) => this.engine.authenticate(requestWithClientIp(request)),
+          // An open stream keeps the object awake, so the engine runs its timers. `socket`
+          // reports the unread bytes, so the engine's slow-client rules apply.
           attach: (socket, decision) =>
-            this.engine.accept(socket, {
-              ...socket,
-              userId: decision.userId ?? '',
-              meta: decision.meta ?? {},
-              tags: decision.tags ?? [],
-              // An open stream keeps the object awake, so the engine runs its timers.
-              // `socket` reports the unread bytes, so the engine's slow-client rules apply.
-              survivesHibernation: false,
-            }),
+            this.engine.accept(socket, transportDescriptor(socket, decision)),
         });
         // Durable Object refs can be passed through application code and must
         // carry the stable DO id so a ref from another DO cannot match a local
@@ -205,14 +200,9 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
           accept: (connection, decision) => {
             if (decision.reject) throw new Error(REJECTED_ACCEPT);
 
-            return this.engine.accept(connection, {
-              ...connection,
-              userId: decision.userId ?? '',
-              meta: decision.meta ?? {},
-              tags: decision.tags ?? [],
-              // An open request keeps the object awake, so the engine runs its timers.
-              survivesHibernation: false,
-            });
+            // An open request keeps the object awake, so the engine runs its timers. A
+            // transport that is a class instance keeps its methods: no spread.
+            return this.engine.accept(connection, transportDescriptor(connection, decision));
           },
         };
 
@@ -299,7 +289,7 @@ const buildBind = adapter<CloudflareBindOptions, CloudflareDurableObjectClass<un
         await this.ready;
 
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-          return (await this.handleCustom(request)) ?? this.handleSse(request);
+          return (await this.handleCustom(request)) ?? this.handleHttp(request);
         }
 
         if (!transports.websocket) {

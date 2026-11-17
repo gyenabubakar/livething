@@ -109,7 +109,7 @@ export default defineNuxtConfig({
       title: 'LiveThing — full documentation',
       description: 'Every LiveThing documentation page concatenated into one file.',
     },
-    // Group the index by the seven navbar sections. `@nuxt/content` fills each
+    // Group the index by the eight navbar sections. `@nuxt/content` fills each
     // section's links by querying the `docs` collection with these path filters.
     sections: [
       {
@@ -133,9 +133,16 @@ export default defineNuxtConfig({
       {
         title: 'Server',
         description:
-          'The @livething/server package: server(), capabilities, event handlers, channels, streams, and adapters.',
+          'The @livething/server package: server(), capabilities, event handlers, channels, streams, and replay.',
         contentCollection: 'docs',
         contentFilters: [{ field: 'path', operator: 'LIKE', value: '/server/%' }],
+      },
+      {
+        title: 'Server Runtimes',
+        description:
+          'Where the server runs and how clients reach it: the Cloudflare, Node.js and Bun adapters, the Node.js frameworks, and the WebSocket, http() and custom transports.',
+        contentCollection: 'docs',
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/runtimes/%' }],
       },
       {
         title: 'Core',

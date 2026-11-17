@@ -1,10 +1,4 @@
-import { decodeBase64Url, TOKEN_SUBPROTOCOL_PREFIX } from '@livething/core';
-
-/**
- * Text `Headers` keeps as it is: Latin-1, with no NUL, CR or LF, and no trailing space
- * or tab, which `Headers` would trim.
- */
-const HEADER_VALUE = /^[^\0\r\nĀ-\u{10FFFF}]*(?<![ \t])$/u;
+import { decodeBase64Url, isHeaderToken, TOKEN_SUBPROTOCOL_PREFIX } from '@livething/core';
 
 /**
  * A browser `WebSocket` cannot set `Authorization`, so the client sends its token as a
@@ -32,7 +26,7 @@ export function moveTokenToAuthorization(request: Request): Request | null {
 
   if (!headers.has('authorization')) {
     const token = decodeBase64Url(entry.slice(TOKEN_SUBPROTOCOL_PREFIX.length));
-    if (!token || !HEADER_VALUE.test(token)) return null;
+    if (!token || !isHeaderToken(token)) return null;
 
     headers.set('authorization', `Bearer ${token}`);
   }

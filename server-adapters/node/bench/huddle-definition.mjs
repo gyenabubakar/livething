@@ -7,7 +7,7 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { keepalive } from '@livething/server/keepalive';
 
-/** `keepalive` is for server-sent events, which need it. */
+/** `keepalive` is for the http() transport, which needs it. */
 export function buildHuddleDefinition(options = {}) {
   const base = server({
     authenticate(request) {

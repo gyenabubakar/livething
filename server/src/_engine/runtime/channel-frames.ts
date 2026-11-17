@@ -107,31 +107,47 @@ export function kickChannelMembers(
   return ChannelPrimitive.kickChannelMembers(runtime, opts);
 }
 
+type SubscribeRuntime = ChannelRuntime &
+  Pick<
+    OutgoingRuntime.OutgoingRuntime,
+    'compiled' | 'generateId' | 'logger' | 'outgoingHooks' | 'livethingStampHooks'
+  >;
+
+const subscribeRuntimes = new WeakMap<SubscribeRuntime, SubscribeRuntime>();
+
+/**
+ * The runtime a subscribe runs with: the channel runtime, with broadcasts that go through its
+ * outgoing hooks. Made once for each runtime, not copied for each join: the runtime has more
+ * than 50 fields. It inherits from the runtime, so its getters still read the current value.
+ */
+function subscribeRuntimeOf(runtime: SubscribeRuntime): SubscribeRuntime {
+  let subscribeRuntime = subscribeRuntimes.get(runtime);
+  if (!subscribeRuntime) {
+    subscribeRuntime = Object.assign(Object.create(runtime) as SubscribeRuntime, {
+      broadcastToChannel: (opts: ChannelPrimitive.BroadcastToChannelOptions) =>
+        OutgoingRuntime.broadcastToChannel(runtime, opts),
+      toConnectionInfo: (nextConnection: EngineRuntimeTypes.RuntimeConnection) =>
+        runtime.toConnectionInfo(nextConnection),
+    });
+    subscribeRuntimes.set(runtime, subscribeRuntime);
+  }
+
+  return subscribeRuntime;
+}
+
 /**
  * Handle the `__subscribe__` protocol frame for a channel.
  */
-export async function handleSubscribe(
-  runtime: ChannelRuntime &
-    Pick<
-      OutgoingRuntime.OutgoingRuntime,
-      'compiled' | 'generateId' | 'logger' | 'outgoingHooks' | 'livethingStampHooks'
-    >,
+export function handleSubscribe(
+  runtime: SubscribeRuntime,
   connection: EngineRuntimeTypes.RuntimeConnection,
   frame: Protocol.SubscribeFrame,
 ): Promise<void> {
-  await ChannelPrimitive.subscribeConnection(
-    {
-      ...runtime,
-      broadcastToChannel: (opts) => OutgoingRuntime.broadcastToChannel(runtime, opts),
-      toConnectionInfo: (nextConnection) => runtime.toConnectionInfo(nextConnection),
-    },
-    connection,
-    {
-      channelName: frame.__livething.channel,
-      channelFamily: frame.__livething.channelFamily,
-      data: frame.payload,
-    },
-  );
+  return ChannelPrimitive.subscribeConnection(subscribeRuntimeOf(runtime), connection, {
+    channelName: frame.__livething.channel,
+    channelFamily: frame.__livething.channelFamily,
+    data: frame.payload,
+  });
 }
 
 /**
@@ -165,15 +181,12 @@ export async function subscribeFromServer(
     );
   }
 
-  await ChannelPrimitive.subscribeConnectionAsServer(
-    {
-      ...runtime,
-      broadcastToChannel: (bcOpts) => OutgoingRuntime.broadcastToChannel(runtime, bcOpts),
-      toConnectionInfo: (nextConnection) => runtime.toConnectionInfo(nextConnection),
-    },
-    target,
-    { channelName, channelFamily, payload, rejoining },
-  );
+  await ChannelPrimitive.subscribeConnectionAsServer(subscribeRuntimeOf(runtime), target, {
+    channelName,
+    channelFamily,
+    payload,
+    rejoining,
+  });
 }
 
 /**

@@ -141,6 +141,29 @@ h6 {
 .dark .logo-white {
   filter: none;
 }
+/* The best result in a row of a Benchmarks table. The text stays bold, so the green is never
+   the only sign, and stays the normal text colour, so it keeps its contrast. */
+td:has(> .bench-win) {
+  background-color: color-mix(in oklab, var(--color-green-500) 16%, transparent);
+}
+
+/* The second best in a row. Italic, so the yellow is not the only sign either. */
+td:has(> .bench-close) {
+  background-color: color-mix(in oklab, var(--color-yellow-500) 18%, transparent);
+}
+
+.bench-win,
+.bench-close {
+  color: var(--ui-text-highlighted);
+}
+
+/* How far a marked result leads the next one, under the number. */
+.bench-lead {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ui-text-muted);
+}
+
 /* A dashed line whose dashes flow from its start point to its end point.
    The offset travels one full dash period (6 + 4) so the loop has no jump. */
 .dash-flow {

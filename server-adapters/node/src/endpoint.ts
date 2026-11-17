@@ -1,7 +1,7 @@
 import {
   adapter,
+  createHttpHub,
   createOriginCheck,
-  createSseHub,
   ERROR_HEADER,
   resolveTransports,
 } from '@livething/server/adapters';
@@ -20,14 +20,14 @@ import type { PerMessageDeflateOptions } from 'ws';
 import { createAsyncContext } from './async-context.ts';
 import { createClientIpResolver } from './client-ip.ts';
 import { createNodeCustomTransportHandler } from './custom-transports.ts';
+import { createNodeHttpHandler } from './http.ts';
 import { requestToWebRequest } from './request.ts';
 import { createRuntime } from './runtime.ts';
 import { createConnectionBridge } from './socket.ts';
-import { createNodeSseHandler } from './sse.ts';
 import type { NodeClientIpConfig } from './client-ip.ts';
+import type { NodeHttpRequest, NodeHttpResponse } from './http.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
 import type { ConnectionTransport } from './socket.ts';
-import type { NodeHttpRequest, NodeHttpResponse } from './sse.ts';
 
 /** The default `maxMessageBytes`: 32 MiB, Cloudflare's limit, so an app behaves the same on both. */
 const DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
@@ -148,14 +148,14 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
     const resolveClientIp = createClientIpResolver(options.clientIp);
     const originAllowed = createOriginCheck(options.allowedOrigins);
     const transports = resolveTransports(options.transports, definition);
-    const maxPostBytes = transports.sse?.maxPostBytes;
+    const maxPostBytes = transports.http?.maxPostBytes;
 
     const runtime = createRuntime({
       sql: options.sql,
       kv: options.kv,
       logger: options.logger,
     });
-    const logger = runtime.logger;
+    const { logger, writeGate } = runtime;
     let shuttingDown = false;
     const shutdownAbort = new AbortController();
     let shutdownPromise: Promise<void> | undefined;
@@ -170,15 +170,15 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         sendBytes: maxMessageBytes,
         ...(maxPostBytes === undefined ? {} : { postBytes: maxPostBytes }),
       },
+      writeGate,
     });
     const hub =
       maxPostBytes === undefined
         ? null
-        : createSseHub({ maxPostBytes, receiveBytes: maxMessageBytes });
+        : createHttpHub({ maxPostBytes, receiveBytes: maxMessageBytes });
 
     function nodeRequest(request: NodeHttpRequest, signal?: AbortSignal): Request {
-      // An HTTP/2 compatibility request has the same `socket` and `headers` fields.
-      const clientIp = resolveClientIp(request as IncomingMessage);
+      const clientIp = resolveClientIp(request);
       return requestToWebRequest(request, { clientIp, signal });
     }
 
@@ -197,11 +197,12 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
             token: connection,
             transport: connection,
             decision,
+            writeGate,
           });
         },
       },
       toWebRequest(request, signal) {
-        const clientIp = resolveClientIp(request as IncomingMessage);
+        const clientIp = resolveClientIp(request);
         try {
           const webRequest = requestToWebRequest(request, { clientIp, signal, withBody: true });
           clientIps.set(webRequest, clientIp);
@@ -215,20 +216,43 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
         logger.error('[livething] a custom transport threw in handle()', { error }),
     });
 
-    const handleSse = createNodeSseHandler({
+    const handleHttp = createNodeHttpHandler({
       hub,
+      // Runs on every POST, so it makes the checks of `requestToWebRequest` on the Node headers
+      // instead of building a web `Request`. The stream GET is checked again on a full
+      // `Request` in `decideNodeUpgrade`.
       originAllowed(request) {
+        const { headers } = request;
+        const host = headers[':authority'] ?? headers.host ?? 'localhost';
+        const target = request.url ?? '/';
+        if (typeof host !== 'string' || target.includes('\\')) return false;
+
+        const encrypted = 'encrypted' in request.socket && request.socket.encrypted === true;
         try {
-          return originAllowed(nodeRequest(request));
+          const base = new URL(`${encrypted ? 'https' : 'http'}://${host}`);
+          const url = new URL(target.startsWith('//') ? `${base.origin}${target}` : target, base);
+          if (url.origin !== base.origin) return false;
         } catch {
           return false;
         }
+
+        return originAllowed({
+          url: '',
+          headers: {
+            get(name) {
+              if (name === 'host') return host;
+
+              const value = headers[name];
+              return (Array.isArray(value) ? value[0] : value) ?? null;
+            },
+          },
+        });
       },
       authenticate: (request, signal) => decideNodeUpgrade(request, signal),
       attach(transport, decision) {
         if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
-        return createConnectionBridge({ engine, token: transport, transport, decision });
+        return createConnectionBridge({ engine, token: transport, transport, decision, writeGate });
       },
       shutdownSignal: shutdownAbort.signal,
     });
@@ -292,13 +316,13 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 
         if (transports.custom.length > 0 && (await handleCustom(request, response))) return;
 
-        await handleSse(request, response);
+        await handleHttp(request, response);
       },
 
       attachTransport(token, transport, decision) {
         if (shuttingDown) throw new Error('[livething] Node endpoint is shutting down');
 
-        return createConnectionBridge({ engine, token, transport, decision });
+        return createConnectionBridge({ engine, token, transport, decision, writeGate });
       },
 
       async admin() {

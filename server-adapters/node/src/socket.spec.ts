@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Socket } from 'node:net';
-import { sendToWs, terminateWs } from './socket.ts';
+import { sendToWs, terminateWs, wsBufferedAmount } from './socket.ts';
+import { NodeWriteGate } from './write-gate.ts';
+
+const gate = new NodeWriteGate();
 
 function recorder() {
   const sent: { data: string | Uint8Array; binary: boolean | undefined }[] = [];
@@ -9,7 +12,8 @@ function recorder() {
     send(data: string | Uint8Array, options?: { binary?: boolean }) {
       sent.push({ data, binary: options?.binary });
     },
-  } as unknown as Pick<WebSocket, 'send'>;
+    close() {},
+  } as unknown as Pick<WebSocket, 'send' | 'close'>;
 
   return { sent, socket };
 }
@@ -18,25 +22,33 @@ describe('sendToWs', () => {
   it('sends a frame for one socket as a string', () => {
     const { sent, socket } = recorder();
 
-    sendToWs(socket, { kind: 'text', text: '["echoed",{},null]', shared: false });
+    sendToWs(gate, socket, { kind: 'text', text: '["echoed",{},null]', shared: false });
 
     expect(sent).toEqual([{ data: '["echoed",{},null]', binary: undefined }]);
   });
 
-  it('turns a shared frame into bytes once and sends them as text from the second socket on', () => {
+  it('sends a shared frame through send() on a socket it cannot hold frames for', () => {
     const frame = { kind: 'text', text: '["message",{"text":"hé"},null]', shared: true } as const;
     const first = recorder();
     const second = recorder();
-    const third = recorder();
 
-    sendToWs(first.socket, frame);
-    sendToWs(second.socket, frame);
-    sendToWs(third.socket, frame);
+    sendToWs(gate, first.socket, frame);
+    sendToWs(gate, second.socket, frame);
 
-    expect(first.sent[0]).toEqual({ data: frame.text, binary: undefined });
-    expect(second.sent[0]!.binary).toBe(false);
-    expect(Buffer.from(second.sent[0]!.data as Uint8Array).toString()).toBe(frame.text);
-    expect(third.sent[0]!.data).toBe(second.sent[0]!.data);
+    expect(first.sent).toEqual([{ data: frame.text, binary: undefined }]);
+    expect(second.sent).toEqual([{ data: frame.text, binary: undefined }]);
+  });
+
+  it('reports a frame the write gate refused as not sent', async () => {
+    const { sent, socket } = recorder();
+    const failing = new NodeWriteGate();
+    failing.beforeNextWrite(() => false);
+
+    expect(
+      sendToWs(failing, socket, { kind: 'text', text: '["lost",{},null]', shared: false }),
+    ).toBe(false);
+    expect(sent).toEqual([]);
+    await Promise.resolve();
   });
 
   describe('on real ws sockets', () => {
@@ -100,6 +112,40 @@ describe('sendToWs', () => {
       }
     }
 
+    it('reports held and big frames the write gate refused as not sent', async () => {
+      const { sockets, received } = await connect(1);
+      const failing = new NodeWriteGate();
+      failing.beforeNextWrite(() => false);
+      const big = JSON.stringify(['file', { text: 'x'.repeat(70 * 1024) }, null]);
+
+      expect(sendToWs(failing, sockets[0]!, { kind: 'text', text: big, shared: false })).toBe(
+        false,
+      );
+      expect(
+        sendToWs(failing, sockets[0]!, { kind: 'text', text: '["small",{},null]', shared: false }),
+      ).toBe(false);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(received[0]).toEqual([]);
+    });
+
+    it('drops a held frame when the frame that fills the hold fails its commit', async () => {
+      const { sockets, received } = await connect(1);
+      const failing = new NodeWriteGate();
+      failing.beforeNextWrite(() => false);
+      const closed = new Promise<number>((resolve) => sockets[0]!.once('close', resolve));
+      const big = JSON.stringify(['file', { text: 'x'.repeat(70 * 1024) }, null]);
+
+      expect(
+        sendToWs(failing, sockets[0]!, { kind: 'text', text: '["small",{},null]', shared: false }),
+      ).toBe(true);
+      expect(sendToWs(failing, sockets[0]!, { kind: 'text', text: big, shared: false })).toBe(
+        false,
+      );
+
+      expect(await closed).toBe(1011);
+      expect(received[0]).toEqual([]);
+    });
+
     it('delivers a shared frame of every header size as the same text to every socket', async () => {
       const { sockets, received } = await connect(3);
       // Lengths that need a 7-bit, a 16-bit and a 64-bit payload length.
@@ -110,13 +156,108 @@ describe('sendToWs', () => {
 
       for (const text of texts) {
         const frame = { kind: 'text', text, shared: true } as const;
-        for (const socket of sockets) sendToWs(socket, frame);
+        for (const socket of sockets) sendToWs(gate, socket, frame);
       }
 
       await until(() => received.every((messages) => messages.length === texts.length));
       for (const messages of received) expect(messages).toEqual(texts);
-      // The first socket gets each frame through send(); the later ones get the built frame.
-      expect(sends).toEqual([3, 0, 0]);
+      // Every socket gets the built frame, never through send().
+      expect(sends).toEqual([0, 0, 0]);
+    });
+
+    it('delivers text and binary frames of every header size, in order', async () => {
+      const server = new WebSocketServer({ port: 0, perMessageDeflate: false });
+      servers.push(server);
+      await new Promise((resolve) => server.once('listening', resolve));
+      const { port } = server.address() as { port: number };
+
+      const accepted = new Promise<WebSocket>((resolve) => server.once('connection', resolve));
+      const client = new WebSocket(`ws://127.0.0.1:${port}`);
+      clients.push(client);
+
+      const received: (string | number[])[] = [];
+      client.on('message', (data: Buffer, isBinary) => {
+        received.push(isBinary ? [data.length, data[0] ?? -1, data.at(-1) ?? -1] : data.toString());
+      });
+      await new Promise((resolve) => client.once('open', resolve));
+      const socket = await accepted;
+
+      // Payload lengths at each edge of the 7-bit, 16-bit and 64-bit lengths, empty included.
+      const lengths = [0, 125, 126, 65_535, 65_536, 100_000];
+      const expected: (string | number[])[] = [];
+      for (const length of lengths) {
+        const bytes = new Uint8Array(length).fill(7);
+        if (length > 0) bytes[length - 1] = 9;
+        const text = JSON.stringify(['row', { text: 'é'.repeat(Math.floor(length / 2)) }, null]);
+
+        sendToWs(gate, socket, { kind: 'bytes', bytes });
+        sendToWs(gate, socket, { kind: 'text', text, shared: false });
+        expected.push(length === 0 ? [0, -1, -1] : [length, 7, 9], text);
+      }
+
+      await until(() => received.length === expected.length);
+      expect(received).toEqual(expected);
+    });
+
+    it('sends the held frames before a close frame', async () => {
+      const { sockets, received } = await connect(1);
+      const closed = new Promise<number>((resolve) => clients[0]!.once('close', resolve));
+      const texts = ['["a",{},null]', '["b",{},null]'];
+
+      for (const text of texts) sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
+      sockets[0]!.close(1000, 'bye');
+
+      expect(await closed).toBe(1000);
+      expect(received[0]).toEqual(texts);
+    });
+
+    it('drops the held frames of a socket destroyed in the same turn', async () => {
+      const { sockets } = await connect(1);
+      const tcp = (sockets[0] as unknown as { _socket: Socket })._socket;
+      const errors: Error[] = [];
+      tcp.on('error', (error) => errors.push(error));
+
+      sendToWs(gate, sockets[0]!, { kind: 'text', text: '["a",{},null]', shared: false });
+      tcp.destroy();
+      const write = vi.spyOn(tcp, 'write');
+
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(write).not.toHaveBeenCalled();
+      expect(errors).toEqual([]);
+    });
+
+    it('writes big frames as header and payload, with no copy', async () => {
+      const { sockets, received } = await connect(1);
+      const tcp = (sockets[0] as unknown as { _socket: Socket })._socket;
+      const write = vi.spyOn(tcp, 'write');
+      const texts = ['x', 'y', 'z'].map((letter) =>
+        JSON.stringify(['row', { text: letter.repeat(5000) }, null]),
+      );
+
+      for (const text of texts) sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
+      await new Promise((resolve) => setImmediate(resolve));
+      // A header and a payload for each frame, sent together.
+      expect(write).toHaveBeenCalledTimes(6);
+
+      const big = 'b'.repeat(64 * 1024);
+      sendToWs(gate, sockets[0]!, { kind: 'text', text: big, shared: false });
+      // A frame over the hold limit goes at once, without waiting for the turn to end.
+      expect(write).toHaveBeenCalledTimes(8);
+      expect((write.mock.calls[7]![0] as Buffer).byteLength).toBe(big.length);
+
+      await until(() => received[0]!.length === texts.length + 1);
+      expect(received[0]).toEqual([...texts, big]);
+    });
+
+    it('counts held frames in bufferedAmount until they are written', async () => {
+      const { sockets } = await connect(1);
+      const text = '["a",{},null]';
+
+      sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
+      expect(wsBufferedAmount(sockets[0]!)).toBe(sockets[0]!.bufferedAmount + 2 + text.length);
+
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(wsBufferedAmount(sockets[0]!)).toBe(sockets[0]!.bufferedAmount);
     });
 
     it('keeps the order of shared and single frames on one socket', async () => {
@@ -124,9 +265,9 @@ describe('sendToWs', () => {
       const shared = { kind: 'text', text: '["message",{"n":1},null]', shared: true } as const;
 
       for (const socket of sockets) {
-        sendToWs(socket, { kind: 'text', text: '["before",{},null]', shared: false });
-        sendToWs(socket, shared);
-        sendToWs(socket, { kind: 'text', text: '["after",{},null]', shared: false });
+        sendToWs(gate, socket, { kind: 'text', text: '["before",{},null]', shared: false });
+        sendToWs(gate, socket, shared);
+        sendToWs(gate, socket, { kind: 'text', text: '["after",{},null]', shared: false });
       }
 
       await until(() => received.every((messages) => messages.length === 3));
@@ -135,7 +276,7 @@ describe('sendToWs', () => {
       }
     });
 
-    it('writes every frame sent to a socket in one tick with one system call', async () => {
+    it('writes every frame sent to a socket in one turn with one system call', async () => {
       const { sockets, received } = await connect(1);
       const tcp = (sockets[0] as unknown as { _socket: Socket })._socket;
       const writes = { one: 0, many: 0 };
@@ -152,20 +293,24 @@ describe('sendToWs', () => {
       };
       const texts = ['["a",{},null]', '["b",{},null]', '["c",{},null]', '["d",{},null]'];
 
-      for (const text of texts) sendToWs(sockets[0]!, { kind: 'text', text, shared: false });
-      expect(tcp.writableCorked).toBe(1);
+      const [first, ...rest] = texts;
+      sendToWs(gate, sockets[0]!, { kind: 'text', text: first!, shared: false });
+      // Code after an `await`, or the read of another socket, still writes into the same turn.
       await new Promise((resolve) => process.nextTick(resolve));
-      expect(tcp.writableCorked).toBe(0);
+      for (const text of rest) sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
+      expect(writes).toEqual({ one: 0, many: 0 });
+      await new Promise((resolve) => setImmediate(resolve));
 
       await until(() => received[0]!.length === texts.length);
       expect(received[0]).toEqual(texts);
-      expect(writes).toEqual({ one: 0, many: 1 });
+      // Small frames go out as one buffer: one write, not a list of pieces.
+      expect(writes).toEqual({ one: 1, many: 0 });
 
-      // The next tick holds its frames again, and lets them go at its end.
-      sendToWs(sockets[0]!, { kind: 'text', text: '["e",{},null]', shared: false });
-      expect(tcp.writableCorked).toBe(1);
+      // The next turn holds its frames again, and lets them go at its end.
+      sendToWs(gate, sockets[0]!, { kind: 'text', text: '["e",{},null]', shared: false });
+      expect(writes).toEqual({ one: 1, many: 0 });
       await until(() => received[0]!.length === texts.length + 1);
-      expect(writes).toEqual({ one: 0, many: 2 });
+      expect(writes).toEqual({ one: 2, many: 0 });
     });
 
     it('sends at once what a socket holds past 64 KiB, so bufferedAmount shows only real backlog', async () => {
@@ -177,9 +322,9 @@ describe('sendToWs', () => {
       // A replay catch-up sends rows in one loop and waits while bufferedAmount is 256 KiB or more.
       // The kernel buffer fills in the loop too, so the plain socket shows the real backlog.
       for (let i = 0; i < 1000; i++) {
-        sendToWs(held, { kind: 'text', text, shared: false });
+        sendToWs(gate, held, { kind: 'text', text, shared: false });
         plain.send(text);
-        highest.held = Math.max(highest.held, held.bufferedAmount);
+        highest.held = Math.max(highest.held, wsBufferedAmount(held));
         highest.plain = Math.max(highest.plain, plain.bufferedAmount);
       }
 
@@ -192,7 +337,7 @@ describe('sendToWs', () => {
       const closed = new Promise((resolve) => clients[0]!.once('close', resolve));
       const texts = ['["a",{},null]', '["b",{},null]', '["c",{},null]'];
 
-      for (const text of texts) sendToWs(sockets[0]!, { kind: 'text', text, shared: false });
+      for (const text of texts) sendToWs(gate, sockets[0]!, { kind: 'text', text, shared: false });
       terminateWs(sockets[0]!);
 
       await closed;
@@ -209,7 +354,7 @@ describe('sendToWs', () => {
 
       const sends = countSends(sockets);
 
-      for (const socket of sockets) sendToWs(socket, frame);
+      for (const socket of sockets) sendToWs(gate, socket, frame);
 
       await until(() => received.every((messages) => messages.length === 1));
       for (const messages of received) expect(messages).toEqual([frame.text]);
@@ -221,7 +366,7 @@ describe('sendToWs', () => {
     const { sent, socket } = recorder();
     const bytes = new Uint8Array([1, 2, 3]);
 
-    sendToWs(socket, { kind: 'bytes', bytes });
+    sendToWs(gate, socket, { kind: 'bytes', bytes });
 
     expect(sent).toEqual([{ data: bytes, binary: undefined }]);
   });

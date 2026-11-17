@@ -1,5 +1,5 @@
 import { LiveThingConfigError } from '@livething/core';
-import { hasCapability, resolveTransports, sse, websocket } from '~/_adapters/transports.ts';
+import { hasCapability, http, resolveTransports, websocket } from '~/_adapters/transports.ts';
 import { server } from '~/_define/server.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { describe, expect, expectTypeOf, it } from 'vitest';
@@ -15,7 +15,7 @@ describe('resolveTransports', () => {
   it('offers WebSocket only when the option is left out', () => {
     expect(resolveTransports(undefined, plain)).toEqual({
       websocket: true,
-      sse: null,
+      http: null,
       custom: [],
     });
   });
@@ -23,23 +23,23 @@ describe('resolveTransports', () => {
   it('offers the one transport a list names', () => {
     expect(resolveTransports([websocket()], plain)).toEqual({
       websocket: true,
-      sse: null,
+      http: null,
       custom: [],
     });
   });
 
-  it('offers sse() with its default maxPostBytes of 512 KiB', () => {
-    expect(resolveTransports([sse()], withKeepalive)).toEqual({
+  it('offers http() with its default maxPostBytes of 512 KiB', () => {
+    expect(resolveTransports([http()], withKeepalive)).toEqual({
       websocket: false,
-      sse: { maxPostBytes: 512 * 1024 },
+      http: { maxPostBytes: 512 * 1024 },
       custom: [],
     });
   });
 
   it('offers both, in any order', () => {
-    expect(resolveTransports([sse({ maxPostBytes: 1000 }), websocket()], withKeepalive)).toEqual({
+    expect(resolveTransports([http({ maxPostBytes: 1000 }), websocket()], withKeepalive)).toEqual({
       websocket: true,
-      sse: { maxPostBytes: 1000 },
+      http: { maxPostBytes: 1000 },
       custom: [],
     });
   });
@@ -50,7 +50,7 @@ describe('resolveTransports', () => {
 
     expect(resolveTransports([websocket(), longPolling, carrier], plain)).toEqual({
       websocket: true,
-      sse: null,
+      http: null,
       custom: [longPolling, carrier],
     });
   });
@@ -71,10 +71,10 @@ describe('resolveTransports', () => {
   });
 
   it('refuses a custom transport with a built-in name', () => {
-    const fake = { name: 'sse', handle: async () => null };
+    const fake = { name: 'http', handle: async () => null };
 
     expect(() => resolveTransports([fake], withKeepalive)).toThrow(
-      /'sse' is the name of a built-in/,
+      /'http' is the name of a built-in/,
     );
   });
 
@@ -84,9 +84,9 @@ describe('resolveTransports', () => {
     );
   });
 
-  it('refuses sse() on a definition without keepalive()', () => {
-    expect(() => resolveTransports([websocket(), sse()], plain)).toThrow(
-      /sse\(\), which needs keepalive\(\)/,
+  it('refuses http() on a definition without keepalive()', () => {
+    expect(() => resolveTransports([websocket(), http()], plain)).toThrow(
+      /http\(\), which needs keepalive\(\)/,
     );
   });
 
@@ -109,9 +109,9 @@ describe('resolveTransports', () => {
   );
 });
 
-describe('sse()', () => {
+describe('http()', () => {
   it.each([0, -1, 1.5, Number.NaN])('refuses maxPostBytes %s', (maxPostBytes) => {
-    expect(() => sse({ maxPostBytes })).toThrow(/maxPostBytes must be a whole number/);
+    expect(() => http({ maxPostBytes })).toThrow(/maxPostBytes must be a whole number/);
   });
 });
 
