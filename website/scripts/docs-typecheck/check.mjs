@@ -41,7 +41,7 @@ const require = createRequire(join(repo, 'package.json'));
 const ts = require('typescript');
 const content = join(repo, 'website/content');
 const fixtures = join(repo, 'website/scripts/docs-typecheck/fixtures');
-const HUDDLE_PAGE = '7.reference/11.huddle.md';
+const HUDDLE_PAGE = '8.reference/11.huddle.md';
 const SHORT_LINES = 8;
 const args = process.argv.slice(2);
 const fixLayout = args.includes('--fix');
@@ -90,7 +90,7 @@ function readExamples() {
         } else open.body.push(line.slice(open.indent));
         return;
       }
-      const heading = line.match(/^#{2,3}\s+(.+)/);
+      const heading = line.match(/^##\s+(.+)/);
       if (heading) section = heading[1];
       if (/^\s*::code-group/.test(line)) group = `${page}:${i + 1}`;
       else if (/^\s*::\s*$/.test(line)) group = null;
@@ -183,27 +183,29 @@ function exportTarget(specifier) {
  */
 const pageFiles = new Map();
 const fileExamples = new Map();
-// The Node page has one section per framework, and several sections have their own
-// `huddle-endpoint`. There a file belongs to its `##` or `###` section, not to the whole page.
-const NODE_PAGE = '3.server/02.adapters/02.node.md';
-const NITRO_SECTIONS = ['Nuxt', 'SolidStart'];
+// A Nitro page shows its `huddle-endpoint` twice: once to set it up, and once more with `http()`.
+// There a file belongs to its `##` section, not to the whole page.
+const NITRO_PAGES = [
+  '4.runtimes/02.node-frameworks/06.nuxt.md',
+  '4.runtimes/02.node-frameworks/07.solidstart.md',
+];
 const fileScope = (example) =>
-  example.page === NODE_PAGE ? `${example.page}#${example.section}` : example.page;
+  NITRO_PAGES.includes(example.page) ? `${example.page}#${example.section}` : example.page;
 const pageFileKey = (example, name) => `${fileScope(example)}\0${name}`;
 const withoutExtension = (path) => basename(path).replace(/(\.svelte)?\.\w+$/, '');
 
 function pageFile(containing, name) {
   const example = fileExamples.get(containing);
   // Each plugins page builds its own `Polls`, so an example there imports the page's
-  // own file. The Quickstart builds its own small server. The Nitro sections build their
+  // own file. The Quickstart builds its own small server. The Nitro pages build their
   // endpoint with H3, not `node:http`. A name the page uses for more than one file stays
   // on the shared fixture.
   const ownsFiles =
-    example?.page.startsWith('6.recipes/01.framework-hooks/') ||
-    example?.page.startsWith('4.client/07.plugins/') ||
+    example?.page.startsWith('7.recipes/01.framework-hooks/') ||
+    example?.page.startsWith('5.client/07.plugins/') ||
     example?.page.startsWith('1.start/06.quickstart') ||
     example?.page.startsWith('2.learn/11.identity-and-access') ||
-    (example?.page === NODE_PAGE && NITRO_SECTIONS.includes(example.section));
+    NITRO_PAGES.includes(example?.page);
   if (!ownsFiles) return undefined;
   const path = pageFiles.get(pageFileKey(example, name));
   return path && path !== containing ? path : undefined;

@@ -98,12 +98,6 @@ const landingItems = [
         to: '/server/server/overview'
       },
       {
-        label: 'Runtime & Transports',
-        icon: 'i-ph-plugs-duotone',
-        description: 'Run the definition on a platform, and choose how clients connect',
-        to: '/server/adapters/overview'
-      },
-      {
         label: 'Capabilities',
         icon: 'i-ph-puzzle-piece-duotone',
         description: 'The opt-in feature catalog',
@@ -144,6 +138,42 @@ const landingItems = [
         icon: 'i-ph-gear-duotone',
         description: 'The engine and pipeline order',
         to: '/server/under-the-hood/overview'
+      }
+    ]
+  },
+  {
+    label: 'Server Runtimes',
+    to: '/runtimes/overview',
+    children: [
+      {
+        label: 'Runtimes',
+        icon: 'i-ph-cpu-duotone',
+        description: 'Run the definition on a platform',
+        to: '/runtimes/adapters/overview'
+      },
+      {
+        label: 'Cloudflare',
+        icon: 'i-simple-icons-cloudflare',
+        description: 'Durable Objects and a Worker',
+        to: '/runtimes/adapters/cloudflare'
+      },
+      {
+        label: 'Node.js',
+        icon: 'i-simple-icons-nodedotjs',
+        description: 'Your own Node HTTP server',
+        to: '/runtimes/adapters/node'
+      },
+      {
+        label: 'Node Frameworks',
+        icon: 'i-ph-stack-duotone',
+        description: 'Express, Hono, Nuxt, and more',
+        to: '/runtimes/node-frameworks/overview'
+      },
+      {
+        label: 'Transports',
+        icon: 'i-ph-arrows-left-right-duotone',
+        description: 'WebSocket, http(), or your own',
+        to: '/runtimes/transports/overview'
       }
     ]
   },
