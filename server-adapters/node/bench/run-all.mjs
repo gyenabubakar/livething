@@ -43,10 +43,9 @@ if (!Number.isSafeInteger(clientProcesses) || clientProcesses < 1) {
   throw new Error('LOAD_CLIENT_PROCESSES must be a whole number of at least 1.');
 }
 
-if (clientProcesses > 1 && process.env.LOAD_PROFILE) {
-  throw new Error(
-    'LOAD_PROFILE runs only with one client process. Set LOAD_CLIENT_PROCESSES=1, or run only core.',
-  );
+// Every run would write its profiles under the same step names, each over the last.
+if (process.env.LOAD_PROFILE) {
+  throw new Error('run-all does not take LOAD_PROFILE. To profile, run bench/load.mjs on its own.');
 }
 
 if (
@@ -138,17 +137,31 @@ function runOnce(run, warm) {
       stdio: ['ignore', 'pipe', 'inherit'],
     });
     let stdout = '';
+    let settled = false;
+    function failed(why) {
+      // A child that could not start sends `error`, then `close` too.
+      if (settled) return;
+
+      settled = true;
+      console.error(`${run.name} (${warm ? 'warm' : 'cold'}) ${why}. Going on.`);
+      process.exitCode = 1;
+      resolve(null);
+    }
 
     child.stdout.on('data', (chunk) => (stdout += chunk));
-    child.once('exit', (code) => {
-      if (code === 0) {
-        resolve(JSON.parse(stdout.trim().split('\n').at(-1)));
+    child.once('error', (error) => failed(`did not start: ${error.message}`));
+    // `close`, not `exit`: it comes after stdout has been read to the end.
+    child.once('close', (code) => {
+      if (code !== 0) {
+        failed(`exited with code ${code}`);
         return;
       }
 
-      console.error(`${run.name} (${warm ? 'warm' : 'cold'}) exited with code ${code}. Going on.`);
-      process.exitCode = 1;
-      resolve(null);
+      try {
+        resolve(JSON.parse(stdout.trim().split('\n').at(-1)));
+      } catch {
+        failed('printed no report');
+      }
     });
   });
 }

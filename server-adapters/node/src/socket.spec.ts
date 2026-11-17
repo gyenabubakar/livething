@@ -128,6 +128,24 @@ describe('sendToWs', () => {
       expect(received[0]).toEqual([]);
     });
 
+    it('drops a held frame when the frame that fills the hold fails its commit', async () => {
+      const { sockets, received } = await connect(1);
+      const failing = new NodeWriteGate();
+      failing.beforeNextWrite(() => false);
+      const closed = new Promise<number>((resolve) => sockets[0]!.once('close', resolve));
+      const big = JSON.stringify(['file', { text: 'x'.repeat(70 * 1024) }, null]);
+
+      expect(
+        sendToWs(failing, sockets[0]!, { kind: 'text', text: '["small",{},null]', shared: false }),
+      ).toBe(true);
+      expect(sendToWs(failing, sockets[0]!, { kind: 'text', text: big, shared: false })).toBe(
+        false,
+      );
+
+      expect(await closed).toBe(1011);
+      expect(received[0]).toEqual([]);
+    });
+
     it('delivers a shared frame of every header size as the same text to every socket', async () => {
       const { sockets, received } = await connect(3);
       // Lengths that need a 7-bit, a 16-bit and a 64-bit payload length.

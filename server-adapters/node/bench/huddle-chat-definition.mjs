@@ -156,7 +156,8 @@ export function buildHuddleChatDefinition(options = {}) {
     },
   });
 
-  // The client confirms before the message is gone.
+  // The client confirms before the message is gone. It deletes the stored row, which search and
+  // history read: copies already sent, or waiting in an inbox, stay.
   const deleteMessage = base.request('delete-message', {
     async run(ctx, input) {
       const answer = await ctx.request('confirm-delete', { preview: input.preview });

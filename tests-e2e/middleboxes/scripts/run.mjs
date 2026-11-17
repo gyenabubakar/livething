@@ -65,6 +65,7 @@ async function addToxiproxy() {
         listen: '0.0.0.0:9445',
         upstream: 'host.docker.internal:8443',
       }),
+      signal: AbortSignal.timeout(5_000),
     }).catch(() => null);
     if (response?.ok || response?.status === 409) return;
 
