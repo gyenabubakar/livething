@@ -43,6 +43,7 @@
         "bench/engine.mjs",
         "bench/load.mjs",
         "bench/load-server.mjs",
+        "bench/load-remote.mjs",
       ],
       "project": ["src/**/*.ts", "bench/**/*.mjs"],
     },

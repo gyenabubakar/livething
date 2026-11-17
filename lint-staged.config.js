@@ -4,6 +4,7 @@ export default {
     'pnpm run typecheck',
     'pnpm run lint',
     'pnpm run format',
+    'pnpm run knip',
     'pnpm run test',
   ],
 };
