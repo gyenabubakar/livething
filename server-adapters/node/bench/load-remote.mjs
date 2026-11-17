@@ -35,6 +35,8 @@ const SETTINGS = new Set([
   'LOAD_PRESENCE',
   'LOAD_H2_ENTRY',
 ]);
+// The largest real request is the start one, with the client's LOAD_ variables: about 1 KB.
+const MAX_BODY_LENGTH = 64 * 1024;
 let server = null;
 
 /** The next message the server sends back, or an error when it exits first. */
@@ -110,8 +112,22 @@ http
     // A client that resets mid-request must not stop this process and its server.
     request.on('error', () => {});
     try {
+      // A body over the limit is read to the end and dropped: leaving the loop would destroy the
+      // socket before the client reads the 413.
       let body = '';
-      for await (const chunk of request) body += chunk;
+      let tooBig = false;
+      for await (const chunk of request) {
+        if (!tooBig) body += chunk;
+        if (body.length > MAX_BODY_LENGTH) {
+          tooBig = true;
+          body = '';
+        }
+      }
+
+      if (tooBig) {
+        response.writeHead(413, { connection: 'close' }).end();
+        return;
+      }
 
       const answer = JSON.stringify((await control(JSON.parse(body))) ?? null);
       if (!response.destroyed) response.end(answer);

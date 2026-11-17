@@ -39,6 +39,18 @@ describe('sendToWs', () => {
     expect(second.sent).toEqual([{ data: frame.text, binary: undefined }]);
   });
 
+  it('reports a frame the write gate refused as not sent', async () => {
+    const { sent, socket } = recorder();
+    const failing = new NodeWriteGate();
+    failing.beforeNextWrite(() => false);
+
+    expect(
+      sendToWs(failing, socket, { kind: 'text', text: '["lost",{},null]', shared: false }),
+    ).toBe(false);
+    expect(sent).toEqual([]);
+    await Promise.resolve();
+  });
+
   describe('on real ws sockets', () => {
     const servers: WebSocketServer[] = [];
     const clients: WebSocket[] = [];
@@ -99,6 +111,22 @@ describe('sendToWs', () => {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
     }
+
+    it('reports held and big frames the write gate refused as not sent', async () => {
+      const { sockets, received } = await connect(1);
+      const failing = new NodeWriteGate();
+      failing.beforeNextWrite(() => false);
+      const big = JSON.stringify(['file', { text: 'x'.repeat(70 * 1024) }, null]);
+
+      expect(sendToWs(failing, sockets[0]!, { kind: 'text', text: big, shared: false })).toBe(
+        false,
+      );
+      expect(
+        sendToWs(failing, sockets[0]!, { kind: 'text', text: '["small",{},null]', shared: false }),
+      ).toBe(false);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(received[0]).toEqual([]);
+    });
 
     it('delivers a shared frame of every header size as the same text to every socket', async () => {
       const { sockets, received } = await connect(3);

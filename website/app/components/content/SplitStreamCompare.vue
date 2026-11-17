@@ -23,6 +23,7 @@ const LOOP = 36
 const MESSAGES = [1, 2, 3, 22]
 const EVENTS = [12, 13.5, 30]
 const POLL = 0
+const BATCH = 1
 const STREAM = 2
 
 const W = 520
@@ -35,7 +36,11 @@ function freshRows(): Row[] {
   const row = (name: string, sub: string, requests: number): Row => ({
     name, sub, requests, waited: 0, getOpen: true, answering: false, heldEvents: 0, postBusy: false, queued: 0,
   })
-  return [row('Long polling', '', 1), row('Split Stream', 'batch mode', 1), row('Split Stream', 'stream mode', 2)]
+  const list: Row[] = []
+  list[POLL] = row('Long polling', '', 1)
+  list[BATCH] = row('Split Stream', 'batch mode', 1)
+  list[STREAM] = row('Split Stream', 'stream mode', 2)
+  return list
 }
 
 const rows = reactive<Row[]>(freshRows())

@@ -79,21 +79,25 @@ const server = await startServer();
 const results = {};
 try {
   for (const middlebox of chosen) {
-    if (
-      middlebox !== 'direct' &&
-      !compose('--profile', middlebox, 'up', '-d', '--build', '--wait')
-    ) {
-      results[middlebox] = 'did not start';
-      continue;
-    }
+    // A failed `up` can still leave containers running, so `down` runs after every attempt.
+    try {
+      if (
+        middlebox !== 'direct' &&
+        !compose('--profile', middlebox, 'up', '-d', '--build', '--wait')
+      ) {
+        results[middlebox] = 'did not start';
+        continue;
+      }
 
-    if (middlebox === 'toxiproxy') await addToxiproxy();
-    results[middlebox] = run('pnpm', ['exec', 'playwright', 'test'], {
-      extraEnv: { LIVETHING_MIDDLEBOX: middlebox },
-    })
-      ? 'passed'
-      : 'failed';
-    if (middlebox !== 'direct') compose('--profile', middlebox, 'down');
+      if (middlebox === 'toxiproxy') await addToxiproxy();
+      results[middlebox] = run('pnpm', ['exec', 'playwright', 'test'], {
+        extraEnv: { LIVETHING_MIDDLEBOX: middlebox },
+      })
+        ? 'passed'
+        : 'failed';
+    } finally {
+      if (middlebox !== 'direct') compose('--profile', middlebox, 'down');
+    }
   }
 } finally {
   server.kill('SIGTERM');

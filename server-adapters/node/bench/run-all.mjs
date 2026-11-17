@@ -43,6 +43,12 @@ if (!Number.isSafeInteger(clientProcesses) || clientProcesses < 1) {
   throw new Error('LOAD_CLIENT_PROCESSES must be a whole number of at least 1.');
 }
 
+if (clientProcesses > 1 && process.env.LOAD_PROFILE) {
+  throw new Error(
+    'LOAD_PROFILE runs only with one client process. Set LOAD_CLIENT_PROCESSES=1, or run only core.',
+  );
+}
+
 if (
   !Number.isSafeInteger(connections) ||
   connections <= 0 ||

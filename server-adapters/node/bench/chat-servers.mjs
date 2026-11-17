@@ -25,7 +25,7 @@ export function openChatDatabase(options = {}) {
   database.exec(`
     CREATE TABLE messages (id TEXT PRIMARY KEY, room TEXT NOT NULL, user_id TEXT NOT NULL,
       text TEXT NOT NULL, sent_at INTEGER NOT NULL);
-    CREATE INDEX messages_by_room ON messages (room, sent_at);
+    CREATE INDEX messages_by_room ON messages (room, sent_at, id);
     CREATE TABLE reactions (message_id TEXT NOT NULL, user_id TEXT NOT NULL, emoji TEXT NOT NULL);
   `);
   if (options.search) database.exec('CREATE INDEX messages_by_time ON messages (sent_at)');
@@ -43,7 +43,7 @@ function chatStore(database) {
   );
   const selectHistory = database.prepare(
     'SELECT id, text, user_id AS "from", sent_at AS sentAt FROM messages ' +
-      'WHERE room = ? AND sent_at < ? ORDER BY sent_at DESC LIMIT 50',
+      'WHERE room = ? AND (sent_at, id) < (?, ?) ORDER BY sent_at DESC, id DESC LIMIT 50',
   );
 
   return {
@@ -56,7 +56,7 @@ function chatStore(database) {
       insertReaction.run(messageId, from, emoji);
     },
     loadHistory(room, before) {
-      return selectHistory.all(room, before ?? Date.now() + 1);
+      return selectHistory.all(room, before?.sentAt ?? Date.now() + 1, before?.id ?? '');
     },
   };
 }

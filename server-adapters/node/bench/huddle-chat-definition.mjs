@@ -1,6 +1,6 @@
 // The app the chat benchmarks run: Huddle's room messages, stored in SQLite. `send-message` and
 // `react` save a row and go to the room, `start-typing` goes to the room, and `load-history` reads
-// the room's last 50 messages.
+// the room's last 50 messages, or the 50 before the `{ sentAt, id }` of `before`.
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
@@ -99,9 +99,10 @@ export function buildHuddleChatDefinition(options = {}) {
       const messages = ctx.sql
         .exec(
           'SELECT id, text, user_id AS "from", sent_at AS sentAt FROM messages ' +
-            'WHERE room = ? AND sent_at < ? ORDER BY sent_at DESC LIMIT 50',
+            'WHERE room = ? AND (sent_at, id) < (?, ?) ORDER BY sent_at DESC, id DESC LIMIT 50',
           ctx.channel.name,
-          input?.before ?? Date.now() + 1,
+          input?.before?.sentAt ?? Date.now() + 1,
+          input?.before?.id ?? '',
         )
         .toArray();
       return { messages };

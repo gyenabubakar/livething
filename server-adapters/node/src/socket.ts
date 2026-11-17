@@ -233,11 +233,12 @@ function sendAfterHeld(
   wsSendFrame!.call(this, list, callback);
 }
 
-function hold(sender: WsSender, opcode: number, payload: Uint8Array | string): void {
+/** Hold one frame, or write it now. Returns `false` when the write gate refused it. */
+function hold(sender: WsSender, opcode: number, payload: Uint8Array | string): boolean {
   const gate = sender.livethingWriteGate!;
   if (gate.failed) {
     closeLostWrite(sender);
-    return;
+    return false;
   }
 
   const length = payloadLength(payload);
@@ -246,17 +247,17 @@ function hold(sender: WsSender, opcode: number, payload: Uint8Array | string): v
     // A frame this big would be sent at once anyway: it skips the hold.
     if (length >= HOLD_BYTES) {
       const tcp = sender._socket;
-      if (tcp.destroyed) return;
+      if (tcp.destroyed) return false;
 
       if (!gate.commitBeforeWrite()) {
         closeLostWrite(sender);
-        return;
+        return false;
       }
 
       tcp.cork();
       writeApart(tcp, opcode, payload);
       tcp.uncork();
-      return;
+      return true;
     }
 
     if (heldThisTurn.size === 0) setImmediate(flushAll);
@@ -269,6 +270,9 @@ function hold(sender: WsSender, opcode: number, payload: Uint8Array | string): v
   held.lengths.push(length);
   held.bytes += opcode === OPCODE_FRAMED ? length : headerSize(length) + length;
   if (held.bytes >= HOLD_BYTES) flush(sender, held);
+
+  // A failed flush closes the socket, and the gate refuses every write of this task.
+  return !gate.failed;
 }
 
 /**
@@ -303,28 +307,19 @@ const sharedTextFrames = new WeakMap<TransportFrame, Buffer>();
 
 /**
  * Send one frame on a `ws` socket of the endpoint `gate` belongs to: text as a text message,
- * bytes as a binary message.
+ * bytes as a binary message. Returns `false` when the write gate refused it.
  */
 export function sendToWs(
   gate: NodeWriteGate,
   socket: Pick<WebSocket, 'send' | 'close'>,
   frame: TransportFrame,
-): void {
+): boolean {
   const sender = holdingSender(socket, gate);
-  if (!sender) {
-    sendNow(gate, socket, frame);
-    return;
-  }
+  if (!sender) return sendNow(gate, socket, frame);
 
-  if (frame.kind === 'bytes') {
-    hold(sender, OPCODE_BINARY, frame.bytes);
-    return;
-  }
+  if (frame.kind === 'bytes') return hold(sender, OPCODE_BINARY, frame.bytes);
 
-  if (!frame.shared) {
-    hold(sender, OPCODE_TEXT, frame.text);
-    return;
-  }
+  if (!frame.shared) return hold(sender, OPCODE_TEXT, frame.text);
 
   let wire = sharedTextFrames.get(frame);
   if (!wire) {
@@ -332,7 +327,7 @@ export function sendToWs(
     sharedTextFrames.set(frame, wire);
   }
 
-  hold(sender, OPCODE_FRAMED, wire);
+  return hold(sender, OPCODE_FRAMED, wire);
 }
 
 /**
@@ -343,9 +338,14 @@ function sendNow(
   gate: NodeWriteGate,
   socket: Pick<WebSocket, 'send' | 'close'>,
   frame: TransportFrame,
-): void {
-  if (gate.commitBeforeWrite()) socket.send(frameData(frame));
-  else socket.close(LOST_WRITE_CLOSE.code, LOST_WRITE_CLOSE.reason);
+): boolean {
+  if (!gate.commitBeforeWrite()) {
+    socket.close(LOST_WRITE_CLOSE.code, LOST_WRITE_CLOSE.reason);
+    return false;
+  }
+
+  socket.send(frameData(frame));
+  return true;
 }
 
 /** The bytes a `ws` socket has not sent yet, held frames included. */
@@ -369,7 +369,7 @@ export function webSocketTransport(socket: WebSocket): ConnectionTransport {
   let gate: NodeWriteGate | undefined;
   return gatesItsOwnWrites(
     {
-      send: (frame) => sendWhenOpen(socket.readyState, () => sendToWs(gate!, socket, frame)),
+      send: (frame) => socket.readyState === WEB_SOCKET_OPEN && sendToWs(gate!, socket, frame),
       close: (code, reason) => socket.close(code, reason),
       terminate: () => terminateWs(socket),
       bufferedAmount: () => wsBufferedAmount(socket),
