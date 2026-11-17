@@ -1637,8 +1637,13 @@ if (coordinating) {
 if (shard === null && remote) {
   await control({ message: 'exit' });
 } else if (shard === null) {
-  serverProcess.send('exit');
-  await new Promise((resolve) => serverProcess.once('exit', resolve));
+  if (serverProcess.exitCode === null && serverProcess.signalCode === null) {
+    serverProcess.send('exit');
+    // A server that does not exit must not keep this run, and `run-all`, waiting.
+    const stuck = setTimeout(() => serverProcess.kill('SIGKILL'), 10_000);
+    await new Promise((resolve) => serverProcess.once('exit', resolve));
+    clearTimeout(stuck);
+  }
 }
 
 // A pipe to stdout can still be writing the report, so exit once it is out.

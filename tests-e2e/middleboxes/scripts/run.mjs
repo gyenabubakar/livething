@@ -101,7 +101,10 @@ try {
     }
   }
 } finally {
+  // The server shuts down after SIGTERM, so the lane waits for it to exit: the next run needs
+  // its port. A server that does not exit in 10 seconds is killed.
   server.kill('SIGTERM');
+  setTimeout(() => server.kill('SIGKILL'), 10_000).unref();
 }
 
 console.log('\nmiddlebox lane:');
@@ -109,4 +112,4 @@ for (const [middlebox, result] of Object.entries(results)) {
   console.log(`  ${middlebox.padEnd(10)} ${result}`);
 }
 
-process.exit(Object.values(results).every((result) => result === 'passed') ? 0 : 1);
+process.exitCode = Object.values(results).every((result) => result === 'passed') ? 0 : 1;
