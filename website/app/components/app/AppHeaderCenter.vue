@@ -188,6 +188,12 @@ const landingItems = [
         to: '/client/connecting/overview'
       },
       {
+        label: 'Transports',
+        icon: 'i-ph-arrows-left-right-duotone',
+        description: 'WebSocket, http(), and failover',
+        to: '/client/transports/overview'
+      },
+      {
         label: 'Primitives',
         icon: 'i-ph-puzzle-piece-duotone',
         description: 'Every built-in client primitive',

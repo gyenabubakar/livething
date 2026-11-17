@@ -202,7 +202,7 @@ function pageFile(containing, name) {
   // on the shared fixture.
   const ownsFiles =
     example?.page.startsWith('7.recipes/01.framework-hooks/') ||
-    example?.page.startsWith('5.client/07.plugins/') ||
+    example?.page.startsWith('5.client/08.plugins/') ||
     example?.page.startsWith('1.start/06.quickstart') ||
     example?.page.startsWith('2.learn/11.identity-and-access') ||
     NITRO_PAGES.includes(example?.page);
