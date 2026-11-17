@@ -36,5 +36,7 @@ website/tsconfig.json
 website/wrangler.jsonc
 website/package.json
 website/README.md
+# No code blocks, and Prettier puts blank lines inside the MDC prop blocks, which breaks them.
+website/content/0.landing.md
 
 !/ignore-this.ts
