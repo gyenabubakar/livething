@@ -882,6 +882,30 @@ describe('scoped channels — missing receipt primitives', () => {
     expect(() => room.markAsRead()).toThrow(/readReceipts\(\).*not registered/);
   });
 
+  it('throws a clear error for channel.awareness when awareness() is not registered', () => {
+    interface DocsWire {
+      channels: { room: { awareness: { typing: boolean }; incoming: {} } };
+    }
+
+    const Docs = plugin<DocsWire>()({
+      id: 'acme:docs',
+      dependencies: [channels],
+      setup(socket) {
+        const room = socket.channel('room');
+        return { api: () => ({ room }) };
+      },
+    });
+
+    const socket = client<{ channels: { '__acme:docs::room': DocsWire['channels']['room'] } }>()(
+      connect('wss://test'),
+      channels(),
+      Docs(),
+    );
+    const room = Docs.use(socket).room;
+
+    expect(() => room.awareness.set({ typing: true })).toThrow(/awareness\(\).*not registered/);
+  });
+
   it("does not apply one plugin's missing receipt throwers to other scopes", () => {
     interface ReceiptWire {
       channels: {

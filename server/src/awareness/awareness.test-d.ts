@@ -5,6 +5,7 @@
  * subscribe gates, and the state type in the client contract.
  */
 import { t } from '~/_api/definitions.ts';
+import { plugin } from '~/_define/plugins.ts';
 import { server } from '~/_define/server.ts';
 import { awareness } from '~/awareness/capability.ts';
 import { channels } from '~/channel/capability.ts';
@@ -16,6 +17,7 @@ import { sequence } from '~/sequence/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
 import { z } from 'zod';
+import type { InferPluginClient } from '~/_define/plugins.ts';
 import type { AwarenessEntry } from '~/context.ts';
 import type { InferClient } from '~/infer-client.ts';
 
@@ -192,3 +194,49 @@ expectTypeOf<Client['channels']['rooms']['awareness']>().toEqualTypeOf<Viewing>(
 expectTypeOf<Client['channels']['lobby']>().not.toHaveProperty('awareness');
 expectTypeOf<Client['channels']['feed']['awareness']>().toEqualTypeOf<{ typing: boolean }>();
 expectTypeOf<Client['channels']['drafts']['awareness']>().toEqualTypeOf<{ typingSince: string }>();
+
+// A plugin's channels: a fixed one and a family, typed the same way, with plain names in
+// InferPluginClient and `__<id>::` names in the host's InferClient.
+const docsPlugin = server({ scope: 'plugin', capabilities: [channels()] });
+const docRooms = docsPlugin.channel(['docs', 'doc:{docId}'], {
+  capabilities: [awareness()],
+  awareness: {
+    state: v.object({ viewingMessageId: v.nullable(v.string()) }),
+    check(ctx, state) {
+      expectTypeOf(ctx.channel.awareness.list()[0]!.state).toEqualTypeOf<Viewing>();
+      // @ts-expect-error — no `set()` inside the awareness check.
+      void ctx.channel.awareness.set;
+      return state.viewingMessageId !== '';
+    },
+  },
+});
+const docsFeed = docsPlugin.channel('feed', {
+  capabilities: [awareness()],
+  awareness: { state: v.object({ typing: v.boolean() }) },
+});
+const handleDocPing = docRooms.on('ping', {
+  run(ctx) {
+    expectTypeOf(ctx.channel.awareness.get(ctx.connection.id)?.state).toEqualTypeOf<
+      Viewing | undefined
+    >();
+    ctx.channel.awareness.set(ctx.connection.id, { viewingMessageId: null });
+    // @ts-expect-error — the state must match the schema.
+    ctx.channel.awareness.set(ctx.connection.id, { viewingMessageId: 1 });
+  },
+});
+const handleDocsFeedPing = docsFeed.on('ping', { run() {} });
+const Docs = plugin('acme:docs', {
+  definition: docsPlugin.assemble({ handlers: [handleDocPing, handleDocsFeedPing] }),
+});
+
+expectTypeOf<
+  InferPluginClient<typeof Docs>['channels']['docs']['awareness']
+>().toEqualTypeOf<Viewing>();
+expectTypeOf<InferPluginClient<typeof Docs>['channels']['feed']['awareness']>().toEqualTypeOf<{
+  typing: boolean;
+}>();
+
+const withDocs = server({ capabilities: [channels(), Docs()] }).assemble({ handlers: [] });
+expectTypeOf<
+  InferClient<typeof withDocs>['channels']['__acme:docs::docs']['awareness']
+>().toEqualTypeOf<Viewing>();

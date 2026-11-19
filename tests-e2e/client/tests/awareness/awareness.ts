@@ -1,6 +1,6 @@
-import { awareness, channels, client, connect, reconnection } from '@livething/client';
+import { awareness, channels, client, connect, plugin, reconnection } from '@livething/client';
 import type { AwarenessEntry } from '@livething/client';
-import type { AwarenessClient } from '@livething/tests-e2e-handlers/awareness';
+import type { AwarenessClient, BoardsClient } from '@livething/tests-e2e-handlers/awareness';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 type RoomAwareness = { viewingMessageId: string | null };
@@ -30,14 +30,27 @@ export function setup(): void {
     <span data-testid="server-errors"></span>
   `);
 
+  const Boards = plugin<BoardsClient>()({
+    id: 'e2e:boards',
+    dependencies: [channels, awareness],
+    setup: (pluginSocket) => ({
+      api: () => ({ general: pluginSocket.channel('boards', 'board:general') }),
+    }),
+  });
+
   const socket = client<AwarenessClient>()(
     connect(wsUrl('awareness')),
     channels(),
     awareness(),
     reconnection({ maxDelay: 400 }),
+    Boards(),
   );
 
-  const general = socket.channel('rooms', 'room:general');
+  // `?target=board` drives the same flows on the plugin's own channel family.
+  const general =
+    new URLSearchParams(location.search).get('target') === 'board'
+      ? Boards.use(socket).general
+      : socket.channel('rooms', 'room:general');
 
   function viewer(entry: AwarenessEntry<RoomAwareness>): string {
     return `${String(entry.meta.name)}=${entry.state.viewingMessageId}`;

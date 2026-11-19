@@ -1,7 +1,6 @@
 import { LiveThingConfigError } from '@livething/core';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { createAwarenessRuntime } from '~/awareness/runtime.ts';
-import { parsePluginWireName } from '~/plugin-scope.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { AwarenessOptions } from '~/awareness/runtime.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -46,11 +45,6 @@ export function awarenessMarker(options: AwarenessOptions): AwarenessMarkerPrimi
       if (!channelKey) return;
 
       const context = `channel '${channelKey}'`;
-      if (parsePluginWireName(channelKey)) {
-        throw new LiveThingConfigError(
-          `${context}: awareness() is for app channels. A plugin channel cannot use it.`,
-        );
-      }
 
       const { receiveBytes, sendBytes, postBytes } = engine.getMessageLimits();
       const needed = options.maxBytes + HEADER_ROOM;

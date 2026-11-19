@@ -213,34 +213,6 @@ describe('awareness config', () => {
     expect(() => base.assemble({ handlers: [] })).toThrow(/awareness\(\) is channel-only/);
   });
 
-  it('refuses awareness() on a plugin channel', async () => {
-    const scoped = server({ scope: 'plugin', capabilities: [channels()] });
-    const feed = scoped.channel('feed', {
-      capabilities: [awareness()],
-      awareness: { state: viewing },
-    });
-    const ping = feed.on('ping', { run() {} });
-    const Feed = plugin('acme:feed', { definition: scoped.assemble({ handlers: [ping] }) });
-    const base = server({ capabilities: [channels(), Feed()] });
-
-    let engine!: Engine;
-    adapter({
-      id: 'awareness-plugin-spec',
-      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
-      setup(createEngine) {
-        engine = createEngine({
-          storage: createTestStorage(),
-          timers: createTestTimers(),
-          platform: {},
-          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-        });
-        return {};
-      },
-    })(base.assemble({ handlers: [] }), undefined as never);
-
-    await expect(engine.initialize()).rejects.toThrow(/is for app channels/);
-  });
-
   it('refuses two awareness() in one channel', () => {
     const base = server({ capabilities: [channels()] });
 
@@ -1090,5 +1062,182 @@ describe('awareness and hibernation', () => {
     const dave = await connect(engine, 'dave');
     await dave.subscribe();
     expect(dave.of('__awarenessSync__')[0]![1]).toEqual({ entries: [] });
+  });
+});
+
+describe('awareness on plugin channels', () => {
+  const feedRouting = { channel: { name: '__acme:docs::feed' } };
+  const launchRouting = { channel: { name: 'doc:launch', family: '__acme:docs::docs' } };
+  const notesRouting = { channel: { name: 'doc:notes', family: '__acme:docs::docs' } };
+
+  function buildPluginEngine(options: { hibernation?: boolean } = {}) {
+    const seen: { channel: string; count: number }[] = [];
+    const scoped = server({ scope: 'plugin', capabilities: [channels()] });
+    const awarenessConfig = {
+      capabilities: [awareness()],
+      awareness: {
+        state: viewing,
+        check: (_ctx: unknown, state: { viewingMessageId: string | null }) =>
+          state.viewingMessageId !== 'forbidden',
+      },
+    };
+
+    const feed = scoped.channel('feed', awarenessConfig);
+    const docs = scoped.channel(['docs', 'doc:{docId}'], awarenessConfig);
+
+    const countFeed = feed.on('count', {
+      run(ctx) {
+        seen.push({ channel: 'feed', count: ctx.channel.awareness.list().length });
+      },
+    });
+    const countDoc = docs.on('count', {
+      run(ctx) {
+        seen.push({ channel: ctx.channel.name, count: ctx.channel.awareness.list().length });
+        ctx.channel.awareness.set(ctx.connection.id, { viewingMessageId: 'from-server' });
+      },
+    });
+    const Docs = plugin('acme:docs', {
+      definition: scoped.assemble({ handlers: [countFeed, countDoc] }),
+    });
+    const base = server({
+      authenticate: () => ({}),
+      ...(options.hibernation ? { hibernation: true } : {}),
+      capabilities: [channels(), Docs()],
+    });
+
+    const storage = createTestStorage();
+    let engine!: Engine;
+    adapter({
+      id: 'awareness-plugin-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      ...(options.hibernation
+        ? {
+            hibernation: {
+              persist: vi.fn(),
+              restore: (socket: unknown) => ({ id: (socket as { id: string }).id }),
+            },
+          }
+        : {}),
+      setup(createEngine) {
+        engine = createEngine({
+          storage,
+          timers: createTestTimers(),
+          platform: {},
+          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        });
+        return {};
+      },
+    })(base.assemble({ handlers: [] }), undefined as never);
+
+    return { engine, storage, seen };
+  }
+
+  it.each([
+    ['a fixed channel', feedRouting],
+    ['a family room', launchRouting],
+  ])('sends a state to the other members of %s, and check refuses a bad one', async (_, to) => {
+    const { engine } = buildPluginEngine();
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+    const bob = await connect(engine, 'bob');
+    await alice.subscribe(to);
+
+    await bob.subscribe(to);
+    expect(bob.of('__subscribeOk__')[0]![2]!.channel).toMatchObject({
+      ...to.channel,
+      awareness: { maxBytes: expect.any(Number) },
+    });
+    await quiet();
+
+    await alice.set({ viewingMessageId: 'm1' }, to);
+    await bob.set({ viewingMessageId: 'forbidden' }, to);
+    await quiet();
+
+    expect(bob.changes()).toEqual([
+      expect.objectContaining({ connectionId: alice.id, state: { viewingMessageId: 'm1' } }),
+    ]);
+    expect(bob.of('__awareness__')[0]![2]).toEqual(to);
+    expect(bob.refusals()).toEqual(['check']);
+
+    await alice.unsubscribe(to);
+    expect(bob.changes().at(-1)).toEqual({ connectionId: alice.id, state: null });
+  });
+
+  it('gives plugin handlers ctx.channel.awareness, with each room of a family kept apart', async () => {
+    const { engine, seen } = buildPluginEngine();
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+    const bob = await connect(engine, 'bob');
+    for (const member of [alice, bob]) {
+      await member.subscribe(feedRouting);
+      await member.subscribe(launchRouting);
+    }
+
+    await bob.subscribe(notesRouting);
+    await quiet();
+
+    await alice.set({ viewingMessageId: 'm1' }, feedRouting);
+    await alice.set({ viewingMessageId: 'm1' }, launchRouting);
+    await bob.set({ viewingMessageId: 'm2' }, notesRouting);
+    await quiet();
+
+    await alice.send('__acme:docs::count', feedRouting);
+    await alice.send('__acme:docs::count', launchRouting);
+    await quiet();
+
+    expect(seen).toEqual([
+      { channel: 'feed', count: 1 },
+      { channel: 'doc:launch', count: 1 },
+    ]);
+    expect(bob.changes().at(-1)).toMatchObject({
+      connectionId: alice.id,
+      state: { viewingMessageId: 'from-server' },
+    });
+    expect(bob.of('__awareness__').at(-1)![2]).toEqual(launchRouting);
+  });
+
+  it('brings back the state of a woken connection in a plugin family room', async () => {
+    const { engine, storage } = buildPluginEngine({ hibernation: true });
+    await engine.initialize();
+    const launchKey = createChannelMembershipKey('doc:launch', '__acme:docs::docs');
+    writeConnectionRow(storage.sql, {
+      connection_id: 'kofi',
+      user_id: 'kofi',
+      meta: { name: 'kofi' },
+      ephemeral_tags: [],
+      ephemeral_memberships: [{ channelName: 'doc:launch', channelFamily: '__acme:docs::docs' }],
+      active_stream_ids: [],
+      awareness: {
+        [launchKey]: { state: '{"viewingMessageId":"m1"}', meta: '{"name":"kofi"}', updatedAt: 1 },
+      } as never,
+    });
+    const kofi = { id: 'kofi', send() {}, close() {} };
+
+    await engine.restoreHibernatedConnections([kofi]);
+
+    const dave = await connect(engine, 'dave');
+    await dave.subscribe(launchRouting);
+    expect(dave.of('__awarenessSync__')[0]![1]).toEqual({
+      entries: [
+        expect.objectContaining({ connectionId: 'kofi', state: { viewingMessageId: 'm1' } }),
+      ],
+    });
+
+    await engine
+      .handleHibernationWake(kofi)
+      .handleMessage(
+        JSON.stringify(['__awarenessSet__', { state: { viewingMessageId: 'm2' } }, launchRouting]),
+      );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(dave.changes()).toEqual([
+      { connectionId: 'kofi', memberId: 'kofi', state: { viewingMessageId: 'm2' } },
+    ]);
+
+    await dave.set({ viewingMessageId: 'm3' }, launchRouting);
+    await quiet();
+    await quiet();
+    expect(readConnectionRow(storage.sql, dave.id)?.awareness).toEqual({
+      [launchKey]: expect.objectContaining({ state: '{"viewingMessageId":"m3"}' }),
+    });
   });
 });

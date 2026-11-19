@@ -1,6 +1,6 @@
-import { awareness, channels, client, connect } from '@livething/client';
+import { awareness, channels, client, connect, plugin } from '@livething/client';
 import type { AwarenessEntry, AwarenessRefusal } from '@livething/client';
-import type { AwarenessClient } from '@livething/tests-e2e-handlers/awareness';
+import type { AwarenessClient, BoardsClient } from '@livething/tests-e2e-handlers/awareness';
 
 // Type-only proof that @livething/client adds `awareness` to a channel whose server config has
 // the option, typed by the server's state schema. tsc checks this file; nothing runs it.
@@ -24,5 +24,24 @@ const _stopRefused: () => void = general.awareness.onRefused((_refusal: Awarenes
 
 // @ts-expect-error — the lobby has no awareness option.
 void socket.channel('lobby').awareness;
+
+// A client plugin's channel family gets the same, typed from the server plugin.
+const Boards = plugin<BoardsClient>()({
+  id: 'e2e:boards',
+  dependencies: [channels, awareness],
+  setup: (pluginSocket) => ({
+    api: () => ({ general: pluginSocket.channel('boards', 'board:general') }),
+  }),
+});
+const board = Boards.use(
+  client<AwarenessClient>()(connect('wss://example.test/ws'), channels(), awareness(), Boards()),
+).general;
+board.awareness.set({ viewingMessageId: 'msg-1' });
+// @ts-expect-error — the state must match the board's awareness schema.
+board.awareness.set({ viewingMessageId: 1 });
+const _boardOthers: ReadonlyMap<
+  string,
+  AwarenessEntry<RoomAwareness>
+> = board.awareness.others.get();
 
 export type {};

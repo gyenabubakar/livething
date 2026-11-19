@@ -151,7 +151,10 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     };
   }
 
-  function missingReceiptMethod(verb: string, primitive: 'inbox' | 'readReceipts'): () => never {
+  function missingChannelMethod(
+    verb: string,
+    primitive: 'inbox' | 'readReceipts' | 'awareness',
+  ): () => never {
     return () => {
       throw new LiveThingConfigError(
         `plugin '${id}' used channel.${verb}(), but ${primitive}() is not registered. ` +
@@ -160,7 +163,12 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     };
   }
 
-  function installMissingReceiptSurfaces(messaging: MessagingObject, scope: ScopeInfo): void {
+  function missingAwarenessStore(member: string) {
+    const thrower = missingChannelMethod(`awareness.${member}`, 'awareness');
+    return { get: thrower, subscribe: thrower };
+  }
+
+  function installMissingChannelSurfaces(messaging: MessagingObject, scope: ScopeInfo): void {
     const markers = scope.markers();
     const channelOwner = markers.family ?? markers.name;
     if (channelOwner === undefined || !scope.prefixName || !channelOwner.startsWith(ownPrefix)) {
@@ -168,18 +176,30 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     }
 
     if (messaging.receivers === undefined) {
-      const missingInbox = missingReceiptMethod('receivers', 'inbox');
+      const missingInbox = missingChannelMethod('receivers', 'inbox');
       messaging.receivers = { get: missingInbox, subscribe: missingInbox };
-      messaging.onReceived = missingReceiptMethod('onReceived', 'inbox');
-      messaging.receiversOf = missingReceiptMethod('receiversOf', 'inbox');
+      messaging.onReceived = missingChannelMethod('onReceived', 'inbox');
+      messaging.receiversOf = missingChannelMethod('receiversOf', 'inbox');
     }
 
     if (messaging.readers === undefined) {
-      const missingReadReceipts = missingReceiptMethod('readers', 'readReceipts');
+      const missingReadReceipts = missingChannelMethod('readers', 'readReceipts');
       messaging.readers = { get: missingReadReceipts, subscribe: missingReadReceipts };
-      messaging.onRead = missingReceiptMethod('onRead', 'readReceipts');
-      messaging.readersOf = missingReceiptMethod('readersOf', 'readReceipts');
-      messaging.markAsRead = missingReceiptMethod('markAsRead', 'readReceipts');
+      messaging.onRead = missingChannelMethod('onRead', 'readReceipts');
+      messaging.readersOf = missingChannelMethod('readersOf', 'readReceipts');
+      messaging.markAsRead = missingChannelMethod('markAsRead', 'readReceipts');
+    }
+
+    if (!('awareness' in messaging)) {
+      messaging.awareness = {
+        set: missingChannelMethod('awareness.set', 'awareness'),
+        clear: missingChannelMethod('awareness.clear', 'awareness'),
+        onRefused: missingChannelMethod('awareness.onRefused', 'awareness'),
+        mine: missingAwarenessStore('mine'),
+        self: missingAwarenessStore('self'),
+        others: missingAwarenessStore('others'),
+        synced: missingAwarenessStore('synced'),
+      };
     }
   }
 
@@ -361,7 +381,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     id,
 
     install(hostSocket) {
-      getAugmenters(hostSocket).push(installMissingReceiptSurfaces);
+      getAugmenters(hostSocket).push(installMissingChannelSurfaces);
       // Primitives install before plugins, so their augmenters are ready here.
       // Graft the scope-aware verbs on, then run setup with the full socket.
       applyAugmenters(hostSocket, socket as unknown as MessagingObject, scope);

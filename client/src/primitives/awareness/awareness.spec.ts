@@ -1,6 +1,7 @@
 import { LiveThingConfigError } from '@livething/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { plugin } from '~/plugins/plugins.ts';
 import { awareness } from '~/primitives/awareness/awareness.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
 import { channels } from '~/primitives/channels/index.ts';
@@ -676,5 +677,89 @@ describe('awareness() set() on the subscribed event', () => {
     vi.advanceTimersByTime(1000);
 
     expect(sets(ws)).toEqual([{ viewingMessageId: 'm1' }]);
+  });
+});
+
+describe('awareness() on plugin channels', () => {
+  interface DocsWire {
+    channels: {
+      feed: { awareness: Viewing; incoming: {}; outgoing: {} };
+      docs: { addressing: 'dynamic'; awareness: Viewing; incoming: {}; outgoing: {} };
+    };
+  }
+
+  interface Host {
+    channels: {
+      '__acme:docs::feed': DocsWire['channels']['feed'];
+      '__acme:docs::docs': DocsWire['channels']['docs'];
+    };
+  }
+
+  const Docs = plugin<DocsWire>()({
+    id: 'acme:docs',
+    dependencies: [channels, awareness],
+    setup(socket) {
+      return {
+        api: () => ({ feed: socket.channel('feed'), launch: socket.channel('docs', 'doc:launch') }),
+      };
+    },
+  });
+
+  it.each([
+    ['a fixed channel', 'feed', { name: '__acme:docs::feed' }],
+    ['a family room', 'launch', { name: 'doc:launch', family: '__acme:docs::docs' }],
+  ] as const)('sends, receives and refuses on %s by its wire name', async (_, key, wire) => {
+    const socket = client<Host>()(connect('wss://test'), channels(), awareness(), Docs());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open('', { connectionId: 'c_me' });
+    const handle = Docs.use(socket)[key];
+
+    const done = handle.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      metadata: {
+        exchange: { source: 'client' },
+        channel: { ...wire, awareness: { maxBytes: 1024 } },
+      },
+    });
+    await done;
+    ws.emit({
+      event: '__awarenessSync__',
+      payload: { entries: [{ ...bob, ageMs: 0 }] },
+      metadata: { channel: wire },
+    });
+    expect(handle.awareness.synced.get()).toBe(true);
+
+    expect([...handle.awareness.others.get().keys()]).toEqual(['c_bob']);
+
+    handle.awareness.set({ viewingMessageId: 'm2' });
+    const sent = ws.sentFrames().filter((frame) => frame.event === '__awarenessSet__');
+    expect(sent).toEqual([
+      expect.objectContaining({
+        payload: { state: { viewingMessageId: 'm2' } },
+        metadata: { channel: wire },
+      }),
+    ]);
+
+    const refused = vi.fn();
+    handle.awareness.onRefused(refused);
+    ws.emit({
+      event: '__error__',
+      payload: {
+        code: 'awareness-refused',
+        detail: { event: '__awarenessSet__', reason: 'check' },
+      },
+      metadata: { channel: wire },
+    });
+    expect(refused).toHaveBeenCalledWith({ reason: 'check' });
+
+    ws.emit({
+      event: '__awareness__',
+      payload: { changes: [{ connectionId: 'c_bob', state: null }] },
+      metadata: { channel: wire },
+    });
+    expect(handle.awareness.others.get().size).toBe(0);
   });
 });

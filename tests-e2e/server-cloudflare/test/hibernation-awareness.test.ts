@@ -10,7 +10,7 @@ import { expect, it } from 'vitest';
 interface Frame {
   event: string;
   payload: Record<string, unknown>;
-  metadata: { channel?: { name?: string } } | null;
+  metadata: { channel?: { name?: string; family?: string } } | null;
 }
 
 interface Change {
@@ -19,7 +19,11 @@ interface Change {
   state: { viewingMessageId: string | null } | null;
 }
 
+type Routing = { name: string; family: string };
+
 const GENERAL = { name: 'room:general', family: 'rooms' };
+/** The same kind of room on the `e2e:boards` plugin's own channel family. */
+const BOARD = { name: 'board:general', family: '__e2e:boards::boards' };
 
 async function open(stub: DurableObjectStub, username: string) {
   const response = (await stub.fetch(`https://huddle.test/?username=${username}`, {
@@ -50,13 +54,22 @@ async function waitFor(frames: Frame[], match: (frame: Frame) => boolean): Promi
   throw new Error(`no matching frame; got ${JSON.stringify(frames)}`);
 }
 
-function send(socket: WebSocket, event: string, payload: unknown): void {
-  socket.send(JSON.stringify([event, payload, { channel: GENERAL }]));
+/** A `send(socket, event, payload)` for one channel. */
+function sender(to: Routing) {
+  return (socket: WebSocket, event: string, payload: unknown): void => {
+    socket.send(JSON.stringify([event, payload, { channel: to }]));
+  };
 }
 
-async function join(member: Awaited<ReturnType<typeof open>>) {
-  send(member.socket, '__subscribe__', null);
-  await waitFor(member.frames, (frame) => frame.event === '__awarenessSync__');
+const send = sender(GENERAL);
+const sendToBoard = sender(BOARD);
+
+async function join(member: Awaited<ReturnType<typeof open>>, to: Routing = GENERAL) {
+  sender(to)(member.socket, '__subscribe__', null);
+  await waitFor(
+    member.frames,
+    (frame) => frame.event === '__awarenessSync__' && frame.metadata?.channel?.name === to.name,
+  );
 }
 
 function changes(frames: Frame[]): Change[] {
@@ -109,6 +122,49 @@ it('keeps awareness states across a hibernation wake', async () => {
 
   // Bob saw alice's entry before the sleep, so her next change comes without `meta`.
   send(alice.socket, '__awarenessSet__', { state: { viewingMessageId: 'msg-2' } });
+  const next = await waitForChange(
+    bob.frames,
+    (change) => change.state?.viewingMessageId === 'msg-2',
+  );
+  expect(next).toEqual({
+    connectionId: alice.connectionId,
+    memberId: alice.connectionId,
+    state: { viewingMessageId: 'msg-2' },
+  });
+});
+
+it("keeps awareness states on a plugin's channel family across a hibernation wake", async () => {
+  const stub = env.AWARENESS_HIBERNATION_SERVER.get(
+    env.AWARENESS_HIBERNATION_SERVER.idFromName('awareness-board-wake'),
+  );
+  const alice = await open(stub, 'alice');
+  const bob = await open(stub, 'bob');
+  await join(alice, BOARD);
+  await join(bob, BOARD);
+
+  sendToBoard(alice.socket, '__awarenessSet__', { state: { viewingMessageId: 'msg-1' } });
+  await waitForChange(bob.frames, (change) => change.state?.viewingMessageId === 'msg-1');
+
+  await evictDurableObject(stub);
+
+  const carol = await open(stub, 'carol');
+  await join(carol, BOARD);
+  const sync = carol.frames.find((frame) => frame.event === '__awarenessSync__')!;
+  expect(sync.metadata?.channel).toEqual(BOARD);
+  expect(sync.payload.entries).toEqual([
+    expect.objectContaining({
+      connectionId: alice.connectionId,
+      state: { viewingMessageId: 'msg-1' },
+    }),
+  ]);
+
+  sendToBoard(bob.socket, '__e2e:boards::list-viewers', {});
+  const answer = await waitFor(bob.frames, (frame) => frame.event === '__e2e:boards::viewers');
+  expect(answer.payload.viewers).toEqual([
+    { connectionId: alice.connectionId, name: 'alice', viewingMessageId: 'msg-1' },
+  ]);
+
+  sendToBoard(alice.socket, '__awarenessSet__', { state: { viewingMessageId: 'msg-2' } });
   const next = await waitForChange(
     bob.frames,
     (change) => change.state?.viewingMessageId === 'msg-2',

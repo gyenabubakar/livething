@@ -3,8 +3,10 @@ import { awareness } from '@livething/server/awareness';
 import { channels } from '@livething/server/channels';
 import { Disconnect } from '@livething/server/errors';
 import { keepalive } from '@livething/server/keepalive';
+import { plugin } from '@livething/server/plugins';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
+import type { InferPluginClient } from '@livething/server/plugins';
 import { requireUsername } from '../_shared/authenticate.ts';
 import { RoomAwareness } from './events.ts';
 import type { RoomViewer } from './events.ts';
@@ -26,8 +28,53 @@ function authenticateMember(request: Request) {
   return { userId, meta: { userId, name: userId, role } };
 }
 
+/** A plugin does not know the host's meta type, so it reads the fields it needs. */
+function metaOf(meta: unknown) {
+  return meta as { name?: string; role?: string } | null;
+}
+
+/**
+ * A plugin's own channel family with awareness: Huddle task boards, where each member shares
+ * the message they are reading, under the same rules as a room.
+ */
+function defineBoards() {
+  const boardsBase = server({
+    scope: 'plugin',
+    capabilities: [channels(), emits({ viewers: t<{ roomId: string; viewers: RoomViewer[] }>() })],
+  });
+
+  const boards = boardsBase.channel(['boards', 'board:{boardId}'], {
+    capabilities: [awareness()],
+    awareness: {
+      state: RoomAwareness,
+      check: (ctx) => metaOf(ctx.meta)?.role !== 'guest',
+      windowMs: ROOM_AWARENESS_WINDOW_MS,
+      maxBytes: ROOM_AWARENESS_MAX_BYTES,
+    },
+  });
+
+  const handleListBoardViewers = boards.on('list-viewers', {
+    input: v.object({}),
+    run(ctx) {
+      const viewers = ctx.channel.awareness.list().map((entry) => ({
+        connectionId: entry.connectionId,
+        name: String(metaOf(entry.meta)?.name),
+        viewingMessageId: entry.state.viewingMessageId,
+      }));
+      ctx.send('viewers', { roomId: ctx.channel.params.boardId, viewers });
+    },
+  });
+
+  return plugin('e2e:boards', {
+    definition: boardsBase.assemble({ handlers: [handleListBoardViewers, boards] }),
+  });
+}
+
+const Boards = defineBoards();
+
 // Which message each member of a room is reading. A room lists awareness(); the lobby does
-// not, so a spec can check the refusal on a channel without it.
+// not, so a spec can check the refusal on a channel without it. The `e2e:boards` plugin has
+// the same on its own channel family.
 function defineAwareness(options: { hibernation: boolean }) {
   const base = server({
     hibernation: options.hibernation,
@@ -36,6 +83,7 @@ function defineAwareness(options: { hibernation: boolean }) {
       keepalive(),
       channels(),
       emits({ viewers: t<{ roomId: string; viewers: RoomViewer[] }>() }),
+      Boards(),
     ],
   });
 
@@ -104,3 +152,6 @@ export const awarenessDefinition = defineAwareness({ hibernation: false });
 export const awarenessHibernationDefinition = defineAwareness({ hibernation: true });
 
 export type AwarenessClient = InferClient<typeof awarenessDefinition>;
+
+/** The `e2e:boards` plugin's slice of the wire, in plain names. */
+export type BoardsClient = InferPluginClient<typeof Boards>;
