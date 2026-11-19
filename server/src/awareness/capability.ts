@@ -20,22 +20,24 @@ type SameType<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
  */
 type CheckedAwarenessState<T extends StandardSchemaV1> = 0 extends 1 & StateOf<T>
   ? AwarenessError<'awareness state must not be any'>
-  : SameType<StandardSchemaV1.InferInput<T>, StateOf<T>> extends true
-    ? [StateOf<T>] extends [object]
-      ? [
-          Extract<
-            StateOf<T>,
-            | readonly unknown[]
-            | Date
-            | Map<unknown, unknown>
-            | Set<unknown>
-            | ((...args: never) => unknown)
-          >,
-        ] extends [never]
-        ? T
-        : AwarenessError<'awareness state must be a plain JSON object, not an array, function, Date, Map or Set'>
-      : AwarenessError<'awareness state must be an object type'>
-    : AwarenessError<'awareness state schema must not change its type: input and output types must be equal'>;
+  : 0 extends 1 & StandardSchemaV1.InferInput<T>
+    ? AwarenessError<'awareness state schema input must not be any'>
+    : SameType<StandardSchemaV1.InferInput<T>, StateOf<T>> extends true
+      ? [StateOf<T>] extends [object]
+        ? [
+            Extract<
+              StateOf<T>,
+              | readonly unknown[]
+              | Date
+              | Map<unknown, unknown>
+              | Set<unknown>
+              | ((...args: never) => unknown)
+            >,
+          ] extends [never]
+          ? T
+          : AwarenessError<'awareness state must be a plain JSON object, not an array, function, Date, Map or Set'>
+        : AwarenessError<'awareness state must be an object type'>
+      : AwarenessError<'awareness state schema must not change its type: input and output types must be equal'>;
 
 /**
  * The ctx `check` gets: the sender's channel ctx, whose `ctx.channel.awareness` can read

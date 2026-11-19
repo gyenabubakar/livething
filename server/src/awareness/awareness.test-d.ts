@@ -136,6 +136,17 @@ base.channel('bad-3', {
   awareness: { state: v.object({ x: v.optional(v.string(), 'a') }) },
 });
 
+// @ts-expect-error — an `any` input hides a change of type.
+base.channel('bad-any-input', {
+  capabilities: [awareness()],
+  awareness: {
+    state: v.pipe(
+      v.any(),
+      v.transform(() => ({ viewingMessageId: null })),
+    ),
+  },
+});
+
 // @ts-expect-error — `check` must return a boolean, not a promise.
 base.channel('bad-4', {
   capabilities: [awareness()],
