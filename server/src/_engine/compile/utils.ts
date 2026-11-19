@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertSynchronousResult, LiveThingConfigError, ValidationFailed } from '@livething/core';
-import type { StandardSchemaV1 } from '@standard-schema/spec';
+import { isStandardSchema } from '~/_engine/validation.ts';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 
@@ -80,15 +80,6 @@ export function mergeRequires(
   source: PrimitiveCore.RequiresManifest,
 ): void {
   if (source.hibernation) target.hibernation = true;
-}
-
-function isStandardSchema(v: unknown): v is StandardSchemaV1 {
-  return (
-    !!v &&
-    typeof v === 'object' &&
-    '~standard' in v &&
-    typeof (v as Record<string, any>)['~standard']?.validate === 'function'
-  );
 }
 
 /**

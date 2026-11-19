@@ -17,6 +17,7 @@ import type { Engine } from '~/_engine/engine.ts';
 
 type Frame = [string, Record<string, unknown> | null, Record<string, unknown> | null];
 type Change = { connectionId: string; memberId?: string; meta?: unknown; state: unknown };
+type Routing = { channel: { name: string; family?: string } };
 
 const viewing = v.object({ viewingMessageId: v.nullable(v.string()) });
 
@@ -25,6 +26,8 @@ interface Options {
   presence?: boolean;
   messageLimits?: { receiveBytes: number; sendBytes: number; postBytes?: number };
   hibernation?: boolean;
+  /** The state the `set-own-state` handler sets for its sender. */
+  serverState?: unknown;
   onError?: (
     ctx: { setMeta(patch: Record<string, unknown>): void },
     error: unknown,
@@ -62,11 +65,17 @@ function buildEngine(options: Options = {}) {
     },
   });
 
-  const clearOwnPlace = rooms.on('clear-own-place', {
+  const setOwnState = rooms.on('set-own-state', {
     run(ctx) {
-      ctx.channel.awareness.set(ctx.connection.id, { viewingMessageId: null });
+      const state = (options.serverState ?? { viewingMessageId: null }) as {
+        viewingMessageId: string | null;
+      };
+      ctx.channel.awareness.set(ctx.connection.id, state);
     },
   });
+
+  const lobby = base.channel('lobby', {});
+  const wave = lobby.on('wave', { run() {} });
 
   const clearOthers = rooms.on('clear-others', {
     run(ctx) {
@@ -104,7 +113,7 @@ function buildEngine(options: Options = {}) {
       return {};
     },
   })(
-    base.assemble({ handlers: [countViewers, clearOthers, clearOwnPlace, mutateStates] }),
+    base.assemble({ handlers: [countViewers, clearOthers, setOwnState, mutateStates, wave] }),
     undefined as never,
   );
 
@@ -156,10 +165,10 @@ async function connect(engine: Engine, userId: string) {
           ([event, payload]) => event === '__error__' && payload!.code === 'awareness-refused',
         )
         .map(([, payload]) => (payload!.detail as { reason: string }).reason),
-    subscribe: (to = general) => raw(['__subscribe__', null, to]),
-    unsubscribe: (to = general) => raw(['__unsubscribe__', null, to]),
-    set: (state: unknown, to = general) => raw(['__awarenessSet__', { state }, to]),
-    send: (event: string, to = general) => raw([event, null, to]),
+    subscribe: (to: Routing = general) => raw(['__subscribe__', null, to]),
+    unsubscribe: (to: Routing = general) => raw(['__unsubscribe__', null, to]),
+    set: (state: unknown, to: Routing = general) => raw(['__awarenessSet__', { state }, to]),
+    send: (event: string, to: Routing = general) => raw([event, null, to]),
   };
 }
 
@@ -180,6 +189,7 @@ describe('awareness config', () => {
   it.each([
     [{ presence: false }, /presence/],
     [{ awareness: { state: undefined } }, /state/],
+    [{ awareness: { state: { '~standard': {} } } }, /Standard Schema/],
     [{ awareness: { windowMs: 0 } }, /windowMs/],
     [{ awareness: { windowMs: 10_001 } }, /windowMs/],
     [{ awareness: { maxBytes: 65_537 } }, /maxBytes/],
@@ -541,10 +551,37 @@ describe('awareness', () => {
     const { engine } = buildEngine();
     await engine.initialize();
     const alice = await connect(engine, 'alice');
+    const lobby = { channel: { name: 'lobby' } };
 
     await alice.set({ viewingMessageId: 'm1' });
     await quiet();
     expect(alice.of('__error__')).toEqual([]);
+
+    await alice.subscribe(lobby);
+    await alice.set({ viewingMessageId: 'm1' }, lobby);
+    await quiet();
+
+    const errors = alice.of('__error__');
+    expect(errors.map(([, payload]) => payload!.code)).toEqual(['unsupported-protocol']);
+    expect(errors[0]![2]).toEqual(lobby);
+  });
+
+  it('refuses a state whose JSON is not an object, such as one with a toJSON method', async () => {
+    const onError = vi.fn(async () => {});
+    const { engine } = buildEngine({
+      awareness: { state: v.looseObject({ viewingMessageId: v.nullable(v.string()) }) },
+      serverState: { viewingMessageId: 'm1', toJSON: () => 5 },
+      onError,
+    });
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+    await alice.subscribe();
+
+    await alice.send('set-own-state');
+    await quiet();
+
+    expect(alice.changes()).toEqual([]);
+    expect(String((onError.mock.calls[0] as unknown[])[1])).toMatch(/refused \(invalid\)/);
   });
 
   it('drops a frame larger than any channel allows before parsing it, and refuses one just over', async () => {
@@ -715,7 +752,7 @@ describe('awareness', () => {
       const alice = await connect(engine, 'alice');
       await alice.subscribe();
 
-      await alice.send('clear-own-place');
+      await alice.send('set-own-state');
 
       expect(errorsOf(onError)).toEqual([thrown]);
     });

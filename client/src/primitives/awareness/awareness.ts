@@ -163,8 +163,10 @@ export function awareness(options: AwarenessOptions = {}): AwarenessPrimitive {
         }
       }
 
+      // From the JSON set() checked: the app can change the object that `mine` holds.
       function sendMine(channel: ChannelAwareness): void {
-        if (rawSend(channel, channel.mine.store.get())) channel.lastSentJson = channel.mineJson;
+        const state = channel.mineJson === null ? null : (JSON.parse(channel.mineJson) as State);
+        if (rawSend(channel, state)) channel.lastSentJson = channel.mineJson;
       }
 
       function startWait(channel: ChannelAwareness): void {

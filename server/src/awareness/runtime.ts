@@ -75,8 +75,7 @@ interface ChannelScope {
 }
 
 interface Entry {
-  state: unknown;
-  /** The state's JSON, for the no-change test. */
+  /** The state's JSON: what is stored, sent and read back. */
   json: string;
   memberId: string;
   /** `meta` when the state appeared, as JSON. */
@@ -125,7 +124,6 @@ const PERSIST_DELAY_MS = 5000;
 
 /** A state that passed the schema and the size check, with its JSON. */
 interface PreparedState {
-  state: unknown;
   json: string;
 }
 
@@ -278,12 +276,15 @@ export function createAwarenessRuntime(
       return { ok: false, reason: 'invalid' };
     }
 
-    const value: unknown = result.value;
-    if (typeof json !== 'string' || !isPlainObject(value)) return { ok: false, reason: 'invalid' };
+    // Only the JSON is stored and sent, so its root must be an object too: a `toJSON` can
+    // turn a plain object into a string or an array.
+    if (typeof json !== 'string' || !isPlainObject(result.value) || !json.startsWith('{')) {
+      return { ok: false, reason: 'invalid' };
+    }
 
     if (utf8ByteLength(json) > record.options.maxBytes) return { ok: false, reason: 'too-large' };
 
-    return { ok: true, state: value, json };
+    return { ok: true, json };
   }
 
   /** Every byte of state this connection holds, in every channel. */
@@ -338,14 +339,12 @@ export function createAwarenessRuntime(
 
     const updatedAt = Date.now();
     if (entry) {
-      entry.state = prepared.state;
       entry.json = prepared.json;
       entry.updatedAt = updatedAt;
       entry.bytes = bytes;
       enqueue(record, connection, entry);
     } else {
       const created: Entry = {
-        state: prepared.state,
         json: prepared.json,
         memberId,
         metaJson,
@@ -843,7 +842,6 @@ export function createAwarenessRuntime(
 
         // Peers got this entry, with its meta, before the object slept.
         record.entries.set(connection, {
-          state: prepared.state,
           json: prepared.json,
           memberId: memberIdOf(record, connection),
           metaJson: saved.meta,

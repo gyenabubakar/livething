@@ -1,7 +1,7 @@
 import { LiveThingConfigError } from '@livething/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { channelOnlyCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
-import { assertPositiveInteger } from '~/_engine/validation.ts';
+import { assertPositiveInteger, isStandardSchema } from '~/_engine/validation.ts';
 import { awarenessMarker } from '~/awareness/marker.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { ChannelOnlyCapability } from '~/_define/capability.ts';
@@ -23,10 +23,17 @@ type CheckedAwarenessState<T extends StandardSchemaV1> = 0 extends 1 & StateOf<T
   : SameType<StandardSchemaV1.InferInput<T>, StateOf<T>> extends true
     ? [StateOf<T>] extends [object]
       ? [
-          Extract<StateOf<T>, readonly unknown[] | Date | Map<unknown, unknown> | Set<unknown>>,
+          Extract<
+            StateOf<T>,
+            | readonly unknown[]
+            | Date
+            | Map<unknown, unknown>
+            | Set<unknown>
+            | ((...args: never) => unknown)
+          >,
         ] extends [never]
         ? T
-        : AwarenessError<'awareness state must be a plain JSON object, not an array, Date, Map or Set'>
+        : AwarenessError<'awareness state must be a plain JSON object, not an array, function, Date, Map or Set'>
       : AwarenessError<'awareness state must be an object type'>
     : AwarenessError<'awareness state schema must not change its type: input and output types must be equal'>;
 
@@ -91,7 +98,7 @@ function resolveAwareness(options: unknown, channel: string): AwarenessOptions {
   }
 
   const { state, check, windowMs = 50, maxBytes = 1024 } = options as Record<string, unknown>;
-  if (typeof state !== 'object' || state === null || !('~standard' in state)) {
+  if (!isStandardSchema(state)) {
     throw new LiveThingConfigError(`${context}: 'state' must be a Standard Schema.`);
   }
 

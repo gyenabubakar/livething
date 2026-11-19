@@ -239,6 +239,17 @@ describe('awareness() sending', () => {
     expect(general.awareness.mine.get()).toEqual({ viewingMessageId: 'm1' });
   });
 
+  it('sends the state as set() checked it, even if the app changes mine.get() during the wait', async () => {
+    const { ws, general } = await joined({ throttleMs: 50, maxBytes: 64 });
+    general.awareness.set({ viewingMessageId: 'm1' });
+    general.awareness.set({ viewingMessageId: 'm2' });
+
+    (general.awareness.mine.get() as Viewing).viewingMessageId = 'x'.repeat(100);
+    vi.advanceTimersByTime(50);
+
+    expect(sets(ws)).toEqual([{ viewingMessageId: 'm1' }, { viewingMessageId: 'm2' }]);
+  });
+
   it('refuses a state too large or not a plain JSON object, and keeps mine', async () => {
     const { ws, general } = await joined({ maxBytes: 30 });
     const refused: string[] = [];

@@ -124,6 +124,9 @@ base.channel('zod-room', {
 // @ts-expect-error — a state must be an object.
 base.channel('bad-1', { capabilities: [awareness()], awareness: { state: v.string() } });
 
+// @ts-expect-error — no functions.
+base.channel('bad-fn', { capabilities: [awareness()], awareness: { state: v.function() } });
+
 // @ts-expect-error — no arrays.
 base.channel('bad-2', { capabilities: [awareness()], awareness: { state: v.array(v.string()) } });
 

@@ -1,4 +1,15 @@
 import { LiveThingConfigError } from '@livething/core';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
+
+/** Whether `value` is a Standard Schema with a `validate` function. */
+export function isStandardSchema(value: unknown): value is StandardSchemaV1 {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    '~standard' in value &&
+    typeof (value as { '~standard'?: { validate?: unknown } })['~standard']?.validate === 'function'
+  );
+}
 
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
