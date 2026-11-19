@@ -16,7 +16,9 @@ export function createKv(database: SqliteDatabase, logger?: Logger): KVProvider 
     CREATE TABLE IF NOT EXISTS ${KV_TABLE} (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT NOT NULL,
-      expires_at INTEGER
+      expires_at INTEGER,
+      -- Reserved JSON blob: lets us add per-row fields later without a migration.
+      metadata TEXT NOT NULL DEFAULT '{}'
     )
   `);
 

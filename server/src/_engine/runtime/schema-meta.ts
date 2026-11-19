@@ -53,8 +53,10 @@ export function readSchemaState(sql: SqlExec): SchemaState {
 export function markSchemaInitialized(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(`
     CREATE TABLE IF NOT EXISTS __livething_meta (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
+      key      TEXT PRIMARY KEY,
+      value    TEXT NOT NULL,
+      -- Reserved JSON blob: lets us add per-row fields later without a migration.
+      metadata TEXT NOT NULL DEFAULT '{}'
     );
     INSERT OR REPLACE INTO __livething_meta (key, value) VALUES ('initialized', '1')
   `);
