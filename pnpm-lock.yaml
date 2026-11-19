@@ -98,6 +98,9 @@ importers:
       '@livething/core':
         specifier: workspace:*
         version: link:../../core
+      '@livething/server':
+        specifier: workspace:*
+        version: link:../../server
       arktype:
         specifier: ^2.2.10
         version: 2.2.10

@@ -11,6 +11,7 @@ import { awareness } from '~/awareness/capability.ts';
 import { channels } from '~/channel/capability.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { emits } from '~/emits/emits.ts';
+import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
@@ -1239,5 +1240,53 @@ describe('awareness on plugin channels', () => {
     expect(readConnectionRow(storage.sql, dave.id)?.awareness).toEqual({
       [launchKey]: expect.objectContaining({ state: '{"viewingMessageId":"m3"}' }),
     });
+  });
+
+  it("runs a plugin channel's awareness check with the plugin's own ctx", async () => {
+    const scoped = server({
+      scope: 'plugin',
+      capabilities: [channels(), tags((ephemeral) => [ephemeral('editors')])],
+    });
+    const docs = scoped.channel(['docs', 'doc:{docId}'], {
+      capabilities: [awareness()],
+      awareness: {
+        state: viewing,
+        check: (ctx) => ctx.tags.ephemeral('editors').has(ctx.channel.name),
+      },
+      commit(ctx) {
+        if (ctx.user.id !== 'guest') ctx.tags.ephemeral('editors').add(ctx.channel.name);
+      },
+    });
+    const Docs = plugin('acme:docs', { definition: scoped.assemble({ handlers: [docs] }) });
+    const base = server({ authenticate: () => ({}), capabilities: [channels(), Docs()] });
+    let engine!: Engine;
+
+    adapter({
+      id: 'awareness-plugin-ctx-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        engine = createEngine({
+          storage: createTestStorage(),
+          timers: createTestTimers(),
+          platform: {},
+          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        });
+        return {};
+      },
+    })(base.assemble({ handlers: [] }), undefined as never);
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+    const guest = await connect(engine, 'guest');
+
+    await alice.subscribe(launchRouting);
+    await guest.subscribe(launchRouting);
+    await quiet();
+
+    await alice.set({ viewingMessageId: 'm1' }, launchRouting);
+    await guest.set({ viewingMessageId: 'm2' }, launchRouting);
+    await quiet();
+
+    expect(alice.refusals()).toEqual([]);
+    expect(guest.refusals()).toEqual(['check']);
   });
 });

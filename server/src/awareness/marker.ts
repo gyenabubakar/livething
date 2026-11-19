@@ -25,12 +25,12 @@ const MAX_PIECE_BYTES = 256 * 1024;
  *
  * @internal
  */
-export function awarenessMarker(options: AwarenessOptions): AwarenessMarkerPrimitive {
+export function awarenessMarker(awarenessOptions: AwarenessOptions): AwarenessMarkerPrimitive {
   return {
     __livething: 'awareness-marker',
     __identity: [AWARENESS_MARKER_KEY],
     __requires: {},
-    options,
+    options: awarenessOptions,
     __validate(view) {
       // Awareness sends each member's `meta` to the channel, and `presence: false` is how an
       // app keeps `meta` from members.
@@ -40,7 +40,9 @@ export function awarenessMarker(options: AwarenessOptions): AwarenessMarkerPrimi
         );
       }
     },
-    __setup(engine) {
+    // Reads `this.options`, not the closure: a plugin channel hands in a copy with its check scoped.
+    __setup(this: AwarenessMarkerPrimitive, engine) {
+      const { options } = this;
       const { channelKey } = engine.getScopeInfo();
       if (!channelKey) return;
 

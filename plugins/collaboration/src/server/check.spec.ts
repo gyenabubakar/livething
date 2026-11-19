@@ -124,6 +124,19 @@ describe('the server check', () => {
     expect(result.ok === false && result.reason).toMatch(/JSON or bytes/);
   });
 
+  it('refuses bytes that are not a Yjs update, and leaves the doc alone', () => {
+    const { server } = setup();
+    const before = Y.encodeStateVector(server.ydoc);
+
+    expect(applyChecked(server, new Uint8Array([1, 2, 3, 250, 99, 7, 7, 7]), FROM_CLIENT)).toEqual({
+      ok: false,
+      reason: 'the bytes are not a Yjs update',
+      toOthers: null,
+      toSender: null,
+    });
+    expect(Y.encodeStateVector(server.ydoc)).toEqual(before);
+  });
+
   it('refuses an update that needs updates the server has not seen', () => {
     const { server, amara } = setup();
     updateOf(amara.ydoc, () => amara.change((d) => void (d.title = 'Launch v2')));

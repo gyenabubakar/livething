@@ -490,6 +490,8 @@ function namespaceChannel(scope: PluginScope, primitive: Primitive): Primitive {
 
       if (CHANNEL_LIFECYCLE_REGISTER[child.__livething]) return scopeChannelLifecycle(scope, child);
 
+      if (child.__livething === 'awareness-marker') return scopeAwarenessCheck(scope, child);
+
       return namespaceOne(scope, child);
     }),
   } as unknown as Primitive;
@@ -518,6 +520,25 @@ function scopeChannelLifecycle(scope: PluginScope, primitive: Primitive): Primit
     handler: scoped,
     __setup(engine: EngineAccess) {
       register(engine, scoped, primitive);
+    },
+  } as unknown as Primitive;
+}
+
+/** Run a plugin channel's awareness `check` with the plugin's scoped ctx, like its other hooks. */
+function scopeAwarenessCheck(scope: PluginScope, primitive: Primitive): Primitive {
+  const options = (
+    primitive as unknown as { options: { check?: (ctx: any, ...rest: any[]) => unknown } }
+  ).options;
+  const { check } = options;
+  if (!check) return primitive;
+
+  return {
+    ...(primitive as unknown as Record<PropertyKey, unknown>),
+    __plugin: scope.id,
+    options: {
+      ...options,
+      check: (ctx: any, ...rest: any[]) =>
+        runAsPlugin(scope, ctx, (scoped) => check(scoped, ...rest)),
     },
   } as unknown as Primitive;
 }

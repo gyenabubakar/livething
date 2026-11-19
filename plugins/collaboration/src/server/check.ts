@@ -182,8 +182,17 @@ export function applyChecked<D extends DocDef>(
   update: Uint8Array,
   origin: unknown,
 ): CheckResult {
+  let structs: ReturnType<typeof Y.decodeUpdate>['structs'];
+  let starts: Map<number, number>;
+  try {
+    structs = Y.decodeUpdate(update).structs;
+    starts = Y.parseUpdateMeta(update).from;
+  } catch {
+    return { ok: false, reason: 'the bytes are not a Yjs update', toOthers: null, toSender: null };
+  }
+
   const names = new Set(rootSlots(core.def.shape).keys());
-  for (const struct of Y.decodeUpdate(update).structs) {
+  for (const struct of structs) {
     const parent = (struct as { parent?: unknown }).parent;
     if (typeof parent === 'string' && !names.has(parent)) {
       return {
@@ -199,7 +208,7 @@ export function applyChecked<D extends DocDef>(
   // what the server has is out of order. Yjs would hold it until the missing part came, and
   // then check it as part of someone else's update.
   const have = Y.decodeStateVector(Y.encodeStateVector(core.ydoc));
-  for (const [client, clock] of Y.parseUpdateMeta(update).from) {
+  for (const [client, clock] of starts) {
     if (clock > (have.get(client) ?? 0)) {
       return {
         ok: false,
