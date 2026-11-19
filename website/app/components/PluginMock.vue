@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import Chat from './plugin-mocks/Chat.vue'
 import Collab from './plugin-mocks/Collab.vue'
-import Cursors from './plugin-mocks/Cursors.vue'
 import Feed from './plugin-mocks/Feed.vue'
 import Push from './plugin-mocks/Push.vue'
 import State from './plugin-mocks/State.vue'
@@ -12,7 +11,6 @@ const mocks = {
   chat: Chat,
   push: Push,
   collab: Collab,
-  cursors: Cursors,
   feed: Feed,
   state: State,
 }
