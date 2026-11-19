@@ -134,6 +134,15 @@ function isLeaf(field: unknown): field is Leaf {
   );
 }
 
+/** What a field is. `doc()` has already checked every field, so anything else is a shape. */
+export function kindOf(field: Field): 'text' | 'rich-text' | 'list' | 'record' | 'leaf' | 'shape' {
+  if (isLeaf(field)) return 'leaf';
+
+  if (KIND in field) return (field as TextField | RichTextField | ListField | RecordField)[KIND];
+
+  return 'shape';
+}
+
 function isShape(field: unknown): field is Shape {
   return (
     typeof field === 'object' &&
@@ -294,7 +303,12 @@ export type Input<F> = F extends TextField | RichTextField
 export interface DraftList<I extends Field> extends Iterable<Draft<I>> {
   readonly length: number;
   at(index: number): Draft<I> | undefined;
+  /**
+   * The first item `predicate` accepts. The predicate gets each item as it was when the
+   * `change()` began, so it does not see what this change wrote. Read the draft for that.
+   */
   find(predicate: (item: Snapshot<I>) => boolean): Draft<I> | undefined;
+  /** The index of the first item `predicate` accepts, with the same rule as `find`. */
   findIndex(predicate: (item: Snapshot<I>) => boolean): number;
   push(...items: Input<I>[]): void;
   insert(index: number, ...items: Input<I>[]): void;
@@ -344,22 +358,29 @@ export interface YRef<T> {
   readonly '~yjs': T;
 }
 
-/** The Yjs type behind a field. */
+/** The Yjs type behind a text field: what an editor binds to. */
 export type YTypeOf<F> = F extends TextField
   ? Y.Text
   : F extends RichTextField
     ? Y.XmlFragment
-    : F extends ListField<any> | RecordField<any> | Shape
-      ? Y.Map<unknown>
-      : never;
+    : never;
 
-/** The paths `yjs.at()` follows, each ending at a Yjs type. A plain value has none. */
+/** The end of a path to one list item or record entry, which an item anchor stays on. */
+export interface ItemRef {
+  readonly '~item': true;
+}
+
+/**
+ * The paths a picker such as `yjs.at((p) => p.tasks[0].notes)` follows. Text and rich
+ * text end at their Yjs type, list items and record entries are {@link ItemRef}s, and
+ * a plain value has no Yjs type.
+ */
 export type PathOf<F> = F extends TextField | RichTextField
   ? YRef<YTypeOf<F>>
   : F extends ListField<infer I>
-    ? { readonly [index: number]: PathOf<I> }
+    ? { readonly [index: number]: PathOf<I> & ItemRef }
     : F extends RecordField<infer I>
-      ? { readonly [key: string]: PathOf<I> }
+      ? { readonly [key: string]: PathOf<I> & ItemRef }
       : F extends Leaf
         ? { readonly '~a plain value has no Yjs type': true }
         : F extends Shape

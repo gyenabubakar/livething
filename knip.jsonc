@@ -31,7 +31,7 @@
       "project": ["src/**/*.ts"],
     },
     "plugins/collaboration": {
-      "entry": ["src/**/*.test-d.ts"],
+      "entry": ["src/**/*.test-d.ts", "src/**/*.bench.ts"],
       "project": ["src/**/*.ts"],
     },
     "server-adapters/cloudflare": {

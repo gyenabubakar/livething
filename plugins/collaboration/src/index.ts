@@ -1,4 +1,6 @@
 export { doc, list, record, richText, text } from '~/schema.ts';
+export type { Anchor, ItemAnchor, ItemPlace, TextAnchor, TextPlace } from '~/doc/anchors.ts';
+export type { InvalidChangeDetail } from '~/doc/values.ts';
 export type {
   DocDef,
   DocOptions,
@@ -9,6 +11,7 @@ export type {
   DraftShape,
   Field,
   Input,
+  ItemRef,
   Leaf,
   ListField,
   PathOf,

@@ -6,7 +6,7 @@ import { relativizeTildeImports } from '../../scripts/vite-dts.ts';
 export default defineConfig({
   plugins: [
     dts({
-      exclude: ['**/*.spec.ts', '**/*.test.ts', '**/*.test-d.ts', '**/*.bench.ts'],
+      exclude: ['**/*.spec.ts', '**/*.test.ts', '**/*.test-d.ts', '**/*.bench.ts', 'src/test/**'],
       beforeWriteFile: relativizeTildeImports(resolve(__dirname, 'dist')),
     }),
   ],
@@ -27,7 +27,7 @@ export default defineConfig({
     rollupOptions: {
       // Peers and dependencies the app installs. Bundling yjs twice breaks it: Yjs
       // checks types with `instanceof`, so every package must share one copy.
-      external: [/^@livething\//, /^@standard-schema\//, /^yjs(?:\/.*)?$/],
+      external: [/^@livething\//, /^@standard-schema\//, /^yjs(?:\/.*)?$/, /^fast-diff$/],
     },
   },
 });
