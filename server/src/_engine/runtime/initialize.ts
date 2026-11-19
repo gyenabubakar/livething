@@ -43,6 +43,9 @@ function validatePrimitives(core: EngineCore): void {
       isChannelDurable(key: string): boolean {
         return core.isChannelDurable(key);
       },
+      hasPresence(key: string): boolean {
+        return core.hasPresence(key);
+      },
     };
 
     for (const primitive of primitives) {

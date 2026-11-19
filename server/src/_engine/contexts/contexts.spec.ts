@@ -726,6 +726,7 @@ describe('persistAttachment', () => {
       ephemeral_tags: [{ group: 'role', key: 'vip' }],
       ephemeral_memberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
       active_stream_ids: ['stream_1'],
+      awareness: {},
       metadata: {},
     });
   });

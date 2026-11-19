@@ -30,6 +30,7 @@ export interface LiveThingProtocol {
   channelMembership?: 'persistent' | 'ephemeral';
   inbox?: boolean;
   readReceipts?: boolean;
+  awareness?: { maxBytes: number };
   streamId?: string;
   streamDurability?: 'ephemeral' | 'persistent';
   streamNudgeId?: string;
@@ -61,6 +62,11 @@ const ChannelMetadata = v.strictObject(
     membership: v.optional(v.picklist(['persistent', 'ephemeral'])),
     inbox: v.optional(v.boolean()),
     readReceipts: v.optional(v.boolean()),
+    awareness: v.optional(
+      v.strictObject({
+        maxBytes: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+      }),
+    ),
   },
   "The 'channel' metadata must be an object with a 'name'.",
 );
@@ -117,6 +123,7 @@ function metadataToLiveThing(input: unknown): LiveThingProtocol {
       membership?: 'persistent' | 'ephemeral';
       inbox?: boolean;
       readReceipts?: boolean;
+      awareness?: { maxBytes: number };
     };
     delivery?: { id?: string; seq?: number };
     stream?: {
@@ -148,6 +155,10 @@ function metadataToLiveThing(input: unknown): LiveThingProtocol {
     if (metadata.channel.inbox !== undefined) out.inbox = metadata.channel.inbox;
     if (metadata.channel.readReceipts !== undefined) {
       out.readReceipts = metadata.channel.readReceipts;
+    }
+
+    if (metadata.channel.awareness !== undefined) {
+      out.awareness = { maxBytes: metadata.channel.awareness.maxBytes };
     }
   }
 
@@ -284,6 +295,13 @@ export const UploadEndFrame = frame(
   uploadMeta,
 );
 export const UploadCancelFrame = frame('__uploadCancel__', NoPayload, uploadMeta);
+/** One connection's awareness state is a JSON object. The channel's own schema checks it later. */
+const AwarenessState = v.record(v.string(), v.unknown());
+export const AwarenessSetFrame = frame(
+  '__awarenessSet__',
+  v.strictObject({ state: v.nullable(AwarenessState) }),
+  channelMeta,
+);
 
 /** Whether a parsed frame is a well-formed `__uploadCancel__`, the same check its handler runs. */
 export function isUploadCancelFrame(input: unknown): boolean {
@@ -302,6 +320,7 @@ const INCOMING_FRAMES = {
   __readQuery__: ReadQueryFrame,
   __uploadEnd__: UploadEndFrame,
   __uploadCancel__: UploadCancelFrame,
+  __awarenessSet__: AwarenessSetFrame,
 };
 
 export const IncomingProtocolFrame = v.union(Object.values(INCOMING_FRAMES));
@@ -402,6 +421,34 @@ const MemberSyncFrame = frame(
   v.strictObject({ members: v.array(SyncMemberPayload) }),
   channelMeta,
 );
+const AwarenessEntryPayload = v.strictObject({
+  connectionId: v.string(),
+  memberId: v.string(),
+  meta: v.record(v.string(), v.unknown()),
+  state: AwarenessState,
+  ageMs: NonNegativeSafeInt,
+});
+/** Every state in the channel but the receiver's own, in pieces: all but the last have `more`. */
+const AwarenessSyncFrame = frame(
+  '__awarenessSync__',
+  v.strictObject({ entries: v.array(AwarenessEntryPayload), more: v.optional(v.literal(true)) }),
+  channelMeta,
+);
+/** `meta` comes with a connection's first state after it appeared, so receivers can show it. */
+const AwarenessChange = v.union([
+  v.strictObject({
+    connectionId: v.string(),
+    memberId: v.string(),
+    meta: v.optional(v.record(v.string(), v.unknown())),
+    state: AwarenessState,
+  }),
+  v.strictObject({ connectionId: v.string(), state: v.null() }),
+]);
+const AwarenessChangesFrame = frame(
+  '__awareness__',
+  v.strictObject({ changes: v.array(AwarenessChange) }),
+  channelMeta,
+);
 const ReceivedFanoutFrame = frame(
   '__received__',
   v.strictObject({ userId: v.string(), receivedThrough: NonNegativeSafeInt }),
@@ -462,6 +509,8 @@ export const OutgoingProtocolFrame = v.union([
   KickedFrame,
   MemberChangesFrame,
   MemberSyncFrame,
+  AwarenessSyncFrame,
+  AwarenessChangesFrame,
   ReceivedFanoutFrame,
   ReadFanoutFrame,
   ReceivedQueryResultFrame,
@@ -607,6 +656,7 @@ export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ContinueStreamFrame = v.InferOutput<typeof ContinueStreamFrame>;
 export type UploadEndFrame = v.InferOutput<typeof UploadEndFrame>;
 export type UploadCancelFrame = v.InferOutput<typeof UploadCancelFrame>;
+export type AwarenessSetFrame = v.InferOutput<typeof AwarenessSetFrame>;
 type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
 export type ReadFrame = v.InferOutput<typeof ReadFrame>;
 type ReceivedQueryFrame = v.InferOutput<typeof ReceivedQueryFrame>;
@@ -638,6 +688,7 @@ const INCOMING_NAMES = [
   '__readQuery__',
   '__uploadEnd__',
   '__uploadCancel__',
+  '__awarenessSet__',
 ] as const;
 const OUTGOING_NAMES = [
   '__uploadAck__',
@@ -651,6 +702,8 @@ const OUTGOING_NAMES = [
   '__kicked__',
   '__memberChanges__',
   '__memberSync__',
+  '__awarenessSync__',
+  '__awareness__',
   '__received__',
   '__read__',
   '__receivedQuery__',

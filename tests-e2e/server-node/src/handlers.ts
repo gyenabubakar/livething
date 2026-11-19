@@ -1,4 +1,5 @@
 import { adminDefinition } from '@livething/tests-e2e-handlers/admin';
+import { awarenessDefinition } from '@livething/tests-e2e-handlers/awareness';
 import { binaryDefinition } from '@livething/tests-e2e-handlers/binary';
 import { channelCheckCommitDefinition } from '@livething/tests-e2e-handlers/channel-check-commit';
 import { channelDynamicDefinition } from '@livething/tests-e2e-handlers/channel-dynamic';
@@ -113,6 +114,7 @@ export const FEATURE_DEFINITIONS: Record<string, ServerDefinition> = {
   '/ws/inbox-dynamic': inboxDynamicDefinition,
   '/ws/inbox-retention': inboxRetentionDefinition,
   '/ws/receipts': receiptsDefinition,
+  '/ws/awareness': awarenessDefinition,
   '/ws/inbox-gap': inboxGapDefinition,
   '/ws/inbox-handle': inboxHandleDefinition,
   '/ws/last-seen': lastSeenDefinition,

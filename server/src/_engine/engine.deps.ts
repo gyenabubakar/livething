@@ -18,6 +18,7 @@ import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
+import type { StoredConnectionRow } from '~/_engine/runtime/connection-store.ts';
 import type { InboxService } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -53,7 +54,7 @@ interface ProtocolMessageOptions {
 
 type RuntimeErrorOptions = Pick<
   ErrorsRuntime.SendRuntimeErrorOptions,
-  'error' | 'event' | 'routing' | 'deliver'
+  'error' | 'event' | 'routing' | 'deliver' | 'clientGets'
 >;
 
 interface ReplayWire {
@@ -426,6 +427,10 @@ function buildChannelRuntime(core: EngineCore) {
     isReadReceiptsChannel: (channelName: string, channelFamily: string | null) =>
       core.readReceiptsChannels.has(channelFamily ?? channelName),
 
+    get awareness() {
+      return core.awareness;
+    },
+
     stopChannelStreams: (connection: RuntimeConnection, opts: StopChannelStreamsOptions) =>
       core.streamChannelLeave?.(dispatchRuntime(core), connection, opts) ?? Promise.resolve(),
 
@@ -507,6 +512,9 @@ function buildDispatchRuntime(core: EngineCore) {
     get uploadService() {
       return core.uploadService;
     },
+    get awareness() {
+      return core.awareness;
+    },
     get requestDispatch() {
       return core.requestDispatch;
     },
@@ -572,6 +580,12 @@ function buildConnectionRuntime(core: EngineCore) {
 
     flushAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.flushDirtyAttachment(core, connection),
+
+    restoreAwareness: (connection: RuntimeConnection, row: StoredConnectionRow) => {
+      if (row.awareness) core.awareness?.restore(connection, row.awareness);
+    },
+
+    forgetAwareness: (connection: RuntimeConnection) => core.awareness?.forget(connection),
 
     restoreAttachment: (socketKey: unknown) => core.options.hibernation?.restore(socketKey),
 

@@ -53,6 +53,10 @@
       "types": "./dist/inbox/capability.d.ts",
       "import": "./dist/inbox.js"
     },
+    "./awareness": {
+      "types": "./dist/awareness/capability.d.ts",
+      "import": "./dist/awareness.js"
+    },
     "./last-seen": {
       "types": "./dist/last-seen/capability.d.ts",
       "import": "./dist/last-seen.js"

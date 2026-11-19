@@ -17,6 +17,7 @@
 import type { AnyRecordedStream } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { AwarenessOptions, AwarenessRuntime } from '~/awareness/runtime.ts';
 import type { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import type * as ChannelRuntime from '~/channel/runtime.ts';
 import type { MembershipInsert, MembershipKey, StoredMembership } from '~/channel/storage.ts';
@@ -29,6 +30,14 @@ import type {
 import type { TagsRuntime } from '~/tags/runtime.ts';
 import type { TagsApi } from '~/tags/types.ts';
 import type { AnyUpload } from '~/upload/upload.ts';
+
+export type { AwarenessOptions, AwarenessRuntime };
+
+/** Make the engine's awareness runtime. Passed by the awareness marker, so a server without awareness ships none of it. */
+export type CreateAwarenessRuntime = (
+  core: any,
+  options: ReadonlyMap<string, AwarenessOptions>,
+) => AwarenessRuntime;
 
 type OptionsParameter = { continueScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
 type OptionsParameter2 = { streamId: string; cancelScope: ResolvedChannel };

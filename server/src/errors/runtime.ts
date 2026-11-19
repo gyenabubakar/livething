@@ -86,6 +86,9 @@ export interface SendRuntimeErrorOptions {
    * the frame back until a continue has sent the stored chunks.
    */
   deliver?: (connection: RuntimeConnection, frame: RuntimeErrorFrame) => void;
+
+  /** What the client gets in place of `internal-error`, for the log. Goes with `deliver`. */
+  clientGets?: string;
 }
 
 /** The `__error__` frame `sendRuntimeError` sends. */
@@ -127,7 +130,7 @@ export async function sendRuntimeError(
     }
   } else if (!(error instanceof LiveThingError) && deps.errorHooks.length === 0) {
     deps.logger.error(
-      '[livething] A handler threw an unexpected error, and the client got internal-error. ' +
+      `[livething] A handler threw an unexpected error, and the client got ${options.clientGets ?? 'internal-error'}. ` +
         'Add an onError hook to handle such errors yourself.',
       { event, error },
     );

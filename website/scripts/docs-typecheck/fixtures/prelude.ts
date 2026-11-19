@@ -1,6 +1,7 @@
 // What a short docs example may use without declaring it: Huddle itself. Every name is real and
 // typed, so a short example is checked against the same app as the long ones.
 import {
+  awareness,
   binary,
   channels,
   client,
@@ -41,6 +42,7 @@ export const socket = client<HuddleSocket>()(
   binary(),
   uploads(),
   channels(),
+  awareness(),
   clientRequests(),
   serverRequests(),
   stream(),

@@ -22,6 +22,7 @@ import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { SubscribeAttempt } from '~/_engine/runtime/subscribe-order.ts';
 import type { ChannelHooks, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { AwarenessRuntime } from '~/awareness/runtime.ts';
 import type { PresenceChange } from '~/channel/presence-batch.ts';
 import type { MembershipInsert, StoredMembership } from '~/channel/storage.ts';
 import type { ConnectionInfo, Logger } from '~/context.ts';
@@ -283,6 +284,9 @@ interface ChannelRuntime extends ChannelHooks {
    */
   isReadReceiptsChannel?(channelName: string, channelFamily: string | null): boolean;
 
+  /** The awareness runtime, when a channel of the server lists `awareness()`. */
+  readonly awareness?: AwarenessRuntime;
+
   /**
    * Stop the streams the connection runs in a channel it just left. Absent when
    * no stream capability is listed.
@@ -473,6 +477,17 @@ export async function leaveChannel(
   // Remove membership before running any async hooks. A concurrent leave
   // will see the member already gone and stop early.
   removeChannelMembership(runtime.channelMembers, connection, scope);
+  // Before the write below, so the stored row no longer has the left channel's state.
+  try {
+    runtime.awareness?.left(connection, scope);
+  } catch (error) {
+    runtime.logger?.error('[livething] clearing awareness on leave failed', {
+      channel: scope.channelName,
+      connectionId: connection.id,
+      error,
+    });
+  }
+
   runtime.persistAttachment(connection);
 
   // Another tab of the same user keeps the member present. Checked now, so
@@ -766,6 +781,9 @@ async function runSubscribeFlow(
     confirmation.readReceipts = true;
   }
 
+  const awarenessLimit = runtime.awareness?.limit(scope.channel.key);
+  if (awarenessLimit) confirmation.awareness = awarenessLimit;
+
   const seq = connection.resumeToken ? runtime.allocateDeliverySeq?.() : undefined;
 
   try {
@@ -812,6 +830,10 @@ async function runSubscribeFlow(
     if (!memberWasPresent) changes.push({ kind: 'online', memberId, meta: connection.meta });
     runtime.recordPresence(scope, changes, connection);
   }
+
+  // Awareness needs presence, so the member sync above went first. A failed send is logged
+  // by the broadcast and does not undo the join.
+  if (awarenessLimit) runtime.awareness!.joined(connection, scope);
 
   // Auto-rejoin does not fire onSubscribe — the user already joined once, and
   // the rejoin only restores a fresh socket. Re-running join side-effects (a

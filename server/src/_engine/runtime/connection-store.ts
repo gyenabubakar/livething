@@ -11,6 +11,7 @@ const CREATE_CONNECTIONS_TABLE_SQL = `
     ephemeral_tags        TEXT NOT NULL DEFAULT '[]',
     ephemeral_memberships TEXT NOT NULL DEFAULT '[]',
     active_stream_ids     TEXT NOT NULL DEFAULT '[]',
+    awareness             TEXT NOT NULL DEFAULT '{}',
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata              TEXT NOT NULL DEFAULT '{}'
   )
@@ -42,8 +43,17 @@ export interface StoredConnectionRow {
   ephemeral_tags: readonly StoredEphemeralTag[];
   ephemeral_memberships: readonly { channelName: string; channelFamily: string | null }[];
   active_stream_ids: readonly string[];
+  /** The connection's awareness state in each channel, keyed by channel membership key. */
+  awareness?: Readonly<Record<string, StoredAwarenessEntry>>;
   /** Framework-owned JSON state reserved for connection-level features. */
   metadata?: Record<string, unknown>;
+}
+
+/** One awareness entry in a hibernation row. `state` and `meta` are kept as their JSON. */
+export interface StoredAwarenessEntry {
+  state: string;
+  meta: string;
+  updatedAt: number;
 }
 
 type RawRow = {
@@ -53,6 +63,7 @@ type RawRow = {
   ephemeral_tags: string;
   ephemeral_memberships: string;
   active_stream_ids: string;
+  awareness: string;
   metadata: string;
 };
 
@@ -71,7 +82,10 @@ export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
  * Build the row payload from the in-memory connection record. Centralised so
  * the connect, wake, and per-state-change write paths all agree on the shape.
  */
-export function buildConnectionRow(connection: RuntimeConnection): StoredConnectionRow {
+export function buildConnectionRow(
+  connection: RuntimeConnection,
+  awareness: Readonly<Record<string, StoredAwarenessEntry>> = {},
+): StoredConnectionRow {
   const ephemeral_tags: StoredEphemeralTag[] = [];
   for (const [group, keys] of connection.tags.ephemeral) {
     for (const key of keys) ephemeral_tags.push({ group, key });
@@ -84,6 +98,7 @@ export function buildConnectionRow(connection: RuntimeConnection): StoredConnect
     ephemeral_tags,
     ephemeral_memberships: [...connection.channelMemberships.values()],
     active_stream_ids: [...(connection.activeStreamIds ?? [])],
+    awareness,
     metadata: connection.resumeToken ? { resumeToken: connection.resumeToken } : {},
   };
 }
@@ -96,8 +111,8 @@ export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredCo
   sql.exec(
     `
       INSERT OR REPLACE INTO __livething_connections
-        (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, awareness, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
     row.connection_id,
     row.user_id,
@@ -105,6 +120,7 @@ export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredCo
     JSON.stringify(row.ephemeral_tags),
     JSON.stringify(row.ephemeral_memberships),
     JSON.stringify(row.active_stream_ids),
+    JSON.stringify(row.awareness ?? {}),
     serializeJsonOrThrow(row.metadata ?? {}, `Connection metadata for "${row.connection_id}"`),
   );
 }
@@ -120,7 +136,7 @@ export function readConnectionRow(
   const raw = sql
     .exec<RawRow>(
       `
-        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, metadata
+        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, awareness, metadata
         FROM __livething_connections
         WHERE connection_id = ?
       `,
@@ -136,6 +152,7 @@ export function readConnectionRow(
     ephemeral_tags: parseEphemeralTagArray(raw.ephemeral_tags),
     ephemeral_memberships: parseMembershipArray(raw.ephemeral_memberships),
     active_stream_ids: parseStringArray(raw.active_stream_ids),
+    awareness: parseAwareness(raw.awareness),
     metadata: parseObject(raw.metadata),
   };
 }
@@ -151,7 +168,7 @@ export function readAllConnectionRows(
   const rows = sql
     .exec<RawRow>(
       `
-        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, metadata
+        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, awareness, metadata
         FROM __livething_connections
       `,
     )
@@ -165,6 +182,7 @@ export function readAllConnectionRows(
       ephemeral_tags: parseEphemeralTagArray(raw.ephemeral_tags),
       ephemeral_memberships: parseMembershipArray(raw.ephemeral_memberships),
       active_stream_ids: parseStringArray(raw.active_stream_ids),
+      awareness: parseAwareness(raw.awareness),
       metadata: parseObject(raw.metadata),
     });
   }
@@ -230,6 +248,22 @@ function parseObject(raw: string): Record<string, unknown> {
   }
 
   return {};
+}
+
+function parseAwareness(raw: string): Record<string, StoredAwarenessEntry> {
+  const stored: Record<string, StoredAwarenessEntry> = {};
+  for (const [key, value] of Object.entries(parseObject(raw))) {
+    const entry = value as Partial<StoredAwarenessEntry> | null;
+    if (
+      typeof entry?.state === 'string' &&
+      typeof entry.meta === 'string' &&
+      typeof entry.updatedAt === 'number'
+    ) {
+      stored[key] = { state: entry.state, meta: entry.meta, updatedAt: entry.updatedAt };
+    }
+  }
+
+  return stored;
 }
 
 function parseStringArray(raw: string): readonly string[] {

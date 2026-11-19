@@ -714,6 +714,42 @@ export interface ChannelReadReceipts {
   readersOf(seq: number): string[];
 }
 
+/** One connection's awareness state in a channel. */
+export interface AwarenessEntry<TState, TMeta = Record<string, unknown>> {
+  connectionId: string;
+  /** As in presence: the user id on a persistent channel, else the connection id. */
+  memberId: string;
+  /** The connection's `meta` when its state first appeared. A later `setMeta` is not sent. */
+  meta: TMeta;
+  state: TState;
+  /** When the state was last changed, in ms. Not a sign of life: an update that changes nothing is dropped. */
+  updatedAt: number;
+}
+
+/**
+ * The awareness states of one channel, at `ctx.channel.awareness` on a channel with the
+ * `awareness()` capability. In the awareness `check` it has no `set`.
+ */
+export interface ChannelAwarenessReader<TState, TMeta = Record<string, unknown>> {
+  /** Every connection in this channel that has a state now. */
+  list(): AwarenessEntry<TState, TMeta>[];
+  get(connectionId: string): AwarenessEntry<TState, TMeta> | null;
+}
+
+export interface ChannelAwareness<
+  TState,
+  TMeta = Record<string, unknown>,
+> extends ChannelAwarenessReader<TState, TMeta> {
+  /**
+   * Set or clear a connection's state. Runs the schema and `maxBytes`, not `check`, and
+   * throws before changing anything if either fails. Then drops that connection's waiting
+   * update. Every member, that connection included, gets the change. The connection's own
+   * next update replaces it, so put rules that must hold in `check`. Throws if the
+   * connection is not a member of this channel.
+   */
+  set(connectionId: string, state: TState | null): void;
+}
+
 /**
  * A handle to one resolved channel, returned by `ctx.channel` (in-channel) and
  * by `ctx.channels.get(...)` (anywhere). Use it to send to the caller, broadcast

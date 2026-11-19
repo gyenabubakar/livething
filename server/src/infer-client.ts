@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { BinaryEventsCarrier } from '~/_define/app-ctx.ts';
 import type {
+  AwarenessRefused,
   ChannelNotFound,
   ChannelNotSubscribed,
   ConnectionBusy,
@@ -81,6 +82,7 @@ type ContractOf<TServer extends ServerDefinition> =
  * full set of framework error codes a client can receive.
  */
 type BuiltInErrorUnion =
+  | typeof AwarenessRefused
   | typeof ValidationFailed
   | typeof ChannelNotFound
   | typeof ChannelNotSubscribed
@@ -253,6 +255,7 @@ type ClientFamily<TFamily> = {
   : {}) &
   (TFamily extends { inbox: true } ? { inbox: true } : {}) &
   (TFamily extends { readReceipts: true } ? { readReceipts: true } : {}) &
+  (TFamily extends { awareness: infer S } ? { awareness: Jsonify<S> } : {}) &
   ClientBinarySlice<TFamily>;
 
 /**

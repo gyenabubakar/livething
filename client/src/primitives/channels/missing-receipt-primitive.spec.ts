@@ -1,5 +1,6 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { awareness } from '~/primitives/awareness/awareness.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { dedup } from '~/primitives/dedup.ts';
 import { inbox } from '~/primitives/inbox/inbox.ts';
@@ -106,6 +107,21 @@ describe('channels — missing receipt-primitive warning', () => {
     subscribeOk(ws, 'room', { inbox: true, readReceipts: true });
 
     expect(warningsMatching(warn, 'is not registered')).toHaveLength(0);
+  });
+
+  it('warns once when a channel has awareness but awareness() is not registered', () => {
+    const { ws } = build([], true);
+    subscribeOk(ws, 'room', { awareness: { maxBytes: 1024 } });
+    subscribeOk(ws, 'room', { awareness: { maxBytes: 1024 } });
+
+    expect(warningsMatching(warn, 'awareness() is not registered')).toHaveLength(1);
+  });
+
+  it('does not warn when awareness() is registered', () => {
+    const { ws } = build([awareness()], true);
+    subscribeOk(ws, 'room', { awareness: { maxBytes: 1024 } });
+
+    expect(warningsMatching(warn, 'awareness() is not registered')).toHaveLength(0);
   });
 
   it('does not warn on a plain channel carrying neither flag', () => {

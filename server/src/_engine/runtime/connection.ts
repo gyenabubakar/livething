@@ -250,6 +250,15 @@ interface ConnectionRuntime {
 
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
+  /** Put back a woken connection's awareness states. */
+  restoreAwareness?(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    row: ConnectionStore.StoredConnectionRow,
+  ): void;
+
+  /** Clear the awareness states of a connection whose wake failed. */
+  forgetAwareness?(connection: EngineRuntimeTypes.RuntimeConnection): void;
+
   /**
    * Persist immediately, bypassing an invocation scope's end-of-callback batch,
    * so a failed write is seen before the caller moves on.
@@ -910,6 +919,7 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
     }
 
     runtime.reloadPersistentTags?.(connection);
+    if (row) runtime.restoreAwareness?.(connection, row);
 
     for (const streamId of restoredStreamIds) {
       const sent = connection.descriptor.send({
@@ -921,8 +931,7 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
         ),
       });
       if (connection.closing) {
-        rollbackConnectionIndexes(runtime, connection);
-        runtime.deleteConnectionState?.(connection.id);
+        rollbackWake(runtime, connection);
         return false;
       }
 
@@ -932,18 +941,26 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
     if (restoredStreamIds.length > 0) {
       (runtime.flushAttachment ?? runtime.persistAttachment)(connection);
       if (connection.closing) {
-        rollbackConnectionIndexes(runtime, connection);
-        runtime.deleteConnectionState?.(connection.id);
+        rollbackWake(runtime, connection);
         return false;
       }
     }
 
     return true;
   } catch (error) {
-    rollbackConnectionIndexes(runtime, connection);
-    runtime.deleteConnectionState?.(connection.id);
+    rollbackWake(runtime, connection);
     throw error;
   }
+}
+
+/** Undo a failed wake. Peers saw this connection's awareness states before the sleep, so clear them. */
+function rollbackWake(
+  runtime: ConnectionRuntime,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+): void {
+  rollbackConnectionIndexes(runtime, connection);
+  runtime.forgetAwareness?.(connection);
+  runtime.deleteConnectionState?.(connection.id);
 }
 
 /**

@@ -17,6 +17,7 @@ export const CAPABILITY_KIND = {
   replay: 'replay',
   inbox: 'inbox',
   readReceipts: 'read-receipts',
+  awareness: 'awareness',
   lastSeen: 'last-seen',
   clientRequests: 'client-requests',
   serverRequests: 'server-requests',
@@ -47,13 +48,14 @@ export const HOST_ONLY_CAPABILITY_KINDS: ReadonlySet<string> = new Set([
 
 /**
  * The capability kinds that can never appear at the host or plugin top level —
- * `inbox()` and `readReceipts()`, which only exist inside a channel's own
+ * `inbox()`, `readReceipts()` and `awareness()`, which only exist inside a channel's own
  * `capabilities` list. Backs the runtime gate that matches the compile-time
  * `__channelOnly` brand. @internal
  */
 export const CHANNEL_ONLY_CAPABILITY_KINDS: ReadonlySet<string> = new Set([
   CAPABILITY_KIND.inbox,
   CAPABILITY_KIND.readReceipts,
+  CAPABILITY_KIND.awareness,
 ]);
 
 /** Reverse lookup from a kind token to the factory name that produces it. @internal */

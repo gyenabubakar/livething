@@ -25,6 +25,7 @@ describe('the hand check of a __subscribe__ frame', () => {
     membership: [absent, 'persistent', 'ephemeral', 'forever'],
     inbox: [absent, true, 'yes'],
     readReceipts: [absent, false, 0],
+    awareness: [absent, { maxBytes: 1024 }, { maxBytes: 0 }, { maxBytes: 1024, extra: 1 }],
     extra: [absent, 1],
   };
 
@@ -122,6 +123,77 @@ describe('the hand check of a __subscribe__ frame', () => {
         inbox: true,
       },
     });
+  });
+});
+
+describe('awareness', () => {
+  const room = { channel: { name: 'room:general', family: 'rooms' } };
+
+  it('carries the channel awareness limit both ways', () => {
+    const livething = {
+      channel: 'room:general',
+      channelFamily: 'rooms',
+      awareness: { maxBytes: 1024 },
+    };
+
+    const metadata = metadataFromLiveThing(livething);
+
+    expect(metadata).toEqual({
+      channel: { name: 'room:general', family: 'rooms', awareness: { maxBytes: 1024 } },
+    });
+    expect(parseUserEventFrame(['__subscribeOk__', null, metadata]).__livething).toEqual(livething);
+  });
+
+  it('parses __awarenessSet__ with a state or null, and nothing else', () => {
+    expect(
+      parseIncomingProtocolFrame(['__awarenessSet__', { state: { viewingMessageId: 'm1' } }, room]),
+    ).toEqual({
+      event: '__awarenessSet__',
+      payload: { state: { viewingMessageId: 'm1' } },
+      __livething: { channel: 'room:general', channelFamily: 'rooms' },
+    });
+    expect(parseIncomingProtocolFrame(['__awarenessSet__', { state: null }, room]).payload).toEqual(
+      { state: null },
+    );
+
+    for (const payload of [{}, null, { state: null, extra: 1 }]) {
+      expect(() => parseIncomingProtocolFrame(['__awarenessSet__', payload, room])).toThrow();
+    }
+
+    expect(() => parseIncomingProtocolFrame(['__awarenessSet__', { state: null }, null])).toThrow();
+  });
+
+  it('accepts the sync and change frames the server sends', () => {
+    const entry = {
+      connectionId: 'c1',
+      memberId: 'u1',
+      meta: { name: 'Ada' },
+      state: { viewingMessageId: null },
+      ageMs: 20,
+    };
+
+    for (const frame of [
+      ['__awarenessSync__', { entries: [entry] }, room],
+      ['__awarenessSync__', { entries: [], more: true }, room],
+      [
+        '__awareness__',
+        {
+          changes: [
+            { connectionId: 'c1', memberId: 'u1', meta: { name: 'Ada' }, state: {} },
+            { connectionId: 'c2', memberId: 'u2', state: { viewingMessageId: 'm1' } },
+            { connectionId: 'c3', state: null },
+          ],
+        },
+        room,
+      ],
+    ]) {
+      expect(v.safeParse(OutgoingProtocolFrame, frame).success, String(frame[0])).toBe(true);
+    }
+
+    expect(
+      v.safeParse(OutgoingProtocolFrame, ['__awarenessSync__', { entries: [], more: false }, room])
+        .success,
+    ).toBe(false);
   });
 });
 

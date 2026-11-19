@@ -54,7 +54,7 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
 /**
  * Backstop the compile gate on `ServerConfig.capabilities` /
  * `ScopedServerConfig.capabilities`: a channel-only capability (`inbox()`,
- * `readReceipts()`) listed at the host or plugin top level throws a clear
+ * `readReceipts()`, `awareness()`) listed at the host or plugin top level throws a clear
  * build error. Covers the dynamic case where a capability array is built at
  * runtime and the `__channelOnly` brand never fires at the call site.
  */

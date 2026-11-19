@@ -64,6 +64,12 @@ export class ChannelState {
    * a message error and the subscription stays active.
    */
   rejoining = false;
+
+  /**
+   * The `awareness` metadata of the newest `__subscribeOk__`, set before the status
+   * changes. `undefined` while subscribed means the server has no awareness here.
+   */
+  awarenessMeta: { maxBytes: number } | undefined = undefined;
   /**
    * What was passed to `subscribe()` — a value, or a function re-run on each
    * reconnect to refresh a rotating payload (e.g. an auth token).
