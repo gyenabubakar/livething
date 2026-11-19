@@ -148,7 +148,8 @@ type EntryJson = Pick<Entry, 'memberId' | 'metaJson' | 'json'>;
 
 type Prepared =
   | ({ ok: true } & PreparedState)
-  | { ok: false; reason: RefusalReason; error?: unknown };
+  | { ok: false; reason: 'error'; error: unknown }
+  | { ok: false; reason: Exclude<RefusalReason, 'error'> };
 
 export function createAwarenessRuntime(
   core: EngineCore,
@@ -264,9 +265,8 @@ export function createAwarenessRuntime(
         'validator',
       );
     } catch (error) {
-      if (error instanceof LiveThingConfigError) return { ok: false, reason: 'error', error };
-
-      return { ok: false, reason: 'invalid' };
+      // An async schema or one that throws is a server bug, not a bad state.
+      return { ok: false, reason: 'error', error };
     }
 
     if (result.issues !== undefined) return { ok: false, reason: 'invalid' };
@@ -422,10 +422,10 @@ export function createAwarenessRuntime(
 
     const prepared = prepare(record, pending.state);
     if (!prepared.ok) {
-      if (prepared.error === undefined) {
-        refuse(record, connection, prepared.reason);
-      } else {
+      if (prepared.reason === 'error') {
         reportError(record, { connection, membership: pending.membership, error: prepared.error });
+      } else {
+        refuse(record, connection, prepared.reason);
       }
 
       return;
@@ -791,7 +791,7 @@ export function createAwarenessRuntime(
 
           const prepared = prepare(record, state);
           if (!prepared.ok) {
-            if (prepared.error !== undefined) throw prepared.error;
+            if (prepared.reason === 'error') throw prepared.error;
 
             throw new Error(
               `[livething] awareness.set: the state was refused (${prepared.reason}) for channel '${scope.channelName}'.`,

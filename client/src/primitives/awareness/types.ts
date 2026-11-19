@@ -15,7 +15,7 @@ export interface AwarenessEntry<S> {
 
 /** Why the server, or this client, refused an update. */
 export interface AwarenessRefusal {
-  /** `error`: the app's `check` threw, or the server could not send the entry (a `meta` too large). */
+  /** `error`: the app's `check` or schema threw, or the server could not send the entry (a `meta` too large). */
   reason: 'too-large' | 'invalid' | 'check' | 'error';
 }
 

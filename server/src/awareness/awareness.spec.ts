@@ -25,7 +25,10 @@ interface Options {
   presence?: boolean;
   messageLimits?: { receiveBytes: number; sendBytes: number; postBytes?: number };
   hibernation?: boolean;
-  onError?: (ctx: { setMeta(patch: Record<string, unknown>): void }) => Promise<void>;
+  onError?: (
+    ctx: { setMeta(patch: Record<string, unknown>): void },
+    error: unknown,
+  ) => Promise<void>;
 }
 
 function buildEngine(options: Options = {}) {
@@ -56,6 +59,12 @@ function buildEngine(options: Options = {}) {
         .list()
         .filter((entry) => entry.state.viewingMessageId === 'changed');
       ctx.send('viewers', { count: changed.length });
+    },
+  });
+
+  const clearOwnPlace = rooms.on('clear-own-place', {
+    run(ctx) {
+      ctx.channel.awareness.set(ctx.connection.id, { viewingMessageId: null });
     },
   });
 
@@ -94,7 +103,10 @@ function buildEngine(options: Options = {}) {
       });
       return {};
     },
-  })(base.assemble({ handlers: [countViewers, clearOthers, mutateStates] }), undefined as never);
+  })(
+    base.assemble({ handlers: [countViewers, clearOthers, clearOwnPlace, mutateStates] }),
+    undefined as never,
+  );
 
   return { engine, logger, storage, persist };
 }
@@ -383,8 +395,8 @@ describe('awareness', () => {
         },
       },
     ],
-  ])('refuses with %s', async (reason, state, awareness) => {
-    const { engine } = buildEngine({ awareness });
+  ])('refuses with %s', async (reason, state, options) => {
+    const { engine } = buildEngine({ awareness: options });
     await engine.initialize();
     const alice = await connect(engine, 'alice');
     await alice.subscribe();
@@ -668,6 +680,47 @@ describe('awareness', () => {
     expect(messages.some((message) => message.includes('internal-error'))).toBe(false);
   });
 
+  describe.each([
+    ['an error', new TypeError('schema broke')],
+    ['undefined', undefined],
+  ])('a state schema that throws %s', (_, thrown) => {
+    const throwingState = v.pipe(
+      viewing,
+      v.check(() => {
+        throw thrown;
+      }),
+    );
+    function errorsOf(onError: ReturnType<typeof vi.fn>): unknown[] {
+      return onError.mock.calls.map(([, error]) => error);
+    }
+
+    it('refuses a client update with error and gives what it threw to onError', async () => {
+      const onError = vi.fn(async () => {});
+      const { engine } = buildEngine({ awareness: { state: throwingState }, onError });
+      await engine.initialize();
+      const alice = await connect(engine, 'alice');
+      await alice.subscribe();
+
+      await alice.set({ viewingMessageId: 'm1' });
+      await quiet();
+
+      expect(alice.refusals()).toEqual(['error']);
+      expect(errorsOf(onError)).toEqual([thrown]);
+    });
+
+    it('makes a server set() throw what it threw', async () => {
+      const onError = vi.fn(async () => {});
+      const { engine } = buildEngine({ awareness: { state: throwingState }, onError });
+      await engine.initialize();
+      const alice = await connect(engine, 'alice');
+      await alice.subscribe();
+
+      await alice.send('clear-own-place');
+
+      expect(errorsOf(onError)).toEqual([thrown]);
+    });
+  });
+
   it('gives handlers a copy of each state, so changing it changes nothing stored', async () => {
     const { engine } = buildEngine();
     await engine.initialize();
@@ -706,7 +759,7 @@ describe('awareness and hibernation', () => {
 
   function sleepingRow(
     id: string,
-    awareness: Record<string, unknown>,
+    states: Record<string, unknown>,
     activeStreamIds: string[] = [],
   ) {
     return {
@@ -716,7 +769,7 @@ describe('awareness and hibernation', () => {
       ephemeral_tags: [],
       ephemeral_memberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
       active_stream_ids: activeStreamIds,
-      awareness: awareness as never,
+      awareness: states as never,
     };
   }
 

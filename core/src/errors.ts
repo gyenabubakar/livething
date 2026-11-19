@@ -521,7 +521,7 @@ export const NotAMember = /* @__PURE__ */ buildErrorFactory('not-a-member');
  * Sent to the client when the server refused one of its awareness states.
  * `detail.reason` says why: `too-large` (over the channel's `maxBytes`),
  * `invalid` (the channel's schema refused it), `check` (the channel's
- * awareness `check` returned `false`), or `error` (`check` threw and the server
+ * awareness `check` returned `false`), or `error` (`check` or the schema threw and the server
  * reported it through `onError`, or the server could not send the entry, such as
  * a `meta` too large to send). The `awareness()` client primitive handles
  * this error and calls `channel.awareness.onRefused`, so it never reaches
