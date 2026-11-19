@@ -162,6 +162,12 @@ const landingItems = [
         icon: 'i-ph-tray-arrow-down-duotone',
         description: 'An in-app inbox in sync on every device',
         to: '/plugins/notifications-feed/overview'
+      },
+      {
+        label: 'Comments',
+        icon: 'i-ph-chat-teardrop-text-duotone',
+        description: 'Threads on messages, files and documents',
+        to: '/plugins/comments/overview'
       }
     ]
   }

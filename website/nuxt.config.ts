@@ -164,7 +164,7 @@ export default defineNuxtConfig({
       },
       {
         title: 'Plugins',
-        description: 'First-party plugins: chat, push notifications, collaboration, and a notifications feed. None ship yet.',
+        description: 'First-party plugins: chat, push notifications, collaboration, a notifications feed, and comments. None ship yet.',
         contentCollection: 'docs',
         contentFilters: [{ field: 'path', operator: 'LIKE', value: '/plugins/%' }],
       },

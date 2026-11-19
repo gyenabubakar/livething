@@ -24,7 +24,7 @@ const plugins = [
     name: 'Collaboration',
     icon: 'i-ph-users-four-duotone',
     title: 'Shared documents and state that many people edit at once',
-    features: ['Conflict-free edits to text and typed data', 'Undo, redo and version history', 'Comments stay on the right spot as people edit', 'Offline edits merge on reconnect'],
+    features: ['Conflict-free edits to text and typed data', 'Undo, redo and version history', 'Anchors that follow their words and items as people edit', 'Offline edits merge on reconnect'],
   },
   {
     key: 'feed',
@@ -32,6 +32,13 @@ const plugins = [
     icon: 'i-ph-tray-arrow-down-duotone',
     title: 'An in-app inbox that stays in sync on every device',
     features: ['Unread counts', 'Mark as read everywhere', 'Grouping', 'Live, or on the next visit'],
+  },
+  {
+    key: 'comments',
+    name: 'Comments',
+    icon: 'i-ph-chat-teardrop-text-duotone',
+    title: 'Comment threads on anything people make',
+    features: ['Threads, replies, mentions and reactions', 'Resolve and reopen', 'A comment-only role', 'Stays on its words in Collaboration documents'],
   },
 ] as const
 

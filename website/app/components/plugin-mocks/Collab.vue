@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { createTimeline, stagger } from 'animejs'
 
-// Two people in one document: Kofi selects a phrase and comments on it while
+// Two people in one document: Kofi selects a phrase and bookmarks it while
 // Amara types a new sentence. Both edits land without a conflict.
 const typed = ' Amara owns the changelog.'.split('')
 const root = ref<HTMLElement>()
@@ -43,7 +43,7 @@ useIllustration(root, () => createTimeline({ loop: true, autoplay: false, defaul
         </p>
       </div>
       <span class="m-comment rm-show absolute top-[74px] -right-3 flex items-center gap-1 bg-sky-400 px-2 py-1 text-[11px] font-medium text-zinc-950 opacity-0">
-        <UIcon name="i-ph-chat-teardrop-text-fill" class="size-3.5" /> 1
+        <UIcon name="i-ph-bookmark-simple-fill" class="size-3.5" /> 1
       </span>
       <p class="flex items-center gap-1.5 border-t border-white/10 px-4 py-2 text-[11px] text-zinc-400">
         <UIcon name="i-ph-check-circle-duotone" class="size-3.5 text-emerald-400" />
