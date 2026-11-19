@@ -1,4 +1,9 @@
-import { currentConnectionId, registerCallContext, runInCall } from '~/_engine/call-context.ts';
+import {
+  currentConnectionId,
+  registerCallContext,
+  runInCall,
+  runWithoutCallContext,
+} from '~/_engine/call-context.ts';
 import type { CallDescriptor } from '~/_engine/call-context.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AsyncContext, AsyncContextFactory, SQLProvider } from '~/context.ts';
@@ -44,6 +49,18 @@ export function createAsyncContext(
   baseIds.set(asyncContext, baseId);
 
   return asyncContext;
+}
+
+/**
+ * Run `fn` as if no handler had started it. `AsyncLocalStorage` carries its store into a
+ * `setTimeout` callback, so a timer armed in a handler would keep that handler's invocation
+ * scope, already flushed: its writes would be marked dirty in a scope nobody flushes again.
+ * With an empty store, `withInvocationScope` opens a fresh scope and flushes it.
+ */
+export function runDetached<T>(asyncContext: EngineAsyncContext | undefined, fn: () => T): T {
+  return asyncContext
+    ? asyncContext.run({}, () => runWithoutCallContext(fn))
+    : runWithoutCallContext(fn);
 }
 
 /** A {@link CallDescriptor} for code that runs for one connection. */

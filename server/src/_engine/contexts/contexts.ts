@@ -15,6 +15,7 @@ type BuildConnectionContextScopeParameter = {
   channelName?: string;
   channelFamily?: string | null;
   isSubscribeGate?: boolean;
+  isAwarenessCheck?: boolean;
 };
 type ToConnectionInfoOptsParameter = {
   lastSeenAt?: (userId: string) => number | null;
@@ -359,6 +360,7 @@ export function buildConnectionContext(
     channelName: scope?.channelName,
     channelFamily: scope?.channelFamily,
     isSubscribeGate: scope?.isSubscribeGate,
+    isAwarenessCheck: scope?.isAwarenessCheck,
   } satisfies EngineContextTypes.EngineChannelMeta;
 
   base[ENGINE_INTERNAL_CONNECTION] = connection;

@@ -30,6 +30,8 @@ export interface ValidationView {
   readonly channelKey?: string;
   /** Whether the named channel keeps its membership durable. */
   isChannelDurable(channelKey: string): boolean;
+  /** Whether the named channel sends presence (its `presence` option is not `false`). */
+  hasPresence(channelKey: string): boolean;
 }
 
 /**

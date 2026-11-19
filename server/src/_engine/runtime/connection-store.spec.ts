@@ -63,12 +63,14 @@ describe('connection-store', () => {
         { channelName: 'lobby', channelFamily: null },
       ],
       active_stream_ids: ['stream_1', 'stream_2'],
+      awareness: {},
       metadata: {},
     });
   });
 
   it('writes and reads the full row, parsing JSON columns', () => {
-    writeConnectionRow(sql, buildConnectionRow(fakeConnection()));
+    const viewing = { state: '{"viewingMessageId":"m1"}', meta: '{"role":"admin"}', updatedAt: 7 };
+    writeConnectionRow(sql, buildConnectionRow(fakeConnection(), { 'room:a': viewing }));
     const read = readConnectionRow(sql, 'conn_1');
     expect(read).toEqual({
       connection_id: 'conn_1',
@@ -83,6 +85,7 @@ describe('connection-store', () => {
         { channelName: 'lobby', channelFamily: null },
       ],
       active_stream_ids: ['stream_1', 'stream_2'],
+      awareness: { 'room:a': viewing },
       metadata: {},
     });
   });

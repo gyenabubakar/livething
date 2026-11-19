@@ -64,7 +64,7 @@ export function flushDirtyAttachment(
 }
 
 function flushConnectionState(core: EngineCore, connection: RuntimeConnection): void {
-  const row = ConnectionStore.buildConnectionRow(connection);
+  const row = ConnectionStore.buildConnectionRow(connection, core.awareness?.stored(connection));
   const fingerprint = JSON.stringify(row);
   if (connection.lastPersistedFingerprint === fingerprint) return;
 

@@ -4,6 +4,7 @@ export {
   LiveThingError,
   CloseCodes,
   Block,
+  AwarenessRefused,
   ValidationFailed,
   ChannelNotFound,
   ChannelNotSubscribed,

@@ -77,6 +77,13 @@ function runOutsideCall<T>(fn: () => T): T {
   return callAsyncContext ? callAsyncContext.run(undefined, fn) : fn();
 }
 
+/** Run `fn` with no call and no `onOutgoing` hook context, as a timer that no call started. */
+export function runWithoutCallContext<T>(fn: () => T): T {
+  return outgoingHookAsyncContext
+    ? outgoingHookAsyncContext.run(undefined, () => runOutsideCall(fn))
+    : runOutsideCall(fn);
+}
+
 export function getCurrentCall(): CallContext | undefined {
   return callAsyncContext?.getStore();
 }

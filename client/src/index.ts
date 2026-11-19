@@ -62,6 +62,13 @@ export type {
   ReceiptQueryOptions,
   ReadReceiptsOptions,
 } from '~/primitives/inbox/index.ts';
+export { awareness } from '~/primitives/awareness/index.ts';
+export type {
+  AwarenessEntry,
+  AwarenessOptions,
+  AwarenessRefusal,
+  ChannelAwarenessApi,
+} from '~/primitives/awareness/index.ts';
 export { stream } from '~/primitives/stream/index.ts';
 export { binary } from '~/primitives/binary/index.ts';
 export type {

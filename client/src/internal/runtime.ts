@@ -2,6 +2,7 @@ import type { LiveThingError, LiveThingMetadata, Message } from '@livething/core
 import type { SocketConfig } from '~/internal/config.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { ReadableStore } from '~/internal/store.ts';
+import type { ChannelStatus } from '~/primitives/channels/types.ts';
 import type { LiveThingSocket } from '~/socket/socket.ts';
 import type { ConnectionState, StreamHandlers } from '~/types.ts';
 
@@ -107,6 +108,18 @@ export interface StreamContinueContext {
   /** A binary stream: its chunks are binary, and each item is `{ info, bytes }`. */
   binary?: boolean;
 }
+
+/** `channels()` shares a {@link ChannelViewOf} under this key, so `awareness()` can read channel state. */
+export const CHANNEL_VIEW_KEY = 'channel-view';
+export interface ChannelView {
+  status: ReadableStore<ChannelStatus>;
+  /** Whether the channel counts as joined, including during a rejoin. */
+  active(): boolean;
+  /** The `awareness` metadata of the newest `__subscribeOk__`. */
+  awareness(): { maxBytes: number } | undefined;
+}
+
+export type ChannelViewOf = (name: string, family: string | undefined) => ChannelView;
 
 /** `stream()` shares these under {@link STREAM_KEY}, so `binary()` can add binary streams. */
 export const STREAM_KEY = 'stream';

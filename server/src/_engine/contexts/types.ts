@@ -38,6 +38,9 @@ export interface EngineChannelMeta {
    * attaching their members, matching that gap at runtime too.
    */
   isSubscribeGate?: boolean;
+
+  /** Set on the ctx built for a channel's awareness `check`: its `ctx.channel.awareness` has no `set`. */
+  isAwarenessCheck?: boolean;
 }
 
 /**

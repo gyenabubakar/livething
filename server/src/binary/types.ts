@@ -221,24 +221,51 @@ export interface ChannelBinaryMethods<
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
   TChannelBrand extends string = never,
+  TChannelExtras = {},
 > {
   readonly binary: {
     /** Create a binary event handler value scoped to this channel. Pass it to `assemble()` to activate it. */
     on<TEvent extends string, TInput extends Validator | undefined = undefined>(
       event: TEvent,
       config: BinaryOnConfig<
-        ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand>,
+        ChannelCtx<
+          TSlots,
+          TMeta,
+          TParams,
+          TOutgoing,
+          TCaps,
+          TServerRequests,
+          TChannelBrand,
+          TChannelExtras
+        >,
         TInput,
         TCaps
       >,
     ): ChannelHandlerContribution<
       TKey,
-      ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests, TChannelBrand>,
+      ChannelOwnSlice<
+        TParams,
+        TOutgoing,
+        TAddressing,
+        TSubscribe,
+        TServerRequests,
+        TChannelBrand,
+        TChannelExtras
+      >,
       { binaryIncoming: Record<TEvent, InferInput<TInput>> }
     >;
   } & ('clientRequests' extends BrandsOf<TCaps>
     ? ChannelBinaryRequestMethods<
-        ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand>,
+        ChannelCtx<
+          TSlots,
+          TMeta,
+          TParams,
+          TOutgoing,
+          TCaps,
+          TServerRequests,
+          TChannelBrand,
+          TChannelExtras
+        >,
         TKey,
         ChannelOwnSlice<
           TParams,
@@ -246,14 +273,24 @@ export interface ChannelBinaryMethods<
           TAddressing,
           TSubscribe,
           TServerRequests,
-          TChannelBrand
+          TChannelBrand,
+          TChannelExtras
         >,
         TCaps
       >
     : {}) &
     ('stream' extends BrandsOf<TCaps>
       ? ChannelBinaryStreamMethods<
-          ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand>,
+          ChannelCtx<
+            TSlots,
+            TMeta,
+            TParams,
+            TOutgoing,
+            TCaps,
+            TServerRequests,
+            TChannelBrand,
+            TChannelExtras
+          >,
           TKey,
           ChannelOwnSlice<
             TParams,
@@ -261,14 +298,24 @@ export interface ChannelBinaryMethods<
             TAddressing,
             TSubscribe,
             TServerRequests,
-            TChannelBrand
+            TChannelBrand,
+            TChannelExtras
           >,
           TCaps
         >
       : {}) &
     ('recordedStream' extends BrandsOf<TCaps>
       ? ChannelBinaryRecordedStreamMethods<
-          ChannelCtx<TSlots, TMeta, TParams, TOutgoing, TCaps, TServerRequests, TChannelBrand>,
+          ChannelCtx<
+            TSlots,
+            TMeta,
+            TParams,
+            TOutgoing,
+            TCaps,
+            TServerRequests,
+            TChannelBrand,
+            TChannelExtras
+          >,
           TKey,
           ChannelOwnSlice<
             TParams,
@@ -276,7 +323,8 @@ export interface ChannelBinaryMethods<
             TAddressing,
             TSubscribe,
             TServerRequests,
-            TChannelBrand
+            TChannelBrand,
+            TChannelExtras
           >,
           TCaps
         >

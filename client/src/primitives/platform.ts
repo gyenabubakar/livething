@@ -34,7 +34,7 @@ export interface PlatformOptions {
 }
 
 /**
- * Opt-in platform awareness. Nothing visibility- or network-aware runs unless
+ * Opt-in platform signals. Nothing visibility- or network-aware runs unless
  * you add this primitive with an environment. It feeds the environment's
  * `online` signal to `reconnection({ networkAware })` and, when you set
  * `backgroundDisconnectMs`, drops the socket while the app is hidden and reopens

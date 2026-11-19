@@ -128,7 +128,7 @@ export function hostCapability<TSlots = {}, TFeature extends string = never>(
 
 /**
  * A capability that only makes sense inside a channel's own `capabilities`
- * list — `inbox()` and `readReceipts()`. It carries a `__channelOnly` marker so
+ * list — `inbox()`, `readReceipts()` and `awareness()`. It carries a `__channelOnly` marker so
  * `server({ capabilities })` and `server({ scope: 'plugin', capabilities })`
  * reject it at compile time; a channel declares it as a prerequisite the same
  * way a plugin declares a host-owned one.

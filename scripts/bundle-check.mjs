@@ -67,6 +67,7 @@ const SERVER_ENGINES = {
   inbox: { marker: '__livething_inbox', label: 'inbox engine' },
   // The `readersOf` query. Only `readReceipts()` reads the read cursor.
   readReceipts: { marker: 'read_through >= ?', label: 'read-receipts engine' },
+  awareness: { marker: 'an awareness window failed', label: 'awareness engine' },
   lastSeen: { marker: '__livething_last_seen', label: 'last-seen engine' },
   keepalive: { marker: '__livething: "keepalive"', label: 'keepalive capability' },
   dedup: { marker: '__livething: "dedup"', label: 'dedup capability' },
@@ -158,6 +159,14 @@ function serverScenarios(f) {
       source: importNamed(f('inbox.js'), 'inbox'),
       owns: 'inbox',
       alsoPulls: ['channelStorage'],
+    },
+    // Awareness is a channel-only capability, so `channels()` does not carry it. It sends
+    // through the channel runtime, which `channels()` always brings along anyway.
+    {
+      name: 'awareness',
+      source: importStar(f('awareness.js')),
+      owns: 'awareness',
+      alsoPulls: ['channel'],
     },
     {
       name: 'last-seen',

@@ -172,6 +172,7 @@ export class Engine<TApi = unknown> {
     } finally {
       // Every member is gone now, so a waiting batch has nobody to reach.
       core.presenceBatcher?.close();
+      core.awareness?.close();
       if (options.terminal) await core.drainBackgroundWork();
     }
   }

@@ -1,4 +1,5 @@
 import {
+  AwarenessRefused,
   ChannelNotFound,
   ChannelNotSubscribed,
   ConnectionBusy,
@@ -190,6 +191,12 @@ export class EngineCore {
   /** Batches presence changes per channel. Made on the first change. */
   presenceBatcher?: PresenceBatcher;
 
+  /** Each channel's resolved `awareness` options, by channel key. */
+  readonly awarenessChannels = new Map<string, FeatureSlots.AwarenessOptions>();
+
+  /** The awareness runtime. Made when the first channel that lists `awareness()` sets up. */
+  awareness?: FeatureSlots.AwarenessRuntime;
+
   /**
    * Resolved inbox settings per channel key, populated by the `inbox()`
    * capability during setup. A channel key present here has inbox enabled.
@@ -246,6 +253,7 @@ export class EngineCore {
     // valid code to surface, so declaring it here keeps an explicit
     // `throw InternalError()` from logging a spurious "not declared" warning.
     InternalError.code,
+    AwarenessRefused.code,
     ValidationFailed.code,
     ChannelNotFound.code,
     ChannelNotSubscribed.code,

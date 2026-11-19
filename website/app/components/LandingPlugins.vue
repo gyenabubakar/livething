@@ -27,13 +27,6 @@ const plugins = [
     features: ['Conflict-free edits', 'Undo and redo per user', 'Comments stay on the right spot as people edit', 'Offline edits merge on reconnect'],
   },
   {
-    key: 'cursors',
-    name: 'Live cursors',
-    icon: 'i-ph-cursor-click-duotone',
-    title: 'See who is here and what they are pointing at',
-    features: ['Cursors and selections', 'Follow a user', 'Who is viewing what', 'Smooth, throttled updates'],
-  },
-  {
     key: 'feed',
     name: 'Notifications feed',
     icon: 'i-ph-tray-arrow-down-duotone',

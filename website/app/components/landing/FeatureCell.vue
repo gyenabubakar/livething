@@ -11,7 +11,9 @@ const props = defineProps<{
 
 const layout = computed(() => {
   if (props.centered) return 'lg:col-span-2'
-  return props.wide ? 'lg:col-span-2 lg:grid lg:grid-cols-2' : 'lg:grid lg:grid-rows-subgrid lg:odd:border-r'
+  // The left cell of each pair draws the divider. Only half-width cells are
+  // counted, so a wide cell between pairs does not move it.
+  return props.wide ? 'lg:col-span-2 lg:grid lg:grid-cols-2' : 'feature-half lg:grid lg:grid-rows-subgrid lg:[&:nth-child(odd_of_.feature-half)]:border-r'
 })
 </script>
 

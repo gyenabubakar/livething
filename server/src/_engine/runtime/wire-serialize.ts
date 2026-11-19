@@ -21,7 +21,8 @@ export function metadataFromLiveThing(
     livething.unsubscribeId !== undefined ||
     livething.channelMembership !== undefined ||
     livething.inbox !== undefined ||
-    livething.readReceipts !== undefined
+    livething.readReceipts !== undefined ||
+    livething.awareness !== undefined
   ) {
     const channel: Record<string, unknown> = { name: livething.channel };
     if (typeof livething.channelFamily === 'string') channel.family = livething.channelFamily;
@@ -30,6 +31,7 @@ export function metadataFromLiveThing(
     if (livething.inbox !== undefined) channel.inbox = livething.inbox;
 
     if (livething.readReceipts !== undefined) channel.readReceipts = livething.readReceipts;
+    if (livething.awareness !== undefined) channel.awareness = livething.awareness;
     (metadata ??= {}).channel = channel;
   }
 

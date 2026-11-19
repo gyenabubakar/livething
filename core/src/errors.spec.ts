@@ -1,4 +1,5 @@
 import {
+  AwarenessRefused,
   Block,
   ChannelNotFound,
   ChannelNotSubscribed,
@@ -761,6 +762,16 @@ describe('error() reserved-code guard', () => {
     expect(() => error('disconnected')).toThrow(/reserved/);
     expect(() => error('dropped')).toThrow(/reserved/);
     expect(() => error('not-a-member')).toThrow(/reserved/);
+  });
+
+  it('reserves awareness-refused and checks its reason', () => {
+    expect(() => error('awareness-refused')).toThrow(/reserved/);
+    const refused = AwarenessRefused({ event: '__awarenessSet__', reason: 'too-large' });
+    expect(AwarenessRefused.matches(refused)).toBe(true);
+    expect(refused.detail).toEqual({ event: '__awarenessSet__', reason: 'too-large' });
+    expect(() =>
+      AwarenessRefused({ event: '__awarenessSet__', reason: 'slow' as 'error' }),
+    ).toThrow();
   });
 
   it('reserves wrong-frame-kind, the error for a frame of the wrong kind (text or binary)', () => {

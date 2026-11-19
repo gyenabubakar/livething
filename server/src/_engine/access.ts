@@ -534,6 +534,16 @@ export interface EngineAccess {
   registerReadReceiptsChannel(channelKey: string): void;
 
   /**
+   * Record a channel's `awareness` options and return the engine's awareness runtime, made
+   * with `create` the first time. Set by the awareness marker. @internal
+   */
+  enableAwareness(
+    channelKey: string,
+    options: FeatureSlots.AwarenessOptions,
+    create: FeatureSlots.CreateAwarenessRuntime,
+  ): FeatureSlots.AwarenessRuntime;
+
+  /**
    * Check whether a durable-row `(channel_name, channel_family)` pair still
    * maps to a registered durable channel. Used by boot-time reconcile.
    * @internal

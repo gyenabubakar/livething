@@ -14,6 +14,8 @@ export interface LiveThingChannelMetadata {
   membership?: 'persistent' | 'ephemeral';
   inbox?: boolean;
   readReceipts?: boolean;
+  /** Set on `__subscribeOk__` when the channel has awareness: the largest state, in UTF-8 bytes. */
+  awareness?: { maxBytes: number };
 }
 
 /** Metadata describing delivery identity and ordering. */
@@ -118,6 +120,7 @@ export function isChannelMetadata(group: unknown): group is LiveThingChannelMeta
       'membership',
       'inbox',
       'readReceipts',
+      'awareness',
     ]) &&
     isBoundedString(group.name, WIRE_LIMITS.channel) &&
     isOptionalString(group, 'family', WIRE_LIMITS.channelFamily) &&
@@ -126,7 +129,18 @@ export function isChannelMetadata(group: unknown): group is LiveThingChannelMeta
       group.membership === 'persistent' ||
       group.membership === 'ephemeral') &&
     isOptionalBoolean(group, 'inbox') &&
-    isOptionalBoolean(group, 'readReceipts')
+    isOptionalBoolean(group, 'readReceipts') &&
+    (!('awareness' in group) || isAwarenessMetadata(group.awareness))
+  );
+}
+
+function isAwarenessMetadata(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, ['maxBytes']) &&
+    typeof value.maxBytes === 'number' &&
+    Number.isSafeInteger(value.maxBytes) &&
+    value.maxBytes > 0
   );
 }
 

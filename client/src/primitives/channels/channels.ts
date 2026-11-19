@@ -1,6 +1,7 @@
 import { Disconnected } from '~/errors.ts';
 import { channelKey } from '~/internal/channel-key.ts';
 import { toLiveThingError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { CHANNEL_VIEW_KEY } from '~/internal/runtime.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent } from '~/internal/wire-validation.ts';
 import { markRejoinConfirmation } from '~/primitives/channels/leave-confirmation.ts';
@@ -11,7 +12,7 @@ import {
 } from '~/primitives/channels/messaging.ts';
 import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
 import type { LiveThingError } from '@livething/core';
-import type { LiveThingMetadata, Message } from '~/internal/runtime.ts';
+import type { ChannelViewOf, LiveThingMetadata, Message } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { ChannelContext, FamilyHandle } from '~/primitives/channels/messaging.ts';
 import type { MemberChange } from '~/primitives/channels/state.ts';
@@ -127,6 +128,7 @@ export function channels(): ChannelsPrimitive {
       const warnedInboxMissing = new Set<string>();
 
       const warnedReadReceiptsMissing = new Set<string>();
+      const warnedAwarenessMissing = new Set<string>();
       let socket: LiveThingSocket; // assigned in install, before any handle is built
 
       function warnMissingReceiptPrimitive(
@@ -153,6 +155,17 @@ export function channels(): ChannelsPrimitive {
           warnedReadReceiptsMissing.add(key);
           helpers.log.warn(
             `channel '${name}' has read receipts enabled but readReceipts() is not registered — read receipts will not be tracked. Add readReceipts() to client().`,
+          );
+        }
+
+        if (
+          metadata?.channel?.awareness !== undefined &&
+          !helpers.hasPrimitive('awareness') &&
+          !warnedAwarenessMissing.has(key)
+        ) {
+          warnedAwarenessMissing.add(key);
+          helpers.log.warn(
+            `channel '${name}' has awareness but awareness() is not registered — channel.awareness is missing. Add awareness() to client().`,
           );
         }
       }
@@ -206,6 +219,15 @@ export function channels(): ChannelsPrimitive {
         },
       };
 
+      helpers.shared.set(CHANNEL_VIEW_KEY, ((name, family) => {
+        const state = stateFor(name, family);
+        return {
+          status: state.status,
+          active: () => state.active,
+          awareness: () => state.awarenessMeta,
+        };
+      }) satisfies ChannelViewOf);
+
       function handleSubscribe(incoming: ChannelIncoming): Message | null {
         const { message, state, name, familyKey, metadata } = incoming;
         const source: SubscribeSource =
@@ -221,6 +243,7 @@ export function channels(): ChannelsPrimitive {
         warnMissingReceiptPrimitive(channelKey(familyKey, name), name, metadata);
 
         state.persistent = metadata?.channel?.membership === 'persistent';
+        state.awarenessMeta = metadata?.channel?.awareness;
         state.markSubscribed(source);
         if (familyKey) familyFor(familyKey).fireSubscribed(name, source);
 

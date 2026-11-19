@@ -194,6 +194,7 @@ interface DispatchRuntime
   durableStream?: FeatureSlots.DurableStreamService;
   uploadService?: FeatureSlots.UploadService;
   requestDispatch?: FeatureSlots.RequestDispatch;
+  awareness?: FeatureSlots.AwarenessRuntime;
 }
 
 /**
@@ -674,6 +675,12 @@ async function handleStreamCancel(
   });
 }
 
+/** A protocol frame as it came off the wire: parsed JSON and its size in bytes. */
+interface IncomingProtocolText {
+  parsed: unknown;
+  size: number;
+}
+
 /**
  * Parse and dispatch one protocol frame (`__x__` event name).
  */
@@ -682,8 +689,9 @@ async function dispatchProtocolFrame(
     activityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
   },
   connection: RuntimeConnection,
-  parsed: unknown,
+  incoming: IncomingProtocolText,
 ): Promise<void> {
+  const { parsed, size } = incoming;
   let frame: Protocol.IncomingProtocolFrame;
   try {
     frame = Protocol.parseIncomingProtocolFrame(parsed);
@@ -779,6 +787,21 @@ async function dispatchProtocolFrame(
           if (await handler(ctx, frame)) return;
         }
 
+        return;
+      }
+
+      case '__awarenessSet__': {
+        const { channel, channelFamily } = frame.__livething;
+        // A non-member cannot learn whether the channel has awareness.
+        if (!connection.channelMemberships.has(subscribeKey(channel, channelFamily))) return;
+
+        if (runtime.awareness?.receive(connection, frame, size)) return;
+
+        await runtime.handleRuntimeError(connection, {
+          error: UnsupportedProtocol({ event: frame.event }),
+          event: frame.event,
+          routing: routingFromLiveThing(frame.__livething),
+        });
         return;
       }
     }
@@ -1002,8 +1025,23 @@ export function processTextMessage(
   connection: RuntimeConnection,
   data: string,
 ): Promise<void> {
+  const size = utf8ByteLength(data);
+  // No awareness state is this large, so the frame is not worth a parse. There is nothing to
+  // address a refusal to: the channel routing comes after the state in the frame.
+  if (
+    runtime.awareness &&
+    data.startsWith(AWARENESS_PREFIX) &&
+    size > runtime.awareness.maxFrameBytes
+  ) {
+    runtime.logger.warn('[livething] an __awarenessSet__ frame over every channel limit dropped', {
+      connectionId: connection.id,
+      size,
+    });
+    return Promise.resolve();
+  }
+
   const parsed = data === 'ping' || data === 'pong' ? undefined : parseFrame(data);
-  const received: ReceivedFrame = { data, parsed, size: utf8ByteLength(data) };
+  const received: ReceivedFrame = { data, parsed, size };
   if (parsed === INVALID_FRAME) received.invalid = 'Invalid JSON message dropped';
 
   return processFrame(runtime, connection, received);
@@ -1134,6 +1172,7 @@ async function refuseBusy(
 }
 
 const INVALID_FRAME = Symbol('invalid-frame');
+const AWARENESS_PREFIX = '["__awarenessSet__"';
 
 /** A frame's place in its channel's order. */
 interface FramePlace {
@@ -1480,7 +1519,7 @@ async function processParsedMessage(
           routing: isHeld(place.gate) ? rawFrameRouting(parsed) : undefined,
         }))
       ) {
-        await dispatchProtocolFrame(runtime, connection, parsed);
+        await dispatchProtocolFrame(runtime, connection, { parsed, size });
       }
 
       return;

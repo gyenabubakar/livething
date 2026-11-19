@@ -277,6 +277,10 @@ export function createEngineAccess(
     registerReadReceiptsChannel: (channelKey) => {
       core.readReceiptsChannels.add(channelKey);
     },
+    enableAwareness: (channelKey, options, create) => {
+      core.awarenessChannels.set(channelKey, options);
+      return (core.awareness ??= create(core, core.awarenessChannels));
+    },
     registerPluginApi: (id, factory) => {
       if (core.pluginApiFactories.has(id)) {
         throw new Error(

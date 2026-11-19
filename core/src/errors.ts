@@ -254,6 +254,7 @@ const RESERVED_ERROR_CODES = new Set([
   'disconnected',
   'dropped',
   'not-a-member',
+  'awareness-refused',
 ]);
 
 export function error<TCode extends string>(code: TCode): ErrorDefWithFactory<TCode, void>;
@@ -387,6 +388,7 @@ const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist([
   '__continueStream__',
   '__uploadEnd__',
   '__uploadCancel__',
+  '__awarenessSet__',
 ]);
 
 export type UnsupportedProtocolEvent = v.InferInput<typeof UNSUPPORTED_PROTOCOL_EVENTS>;
@@ -514,6 +516,25 @@ export const Dropped = /* @__PURE__ */ buildErrorFactory('dropped');
  * ```
  */
 export const NotAMember = /* @__PURE__ */ buildErrorFactory('not-a-member');
+
+/**
+ * Sent to the client when the server refused one of its awareness states.
+ * `detail.reason` says why: `too-large` (over the channel's `maxBytes`, or over
+ * 1 MiB of state and `meta` for the connection in all channels),
+ * `invalid` (the channel's schema refused it), `check` (the channel's
+ * awareness `check` returned `false`), or `error` (`check` or the schema threw and the server
+ * reported it through `onError`, or the server could not send the entry, such as
+ * a `meta` too large to send). The `awareness()` client primitive handles
+ * this error and calls `channel.awareness.onRefused`, so it never reaches
+ * `onServerError`.
+ */
+export const AwarenessRefused = /* @__PURE__ */ buildErrorFactory(
+  'awareness-refused',
+  v.object({
+    event: v.literal('__awarenessSet__'),
+    reason: v.picklist(['too-large', 'invalid', 'check', 'error']),
+  }),
+);
 
 /**
  * Rejects a **server→client** request when the client produced no reply — it has

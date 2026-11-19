@@ -35,7 +35,15 @@ const CHANNEL_HOOK_PRIMITIVES = {
 
 const CHANNEL_CONFIG = {
   hooks: ['check', ...Object.keys(CHANNEL_HOOK_PRIMITIVES)],
-  options: ['subscribe', 'capabilities', 'rateLimit', 'membership', 'presence', 'replay'],
+  options: [
+    'subscribe',
+    'capabilities',
+    'rateLimit',
+    'membership',
+    'presence',
+    'replay',
+    'awareness',
+  ],
 };
 
 /** The `presence` option as a batch window in milliseconds, or `false` for no presence. */
@@ -77,7 +85,8 @@ type StreamBuild = (event: string, config: unknown) => Primitive;
 interface ChannelOnlyBuilder {
   readonly __capabilityKind?: string;
   readonly __primitives: readonly Primitive[];
-  __buildChannelPrimitive?: () => Primitive;
+  /** Gets the channel's config and its name for errors, so it can read its own option. */
+  __buildChannelPrimitive?: (config: Record<string, unknown>, context: string) => Primitive;
   readonly __channelEmits?: Record<string, unknown>;
   readonly __channelServerRequests?: Record<string, unknown>;
   readonly __binaryServerRequests?: Record<string, unknown>;
@@ -247,7 +256,15 @@ export class ChannelBuilder {
         this.addServerRequests('binary({ serverRequests })', cap.__binaryServerRequests, true);
       }
 
-      if (cap.__buildChannelPrimitive) this.children.push(cap.__buildChannelPrimitive());
+      if (cap.__buildChannelPrimitive) {
+        this.children.push(cap.__buildChannelPrimitive(cfg, context));
+      }
+    }
+
+    if (cfg.awareness !== undefined && !this.capabilityKinds.has(CAPABILITY_KIND.awareness)) {
+      throw new LiveThingConfigError(
+        `${context}: the 'awareness' option needs awareness() in the channel's capabilities.`,
+      );
     }
 
     if (cfg.check) {
