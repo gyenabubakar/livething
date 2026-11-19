@@ -17,6 +17,7 @@ const scopes = [
   'server-cloudflare',
   'e2e-cloudflare',
   'website',
+  'plugin-collaboration',
 ];
 
 export default {

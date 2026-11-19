@@ -1,0 +1,22 @@
+export { doc, list, record, richText, text } from '~/schema.ts';
+export type {
+  DocDef,
+  DocOptions,
+  DocsByName,
+  Draft,
+  DraftList,
+  DraftRecord,
+  DraftShape,
+  Field,
+  Input,
+  Leaf,
+  ListField,
+  PathOf,
+  RecordField,
+  RichTextField,
+  Shape,
+  Snapshot,
+  TextField,
+  YRef,
+  YTypeOf,
+} from '~/schema.ts';
