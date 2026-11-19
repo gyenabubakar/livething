@@ -71,14 +71,20 @@ describe('the hand check of a __subscribe__ frame', () => {
   }
 
   it('accepts only frames the schema accepts, with the same output', () => {
+    // Over 60,000 frames: an `expect` for each one would take most of the time, so the
+    // frames that fail a check are collected and checked once.
     let accepted = 0;
+    const wrong: string[] = [];
     for (const frame of frames()) {
       const usual = parseUsualSubscribeFrame(frame);
       const schema = v.safeParse(SubscribeFrame, frame);
       if (usual) {
         accepted += 1;
-        expect(schema.success, JSON.stringify(frame)).toBe(true);
-        expect(usual).toStrictEqual(schema.output);
+        if (schema.success) {
+          expect(usual).toStrictEqual(schema.output);
+        } else {
+          wrong.push(`accepted by the hand check only: ${JSON.stringify(frame)}`);
+        }
       }
 
       let parsed: unknown;
@@ -91,11 +97,12 @@ describe('the hand check of a __subscribe__ frame', () => {
 
       if (schema.success) {
         expect(parsed, JSON.stringify(frame)).toStrictEqual(schema.output);
-      } else {
-        expect((error as Error).message).toBe(new v.ValiError(schema.issues).message);
+      } else if (!(error instanceof v.ValiError) || error.message !== schema.issues[0].message) {
+        wrong.push(`a different error: ${JSON.stringify(frame)}`);
       }
     }
 
+    expect(wrong).toEqual([]);
     expect(accepted).toBeGreaterThan(100);
   });
 
