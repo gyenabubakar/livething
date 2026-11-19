@@ -281,6 +281,8 @@ test.describe('scheduled', () => {
 
     // Schedule far enough out that the restart lands before it fires.
     await send(page, a, { event: 'schedule-cleanup', payload: { delayMs: 1500 } });
+    // Wait for the server to take it: a restart that lands first drops the request.
+    await waitForFrame(page, a, { match: (f) => f.event === 'cleanup-scheduled' });
 
     // restart() aborts the DO: in-memory state and socket `a` are dropped,
     // but the durable scheduled queue + alarm survive in storage.
