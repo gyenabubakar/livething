@@ -41,7 +41,7 @@ const require = createRequire(join(repo, 'package.json'));
 const ts = require('typescript');
 const content = join(repo, 'website/content');
 const fixtures = join(repo, 'website/scripts/docs-typecheck/fixtures');
-const HUDDLE_PAGE = '8.reference/11.huddle.md';
+const HUDDLE_PAGE = '1.core/8.reference/11.huddle.md';
 const SHORT_LINES = 8;
 const args = process.argv.slice(2);
 const fixLayout = args.includes('--fix');
@@ -186,8 +186,8 @@ const fileExamples = new Map();
 // A Nitro page shows its `huddle-endpoint` twice: once to set it up, and once more with `http()`.
 // There a file belongs to its `##` section, not to the whole page.
 const NITRO_PAGES = [
-  '4.runtimes/02.node-frameworks/06.nuxt.md',
-  '4.runtimes/02.node-frameworks/07.solidstart.md',
+  '1.core/4.runtimes/02.node-frameworks/06.nuxt.md',
+  '1.core/4.runtimes/02.node-frameworks/07.solidstart.md',
 ];
 const fileScope = (example) =>
   NITRO_PAGES.includes(example.page) ? `${example.page}#${example.section}` : example.page;
@@ -201,10 +201,10 @@ function pageFile(containing, name) {
   // endpoint with H3, not `node:http`. A name the page uses for more than one file stays
   // on the shared fixture.
   const ownsFiles =
-    example?.page.startsWith('7.recipes/01.framework-hooks/') ||
-    example?.page.startsWith('5.client/08.plugins/') ||
-    example?.page.startsWith('1.start/06.quickstart') ||
-    example?.page.startsWith('2.learn/11.identity-and-access') ||
+    example?.page.startsWith('1.core/7.recipes/01.framework-hooks/') ||
+    example?.page.startsWith('1.core/5.client/08.plugins/') ||
+    example?.page.startsWith('1.core/1.start/06.quickstart') ||
+    example?.page.startsWith('1.core/2.learn/11.identity-and-access') ||
     NITRO_PAGES.includes(example?.page);
   if (!ownsFiles) return undefined;
   const path = pageFiles.get(pageFileKey(example, name));

@@ -19,9 +19,11 @@ const links = computed(() => appConfig.github?.url
   ]
   : [])
 
+// On docs pages the left slot (logo and track tabs) sizes to its content, and the empty
+// center takes the slack, which pushes search to the right.
 const headerUi = computed(() => isHome.value
   ? { root: 'fixed inset-x-0 top-0 z-50', center: 'flex-1' }
-  : { center: 'flex-1' })
+  : { left: 'lg:flex-none', center: 'flex-1' })
 
 </script>
 
@@ -38,6 +40,24 @@ const headerUi = computed(() => isHome.value
       <AppHeaderLogo class="h-6 w-auto shrink-0" />
     </template>
 
+    <template
+      v-if="!isHome"
+      #left
+    >
+      <ULink
+        to="/"
+        aria-label="LiveThing home"
+        class="flex shrink-0 items-center"
+      >
+        <AppHeaderLogo class="h-6 w-auto shrink-0" />
+      </ULink>
+      <USeparator
+        orientation="vertical"
+        class="mx-4 hidden h-6 lg:block"
+      />
+      <AppHeaderTracks class="hidden lg:flex" />
+    </template>
+
     <template #right>
       <AppHeaderCTA />
 
@@ -45,7 +65,17 @@ const headerUi = computed(() => isHome.value
         <AssistantChat />
       </template>
 
-      <UContentSearchButton aria-label="Search documentation" />
+      <UContentSearchButton
+        :class="{ 'sm:hidden': !isHome }"
+        aria-label="Search documentation"
+      />
+      <UContentSearchButton
+        v-if="!isHome"
+        :collapsed="false"
+        variant="soft"
+        class="hidden w-56 sm:flex lg:w-64"
+        aria-label="Search documentation"
+      />
 
       <template v-if="links?.length">
         <UButton
@@ -65,6 +95,10 @@ const headerUi = computed(() => isHome.value
     </template>
 
     <template #body>
+      <AppHeaderTracks
+        v-if="!isHome"
+        class="mb-4"
+      />
       <AppHeaderBody />
     </template>
 

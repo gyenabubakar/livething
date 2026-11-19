@@ -52,10 +52,14 @@ if (isEnabled.value) {
 
 const collectionName = computed(() => isEnabled.value ? `docs_${locale.value}` : 'docs')
 
-const { data: navigation } = await useAsyncData(`navigation_${collectionName.value}`, () => queryCollectionNavigation(collectionName.value as keyof PageCollections), {
+const { data: fullNavigation } = await useAsyncData(`navigation_${collectionName.value}`, () => queryCollectionNavigation(collectionName.value as keyof PageCollections), {
   transform: (data: ContentNavigationItem[]) => transformNavigation(data, isEnabled.value, locale.value),
   watch: [locale],
 })
+
+// Same scoping as app.vue: the header shows the sections of the track the missing page is in.
+const errorRoute = useRoute()
+const navigation = computed(() => trackNavigation(fullNavigation.value, errorRoute.path))
 
 provide('navigation', navigation)
 
@@ -76,7 +80,7 @@ const { subNavigationMode } = useSubNavigation(navigation)
         <AppFooter v-if="$route.meta.footer !== false" />
 
         <ClientOnly>
-          <AppSearch :navigation="navigation" />
+          <AppSearch :navigation="fullNavigation ?? undefined" />
         </ClientOnly>
       </div>
     </div>

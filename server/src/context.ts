@@ -66,7 +66,7 @@ export interface SqlResult<T = unknown> {
  *
  * Authoring a custom adapter? Find your engine's real numbers from its own
  * documentation — do not guess. See
- * [Custom Adapters](/server/adapters/custom-adapters) for where to look.
+ * [Custom Adapters](/core/runtimes/adapters/custom-adapters) for where to look.
  */
 export interface SqlLimits {
   /** The most `?` placeholders one statement may bind at once. */

@@ -9,7 +9,7 @@
           <slot name="description" mdc-unwrap="p" />
         </p>
         <div class="flex flex-wrap items-center justify-center gap-3">
-          <UButton to="/start/installation" size="lg" class="bg-zinc-950 text-white hover:bg-zinc-800" trailing-icon="i-ph-arrow-right-duotone" label="Get started" />
+          <UButton to="/core/start/installation" size="lg" class="bg-zinc-950 text-white hover:bg-zinc-800" trailing-icon="i-ph-arrow-right-duotone" label="Get started" />
           <UButton
             to="https://github.com/workmatter/livething"
             target="_blank"

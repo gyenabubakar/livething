@@ -10,7 +10,7 @@ const columns = computed<FooterColumn[]>(() => [
     children: [
       {
         label: 'Documentation',
-        to: '/start/introduction'
+        to: '/core/start/introduction'
       },
       {
         label: 'Releases',

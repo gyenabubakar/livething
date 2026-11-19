@@ -10,7 +10,7 @@ const hidden = computed(() => heroCtaVisible.value)
   <UButton
     v-if="route.path === '/'"
     label="Get Started"
-    to="/start/installation"
+    to="/core/start/installation"
     size="sm"
     variant="solid"
     trailing-icon="i-ph-arrow-right-duotone"

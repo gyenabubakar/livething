@@ -14,7 +14,7 @@ const plugins = [
   },
   {
     key: 'push',
-    name: 'Push notifications',
+    name: 'Push Notifications',
     icon: 'i-ph-bell-ringing-duotone',
     title: 'Reach people when their socket is closed',
     features: ['Web push', 'iOS and Android push', 'Sent only when a user is offline', 'Per-user preferences'],
@@ -22,20 +22,20 @@ const plugins = [
   {
     key: 'collab',
     name: 'Collaboration',
-    icon: 'i-ph-pencil-line-duotone',
+    icon: 'i-ph-users-four-duotone',
     title: 'Shared documents that many people edit at once',
     features: ['Conflict-free edits', 'Undo and redo per user', 'Comments stay on the right spot as people edit', 'Offline edits merge on reconnect'],
   },
   {
     key: 'feed',
-    name: 'Notifications feed',
+    name: 'Notifications Feed',
     icon: 'i-ph-tray-arrow-down-duotone',
     title: 'An in-app inbox that stays in sync on every device',
     features: ['Unread counts', 'Mark as read everywhere', 'Grouping', 'Live, or on the next visit'],
   },
   {
     key: 'state',
-    name: 'Live state sync',
+    name: 'Live State Sync',
     icon: 'i-ph-arrows-clockwise-duotone',
     title: 'A typed store that every client shares',
     features: ['Typed from your server', 'Syncs on every change', 'Survives reconnects', 'Validated on the server'],
