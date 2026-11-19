@@ -5,7 +5,7 @@ const isHome = computed(() => route.path === '/')
 const landingItems = [
   {
     label: 'Start',
-    to: '/start/overview',
+    to: '/start/introduction',
     children: [
       {
         label: 'Introduction',
