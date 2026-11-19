@@ -2,15 +2,43 @@ import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
 import { keepalive } from '@livething/server/keepalive';
 import { lastSeen } from '@livething/server/last-seen';
+import { plugin } from '@livething/server/plugins';
 import { scheduled } from '@livething/server/scheduled';
 import { recordedStream } from '@livething/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@livething/server';
 import { requireUsername } from '../_shared/authenticate.ts';
 
+/**
+ * A plugin whose `api` admin code reaches with `admin.plugin('e2e:polls')`. Its api is
+ * connectionless, and its broadcast goes out under the plugin's `__e2e:polls::` prefix.
+ */
+const pollsBase = server({
+  scope: 'plugin',
+  capabilities: [emits({ 'poll-opened': t<{ pollId: string; question: string }>() })],
+});
+
+const Polls = plugin('e2e:polls', {
+  definition: pollsBase.assemble({
+    handlers: [],
+    api: (ctx) => ({
+      openPoll(question: string): string {
+        ctx.sql.exec('CREATE TABLE IF NOT EXISTS e2e_polls (question TEXT)');
+        ctx.sql.exec('INSERT INTO e2e_polls (question) VALUES (?)', question);
+        const count = ctx.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM e2e_polls').one();
+        const pollId = `p_${count?.n ?? 0}`;
+        ctx.broadcast('poll-opened', { pollId, question });
+
+        return pollId;
+      },
+    }),
+  }),
+});
+
 const base = server({
   authenticate: requireUsername,
   capabilities: [
+    Polls(),
     keepalive(),
     channels(),
     scheduled({ 'admin-announce': { data: t<{ text: string }>() } }),

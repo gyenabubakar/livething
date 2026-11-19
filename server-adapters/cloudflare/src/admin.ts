@@ -416,6 +416,57 @@ class AdminTarget<
   closeConnections(filter?: CloseFilter, code?: number, reason?: string): void {
     this.#ctx.closeConnections(filter, code, reason);
   }
+
+  /** A listed plugin's `api` methods, by plugin id. */
+  plugin(id: string): RpcTarget {
+    return pluginTarget(id, this.#ctx.plugin(id));
+  }
+}
+
+/** Names a plugin api method can't have on the stub: `then` makes it a thenable, `dup` is the stub's own. */
+const RESERVED_PLUGIN_METHODS: ReadonlySet<string> = new Set(['then', 'dup', 'constructor']);
+
+const pluginTargets = new WeakMap<object, RpcTarget>();
+
+/**
+ * Put a plugin api's methods on an `RpcTarget`. Workers RPC only carries what is on a
+ * class's prototype chain, so each method becomes a prototype method that calls the api.
+ */
+function pluginTarget(id: string, api: unknown): RpcTarget {
+  if (typeof api !== 'object' || api === null) return new (class extends RpcTarget {})();
+
+  const cached = pluginTargets.get(api);
+  if (cached) return cached;
+
+  const Target = class extends RpcTarget {};
+  const proto = Target.prototype as unknown as Record<string, unknown>;
+  for (let level: object | null = api; level && level !== Object.prototype; ) {
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(level))) {
+      // A getter is read from its descriptor, so it never runs.
+      const method: unknown = descriptor.value;
+      // A class's own `constructor` on its prototype is the class, not an api method.
+      if (typeof method !== 'function' || (key === 'constructor' && level !== api)) continue;
+
+      if (RESERVED_PLUGIN_METHODS.has(key)) {
+        throw new Error(
+          `[livething] plugin '${id}' has an api method named '${key}', which a Workers RPC stub can't call. Rename it.`,
+        );
+      }
+
+      // A name an upper level already gave keeps that method.
+      if (Object.hasOwn(proto, key)) continue;
+
+      proto[key] = (...args: unknown[]) =>
+        (method as (...a: unknown[]) => unknown).apply(api, args);
+    }
+
+    level = Object.getPrototypeOf(level) as object | null;
+  }
+
+  const target = new Target();
+  pluginTargets.set(api, target);
+
+  return target;
 }
 
 type ContractOf<TDefinition> = TDefinition extends { readonly __contract?: infer TContract }
@@ -447,12 +498,30 @@ export type CloudflareAdmin<TDefinition extends ServerDefinition = ServerDefinit
       MetaOf<TDefinition>,
       BinaryEventArgs<BinaryOutgoingOf<TDefinition>>
     >,
-    HasKeys<ContractOf<TDefinition>['channels']> extends true ? never : 'channels'
+    'plugin' | (HasKeys<ContractOf<TDefinition>['channels']> extends true ? never : 'channels')
   >,
   HasKeys<BinaryOutgoingOf<TDefinition>>,
   ChannelsHaveBinary<ContractOf<TDefinition>['channels']>
 > &
-  ApiMethods<ApiOf<TDefinition>>;
+  PluginAdmin<PluginsOf<TDefinition>> &
+  Omit<ApiMethods<ApiOf<TDefinition>>, keyof AdminTarget<AnyArgs, unknown, unknown>>;
+
+/** The definition's listed plugins (id → slice), read off its contract. */
+type PluginsOf<TDefinition> =
+  ContractOf<TDefinition> extends { plugins: infer TPlugins } ? TPlugins : {};
+
+/**
+ * `plugin(id)`, present when the definition lists a plugin: that plugin's `api` methods.
+ * Like the app's own `api`, a plain value member can't reach the stub.
+ */
+type PluginAdmin<TPlugins> =
+  HasKeys<TPlugins> extends true
+    ? {
+        plugin<TId extends keyof TPlugins & string>(
+          id: TId,
+        ): ApiMethods<TPlugins[TId] extends { __api: infer TApi } ? TApi : {}>;
+      }
+    : {};
 
 type NoBinary<T> = Omit<T, 'binary'>;
 

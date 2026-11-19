@@ -1292,4 +1292,7 @@ export interface ConnectionlessContext<
 
   /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
+
+  /** A listed plugin's `api`, by plugin id. Throws for an id no listed plugin has. */
+  plugin(id: string): unknown;
 }

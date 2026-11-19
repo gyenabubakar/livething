@@ -32,6 +32,9 @@ const huddle = huddleBase.assemble({
 
 class HuddleServer extends bind(huddle) {}
 
+// No plugin is listed, so there is no plugin().
+expectTypeOf<CloudflareAdmin<typeof huddle>>().not.toHaveProperty('plugin');
+
 declare const stub: DurableObjectStub<HuddleServer>;
 
 // Pipelined calls, with no await between the levels.

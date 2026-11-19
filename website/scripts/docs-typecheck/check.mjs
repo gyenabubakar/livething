@@ -163,7 +163,12 @@ writeFileSync(clientSocketPath, clientExample.code);
 const shim = join(workDir, 'shims.d.ts');
 writeFileSync(
   shim,
-  "declare module '*';\ndeclare module 'hono' { export const Hono: any; export type Context = any; export type Next = any; }\ndeclare const process: any;\ndeclare const Buffer: any;\ninterface ImportMeta { env: Record<string, any> }\n",
+  "declare module '*';\ndeclare module 'hono' { export const Hono: any; export type Context = any; export type Next = any; }\ndeclare const process: any;\ndeclare const Buffer: any;\ninterface ImportMeta { env: Record<string, any> }\n" +
+    // The global that `wrangler types` gives a Worker project, typed enough to check `stub.admin()`.
+    'interface DurableObjectNamespace<T extends { admin(): Promise<unknown> }> {\n' +
+    '  idFromName(name: string): unknown;\n' +
+    '  get(id: unknown): { fetch(request: Request): Promise<Response>; admin(): ReturnType<T["admin"]> };\n' +
+    '}\n',
 );
 
 function exportTarget(specifier) {

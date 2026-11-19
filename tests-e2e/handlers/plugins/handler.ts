@@ -22,7 +22,6 @@ export interface DrizzlePluginApi {
   getLastGeneratedId(): string | null;
   getLastState(): unknown;
   getShutdownCount(): number;
-  getCurrentConnectionId(): string | null;
 }
 
 type DrizzleCapability<
@@ -182,9 +181,8 @@ export function createPluginsDefinition<
   const handleStreamConnectionId = base.stream('stream-connection-id', {
     input: StreamConnectionIdPayload,
     async *run(ctx, payload) {
-      const db = ctx.plugin('e2e:drizzle');
       for (let i = 0; i < payload.count; i++) {
-        yield { id: db.getCurrentConnectionId() ?? '' };
+        yield { id: ctx.connection.id };
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
     },

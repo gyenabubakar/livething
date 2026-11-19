@@ -316,11 +316,11 @@ test.describe('plugins handler', () => {
     await offender.close();
   });
 
-  test('plugin hooks.getState() inside a stream generator returns the stream owner connection id', async ({
+  test('ctx.connection inside a stream generator is the stream owner, across awaits', async ({
     page,
   }, testInfo) => {
-    // The active connection ID remains available while each generator step
-    // runs, so plugin APIs can read the stream owner's state.
+    // The stream's ctx keeps its connection while each generator step runs, and it is
+    // the same connection the plugin's onConnect hook saw.
     const room = `test-${testInfo.testId}-stream-state`;
     await page.goto(`/plugins?room=${room}`);
     await page.getByTestId('connect-btn').click();

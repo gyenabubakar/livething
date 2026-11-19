@@ -3,6 +3,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { emits, server, t } from '@livething/server';
 import { channels } from '@livething/server/channels';
+import { plugin } from '@livething/server/plugins';
 import { expectTypeOf } from 'vitest';
 import * as Adapter from './index.ts';
 import type { NodeWebSocketServer, Platform } from './index.ts';
@@ -71,6 +72,49 @@ huddleAdmin.channels.broadcast('rooms', 'message', { text: 'hi' });
 huddleAdmin.channels.broadcast({ family: 'rooms', name: 'room:42' }, 'huddleClosing', {
   reason: 'x',
 });
+
+// A listed plugin's api, by plugin id, typed from the plugin.
+const pollsScope = server({ scope: 'plugin', capabilities: [] });
+const Polls = plugin('acme:polls', {
+  definition: pollsScope.assemble({
+    handlers: [],
+    api: () => ({ results: (pollId: string) => ({ pollId, votes: 3 }) }),
+  }),
+});
+const withPolls = server({ capabilities: [Polls()] }).assemble({ handlers: [] });
+const pollsAdmin = await livething.bind(withPolls, {}).admin();
+expectTypeOf(pollsAdmin.plugin('acme:polls').results('p_1')).toEqualTypeOf<{
+  pollId: string;
+  votes: number;
+}>();
+// @ts-expect-error — the api's argument types are kept
+pollsAdmin.plugin('acme:polls').results(1);
+// @ts-expect-error — only the IDs of listed plugins are accepted
+pollsAdmin.plugin('acme:pols');
+// @ts-expect-error — a type argument can't open it up to other IDs
+pollsAdmin.plugin<{ results(): number }>('acme:nope');
+// @ts-expect-error — a definition with no plugins has no plugin()
+admin.plugin;
+
+// Built-in names win at runtime, so the type shows the built-in, not the app's own method.
+const shadowing = server({ capabilities: [Polls()] }).assemble({
+  handlers: [],
+  api: () => ({ plugin: () => 'mine', connectionCount: 'mine', archive: (): number => 1 }),
+});
+const shadowingAdmin = await livething.bind(shadowing, {}).admin();
+expectTypeOf(shadowingAdmin.connectionCount).toEqualTypeOf<number>();
+expectTypeOf(shadowingAdmin.archive()).toEqualTypeOf<number>();
+expectTypeOf<Parameters<typeof shadowingAdmin.plugin>[0]>().toEqualTypeOf<'acme:polls'>();
+
+// With no plugin listed, the built-in plugin() still replaces the app's own at runtime,
+// so neither is on the type.
+const noPluginsShadowing = server({ capabilities: [] }).assemble({
+  handlers: [],
+  api: () => ({ plugin: () => 'mine' }),
+});
+const noPluginsAdmin = await livething.bind(noPluginsShadowing, {}).admin();
+// @ts-expect-error — the app's plugin() never runs, and no plugin is listed
+noPluginsAdmin.plugin();
 
 declare const _platform: Platform;
 declare const _webSocketServer: NodeWebSocketServer;

@@ -211,4 +211,6 @@ export interface CreateConnectionlessContextDeps extends ContextCommonDeps {
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   /** Drop a user everywhere and close their sockets. Closes over the engine core. */
   purgeUser(userId: string, options?: PublicApi.PurgeUserOptions): Promise<void>;
+  /** A registered plugin's API by id. Throws for an id no plugin has. */
+  plugin(id: string): unknown;
 }

@@ -105,6 +105,7 @@ export function createConnectionlessContext(
     },
     log: deps.logger,
     platform: deps.platform,
+    plugin: deps.plugin,
   };
 
   deps.addBinarySenders?.(ctx, { broadcast: 'event-first' });

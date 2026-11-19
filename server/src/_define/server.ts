@@ -1695,12 +1695,11 @@ type CapabilityMethods<
  * methods the listed capabilities grant through their brands — for example,
  * `request` exists only when `clientRequests()` is listed.
  */
-export type Base<
+export type Base<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = CoreBase<
   TSlots,
   TMeta,
-  TCaps extends readonly AnyCapability[],
-  TScoped extends boolean = false,
-> = CoreBase<TSlots, TMeta, TCaps, TScoped> &
+  TCaps
+> &
   CapabilityMethods<TSlots, TMeta, BrandsOf<TCaps>, TCaps>;
 
 /**
@@ -1713,12 +1712,7 @@ type PluginIdsOf<TSlots> = keyof SlotOr<TSlots, 'plugins'> extends never
   : keyof SlotOr<TSlots, 'plugins'> & string;
 
 /** The methods present on every `base`, whatever capabilities are listed. */
-export interface CoreBase<
-  TSlots,
-  TMeta,
-  TCaps extends readonly AnyCapability[],
-  TScoped extends boolean = false,
-> {
+export interface CoreBase<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
    * Unique id of this `base`, copied onto every definition it assembles. The
    * `context.*` accessors compare it against the running definition.
@@ -1744,9 +1738,10 @@ export interface CoreBase<
    * handlers. Pass each `base.scheduled(...)` value too. The hooks and authenticate from
    * `server({ ... })`, and listed capabilities, are folded in automatically.
    *
-   * A scoped plugin server definition (`server({ scope: 'plugin' })`) may also pass `api` —
-   * the per-connection surface the host reaches via `ctx.plugin(id)`. Its `ctx`
-   * is the plugin's own scoped ctx, the same one its handlers receive.
+   * `api` is the surface outside code reaches: admin code for the app's own
+   * definition, and `ctx.plugin(id)` or `admin.plugin(id)` for a scoped plugin
+   * definition (`server({ scope: 'plugin' })`). Its `ctx` has no connection in it,
+   * and in a plugin it is scoped to the plugin's own names.
    *
    * Capabilities belong in `server({ capabilities: [...] })`, not here — passing
    * one is a type error.
@@ -1754,9 +1749,7 @@ export interface CoreBase<
   assemble<const THandlers extends readonly AssembleInput[], TApi = unknown>(config: {
     readonly handlers: CheckedHandlers<THandlers, keyof ScheduledMap<TSlots> & string>;
     readonly api?: (
-      ctx: TScoped extends true
-        ? AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TMeta, TCaps>
-        : ConnectionlessCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TMeta, TCaps>,
+      ctx: ConnectionlessCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TMeta, TCaps>,
     ) => TApi;
   }): ServerDefinition<
     readonly Primitive[],
@@ -2160,9 +2153,7 @@ export function server<
 export function server<
   TMeta = unknown,
   const TCaps extends readonly (PluginSafeCapability & TopLevelCapability)[] = readonly [],
->(
-  config: ScopedServerConfig<TMeta, TCaps>,
-): Base<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps, true>;
+>(config: ScopedServerConfig<TMeta, TCaps>): Base<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps>;
 export function server(config: any): any {
   if (typeof config !== 'object' || config === null) {
     throw new LiveThingConfigError(
@@ -2651,5 +2642,5 @@ export function server(config: any): any {
     },
   };
 
-  return base as unknown as Base<any, any, any, any>;
+  return base as unknown as Base<any, any, any>;
 }

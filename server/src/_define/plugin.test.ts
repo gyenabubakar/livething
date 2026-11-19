@@ -39,21 +39,12 @@ describe('plugin typing', () => {
     expectTypeOf(base.on).toBeFunction();
   });
 
-  it('types ctx.plugin via the explicit api type argument', () => {
-    base.on('act', {
-      run(ctx) {
-        const api = ctx.plugin<PresenceApi>('acme:presence');
-        expectTypeOf(api).toEqualTypeOf<PresenceApi>();
-        expectTypeOf(api.count()).toEqualTypeOf<number>();
-      },
-    });
-  });
-
-  it('infers ctx.plugin(id) from the listed plugin without an explicit type arg', () => {
+  it('infers ctx.plugin(id) from the listed plugin', () => {
     base.on('act', {
       run(ctx) {
         const api = ctx.plugin('acme:presence');
         expectTypeOf(api).toEqualTypeOf<PresenceApi>();
+        expectTypeOf(api.count()).toEqualTypeOf<number>();
       },
     });
   });

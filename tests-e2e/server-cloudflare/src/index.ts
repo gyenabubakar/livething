@@ -109,6 +109,7 @@ const ADMIN_OPERATIONS: Record<string, AdminOperation> = {
   'get-flag': (admin, { url }) => admin.getFlag(url.searchParams.get('key') ?? ''),
   'log-something': (admin, { text }) => admin.logSomething(text) ?? null,
   'has-platform': (admin) => admin.hasPlatform(),
+  'open-poll': (admin, { text }) => admin.plugin('e2e:polls').openPoll(text),
 };
 
 function runAdminOp(admin: AdminStub, op: string, args: AdminOpArgs): Promise<unknown> | unknown {

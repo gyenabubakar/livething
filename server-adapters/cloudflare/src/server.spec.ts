@@ -1291,6 +1291,79 @@ describe('LiveThingDurableObject admin()', () => {
     expect(rogue).toHaveBeenCalledWith('evt', { n: 1 });
   });
 
+  it("puts a plugin api's methods, own and inherited, on an RPC target that calls the api", async () => {
+    class PollsApi {
+      readonly #prefix = 'poll';
+      results(pollId: string) {
+        return `${this.#prefix}:${pollId}`;
+      }
+    }
+
+    const polls = Object.assign(new PollsApi(), { close: vi.fn(), maxOptions: 10 });
+    const plugin = vi.fn(() => polls);
+    fake = makeFakeEngine();
+    fake.adminApi.plugin = plugin;
+    const Cls = bind({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+
+    const admin = await new Cls(makeFakeDOState() as unknown as DurableObjectState, {}).admin();
+
+    const target = (admin.plugin as (id: string) => Record<string, unknown>)('acme:polls');
+
+    expect(plugin).toHaveBeenCalledWith('acme:polls');
+    expect(target).toBeInstanceOf(RpcTargetFake);
+    expect(Object.keys(target)).toEqual([]);
+    expect((target.results as (id: string) => string)('p_1')).toBe('poll:p_1');
+    (target.close as (reason: string) => void)('done');
+
+    expect(polls.close).toHaveBeenCalledWith('done');
+    expect(target.maxOptions).toBeUndefined();
+    expect((admin.plugin as (id: string) => unknown)('acme:polls')).toBe(target);
+  });
+
+  it('keeps methods named like Object members, and never runs a getter while it reads the api', async () => {
+    const read = vi.fn(() => 'read');
+    const api = {
+      toString: () => 'polls api',
+      valueOf: () => 42,
+      get expensive() {
+        return read();
+      },
+    };
+
+    fake = makeFakeEngine();
+    fake.adminApi.plugin = () => api;
+    const Cls = bind({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+
+    const admin = await new Cls(makeFakeDOState() as unknown as DurableObjectState, {}).admin();
+
+    const target = (admin.plugin as (id: string) => Record<string, () => unknown>)('acme:polls');
+
+    expect(Object.hasOwn(Object.getPrototypeOf(target), 'toString')).toBe(true);
+    expect(target.toString!()).toBe('polls api');
+    expect(target.valueOf!()).toBe(42);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it.each(['then', 'dup', 'constructor'])('refuses a plugin api method named %s', async (name) => {
+    fake = makeFakeEngine();
+    fake.adminApi.plugin = () => ({ [name]: vi.fn() });
+    const Cls = bind({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+    const admin = await new Cls(makeFakeDOState() as unknown as DurableObjectState, {}).admin();
+
+    expect(() => (admin.plugin as (id: string) => unknown)('acme:polls')).toThrow(
+      new RegExp(`plugin 'acme:polls' has an api method named '${name}'`),
+    );
+  });
+
   it('wakes hibernated sockets before building the admin surface', async () => {
     const { state } = await adminOf({ hibernation: true });
     expect(state.getWebSockets).toHaveBeenCalled();

@@ -55,8 +55,8 @@ function buildPresence() {
     definition: h.assemble({
       handlers: [heartbeat, whoIsHere],
       api: (ctx) => ({
-        announce() {
-          ctx.send('user-online', { id: ctx.connection.id });
+        announce(connectionId: string) {
+          ctx.broadcast('user-online', { id: connectionId });
         },
       }),
     }),

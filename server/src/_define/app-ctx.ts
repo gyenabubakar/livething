@@ -820,13 +820,11 @@ type PluginApiOf<TSlice> = TSlice extends { __api: infer TApi } ? TApi : unknown
 /** The `ctx.plugin(id)` surface — owned by `plugin(...)` capabilities. */
 interface PluginCtx<TPlugins> {
   /**
-   * Reach a registered plugin's API by its id. The id is typed to the plugins
-   * actually listed, and the result is that plugin's `api` type — pass an explicit
-   * type argument to override. A plugin id is unique (one plugin per id), so the
-   * lookup is unambiguous; the API is built once per context and reused.
+   * Reach a listed plugin's API by its id. Only the ids of the listed plugins are
+   * accepted, and the result is that plugin's `api` type. The API is built once
+   * and shared by every caller.
    */
   plugin<TId extends keyof TPlugins & string>(id: TId): PluginApiOf<TPlugins[TId]>;
-  plugin<TApi = unknown>(id: string): TApi;
 }
 
 /** True when `T` is a non-empty record (the slot is actually declared). */
@@ -1018,12 +1016,13 @@ export type ConnectionlessCtx<
   TCaps extends readonly AnyCapability[] = readonly [],
 > = Omit<
   ConnectionlessContext<TMeta, unknown, TSlots>,
-  'schedule' | 'cancelScheduled' | 'channels' | 'connections' | 'users'
+  'schedule' | 'cancelScheduled' | 'channels' | 'connections' | 'users' | 'plugin'
 > &
   ConnectionlessManagersCtx<TSlots, TMeta> &
   ConnectionlessBinaryCtx<TSlots> &
   ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
-  ('channels' extends BrandsOf<TCaps> ? ConnectionlessChannelsCtx<TSlots, TMeta> : {});
+  ('channels' extends BrandsOf<TCaps> ? ConnectionlessChannelsCtx<TSlots, TMeta> : {}) &
+  (HasKeys<Plugins<TSlots>> extends true ? PluginCtx<Plugins<TSlots>> : {});
 
 /** The server→client events, read off the merged contract slots. */
 type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;

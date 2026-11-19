@@ -84,6 +84,29 @@ test.beforeEach(async ({ page }) => {
   await page.addScriptTag({ content: PAGE_HELPERS });
 });
 
+test.describe('admin.plugin(id)', () => {
+  test("calls a plugin's api, whose broadcast reaches clients under the plugin's prefix", async ({
+    page,
+  }, testInfo) => {
+    const room = `admin-plugin-${RUN}-${testInfo.testId}`;
+    await page.evaluate(async (r) => {
+      window.__a = await window.__openSocket(r, 'alice');
+    }, room);
+
+    expect(await callApi(page, 'open-poll', { room, text: 'Lunch?' })).toBe('p_1');
+    expect(await callApi(page, 'open-poll', { room, text: 'Dinner?' })).toBe('p_2');
+
+    await page.evaluate(() => window.__settle());
+    const opened = await page.evaluate(() =>
+      window.__a.frames.filter((f) => f.event === '__e2e:polls::poll-opened').map((f) => f.payload),
+    );
+    expect(opened).toEqual([
+      { pollId: 'p_1', question: 'Lunch?' },
+      { pollId: 'p_2', question: 'Dinner?' },
+    ]);
+  });
+});
+
 test.describe('api(ctx) members over the stub', () => {
   test('connectionCount and connections.all see the live sockets', async ({ page }, testInfo) => {
     const room = `admin-ctx-conns-${RUN}-${testInfo.testId}`;

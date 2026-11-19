@@ -578,20 +578,20 @@ export interface EngineAccess {
   registerErrorDefinitions(defs: readonly ErrorsPrimitive.ErrorDef<string, unknown>[]): void;
 
   /**
-   * Register a plugin's per-connection API factory under its id. `ctx.plugin(id)`
-   * runs the factory against a plugin-scoped context. Two plugins sharing an id
-   * is a build error.
+   * Register a listed plugin's id with its API factory, or `undefined` when it has no
+   * `api`. The first `plugin(id)` call runs the factory once against the plugin's
+   * scoped connectionless context. Two plugins sharing an id is a build error.
    */
-  registerPluginApi(id: string, factory: (ctx: unknown) => unknown): void;
+  registerPluginApi(id: string, factory: ((ctx: unknown) => unknown) | undefined): void;
 
   /**
-   * Look up a registered plugin API factory by id, or `undefined` when no plugin
-   * with that id is listed. Backs the `ctx.plugin(id)` accessor, which the plugin
-   * system installs only when at least one plugin is listed.
+   * A registered plugin's API by id, built once against the plugin's scoped
+   * connectionless context. Throws when no plugin with that id is listed. Backs
+   * the `ctx.plugin(id)` accessor in handlers.
    *
    * @internal
    */
-  getPluginApiFactory(id: string): ((ctx: unknown) => unknown) | undefined;
+  getPluginApi(id: string): unknown;
 
   /**
    * Register one plugin lifecycle hook. Kept apart from the app's so
