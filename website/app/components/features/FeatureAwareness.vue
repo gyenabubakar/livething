@@ -79,7 +79,7 @@ useIllustration(art, () => createTimeline({ loop: true, autoplay: false, default
 
             <div class="px-4 py-2 font-mono text-[11px] leading-5">
               <p class="a-code rm-show text-zinc-300 opacity-0">
-                room.awareness.<span class="text-amber-300">set</span>({ viewingMessageId: <span class="text-emerald-300">'m3'</span> })
+                room.awareness.<span class="text-amber-300">set</span>({ viewingMessageId: <span class="text-emerald-300">'m3'</span>, editingTopic: <span class="text-emerald-300">false</span> })
               </p>
               <div class="mt-1 grid">
                 <p class="a-ok text-emerald-300 opacity-0 [grid-area:1/1]">

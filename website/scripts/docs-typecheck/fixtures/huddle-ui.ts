@@ -25,5 +25,7 @@ export declare function renderViewers(
 export declare function onTopMessageChange(
   callback: (messageId: string | null) => void,
 ): () => void;
+// Opens or closes the room topic's text field.
+export declare function setTopicEditorOpen(open: boolean): void;
 export declare function Banner(props: { children?: ReactNode }): JSX.Element;
 export declare function Toast(props: { children?: ReactNode }): JSX.Element;

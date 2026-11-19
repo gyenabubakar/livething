@@ -17,6 +17,7 @@ export declare function loadProfile(
 ): Promise<{ id: string; name: string; status: 'active' | 'away' | 'busy' }>;
 export declare function searchMessages(query: string, signal?: AbortSignal): AsyncIterable<Message>;
 export declare function loadMessages(roomId: string, before?: number): Promise<Message[]>;
+export declare function saveRoomTopic(roomId: string, topic: string): Promise<void>;
 export declare function newMessageId(): string;
 export declare function addToRoster(memberId: string, meta: unknown): void;
 export declare function removeFromRoster(memberId: string): void;

@@ -771,6 +771,105 @@ describe('awareness', () => {
   });
 });
 
+describe('awareness as a lock', () => {
+  type Member = Awaited<ReturnType<typeof connect>>;
+  type Lockable = { viewingMessageId: string | null; editingTopic: boolean };
+  type LockCtx = {
+    connection: { id: string };
+    channel: { awareness: { list(): { connectionId: string; state: Lockable }[] } };
+  };
+
+  const lock = {
+    state: v.object({ viewingMessageId: v.nullable(v.string()), editingTopic: v.boolean() }),
+    check: (ctx: LockCtx, state: Lockable) =>
+      !state.editingTopic ||
+      ctx.channel.awareness
+        .list()
+        .every((entry) => entry.connectionId === ctx.connection.id || !entry.state.editingTopic),
+  };
+
+  const idle = { viewingMessageId: null, editingTopic: false };
+  const editing = { viewingMessageId: null, editingTopic: true };
+
+  /** The connections whose newest state, as `watcher` saw it, holds the lock. */
+  function holders(watcher: { changes(): Change[] }): string[] {
+    const latest = new Map<string, unknown>();
+    for (const change of watcher.changes()) latest.set(change.connectionId, change.state);
+    return [...latest]
+      .filter(([, state]) => (state as Lockable | null)?.editingTopic === true)
+      .map(([connectionId]) => connectionId);
+  }
+
+  async function room() {
+    const { engine } = buildEngine({ awareness: lock });
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+    const bob = await connect(engine, 'bob');
+    const carol = await connect(engine, 'carol');
+
+    for (const member of [alice, bob, carol]) await member.subscribe();
+    await quiet();
+
+    return { alice, bob, carol };
+  }
+
+  it('gives the lock to only one of two members who ask in one window', async () => {
+    const { alice, bob, carol } = await room();
+
+    await carol.set(idle);
+    await bob.set(editing);
+    await alice.set(editing);
+    await quiet();
+
+    expect(holders(carol)).toEqual([bob.id]);
+    expect(bob.refusals()).toEqual([]);
+    expect(alice.refusals()).toEqual(['check']);
+  });
+
+  it('refuses the lock while another member holds it, across windows', async () => {
+    const { alice, bob, carol } = await room();
+
+    await bob.set(editing);
+    await quiet();
+    await alice.set(editing);
+    await quiet();
+
+    expect(holders(carol)).toEqual([bob.id]);
+    expect(alice.refusals()).toEqual(['check']);
+  });
+
+  it('lets the holder update its other fields and keep the lock', async () => {
+    const { bob, carol } = await room();
+
+    await bob.set(editing);
+    await quiet();
+    await bob.set({ viewingMessageId: 'm1', editingTopic: true });
+    await quiet();
+
+    expect(holders(carol)).toEqual([bob.id]);
+    expect(bob.refusals()).toEqual([]);
+  });
+
+  it.each([
+    ['clears its state', (holder: Member) => holder.set(null)],
+    ['sets editingTopic to false', (holder: Member) => holder.set(idle)],
+    ['leaves the channel', (holder: Member) => holder.unsubscribe()],
+  ])('frees the lock when the holder %s', async (_, release) => {
+    const { alice, bob, carol } = await room();
+
+    await bob.set(editing);
+    await quiet();
+    await release(bob);
+    await quiet();
+
+    await alice.set(editing);
+    await quiet();
+
+    expect(holders(carol)).toEqual([alice.id]);
+    expect(alice.refusals()).toEqual([]);
+  });
+});
+
 describe('awareness and hibernation', () => {
   const generalKey = createChannelMembershipKey('room:general', 'rooms');
   const randomKey = createChannelMembershipKey('room:random', 'rooms');

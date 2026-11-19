@@ -154,7 +154,7 @@ const landingItems = [
       {
         label: 'Collaboration',
         icon: 'i-ph-users-four-duotone',
-        description: 'Shared documents many people edit',
+        description: 'Shared documents and state many people edit',
         to: '/plugins/collaboration/overview'
       },
       {
@@ -162,12 +162,6 @@ const landingItems = [
         icon: 'i-ph-tray-arrow-down-duotone',
         description: 'An in-app inbox in sync on every device',
         to: '/plugins/notifications-feed/overview'
-      },
-      {
-        label: 'Live State Sync',
-        icon: 'i-ph-arrows-clockwise-duotone',
-        description: 'A typed store every client shares',
-        to: '/plugins/live-state-sync/overview'
       }
     ]
   }
