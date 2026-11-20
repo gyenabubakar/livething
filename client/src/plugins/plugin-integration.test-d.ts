@@ -7,6 +7,7 @@ import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
+import { readReceipts } from '~/primitives/inbox/index.ts';
 import { expectTypeOf } from 'vitest';
 import type { PluginFactory, PrimitiveFactory } from '~/plugins/types.ts';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
@@ -253,6 +254,16 @@ const NeedsRequests = plugin<{
 }>()({ id: 'acme:asks', dependencies: [clientRequests], setup: () => ({}) });
 expectTypeOf<ValidatePrimitives<PollHost, [ReturnType<typeof NeedsRequests>]>[0]>().toEqualTypeOf<{
   error: "plugin 'acme:asks' requires clientRequests(). Register it in client().";
+}>();
+
+// The error names the factory the app calls: readReceipts(), not its old tag.
+const NeedsReceipts = plugin()({
+  id: 'acme:receipts',
+  dependencies: [readReceipts],
+  setup: () => ({}),
+});
+expectTypeOf<ValidatePrimitives<PollHost, [ReturnType<typeof NeedsReceipts>]>[0]>().toEqualTypeOf<{
+  error: "plugin 'acme:receipts' requires readReceipts(). Register it in client().";
 }>();
 
 // A list that spreads an array and then adds a factory still compiles. It has no

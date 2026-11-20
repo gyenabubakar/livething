@@ -25,7 +25,7 @@ expectTypeOf<ReturnType<typeof clientRequests>['_tag']>().toEqualTypeOf<'clientR
 expectTypeOf<ReturnType<typeof dedup>['_tag']>().toEqualTypeOf<'dedup'>();
 expectTypeOf<ReturnType<typeof gaps>['_tag']>().toEqualTypeOf<'gaps'>();
 expectTypeOf<ReturnType<typeof inbox>['_tag']>().toEqualTypeOf<'inbox'>();
-expectTypeOf<ReturnType<typeof readReceipts>['_tag']>().toEqualTypeOf<'read-receipts'>();
+expectTypeOf<ReturnType<typeof readReceipts>['_tag']>().toEqualTypeOf<'readReceipts'>();
 expectTypeOf<ReturnType<typeof intercept>['_tag']>().toEqualTypeOf<'intercept'>();
 expectTypeOf<ReturnType<typeof keepalive>['_tag']>().toEqualTypeOf<'keepalive'>();
 expectTypeOf<ReturnType<typeof platform>['_tag']>().toEqualTypeOf<'platform'>();
@@ -40,7 +40,7 @@ expectTypeOf(clientRequests.tag).toEqualTypeOf<'clientRequests'>();
 expectTypeOf(dedup.tag).toEqualTypeOf<'dedup'>();
 expectTypeOf(gaps.tag).toEqualTypeOf<'gaps'>();
 expectTypeOf(inbox.tag).toEqualTypeOf<'inbox'>();
-expectTypeOf(readReceipts.tag).toEqualTypeOf<'read-receipts'>();
+expectTypeOf(readReceipts.tag).toEqualTypeOf<'readReceipts'>();
 expectTypeOf(intercept.tag).toEqualTypeOf<'intercept'>();
 expectTypeOf(keepalive.tag).toEqualTypeOf<'keepalive'>();
 expectTypeOf(platform.tag).toEqualTypeOf<'platform'>();

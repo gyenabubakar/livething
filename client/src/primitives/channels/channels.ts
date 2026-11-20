@@ -149,7 +149,7 @@ export function channels(): ChannelsPrimitive {
 
         if (
           metadata?.channel?.readReceipts === true &&
-          !helpers.hasPrimitive('read-receipts') &&
+          !helpers.hasPrimitive('readReceipts') &&
           !warnedReadReceiptsMissing.has(key)
         ) {
           warnedReadReceiptsMissing.add(key);
